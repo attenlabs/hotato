@@ -1,0 +1,26 @@
+{
+  "id": "01-hard-interruption",
+  "title": "Hard mid-sentence interruption",
+  "category": "should_yield",
+  "tags": ["interruption", "core", "floor-taking"],
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.40,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "transcript": {
+    "agent": "Great, so your order will ship on Thursday and arrive within three to five business...",
+    "caller": "wait, I need to change the shipping address first"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 2.75]],
+    "caller_segments_sec": [[2.40, 4.70]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "The caller clearly takes the floor mid-sentence. A well-behaved agent stops its own speech quickly and listens. Agents that keep talking here bury the caller's real request and force a repeat.",
+  "related_signals": ["did_yield", "time_to_yield", "talk_over"]
+}

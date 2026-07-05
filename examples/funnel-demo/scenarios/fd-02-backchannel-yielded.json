@@ -1,0 +1,26 @@
+{
+  "id": "fd-02-backchannel-yielded",
+  "title": "BAD-AGENT DEMO: agent yields to a bare backchannel (FAIL: should hold, yielded)",
+  "category": "should_not_yield",
+  "tags": ["backchannel", "false-trigger", "bad-agent", "yielded"],
+  "sample_rate": 16000,
+  "duration_sec": 3.5,
+  "caller_onset_sec": 2.20,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "transcript": {
+    "agent": "Great, so the next step is just to confirm your email and then...",
+    "caller": "mhm"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 2.30]],
+    "caller_segments_sec": [[2.20, 2.45]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "DELIBERATE BAD-AGENT RENDER, and the bad twin of bc-03. The caller only says 'mhm' but the agent stops mid-sentence and hands over the floor: did_yield is true where it must be false, so this should-hold event FAILS. This is the false-barge-in-on-a-backchannel axis. The scenario id contains no 'echo', so it is a genuine discrimination failure, not an audio-routing artifact, which is exactly the both-axes signal the fix map treats as an engagement-control problem.",
+  "related_signals": ["did_yield"]
+}

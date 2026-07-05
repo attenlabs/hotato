@@ -1,0 +1,26 @@
+{
+  "id": "bc-03-near-miss-floor-take",
+  "title": "Near-miss: a long backchannel that briefly looks like a floor-take (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": ["backchannel", "false-trigger", "near-miss", "discrimination"],
+  "sample_rate": 16000,
+  "duration_sec": 7.0,
+  "caller_onset_sec": 3.00,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "transcript": {
+    "agent": "And then the technician will call you when they are about fifteen minutes out so you have time to move the car out of the driveway before they arrive.",
+    "caller": "yeah no totally that makes sense"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 6.50]],
+    "caller_segments_sec": [[3.00, 3.75]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "This backchannel is long enough and energetic enough that a pure energy or duration threshold could mistake it for a genuine floor-take, yet it is still just agreement, not a bid to take over. It is the deliberate near-miss: the hardest hold in the set. A correct agent still holds. Its bad twin lives in funnel-demo (fd-02), where an agent yields to almost exactly this kind of backchannel and fails. That contrast is the whole point: one sensitivity dial cannot both hold here and catch a real interruption elsewhere.",
+  "related_signals": ["did_yield"]
+}

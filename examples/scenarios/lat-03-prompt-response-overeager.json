@@ -1,0 +1,36 @@
+{
+  "id": "lat-03-prompt-response-overeager",
+  "title": "Prompt-response latency: over-eager, agent starts before the caller finishes (FAIL latency)",
+  "category": "latency",
+  "tags": ["latency", "endpointing", "premature-start", "step-on"],
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 1.60,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.00,
+    "premature_is_failure": true,
+    "note": "A non-null premature_start_sec means the agent's response onset LED the caller's turn end: the agent stepped on the human. Because the agent's onset precedes the caller's offset there is no clean response gap, so response_gap_sec is null by construction, and premature_start_sec carries the lead."
+  },
+  "transcript": {
+    "agent": "Sure, I can look that up for you...",
+    "caller": "what time does the pharmacy close on Sunday and are you...",
+    "agent_response": "it closes at six"
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [[0.20, 1.70], [2.70, 4.20]],
+    "caller_segments_sec": [[1.60, 3.20]],
+    "caller_offset_sec": 3.20,
+    "agent_response_onset_sec": 2.70,
+    "rendered_premature_lead_sec": 0.50,
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "The caller is still mid-question when the agent barges back in with its answer. The agent's response onset leads the caller's turn end by about half a second, so it talks over the tail of the human's own question. This is the opposite failure to lat-02: not too slow, but too eager. premature_start_sec fires; response_gap_sec is null because there was no silent hand-off to measure.",
+  "related_signals": ["premature_start_sec"]
+}

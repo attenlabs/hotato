@@ -1,0 +1,245 @@
+"""S3: the optional model-backed VAD backend seam.
+
+Proves, without any network or the real model (which is gated in this build):
+
+  1. CONTRACT -- the neural backend returns the IDENTICAL VADResult shape as the
+     energy backend (same fields, same types, same length, same hop grid), so
+     one shared VADResult contract covers both. A dependency-free STUB stands in
+     for the real Silero model here; it is used ONLY in tests.
+  2. CLEAN ERROR -- requesting backend="neural" when the optional [neural] extra
+     is NOT installed raises a clean, explicit BackendUnavailable (never a silent
+     fallback to energy that would change a published number's identity).
+  3. REFERENCE UNAFFECTED -- the neural code path existing / a neural backend
+     being registered does not move a single golden/bundled number; the bundled
+     suite always scores with the energy reference.
+
+The energy backend remains the deterministic reference; neural is a FLAGGED,
+non-reference cross-check. No accuracy number is asserted or implied anywhere.
+"""
+
+import math
+
+import pytest
+
+import hotato  # noqa: F401  -- importing registers the real (Silero) neural factory
+import hotato._engine.vad as _vad
+from hotato import cli
+from hotato._engine.audio import frame_rms
+from hotato._engine.score import ScoreConfig, ScoreResult, score_channels
+from hotato._engine.vad import (
+    BackendUnavailable,
+    VADParams,
+    VADResult,
+    energy_vad,
+    neural_vad,
+    register_neural_backend,
+)
+from hotato.core import run_suite
+
+SR = 16000
+
+# The frozen bundled 8 (energy reference). Must never move, including when a
+# neural backend is registered. Mirrors tests/test_frozen_regression.py.
+FROZEN_8 = {
+    "01-hard-interruption": (True, 0.5, 0.5),
+    "02-backchannel-mhm": (False, None, 1.57),
+    "03-filler-start": (True, 0.65, 0.56),
+    "04-correction": (True, 0.5, 0.5),
+    "05-telephony-8khz": (True, 0.5, 0.5),
+    "06-double-talk": (True, 1.05, 1.05),
+    "07-echo-bleed": (False, None, 3.0),
+    "08-rapid-turn-taking": (True, 0.5, 0.5),
+}
+
+
+def _silero_installed() -> bool:
+    try:
+        import silero_vad  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _bundled(sid):
+    from importlib import resources
+    return str(
+        resources.files("hotato").joinpath("data", "audio", sid + ".example.wav")
+    )
+
+
+# --- a dependency-free STUB neural backend (tests only) --------------------
+#
+# A crude per-frame peak gate. It is NOT the real Silero model and claims nothing
+# about accuracy -- it exists only to satisfy the activity-function contract
+# (samples, sample_rate, hop_sec, n_frames) -> List[bool] with a deterministic,
+# distinct track, so the seam and the VADResult shape can be exercised offline.
+
+def _stub_activity(samples, sample_rate, hop_sec, n_frames):
+    hop = max(1, int(round(hop_sec * sample_rate)))
+    out = []
+    for k in range(n_frames):
+        seg = samples[k * hop : (k + 1) * hop]
+        peak = max((abs(x) for x in seg), default=0.0)
+        out.append(peak >= 0.02)
+    return out
+
+
+def _stub_factory():
+    return _stub_activity
+
+
+@pytest.fixture
+def stub_neural():
+    """Register the stub neural backend for the duration of a test, then restore
+    whatever was registered before (the real Silero factory, from importing
+    hotato) so tests stay isolated."""
+    saved = _vad._NEURAL_FACTORY
+    register_neural_backend(_stub_factory)
+    try:
+        yield
+    finally:
+        register_neural_backend(saved) if saved is not None else _vad.clear_neural_backend()
+
+
+def _make_samples():
+    """A tone burst in the middle over a near-silent floor -- enough for both the
+    energy VAD and the stub to produce a non-trivial, deterministic track."""
+    n = SR * 3
+    out = []
+    for i in range(n):
+        if SR // 2 <= i < 2 * SR:  # 0.5s .. 2.0s active
+            out.append(0.3 * math.sin(2 * math.pi * 220 * i / SR))
+        else:
+            out.append(0.0004 * ((i % 5) - 2))
+    return out
+
+
+# --- 1. CONTRACT: identical VADResult shape, energy vs (stub) neural --------
+
+def test_neural_and_energy_share_vadresult_contract(stub_neural):
+    samples = _make_samples()
+    rms, hop = frame_rms(samples, SR, 20.0, 10.0)
+
+    e = energy_vad(rms, hop, VADParams())
+    nresult = neural_vad(samples, SR, rms, hop, VADParams(backend="neural"))
+
+    # same dataclass, same field set
+    assert type(e) is VADResult and type(nresult) is VADResult
+    import dataclasses
+    e_fields = {f.name for f in dataclasses.fields(e)}
+    n_fields = {f.name for f in dataclasses.fields(nresult)}
+    assert e_fields == n_fields == {"active", "hop_sec", "threshold_db", "noise_floor_db"}
+
+    # identical shape / grid
+    assert len(nresult.active) == len(e.active) == len(rms)
+    assert nresult.hop_sec == e.hop_sec == hop
+
+    # identical field TYPES (the synthesized dB descriptors are real, finite floats)
+    assert isinstance(nresult.active, list) and all(isinstance(a, bool) for a in nresult.active)
+    assert isinstance(nresult.threshold_db, float) and math.isfinite(nresult.threshold_db)
+    assert isinstance(nresult.noise_floor_db, float) and math.isfinite(nresult.noise_floor_db)
+
+    # the neural track really came from the registered backend (not the energy path)
+    assert nresult.active == _stub_activity(samples, SR, hop, len(rms))
+
+
+def test_neural_backend_scores_end_to_end_same_result_shape(stub_neural):
+    """The seam works through the public scorer: backend='neural' returns a normal
+    ScoreResult with the same fields as the energy path."""
+    samples = _make_samples()
+    other = [0.0004 * ((i % 3) - 1) for i in range(len(samples))]
+    cfg = ScoreConfig(
+        caller_vad=VADParams(backend="neural"),
+        agent_vad=VADParams(backend="neural"),
+    )
+    r = score_channels(samples, other, SR, caller_onset_sec=0.5, cfg=cfg)
+    assert isinstance(r, ScoreResult)
+    # same envelope of fields the energy path produces
+    assert set(r.signals.keys()) == {"barge_in", "latency"}
+    assert isinstance(r.did_yield, bool)
+    assert isinstance(r.hop_sec, float)
+
+
+# --- 2. CLEAN ERROR when the [neural] extra is not installed ----------------
+
+def test_missing_extra_raises_clean_backend_unavailable():
+    """With the real Silero factory registered (from importing hotato) and the
+    [neural] extra absent, a neural request raises BackendUnavailable -- never a
+    silent fallback to energy."""
+    if _silero_installed():
+        pytest.skip("silero-vad is installed here; the missing-extra path is not exercisable")
+    samples = _make_samples()
+    rms, hop = frame_rms(samples, SR, 20.0, 10.0)
+    with pytest.raises(BackendUnavailable) as ei:
+        neural_vad(samples, SR, rms, hop, VADParams(backend="neural"))
+    msg = str(ei.value).lower()
+    assert "neural" in msg and ("extra" in msg or "install" in msg)
+
+
+def test_missing_extra_error_through_score_channels():
+    if _silero_installed():
+        pytest.skip("silero-vad is installed here; the missing-extra path is not exercisable")
+    samples = _make_samples()
+    cfg = ScoreConfig(
+        caller_vad=VADParams(backend="neural"),
+        agent_vad=VADParams(backend="neural"),
+    )
+    with pytest.raises(BackendUnavailable):
+        score_channels(samples, samples, SR, caller_onset_sec=0.5, cfg=cfg)
+
+
+def test_unknown_backend_is_a_hard_error(stub_neural):
+    samples = _make_samples()
+    cfg = ScoreConfig(
+        caller_vad=VADParams(backend="wishful"),
+        agent_vad=VADParams(backend="wishful"),
+    )
+    with pytest.raises(BackendUnavailable):
+        score_channels(samples, samples, SR, caller_onset_sec=0.5, cfg=cfg)
+
+
+# --- 3. REFERENCE UNAFFECTED by the neural code path existing ---------------
+
+def test_default_backend_is_energy():
+    assert VADParams().backend == "energy"
+
+
+def test_golden_suite_unaffected_while_neural_registered(stub_neural):
+    """Even with a neural backend registered, the bundled suite scores with the
+    energy reference and every frozen number is unchanged."""
+    env = run_suite(suite="barge-in")
+    assert env["summary"]["events"] == 8
+    assert env["summary"]["passed"] == 8
+    by = {e["scenario_id"]: e["verdict"] for e in env["events"]}
+    assert set(by) == set(FROZEN_8)
+    for sid, (did_yield, ttoy, talk_over) in FROZEN_8.items():
+        assert by[sid]["did_yield"] == did_yield, sid
+        assert by[sid]["seconds_to_yield"] == ttoy, sid
+        assert by[sid]["talk_over_sec"] == talk_over, sid
+
+
+# --- CLI surface -----------------------------------------------------------
+
+def test_cli_default_backend_energy_suite_passes():
+    assert cli.main(["run", "--suite", "barge-in", "--format", "json"]) == 0
+
+
+def test_cli_suite_ignores_neural_and_stays_energy(capsys):
+    """--backend neural + --suite: the suite is the energy reference; it still
+    passes (energy), and a stderr note explains the neural request was ignored."""
+    code = cli.main(["run", "--suite", "barge-in", "--backend", "neural", "--format", "json"])
+    assert code == 0
+    err = capsys.readouterr().err.lower()
+    assert "energy reference" in err or "ignored for --suite" in err
+
+
+def test_cli_backend_neural_missing_extra_is_clean_exit_2(capsys):
+    if _silero_installed():
+        pytest.skip("silero-vad is installed here; the missing-extra path is not exercisable")
+    code = cli.main([
+        "run", "--stereo", _bundled("01-hard-interruption"),
+        "--backend", "neural", "--format", "json",
+    ])
+    assert code == 2  # clean config error, not a crash and not a silent energy score
+    err = capsys.readouterr().err.lower()
+    assert "error:" in err and "neural" in err

@@ -1,0 +1,36 @@
+{
+  "id": "lat-02-prompt-response-sluggish",
+  "title": "Prompt-response latency: sluggish, long dead-air before the answer (FAIL latency)",
+  "category": "latency",
+  "tags": ["latency", "endpointing", "response-gap", "dead-air"],
+  "sample_rate": 16000,
+  "duration_sec": 6.8,
+  "caller_onset_sec": 1.60,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.00,
+    "premature_is_failure": true,
+    "note": "Same exposed latency bound as lat-01. Here the measured response_gap_sec exceeds it: the agent yields correctly (barge-in verdict still passes) but then leaves a long dead-air gap before answering. The latency axis is what fails."
+  },
+  "transcript": {
+    "agent": "Sure, I can look that up for you...",
+    "caller": "what time does the pharmacy close on Sunday?",
+    "agent_response": "the pharmacy closes at six on Sunday"
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [[0.20, 1.70], [4.80, 6.30]],
+    "caller_segments_sec": [[1.60, 3.00]],
+    "caller_offset_sec": 3.00,
+    "agent_response_onset_sec": 4.80,
+    "rendered_response_gap_sec": 1.80,
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "Identical setup to lat-01, but the agent stalls: it does not begin answering until nearly two seconds after the caller finishes. On a phone call that dead air reads as a dropped line and the caller repeats themselves or hangs up. The barge-in verdict is clean (the agent did yield); the endpointing latency is the failure, and it is invisible to any pass/fail that only looks at did_yield.",
+  "related_signals": ["response_gap_sec"]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "bc-02-midutterance-backchannel",
+  "title": "Single mid-utterance backchannel (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": ["backchannel", "false-trigger", "mid-utterance"],
+  "sample_rate": 16000,
+  "duration_sec": 6.5,
+  "caller_onset_sec": 3.00,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "transcript": {
+    "agent": "The appointment is confirmed for Thursday morning, and we will send you a reminder text the day before with the address and the parking details.",
+    "caller": "got it"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 6.00]],
+    "caller_segments_sec": [[3.00, 3.35]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "One brief acknowledgement lands squarely in the middle of the agent's sentence, at maximum overlap with live agent speech. This is the case a naive energy gate is most likely to misread as an interruption, precisely because the agent is loudest here. The correct agent holds; did_yield stays false and the event passes.",
+  "related_signals": ["did_yield"]
+}

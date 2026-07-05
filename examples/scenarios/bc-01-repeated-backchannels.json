@@ -1,0 +1,26 @@
+{
+  "id": "bc-01-repeated-backchannels",
+  "title": "Repeated backchannels while the agent explains (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": ["backchannel", "false-trigger", "listener-feedback", "repeated"],
+  "sample_rate": 16000,
+  "duration_sec": 7.5,
+  "caller_onset_sec": 2.00,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "transcript": {
+    "agent": "So once the deposit clears we release the hold, and after that the funds are available the same business day, and you can move them wherever you like.",
+    "caller": "mhm ... right ... yeah ... okay"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 7.00]],
+    "caller_segments_sec": [[2.00, 2.30], [3.10, 3.40], [4.20, 4.50], [5.30, 5.60]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "The caller drops four short acknowledgements across the agent's explanation. Every one is listener feedback, not a bid for the floor. A correct agent holds through all of them and finishes its thought. An agent that treats each backchannel as an interruption becomes impossible to talk to. The reference here holds: did_yield stays false and the event passes.",
+  "related_signals": ["did_yield"]
+}

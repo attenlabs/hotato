@@ -1,0 +1,26 @@
+{
+  "id": "05-telephony-8khz",
+  "title": "Hard interruption at 8 kHz telephony sample rate",
+  "category": "should_yield",
+  "tags": ["telephony", "8khz", "sample-rate", "robustness"],
+  "sample_rate": 8000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.40,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "transcript": {
+    "agent": "Alright, your balance is one hundred and forty two dollars and it is due on the...",
+    "caller": "hold on, can you repeat the amount"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 2.75]],
+    "caller_segments_sec": [[2.40, 4.30]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "The same interruption as scenario 01, resampled to the 8 kHz narrowband rate used on PSTN and SIP calls. Turn detectors and VAD front ends tuned or trained at 16 kHz frequently regress at 8 kHz, so an agent that yields cleanly in the browser can talk over callers on the phone. Run this fixture through your telephony path, not just your web path.",
+  "related_signals": ["did_yield", "time_to_yield", "talk_over"]
+}

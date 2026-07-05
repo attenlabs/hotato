@@ -1,0 +1,26 @@
+{
+  "id": "04-correction",
+  "title": "Urgent correction (no, I said Tuesday)",
+  "category": "should_yield",
+  "tags": ["correction", "urgent", "low-latency"],
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.00,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.50,
+    "max_talk_over_sec": 0.60
+  },
+  "transcript": {
+    "agent": "Perfect, I am booking the pickup for Thursday at nine in the morning and sending...",
+    "caller": "no, I said Tuesday, not Thursday"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 2.35]],
+    "caller_segments_sec": [[2.00, 3.90]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "A correction is the most costly place to be slow. Every extra word the agent speaks over the caller is a word committing to the wrong action. This scenario uses a tighter yield window than a normal interruption on purpose.",
+  "related_signals": ["did_yield", "time_to_yield", "talk_over"]
+}

@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://attentionlabs.ai/hotato/corpus/label.schema.json",
+  "title": "hotato corpus contribution label, v1",
+  "description": "The label that accompanies one contributed dual-channel recording in the hotato open test corpus. It extends the bundled scenario shape (src/hotato/data/scenarios/*.json) with the provenance, consent, PII, and attestation fields a REAL recording must carry. The turn-taking ground truth reuses the scenario fields verbatim: category, caller_onset_sec, expected, and an optional reference_render with human-labelled segment timings. Governing policy: docs/CORPUS-GOVERNANCE.md. Nothing here implies an accuracy percentage; validity is reported as millisecond error + a confusion matrix (see docs/BENCHMARK.md).",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "category",
+    "source_type",
+    "audio",
+    "sample_rate",
+    "duration_sec",
+    "caller_onset_sec",
+    "expected",
+    "license",
+    "attestation"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "Stable slug for the contribution, e.g. 'call-042-warranty-interrupt'."
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "category": {
+      "enum": ["should_yield", "should_not_yield"],
+      "description": "The human label scored by the did_yield confusion matrix."
+    },
+    "source_type": {
+      "enum": ["real-call", "role-played", "synthetic"],
+      "description": "HONESTY FIELD. 'real-call' = an actual call. 'role-played' = actors reading a script (real acoustics, no real customer). 'synthetic' = rendered audio; a synthetic clip is NEVER labelled real and is only in the corpus as an explicit, self-declared example."
+    },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "audio": {
+      "type": "string",
+      "pattern": "\\.wav$",
+      "description": "Filename of the dual-channel WAV, resolved next to this label file unless a path is passed to the validator."
+    },
+    "channels": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "caller_channel": { "type": "integer", "minimum": 0 },
+        "agent_channel": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "sample_rate": { "type": "integer", "minimum": 4000, "description": "Hz, e.g. 8000 for telephony, 16000 for wideband." },
+    "duration_sec": { "type": "number", "exclusiveMinimum": 0 },
+    "caller_onset_sec": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Human-labelled moment the caller takes (or attempts) the floor. Required."
+    },
+    "expected": {
+      "type": "object",
+      "required": ["yield", "max_time_to_yield_sec", "max_talk_over_sec"],
+      "additionalProperties": true,
+      "properties": {
+        "yield": { "type": "boolean" },
+        "max_time_to_yield_sec": { "type": ["number", "null"] },
+        "max_talk_over_sec": { "type": ["number", "null"] }
+      }
+    },
+    "reference_render": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Human-labelled ground-truth timings, in seconds. For a real recording these are hand-labelled, not rendered. Supply only the ones you can defend; the benchmark harness reports error for exactly the signals you provide and leaves the rest blank.",
+      "properties": {
+        "caller_segments_sec": { "$ref": "#/definitions/segments" },
+        "agent_segments_sec": { "$ref": "#/definitions/segments" },
+        "caller_offset_sec": { "type": ["number", "null"], "minimum": 0 },
+        "agent_response_onset_sec": { "type": ["number", "null"], "minimum": 0 },
+        "rendered_response_gap_sec": { "type": ["number", "null"] }
+      }
+    },
+    "transcript": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Reader context only. Never consumed by the scorer, never used as a label. Must itself be free of PII."
+    },
+    "related_signals": { "type": "array", "items": { "type": "string" } },
+    "license": {
+      "const": "MIT",
+      "description": "The corpus is redistributed under MIT. A clip that cannot be released under MIT with consent does not enter the corpus."
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "recorded_date": { "type": "string" },
+        "description": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "consent": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Required for real-call and role-played sources with identifiable parties. See docs/CORPUS-GOVERNANCE.md for the release template.",
+      "properties": {
+        "obtained": { "type": "boolean" },
+        "on_file": { "type": "boolean" },
+        "parties": { "type": "array", "items": { "type": "string" } },
+        "release_form_ref": { "type": "string" }
+      }
+    },
+    "pii": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "removed": { "type": "boolean" },
+        "method": {
+          "enum": ["none-captured", "redacted-equal-duration", "role-played-no-pii", "other"],
+          "description": "How PII was kept out. Redaction must preserve timing (same-duration tone/silence), never cut samples."
+        },
+        "phi_free": { "type": "boolean", "description": "Must be true. PHI is out of scope regardless of consent." }
+      }
+    },
+    "attestation": {
+      "type": "object",
+      "required": ["contributor", "consent_on_file", "pii_removed", "no_phi", "right_to_release_mit"],
+      "additionalProperties": true,
+      "description": "The contributor's attestation, part of the merge record (docs/CORPUS-GOVERNANCE.md, Data-handling). For synthetic/role-played-no-real-people sources, consent_on_file may be true vacuously, but pii_removed, no_phi, and right_to_release_mit must hold.",
+      "properties": {
+        "contributor": { "type": "string", "minLength": 1 },
+        "consent_on_file": { "type": "boolean" },
+        "pii_removed": { "type": "boolean" },
+        "no_phi": { "type": "boolean" },
+        "right_to_release_mit": { "type": "boolean" }
+      }
+    }
+  },
+  "definitions": {
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

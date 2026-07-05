@@ -1,0 +1,44 @@
+{
+  "id": "sample-contribution-synthetic-interrupt",
+  "title": "SCHEMA EXAMPLE (synthetic audio): hard mid-sentence interruption",
+  "category": "should_yield",
+  "source_type": "synthetic",
+  "tags": ["example", "schema", "interruption", "synthetic"],
+  "audio": "sample-contribution.example.wav",
+  "channels": { "caller_channel": 0, "agent_channel": 1 },
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.40,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "reference_render": {
+    "caller_segments_sec": [[2.40, 4.70]],
+    "agent_segments_sec": [[0.20, 2.75]]
+  },
+  "transcript": {
+    "agent": "Great, so your order will ship on Thursday and arrive within three to five business...",
+    "caller": "wait, I need to change the shipping address first"
+  },
+  "related_signals": ["did_yield", "time_to_yield", "talk_over"],
+  "license": "MIT",
+  "provenance": {
+    "recorded_date": "n/a-synthetic",
+    "description": "Deterministic synthetic render reused from the bundled 01-hard-interruption fixture, included ONLY to exercise the corpus schema and validator. It is a floor, not a real call, and is labelled synthetic so it can never be mistaken for one.",
+    "notes": "A real contribution would set source_type to real-call or role-played, fill in the consent block, and attest the PII policy."
+  },
+  "pii": {
+    "removed": true,
+    "method": "role-played-no-pii",
+    "phi_free": true
+  },
+  "attestation": {
+    "contributor": "hotato maintainers (schema example)",
+    "consent_on_file": true,
+    "pii_removed": true,
+    "no_phi": true,
+    "right_to_release_mit": true
+  }
+}

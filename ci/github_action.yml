@@ -1,0 +1,104 @@
+# hotato — CI hardening workflow.
+#
+# Five gates, all offline and dependency-light:
+#   1. deterministic generation .... render the example fixtures TWICE, diff
+#   2. tests ....................... python -m pytest -q
+#   3. engine drift ................ python sync_engine.py --check
+#   4. bundled battery ............. score the frozen barge-in suite, fail on regression
+#   5. report ...................... write results.md to the job summary, upload results.json
+#
+# The scoring step (4) is a smoke test of the harness against the FROZEN reference
+# fixtures. To gate on YOUR agent instead, REPLACE it with your capture step: play
+# each `*.caller.wav` into your agent, record its response, and score
+# [caller + your recording]. The envelope shape and exit codes are identical, so
+# the report/upload steps below need no change.
+#
+# Copy this to .github/workflows/hotato.yml in your repository.
+
+name: hotato
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Zero required third-party deps for the core; [dev] adds pytest + jsonschema.
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      # 1. Prove the fixtures are generated deterministically: render twice, diff.
+      - name: Deterministic fixture generation
+        run: |
+          python examples/render_examples.py /tmp/fixtures-pass1
+          python examples/render_examples.py /tmp/fixtures-pass2
+          diff -rq /tmp/fixtures-pass1 /tmp/fixtures-pass2
+          # and the committed fixtures must match a fresh render
+          python examples/render_examples.py /tmp/fixtures-fresh
+          diff -q examples/audio/lat-01-prompt-response-prompt.example.wav \
+                  /tmp/fixtures-fresh/examples/audio/lat-01-prompt-response-prompt.example.wav
+
+      # 2. Full test suite (a skipped MCP-registration test is expected & fine).
+      - name: Tests
+        run: python -m pytest -q
+
+      # 3. Drift gate: the vendored _engine must be byte-identical to upstream.
+      #    In a public clone with no upstream present this SKIPS cleanly (exit 0).
+      - name: Engine drift check
+        run: python sync_engine.py --check
+
+      # 4a. Produce the report artifacts (always succeeds; --no-fail).
+      - name: Score bundled battery (artifacts)
+        run: |
+          hotato run --suite barge-in --format json --no-fail > results.json
+          python - <<'PY'
+          import json
+          env = json.load(open("results.json"))
+          s = env["summary"]
+          out = [
+              "### hotato — bundled barge-in battery",
+              "",
+              f"**{s['passed']}/{s['events']} events pass** "
+              f"(failed={s['failed']}, regression={s['regression']})",
+              "",
+              "| event | expected | did_yield | seconds_to_yield | talk_over | result |",
+              "|---|---|---|---|---|---|",
+          ]
+          for e in env["events"]:
+              v = e["verdict"]
+              out.append(
+                  f"| {e['event_id']} | {'yield' if e['expected_yield'] else 'hold'} | "
+                  f"{v['did_yield']} | {v['seconds_to_yield']} | {v['talk_over_sec']} | "
+                  f"{'pass' if v['passed'] else 'FAIL'} |"
+              )
+          if env.get("funnel"):
+              out += ["", "> both-axes funnel fired: see the `funnel` pointer in results.json"]
+          open("results.md", "w").write("\n".join(out) + "\n")
+          PY
+
+      # 4b. The actual gate: non-zero exit on any regression fails the job.
+      - name: Fail on regression
+        run: hotato run --suite barge-in --format json > /dev/null
+
+      # 5. Publish + upload (run even if the gate failed).
+      - name: Publish results to job summary
+        if: always()
+        run: cat results.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hotato-results
+          path: |
+            results.md
+            results.json

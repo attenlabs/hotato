@@ -1,0 +1,76 @@
+{
+  "scenarios": [
+    {
+      "id": "01-hard-interruption",
+      "title": "Hard mid-sentence interruption",
+      "category": "should_yield",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/01-hard-interruption.example.wav",
+      "caller_wav": "audio/01-hard-interruption.caller.wav"
+    },
+    {
+      "id": "02-backchannel-mhm",
+      "title": "Backchannel acknowledgement (should NOT yield)",
+      "category": "should_not_yield",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "example_wav": "audio/02-backchannel-mhm.example.wav",
+      "caller_wav": "audio/02-backchannel-mhm.caller.wav"
+    },
+    {
+      "id": "03-filler-start",
+      "title": "Interruption that starts with a filler (um, actually...)",
+      "category": "should_yield",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/03-filler-start.example.wav",
+      "caller_wav": "audio/03-filler-start.caller.wav"
+    },
+    {
+      "id": "04-correction",
+      "title": "Urgent correction (no, I said Tuesday)",
+      "category": "should_yield",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/04-correction.example.wav",
+      "caller_wav": "audio/04-correction.caller.wav"
+    },
+    {
+      "id": "05-telephony-8khz",
+      "title": "Hard interruption at 8 kHz telephony sample rate",
+      "category": "should_yield",
+      "sample_rate": 8000,
+      "expected_yield": true,
+      "example_wav": "audio/05-telephony-8khz.example.wav",
+      "caller_wav": "audio/05-telephony-8khz.caller.wav"
+    },
+    {
+      "id": "06-double-talk",
+      "title": "Sustained double-talk (both parties live)",
+      "category": "should_yield",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/06-double-talk.example.wav",
+      "caller_wav": "audio/06-double-talk.caller.wav"
+    },
+    {
+      "id": "07-echo-bleed",
+      "title": "Bot audio bleed / phantom self-interruption (should NOT yield)",
+      "category": "should_not_yield",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "example_wav": "audio/07-echo-bleed.example.wav",
+      "caller_wav": "audio/07-echo-bleed.caller.wav"
+    },
+    {
+      "id": "08-rapid-turn-taking",
+      "title": "Rapid turn-taking after an interruption",
+      "category": "should_yield",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/08-rapid-turn-taking.example.wav",
+      "caller_wav": "audio/08-rapid-turn-taking.caller.wav"
+    }
+  ]
+}

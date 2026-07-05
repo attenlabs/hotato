@@ -1,0 +1,296 @@
+{
+  "engine": {
+    "name": "barge_scoring (vendored, MIT)",
+    "upstream": "https://github.com/quantumCF/voice-agent-barge-in-tests",
+    "version": "*"
+  },
+  "events": [
+    {
+      "category": "should_yield",
+      "event_id": "01-hard-interruption",
+      "expected_yield": true,
+      "fix": null,
+      "measurements": {
+        "agent_talking_at_onset": true,
+        "caller_onset_sec": 2.4,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "scenario_id": "01-hard-interruption",
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "talk_over_sec": 0.5,
+          "time_to_yield_sec": 0.5
+        },
+        "latency": {
+          "premature_start_sec": null,
+          "response_gap_sec": null
+        }
+      },
+      "title": "Hard mid-sentence interruption",
+      "verdict": {
+        "did_yield": true,
+        "passed": true,
+        "reasons": [],
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.5
+      }
+    },
+    {
+      "category": "should_not_yield",
+      "event_id": "02-backchannel-mhm",
+      "expected_yield": false,
+      "fix": null,
+      "measurements": {
+        "agent_talking_at_onset": true,
+        "caller_onset_sec": 2.1,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "scenario_id": "02-backchannel-mhm",
+      "signals": {
+        "barge_in": {
+          "did_yield": false,
+          "talk_over_sec": 1.57,
+          "time_to_yield_sec": null
+        },
+        "latency": {
+          "premature_start_sec": null,
+          "response_gap_sec": null
+        }
+      },
+      "title": "Backchannel acknowledgement (should NOT yield)",
+      "verdict": {
+        "did_yield": false,
+        "passed": true,
+        "reasons": [],
+        "seconds_to_yield": null,
+        "talk_over_sec": 1.57
+      }
+    },
+    {
+      "category": "should_yield",
+      "event_id": "03-filler-start",
+      "expected_yield": true,
+      "fix": null,
+      "measurements": {
+        "agent_talking_at_onset": true,
+        "caller_onset_sec": 2.3,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "scenario_id": "03-filler-start",
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "talk_over_sec": 0.56,
+          "time_to_yield_sec": 0.65
+        },
+        "latency": {
+          "premature_start_sec": null,
+          "response_gap_sec": null
+        }
+      },
+      "title": "Interruption that starts with a filler (um, actually...)",
+      "verdict": {
+        "did_yield": true,
+        "passed": true,
+        "reasons": [],
+        "seconds_to_yield": 0.65,
+        "talk_over_sec": 0.56
+      }
+    },
+    {
+      "category": "should_yield",
+      "event_id": "04-correction",
+      "expected_yield": true,
+      "fix": null,
+      "measurements": {
+        "agent_talking_at_onset": true,
+        "caller_onset_sec": 2.0,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "scenario_id": "04-correction",
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "talk_over_sec": 0.5,
+          "time_to_yield_sec": 0.5
+        },
+        "latency": {
+          "premature_start_sec": null,
+          "response_gap_sec": null
+        }
+      },
+      "title": "Urgent correction (no, I said Tuesday)",
+      "verdict": {
+        "did_yield": true,
+        "passed": true,
+        "reasons": [],
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.5
+      }
+    },
+    {
+      "category": "should_yield",
+      "event_id": "05-telephony-8khz",
+      "expected_yield": true,
+      "fix": null,
+      "measurements": {
+        "agent_talking_at_onset": true,
+        "caller_onset_sec": 2.4,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "scenario_id": "05-telephony-8khz",
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "talk_over_sec": 0.5,
+          "time_to_yield_sec": 0.5
+        },
+        "latency": {
+          "premature_start_sec": null,
+          "response_gap_sec": null
+        }
+      },
+      "title": "Hard interruption at 8 kHz telephony sample rate",
+      "verdict": {
+        "did_yield": true,
+        "passed": true,
+        "reasons": [],
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.5
+      }
+    },
+    {
+      "category": "should_yield",
+      "event_id": "06-double-talk",
+      "expected_yield": true,
+      "fix": null,
+      "measurements": {
+        "agent_talking_at_onset": true,
+        "caller_onset_sec": 2.2,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "scenario_id": "06-double-talk",
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "talk_over_sec": 1.05,
+          "time_to_yield_sec": 1.05
+        },
+        "latency": {
+          "premature_start_sec": null,
+          "response_gap_sec": null
+        }
+      },
+      "title": "Sustained double-talk (both parties live)",
+      "verdict": {
+        "did_yield": true,
+        "passed": true,
+        "reasons": [],
+        "seconds_to_yield": 1.05,
+        "talk_over_sec": 1.05
+      }
+    },
+    {
+      "category": "should_not_yield",
+      "event_id": "07-echo-bleed",
+      "expected_yield": false,
+      "fix": null,
+      "measurements": {
+        "agent_talking_at_onset": true,
+        "caller_onset_sec": 2.0,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "scenario_id": "07-echo-bleed",
+      "signals": {
+        "barge_in": {
+          "did_yield": false,
+          "talk_over_sec": 3.0,
+          "time_to_yield_sec": null
+        },
+        "latency": {
+          "premature_start_sec": null,
+          "response_gap_sec": null
+        }
+      },
+      "title": "Bot audio bleed / phantom self-interruption (should NOT yield)",
+      "verdict": {
+        "did_yield": false,
+        "passed": true,
+        "reasons": [],
+        "seconds_to_yield": null,
+        "talk_over_sec": 3.0
+      }
+    },
+    {
+      "category": "should_yield",
+      "event_id": "08-rapid-turn-taking",
+      "expected_yield": true,
+      "fix": null,
+      "measurements": {
+        "agent_talking_at_onset": true,
+        "caller_onset_sec": 2.1,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "scenario_id": "08-rapid-turn-taking",
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "talk_over_sec": 0.5,
+          "time_to_yield_sec": 0.5
+        },
+        "latency": {
+          "premature_start_sec": 0.0,
+          "response_gap_sec": 0.34
+        }
+      },
+      "title": "Rapid turn-taking after an interruption",
+      "verdict": {
+        "did_yield": true,
+        "passed": true,
+        "reasons": [],
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.5
+      }
+    }
+  ],
+  "exit_code": 0,
+  "fix_map": [],
+  "funnel": null,
+  "limits": {
+    "accuracy_claim": null,
+    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels. Mono is accepted but the caller/agent separation is then only as good as the VAD, which lowers the ceiling further.",
+    "ceiling": "Automated sub-second scoring on a single channel using neural or energy VAD has a real ceiling. Treat these as reproducible timing measurements, not ground-truth judgements of a detector's internal quality.",
+    "does_not_do": [
+      "no speaker identification",
+      "no diarization",
+      "no speech-to-text / transcription",
+      "no emotion or intent detection",
+      "no claim about any specific vendor's internal accuracy"
+    ],
+    "method": "energy-based VAD framing over aligned caller/agent channels; three objective timing signals (did_yield, seconds_to_yield, talk_over).",
+    "offline": "runs locally; no network egress of user audio.",
+    "reproducible": "deterministic given the same audio and config; every threshold is an exposed parameter and every frame is inspectable.",
+    "scope": "barge-in, turn-taking, overlap/talk-over, and backchannel handling from call audio. Latency of the yield is measured; word-level semantics are out of scope."
+  },
+  "mode": "suite",
+  "offline": true,
+  "schema_version": "1",
+  "stack": "generic",
+  "suite": "barge-in",
+  "summary": {
+    "events": 8,
+    "failed": 0,
+    "passed": 8,
+    "regression": false
+  },
+  "tool": "hotato"
+}

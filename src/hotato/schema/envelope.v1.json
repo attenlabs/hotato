@@ -1,0 +1,170 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://attentionlabs.ai/hotato/schema/envelope.v1.json",
+  "title": "hotato result envelope, schema_version 1",
+  "description": "The single machine-readable shape emitted by the CLI, the one MCP tool, and the suite runner. Additive-only: new signal dimensions and sub-verdicts may appear as extra keys without a version bump, so consumers must ignore unknown fields. The stable core below is frozen for schema_version 1.",
+  "type": "object",
+  "required": ["tool", "schema_version", "mode", "stack", "offline", "engine", "limits", "summary", "events", "fix_map", "funnel", "exit_code"],
+  "additionalProperties": true,
+  "properties": {
+    "tool": { "const": "hotato" },
+    "schema_version": { "const": "1" },
+    "mode": { "enum": ["single", "suite"] },
+    "suite": { "type": "string" },
+    "stack": { "type": "string" },
+    "offline": { "const": true },
+    "exit_code": { "enum": [0, 1] },
+    "engine": {
+      "type": "object",
+      "required": ["name", "version", "upstream"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "upstream": { "type": "string" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": ["method", "accuracy_claim", "ceiling", "best_input", "does_not_do", "scope", "offline"],
+      "additionalProperties": true,
+      "properties": {
+        "method": { "type": "string" },
+        "accuracy_claim": { "type": "null", "description": "HONESTY INVARIANT: always null. This tool never emits an accuracy percentage." },
+        "ceiling": { "type": "string" },
+        "best_input": { "type": "string" },
+        "does_not_do": { "type": "array", "items": { "type": "string" } },
+        "scope": { "type": "string" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["events", "passed", "failed", "regression"],
+      "additionalProperties": true,
+      "properties": {
+        "events": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "regression": { "type": "boolean" }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/event" }
+    },
+    "fix_map": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/fix_map_entry" }
+    },
+    "funnel": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["reason", "pointer"],
+          "additionalProperties": true,
+          "properties": {
+            "reason": { "type": "string" },
+            "pointer": { "$ref": "#/definitions/engagement_pointer" }
+          }
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "event": {
+      "type": "object",
+      "required": ["event_id", "expected_yield", "verdict", "measurements"],
+      "additionalProperties": true,
+      "properties": {
+        "event_id": { "type": "string" },
+        "scenario_id": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] },
+        "expected_yield": { "type": "boolean" },
+        "verdict": {
+          "type": "object",
+          "required": ["passed", "did_yield", "seconds_to_yield", "talk_over_sec", "reasons"],
+          "additionalProperties": true,
+          "properties": {
+            "passed": { "type": "boolean" },
+            "did_yield": { "type": "boolean" },
+            "seconds_to_yield": { "type": ["number", "null"] },
+            "talk_over_sec": { "type": "number" },
+            "reasons": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "measurements": { "type": "object", "additionalProperties": true },
+        "signals": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Namespaced signal bus. barge_in is present whenever scoring ran; other dimensions (latency, and future overlap/resume/backchannel) are additive.",
+          "properties": {
+            "barge_in": {
+              "type": "object",
+              "required": ["did_yield", "time_to_yield_sec", "talk_over_sec"],
+              "additionalProperties": true
+            },
+            "latency": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "response_gap_sec": { "type": ["number", "null"] },
+                "premature_start_sec": { "type": ["number", "null"] }
+              }
+            }
+          }
+        },
+        "fix": {
+          "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/fix" } ]
+        }
+      }
+    },
+    "fix": {
+      "type": "object",
+      "required": ["fix_class", "title", "detail", "knob", "pointer"],
+      "additionalProperties": true,
+      "properties": {
+        "fix_class": { "enum": ["config", "engagement-control"] },
+        "title": { "type": "string" },
+        "detail": { "type": "string" },
+        "knob": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["stack", "parameter", "direction", "trade_off"],
+              "additionalProperties": true
+            }
+          ]
+        },
+        "pointer": {
+          "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/engagement_pointer" } ]
+        }
+      }
+    },
+    "fix_map_entry": {
+      "type": "object",
+      "required": ["event_id", "fix_class", "title", "detail", "knob", "pointer"],
+      "additionalProperties": true,
+      "properties": {
+        "event_id": { "type": "string" },
+        "scenario_id": { "type": ["string", "null"] },
+        "fix_class": { "enum": ["config", "engagement-control"] },
+        "title": { "type": "string" },
+        "detail": { "type": "string" }
+      }
+    },
+    "engagement_pointer": {
+      "type": "object",
+      "description": "VENDOR-NEUTRAL pointer for the engagement-control fix class. Names the problem class and the KIND of fix (a learned engagement-control / addressee-detection layer); names no vendor, no product, and nothing you can adopt/license/buy, and carries no numbers.",
+      "required": ["layer", "what", "honest_scope"],
+      "additionalProperties": true,
+      "properties": {
+        "layer": { "type": "string" },
+        "what": { "type": "string" },
+        "honest_scope": { "type": "string" }
+      }
+    }
+  }
+}

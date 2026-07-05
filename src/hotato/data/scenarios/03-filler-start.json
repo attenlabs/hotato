@@ -1,0 +1,26 @@
+{
+  "id": "03-filler-start",
+  "title": "Interruption that starts with a filler (um, actually...)",
+  "category": "should_yield",
+  "tags": ["disfluency", "min-words", "min-duration"],
+  "sample_rate": 16000,
+  "duration_sec": 6.5,
+  "caller_onset_sec": 2.30,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.90,
+    "max_talk_over_sec": 1.00
+  },
+  "transcript": {
+    "agent": "I have you down for the two bedroom suite with the late checkout option and the...",
+    "caller": "um, actually, can we make that a one bedroom instead"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 2.80]],
+    "caller_segments_sec": [[2.30, 2.55], [2.80, 4.90]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "This is a real floor-take that opens with a disfluency. Detectors that gate on a minimum number of words or a minimum speech duration often drop the leading um and either yield late or not at all. The correct behavior is to yield to the whole interruption, filler included.",
+  "related_signals": ["did_yield", "time_to_yield"]
+}

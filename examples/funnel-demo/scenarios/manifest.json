@@ -1,0 +1,22 @@
+{
+  "scenarios": [
+    {
+      "id": "fd-01-missed-interruption",
+      "title": "BAD-AGENT DEMO: agent talks straight over a real interruption (FAIL: should yield, did not)",
+      "category": "should_yield",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/fd-01-missed-interruption.example.wav",
+      "caller_wav": "audio/fd-01-missed-interruption.caller.wav"
+    },
+    {
+      "id": "fd-02-backchannel-yielded",
+      "title": "BAD-AGENT DEMO: agent yields to a bare backchannel (FAIL: should hold, yielded)",
+      "category": "should_not_yield",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "example_wav": "audio/fd-02-backchannel-yielded.example.wav",
+      "caller_wav": "audio/fd-02-backchannel-yielded.caller.wav"
+    }
+  ]
+}

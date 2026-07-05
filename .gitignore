@@ -1,0 +1,56 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
+wheels/
+
+# Editor / OS cruft
+.DS_Store
+*.orig
+*.bak
+*.swp
+
+# Local scratch / coverage
+.coverage
+htmlcov/
+.tox/
+
+# -----------------------------------------------------------------------------
+# DO NOT ignore the bundled reference audio.
+#
+# The synthetic reference WAVs under src/hotato/data/ ship *inside*
+# the package (see [tool.setuptools.package-data] in pyproject.toml). They are
+# the runnable floor for the eval and MUST be committed and distributed. Keep
+# any broad "*.wav" ignore rules OUT of this file, or add an explicit unignore
+# like the one below if a parent .gitignore ever starts excluding audio.
+# -----------------------------------------------------------------------------
+!src/hotato/data/**/*.wav
+!src/hotato/data/**/*.json
+
+# --- internal / not for the public repo (curated 2026-07-05) ---
+HANDOFF-*.md
+benchmark-report/
+# superseded internal demonstration artifacts (kept local, not published)
+docs/SAA-FIX-POINTER.md
+docs/SAA-BEHAVIOR-CARD.md
+docs/saa_behavior_card.py
+tests/test_saa_card.py

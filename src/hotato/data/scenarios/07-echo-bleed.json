@@ -1,0 +1,29 @@
+{
+  "id": "07-echo-bleed",
+  "title": "Bot audio bleed / phantom self-interruption (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": ["echo", "phantom-interruption", "self-interrupt", "aec"],
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.00,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "transcript": {
+    "agent": "Your confirmation number is four seven two nine and I have emailed a copy to the address on file for your records.",
+    "caller": "(silent; the input channel carries only a delayed, attenuated copy of the agent's own audio)"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 6.00]],
+    "caller_segments_sec": [],
+    "caller_is_echo_of_agent": true,
+    "echo_delay_sec": 0.12,
+    "echo_gain": 0.35,
+    "agent_pitch": "low",
+    "caller_pitch": "low"
+  },
+  "why_it_matters": "The caller is silent. The only energy on the input channel is the agent's own output leaking back through echo or a bad mix. An agent without robust echo cancellation can treat this as a barge-in and interrupt itself, producing the phantom or self triggered interruptions people report on speakerphone and in-car setups. The correct behavior is to keep talking. If your agent yields on this fixture, it is hearing itself.",
+  "related_signals": ["did_yield"]
+}

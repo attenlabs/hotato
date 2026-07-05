@@ -1,0 +1,26 @@
+{
+  "id": "fd-01-missed-interruption",
+  "title": "BAD-AGENT DEMO: agent talks straight over a real interruption (FAIL: should yield, did not)",
+  "category": "should_yield",
+  "tags": ["interruption", "floor-taking", "bad-agent", "missed"],
+  "sample_rate": 16000,
+  "duration_sec": 6.5,
+  "caller_onset_sec": 2.00,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "transcript": {
+    "agent": "So the total comes to two hundred and forty dollars and that includes the delivery fee and the setup and the extended warranty which I would really recommend because...",
+    "caller": "stop, I did not agree to the warranty, take it off"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 6.00]],
+    "caller_segments_sec": [[2.00, 4.50]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "DELIBERATE BAD-AGENT RENDER. The caller clearly takes the floor and keeps it for over two seconds, but the agent never stops: did_yield is false, so this should-yield event FAILS. This is the missed-real-interruption axis of the funnel. Paired with fd-02 (a false barge-in on a backchannel), it proves no single sensitivity threshold can satisfy both at once.",
+  "related_signals": ["did_yield", "talk_over"]
+}

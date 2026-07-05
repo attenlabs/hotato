@@ -1,0 +1,27 @@
+{
+  "id": "08-rapid-turn-taking",
+  "title": "Rapid turn-taking after an interruption",
+  "category": "should_yield",
+  "tags": ["turn-taking", "resume", "latency"],
+  "sample_rate": 16000,
+  "duration_sec": 8.0,
+  "caller_onset_sec": 2.10,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "transcript": {
+    "agent": "Okay so for the warranty you get twelve months of coverage starting from the...",
+    "caller": "just the twelve months?",
+    "agent_resume": "yes, twelve months, and you can extend it later"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 2.45], [4.10, 6.30]],
+    "caller_segments_sec": [[2.10, 3.60]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "A short interruption followed by a quick answer and hand-back. The scored onset is the interruption at 2.10 seconds. This fixture exercises the common failure where an agent yields correctly but then either does not come back, or steps on the caller again when it resumes. The primary signals here are measured on the first onset; use the agent_resume segment to eyeball whether your resume behavior is clean.",
+  "related_signals": ["did_yield", "time_to_yield", "talk_over"]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "02-backchannel-mhm",
+  "title": "Backchannel acknowledgement (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": ["backchannel", "false-trigger", "listener-feedback"],
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.10,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "transcript": {
+    "agent": "So the way the refund works is we credit the original card, and then it usually posts within a few days depending on your bank.",
+    "caller": "mhm ... right ... okay"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 6.00]],
+    "caller_segments_sec": [[2.10, 2.45], [3.20, 3.55], [4.30, 4.70]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "Short acknowledgements like mhm, right, and okay are listener feedback, not a bid for the floor. An agent that yields on every backchannel becomes impossible to talk to because it stops mid-thought whenever the caller shows they are listening.",
+  "related_signals": ["did_yield"]
+}

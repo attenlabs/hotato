@@ -1,0 +1,26 @@
+{
+  "id": "06-double-talk",
+  "title": "Sustained double-talk (both parties live)",
+  "category": "should_yield",
+  "tags": ["double-talk", "overlap", "hard"],
+  "sample_rate": 16000,
+  "duration_sec": 7.0,
+  "caller_onset_sec": 2.20,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.20,
+    "max_talk_over_sec": 1.50
+  },
+  "transcript": {
+    "agent": "And then once we verify the account we can move the funds over to the new routing number that you gave me a moment ago before we finish up here today.",
+    "caller": "but that is the account I told you I closed last week, do not send it there"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 3.10]],
+    "caller_segments_sec": [[2.20, 5.10]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "Both voices are live at full energy for more than a second. This is the hardest case for energy based turn taking because there is no clean silence to key off. A tolerant but real bound is used here: the agent may talk over the caller briefly, but it must still yield rather than finish its sentence. Talk-over seconds is the signal that separates graceful from stubborn agents.",
+  "related_signals": ["did_yield", "time_to_yield", "talk_over"]
+}

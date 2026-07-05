@@ -1,0 +1,58 @@
+{
+  "scenarios": [
+    {
+      "id": "bc-01-repeated-backchannels",
+      "title": "Repeated backchannels while the agent explains (should NOT yield)",
+      "category": "should_not_yield",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "example_wav": "audio/bc-01-repeated-backchannels.example.wav",
+      "caller_wav": "audio/bc-01-repeated-backchannels.caller.wav"
+    },
+    {
+      "id": "bc-02-midutterance-backchannel",
+      "title": "Single mid-utterance backchannel (should NOT yield)",
+      "category": "should_not_yield",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "example_wav": "audio/bc-02-midutterance-backchannel.example.wav",
+      "caller_wav": "audio/bc-02-midutterance-backchannel.caller.wav"
+    },
+    {
+      "id": "bc-03-near-miss-floor-take",
+      "title": "Near-miss: a long backchannel that briefly looks like a floor-take (should NOT yield)",
+      "category": "should_not_yield",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "example_wav": "audio/bc-03-near-miss-floor-take.example.wav",
+      "caller_wav": "audio/bc-03-near-miss-floor-take.caller.wav"
+    },
+    {
+      "id": "lat-01-prompt-response-prompt",
+      "title": "Prompt-response latency: agent answers promptly (PASS)",
+      "category": "latency",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/lat-01-prompt-response-prompt.example.wav",
+      "caller_wav": "audio/lat-01-prompt-response-prompt.caller.wav"
+    },
+    {
+      "id": "lat-02-prompt-response-sluggish",
+      "title": "Prompt-response latency: sluggish, long dead-air before the answer (FAIL latency)",
+      "category": "latency",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/lat-02-prompt-response-sluggish.example.wav",
+      "caller_wav": "audio/lat-02-prompt-response-sluggish.caller.wav"
+    },
+    {
+      "id": "lat-03-prompt-response-overeager",
+      "title": "Prompt-response latency: over-eager, agent starts before the caller finishes (FAIL latency)",
+      "category": "latency",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/lat-03-prompt-response-overeager.example.wav",
+      "caller_wav": "audio/lat-03-prompt-response-overeager.caller.wav"
+    }
+  ]
+}

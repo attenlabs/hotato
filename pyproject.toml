@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hotato"
+version = "0.1.0"
+description = "Hotato: the open turn-taking eval for voice agents. Does your agent drop the turn, or hog it? Score barge-in / talk-over / backchannel / endpointing from a call recording, offline, with an honest fix map. MIT."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Attention Labs, Inc." }]
+keywords = [
+    "hotato", "voice-ai", "voice-agents", "evals", "barge-in", "turn-taking",
+    "mcp", "agent-native", "observability", "reliability", "livekit",
+    "pipecat", "vapi",
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Software Development :: Testing",
+]
+# The core has ZERO required third-party dependencies: it is stdlib-only so it
+# runs anywhere with `uvx` and adds no supply-chain surface. numpy is used only
+# as an optional accelerator if it already happens to be importable.
+dependencies = []
+
+[project.optional-dependencies]
+# The one-tool MCP server needs the MCP SDK. Kept optional so the CLI stays
+# dependency-free and zero-install.
+mcp = ["mcp>=1.2.0"]
+dev = ["pytest>=7", "jsonschema>=4"]
+
+# Per-stack capture extras. Vapi and Twilio capture use only stdlib (urllib +
+# your API key), so `uvx hotato capture --stack vapi --call-id <id>` needs
+# NOTHING extra -- these two extras are intentionally empty and exist so the
+# documented `uvx 'hotato[vapi]'` / `hotato[twilio]` install still resolves.
+# LiveKit and Pipecat LIVE capture run inside your own pipeline and genuinely
+# need their frameworks; those are imported lazily and only on the live path.
+vapi = []
+twilio = []
+livekit = ["livekit", "livekit-agents"]
+pipecat = ["pipecat-ai"]
+# OPTIONAL, NON-REFERENCE neural VAD cross-check (Silero VAD, MIT). Strictly
+# opt-in via `--backend neural`; the zero-dependency energy core stays the
+# reference for every published/golden number and is never affected by this
+# extra. onnxruntime keeps inference CPU-only and lightweight (no torch needed at
+# runtime). Absent this extra, `--backend neural` errors cleanly, never falling
+# back to energy.
+neural = ["silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
+# Everything a contributor might want to exercise the live capture paths locally.
+all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
+
+[project.scripts]
+hotato = "hotato.cli:main"
+hotato-mcp = "hotato.mcp_server:main"
+
+[project.urls]
+Homepage = "https://attentionlabs.ai"
+"Open engine (upstream)" = "https://github.com/quantumCF/voice-agent-barge-in-tests"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hotato = ["data/scenarios/*.json", "data/audio/*.wav", "schema/*.json"]

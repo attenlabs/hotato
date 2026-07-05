@@ -1,0 +1,36 @@
+{
+  "id": "lat-01-prompt-response-prompt",
+  "title": "Prompt-response latency: agent answers promptly (PASS)",
+  "category": "latency",
+  "tags": ["latency", "endpointing", "response-gap", "turn-taking"],
+  "sample_rate": 16000,
+  "duration_sec": 5.5,
+  "caller_onset_sec": 1.60,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.00,
+    "premature_is_failure": true,
+    "note": "Documented, exposed latency thresholds. The core scorer's evaluate() decides the barge-in verdict from did_yield/talk-over; these latency bounds are applied by the example tests against the pure-timing signals.latency values. No accuracy claim; every number is a reproducible timing threshold."
+  },
+  "transcript": {
+    "agent": "Sure, I can look that up for you...",
+    "caller": "what time does the pharmacy close on Sunday?",
+    "agent_response": "the pharmacy closes at six on Sunday"
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [[0.20, 1.70], [3.50, 5.00]],
+    "caller_segments_sec": [[1.60, 3.00]],
+    "caller_offset_sec": 3.00,
+    "agent_response_onset_sec": 3.50,
+    "rendered_response_gap_sec": 0.50,
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "The caller asks a complete question and stops. The scored dimension here is endpointing latency: the dead-air gap from the caller's turn end to the agent's next onset. A well-behaved agent answers into that silence promptly. The agent was wrapping its previous turn as the caller began, yields cleanly, then answers about half a second after the caller finishes, which reads as natural. reference_render carries the exact caller offset so the response-gap ground truth is known.",
+  "related_signals": ["response_gap_sec", "did_yield", "time_to_yield"]
+}
