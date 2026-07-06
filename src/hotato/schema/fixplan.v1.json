@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "hotato.fixplan.v1.json",
+  "title": "hotato fix plan (schema hotato.fixplan.v1)",
+  "description": "A guarded, reviewable turn-taking fix proposal. Plans never carry an absolute magic value: every change is one bounded step (from -> to) relative to the inspected current value, or direction plus bounds only when the current value is unknown. production_apply is pinned to false: this phase ships no apply command.",
+  "type": "object",
+  "required": [
+    "schema",
+    "target",
+    "finding",
+    "hypothesis",
+    "config_only_safe",
+    "decision",
+    "changes",
+    "required_verification",
+    "approval"
+  ],
+  "properties": {
+    "schema": {"const": "hotato.fixplan.v1"},
+    "target": {
+      "type": "object",
+      "required": ["stack", "inspected"],
+      "properties": {
+        "stack": {"type": "string"},
+        "inspected": {"type": "boolean"},
+        "current_unknown": {"type": "boolean"},
+        "assistant_id": {"type": "string"},
+        "agent_id": {"type": "string"},
+        "config_path": {"type": "string"}
+      }
+    },
+    "finding": {
+      "enum": [
+        "missed_real_interruption",
+        "false_stop_on_backchannel",
+        "slow_yield",
+        "excess_talk_over",
+        "endpointing_miss",
+        "threshold_funnel",
+        "none"
+      ]
+    },
+    "hypothesis": {"type": "string"},
+    "config_only_safe": {"type": "boolean"},
+    "decision": {
+      "enum": [
+        "propose_one_step",
+        "do_not_tune_single_threshold",
+        "diagnostic_checklist",
+        "insufficient_coverage",
+        "at_documented_bound",
+        "no_change"
+      ]
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field", "from", "to", "direction", "bounds", "reason", "risk"],
+        "properties": {
+          "field": {"type": "string"},
+          "from": {"type": ["number", "null"]},
+          "to": {"type": ["number", "null"]},
+          "direction": {"enum": ["increase", "decrease"]},
+          "bounds": {
+            "type": "array",
+            "items": {"type": ["number", "null"]},
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "reason": {"type": "string"},
+          "risk": {"type": "string"}
+        }
+      }
+    },
+    "required_verification": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 3
+    },
+    "approval": {
+      "type": "object",
+      "required": ["default", "production_apply"],
+      "properties": {
+        "default": {"const": "manual"},
+        "production_apply": {"const": false}
+      }
+    },
+    "recommended_fix": {
+      "type": "object",
+      "required": ["class", "examples"],
+      "properties": {
+        "class": {"const": "engagement-control"},
+        "examples": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        }
+      }
+    },
+    "checklist": {"type": "array", "items": {"type": "string"}},
+    "required_fixture_family": {"type": "string"},
+    "other_findings": {"type": "array", "items": {"type": "string"}}
+  }
+}
