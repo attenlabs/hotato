@@ -1,12 +1,11 @@
-# Capture adapters — score your OWN call
+# Capture adapters: score your own call
 
-The fastest way to use Hotato is not the synthetic self-test — it is to point it
-at a **real dual-channel call from your stack** and get a scored verdict. Each
-adapter does one thing: get a two-channel recording (caller on channel 0, agent
-on channel 1) and run it through the same scorer the bundled battery uses.
+The fastest path to real value: point Hotato at a real dual-channel call from your
+stack. Each adapter does one thing: fetch a two-channel recording (caller on
+channel 0, agent on channel 1) and run it through the same scorer the bundled
+battery uses.
 
-Two entry points, same logic (single-sourced in `hotato.capture`, so they never
-drift):
+Two entry points, one shared implementation (single-sourced in `hotato.capture`):
 
 ```bash
 # installed (recommended)
@@ -21,29 +20,29 @@ PYTHONPATH=src python adapters/vapi_capture.py --call-id <id>
 
 | Stack | How Hotato gets the two channels | Command |
 | --- | --- | --- |
-| **Vapi** (flagship) | Downloads the call's stereo recording. **API key only, no SDK.** | `hotato capture --stack vapi --call-id <id>` |
-| **Twilio** | Downloads a **dual-channel** recording (`RecordingChannels=dual`). | `hotato capture --stack twilio --recording-sid RE...` |
-| **LiveKit** | You run two-track **Egress** in your deployment → two mono WAVs. | `hotato setup --stack livekit`, then `--caller a.wav --agent b.wav` |
-| **Pipecat** | A drop-in **2-channel `AudioBufferProcessor`** records the session. | `hotato setup --stack pipecat`, then `--stereo captured.wav` |
-| **Retell** | **Honest:** no confirmed self-serve stereo export — workaround only. | `hotato setup --stack retell` |
+| **Vapi** (flagship) | Downloads the call's stereo recording. API key only. | `hotato capture --stack vapi --call-id <id>` |
+| **Twilio** | Downloads a dual-channel recording (`RecordingChannels=dual`). | `hotato capture --stack twilio --recording-sid RE...` |
+| **LiveKit** | Two-track Egress in your deployment writes two mono WAVs. | `hotato setup --stack livekit`, then `--caller a.wav --agent b.wav` |
+| **Pipecat** | A drop-in 2-channel `AudioBufferProcessor` records the session. | `hotato setup --stack pipecat`, then `--stereo captured.wav` |
+| **Retell** | Dual-channel capture at the telephony layer you control. | `hotato setup --stack retell` |
 
 `--stack {vapi,twilio,livekit,pipecat,retell}`. Every stack also accepts an
 already-captured file via `--stereo file.wav` (caller on ch0) or
 `--caller a.wav --agent b.wav`, so you can score any recording you already have.
 
-### Vapi — near-zero friction (the hero)
+### Vapi: near-zero friction
 
 ```bash
 export VAPI_API_KEY=<your private key>
 hotato capture --stack vapi --call-id <call-id> --expect yield
 ```
 
-Under the hood: `GET https://api.vapi.ai/call/<id>` → `artifact.stereoRecordingUrl`
-(a 2-channel WAV, customer on channel 0, assistant on channel 1) → scored offline.
-No SDK, no export step; the only network is the direct download from Vapi to your
-machine.
+Under the hood: `GET https://api.vapi.ai/call/<id>` returns
+`artifact.stereoRecordingUrl` (a 2-channel WAV, customer on channel 0, assistant
+on channel 1), scored offline. The only network is the direct download from Vapi
+to your machine.
 
-### Twilio — turn on dual-channel first
+### Twilio: turn on dual-channel first
 
 ```bash
 # 1) record dual-channel:  <Record recordingChannels="dual"> / record-from-answer-dual
@@ -53,26 +52,27 @@ hotato capture --stack twilio --recording-sid RE... --expect yield
 ```
 
 `GET .../Accounts/<sid>/Recordings/<RE...>.wav` (HTTP Basic auth). Twilio's channel
-order depends on how the recording was made; if caller/agent look swapped, add
-`--caller-channel/--agent-channel`.
+order depends on how the recording was made; if caller and agent look swapped, add
+`--caller-channel` / `--agent-channel`.
 
-### LiveKit — capture two tracks, then score
+### LiveKit: capture two tracks, then score
 
 `hotato setup --stack livekit` prints an Egress scaffold. RoomComposite mixes both
-parties into one channel and cannot attribute overlap, so run **two audio-only
-Track egresses** (one per participant), convert to WAV, and score:
+parties into one channel, so run two audio-only Track egresses (one per
+participant), convert to WAV, and score:
 
 ```bash
 hotato capture --stack livekit --caller caller.wav --agent agent.wav --onset <sec>
 ```
 
 `adapters/livekit_capture.py` also carries an inline `AgentSession` live-capture
-template with three `# ADJUST:` points if you prefer to record in-process.
+template with three `# ADJUST:` points for recording in-process.
 
-### Pipecat — a 2-channel recorder you drop in
+### Pipecat: a 2-channel recorder you drop in
 
-`hotato setup --stack pipecat` prints a drop-in `AudioBufferProcessor(num_channels=2)`
-recorder that writes `[caller, agent]` as a two-channel WAV. Then:
+`hotato setup --stack pipecat` prints a drop-in
+`AudioBufferProcessor(num_channels=2)` recorder that writes `[caller, agent]` as a
+two-channel WAV. Then:
 
 ```bash
 hotato capture --stack pipecat --stereo captured.wav --expect yield
@@ -81,20 +81,18 @@ hotato capture --stack pipecat --stereo captured.wav --expect yield
 `adapters/pipecat_capture.py` has the same recorder wired into a live pipeline
 template.
 
-### Retell — honest status
+### Retell: status
 
-No confirmed self-serve **stereo / dual-channel** export was found. Retell's
-`GET /v2/get-call/<id>` returns a single (mono/mixed) `recording_url`, and a mono
-mix cannot attribute overlap to caller vs agent. `hotato setup --stack retell`
-prints the workaround (capture dual-channel at the telephony layer you control, or
-score a dual-channel WAV you assembled). We do not fake a capture path that does
-not exist — if Retell adds a stereo export, open an issue and we'll add a
-first-class adapter.
+Retell's `GET /v2/get-call/<id>` returns a single mixed `recording_url`. Overlap is
+attributable only when the two parties are on separate channels, so capture
+dual-channel at the telephony layer you control, or score a dual-channel WAV you
+assembled. `hotato setup --stack retell` prints both paths. When Retell ships a
+stereo export, open an issue and we will add a first-class adapter.
 
-## One-command demo (zero install, zero deps, no network)
+## One-command demo (offline)
 
-Prove the capture → score loop before you wire anything. `--demo` copies a bundled
-two-channel reference and runs it straight through the scorer:
+Prove the capture-then-score loop before wiring anything. `--demo` copies a bundled
+two-channel reference and runs it through the scorer:
 
 ```bash
 hotato capture --stack vapi   --demo
@@ -105,40 +103,35 @@ hotato capture --stack retell --demo
 # or the standalone file:  PYTHONPATH=src python adapters/vapi_capture.py --demo
 ```
 
-Each prints the three timing signals and a verdict, and exits `0`. No stack SDK,
-no account, no network.
+Each prints the three timing signals and a verdict, and exits `0`.
 
-## The two-channel requirement (the one thing that matters)
+## Two channels are ground truth
 
-The scorer measures energy **per channel**. It can only separate "the agent talked
-over the caller" from "the caller talked over the agent" when the two are on
-**separate channels**:
+The scorer measures energy per channel, so it can tell "the agent talked over the
+caller" from "the caller talked over the agent" when the two are on separate
+channels:
 
 - **channel 0 = caller**, **channel 1 = agent**.
-- Turn on **dual-channel / stereo / separate-track** recording wherever you
-  configure it. Most stacks and telephony providers can.
-- A **mono-mixed** export (both parties summed into one channel) cannot attribute
-  overlap to the right party. It degrades every number — it is *not* a drop-in
-  substitute. Keep the two parties split all the way to the WAV.
+- Turn on dual-channel / stereo / separate-track recording wherever you configure
+  it. Most stacks and telephony providers support it.
+- Keep the two parties split all the way to the WAV, and every overlap number
+  stays authoritative.
 
 ## Install the optional stack
 
-The core scorer, plus Vapi and Twilio capture, are **stdlib-only** (HTTP via
-`urllib` + your API key) — nothing to install. The **live** LiveKit/Pipecat
-capture path needs your framework, imported lazily and only on the live path:
+The core scorer, plus Vapi and Twilio capture, are stdlib-only (HTTP via `urllib`
+and your API key). The live LiveKit and Pipecat capture path needs your framework,
+imported lazily and only on the live path:
 
 ```bash
 pip install 'hotato[livekit]'   # livekit + livekit-agents
 pip install 'hotato[pipecat]'   # pipecat-ai
-# vapi / twilio need no extra dependency:  uvx 'hotato[vapi]' resolves to core.
+# vapi and twilio need no extra dependency:  uvx 'hotato[vapi]' resolves to core.
 ```
 
-## What the scorer does *not* claim
+## Scope
 
-Same honest scope as the rest of the tool: it measures the **timing** of
-turn-taking (`did_yield`, `seconds_to_yield`, `talk_over_sec`) and nothing else.
-**No accuracy percentage. Energy is not intent.** No speaker identification, no
-diarization, no transcription, no emotion/intent detection. None of these adapters
-has been run against a live stack in this build — the live paths use the documented
-APIs and are marked for verification on your side. See the top-level `README.md`
-and `METHODOLOGY.md` for the method and its ceiling.
+Same as the rest of the tool: it measures the timing of turn-taking (`did_yield`,
+`seconds_to_yield`, `talk_over_sec`) from speech energy over time. The live adapter
+paths use each provider's documented API and are marked for verification against
+your stack. See the top-level `README.md` and `METHODOLOGY.md` for the method.

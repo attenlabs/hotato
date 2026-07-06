@@ -101,6 +101,16 @@ def _emit(env: dict, fmt: str) -> None:
 
 def _cmd_run(args) -> int:
     backend = getattr(args, "backend", "energy")
+    # Conflicting inputs: --suite runs the bundled self-test battery and silently
+    # ignoring a single recording passed alongside it would mislead. Reject the
+    # combination up front (clean usage error -> exit 2) rather than quietly
+    # dropping the user's file.
+    if args.suite and (args.stereo or args.caller or args.agent):
+        raise ValueError(
+            "--suite runs the bundled self-test battery and cannot be combined "
+            "with a single recording (--stereo / --caller / --agent). Run one or "
+            "the other."
+        )
     if args.dump_frames:
         if args.suite:
             raise ValueError(
@@ -235,6 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--audio", default=None, help="dir of scenario audio (defaults to the bundled fixtures)")
     # shared
     r.add_argument("--stack", default="generic",
+                   choices=["generic", "vapi", "twilio", "livekit", "pipecat", "retell"],
                    help="voice stack the recording came from (livekit|pipecat|vapi|generic); tunes the config-fix knob names")
     r.add_argument("--backend", default="energy", choices=["energy", "neural"],
                    help="VAD backend for a single recording: 'energy' (default -- the "

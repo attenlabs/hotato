@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import os
+import struct
+import wave
 from importlib import resources
 from typing import Optional
 
@@ -154,6 +156,85 @@ def _envelope(*, mode: str, stack: Optional[str], events: list) -> dict:
     }
 
 
+# --- input hardening ------------------------------------------------------
+#
+# The scorer itself lives in the vendored, drift-guarded ``_engine`` and must not
+# be edited. These wrappers sit ABOVE it and turn every hostile / malformed input
+# into a clean ValueError (which the CLI surfaces as exit code 2), so a corrupt,
+# empty, truncated, or non-WAV file -- or an out-of-range channel / negative onset
+# -- can never escape as a Python traceback or masquerade as a real low score.
+
+def _read_wav(path: str):
+    """Read a WAV via the vendored engine, translating low-level parse failures
+    into a clean, actionable ValueError.
+
+    ``_engine.read_wav`` uses the stdlib ``wave`` module, which raises
+    ``wave.Error`` / ``EOFError`` (and, on some malformed headers,
+    ``struct.error``) for an empty, truncated, or non-WAV file. Left unwrapped
+    those escape as an ugly traceback. A header that declares more frames than the
+    file actually contains (a truncated / corrupt recording) is also caught here,
+    so a partial read can never masquerade as a genuine (low) score.
+    """
+    try:
+        signal = _engine.read_wav(path)
+    except (wave.Error, EOFError, struct.error) as exc:
+        raise ValueError(
+            f"{path!r} is not a readable PCM WAV ({exc}). Export a PCM WAV, "
+            "e.g. ffmpeg -i input -acodec pcm_s16le output.wav"
+        ) from exc
+    except ValueError as exc:
+        # A corrupt data chunk whose byte length is not a whole number of samples
+        # surfaces from array.frombytes as "bytes length not a multiple of item
+        # size". Re-wrap that one into the same clean message; leave the engine's
+        # own actionable ValueErrors (e.g. an unsupported sample width) untouched.
+        if "multiple of item size" in str(exc):
+            raise ValueError(
+                f"{path!r} is not a readable PCM WAV (corrupt or truncated data "
+                "chunk). Export a PCM WAV, e.g. ffmpeg -i input -acodec pcm_s16le "
+                "output.wav"
+            ) from exc
+        raise
+    if signal.num_samples == 0:
+        raise ValueError(
+            f"{path!r} contains no audio samples (empty or header-only WAV)."
+        )
+    # Truncation guard: for a well-formed file the wave header's declared frame
+    # count equals the number of decoded samples per channel; a short data chunk
+    # decodes fewer. Re-reading the header is best-effort and must never itself
+    # fail the read.
+    try:
+        with wave.open(path, "rb") as wf:
+            declared = wf.getnframes()
+    except Exception:  # pragma: no cover - header re-read is defensive only
+        declared = signal.num_samples
+    if declared and signal.num_samples < declared:
+        raise ValueError(
+            f"{path!r} is truncated or corrupt: its header declares {declared} "
+            f"frames but only {signal.num_samples} are present. Re-export the "
+            "full recording."
+        )
+    return signal
+
+
+def _require_channel(signal, index: int, role: str) -> None:
+    """Fail cleanly (ValueError -> exit 2) on an out-of-range channel index rather
+    than let ``Signal.get`` raise a bare IndexError traceback deep in the engine."""
+    if index < 0 or index >= signal.num_channels:
+        raise ValueError(
+            f"--{role}-channel {index} is out of range for a "
+            f"{signal.num_channels}-channel recording "
+            f"(valid channels: 0..{signal.num_channels - 1})."
+        )
+
+
+def _check_onset(onset_sec: Optional[float]) -> None:
+    if onset_sec is not None and onset_sec < 0:
+        raise ValueError(
+            f"--onset must be >= 0 seconds (time from the start of the "
+            f"recording); got {onset_sec}."
+        )
+
+
 # --- single recording -----------------------------------------------------
 
 def run_single(
@@ -179,21 +260,24 @@ def run_single(
     """
     if cfg is None:
         cfg = ScoreConfig()
+    _check_onset(onset_sec)
 
     if stereo:
-        signal = _engine.read_wav(stereo)
+        signal = _read_wav(stereo)
         if signal.num_channels < 2:
             raise ValueError(
                 "--stereo file has one channel; pass --caller and --agent as two "
                 "mono files, or export a real two-channel recording."
             )
+        _require_channel(signal, caller_channel, "caller")
+        _require_channel(signal, agent_channel, "agent")
         result = score_stereo(
             signal, caller_channel, agent_channel, caller_onset_sec=onset_sec, cfg=cfg
         )
         source = os.path.basename(stereo)
     elif caller and agent:
-        c = _engine.read_wav(caller)
-        a = _engine.read_wav(agent)
+        c = _read_wav(caller)
+        a = _read_wav(agent)
         if c.sample_rate != a.sample_rate:
             raise ValueError(
                 f"sample-rate mismatch (caller {c.sample_rate} Hz, agent "
@@ -275,21 +359,24 @@ def dump_frames_for_input(
     """
     if cfg is None:
         cfg = ScoreConfig()
+    _check_onset(onset_sec)
 
     if stereo:
-        signal = _engine.read_wav(stereo)
+        signal = _read_wav(stereo)
         if signal.num_channels < 2:
             raise ValueError(
                 "--stereo file has one channel; pass --caller and --agent as two "
                 "mono files, or export a real two-channel recording."
             )
+        _require_channel(signal, caller_channel, "caller")
+        _require_channel(signal, agent_channel, "agent")
         caller_samples = signal.get(caller_channel)
         agent_samples = signal.get(agent_channel)
         sample_rate = signal.sample_rate
         source = os.path.basename(stereo)
     elif caller and agent:
-        c = _engine.read_wav(caller)
-        a = _engine.read_wav(agent)
+        c = _read_wav(caller)
+        a = _read_wav(agent)
         if c.sample_rate != a.sample_rate:
             raise ValueError(
                 f"sample-rate mismatch (caller {c.sample_rate} Hz, agent "
@@ -417,7 +504,14 @@ def run_suite(
             )
             continue
 
-        signal = _engine.read_wav(wav_path)
+        signal = _read_wav(wav_path)
+        if signal.num_channels < 2:
+            raise ValueError(
+                f"suite audio {wav_path!r} has one channel; scenario audio must be "
+                "a two-channel recording (caller on one channel, agent on the other)."
+            )
+        _require_channel(signal, caller_channel, "caller")
+        _require_channel(signal, agent_channel, "agent")
         result = score_stereo(
             signal,
             caller_channel,

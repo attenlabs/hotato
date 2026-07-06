@@ -1,54 +1,42 @@
-# hotato
+<p align="center">
+  <a href="https://hotato.dev">
+    <img src=".github/banner.png" alt="hotato: the open, offline turn-taking eval for voice agents" width="840">
+  </a>
+</p>
 
-**The open turn-taking eval for voice agents.** *Does your agent drop the turn,
-or hog it?* Point it at one of **your own call recordings** and it shows where your
-agent talks over the caller — or misses a real interruption — then points each
-failure at the config knob that addresses it. Free, MIT, offline, deterministic,
-and built to be called by an AI agent mid-task.
+<h1 align="center">
+  <img src="docs/assets/mascot.svg" alt="" width="26" align="top"> hotato
+</h1>
 
-**Wire it into CI and it catches the commit that makes your agent start talking
-over people — before it ships.** It runs locally on any recording from any stack;
-your call audio never leaves your box. No cloud, no account, no accuracy score to
-argue with — just reproducible timing you can gate a PR on.
+<p align="center"><b>An open, offline tool that scores voice-agent turn-taking from a call recording.</b></p>
 
-## Score your own call in under a minute
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Python 3.9 to 3.13" src="https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg">
+  <img alt="tests: passing" src="https://img.shields.io/badge/tests-passing-brightgreen.svg">
+  <img alt="build: passing" src="https://img.shields.io/badge/build-passing-brightgreen.svg">
+  <a href="https://hotato.dev"><img alt="site: hotato.dev" src="https://img.shields.io/badge/site-hotato.dev-e2470f.svg"></a>
+</p>
 
-Bring a dual-channel recording (caller and agent on separate channels) from your
-stack. Vapi and Twilio need only an API key — no SDK, no export step:
+<p align="center">
+  Built for anyone shipping voice agents on LiveKit, Pipecat, Vapi, Retell, or Twilio.<br>
+  Runs on your machine, so your call audio stays with you.
+</p>
+
+Point it at one of your own call recordings. It shows where your agent talked over
+the caller, or missed a real interruption, and points each failure at the config
+knob that fixes it. Every result is reproducible timing you can verify frame by
+frame and gate a PR on.
+
+## Quickstart (60 seconds)
+
+Already have a two-channel WAV (caller on channel 0, agent on channel 1)?
 
 ```bash
-# Vapi (near-zero friction): an API key + a call id, nothing else
-export VAPI_API_KEY=...
-uvx hotato capture --stack vapi --call-id <call-id>
-
-# Twilio dual-channel recording
-export TWILIO_ACCOUNT_SID=AC...  TWILIO_AUTH_TOKEN=...
-uvx hotato capture --stack twilio --recording-sid RE...
-
-# LiveKit / Pipecat capture in your own pipeline — scaffold the recording config:
-uvx hotato setup --stack livekit   # then: hotato capture --stack livekit --caller a.wav --agent b.wav
-uvx hotato setup --stack pipecat   # then: hotato capture --stack pipecat --stereo captured.wav
-
-# already have a two-channel WAV (caller on channel 0, agent on channel 1)?
 uvx hotato run --stereo your_call.wav --expect yield
 ```
 
-Want to see the capture → score loop run first? It works end-to-end **offline**,
-with zero third-party deps and no network:
-
-```bash
-uvx hotato capture --stack vapi --demo
-```
-
-The scorer runs locally and never sends your audio anywhere. Every stack — plus
-the honest Retell status (no self-serve stereo export yet) — is in
-[`adapters/README.md`](adapters/README.md).
-
-## The self-test (checks the tool, not your agent)
-
-`hotato run --suite barge-in` runs a bundled **synthetic** battery. It is Hotato's
-own regression self-test: it proves the tool is behaving, **not** that your agent
-is good. No account, API key, or network:
+Or run the bundled self-test, offline, with zero setup:
 
 ```bash
 uvx hotato run --suite barge-in
@@ -59,120 +47,126 @@ $ uvx hotato run --suite barge-in
 hotato [suite] stack=generic offline=True
   8/8 events pass  (failed=0)
   [PASS] 01-hard-interruption: did_yield=True seconds_to_yield=0.50s talk_over=0.50s
-  [PASS] 02-backchannel-mhm:   did_yield=False seconds_to_yield=-   talk_over=1.57s
-  ...
+  [PASS] 02-backchannel-mhm: did_yield=False seconds_to_yield=- talk_over=1.57s
+  [PASS] 03-filler-start: did_yield=True seconds_to_yield=0.65s talk_over=0.56s
+  [PASS] 04-correction: did_yield=True seconds_to_yield=0.50s talk_over=0.50s
+  [PASS] 05-telephony-8khz: did_yield=True seconds_to_yield=0.50s talk_over=0.50s
+  [PASS] 06-double-talk: did_yield=True seconds_to_yield=1.05s talk_over=1.05s
+  [PASS] 07-echo-bleed: did_yield=False seconds_to_yield=- talk_over=3.00s
+  [PASS] 08-rapid-turn-taking: did_yield=True seconds_to_yield=0.50s talk_over=0.50s
   exit_code=0
 ```
 
-The bundled fixtures are synthetic — a runnable floor and a regression guard, not
-production accents, codecs, or room acoustics. To measure **your** agent, capture a
-real call (above). The core has **zero third-party dependencies**.
-
-## Why "hotato"
-
-Good turn-taking is a game of hot potato: take your turn, then pass it — fast and
-clean. Don't fumble it (miss a real interruption) and don't clutch it (talk over
-the caller). Voice agents get this wrong in both directions, all day. Hotato
-catches exactly those two failures on your own call recordings and points each
-one at a fix. It is a potato with opinions about whose turn it is.
+This self-test proves the tool itself behaves. Point it at a real call to measure
+your agent.
 
 ## What it measures
 
-It scores the audio-**timing** of turn-taking from a call recording, and returns
-three objective signals per event:
+It scores the audio timing of turn-taking. Per event, three objective signals:
 
-- `did_yield` — did the agent stop talking for the caller?
-- `seconds_to_yield` — how long that took (the latency of the yield).
-- `talk_over_sec` — how many seconds it kept talking over the caller first.
+- `did_yield`: did the agent stop talking for the caller?
+- `seconds_to_yield`: how long that took.
+- `talk_over_sec`: how many seconds it kept talking over the caller first.
 
-From those it renders a `PASS`/`FAIL` verdict against the expected behaviour
-(the agent should *yield* to a real interruption, and *hold* through a
-backchannel like "mhm"). The bundled 8-scenario battery covers the vocabulary
-engineers actually hit: hard interruption, backchannel, filler-start,
-correction, 8 kHz telephony, double-talk, echo-bleed, and rapid turn-taking.
+From those it renders a `PASS` or `FAIL` against expected behavior: a good agent
+yields to a real interruption and holds through a backchannel like "mhm".
 
-## What it does NOT do — and the honest ceiling
+The bundled 8-scenario battery covers hard interruption, backchannel,
+filler-start, correction, 8 kHz telephony, double-talk, echo-bleed, and rapid
+turn-taking.
 
-This is the part closed tools bury; we lead with it.
+## Scope
 
-- **No accuracy percentage, anywhere.** These are reproducible timing
-  measurements with an exposed method and every threshold a documented,
-  overridable parameter — not a graded judgement of any detector's internal
-  quality. Automated sub-second scoring on a single channel has a real ceiling.
-- **Energy is not intent.** The scorer detects speech-level energy in time, not
-  meaning. It does **no** speaker identification, **no** diarization, **no**
-  transcription, and **no** emotion/intent detection.
-- **Best input is a two-channel recording** (caller and agent on separate
-  channels), where overlap is physically ground-truthable. Mono is accepted but
-  degraded: separation is then only as good as the VAD, so mono requires an
-  onset label and will not report separated overlap as if it were authoritative.
-- **The bundled fixtures are synthetic** — a runnable floor and a regression
-  guard, not production accents, codecs, or room acoustics. For real validity,
-  bring 10–15 of your own labelled calls (see `CONTRIBUTING.md` and
-  `docs/CORPUS-GOVERNANCE.md`).
+Each limit is a property of how the scoring works.
 
-Full method: `METHODOLOGY.md`.
+- **Frame-by-frame timing you can verify.** Every number is a measurement against
+  a published, overridable threshold, inspectable with `--dump-frames`.
+- **Speech energy over time is the whole signal**, so scoring is deterministic and
+  runs offline on any recording.
+- **Two channels are ground truth for overlap.** Mono runs with an onset label and
+  reports its overlap as an estimate.
+- **Synthetic fixtures are the floor**: deterministic, with exact known timings, a
+  runnable floor and a regression guard. Real validity comes from your own
+  labelled calls (see `CONTRIBUTING.md`).
 
-## Optional neural cross-check (non-reference)
+Full method, and the optional neural cross-check (`--backend neural`, Silero VAD):
+`METHODOLOGY.md`.
 
-The scoring core is the **energy** VAD, and it stays the reference — every
-published, golden, and bundled number comes from it, deterministically. For a
-second opinion you can re-run the *same* turn-taking timing math over a learned
-speech track:
+## Install
+
+`uvx` runs every command with zero install. To add it to a project:
 
 ```bash
-pip install 'hotato[neural]'
-hotato run --stereo your_call.wav --backend neural   # opt-in; energy is the default
+pip install hotato                 # core, stdlib-only, zero dependencies
+pip install 'hotato[neural]'       # optional Silero VAD cross-check
+pip install 'hotato[livekit]'      # LiveKit live capture
+pip install 'hotato[pipecat]'      # Pipecat live capture
 ```
 
-It uses **Silero VAD (MIT)**, locally and offline, behind one shared contract (so
-an open-weight turn-detector like Smart-Turn can slot in later). It **tightens
-onset precision** on clean speech — but it does **not** recover intent: a cough
-still reads as speech energy, and *any* single-channel VAD, energy or neural, can
-mark it active. So this is a **flagged cross-check, not a new source of truth**,
-and there is still **no accuracy number**. The bundled `--suite` self-test always
-uses the energy reference; without the extra installed, `--backend neural` errors
-cleanly rather than falling back to energy. Details: `METHODOLOGY.md`.
+## Usage
 
-## The fix map
+Capture a real call from your stack. Vapi and Twilio need only an API key:
 
-Every failing event carries exactly one honest fix:
+```bash
+# Vapi: an API key and a call id
+export VAPI_API_KEY=...
+uvx hotato capture --stack vapi --call-id <call-id>
 
-- **`config`** — a concrete knob for your stack (`livekit` | `pipecat` | `vapi`
-  | `generic`), the direction to move it, and the trade-off it makes. No upsell.
-- **`engagement-control`** — when the failure is a *discrimination* problem (a
-  genuine bid for the floor vs a backchannel or speech not addressed to the
-  agent) that no single sensitivity dial can solve, it points — high-level, no
-  numbers, and **vendor-neutral** — at the *kind* of fix the failure needs: a
-  learned engagement-control / addressee-detection layer, not a config knob. The
-  pointer names no vendor and nothing you can adopt, license, or buy; separating
-  a real floor-bid from a backchannel is an open, hard research problem, and the
-  tool says so plainly. It is pointed to only on that genuine both-axes case,
-  never as an upsell.
+# Twilio dual-channel recording
+export TWILIO_ACCOUNT_SID=AC...  TWILIO_AUTH_TOKEN=...
+uvx hotato capture --stack twilio --recording-sid RE...
 
-## Use it from an agent (MCP)
+# LiveKit or Pipecat: scaffold the recording config first
+uvx hotato setup --stack livekit    # then: hotato capture --stack livekit --caller a.wav --agent b.wav
+uvx hotato setup --stack pipecat    # then: hotato capture --stack pipecat --stereo captured.wav
+```
+
+Every stack, and Retell's status, is in [`adapters/README.md`](adapters/README.md).
+
+Every failing event carries exactly one fix:
+
+- **`config`**: a concrete knob for your stack (`livekit`, `pipecat`, `vapi`, or
+  `generic`), the direction to move it, and the trade-off it makes.
+- **`engagement-control`**: the one failure a sensitivity dial cannot solve.
+  Telling a genuine bid for the floor apart from a backchannel is an open research
+  problem, so the pointer names the kind of fix, high-level and vendor-neutral: a
+  learned engagement-control / addressee-detection layer. It fires only when a
+  battery fails on both axes at once.
+
+## The MCP tool
+
+Run it as a one-tool MCP server (stdio), so an agent can run the eval mid-task:
 
 ```bash
 uvx --from "hotato[mcp]" hotato-mcp
 ```
 
-Exposes exactly one stdio tool, `voice_eval_run`, returning the identical JSON
-envelope as the CLI, with the honest scope and limits stated inline in the tool
-description.
+It exposes exactly one tool, `voice_eval_run`, returning the same JSON envelope as
+the CLI, with the scope and limits stated inline in the tool description.
 
-## Use it in CI
+## CI
 
-`run` exits non-zero on any regression, so it drops straight into a PR gate:
+`run` exits non-zero on a regression, straight into a PR gate:
 
 ```bash
-uvx hotato run --suite barge-in --format json   # exit 1 on regression
+uvx hotato run --suite barge-in --format json
 ```
 
-## Exit codes
+Exit codes: `0` all pass (or `--no-fail`), `1` a regression, `2` usage or IO error.
 
-`0` all pass (or `--no-fail`) · `1` a regression (≥1 event failed) · `2`
-usage/IO error.
+## Contributing
+
+Bug fixes, scorer tuning, docs, and new scenarios are all welcome. The highest
+value contribution is a real, labelled call fixture: synthetic fixtures make the
+eval runnable, real recordings make it credible. Start with `CONTRIBUTING.md` and
+`docs/CORPUS-GOVERNANCE.md`.
+
+## Why "hotato"
+
+Good turn-taking is a game of hot potato: take your turn, then pass it, fast and
+clean. Fumble it and you miss a real interruption; clutch it and you talk over the
+caller. Hotato catches both on your own recordings and points each at a fix.
 
 ## License
 
-MIT (`LICENSE`). The open core stays open — it is never relicensed.
+MIT (`LICENSE`). The open core stays open and is never relicensed.

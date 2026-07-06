@@ -1,50 +1,51 @@
 # hotato
 
-> The open (MIT), offline, zero-install turn-taking eval for voice agents. Does
-> your agent drop the turn, or hog it? It scores turn-taking from a call
-> recording and points each failure at a concrete fix. Built to be called by an
-> AI agent mid-task, as a CLI or a one-tool MCP server. No account, no API key,
-> no cloud, no audio egress.
+> An open (MIT), offline, zero-install tool that scores voice-agent turn-taking
+> from a call recording. Does your agent drop the turn, or hog it? It scores the
+> timing from a recording and points each failure at a concrete fix. Runs entirely
+> on your machine. Built to be called by an AI agent mid-task, as a CLI or a
+> one-tool MCP server.
 
 ## Run it (zero-install)
 
-- Score the bundled labelled battery: `uvx hotato run --suite barge-in`
+- Score the bundled battery: `uvx hotato run --suite barge-in`
 - Score one recording (two-channel WAV, caller and agent on separate channels):
   `uvx hotato run --stereo call.wav --stack livekit --format json`
-- As a one-tool MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp`
-  exposes exactly one tool, `voice_eval_run`, returning the identical JSON envelope.
+- As a one-tool MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes
+  exactly one tool, `voice_eval_run`, returning the identical JSON envelope.
 
 ## What it returns
 
-A single JSON envelope (schema: `hotato/schema/envelope.v1.json`,
-`schema_version` "1", additive-only). Per event, three objective timing signals:
-`did_yield`, `seconds_to_yield`, `talk_over_sec`, plus a `signals` bus
-(`barge_in`, `latency`) and a `verdict`. Exit code 0 = all pass, 1 = a
-regression, 2 = usage/IO error. Every failing event carries a `fix`:
+A single JSON envelope (schema: `hotato/schema/envelope.v1.json`, `schema_version`
+"1", additive-only). Per event, three objective timing signals: `did_yield`,
+`seconds_to_yield`, `talk_over_sec`, plus a `signals` bus (`barge_in`, `latency`)
+and a `verdict`.
 
-- `fix_class: "config"` — a concrete knob for your stack (livekit|pipecat|vapi|
-  generic) with the direction and the honest trade-off. No upsell.
-- `fix_class: "engagement-control"` — the failure is a discrimination problem a
-  single sensitivity dial cannot solve; points high-level (no numbers, no
-  vendor) at the KIND of fix it needs — a learned engagement-control /
-  addressee-detection layer, an open research problem, not a config knob or a
-  product you can buy.
+Exit codes: `0` all pass, `1` a regression, `2` usage or IO error. Every failing
+event carries a `fix`:
 
-## Honest limits (read before trusting a number)
+- `fix_class: "config"`: a concrete knob for your stack (livekit, pipecat, vapi,
+  generic) with the direction and the honest trade-off.
+- `fix_class: "engagement-control"`: a discrimination problem a single sensitivity
+  dial cannot solve. Points high-level and vendor-neutral at the kind of fix it
+  needs: a learned engagement-control / addressee-detection layer, an open
+  research problem.
 
-- No accuracy percentage anywhere. These are reproducible timing measurements
-  with an exposed method and an explicit ceiling, not judgements of a detector's
-  internal quality. Every threshold is a documented, overridable parameter and
-  every frame is inspectable via `--dump-frames`.
-- Energy is not intent: no speaker identification, no diarization, no
-  transcription, no emotion detection.
-- Best input is a two-channel recording; mono is degraded and requires an onset
-  label. Bundled fixtures are synthetic — a floor and a regression guard, not
-  production audio. Bring your own labelled calls for real validity.
+## Scope and method (each limit is a property of how it works)
+
+- Reproducible timing against published thresholds. Every number is a measurement
+  against a documented, overridable parameter, with an explicit ceiling; every
+  frame is inspectable via `--dump-frames`.
+- Energy over time: identity-blind and content-blind by construction. No speaker
+  identification, diarization, transcription, or emotion detection.
+- Two channels are ground truth for overlap. Mono runs with an onset label and
+  marks its overlap as an estimate.
+- The bundled fixtures are synthetic: a deterministic floor and a regression
+  guard. Real validity comes from your own labelled calls.
 
 ## Links
 
-- README.md — quickstart and the honest ceiling.
-- METHODOLOGY.md — exactly how every number is computed.
-- CONTRIBUTING.md, docs/CORPUS-GOVERNANCE.md — contribute real labelled fixtures.
-- LICENSE — MIT. The open core is never relicensed.
+- README.md: quickstart and scope.
+- METHODOLOGY.md: exactly how every number is computed.
+- CONTRIBUTING.md, docs/CORPUS-GOVERNANCE.md: contribute real labelled fixtures.
+- LICENSE: MIT. The open core is never relicensed.

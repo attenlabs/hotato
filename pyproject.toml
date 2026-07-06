@@ -57,7 +57,8 @@ hotato = "hotato.cli:main"
 hotato-mcp = "hotato.mcp_server:main"
 
 [project.urls]
-Homepage = "https://attentionlabs.ai"
+Repository = "https://github.com/attenlabs/hotato"
+Homepage = "https://hotato.dev"
 "Open engine (upstream)" = "https://github.com/quantumCF/voice-agent-barge-in-tests"
 
 [tool.setuptools.packages.find]
