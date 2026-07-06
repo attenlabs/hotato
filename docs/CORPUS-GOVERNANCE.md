@@ -30,10 +30,12 @@ calls beat ten thousand scraped ones.
 
 ## Scope and boundaries
 
-- The corpus measures **audio timing of turn-taking**: floor-yielding, talk-over,
-  backchannel handling.
-- Labels are about **events in time**: did the agent yield, and when did the caller
-  start.
+- The corpus measures the **audio timing of turn-taking**: whether the agent
+  stopped talking when the caller interrupted (yield), how long both talked at
+  once (talk-over), and whether the agent talked through a short acknowledgement
+  like "mhm" (backchannel handling).
+- Labels are about **events in time**: did the agent stop, and when did the
+  caller start.
 - Everything here is redistributed under the project's MIT license. A clip enters
   the corpus only if it can be released under MIT with consent.
 

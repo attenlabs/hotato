@@ -64,9 +64,9 @@ operator feels, so the report surfaces them directly.
 ## Why milliseconds and a matrix
 
 The report is a per-signal error distribution plus a four-cell confusion matrix.
-Keeping the millisecond errors and the four cells separate preserves the shape of
-the error and the asymmetry between the two failure modes. The distribution and
-the matrix are the report. This is the rule the corpus governance doc enforces
+The cells stay separate because a missed yield and a false yield are different
+failures with different fixes; averaging them into one number would hide which
+one you have. The distribution and the matrix are the report. This is the rule the corpus governance doc enforces
 (`docs/CORPUS-GOVERNANCE.md`, "Validity metrics"), applied to the tooling.
 
 The reported error is what the default shipped config measures, so it is the number

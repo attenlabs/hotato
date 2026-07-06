@@ -2,10 +2,12 @@
 
 What each capture adapter is built against, verified against the vendor's live
 documentation on the date shown. Auto-pull means Hotato fetches the recording
-itself with your API key; capture-in-your-infra means Hotato scaffolds the
-recording config and scores the file your deployment writes. Degraded paths
-(mono, no party attribution) exist only behind an explicit `--allow-mono` /
-`HOTATO_ALLOW_MONO=1` opt-in and are labeled indicative only.
+itself with your API key; capture-in-your-infra means Hotato prints the
+recording config and scores the file your deployment writes. Mono recordings
+are degraded input, because a single mixed channel cannot attribute overlap to
+the caller or the agent; Hotato scores them only behind an explicit
+`--allow-mono` / `HOTATO_ALLOW_MONO=1` opt-in and labels the result indicative
+only.
 
 | Stack | Capture mode | Current API basis | Last verified | Doc URL |
 | --- | --- | --- | --- | --- |

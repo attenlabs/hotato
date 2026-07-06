@@ -3,10 +3,12 @@
 Thanks for being here. This project measures one narrow thing well: the audio
 timing of turn-taking in a voice-agent call.
 
-That means: when the agent yields the floor after a caller barges in, how long it
-talks over them, and whether it wrongly yields on a backchannel. It runs offline,
-from a recording, with an energy-based voice-activity detector (VAD):
-reproducible and inspectable, on any recording.
+That means: whether the agent stops talking when the caller barges in (starts
+talking while the agent is talking), how long the two talk at once before it
+stops, and whether it wrongly stops for a backchannel, a short acknowledgement
+like "mhm" that is not a request to take over. It runs offline, from a
+recording, with an energy-based voice-activity detector (VAD): reproducible and
+inspectable, on any recording.
 
 Every kind of contribution is welcome: bug fixes, scorer tuning, docs, new
 synthetic scenarios. But one thing matters more than the rest:
@@ -80,8 +82,9 @@ shape, not the spec of record.
 - `tags`: freeform descriptors (`interruption`, `backchannel`, `telephony`, ...).
 - `sample_rate`: Hz of the audio (e.g. `16000`; `8000` for telephony).
 - `duration_sec`: total length of the recording.
-- `caller_onset_sec`: the human-labeled moment the caller takes (or attempts) the
-  floor. Required for mono; still valuable for dual-channel as a cross-check.
+- `caller_onset_sec`: the human-labeled moment the caller starts talking to take
+  (or try to take) the turn. Required for mono; still valuable for dual-channel
+  as a cross-check.
 - `expected`: the pass/fail bounds.
   - `yield`: whether a well-behaved agent should yield here.
   - `max_time_to_yield_sec`: upper bound on acceptable time-to-yield (`null` when

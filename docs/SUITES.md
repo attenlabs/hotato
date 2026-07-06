@@ -3,9 +3,9 @@
 `corpus/suites/` ships four labelled scenario suites, 112 scenarios total,
 every one synthetic shaped noise rendered deterministically from its own
 labelled timings (seed `sha256(scenario_id)`). The timings are the ground
-truth. Synthetic is the floor: these suites prove the plumbing and catch
-regressions; validity on your system comes from your own labelled calls
-(`docs/SUBMITTING.md`).
+truth. Synthetic audio is the floor: these suites prove the scorer runs end to
+end and catch regressions; validity on your system comes from your own labelled
+calls (`docs/SUBMITTING.md`).
 
 ## The four suites
 
@@ -17,9 +17,11 @@ regressions; validity on your system comes from your own labelled calls
 | `gold-defects` | 16 | hard-condition defect renders, plus two labelled capture-defect cases | `1` |
 
 The scenario families span the behaviours that matter on a real call: hard
-interruptions (onset, speed, duration, resume), backchannels (position,
-density, repeats, long acks), double-talk, one-word interruptions, stutter
-onsets, multi-turn exchanges, resume-then-reinterrupt, and latency prompts.
+interruptions (onset, speed, duration, resume), backchannels, short
+acknowledgements like "mhm" that the agent should talk through (varied in
+position, density, repeats, and length), double-talk, one-word interruptions,
+stutter onsets, multi-turn exchanges, resume-then-reinterrupt, and latency
+prompts.
 `corpus/suites/manifest.json` is the machine-readable inventory: per suite the
 family and category breakdown, sample rates, and the expected exit code.
 
@@ -27,7 +29,7 @@ family and category breakdown, sample rates, and the expected exit code.
 
 Every scenario in `silver-defects` and `gold-defects` is rendered to fail on
 its labelled axis: an agent that keeps talking through a real interruption, or
-yields to a backchannel, or misses its latency budget. A defect suite that
+stops for a backchannel, or misses its latency budget. A defect suite that
 exits `1` is the scorer catching what it claims to catch; a defect suite that
 exits `0` would be a bug. This is the negative control the positive suites
 need to mean anything.

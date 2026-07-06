@@ -19,7 +19,9 @@ uvx hotato doctor --demo --no-open --out report.html
 It is a convenience wrapper over the existing scorer and report. Nothing new is
 claimed, and everything runs offline. Exit codes match `run`: `0` all pass,
 `1` a regression (`--no-fail` forces `0`), `2` usage or IO error, or a
-recording that is not scorable (silent caller, or agent silent at onset).
+recording that is not scorable. Not scorable means the recording cannot answer
+the question (the caller channel is silent, or the agent was not talking when
+the caller started), so no verdict is given.
 
 ## `hotato report`: the visual report
 
@@ -44,7 +46,7 @@ measurements:
   mean, median, and p90 (definitions in `METHODOLOGY.md`);
 - a **talk-over histogram**, real per-event seconds bucketed on a fixed grid;
 - **failure clustering by fix class**, so a batch of failures reads as "these
-  five are one config knob" instead of five separate mysteries.
+  five share one config setting" instead of five separate mysteries.
 
 Every timeline carries a collapsible **frame inspector**: the full frame dump
 behind that event as a table (`t_sec`, per-channel dBFS, active flags,

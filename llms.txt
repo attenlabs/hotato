@@ -1,11 +1,12 @@
 # hotato
 
 > Turn-taking regression tests for voice agents (MIT, offline, zero-install):
-> score a real call recording, keep it as a fixture, fail CI when timing
-> regresses. Does your agent drop the turn, or hog it? It scores the
-> timing from a recording and points each failure at a concrete fix. Runs entirely
-> on your machine. Built to be called by an AI agent mid-task, as a CLI or a
-> one-tool MCP server.
+> score a real call recording, keep it as a fixture, fail CI when the timing
+> regresses. Hotato measures whether the agent stopped talking when the caller
+> started (a yield), how many seconds that took, and how many seconds both were
+> talking at once (talk-over). Every failure points at a concrete fix. Runs
+> entirely on your machine. Built to be called by an AI agent mid-task, as a
+> CLI or a one-tool MCP server.
 
 ## Run it (zero-install)
 
@@ -15,7 +16,8 @@
 - See a catch: `uvx hotato demo` scores the packaged intentionally failing
   battery and opens its report (exit 0 by design; `--fail` returns the real
   regression exit code).
-- Score the bundled battery: `uvx hotato run --suite barge-in`
+- Score the bundled battery: `uvx hotato run --suite barge-in` (barge-in: the
+  caller starts talking while the agent is talking).
 - Score one recording (two-channel WAV, caller and agent on separate channels):
   `uvx hotato run --stereo call.wav --stack livekit --format json`
 - Visual report (self-contained HTML, per-event SVG timelines, analytics,
@@ -31,44 +33,53 @@
 - As a one-tool MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes
   exactly one tool, `voice_eval_run`, returning the identical JSON envelope.
   Optional `report_path` also writes the HTML report; the envelope carries the path.
-- Tiered corpus suites (silver, silver-defects, gold, gold-defects; defect suites
-  exit 1 by design): `hotato run --suite barge-in --scenarios corpus/suites/gold/scenarios --audio corpus/suites/gold/audio`
-- PR check: copy `.github/workflows/hotato.yml` for a sticky results comment and
-  a regression gate on every pull request.
+- Tiered corpus suites (silver, silver-defects, gold, gold-defects; the defect
+  suites fail on purpose and exit 1):
+  `hotato run --suite barge-in --scenarios corpus/suites/gold/scenarios --audio corpus/suites/gold/audio`
+- PR check: copy `.github/workflows/hotato.yml` to score every pull request,
+  post one self-updating results comment, and fail the job on a regression.
 
 ## What it returns
 
-A single JSON envelope (schema: `hotato/schema/envelope.v1.json`, `schema_version`
-"1", additive-only). Per event, three objective timing signals: `did_yield`,
-`seconds_to_yield`, `talk_over_sec`, plus a `signals` bus (`barge_in`, `latency`)
-and a `verdict`.
+A single JSON envelope, the machine-readable result object (schema:
+`hotato/schema/envelope.v1.json`, `schema_version` "1", additive-only). Per
+event, three timing signals: `did_yield` (did the agent stop talking after the
+caller started), `seconds_to_yield` (seconds between the caller starting and
+the agent stopping), `talk_over_sec` (seconds both were talking at once), plus
+a namespaced `signals` block (`barge_in`, `latency`) and a `verdict`.
 
 Exit codes: `0` all pass, `1` a regression, `2` usage or IO error, or a single
-recording that is not scorable. An event that cannot be judged (silent caller,
-or agent silent at the caller onset) carries `scorable: false` and a plain
-`not_scorable_reason`; it never surfaces as a normal pass or fail. Every failing
-event carries a `fix`:
+recording that is not scorable. Not scorable means the recording cannot answer
+the question, so no verdict is given: a silent caller channel, or an agent that
+was not talking when the caller started, carries `scorable: false` and a plain
+`not_scorable_reason`, never a fake pass or fail. Every failing event carries a
+`fix`:
 
-- `fix_class: "config"`: a concrete knob for your stack (livekit, pipecat, vapi,
-  generic) with the direction and the honest trade-off.
-- `fix_class: "engagement-control"`: a discrimination problem a single sensitivity
-  dial cannot solve. Points high-level and vendor-neutral at the kind of fix it
-  needs: a learned engagement-control / addressee-detection layer, an open
-  research problem.
+- `fix_class: "config"`: a named setting in your stack (livekit, pipecat, vapi,
+  generic), which direction to move it, and what that trades away.
+- `fix_class: "engagement-control"`: no timing threshold separates a
+  backchannel (a short acknowledgement like "mhm") from a one-word command like
+  "stop". The fix points, vendor-neutral, at a learned layer that decides
+  whether the caller is asking to take the turn (engagement control /
+  addressee detection), an open research problem.
 
 ## Scope and method (each limit is a property of how it works)
 
-- Reproducible timing against published thresholds. Every number is a measurement
-  against a documented, overridable parameter, with an explicit ceiling; every
-  frame is inspectable via `--dump-frames`.
-- Energy over time: identity-blind and content-blind by construction. No speaker
-  identification, diarization, transcription, or emotion detection.
-- Two channels are ground truth for overlap. Mono runs with an onset label and
-  marks its overlap as an estimate.
+- Reproducible timing against published thresholds. Every number is a
+  measurement against a documented, overridable parameter, with an explicit
+  ceiling; every frame is inspectable via `--dump-frames`.
+- The detector reads audio energy over time, nothing else: it cannot tell who
+  spoke or what was said. No speaker identification, diarization,
+  transcription, or emotion detection.
+- Two separate channels make overlap a fact of the recording. On a mono mix
+  the scorer needs a caller-onset label and marks its overlap numbers as
+  estimates.
 - The bundled fixtures are synthetic: a deterministic floor and a regression
   guard. Real validity comes from your own labelled calls.
 
-- `hotato benchmark --stack S --recordings DIR` scores your captured battery; `benchmark compare a.json b.json` renders side-by-side deltas.
+- `hotato benchmark --stack S --recordings DIR` scores the battery you captured
+  through your stack; `hotato benchmark compare a.json b.json` renders
+  side-by-side deltas.
 
 ## Links
 

@@ -11,6 +11,14 @@ design. See `docs/BENCHMARK.md`.
 
 Nothing yet.
 
+## [0.2.3] - 2026-07-06
+
+### Changed
+- Documentation clarity pass across README, docs, and the PyPI page. Every
+  turn-taking term (talk-over, barge-in, yield, backchannel, endpointing, not
+  scorable) is defined in plain language at first use, and fix descriptions
+  name the concrete setting to change. No code or scoring behaviour changed.
+
 ## [0.2.2] - 2026-07-06
 
 ### Fixed
@@ -180,7 +188,9 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
-[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/attenlabs/hotato/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/attenlabs/hotato/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/attenlabs/hotato/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/attenlabs/hotato/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/attenlabs/hotato/releases/tag/v0.1.0

@@ -2,8 +2,8 @@
 
 Install hotato and the plugin registers itself (a standard `pytest11` entry
 point). No `conftest.py` line, no import. It adds one fixture and one opt-in
-session gate, both scoring with the same engine and returning the same envelope
-as the CLI.
+session gate. Both score with the same engine as the CLI and return the same
+envelope, the JSON result object every hotato surface emits.
 
 ```bash
 pip install hotato

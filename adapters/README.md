@@ -1,9 +1,10 @@
 # Capture adapters: score your own call
 
-The fastest path to real value: point Hotato at a real dual-channel call from your
-stack. Each adapter does one thing: fetch a two-channel recording (caller on
-channel 0, agent on channel 1) and run it through the same scorer the bundled
-battery uses.
+The fastest path to real value: point Hotato at a real dual-channel call from
+your stack. Each adapter gets a two-channel recording (caller on channel 0,
+agent on channel 1) into Hotato: Vapi, Retell, and Twilio download it with your
+API key; LiveKit and Pipecat record it inside your own infra. Every adapter
+then runs the same scorer the bundled battery uses.
 
 Two entry points, one shared implementation (single-sourced in `hotato.capture`):
 

@@ -1,9 +1,9 @@
 # Benchmarking voice stacks with hotato
 
-`hotato benchmark` runs one fixed scenario set against YOUR configured voice
-stack and scores the recordings you captured. Every stack answers the same
-scenarios under the same labels and thresholds, so the result files are
-directly comparable: same battery, same measurements, same exposed config.
+`hotato benchmark` scores the recordings you captured by running one fixed
+scenario set through YOUR configured voice stack. Every stack is scored on the
+same scenarios, the same labels, and the same thresholds, so the result files
+are directly comparable: same battery, same measurements, same exposed config.
 
 hotato measures timing on the recordings it is given. It ships no vendor
 numbers, no leaderboard, and no accuracy percentage. Results depend on your

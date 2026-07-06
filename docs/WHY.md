@@ -9,14 +9,16 @@ invisible to text-level tests:
 1. **Missed interruption.** The caller says "stop, take that off" and the agent
    keeps talking. `did_yield` is false where it must be true. The caller
    repeats themselves, louder, then hangs up.
-2. **False barge-in.** The caller says "mhm" and the agent stops mid-sentence
-   and hands over the floor. `did_yield` is true where it must be false. The
-   call stalls, then restarts, then stalls again.
-3. **Slow yield.** The agent does stop, eventually. Every second of
-   `talk_over_sec` before the yield is the caller and the agent speaking at
-   once, and the caller hears all of it.
-4. **Endpointing misses.** Dead air after the caller finishes
-   (`response_gap_sec`), or the agent starting before the caller is done
+2. **False stop.** The caller says "mhm", a backchannel: a short acknowledgement,
+   not a request to take over. The agent stops mid-sentence anyway. `did_yield`
+   is true where it must be false. The call stalls, then restarts, then stalls
+   again.
+3. **Slow yield.** The caller interrupts and the agent does stop, eventually.
+   Every second of `talk_over_sec` before it stops is the caller and the agent
+   speaking at once, and the caller hears all of it.
+4. **Endpointing misses.** Endpointing is detecting that the caller finished
+   speaking. When it misses, the caller gets dead air after they finish
+   (`response_gap_sec`), or the agent starts before they are done
    (`premature_start_sec`). Both read as a broken conversation partner.
 
 Each of these lives entirely in the audio timing of the call. A transcript
@@ -34,14 +36,15 @@ call with any of these failures as perfect.
   shape from the CLI, the MCP tool, and the pytest fixture, so an agent or a
   CI job consumes one schema.
 - **It fails CI.** Exit code 1 on a regression, 0 on pass, 2 on a usage error
-  or a single recording that is not scorable (silent caller, or agent silent
-  at onset).
-  A turn-taking regression blocks a merge the same way a failing unit test
-  does.
-- **It routes every failure to a fix class.** `config` names the exact knob on
-  your stack and the direction to move it. `engagement-control` tells you the
-  failure is a discrimination problem no threshold can solve, so you stop
-  burning days retuning a dial that cannot win.
+  or a recording that is not scorable: the recording cannot answer the
+  question (the caller channel is silent, or the agent was not talking when
+  the caller started), so no verdict is given. A turn-taking regression blocks
+  a merge the same way a failing unit test does.
+- **It routes every failure to a fix class.** `config` names the exact setting
+  on your stack and the direction to move it. `engagement-control` tells you
+  no threshold value can fix this failure, because telling "mhm" apart from
+  "stop" is a classification problem, so you stop burning days retuning a
+  setting that cannot win.
 
 ## What it does not do
 
@@ -56,9 +59,9 @@ Because accuracy would hide the thing you need to debug. A single blended
 percentage tells you nothing about which call failed, on which axis, or what
 to change. Hotato reports three direct measurements per event instead:
 
-- `did_yield`: did the agent stop for the caller
-- `seconds_to_yield`: how long the yield took
-- `talk_over_sec`: how long the agent spoke over the caller
+- `did_yield`: did the agent stop talking after the caller started
+- `seconds_to_yield`: seconds between the caller starting and the agent stopping
+- `talk_over_sec`: seconds the caller and the agent spoke at the same time
 
 Every number is reproducible from the frame dump by hand, every threshold is
 exposed, and a failure points at its fix. That is what you debug with.

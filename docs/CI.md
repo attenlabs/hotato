@@ -1,9 +1,9 @@
 # CI: gate a PR on turn-taking
 
-hotato turns a call recording into reproducible turn-taking timing, so a pull
-request can carry a running score and fail when your agent gets worse at
-yielding. The workflow is offline, dependency light, and posts one comment that
-updates itself on every push.
+hotato scores turn-taking timing from call recordings, so a pull request can
+carry a running score and fail when the agent gets slower to stop talking for
+an interrupting caller. The workflow runs offline, needs no extra dependencies,
+and posts one comment that updates itself on every push.
 
 ## Drop it in
 
@@ -44,11 +44,12 @@ still posts on a regression; the true pass/fail lives in the envelope's
 
 ## Deltas against the base branch
 
-If the base branch is scorable, the workflow scores the same suite there in an
-isolated venv and passes it as a baseline. Any scenario that started overlapping
-more (talk over up) or yielding slower (time to yield up) is listed under
-Regressions with the delta. This step is best effort: if it cannot run, the
-comment falls back to the current pass/fail table and the gate still holds.
+When the workflow can install and score the base branch, it runs the same suite
+there in an isolated venv and uses it as the baseline. Any scenario where the
+overlap grew (talk-over up) or the agent stopped later (time to yield up) is
+listed under Regressions with the delta. This step is best effort: if it cannot
+run, the comment falls back to the current pass/fail table and the gate still
+holds.
 
 ## Render a comment yourself
 

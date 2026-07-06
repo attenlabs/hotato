@@ -106,9 +106,9 @@ run_single(
 ```
 
 Scores one recording and returns the envelope. Provide either `stereo` or both
-`caller` and `agent`. `expect="hold"` means the caller event is a backchannel
-and the agent should keep the floor. The two `max_*` thresholds tighten the
-pass criteria. Malformed or truncated WAVs raise a clean `ValueError` with the
+`caller` and `agent`. `expect="hold"` means the caller's speech is a
+backchannel, a short acknowledgement like "mhm", and a correct agent keeps
+talking through it. The two `max_*` thresholds tighten the pass criteria. Malformed or truncated WAVs raise a clean `ValueError` with the
 ffmpeg export line to fix them.
 
 ### run_suite

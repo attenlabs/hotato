@@ -18,10 +18,13 @@
   <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg"></a>
 </p>
 
-Hotato scores turn-taking from a call recording, on your machine, so call audio stays with you.
-It catches the three failures callers feel most: the agent talks over a real interruption, stops
-for a backchannel ("mhm"), or is slow to yield. Every failing event returns three measured
-signals (`did_yield`, `seconds_to_yield`, `talk_over_sec`) and a fix class that names the knob to turn.
+Hotato is turn-taking regression tests for voice agents. It scores a call recording on your machine, so call audio never leaves it, and it catches the three failures callers feel most:
+
+- **Talk-over**: the agent keeps talking while the caller is talking.
+- **False stop**: the caller says a short acknowledgement like "mhm" (a backchannel, not a request to take over) and the agent stops mid-sentence.
+- **Slow yield**: the caller starts talking and the agent takes too long to stop and let them speak.
+
+Every failing event returns three measured signals (`did_yield`, `seconds_to_yield`, `talk_over_sec`) and a fix that names the exact setting to change in your stack.
 
 ## See it fail a bad agent
 
@@ -31,7 +34,7 @@ uvx hotato demo
 
 ![Hotato failing demo report](https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo-report.png)
 
-The demo battery is intentionally bad and fully synthetic: it exists to show what a catch looks like.
+The demo scores a deliberately bad agent on synthetic audio, so you see the FAIL verdicts, the timelines, and the fix cards before touching your own calls.
 
 ## Score your own call
 
@@ -44,39 +47,39 @@ uvx hotato doctor --stereo your_call.wav   # two-channel WAV: caller ch0, agent 
 - **Vapi**: `uvx hotato capture --stack vapi --call-id <id>` with `VAPI_API_KEY` set.
 - **Twilio**: `uvx hotato capture --stack twilio --recording-sid RE...` with `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` set.
 - **Retell**: `uvx hotato capture --stack retell --call-id <id>` with `RETELL_API_KEY` set; fetches the call's multichannel recording.
-- **LiveKit / Pipecat**: `uvx hotato setup --stack livekit` (or `pipecat`) scaffolds recording in your infra, then `hotato capture` scores the files.
+- **LiveKit / Pipecat**: `uvx hotato setup --stack livekit` (or `pipecat`) prints the recording config for your infra, then `hotato capture` scores the files it produces.
 
-Scope, stated once: Hotato scores separated caller/agent tracks, as one two-channel WAV or two aligned mono WAVs. Per-stack details and verification dates: [`adapters/README.md`](adapters/README.md), [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md).
+Input, stated once: Hotato needs the caller and the agent on separate audio tracks, as one two-channel WAV or two aligned mono WAVs. Per-stack details and verification dates: [`adapters/README.md`](adapters/README.md), [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md).
 
 ## What Hotato measures
 
-Three objective timing signals per event, measured frame by frame and reproducible with `--dump-frames`:
+Three timing signals per event, measured frame by frame from the audio and re-derivable by hand with `--dump-frames`:
 
 | Signal | What it answers |
 | --- | --- |
-| `did_yield` | did the agent stop talking when the caller took the floor? |
-| `seconds_to_yield` | how long did that take? |
-| `talk_over_sec` | how many seconds it kept talking over the caller first |
+| `did_yield` | did the agent stop talking after the caller started talking? |
+| `seconds_to_yield` | how many seconds passed between the caller starting and the agent stopping? |
+| `talk_over_sec` | for how many seconds were the caller and the agent talking at once? |
 
-Every failing event carries exactly one fix, from a taxonomy of two classes. Pass `--stack livekit`, `pipecat`, `vapi`, or `generic` to get the knob in your stack's vocabulary:
+Every failing event carries exactly one fix, in one of two classes. Pass `--stack livekit`, `pipecat`, `vapi`, or `generic` and the fix uses your stack's own setting names:
 
-| Failure | `fix_class` | The knob it names |
+| Failure | `fix_class` | The setting it names |
 | --- | --- | --- |
 | Missed a real interruption | `config` | interruption sensitivity: LiveKit `turn_handling` `interruption.min_duration` / `interruption.min_words`, Pipecat `VADParams(start_secs, stop_secs, confidence)`, Vapi `stopSpeakingPlan.numWords` |
-| Slow yield | `config` | endpointing latency: LiveKit `endpointing.min_delay` / `endpointing.max_delay`, Pipecat `SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=...)`, Vapi `stopSpeakingPlan.backoffSeconds` |
+| Slow yield | `config` | endpointing delay, how long the stack waits before deciding the caller is speaking or finished: LiveKit `endpointing.min_delay` / `endpointing.max_delay`, Pipecat `SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=...)`, Vapi `stopSpeakingPlan.backoffSeconds` |
 | Excess talk-over | `config` | overlap debounce: LiveKit `interruption.min_duration`, Pipecat `VADParams(stop_secs)`, Vapi `stopSpeakingPlan.voiceSeconds` |
 | Yielded to its own echo | `config` | audio routing: echo cancellation and separate caller/agent channels |
-| Yielded to a backchannel | `engagement-control` | a vendor-neutral pointer. No single timing threshold separates a backchannel from a one-word interruption. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer |
+| Stopped for a backchannel | `engagement-control` | no setting fixes this one: no timing threshold can tell "mhm" apart from a one-word "stop". If your stack has an interruption/backchannel classifier, use it; otherwise the fix is a learned layer that decides whether the caller is actually asking to take the turn (engagement control / addressee detection) |
 
-Each `config` knob ships with a direction and its honest trade-off. When a battery fails on both axes at once (missed a real interruption AND false-triggered on a backchannel), a battery-level funnel pointer fires: that pattern is the signal a discriminating layer is needed, since one threshold trades the two cases against each other.
+Each `config` fix states which direction to move the setting and what that trades away. When one test set fails both ways at once (the agent missed a real interruption AND stopped for a backchannel), Hotato flags the pattern by name: a single sensitivity threshold trades those two failures against each other, so the fix is a classifier, not another threshold value.
 
 ## CI
 
 ```bash
-uvx hotato run --suite barge-in --format json   # text is the human default; json is the machine envelope
+uvx hotato run --suite barge-in --format json   # text output is for humans; json is for machines
 ```
 
-Exit codes: `0` all pass (or `--no-fail`), `1` a regression, `2` usage or IO error, or a single recording that is not scorable (silent caller, or agent silent at onset: the event reports `scorable: false` with the reason, never a fake verdict). Two ready-made gates: copy [`.github/workflows/hotato.yml`](.github/workflows/hotato.yml) for a PR check with a sticky results comment ([`docs/CI.md`](docs/CI.md)), or add `--hotato-suite` to your existing pytest run; the plugin auto-registers on install and fails the session on a regression ([`docs/PYTEST.md`](docs/PYTEST.md)).
+The bundled `barge-in` suite scores recordings of callers barging in, that is, starting to talk while the agent is talking. Exit codes: `0` every event passed (or `--no-fail`), `1` a regression, `2` a usage or IO error, or a recording that is not scorable. Not scorable means the recording cannot answer the question (the caller channel is silent, or the agent was not talking when the caller started); the event reports `scorable: false` with the reason, never an invented verdict. Two ready-made gates: copy [`.github/workflows/hotato.yml`](.github/workflows/hotato.yml) for a PR check that posts one self-updating results comment ([`docs/CI.md`](docs/CI.md)), or add `--hotato-suite` to the pytest run you already have; the plugin registers itself on install and fails the session on a regression ([`docs/PYTEST.md`](docs/PYTEST.md)).
 
 ## What you get
 
@@ -84,20 +87,20 @@ Exit codes: `0` all pass (or `--no-fail`), `1` a regression, `2` usage or IO err
 - **`report`**: self-contained HTML with per-event SVG timelines, a per-frame inspector, print CSS for PDF, and `--base base.json` regression deltas.
 - **`team`**: aggregate a directory of runs into pass rate over time plus mean/median/p90 talk-over and time-to-yield.
 - **`export`**: research-grade CSVs (`events.csv`, `frames.csv`, `envelope.json`), columns documented in-file.
-- **`benchmark`**: score your captured battery per stack, then compare result files side by side.
+- **`benchmark`**: score the battery you captured through each stack, then compare the result files side by side.
 - **Pytest plugin**: a `hotato_score` fixture plus a session gate (`pytest --hotato-suite`).
 - **MCP server**: one tool, `voice_eval_run`; pass `report_path` to also get the HTML report. `uvx --from "hotato[mcp]" hotato-mcp`
-- **Tiered corpus suites**: 112 deterministic scenarios across silver and gold tiers, plus defect suites that must fail.
+- **Tiered corpus suites**: 112 deterministic scenarios across silver and gold tiers, plus defect suites that fail on purpose to prove the scorer catches what it claims.
 
 ## Optional neural cross-check (verified, non-reference)
 
-`pip install 'hotato[neural]'`, then `hotato run --stereo call.wav --backend neural` re-runs the same turn-taking timing math over a Silero VAD speech track. The ONNX weights ship inside the package and inference runs offline on CPU. Verified properties:
+`pip install 'hotato[neural]'`, then `hotato run --stereo call.wav --backend neural` recomputes the same timing signals over speech regions found by Silero VAD, a small neural speech detector, instead of the default energy threshold. The ONNX weights ship inside the package and inference runs offline on CPU. Verified properties:
 
-- **Same contract.** The neural track comes back in the identical result shape as the energy reference, on the same hop grid, end to end.
+- **Same contract.** The neural run returns the identical result shape as the energy reference, on the same 10 ms frame grid, end to end.
 - **Deterministic.** Repeated runs on the same audio are byte-identical.
 - **The energy reference is untouched.** Installing the extra changes no energy number, and `--suite` always scores with energy (a note says so if you pass `--backend neural` there).
-- **Built for real recordings.** The bundled fixtures are synthetic shaped noise rendered for the energy reference, and a speech-trained model marks no speech in them, so the cross-check is informative on your own calls, where both tracks carry real speech.
-- **Clear errors.** Without the extra, `--backend neural` exits with an explicit error, never a silent energy fallback. Silero accepts 8000 Hz, 16000 Hz, and integer multiples of 16000 Hz; other rates get an actionable resample message.
+- **Built for real recordings.** The bundled fixtures are synthetic shaped noise rendered for the energy reference; a speech-trained model finds no speech in them, so run the cross-check on your own calls, where both tracks carry real speech.
+- **Clear errors.** Without the extra, `--backend neural` exits with an explicit error, never a silent fallback to energy. Silero accepts 8000 Hz, 16000 Hz, and integer multiples of 16000 Hz; other rates get an actionable resample message.
 
 Full method and the measured cross-check properties: [`METHODOLOGY.md`](METHODOLOGY.md).
 
@@ -121,6 +124,6 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - Why this exists: [`docs/WHY.md`](docs/WHY.md) · Method: [`METHODOLOGY.md`](METHODOLOGY.md) · Security: [`SECURITY.md`](SECURITY.md)
 - Contributing: the highest-value PR is a real, labelled call fixture. Start at [`docs/SUBMITTING.md`](docs/SUBMITTING.md).
 
-Why "hotato": good turn-taking is a game of hot potato. Take your turn, then pass it, fast and clean. MIT licensed ([`LICENSE`](LICENSE)); the open core stays open.
+Why "hotato": good turn-taking is a game of hot potato. Literally: speak, then stop the moment the caller wants the turn. Hotato measures how fast and how cleanly your agent passes it. MIT licensed ([`LICENSE`](LICENSE)); the open core stays open.
 
 mcp-name: io.github.attenlabs/hotato

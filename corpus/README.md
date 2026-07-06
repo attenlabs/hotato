@@ -1,15 +1,16 @@
 # corpus/ the turn-taking corpus (suites, tooling, schema)
 
 This directory carries two things: the **tiered synthetic scenario suites** that
-stress the scorer across 100+ labeled conditions today, and the pipeline for the
-slow-compounding part of Hotato, a small, high-integrity corpus of **real**
-dual-channel voice-agent calls with human-labelled turn-taking ground truth.
+stress the scorer across 100+ labeled conditions today, and the pipeline for a
+small, high-integrity corpus of **real** dual-channel voice-agent calls with
+human-labelled turn-taking ground truth, the part of Hotato that grows slowly
+and compounds.
 
 The synthetic suites prove the scorer does what the spec says, across noise
 floors, sample rates, gain extremes, echo, and edge timings, with every verdict
 regression-tested. Real recordings prove it measures what happens on an actual
-phone line. The second kind moves the needle, and it is the hardest to fake,
-which is exactly why it is worth doing right.
+phone line. Real recordings are what make the scorer credible, and they are the
+hardest thing here to fake, which is exactly why they are worth doing right.
 
 ## What's here
 

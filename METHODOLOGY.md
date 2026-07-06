@@ -5,15 +5,16 @@ where the method stops being trustworthy. There is no accuracy percentage in
 this document and none is implied anywhere in the tool. What follows describes a
 measurement, not a claim about any detector's internal quality.
 
-Hotato scores the audio *timing* of turn-taking from a
-call recording: whether a voice agent yielded the floor to the caller, how long
-that took, how long it talked over the caller first, and, on the same two
-tracks, the endpointing latency around the caller's turn end. It measures
-energy over time. It does not understand speech.
+Hotato scores the audio *timing* of turn-taking from a call recording: whether
+the agent stopped talking once the caller started (a yield), how many seconds
+that took, how many seconds it kept talking while the caller was talking
+(talk-over), and, on the same two tracks, the endpointing timing: how the
+agent's response sits around the moment the caller finished speaking. It
+measures energy over time. It does not understand speech.
 
 ## Read this first: the honest ceiling
 
-Lead with the limits, because they bound everything below.
+The limits come first because they bound everything below.
 
 - **Energy is not intent.** The detector marks a frame "active" when its
  short-time energy crosses a threshold. A cough, a slammed door, or a burst of
@@ -25,11 +26,12 @@ Lead with the limits, because they bound everything below.
  edge by up to that much, and on one mixed channel deciding *whose* energy
  crossed the threshold is not always possible.
 - **Two channels is the high-validity mode.** With the caller and the agent on
- physically separate channels, overlap is ground-truthable: both tracks are
- active at once, by construction. Mono is accepted but degraded, separation is
- then only as good as the VAD, so mono requires a caller onset label and the
- tool refuses to report caller/agent separation from a single mixed channel as
- if it were authoritative.
+ physically separate channels, overlap is a fact of the recording: both tracks
+ are active at once, by construction. Mono is accepted but degraded: with both
+ voices summed into one waveform, the scorer cannot attribute energy to a
+ speaker, so mono requires a caller onset label and the tool never reports
+ caller/agent separation from a single mixed channel as if it were
+ authoritative.
 - **Out of scope, permanently:** no speaker identification, no diarization, no
  speech-to-text, no emotion or intent detection, and no claim about any
  vendor's internal accuracy. Word-level semantics are not measured; only the

@@ -65,23 +65,24 @@ The caller only gives listener feedback; the correct agent holds the floor
 |---|---|---|
 | `bc-01-repeated-backchannels` | four short "mhm / right / yeah / okay" across the turn | HOLD: PASS |
 | `bc-02-midutterance-backchannel` | one "got it" at maximum overlap with live agent speech | HOLD: PASS |
-| `bc-03-near-miss-floor-take` | a long "yeah no totally that makes sense" that briefly looks like a floor-take | HOLD: PASS |
+| `bc-03-near-miss-floor-take` | a long "yeah no totally that makes sense" that briefly looks like the caller taking over | HOLD: PASS |
 
 ### funnel-demo/: a deliberately bad agent (labelled): `funnel-demo/scenarios/fd-*`
 
 This battery demonstrates failure. The agent here both misses a real interruption
-and yields on a bare backchannel, so `run_suite` over it fails on both axes and
+and stops for a bare backchannel, so `run_suite` over it fails on both axes and
 `fixmap.systemic_pointer` returns a non-null pointer: no single sensitivity
-threshold satisfies both cases at once. This is the artifact the engagement-control
-demonstration consumes.
+threshold satisfies both cases at once. `docs/SAA-BEHAVIOR-CARD.md` is generated
+from this battery.
 
 | id | behaviour | outcome |
 |---|---|---|
 | `fd-01-missed-interruption` | agent talks straight over a 2.5 s interruption | should yield, did not: FAIL, `config` (raise sensitivity) |
 | `fd-02-backchannel-yielded` | agent stops mid-sentence for a bare "mhm" (the bad twin of `bc-03`) | should hold, yielded: FAIL, `engagement-control` |
 
-Because one axis pulls the sensitivity dial up and the other pulls it down, the
-funnel fires. Its text carries zero digits.
+Because fixing one failure means raising the interruption threshold and fixing
+the other means lowering it, the suite-level funnel pointer fires. Its message
+contains no numbers by design.
 
 The same fixtures also ship inside the package as `hotato demo`: `uvx hotato demo`
 runs this battery and opens its visual report with zero checkout.
