@@ -20,6 +20,15 @@
   caller starts talking while the agent is talking).
 - Score one recording (two-channel WAV, caller and agent on separate channels):
   `uvx hotato run --stereo call.wav --stack livekit --format json`
+- Turn a bad call moment into a permanent regression fixture:
+  `uvx hotato fixture create --stereo bad-call.wav --id refund-cutoff-001
+  --onset 42.18 --expect yield --out tests/hotato`, then
+  `hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio`.
+  Find the moment first with `uvx hotato scan --stereo bad-call.wav`
+  (candidate moments as timing facts; you supply the yield/hold label).
+  Prove a fix with `uvx hotato compare --before bad.wav --after fixed.wav
+  --onset 42.18 --expect yield` (result: fixed | regressed | improved | worse
+  | unchanged | still_pass | not_scorable). Full loop: docs/BAD-CALL-TO-CI.md.
 - Visual report (self-contained HTML, per-event SVG timelines, analytics,
   per-frame inspector, print CSS): `uvx hotato report --stereo call.wav --out report.html`.
   `--format md` for Markdown; `--base base.json` for regression deltas.
@@ -63,6 +72,11 @@ was not talking when the caller started, carries `scorable: false` and a plain
   whether the caller is asking to take the turn (engagement control /
   addressee detection), an open research problem.
 
+Hotato does not infer intent. You label the expected behavior for the event:
+yield means the agent should stop for the caller. hold means the agent should
+keep speaking through a backchannel/noise/acknowledgement. Hotato then
+measures whether the timing matched that label.
+
 ## Scope and method (each limit is a property of how it works)
 
 - Reproducible timing against published thresholds. Every number is a
@@ -87,6 +101,9 @@ was not talking when the caller started, carries `scorable: false` and a plain
 - METHODOLOGY.md: exactly how every number is computed, including the mean,
   median, and p90 definitions (p90 is linear interpolation; rates are fractions,
   never a percentage).
+- docs/BAD-CALL-TO-CI.md: one bad call to a CI gate in five steps (fixture
+  create, run, compare, the CI snippet, plan), with the use/do-not-use lists.
+- docs/FIX-PLANS.md: the read-only diagnose/inspect/plan ladder.
 - docs/REPORTS.md: doctor, report, team, and export in depth.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.

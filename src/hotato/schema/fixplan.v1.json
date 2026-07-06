@@ -100,6 +100,42 @@
     },
     "checklist": {"type": "array", "items": {"type": "string"}},
     "required_fixture_family": {"type": "string"},
-    "other_findings": {"type": "array", "items": {"type": "string"}}
+    "other_findings": {"type": "array", "items": {"type": "string"}},
+    "kind": {"const": "fix-plan"},
+    "platform_mutation": {
+      "type": "object",
+      "required": ["performed", "reason"],
+      "properties": {
+        "performed": {"const": false},
+        "reason": {"type": "string"}
+      }
+    },
+    "next_commands": {"type": "array", "items": {"type": "string"}},
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["event_id", "finding"],
+        "properties": {
+          "event_id": {"type": ["string", "null"]},
+          "scenario_id": {"type": ["string", "null"]},
+          "finding": {"type": "string"},
+          "measured": {"type": ["object", "null"]}
+        }
+      }
+    },
+    "risks": {"type": "array", "items": {"type": "string"}},
+    "input_issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["event_id", "reason"],
+        "properties": {
+          "event_id": {"type": ["string", "null"]},
+          "scenario_id": {"type": ["string", "null"]},
+          "reason": {"type": ["string", "null"]}
+        }
+      }
+    }
   }
 }

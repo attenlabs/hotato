@@ -18,11 +18,13 @@
   <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg"></a>
 </p>
 
-Hotato is turn-taking regression tests for voice agents. It scores a call recording on your machine, so call audio never leaves it, and it catches the three failures callers feel most:
+Hotato turns bad voice-agent call moments into offline regression tests. It scores a call recording on your machine, so call audio never leaves it, and it catches the three failures callers feel most:
 
 - **Talk-over**: the agent keeps talking while the caller is talking.
 - **False stop**: the caller says a short acknowledgement like "mhm" (a backchannel, not a request to take over) and the agent stops mid-sentence.
 - **Slow yield**: the caller starts talking and the agent takes too long to stop and let them speak.
+
+Hotato does not infer intent. You label the expected behavior for the event: yield means the agent should stop for the caller. hold means the agent should keep speaking through a backchannel/noise/acknowledgement. Hotato then measures whether the timing matched that label.
 
 Every failing event returns three measured signals (`did_yield`, `seconds_to_yield`, `talk_over_sec`) and a fix that names the exact setting to change in your stack.
 
@@ -49,7 +51,17 @@ uvx hotato doctor --stereo your_call.wav   # two-channel WAV: caller ch0, agent 
 - **Retell**: `uvx hotato capture --stack retell --call-id <id>` with `RETELL_API_KEY` set; fetches the call's multichannel recording.
 - **LiveKit / Pipecat**: `uvx hotato setup --stack livekit` (or `pipecat`) prints the recording config for your infra, then `hotato capture` scores the files it produces.
 
-Input, stated once: Hotato needs the caller and the agent on separate audio tracks, as one two-channel WAV or two aligned mono WAVs. Per-stack details and verification dates: [`adapters/README.md`](adapters/README.md), [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md).
+Input, stated once: Hotato's main scorer requires separated caller and agent tracks: either one two-channel WAV or two aligned mono WAVs. A single mixed mono call is not enough to attribute talk-over reliably. Per-stack details and verification dates: [`adapters/README.md`](adapters/README.md), [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md).
+
+## Turn a bad call into a regression test
+
+```bash
+hotato fixture create --stereo bad-call.wav --id refund-interruption-001 \
+    --onset 42.18 --expect yield --max-talk-over 0.6 --out tests/hotato
+hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
+```
+
+`fixture create` clips the moment, re-bases the onset, writes the scenario label with provenance, and validates it by scoring it immediately. `hotato scan --stereo call.wav` lists candidate moments when you do not know the onset; `hotato compare --before bad.wav --after fixed.wav --onset 42.18 --expect yield` proves the fix with a FAIL to PASS delta. The full loop, step by step: [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md).
 
 ## What Hotato measures
 
@@ -83,6 +95,10 @@ The bundled `barge-in` suite scores recordings of callers barging in, that is, s
 
 ## What you get
 
+- **`fixture create`**: one bad call moment in, one permanent regression fixture out (scenario JSON plus a clipped two-channel WAV), validated by scoring it on creation.
+- **`compare`**: before/after on the same moment with one machine-stable result word (`fixed`, `regressed`, `improved`, `worse`, `unchanged`, `still_pass`, `not_scorable`).
+- **`scan`**: candidate turn-taking moments across a whole recording, as timing facts only; you supply the label.
+- **`diagnose` / `inspect` / `plan`**: the read-only fix ladder. Explain a finished run, read the live turn-taking config, and get a guarded one-step fix plan that is never applied automatically.
 - **`doctor`**: score a recording (or the bundled self-test), write the visual report, open it.
 - **`report`**: self-contained HTML with per-event SVG timelines, a per-frame inspector, print CSS for PDF, and `--base base.json` regression deltas.
 - **`team`**: aggregate a directory of runs into pass rate over time plus mean/median/p90 talk-over and time-to-yield.
@@ -118,7 +134,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 ## More
 
 - Reports and analytics: [`docs/REPORTS.md`](docs/REPORTS.md) · Pytest gate: [`docs/PYTEST.md`](docs/PYTEST.md) · Suites: [`docs/SUITES.md`](docs/SUITES.md) · CI recipes: [`docs/CI.md`](docs/CI.md)
-- Turn a bad call into a regression test: [hotato.dev/docs/regression-loop.html](https://hotato.dev/docs/regression-loop.html)
+- Turn a bad call into a regression test with `hotato fixture create`: [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md) · runnable example: [`examples/bad-call-to-ci/`](examples/bad-call-to-ci/README.md) · hosted: [hotato.dev/docs/regression-loop.html](https://hotato.dev/docs/regression-loop.html)
 - Python API: [`docs/API.md`](docs/API.md) · Stack benchmarks: [`docs/BENCHMARK-STACKS.md`](docs/BENCHMARK-STACKS.md)
 - Adapters: [`adapters/README.md`](adapters/README.md) · Status and verification dates: [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
 - Why this exists: [`docs/WHY.md`](docs/WHY.md) · Method: [`METHODOLOGY.md`](METHODOLOGY.md) · Security: [`SECURITY.md`](SECURITY.md)

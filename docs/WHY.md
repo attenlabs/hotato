@@ -25,6 +25,11 @@ Each of these lives entirely in the audio timing of the call. A transcript
 diff, an LLM judge on text, and a unit test on the agent's reply all score a
 call with any of these failures as perfect.
 
+Hotato does not infer intent. You label the expected behavior for the event:
+yield means the agent should stop for the caller. hold means the agent should
+keep speaking through a backchannel/noise/acknowledgement. Hotato then
+measures whether the timing matched that label.
+
 ## What makes Hotato different
 
 - **It scores recordings you already have.** A dual-channel WAV from your
@@ -65,3 +70,7 @@ to change. Hotato reports three direct measurements per event instead:
 
 Every number is reproducible from the frame dump by hand, every threshold is
 exposed, and a failure points at its fix. That is what you debug with.
+
+Ready to pin a real failure? The loop from one bad call to a CI gate, with
+`hotato fixture create`, `compare`, and `plan`:
+[BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md).
