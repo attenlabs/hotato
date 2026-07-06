@@ -21,6 +21,13 @@ measurements, signals) or a frame from ``frame_dump``. Nothing is invented and
 there is no accuracy percentage anywhere. The page is fully self-contained:
 inline CSS, inline SVG, zero external requests, works offline by double-click.
 
+``embed_audio=True`` (CLI ``--embed-audio``) additionally embeds the exact
+audio the scorer measured under each timeline as a base64 WAV data URI with a
+native player. The page stays one self-contained offline file; it just grows
+by roughly the audio size. Any file over ``_EMBED_MAX_BYTES`` (~8 MB) is noted
+in plain text and skipped, never truncated. Default off, so plain reports stay
+small.
+
 ``build_report_md`` mirrors the same content as plain Markdown (tables instead
 of SVG). A future PDF needs no new renderer: the HTML already ships print CSS,
 so "print to PDF" from any browser produces the document.
@@ -28,6 +35,7 @@ so "print to PDF" from any browser produces the document.
 
 from __future__ import annotations
 
+import base64
 import html
 import math
 import os
@@ -410,7 +418,7 @@ def _analytics_section(env: dict, models: list) -> str:
 
     parts.append('<div class="antitle">Time to yield (one dot per event)</div>')
     if a["tty"]:
-        parts.append(_svg_latency_strip(a["tty"]))
+        parts.append(f'<div class="anwrap">{_svg_latency_strip(a["tty"])}</div>')
         parts.append(_dist_caption(dist_summary([v for _, v in a["tty"]])))
     else:
         parts.append('<div class="anempty">No yields measured in this run.</div>')
@@ -419,7 +427,7 @@ def _analytics_section(env: dict, models: list) -> str:
                      f'{_esc(", ".join(a["no_yield"]))}</div>')
 
     parts.append('<div class="antitle">Talk-over histogram</div>')
-    parts.append(_svg_histogram([v for _, v in a["tov"]]))
+    parts.append(f'<div class="anwrap">{_svg_histogram([v for _, v in a["tov"]])}</div>')
     parts.append(_dist_caption(dist_summary([v for _, v in a["tov"]])))
 
     parts.append('<div class="antitle">Failure clusters (by fix class)</div>')
@@ -552,7 +560,7 @@ def _stat(label: str, value: str, color: Optional[str] = None) -> str:
     )
 
 
-def _event_card(model: dict) -> str:
+def _event_card(model: dict, embed_audio: bool = False) -> str:
     e = model["event"]
     v = e["verdict"]
     passed = model["passed"]
@@ -593,6 +601,10 @@ def _event_card(model: dict) -> str:
     else:
         parts.append('<div class="tl novad">no frame data for this event '
                      '(fixture audio not present)</div>')
+
+    # the scored audio itself, embedded (opt-in; keeps plain reports small)
+    if embed_audio:
+        parts.append(_audio_block(model))
 
     # measured stats (all real)
     parts.append('<div class="stats">')
@@ -651,6 +663,67 @@ def _frame_inspector(model: dict) -> str:
         '<th>caller active</th><th>agent active</th>'
         '<th>caller thr dB</th><th>agent thr dB</th></tr></thead>'
         f'<tbody>{rows}</tbody></table></div></details>'
+    )
+
+
+# --- audio embedding (opt-in) ----------------------------------------------
+
+# Per-file embed ceiling. A WAV over this is noted in plain text and skipped:
+# the report must stay a page a browser opens instantly, never a silent 100 MB
+# download. Tests monkeypatch this to exercise the oversize path cheaply.
+_EMBED_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _is_synthetic_fixture(path: str) -> bool:
+    """True when ``path`` is one of the bundled synthetic fixtures, so the
+    player is labelled honestly (synthetic audio, not a real call)."""
+    bundled_dir = os.path.dirname(_bundled_audio_path("x"))
+    try:
+        return os.path.dirname(os.path.abspath(path)) == bundled_dir
+    except (OSError, ValueError):
+        return False
+
+
+def _audio_block(model: dict) -> str:
+    """Inline players for the exact audio the scorer measured, one row per
+    source file (the stereo recording, or the caller and agent channels).
+
+    Each file is embedded as a base64 WAV data URI so the page stays ONE
+    self-contained offline file with zero external requests. A file over
+    ``_EMBED_MAX_BYTES`` gets a plain note instead of a player."""
+    sources = model.get("audio_sources") or []
+    rows = []
+    for src in sources:
+        path = src.get("path")
+        if not path or not os.path.exists(path):
+            continue
+        name = os.path.basename(path)
+        synth = " (synthetic fixture)" if _is_synthetic_fixture(path) else ""
+        size = os.path.getsize(path)
+        if size > _EMBED_MAX_BYTES:
+            rows.append(
+                f'<div class="audrow"><span class="audk">{_esc(src["label"])}</span>'
+                f'<span class="audnote">audio not embedded: {_esc(name)} is '
+                f'{size / 1048576.0:.1f} MB, over the '
+                f'{_EMBED_MAX_BYTES / 1048576.0:.0f} MB embed limit{synth}'
+                f'</span></div>'
+            )
+            continue
+        with open(path, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode("ascii")
+        rows.append(
+            f'<div class="audrow"><span class="audk">{_esc(src["label"])}</span>'
+            f'<audio controls preload="metadata" '
+            f'src="data:audio/wav;base64,{b64}"></audio>'
+            f'<span class="audnote">{_esc(name)}{synth}</span></div>'
+        )
+    if not rows:
+        return ""
+    return (
+        '<div class="audio">'
+        '<div class="audcap">The exact audio the scorer measured, embedded in '
+        'this file. Nothing is fetched.</div>'
+        + "".join(rows) + "</div>"
     )
 
 
@@ -757,6 +830,14 @@ header.top{display:flex;align-items:flex-start;gap:14px;
 .tl{overflow-x:auto;margin:6px 0 2px;padding-bottom:4px}
 .tl svg{display:block}
 .novad{color:%(muted)s;font-size:13px;font-style:italic;padding:14px 0}
+.audio{margin:10px 0 2px;background:%(card2)s;border:1px solid %(line)s;
+ border-radius:10px;padding:10px 13px}
+.audcap{color:%(muted)s;font-size:12px;margin-bottom:6px}
+.audrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 0}
+.audk{min-width:104px;color:%(muted)s;font-size:11.5px;text-transform:lowercase}
+.audrow audio{flex:1 1 200px;min-width:0;height:34px}
+.audnote{color:%(muted)s;font-size:11.5px;
+ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .stats{display:flex;flex-wrap:wrap;gap:10px 20px;margin-top:12px;
  border-top:1px solid %(line)s;padding-top:12px}
 .stat{display:flex;flex-direction:column;gap:2px}
@@ -789,6 +870,7 @@ header.top{display:flex;align-items:flex-start;gap:14px;
  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .anempty{color:%(muted)s;font-size:13px;font-style:italic;margin:4px 0}
 .an svg{display:block}
+.anwrap{overflow-x:auto;padding-bottom:4px}
 .fcrow{display:flex;align-items:center;gap:10px;margin:8px 0 2px}
 .fck{min-width:160px;font-size:12.5px;color:%(cream)s}
 .fcbar{display:inline-block;height:12px;border-radius:4px;background:%(ember)s;
@@ -818,13 +900,15 @@ table.frames td{text-align:right;padding:1px 12px;color:%(mono)s;
   break-inside:avoid}
  .pill,.tag,.fix{background:#f4efe4;color:#3a3128}
  details.inspector{display:none}
+ .audio{display:none}
 }
 """ % _C
 
 
 def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  base_env: Optional[dict] = None,
-                 base_label: Optional[str] = None) -> str:
+                 base_label: Optional[str] = None,
+                 embed_audio: bool = False) -> str:
     s = env["summary"]
     overall_pass = s["failed"] == 0
     overall_c = _C["green"] if overall_pass else _C["red"]
@@ -838,7 +922,7 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     else:
         mode_label = mode
 
-    cards = "".join(_event_card(m) for m in models)
+    cards = "".join(_event_card(m, embed_audio=embed_audio) for m in models)
 
     legend = (
         f'<div class="legend">'
@@ -892,13 +976,22 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
 
 # --- frame resolution for suite events ------------------------------------
 
-def _frames_for_suite_event(event, audio_dir, suffix, cc, ac, cfg):
+def _suite_event_wav(event, audio_dir, suffix) -> Optional[str]:
+    """Path of a suite event's audio on disk, or None when there is none
+    (then there is nothing to draw or embed)."""
     sid = event.get("scenario_id") or event.get("event_id")
+    if not sid:
+        return None
     if audio_dir:
         wav = os.path.join(audio_dir, sid + suffix)
     else:
         wav = _bundled_audio_path(sid, suffix)
-    if not sid or not os.path.exists(wav):
+    return wav if os.path.exists(wav) else None
+
+
+def _frames_for_suite_event(event, audio_dir, suffix, cc, ac, cfg):
+    wav = _suite_event_wav(event, audio_dir, suffix)
+    if not wav:
         return [], cfg.hop_ms / 1000.0
     dump = dump_frames_for_input(
         stereo=wav, caller_channel=cc, agent_channel=ac, onset_sec=None, cfg=cfg
@@ -1134,16 +1227,16 @@ def _score_and_model(
             agent_channel=agent_channel,
             cfg=cfg,
         )
-        models = [
-            _event_model(
-                e,
-                *_frames_for_suite_event(
-                    e, audio_dir, suffix, caller_channel, agent_channel, cfg
-                ),
-                cfg,
+        models = []
+        for e in env["events"]:
+            frames, hop = _frames_for_suite_event(
+                e, audio_dir, suffix, caller_channel, agent_channel, cfg
             )
-            for e in env["events"]
-        ]
+            m = _event_model(e, frames, hop, cfg)
+            wav = _suite_event_wav(e, audio_dir, suffix)
+            if wav:
+                m["audio_sources"] = [{"label": "scenario audio", "path": wav}]
+            models.append(m)
     else:
         env = run_single(
             stereo=stereo,
@@ -1167,13 +1260,20 @@ def _score_and_model(
             onset_sec=None,
             cfg=cfg,
         )
-        models = [_event_model(env["events"][0], dump["frames"], dump["hop_sec"], cfg)]
+        model = _event_model(env["events"][0], dump["frames"], dump["hop_sec"], cfg)
+        if stereo:
+            model["audio_sources"] = [{"label": "recording", "path": stereo}]
+        elif caller and agent:
+            model["audio_sources"] = [{"label": "caller", "path": caller},
+                                      {"label": "agent", "path": agent}]
+        models = [model]
 
     return env, models, cfg
 
 
 def build_report_html(*, base: Optional[dict] = None,
-                      base_label: Optional[str] = None, **kwargs):
+                      base_label: Optional[str] = None,
+                      embed_audio: bool = False, **kwargs):
     """Score the input and return ``(html_str, envelope)``.
 
     Pass ``suite`` for the labelled battery, or a single recording via
@@ -1182,9 +1282,17 @@ def build_report_html(*, base: Optional[dict] = None,
     deltas per scenario. The HTML is a single self-contained file. The report
     is always scored with the energy reference config so the page is
     reproducible.
+
+    ``embed_audio=True`` embeds the exact scored audio under each timeline as
+    a base64 WAV data URI with a native player. The page stays one offline
+    file with zero external requests; it just grows by roughly the audio size.
+    Files over ~8 MB are noted in plain text and skipped. Default False keeps
+    plain reports small.
     """
     env, models, cfg = _score_and_model(**kwargs)
-    return _render_page(env, models, cfg, base_env=base, base_label=base_label), env
+    page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
+                        embed_audio=embed_audio)
+    return page, env
 
 
 def build_report_md(*, base: Optional[dict] = None,
@@ -1199,13 +1307,21 @@ def build_report_md(*, base: Optional[dict] = None,
     return _render_md(env, models, cfg, base_env=base, base_label=base_label), env
 
 
-def write_report(path: str, fmt: str = "html", **kwargs):
+def write_report(path: str, fmt: str = "html", embed_audio: bool = False,
+                 **kwargs):
     """Build the report in ``fmt`` ('html' or 'md') and write it to ``path``.
     Returns the envelope. For PDF, print the HTML from any browser: the page
     ships print CSS, so no separate renderer is needed."""
     if fmt == "html":
-        text, env = build_report_html(**kwargs)
+        text, env = build_report_html(embed_audio=embed_audio, **kwargs)
     elif fmt == "md":
+        if embed_audio:
+            # Rejected up front (clean usage error -> exit 2 in the CLI):
+            # silently writing an md file without the requested audio would mislead.
+            raise ValueError(
+                "audio embedding applies to the HTML report only; drop "
+                "--format md or drop --embed-audio"
+            )
         text, env = build_report_md(**kwargs)
     else:
         raise ValueError(f"unknown report format {fmt!r}; use 'html' or 'md'")

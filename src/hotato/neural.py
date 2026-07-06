@@ -19,18 +19,30 @@ What it changes, honestly:
     turn is not decidable from one channel's activity alone. No accuracy number
     is claimed for either backend, here or anywhere.
 
-Primary target: Silero VAD (MIT), run locally / fully offline via onnxruntime
-(no torch needed at inference). The interface is a plain per-frame activity
-function, so an open-weight turn-detection model (e.g. LiveKit's Smart-Turn) can
-be dropped in exactly the same way later.
+Primary target: Silero VAD (MIT), run locally / fully offline. Inference
+executes through onnxruntime on CPU with the ONNX weights that ship inside the
+silero-vad pip package (no download at run time); note the silero-vad package
+itself depends on torch for its segmentation utilities, so installing the extra
+installs torch. The interface is a plain per-frame activity function, so an
+open-weight turn-detection model (e.g. LiveKit's Smart-Turn) can be dropped in
+exactly the same way later.
 
-VERIFICATION IS GATED HERE: this build environment has no network and cannot
-download the Silero weights, so the real model is WIRED but has NOT been executed
-or validated in this repo. Running it against real weights is a documented,
-gated step (see METHODOLOGY.md, "Optional neural cross-check (non-reference)").
-Nothing below fabricates a result: with the extra (or the weights) absent,
-requesting the neural backend raises a clean ``BackendUnavailable`` and never
-falls back to energy.
+VERIFIED against the real model (silero-vad 6.x, ONNX, CPU). Properties that
+hold, measured in this repo (see METHODOLOGY.md, "Optional neural cross-check
+(non-reference)"):
+  * Contract: the seam returns the identical ``VADResult`` shape as energy, on
+    the same hop grid.
+  * Determinism: repeated runs on the same audio produce byte-identical output.
+  * No fallback: with the extra absent, requesting the neural backend raises a
+    clean ``BackendUnavailable``; it never silently substitutes energy.
+  * On the SYNTHETIC fixtures (bundled battery and corpus suites), a
+    speech-trained model assigns the shaped-noise renders near-zero speech
+    probability, so the neural track is empty there at Silero's default
+    threshold. Those fixtures are rendered for the energy reference; the
+    neural cross-check is informative on real recordings.
+  * Sample rates: Silero accepts 8000 Hz, 16000 Hz, and integer multiples of
+    16000 Hz (decimated by silero-vad itself). Anything else is rejected with
+    an actionable error below; the energy backend measures at any rate.
 """
 
 from __future__ import annotations
@@ -38,10 +50,6 @@ from __future__ import annotations
 from typing import Callable, List
 
 from ._engine.vad import BackendUnavailable
-
-# Peak level (linear, samples in [-1, 1]) below which the model is treated as
-# not having fired for a frame when mapping segment timestamps to the frame grid.
-# Used only inside the timestamp->frame projection, not as a decision threshold.
 
 
 def build_silero_backend() -> Callable[[List[float], int, float, int], List[bool]]:
@@ -51,7 +59,7 @@ def build_silero_backend() -> Callable[[List[float], int, float, int], List[bool
     of length ``n_frames`` aligned to the energy VAD's hop grid. Raises
     ``BackendUnavailable`` (never a bare ImportError, never a silent energy
     fallback) if the optional ``[neural]`` extra is not installed, or if the
-    model weights cannot be loaded offline (the gated verification step).
+    packaged model weights cannot be loaded (a broken or partial install).
 
     This factory is registered lazily (see ``hotato.__init__``): it is only
     *called* -- and thus only imports/loads the model -- the first time
@@ -71,20 +79,34 @@ def build_silero_backend() -> Callable[[List[float], int, float, int], List[bool
 
     try:
         model = load_silero_vad(onnx=True)
-    except Exception as exc:  # weights not cached / no network on first run
+    except Exception as exc:  # broken install / unreadable packaged weights
         raise BackendUnavailable(
             "the 'neural' extra is installed but the Silero VAD model could not "
-            "be loaded (offline / first run with no cached weights). Loading and "
-            "running the real model against your audio is the documented, gated "
-            "verification step -- see METHODOLOGY.md, 'Optional neural cross-check'. "
+            "be loaded. The ONNX weights ship inside the silero-vad package, so "
+            "this usually means a broken or partial install; reinstall with "
+            "pip install --force-reinstall 'hotato[neural]'. "
             f"(underlying: {exc})"
         ) from exc
 
     def _activity(samples, sample_rate, hop_sec, n_frames):
         import numpy as np
 
+        sr = int(sample_rate)
+        # Mirror Silero's supported-rate contract up front so an unsupported
+        # recording fails with an actionable message instead of a model-internal
+        # error. silero-vad decimates 16 kHz multiples itself and returns
+        # timestamps in the ORIGINAL sample coordinates (verified), so those
+        # pass through untouched.
+        if sr not in (8000, 16000) and not (sr > 16000 and sr % 16000 == 0):
+            raise ValueError(
+                f"the neural (Silero) backend supports 8000 Hz, 16000 Hz, and "
+                f"integer multiples of 16000 Hz; this recording is {sr} Hz. "
+                "Resample it first, e.g. "
+                "ffmpeg -i in.wav -ar 16000 out.wav, or score it with the "
+                "energy backend (the reference), which measures at any rate."
+            )
         wav = np.asarray(samples, dtype=np.float32)
-        segments = get_speech_timestamps(wav, model, sampling_rate=int(sample_rate))
+        segments = get_speech_timestamps(wav, model, sampling_rate=sr)
         active = [False] * n_frames
         # Project the model's [start, end) SAMPLE segments onto the same hop grid
         # the energy track uses, so the two `active` lists are directly comparable.

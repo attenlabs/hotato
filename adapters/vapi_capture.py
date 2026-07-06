@@ -11,11 +11,15 @@ No SDK, no export step. Vapi produces a two-channel (stereo) recording for
 recorded calls -- customer on channel 0, assistant on channel 1 -- and this
 adapter downloads it and scores it OFFLINE.
 
-API basis (verified)
---------------------
+API basis (verified against docs.vapi.ai, 2026-07-06)
+------------------------------------------------------
 ``GET https://api.vapi.ai/call/{id}`` with ``Authorization: Bearer <private key>``
-returns the Call object; its ``artifact.stereoRecordingUrl`` is a pre-signed
-2-channel WAV. We download that URL and score it. The only network egress is the
+returns the Call object. Since Vapi's 2025-04-29 API update the recording lives
+on ``artifact.recording``; the stereo file is ``artifact.recording.stereoUrl``
+(a pre-signed 2-channel WAV, customer on channel 0, assistant on channel 1).
+The older ``artifact.stereoRecordingUrl`` and top-level ``call.stereoRecordingUrl``
+are deprecated; Hotato tries the current field first, then falls back to both
+legacy fields so older payloads keep working. The only network egress is the
 direct download from Vapi to your machine.
 
 What this measures, and does not

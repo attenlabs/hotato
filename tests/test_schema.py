@@ -76,7 +76,8 @@ def test_golden_suite_is_byte_stable():
 
 def test_schema_rejects_fabricated_accuracy_claim():
     """The honesty invariant is enforced BY the schema, not just by convention."""
-    env = run_suite(suite="barge-in")
+    import copy
+    env = copy.deepcopy(run_suite(suite="barge-in"))
     env["limits"]["accuracy_claim"] = 0.95  # a lie
     with pytest.raises(jsonschema.ValidationError):
         _validate(env)

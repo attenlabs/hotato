@@ -255,15 +255,41 @@ to "this is just energy VAD, rebuildable in a weekend."
  mark it active. Whether a sound is a genuine bid for the turn is not decidable
  from one channel's activity alone. **No accuracy percentage is claimed for either
  backend.** Neural is a flagged cross-check, not a new source of truth.
-- **No silent fallback.** If the `[neural]` extra (or its weights) is absent,
- `--backend neural` raises a clean, explicit error and exits non-zero, it never
- quietly scores with energy and presents it as the neural result.
-- **Verification status (gated).** The seam, the shared contract, and the
- missing-extra error path are covered by tests offline (with a stub standing in
- for the model). Running the **real** Silero model against real weights, and any
- measurement-error comparison against the energy track, is a documented step that
- requires network to fetch the weights; it has **not** been executed in this repo,
- and no result from it is reported here.
+- **No silent fallback.** If the `[neural]` extra is absent, `--backend neural`
+ raises a clean, explicit error and exits non-zero, it never quietly scores with
+ energy and presents it as the neural result.
+- **Verification status: verified against the real model.** Executed in this
+ repo with silero-vad 6.2.1 (ONNX weights bundled inside the package, inference
+ through onnxruntime on CPU, fully offline; note silero-vad itself depends on
+ torch, so the extra installs it). Properties that hold, measured over the
+ bundled 8 and the 40-scenario gold suite:
+ - **Contract holds end to end.** The real model returns the identical
+   `VADResult` shape as energy, on the same hop grid, through the public scorer.
+ - **Deterministic.** Two full sweeps over all 48 fixtures produced
+   byte-identical JSON, for both backends; single recordings are likewise
+   byte-identical run to run.
+ - **Reference untouched.** With the extra installed, energy outputs are
+   byte-identical to energy outputs without it, and the frozen bundled 8
+   verdicts are unchanged.
+ - **On the synthetic fixtures the two tracks diverge, and that divergence is a
+   property of the fixtures.** The renders are shaped noise built for the
+   energy reference; a speech-trained model assigns them near-zero speech
+   probability (identical through the ONNX and torch paths), so at Silero's
+   default threshold the neural track is empty there and the timing math
+   reports no yield on any of the 48. This measures the fixtures, not any
+   agent. Point the neural cross-check at real recordings.
+ - **On a real-speech recording** (a dual-channel barge-in fixture assembled
+   from a recorded human utterance) both backends returned the same yield
+   verdict; the measured yield timing differed (energy 0.65 s including its
+   0.15 s hangover, neural 0.18 s, because a speech model segments the word
+   gaps that the energy hangover bridges). One recording, reported as a timing
+   observation, not an accuracy claim.
+ - **Sample rates.** Silero accepts 8000 Hz, 16000 Hz, and integer multiples of
+   16000 Hz (silero-vad decimates those itself and returns timestamps in the
+   original sample coordinates). Any other rate fails with an actionable
+   resample message from the seam. The energy backend measures at any rate.
+ The real-model tests run automatically when the `[neural]` extra is installed
+ and skip cleanly when it is absent (`tests/test_backend.py`).
 
 ## How validity is measured, not claimed
 

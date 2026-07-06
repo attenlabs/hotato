@@ -11,6 +11,22 @@ design. See `docs/BENCHMARK.md`.
 
 Nothing yet.
 
+## [0.2.0] - 2026-07-06
+
+### Added
+- `hotato demo`: packaged intentionally bad agent battery with the visual report; `--fail` returns the real regression code.
+- `python -m hotato` entry point.
+- Retell capture is a real multichannel fetch (prefers the scrubbed recording); Vapi capture reads the current `artifact.recording.stereoUrl` with legacy fallbacks; Twilio capture requests dual-channel media explicitly and handles the mono case cleanly; `--allow-mono` degraded opt-in.
+- Not scorable semantics: a silent caller or an agent that was not talking at onset is reported as not scorable with a plain reason, never as a normal verdict; single-recording runs exit 2.
+- Report audio embedding (`--embed-audio`) with a size guard; the demo report on hotato.dev carries playable synthetic audio.
+- Neural cross-check verified against the real Silero model; measured properties documented.
+- `docs/ADAPTER-STATUS.md` with per-stack API basis and last-verified dates; `SECURITY.md`; `docs/WHY.md`.
+
+### Changed
+- `hotato run` default output is human-readable text; CI examples use `--format json` explicitly.
+- README rebuilt demo-first with a real screenshot and the live CI badge.
+- Fix-map knob text refreshed to current LiveKit `TurnHandlingOptions` and Pipecat user-turn strategy APIs.
+
 ## [0.1.0] - 2026-07-05
 
 Initial release, published on PyPI. Offline, MIT, zero-install turn-taking eval

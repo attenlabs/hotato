@@ -68,6 +68,13 @@ class ScoreResult:
     # future keys (documented here, deliberately NOT implemented yet):
     # "overlap", "resume", "backchannel".
     signals: dict = field(default_factory=dict)
+    # Detection provenance (additive, defaulted so older constructions stay
+    # valid): the onset `first_active_sec` found on the caller channel, rounded
+    # like caller_onset_sec, or None when the caller channel shows no sustained
+    # activity at all. This lets the caller of score_channels tell "no caller
+    # speech was detectable" apart from a genuine onset near 0.0. It changes no
+    # numeric output: the scoring math above it is untouched.
+    detected_caller_onset_sec: Optional[float] = None
 
     def as_dict(self):
         d = asdict(self)
@@ -255,6 +262,9 @@ def score_channels(
         hop_sec=hop,
         notes=notes,
         signals=signals,
+        detected_caller_onset_sec=(
+            round(detected_onset, 3) if detected_onset >= 0 else None
+        ),
     )
 
 

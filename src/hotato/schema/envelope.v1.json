@@ -45,7 +45,8 @@
         "events": { "type": "integer", "minimum": 0 },
         "passed": { "type": "integer", "minimum": 0 },
         "failed": { "type": "integer", "minimum": 0 },
-        "regression": { "type": "boolean" }
+        "regression": { "type": "boolean" },
+        "not_scorable": { "type": "integer", "minimum": 1, "description": "Additive: count of events that could not be judged (malformed input, see each event's not_scorable_reason). Present ONLY when at least one event is not scorable; a run of valid recordings emits the exact pre-existing summary shape. Not-scorable events count in events but in neither passed nor failed." }
       }
     },
     "events": {
@@ -76,8 +77,14 @@
       "type": "object",
       "required": ["event_id", "expected_yield", "verdict", "measurements"],
       "additionalProperties": true,
+      "dependencies": {
+        "scorable": ["not_scorable_reason"],
+        "not_scorable_reason": ["scorable"]
+      },
       "properties": {
         "event_id": { "type": "string" },
+        "scorable": { "const": false, "description": "Additive: present ONLY on events that cannot be judged (and then always false); scorable events omit the key entirely, so every envelope for a valid recording is byte-identical to schema_version 1 before this key existed. A not-scorable event is excluded from passed/failed counting and can never carry a normal pass or fail." },
+        "not_scorable_reason": { "type": "string", "description": "Plain-language reason the event cannot be judged (for example no detectable caller speech with no onset provided, or the agent silent at the caller onset under a should-yield expectation). Present exactly when scorable is present." },
         "scenario_id": { "type": ["string", "null"] },
         "title": { "type": ["string", "null"] },
         "category": { "type": ["string", "null"] },

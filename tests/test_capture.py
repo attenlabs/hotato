@@ -1,4 +1,4 @@
-"""S1/S2: the real out-of-box capture path — offline, no stack SDKs, no network.
+"""S1/S2: the real out-of-box capture path -- offline, no stack SDKs, no network.
 
 These exercise `hotato capture` / `hotato setup` (and the underlying
 `hotato.capture` module) entirely against the bundled two-channel references and
@@ -132,10 +132,18 @@ def test_setup_pipecat_two_channel_audiobufferprocessor():
     assert "num_channels=2" in text
 
 
-def test_setup_retell_is_honest_no_fake_path():
-    text = cap.setup_text("retell").lower()
-    assert "no confirmed self-serve" in text
-    assert "will not fake" in text
+def test_setup_retell_names_multichannel_fields():
+    """Retell setup is a real fetch path: it names the verified multi-channel
+    fields and the explicit degraded-mono opt-in."""
+    text = cap.setup_text("retell")
+    assert "scrubbed_recording_multi_channel_url" in text
+    assert "recording_multi_channel_url" in text
+    assert "/v2/get-call/" in text
+    assert "--allow-mono" in text
+
+
+def test_capture_retell_without_creds_exits_2():
+    assert cli.main(["capture", "--stack", "retell"]) == 2
 
 
 def test_setup_unknown_stack_raises():

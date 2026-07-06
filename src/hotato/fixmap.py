@@ -8,16 +8,16 @@ Every failing event is labelled with exactly one ``fix_class``:
                           trade-off it makes.
 * ``engagement-control``- the failure is a *discrimination* problem (telling a
                           genuine bid for the floor apart from a backchannel or
-                          side-speech that is not addressed to the agent). A
-                          single energy/sensitivity dial cannot separate those
-                          two axes, so this points at the *kind* of fix the
-                          failure needs: a learned engagement-control /
-                          addressee-detection layer, not a config knob. The
+                          side-speech that is not addressed to the agent). No
+                          single timing threshold separates them, so this points
+                          at the *kind* of fix the failure needs: where the stack
+                          provides an interruption/backchannel classifier, use
+                          it; the general case calls for a learned
+                          engagement-control / addressee-detection layer. The
                           pointer is VENDOR-NEUTRAL and deliberately high level:
                           it names the problem class and the kind of fix, names
-                          no product, vendor, or component you can adopt, carries
-                          no numbers or accuracy claims, and states plainly that
-                          this is an open, hard research problem.
+                          no product, vendor, or component you can adopt, and
+                          carries no numbers or accuracy claims.
 
 The routing is deterministic and inspectable. Nothing here fabricates a metric.
 """
@@ -38,23 +38,23 @@ from typing import Optional
 _KNOBS = {
     "livekit": {
         "more_sensitive": {
-            "parameter": "AgentSession(allow_interruptions=True) + min_interruption_duration / min_interruption_words",
-            "direction": "lower min_interruption_duration and min_interruption_words; lower the VAD min_silence_duration",
+            "parameter": "AgentSession(turn_handling=TurnHandlingOptions(...)): interruption.min_duration / interruption.min_words (prior-generation flat kwargs: min_interruption_duration / min_interruption_words)",
+            "direction": "lower interruption.min_duration and interruption.min_words so a real interruption registers sooner",
             "note": "makes the agent cut off sooner, but a lower words threshold also lets short backchannels trigger a yield.",
         },
         "faster_yield": {
-            "parameter": "min_interruption_duration and turn-detection / VAD min_silence_duration",
-            "direction": "lower both so the agent stops speaking sooner after the caller takes the floor",
+            "parameter": "turn_handling: interruption.min_duration + endpointing.min_delay / endpointing.max_delay",
+            "direction": "lower interruption.min_duration and endpointing.min_delay so the agent stops speaking sooner after the caller takes the floor",
             "note": "reducing endpointing latency can increase spurious cut-offs on noisy lines.",
         },
         "less_talk_over": {
-            "parameter": "min_interruption_duration",
+            "parameter": "turn_handling: interruption.min_duration",
             "direction": "lower it so overlapping speech ends the agent turn faster",
             "note": "too low and normal listener noise will clip the agent mid-word.",
         },
         "suppress_false_trigger": {
-            "parameter": "min_interruption_words",
-            "direction": "raise it so a lone 'mhm'/'okay' does not take the floor",
+            "parameter": "turn_handling: interruption.min_words + interruption.false_interruption_timeout / interruption.mode",
+            "direction": "raise interruption.min_words so a lone 'mhm'/'okay' leaves the agent holding the floor; set interruption.false_interruption_timeout so a false trigger resumes the agent",
             "note": "HONEST TRADE-OFF: raising this also delays or drops genuine one-word interruptions ('stop', 'no'). One dial cannot win both cases.",
         },
         "echo": {
@@ -65,23 +65,23 @@ _KNOBS = {
     },
     "pipecat": {
         "more_sensitive": {
-            "parameter": "allow_interruptions=True + VADParams(start_secs, stop_secs, confidence)",
+            "parameter": "PipelineTask(turn_start_strategies=[VADUserTurnStartStrategy(...)]) + VADParams(start_secs, stop_secs, confidence)",
             "direction": "lower stop_secs / start_secs and the VAD confidence so speech is detected sooner",
             "note": "lower confidence catches more real interruptions but also more noise-triggered ones.",
         },
         "faster_yield": {
-            "parameter": "VADParams(stop_secs)",
-            "direction": "lower stop_secs so the turn boundary is detected sooner",
-            "note": "very low stop_secs fragments a single utterance into several turns.",
+            "parameter": "SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=...) + VADParams(stop_secs)",
+            "direction": "lower user_speech_timeout and stop_secs so the turn boundary is detected sooner",
+            "note": "very low values fragment a single utterance into several turns.",
         },
         "less_talk_over": {
-            "parameter": "VADParams(stop_secs) / interruption handling",
-            "direction": "lower stop_secs and ensure allow_interruptions is on",
+            "parameter": "VADParams(stop_secs) + turn_start_strategies interruption handling",
+            "direction": "lower stop_secs and keep an interruption-capable turn start strategy (VADUserTurnStartStrategy) active",
             "note": "aggressive settings can clip the agent on brief overlaps.",
         },
         "suppress_false_trigger": {
-            "parameter": "interruption_strategies=[MinWordsInterruptionStrategy(min_words=N)]",
-            "direction": "require N words before an interruption counts, so backchannels are ignored",
+            "parameter": "PipelineTask(turn_start_strategies=[MinWordsUserTurnStartStrategy(min_words=N)]) (replaces MinWordsInterruptionStrategy, deprecated since Pipecat 0.0.99)",
+            "direction": "require N words before a turn start counts, so backchannels leave the agent speaking",
             "note": "HONEST TRADE-OFF: a higher min_words also swallows short but real interruptions. One threshold cannot separate 'mhm' from 'stop'.",
         },
         "echo": {
@@ -150,30 +150,30 @@ _KNOBS = {
 # High-level, numbers-free, VENDOR-NEUTRAL pointer for the engagement-control
 # fix class. This text ships in the machine output, so it names the PROBLEM CLASS
 # (discriminating a genuine floor-bid from a backchannel / speech not addressed
-# to the agent) and the KIND of fix that class needs (a learned
-# engagement-control / addressee-detection layer). It deliberately names NO
-# vendor, NO product, and nothing you can adopt, license, or buy: the layer that
-# would resolve this case is an open, hard research problem, not something
-# shippable a reader could go acquire. No accuracy figures, no numbers, no
-# learn-more link - so the pointer can never read as lead-gen.
+# to the agent) and the KIND of fix that class needs: where the stack provides
+# an interruption/backchannel classifier, use it; the general case calls for a
+# learned engagement-control / addressee-detection layer. It deliberately names
+# NO vendor, NO product, and nothing you can adopt, license, or buy. No accuracy
+# figures, no numbers, no learn-more link - so the pointer can never read as
+# lead-gen.
 ENGAGEMENT_CONTROL_POINTER = {
     "layer": "a learned engagement-control / addressee-detection layer",
     "what": (
         "This is a discrimination problem, not a threshold problem: telling a "
         "genuine bid for the floor apart from a backchannel or speech that was "
-        "not addressed to the agent. No single sensitivity dial separates those "
-        "two - you can raise a words-to-interrupt threshold, but the same "
-        "threshold that ignores 'mhm' also ignores 'stop'. Separating them needs "
-        "a learned engagement-control / addressee-detection layer that models "
-        "'is this speech addressed to me, and is it a real bid for the floor' as "
-        "its own signal - not a config knob."
+        "not addressed to the agent. No single timing threshold separates them "
+        "- you can raise a words-to-interrupt threshold, but the same threshold "
+        "that ignores 'mhm' also ignores 'stop'. Separating them needs a signal "
+        "for 'is this speech addressed to me, and is it a real bid for the "
+        "floor' - not a config knob."
     ),
     "honest_scope": (
-        "This is an open, hard problem - an active research direction, not a "
-        "shippable component you can drop into your stack today. The audio-only "
-        "turn-taking case shown here is the hardest modality for it. Treat this "
-        "as a pointer to the KIND of fix the failure needs, not a benchmarked "
-        "claim: bring your own recordings and measure."
+        "No single timing threshold separates them. Where your stack provides "
+        "an interruption/backchannel classifier, use it; the general case calls "
+        "for a learned engagement-control / addressee-detection layer. The "
+        "audio-only turn-taking case shown here is the hardest modality for it. "
+        "Treat this as a pointer to the KIND of fix the failure needs, not a "
+        "benchmarked claim: bring your own recordings and measure."
     ),
 }
 

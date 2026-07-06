@@ -123,9 +123,10 @@ def test_unicode_and_space_path_scores_cleanly(tmp_path):
     """A path with spaces + non-ASCII characters must score, not error."""
     p = tmp_path / "café recording ñ.wav"
     _write_valid_wav(p, n_frames=1600)
-    # zeros never yield, so expect 'hold' to get a clean pass (exit 0); the point
-    # is that the unicode path resolves and scores without a crash.
-    assert cli.main(["run", "--stereo", str(p), "--expect", "hold", "--format", "json"]) == 0
+    # zeros carry no caller speech, so the honest outcome is not-scorable (exit 2,
+    # usable-input contract); the point is that the unicode path resolves and the
+    # tool answers cleanly without a crash.
+    assert cli.main(["run", "--stereo", str(p), "--expect", "hold", "--format", "json"]) == 2
 
 
 def test_valid_channel_indices_still_pass():

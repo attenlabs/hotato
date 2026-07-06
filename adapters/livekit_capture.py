@@ -122,13 +122,22 @@ def capture_agent_response(
     async def _run() -> Tuple[int, List[float]]:
         # ADJUST 1: connect to your room and start the AgentSession UNDER TEST so
         #           the agent already holds the floor at caller onset. This is the
-        #           turn-detection / interruption configuration you are actually
-        #           evaluating (min_endpointing_delay, allow_interruptions, your
-        #           VAD / turn detector, etc.).
+        #           turn-handling configuration you are actually evaluating
+        #           (current Agents API, verified 2026-07-06): AgentSession's
+        #           turn_handling=TurnHandlingOptions(...) with
+        #             turn_detection  (inference.TurnDetector() / "realtime_llm" /
+        #                              "vad" / "stt" / "manual"),
+        #             endpointing     {"min_delay": ..., "max_delay": ...},
+        #             interruption    {"min_duration": ..., "min_words": ...,
+        #                              "false_interruption_timeout": ...,
+        #                              "resume_false_interruption": ...}.
         #     room = rtc.Room()
         #     await room.connect(LIVEKIT_URL, ACCESS_TOKEN)
-        #     from livekit.agents import AgentSession
-        #     session = AgentSession(...)          # <-- your agent under test
+        #     from livekit.agents import AgentSession, TurnHandlingOptions
+        #     session = AgentSession(
+        #         turn_handling=TurnHandlingOptions(...),  # <-- knobs under test
+        #         ...,
+        #     )
         #     await session.start(room=room, ...)
 
         # ADJUST 2: publish `caller_samples` as an audio track from a test

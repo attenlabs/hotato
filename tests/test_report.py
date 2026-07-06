@@ -152,3 +152,88 @@ def test_doctor_defaults_to_self_test_without_a_recording(tmp_path):
     code = cli.main(["doctor", "--no-open", "--out", str(out)])
     assert code == 0
     assert out.exists()
+
+
+# --- audio embedding (--embed-audio) ---------------------------------------
+
+def _bundled_wav() -> str:
+    from importlib import resources
+
+    return str(resources.files("hotato").joinpath(
+        "data", "audio", "01-hard-interruption.example.wav"))
+
+
+def test_default_report_has_no_audio_tags():
+    # Embedding is strictly opt-in: the plain report stays small.
+    html, _ = report.build_report_html(suite="barge-in")
+    assert "<audio" not in html
+    assert "data:audio" not in html
+
+
+def test_embed_audio_one_player_per_event_still_zero_external_requests():
+    html, env = report.build_report_html(suite="barge-in", embed_audio=True)
+    # One native player per event, fed by an inline data URI.
+    assert html.count("<audio") == env["summary"]["events"]
+    assert html.count("data:audio/wav;base64,") == env["summary"]["events"]
+    assert "controls" in html
+    # Still one self-contained file: nothing fetched from anywhere.
+    assert "http://" not in html
+    assert "https://" not in html
+    assert "<link" not in html
+    assert "<script" not in html
+    # The bundled fixtures are synthetic and the page says so.
+    assert "synthetic fixture" in html
+
+
+def test_embed_audio_single_recording_via_cli(tmp_path):
+    out = tmp_path / "single-embedded.html"
+    code = cli.main(["report", "--stereo", _bundled_wav(), "--embed-audio",
+                     "--out", str(out)])
+    assert code == 0
+    html = out.read_text(encoding="utf-8")
+    assert html.count("<audio") == 1
+    assert "data:audio/wav;base64," in html
+    assert "http://" not in html and "https://" not in html
+
+
+def test_embed_audio_oversize_file_is_noted_and_skipped(monkeypatch):
+    # Shrink the ceiling instead of shipping a >8 MB fixture: same code path.
+    monkeypatch.setattr(report, "_EMBED_MAX_BYTES", 1024)
+    html, _ = report.build_report_html(stereo=_bundled_wav(), embed_audio=True)
+    assert "<audio" not in html
+    assert "data:audio" not in html
+    assert "audio not embedded" in html
+    assert "embed limit" in html
+
+
+def test_embed_audio_with_md_format_is_a_clean_usage_error(tmp_path):
+    out = tmp_path / "r.md"
+    code = cli.main(["report", "--suite", "barge-in", "--format", "md",
+                     "--embed-audio", "--out", str(out)])
+    assert code == 2
+    assert not out.exists()
+
+
+def test_report_cli_prints_total_size_when_embedding(tmp_path, capsys):
+    out = tmp_path / "suite-embedded.html"
+    code = cli.main(["report", "--suite", "barge-in", "--embed-audio",
+                     "--out", str(out)])
+    assert code == 0
+    err = capsys.readouterr().err
+    assert "report size:" in err
+    assert f"{out.stat().st_size} bytes" in err
+    assert out.read_text(encoding="utf-8").count("<audio") == 8
+
+
+def test_doctor_embeds_audio_for_a_recording_but_not_for_self_test(tmp_path):
+    rec = tmp_path / "doctor-rec.html"
+    code = cli.main(["doctor", "--stereo", _bundled_wav(), "--no-open",
+                     "--out", str(rec)])
+    assert code == 0
+    html = rec.read_text(encoding="utf-8")
+    assert "<audio" in html and "data:audio/wav;base64," in html
+
+    demo = tmp_path / "doctor-demo.html"
+    code = cli.main(["doctor", "--demo", "--no-open", "--out", str(demo)])
+    assert code == 0
+    assert "<audio" not in demo.read_text(encoding="utf-8")

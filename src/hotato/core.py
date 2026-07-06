@@ -32,7 +32,14 @@ from ._engine.score import (
 )
 from .fixmap import classify_event, systemic_pointer
 
-__all__ = ["run_single", "run_suite", "dump_frames_for_input", "LIMITS", "SUITE_ID"]
+__all__ = [
+    "run_single",
+    "run_suite",
+    "dump_frames_for_input",
+    "process_exit_code",
+    "LIMITS",
+    "SUITE_ID",
+]
 
 SUITE_ID = "barge-in"
 
@@ -68,6 +75,38 @@ def _engine_meta() -> dict:
     }
 
 
+def _not_scorable_reason(*, result, expected_yield: bool, onset_provided: bool):
+    """Why this recording cannot be judged at all, or None when it can.
+
+    Two malformed-input shapes (both confirmed by an external correctness
+    review) must never surface as a normal pass or fail:
+
+      (a) nothing to score: no onset was provided and the caller channel shows
+          no detectable speech, so there is no caller event to react to. The
+          engine used to clamp the missing onset to frame 0 and score anyway.
+      (b) a should-yield expectation with the agent silent at the caller
+          onset: there was nothing to yield, so did_yield carries no meaning.
+          The input is wrong (onset time, channel mapping, or expectation),
+          and that is not an agent verdict.
+
+    The check is deterministic: it reads only what the engine already
+    measured. Scorable events are returned untouched, byte for byte.
+    """
+    if not onset_provided and result.detected_caller_onset_sec is None:
+        return (
+            "no caller speech was detected on the caller channel and no onset "
+            "was provided, so there is no caller event to score. Check the "
+            "caller/agent channel mapping, or pass the onset time explicitly."
+        )
+    if expected_yield and not result.agent_talking_at_onset:
+        return (
+            "the agent was not talking at the caller onset, so a should-yield "
+            "verdict has no meaning for this recording. Check the onset time, "
+            "the caller/agent channel mapping, or the expectation."
+        )
+    return None
+
+
 def _event_from_result(
     *,
     event_id: str,
@@ -78,6 +117,7 @@ def _event_from_result(
     category: Optional[str] = None,
     tags: Optional[list] = None,
     title: Optional[str] = None,
+    onset_provided: bool = True,
 ) -> dict:
     verdict = evaluate(result, expected)
     expected_yield = bool(expected.get("yield", True))
@@ -107,6 +147,20 @@ def _event_from_result(
         "signals": result.signals,
         "fix": None,
     }
+    reason = _not_scorable_reason(
+        result=result, expected_yield=expected_yield, onset_provided=onset_provided
+    )
+    if reason is not None:
+        # The `scorable` key is emitted ONLY here, on not-scorable events, so
+        # every envelope for a valid recording stays byte-identical to before.
+        # The verdict is fail-closed (never a pass) but it is NOT a normal
+        # fail either: _envelope excludes it from passed/failed, regression,
+        # fix routing, the funnel, and the envelope exit_code.
+        event["scorable"] = False
+        event["not_scorable_reason"] = reason
+        event["verdict"]["passed"] = False
+        event["verdict"]["reasons"] = [reason]
+        return event
     if not verdict.passed:
         event["fix"] = classify_event(
             expected_yield=expected_yield,
@@ -121,7 +175,14 @@ def _event_from_result(
 
 
 def _envelope(*, mode: str, stack: Optional[str], events: list) -> dict:
-    failed = [e for e in events if not e["verdict"]["passed"]]
+    # Not-scorable events (malformed input, see _not_scorable_reason) are
+    # listed with their reason but excluded from every judgement: they are not
+    # passes, not failures, never a regression, never a fix, never a funnel
+    # signal, and never the envelope exit_code. For valid recordings the two
+    # lists below equal `events` and the envelope is byte-identical to before.
+    not_scorable = [e for e in events if e.get("scorable") is False]
+    scorable = [e for e in events if e.get("scorable") is not False]
+    failed = [e for e in scorable if not e["verdict"]["passed"]]
     fix_map = [
         {
             "event_id": e["event_id"],
@@ -135,6 +196,16 @@ def _envelope(*, mode: str, stack: Optional[str], events: list) -> dict:
         for e in failed
         if e.get("fix")
     ]
+    summary = {
+        "events": len(events),
+        "passed": len(scorable) - len(failed),
+        "failed": len(failed),
+        "regression": len(failed) > 0,
+    }
+    if not_scorable:
+        # Additive: the key appears only when at least one event is not
+        # scorable, so every existing summary stays byte-identical.
+        summary["not_scorable"] = len(not_scorable)
     return {
         "tool": "hotato",
         "schema_version": "1",
@@ -143,17 +214,38 @@ def _envelope(*, mode: str, stack: Optional[str], events: list) -> dict:
         "offline": True,
         "engine": _engine_meta(),
         "limits": LIMITS,
-        "summary": {
-            "events": len(events),
-            "passed": len(events) - len(failed),
-            "failed": len(failed),
-            "regression": len(failed) > 0,
-        },
+        "summary": summary,
         "events": events,
         "fix_map": fix_map,
-        "funnel": systemic_pointer(events),
+        "funnel": systemic_pointer(scorable),
         "exit_code": 1 if failed else 0,
     }
+
+
+def process_exit_code(envelope: dict) -> int:
+    """The process exit code a CLI should return for a finished envelope.
+
+    The envelope's own ``exit_code`` is frozen by the schema to 0 or 1
+    (1 exactly when a SCORABLE event failed). The CLI already reserves exit 2
+    for unusable input (a corrupt WAV, a bad flag), and a single recording
+    that is not scorable is precisely that: an input problem, not an agent
+    verdict. So a mode=single run whose every event is not scorable maps to
+    process exit 2. Suite runs never map to 2 here: their not-scorable events
+    are listed with a reason and do not fail the suite by themselves.
+
+    Not yet wired into cli.py (owned separately). The wiring is one line per
+    entry point: replace ``return env["exit_code"]`` with
+    ``return process_exit_code(env)``.
+    """
+    summary = envelope.get("summary", {})
+    n_events = summary.get("events", 0)
+    if (
+        envelope.get("mode") == "single"
+        and n_events > 0
+        and summary.get("not_scorable", 0) == n_events
+    ):
+        return 2
+    return int(envelope.get("exit_code", 0))
 
 
 # --- input hardening ------------------------------------------------------
@@ -305,6 +397,7 @@ def run_single(
         stack=stack,
         category="should_yield" if want_yield else "should_not_yield",
         title=f"single recording ({source})",
+        onset_provided=onset_sec is not None,
     )
     return _envelope(mode="single", stack=stack, events=[event])
 
@@ -512,11 +605,12 @@ def run_suite(
             )
         _require_channel(signal, caller_channel, "caller")
         _require_channel(signal, agent_channel, "agent")
+        scenario_onset = sc.get("caller_onset_sec")
         result = score_stereo(
             signal,
             caller_channel,
             agent_channel,
-            caller_onset_sec=sc.get("caller_onset_sec"),
+            caller_onset_sec=scenario_onset,
             cfg=cfg,
         )
         events.append(
@@ -529,6 +623,7 @@ def run_suite(
                 category=sc.get("category"),
                 tags=sc.get("tags"),
                 title=sc.get("title"),
+                onset_provided=scenario_onset is not None,
             )
         )
 

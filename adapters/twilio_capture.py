@@ -17,13 +17,21 @@ Request dual-channel when the recording is created:
 A mono mix cannot attribute overlap to caller vs agent -- keep the two on
 separate channels all the way to the WAV.
 
-API basis (verified)
---------------------
-``GET https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Recordings/{RE...}.wav``
-with HTTP Basic auth (AccountSid:AuthToken) returns the media. We first read the
-``.json`` metadata and warn if ``channels != 2``. Twilio's channel order depends
-on how the recording was created; if caller/agent look swapped, pass different
---caller-channel/--agent-channel.
+API basis (verified against twilio.com/docs/voice/api/recording, 2026-07-06)
+-----------------------------------------------------------------------------
+``GET .../Accounts/{AccountSid}/Recordings/{RE...}.wav?RequestedChannels=2`` with
+HTTP Basic auth (AccountSid:AuthToken). Appending ``?RequestedChannels=2`` is the
+documented way to request the dual-channel media. When the dual-channel format is
+not available Twilio returns ``400 Bad Request``; Hotato then stops with a clear
+message (the recording is mono and cannot attribute talk-over) unless you opt
+into the degraded mono path with ``--allow-mono``. The download is validated to
+have exactly 2 channels.
+
+Channel order (per Twilio's dual-channel docs): two-party calls put the
+customer/caller on the first (left) channel and the agent on the second (right)
+channel -- Hotato's default caller=ch0, agent=ch1 matches. Conference recordings
+put the FIRST participant to join on the first channel; if caller/agent look
+swapped, pass different --caller-channel/--agent-channel.
 
 What this measures, and does not
 --------------------------------
@@ -50,7 +58,7 @@ except ModuleNotFoundError:  # pragma: no cover - import shim
         sys.path.insert(0, _SRC)
 
 from hotato.capture import (  # noqa: E402
-    capture_twilio as capture,  # capture(*, recording_sid, account_sid, auth_token, out_path=None)
+    capture_twilio as capture,  # capture(*, recording_sid, account_sid, auth_token, out_path=None, allow_mono=False)
     demo as _demo,
     run_capture,
     score,
@@ -75,6 +83,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--recording-sid", help="Recording SID (RE...) of a dual-channel recording")
     parser.add_argument("--account-sid", help="Account SID (else env TWILIO_ACCOUNT_SID)")
     parser.add_argument("--auth-token", help="Auth Token (else env TWILIO_AUTH_TOKEN)")
+    parser.add_argument("--allow-mono", action="store_true",
+                        help="degraded: fall back to the mono media when dual-channel is unavailable (400)")
     parser.add_argument("--out", help="where to write the downloaded WAV (else a temp file)")
     parser.add_argument("--stereo", "--wav", dest="stereo", help="score an existing 2-channel WAV instead")
     parser.add_argument("--onset", type=float, default=None, help="caller onset, seconds (else auto)")
@@ -95,6 +105,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             recording_sid=args.recording_sid,
             account_sid=args.account_sid or os.environ.get("TWILIO_ACCOUNT_SID"),
             auth_token=args.auth_token or os.environ.get("TWILIO_AUTH_TOKEN"),
+            allow_mono=args.allow_mono,
             onset=args.onset,
             expect=args.expect,
             caller_channel=args.caller_channel,

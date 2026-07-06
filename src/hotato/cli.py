@@ -16,13 +16,14 @@ import json
 import os
 import sys
 import tempfile
+from importlib import resources
 
 from . import __version__
 from . import capture as _capture
 from . import report as _report
 from ._engine.score import ScoreConfig
 from ._engine.vad import BackendUnavailable, VADParams
-from .core import SUITE_ID, dump_frames_for_input, run_single, run_suite
+from .core import SUITE_ID, dump_frames_for_input, process_exit_code, run_single, run_suite
 
 # Printed to stderr when `--backend neural` is combined with `--suite`: the bundled
 # self-test IS the energy reference, so it always scores with energy regardless.
@@ -49,6 +50,10 @@ Score YOUR OWN call in under a minute (bring a dual-channel recording):
 
 Already have a 2-channel WAV (caller on channel 0, agent on channel 1)?
   hotato run --stereo your_call.wav --expect yield
+
+See what a failure looks like, in one command (packaged bad-agent battery; it
+fails by design and opens the report):
+  hotato demo
 
 No recording handy? Watch the capture -> score loop run end-to-end, fully offline:
   hotato capture --stack vapi --demo
@@ -179,7 +184,7 @@ def _cmd_run(args) -> int:
     _emit(env, args.format)
     if args.no_fail:
         return 0
-    return env["exit_code"]
+    return process_exit_code(env)
 
 
 def _cmd_capture(args) -> int:
@@ -198,6 +203,7 @@ def _cmd_capture(args) -> int:
         recording_sid=args.recording_sid,
         account_sid=args.account_sid,
         auth_token=args.auth_token,
+        allow_mono=args.allow_mono,
         out=args.out,
         fmt=args.format,
     )
@@ -240,6 +246,7 @@ def _cmd_report(args) -> int:
         env = _report.write_report(
             out,
             fmt=args.format,
+            embed_audio=args.embed_audio,
             base=base,
             base_label=base_label,
             suite=args.suite,
@@ -256,6 +263,7 @@ def _cmd_report(args) -> int:
         env = _report.write_report(
             out,
             fmt=args.format,
+            embed_audio=args.embed_audio,
             base=base,
             base_label=base_label,
             stereo=args.stereo,
@@ -275,9 +283,15 @@ def _cmd_report(args) -> int:
         f"wrote {kind} ({env['summary']['events']} events) to {out}",
         file=sys.stderr,
     )
+    if args.embed_audio:
+        # Embedding grows the file by roughly the audio size; state the total
+        # plainly so nobody ships a page they have not sized.
+        size = os.path.getsize(out)
+        print(f"report size: {size} bytes ({size / 1048576.0:.1f} MB) "
+              f"with audio embedded", file=sys.stderr)
     if args.no_fail:
         return 0
-    return env["exit_code"]
+    return process_exit_code(env)
 
 
 def _emit_team_text(agg: dict, dirpath: str) -> None:
@@ -482,6 +496,10 @@ def _cmd_doctor(args) -> int:
     out = args.out or os.path.join(tempfile.gettempdir(), "hotato-report.html")
 
     if has_recording:
+        # A real recording gets its audio embedded: the report is the shareable
+        # artifact, and hearing the exact scored call next to its timeline is
+        # the point. The self-test below stays unembedded (synthetic fixtures,
+        # smaller page).
         html_str, env = _report.build_report_html(
             stereo=args.stereo,
             caller=args.caller,
@@ -491,6 +509,7 @@ def _cmd_doctor(args) -> int:
             onset_sec=args.onset,
             expect=args.expect,
             stack=args.stack,
+            embed_audio=True,
         )
     else:
         # No recording (or explicit --demo): fall back to the bundled self-test.
@@ -510,7 +529,53 @@ def _cmd_doctor(args) -> int:
 
     if args.no_fail:
         return 0
-    return env["exit_code"]
+    return process_exit_code(env)
+
+
+_DEMO_HEADER = "hotato demo: intentionally bad agent battery"
+_DEMO_NOTE = "demo is intentionally failing; use this to see what Hotato catches."
+
+
+def _cmd_demo(args) -> int:
+    # The packaged INTENTIONALLY FAILING battery: two deliberate bad-agent
+    # renders (fd-01 misses a real interruption, fd-02 yields to a bare
+    # backchannel). It fails on both axes by design, so a first-time user sees
+    # exactly what Hotato catches: the [FAIL] verdicts, both fix classes
+    # (config and engagement-control), and the report timelines. Same scorer,
+    # same envelope, same report as `run` and `doctor`; nothing new is claimed.
+    demo_root = resources.files("hotato").joinpath("data", "demo", "failing")
+    scenarios_dir = str(demo_root.joinpath("scenarios"))
+    audio_dir = str(demo_root.joinpath("audio"))
+    out = args.out or os.path.join(tempfile.gettempdir(), "hotato-demo-report.html")
+
+    env = _report.write_report(
+        out,
+        fmt="html",
+        suite=SUITE_ID,
+        stack="generic",
+        scenarios_dir=scenarios_dir,
+        audio_dir=audio_dir,
+    )
+
+    if args.format == "json":
+        # stdout stays the pure machine envelope; the report path goes to stderr.
+        _emit(env, "json")
+        print(f"report: {out}", file=sys.stderr)
+    else:
+        print(_DEMO_HEADER)
+        _emit(env, "text")
+        print(_DEMO_NOTE)
+        print(f"report: {out}")
+
+    if not args.no_open:
+        _try_open(out)
+
+    if args.fail:
+        # The real regression code (1: this battery fails by design).
+        return process_exit_code(env)
+    # Default exit 0: the failures are intentional, so a demo run never breaks
+    # a script or a CI job that merely wanted to see the output.
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -566,7 +631,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "the [neural] extra installed, --backend neural errors cleanly.")
     r.add_argument("--caller-channel", type=int, default=0)
     r.add_argument("--agent-channel", type=int, default=1)
-    r.add_argument("--format", default="json", choices=["json", "text"], help="output format (default json)")
+    r.add_argument("--format", default="text", choices=["json", "text"],
+                   help="output format (default text; use json for the machine envelope)")
     r.add_argument("--dump-frames", default=None, metavar="PATH",
                    help="write the per-frame VAD evidence (t_sec, per-channel dBFS, "
                         "active flags, threshold and noise floor for both channels) "
@@ -608,9 +674,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--agent", help="mono WAV of the agent channel (with --caller)")
     # vapi
     c.add_argument("--call-id", help="[vapi] the id of an ended, recorded call")
-    c.add_argument("--api-key", help="[vapi] private API key (else env VAPI_API_KEY)")
+    c.add_argument("--api-key", help="[vapi|retell] private API key (else env VAPI_API_KEY / RETELL_API_KEY)")
     # twilio
     c.add_argument("--recording-sid", help="[twilio] the Recording SID (RE...) of a dual-channel recording")
+    c.add_argument("--allow-mono", action="store_true",
+                   help="accept a mono-only recording in degraded mode; separated talk-over cannot be attributed on mono")
     c.add_argument("--account-sid", help="[twilio] Account SID (else env TWILIO_ACCOUNT_SID)")
     c.add_argument("--auth-token", help="[twilio] Auth Token (else env TWILIO_AUTH_TOKEN)")
     # shared scoring knobs
@@ -653,6 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  hotato report --stereo call.wav --out report.html\n"
+            "  hotato report --stereo call.wav --embed-audio --out report.html\n"
             "  hotato report --caller a.wav --agent b.wav --expect yield --out r.html\n"
             "  hotato report --suite barge-in --out selftest.html"
         ),
@@ -675,6 +744,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="voice stack the recording came from (labels the fix knob only)")
     rp.add_argument("--caller-channel", type=int, default=0)
     rp.add_argument("--agent-channel", type=int, default=1)
+    rp.add_argument("--embed-audio", action="store_true",
+                    help="embed the exact scored audio under each timeline as an "
+                         "inline base64 WAV with a native player. The report stays "
+                         "ONE self-contained offline file (zero external requests); "
+                         "it just grows by roughly the audio size, printed when "
+                         "done. Any file over 8 MB is noted and skipped. HTML "
+                         "format only.")
     rp.add_argument("--format", default="html", choices=["html", "md"],
                     help="report format: 'html' (self-contained page, default) or "
                          "'md' (same content as Markdown tables). For PDF, print "
@@ -873,6 +949,40 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--no-open", action="store_true", help="do not launch a browser; just write and print the path")
     d.add_argument("--no-fail", action="store_true", help="always exit 0 (do not fail on a regression)")
     d.set_defaults(func=_cmd_doctor)
+
+    # --- demo: the packaged intentionally failing battery -------------------
+    dm = sub.add_parser(
+        "demo",
+        help="run the packaged intentionally failing battery and open its report",
+        description=(
+            "Run the packaged INTENTIONALLY FAILING two-scenario battery: one "
+            "agent that talks straight over a real interruption, one that yields "
+            "to a bare backchannel. Both fail by design, so you see what Hotato "
+            "catches in under a minute: the [FAIL] verdicts, the fix classes "
+            "(config and engagement-control), and the per-event report timelines. "
+            "Renders the self-contained HTML report and opens it best-effort. "
+            "Exits 0 by default because the failures are intentional; pass --fail "
+            "to get the real regression exit code. Offline, zero extra files."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  hotato demo                          # run, print, open the report\n"
+            "  hotato demo --no-open --out demo.html\n"
+            "  hotato demo --format json            # the machine envelope\n"
+            "  hotato demo --fail                   # exit 1 (real regression code)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    dm.add_argument("--out", default=None, metavar="PATH",
+                    help="where to write the HTML report (default: a temp file)")
+    dm.add_argument("--no-open", action="store_true",
+                    help="do not launch a browser; just write and print the path")
+    dm.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    dm.add_argument("--fail", action="store_true",
+                    help="exit with the real regression code (1: this battery "
+                         "fails by design) instead of the default 0")
+    dm.set_defaults(func=_cmd_demo)
 
     return p
 

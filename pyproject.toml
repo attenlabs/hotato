@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "0.1.0"
+version = "0.2.0"
 description = "Hotato: the open turn-taking eval for voice agents. Does your agent drop the turn, or hog it? Score barge-in / talk-over / backchannel / endpointing from a call recording, offline, with an honest fix map. MIT."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -45,9 +45,10 @@ pipecat = ["pipecat-ai"]
 # OPTIONAL, NON-REFERENCE neural VAD cross-check (Silero VAD, MIT). Strictly
 # opt-in via `--backend neural`; the zero-dependency energy core stays the
 # reference for every published/golden number and is never affected by this
-# extra. onnxruntime keeps inference CPU-only and lightweight (no torch needed at
-# runtime). Absent this extra, `--backend neural` errors cleanly, never falling
-# back to energy.
+# extra. Inference executes through onnxruntime on CPU with the weights bundled
+# in the silero-vad package (no download at run time); silero-vad itself depends
+# on torch for its segmentation utilities, so this extra installs torch. Absent
+# this extra, `--backend neural` errors cleanly, never falling back to energy.
 neural = ["silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
 # Everything a contributor might want to exercise the live capture paths locally.
 all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
@@ -72,4 +73,10 @@ Homepage = "https://hotato.dev"
 where = ["src"]
 
 [tool.setuptools.package-data]
-hotato = ["data/scenarios/*.json", "data/audio/*.wav", "schema/*.json"]
+hotato = [
+    "data/scenarios/*.json",
+    "data/audio/*.wav",
+    "data/demo/failing/scenarios/*.json",
+    "data/demo/failing/audio/*.wav",
+    "schema/*.json",
+]

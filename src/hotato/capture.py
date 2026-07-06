@@ -5,17 +5,17 @@ at one of YOUR OWN recordings and get the same three timing signals and the same
 honest fix. One command per stack:
 
     hotato capture --stack vapi   --call-id <id>          # + VAPI_API_KEY
+    hotato capture --stack retell --call-id <id>          # + RETELL_API_KEY
     hotato capture --stack twilio --recording-sid RE...   # + TWILIO_ACCOUNT_SID/TOKEN
     hotato capture --stack livekit --caller a.wav --agent b.wav
     hotato capture --stack pipecat --stereo captured.wav
-    hotato capture --stack retell  --stereo dual_channel.wav
 
     hotato setup --stack <stack>          # scaffold the exact recording config
     hotato capture --stack <stack> --demo # prove the loop, fully offline, no deps
 
 Design rules honoured here:
-  * The core scorer stays stdlib-only. Vapi and Twilio capture use nothing but
-    ``urllib`` + your API key -> near-zero friction. LiveKit and Pipecat live
+  * The core scorer stays stdlib-only. Vapi, Retell and Twilio capture use nothing
+    but ``urllib`` + your API key -> near-zero friction. LiveKit and Pipecat live
     capture run inside YOUR infra; ``setup`` scaffolds them and ``capture`` scores
     the file they produce. Every stack SDK is imported lazily, never at module load.
   * Every stack has a ``--demo`` that copies a bundled two-channel reference and
@@ -52,6 +52,7 @@ __all__ = [
     "capture",
     "capture_vapi",
     "capture_twilio",
+    "capture_retell",
     "setup_text",
     "run_capture",
     "run_setup",
@@ -177,17 +178,21 @@ def demo(stack: str, fmt: str = "text") -> int:
     with resources.as_file(_bundled_audio(scenario_id + ".example.wav")) as src:
         shutil.copyfile(src, out)
     print(f"[demo] {stack}: bundled two-channel reference '{scenario_id}' ({title})")
-    if stack == "retell":
-        print(
-            "[demo] note: Retell has no confirmed self-serve stereo export; this "
-            "--demo proves the SCORE path on a bundled reference, not a live pull."
-        )
     print(f"[demo] wrote two-channel capture -> {out}")
     env = score(out, stack=stack, onset_sec=onset, expect=expect)
     return report(env, fmt)
 
 
 # --- tiny stdlib HTTP (keeps the core zero-dependency) --------------------
+
+class _HTTPStatusError(ValueError):
+    """HTTP error that keeps the status code so callers can branch on it
+    (e.g. Twilio returns 400 when dual-channel media is unavailable)."""
+
+    def __init__(self, message: str, code: int):
+        super().__init__(message)
+        self.code = code
+
 
 def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> bytes:
     import urllib.error
@@ -197,14 +202,14 @@ def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> by
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user-supplied API
             return resp.read()
-    except urllib.error.HTTPError as exc:  # pragma: no cover - live path
+    except urllib.error.HTTPError as exc:
         body = ""
         try:
             body = exc.read().decode("utf-8", "replace")[:400]
         except Exception:
             pass
-        raise ValueError(
-            f"HTTP {exc.code} from {url}: {exc.reason}. {body}".strip()
+        raise _HTTPStatusError(
+            f"HTTP {exc.code} from {url}: {exc.reason}. {body}".strip(), exc.code
         ) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - live path
         raise ValueError(f"network error fetching {url}: {exc.reason}") from exc
@@ -229,7 +234,47 @@ def _out_wav(out_path: Optional[str], prefix: str) -> str:
     ).name
 
 
-# --- Vapi (flagship): GET /call/{id} -> stereoRecordingUrl -----------------
+# --- channel validation + the mono policy ----------------------------------
+
+_MONO_WHY = (
+    "a mono recording mixes caller and agent into one signal, so talk-over "
+    "cannot be attributed to either party; separated scoring needs one party "
+    "per channel"
+)
+
+
+def _wav_channels(path: str) -> Optional[int]:
+    """Channel count of a PCM WAV, or None if the file is not readable as WAV."""
+    import wave
+
+    try:
+        with wave.open(path, "rb") as wf:
+            return wf.getnchannels()
+    except (wave.Error, EOFError, OSError):
+        return None
+
+
+def _require_two_channels(path: str, source: str) -> None:
+    ch = _wav_channels(path)
+    if ch is None:
+        raise ValueError(
+            f"downloaded file from {source} is not a readable PCM WAV; the scorer "
+            "reads 2-channel PCM WAV (one party per channel)."
+        )
+    if ch != 2:
+        raise ValueError(
+            f"downloaded WAV from {source} has {ch} channel(s), expected 2. "
+            f"Scoring needs a 2-channel file: {_MONO_WHY}."
+        )
+
+
+def _env_allow_mono() -> bool:
+    return os.environ.get("HOTATO_ALLOW_MONO", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+# --- Vapi (flagship): GET /call/{id} -> artifact.recording.stereoUrl -------
 
 def capture_vapi(
     *,
@@ -241,11 +286,15 @@ def capture_vapi(
 ) -> str:
     """Download a Vapi call's TWO-CHANNEL recording and return the local WAV path.
 
-    API basis (verified, near-zero friction -- only an API key + a call id):
-      ``GET {base_url}/call/{id}``  with ``Authorization: Bearer <private key>``
-      -> the Call object, whose ``artifact.stereoRecordingUrl`` is a pre-signed
-      2-channel WAV (customer on channel 0, assistant on channel 1). We download
-      that URL directly. No SDK required; the only egress is Vapi -> your machine.
+    API basis (verified against docs.vapi.ai, 2026-07-06):
+      ``GET {base_url}/call/{id}`` with ``Authorization: Bearer <private key>``
+      -> the Call object. Since the 2025-04-29 API update, recordings live on
+      ``artifact.recording``; the stereo (2-channel) file is
+      ``artifact.recording.stereoUrl`` (customer on channel 0, assistant on
+      channel 1). The older ``artifact.stereoRecordingUrl`` and top-level
+      ``call.stereoRecordingUrl`` are deprecated; we still fall back to them so
+      captures keep working against older payloads. No SDK required; the only
+      egress is Vapi -> your machine.
 
     Live-verification is on your side: recording must be enabled and the call must
     have ENDED for the stereo artifact to exist.
@@ -256,19 +305,97 @@ def capture_vapi(
         timeout=timeout,
     )
     artifact = call.get("artifact") or {}
+    recording = artifact.get("recording") or {}
+    # Current shape first, then the two deprecated legacy shapes.
     url = (
-        artifact.get("stereoRecordingUrl")
+        recording.get("stereoUrl")
+        or artifact.get("stereoRecordingUrl")
         or call.get("stereoRecordingUrl")
-        or artifact.get("stereo_recording_url")
     )
     if not url:
         raise ValueError(
-            "no stereoRecordingUrl on this call. Ensure recording is enabled and the "
-            "call has ended; a stereo (2-channel) artifact is what Hotato needs. "
-            "(A mono recordingUrl cannot attribute overlap to caller vs agent.)"
+            "no stereo recording on this call: looked for "
+            "artifact.recording.stereoUrl (current), then the deprecated "
+            "artifact.stereoRecordingUrl and call.stereoRecordingUrl. Ensure "
+            "recording is enabled and the call has ended; a stereo (2-channel) "
+            f"artifact is what Hotato needs ({_MONO_WHY})."
         )
     dest = _out_wav(out_path, "hotato-vapi-")
-    return _download(url, dest, timeout=max(timeout, 120))
+    _download(url, dest, timeout=max(timeout, 120))
+    ch = _wav_channels(dest)
+    if ch is not None and ch != 2:
+        raise ValueError(
+            f"Vapi stereo recording download has {ch} channel(s), expected 2. "
+            f"Scoring needs a 2-channel file: {_MONO_WHY}."
+        )
+    return dest
+
+
+# --- Retell: GET /v2/get-call/{id} -> *_multi_channel_url -------------------
+
+def capture_retell(
+    *,
+    call_id: str,
+    api_key: str,
+    out_path: Optional[str] = None,
+    base_url: str = "https://api.retellai.com",
+    timeout: int = 60,
+    allow_mono: bool = False,
+) -> str:
+    """Download a Retell call's TWO-CHANNEL recording and return the local WAV path.
+
+    API basis (verified against docs.retellai.com/api-references/get-call,
+    2026-07-06):
+      ``GET {base_url}/v2/get-call/{call_id}`` with
+      ``Authorization: Bearer <RETELL_API_KEY>`` -> the call object, which
+      carries per-party recordings once the call has ended:
+        * ``scrubbed_recording_multi_channel_url`` -- each party on its own
+          channel, PII scrubbed (preferred),
+        * ``recording_multi_channel_url`` -- each party on its own channel,
+        * ``recording_url`` -- the plain mono mix.
+
+    We prefer the scrubbed multi-channel file, fall back to the unscrubbed one,
+    and validate the download has exactly 2 channels. The plain mono
+    ``recording_url`` is rejected unless ``allow_mono=True``: a mono mix cannot
+    attribute talk-over to caller vs agent.
+    """
+    call = _http_get_json(
+        f"{base_url.rstrip('/')}/v2/get-call/{call_id}",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        timeout=timeout,
+    )
+    url = call.get("scrubbed_recording_multi_channel_url") or call.get(
+        "recording_multi_channel_url"
+    )
+    if url:
+        dest = _out_wav(out_path, "hotato-retell-")
+        _download(url, dest, timeout=max(timeout, 120))
+        _require_two_channels(dest, "Retell (multi-channel recording)")
+        return dest
+    mono_url = call.get("recording_url")
+    if mono_url:
+        if not allow_mono:
+            raise ValueError(
+                "this Retell call only exposes the mono recording_url; no "
+                "recording_multi_channel_url / scrubbed_recording_multi_channel_url "
+                f"is present yet. Hotato will not score it silently: {_MONO_WHY}. "
+                "Multi-channel URLs appear after the call ends, on accounts with "
+                "call recording enabled. To score the mono mix anyway (degraded, "
+                "indicative only), pass --allow-mono (adapter) or set "
+                "HOTATO_ALLOW_MONO=1 (hotato capture)."
+            )
+        sys.stderr.write(
+            "[retell] degraded: downloading the MONO recording_url on your "
+            f"explicit --allow-mono; {_MONO_WHY}. Treat results as indicative "
+            "only.\n"
+        )
+        dest = _out_wav(out_path, "hotato-retell-")
+        return _download(mono_url, dest, timeout=max(timeout, 120))
+    raise ValueError(
+        "no recording on this Retell call (no scrubbed_recording_multi_channel_url, "
+        "recording_multi_channel_url, or recording_url). Recordings are available "
+        "after the call ends, on agents with call recording enabled."
+    )
 
 
 # --- Twilio: dual-channel recording media ---------------------------------
@@ -281,43 +408,69 @@ def capture_twilio(
     out_path: Optional[str] = None,
     base_url: str = "https://api.twilio.com",
     timeout: int = 60,
+    allow_mono: bool = False,
 ) -> str:
     """Download a Twilio DUAL-CHANNEL recording as WAV and return the local path.
 
-    API basis (verified):
-      ``GET {base}/2010-04-01/Accounts/{AccountSid}/Recordings/{RecordingSid}.wav``
-      with HTTP Basic auth (AccountSid:AuthToken). Request dual-channel when the
-      recording is CREATED (``RecordingChannels=dual`` / ``record="record-from-
-      answer-dual"`` / ``<Record recordingChannels="dual">``) so caller and agent
-      land on separate channels. We first read the ``.json`` metadata and warn if
-      ``channels != 2`` (a mono mix cannot attribute overlap).
+    API basis (verified against twilio.com/docs/voice/api/recording, 2026-07-06):
+      ``GET {base}/2010-04-01/Accounts/{AccountSid}/Recordings/{RecordingSid}
+      .wav?RequestedChannels=2`` with HTTP Basic auth (AccountSid:AuthToken).
+      Appending ``?RequestedChannels=2`` to the media URL is the documented way
+      to request the dual-channel file. When the dual-channel format is not
+      available, Twilio returns ``400 Bad Request``; the documented fallback is
+      to re-request with ``RequestedChannels=1`` (mono), which we do only on
+      your explicit ``allow_mono=True``. We validate the download has exactly
+      2 channels.
 
-    Twilio's channel order depends on how the recording was created; if caller and
-    agent look swapped, pass different --caller-channel/--agent-channel to score().
+    Channel order (per Twilio's dual-channel recording docs): for a two-party
+    call the first (left) channel is the customer/caller and the second (right)
+    channel is the agent -- Hotato's default of caller on channel 0, agent on
+    channel 1 matches. Conference recordings differ (first channel = the first
+    participant to join, second channel = everyone else); if caller and agent
+    look swapped, pass different --caller-channel/--agent-channel.
+
+    Record dual-channel when the recording is CREATED (``RecordingChannels=dual``
+    on the REST API / ``<Dial record="record-from-answer-dual">`` /
+    ``<Record recordingChannels="dual">``) so a 2-channel file exists to fetch.
     """
     token = base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode()
     auth = {"Authorization": f"Basic {token}"}
-    meta_url = (
-        f"{base_url.rstrip('/')}/2010-04-01/Accounts/{account_sid}"
-        f"/Recordings/{recording_sid}.json"
-    )
-    try:
-        meta = _http_get_json(meta_url, headers=auth, timeout=timeout)
-        if meta.get("channels") not in (2, "2"):
-            sys.stderr.write(
-                f"[twilio] warning: recording {recording_sid} reports "
-                f"channels={meta.get('channels')} (expected 2). A mono mix cannot "
-                "attribute overlap to caller vs agent -- re-record with "
-                "RecordingChannels=dual for a valid score.\n"
-            )
-    except ValueError:  # pragma: no cover - metadata is best-effort
-        pass
-    media_url = (
+    media_base = (
         f"{base_url.rstrip('/')}/2010-04-01/Accounts/{account_sid}"
         f"/Recordings/{recording_sid}.wav"
     )
     dest = _out_wav(out_path, "hotato-twilio-")
-    return _download(media_url, dest, headers=auth, timeout=max(timeout, 120))
+    try:
+        _download(
+            media_base + "?RequestedChannels=2", dest, headers=auth,
+            timeout=max(timeout, 120),
+        )
+    except _HTTPStatusError as exc:
+        if exc.code != 400:
+            raise
+        if not allow_mono:
+            raise ValueError(
+                f"Twilio returned 400 for recording {recording_sid} with "
+                "RequestedChannels=2: the dual-channel format is not available, "
+                f"so this recording is a mono mix and {_MONO_WHY}. Re-record "
+                "with RecordingChannels=dual (REST) / "
+                '<Dial record="record-from-answer-dual"> / '
+                '<Record recordingChannels="dual"> (TwiML) for a valid score. '
+                "To score the mono mix anyway (degraded, indicative only), pass "
+                "--allow-mono (adapter) or set HOTATO_ALLOW_MONO=1 (hotato "
+                "capture)."
+            ) from exc
+        sys.stderr.write(
+            "[twilio] degraded: dual-channel media unavailable (HTTP 400); "
+            f"downloading the MONO mix on your explicit --allow-mono; {_MONO_WHY}. "
+            "Treat results as indicative only.\n"
+        )
+        return _download(
+            media_base + "?RequestedChannels=1", dest, headers=auth,
+            timeout=max(timeout, 120),
+        )
+    _require_two_channels(dest, "Twilio (RequestedChannels=2 media)")
+    return dest
 
 
 # --- dispatcher used by the adapters + CLI --------------------------------
@@ -325,14 +478,16 @@ def capture_twilio(
 def capture(stack: str, **kwargs) -> str:
     """Fetch/produce a two-channel WAV for ``stack`` and return its local path.
 
-    Only the HTTP-fetch stacks (vapi, twilio) capture directly here. LiveKit and
-    Pipecat live capture run inside your infra (see ``setup``/``adapters``); Retell
-    has no self-serve stereo export (see ``setup``). For those, score the file your
-    infra produced with ``score()`` / ``score_two_channel()``.
+    Only the HTTP-fetch stacks (vapi, retell, twilio) capture directly here.
+    LiveKit and Pipecat live capture run inside your infra (see
+    ``setup``/``adapters``); for those, score the file your infra produced with
+    ``score()`` / ``score_two_channel()``.
     """
     stack = stack.strip().lower()
     if stack == "vapi":
         return capture_vapi(**kwargs)
+    if stack == "retell":
+        return capture_retell(**kwargs)
     if stack == "twilio":
         return capture_twilio(**kwargs)
     raise ValueError(
@@ -372,6 +527,19 @@ cannot attribute overlap, so use TWO audio-only Track egresses (one per party).
     #   hotato capture --stack livekit --caller caller.wav --agent agent.wav \\
     #                  --onset <sec> --expect yield
 
+What you are testing (current Agents API, verified docs.livekit.io/agents/logic/
+turns/, 2026-07-06): turn taking is configured on
+AgentSession(turn_handling=TurnHandlingOptions(...)) --
+    turn_detection   = inference.TurnDetector() | "realtime_llm" | "vad" | "stt" | "manual"
+    endpointing      = {"min_delay": ..., "max_delay": ...}
+    interruption     = {"enabled": True, "mode": "adaptive" | "vad",
+                        "min_duration": ..., "min_words": ...,
+                        "false_interruption_timeout": ...,
+                        "resume_false_interruption": ...}
+(The older flat AgentSession kwargs allow_interruptions / min_interruption_duration /
+min_interruption_words / min_endpointing_delay / max_endpointing_delay are not in
+the current docs; use the turn_handling options above.)
+
 Notes: this is real infra on your side (needs LIVEKIT_URL + API key/secret). The
 Egress API evolves -- verify TrackEgressRequest / DirectFileOutput against your
 LiveKit server version. audio_only keeps the files small. You can also enable
@@ -392,10 +560,20 @@ channel 1 = bot/agent (output).
 
     pipeline = Pipeline([
         transport.input(),
-        stt, llm, tts,          # <- your interruption / turn-taking config UNDER TEST
+        stt, llm, tts,          # <- your turn-taking config UNDER TEST
         transport.output(),
         audiobuffer,            # <- taps both directions
     ])
+
+    # The knobs under test live on PipelineTask's user-turn strategies
+    # (current API, verified docs.pipecat.ai, 2026-07-06). Start strategies:
+    # VADUserTurnStartStrategy, TranscriptionUserTurnStartStrategy,
+    # MinWordsUserTurnStartStrategy(min_words=...),
+    # KrispVivaIPUserTurnStartStrategy(...)  # model-based, backchannel-aware
+    # Stop strategies: SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=...),
+    # TurnAnalyzerUserTurnStopStrategy(turn_analyzer=...).
+    # (MinWordsInterruptionStrategy is deprecated since pipecat 0.0.99; use
+    # MinWordsUserTurnStartStrategy via turn_start_strategies instead.)
 
     caller_ch, agent_ch = [], []
 
@@ -426,9 +604,12 @@ need the call id + your private API key. Near-zero friction: no SDK, no export s
          export VAPI_API_KEY=<your private key>
          hotato capture --stack vapi --call-id <call-id> --expect yield
 
-Under the hood: GET https://api.vapi.ai/call/<id> -> artifact.stereoRecordingUrl
-(a 2-channel WAV) -> scored offline. The only network egress is the direct
-download from Vapi to your machine; your audio is never sent anywhere else.
+Under the hood: GET https://api.vapi.ai/call/<id> -> artifact.recording.stereoUrl
+(a 2-channel WAV; the current field since Vapi's 2025-04-29 API update, with
+fallback to the deprecated artifact.stereoRecordingUrl / call.stereoRecordingUrl)
+-> scored offline. The only network egress is the direct download from Vapi to
+your machine; your audio is never sent anywhere else.
+API basis verified against docs.vapi.ai, 2026-07-06.
 '''
 
 _TWILIO_SETUP_TEMPLATE = '''\
@@ -443,31 +624,41 @@ Twilio -- record DUAL-CHANNEL so caller and agent land on separate channels.
          export TWILIO_ACCOUNT_SID=AC...  TWILIO_AUTH_TOKEN=...
          hotato capture --stack twilio --recording-sid RE... --expect yield
 
-Under the hood: GET .../Accounts/<sid>/Recordings/<RE...>.wav (HTTP Basic auth)
--> a 2-channel WAV -> scored offline. Twilio's channel order depends on how the
-recording was created; if caller/agent look swapped, add --caller-channel /
---agent-channel to the capture command.
+Under the hood: GET .../Accounts/<sid>/Recordings/<RE...>.wav?RequestedChannels=2
+(HTTP Basic auth; appending ?RequestedChannels=2 is the documented way to request
+the dual-channel file) -> a 2-channel WAV, validated and scored offline. When the
+dual-channel format is not available Twilio returns 400 Bad Request; Hotato then
+stops with a clear message (the recording is mono and cannot attribute talk-over)
+unless you opt into the degraded mono path with --allow-mono / HOTATO_ALLOW_MONO=1.
+
+Channel order (two-party calls): first/left channel = customer/caller, second/
+right channel = agent -- Hotato's default caller=ch0, agent=ch1 matches. In
+CONFERENCE recordings the first channel is the first participant to join; if
+caller/agent look swapped, add --caller-channel / --agent-channel.
+API basis verified against twilio.com/docs/voice/api/recording, 2026-07-06.
 '''
 
 _RETELL_SETUP_TEMPLATE = '''\
-Retell -- HONEST STATUS: no confirmed self-serve STEREO / dual-channel recording
-export was found. Retell's GET /v2/get-call/<id> returns a single recording_url
-(mixed/mono). A mono mix CANNOT attribute overlap to caller vs agent, so scoring
-it is degraded, not authoritative -- Hotato will not fake a capture path that does
-not exist.
+Retell -- multi-channel recording export is built in; you only need the call id
+plus your API key. No SDK, no export step.
 
-Workarounds, in order of fidelity:
-    1. Capture dual-channel at the TELEPHONY layer you control. If Retell rides on
-       a Twilio number you own, record dual-channel there and use --stack twilio.
-    2. Use a SIP / media-server recording that keeps the two legs on separate
-       channels; export a 2-channel WAV (caller ch0, agent ch1), then:
-         hotato capture --stack retell --stereo your_dual_channel.wav
-    3. Last resort (clearly degraded): score the mono recording with an onset label
-         hotato run --caller retell_mono.wav --agent retell_mono.wav --onset <sec>
-       and treat the result as indicative only.
+    1. Enable call recording on your agent. Retell then exposes per-party
+       recordings on the call object after the call ends.
+    2. Grab the call id (dashboard, or the call webhook payload).
+    3. Score it:
+         export RETELL_API_KEY=<your api key>
+         hotato capture --stack retell --call-id <call-id> --expect yield
 
-OPEN QUESTION: if Retell has added a stereo/dual-channel export, please open an
-issue with the API shape and we will add a first-class adapter.
+Under the hood: GET https://api.retellai.com/v2/get-call/<call-id> (Bearer auth)
+-> scrubbed_recording_multi_channel_url (PII scrubbed, preferred) or
+recording_multi_channel_url (each party on its own channel) -> a 2-channel WAV,
+validated and scored offline. The only network egress is the direct download
+from Retell to your machine.
+
+The plain recording_url is a mono mix: it cannot attribute talk-over to caller
+vs agent, so Hotato rejects it by default. To score it anyway (degraded,
+indicative only) pass --allow-mono (adapter) or set HOTATO_ALLOW_MONO=1.
+API basis verified against docs.retellai.com/api-references/get-call, 2026-07-06.
 '''
 
 _SETUP = {
@@ -511,15 +702,19 @@ def run_capture(
     recording_sid: Optional[str] = None,
     account_sid: Optional[str] = None,
     auth_token: Optional[str] = None,
+    allow_mono: bool = False,
     out: Optional[str] = None,
     fmt: str = "text",
 ) -> int:
     """Resolve a two-channel recording for ``stack`` and print its scored verdict.
 
     Resolution order: --demo, then an already-captured file (--stereo, or
-    --caller/--agent), then a live per-stack fetch (vapi/twilio). LiveKit, Pipecat
-    and Retell have no direct fetch here (see ``setup``); pass the file your infra
-    produced via --stereo / --caller+--agent.
+    --caller/--agent), then a live per-stack fetch (vapi/retell/twilio). LiveKit
+    and Pipecat have no direct fetch here (see ``setup``); pass the file your
+    infra produced via --stereo / --caller+--agent.
+
+    ``allow_mono`` (or env HOTATO_ALLOW_MONO=1) opts into the degraded mono path
+    on retell/twilio when no 2-channel media exists; default is a clean rejection.
     """
     stack = (stack or "").strip().lower()
     if stack not in STACKS:
@@ -538,6 +733,8 @@ def run_capture(
     if caller and agent:
         env = score_two_channel(caller, agent, stack=stack, onset_sec=onset, expect=expect)
         return report(env, fmt)
+
+    allow_mono = allow_mono or _env_allow_mono()
 
     if stack == "vapi":
         if not call_id:
@@ -561,6 +758,30 @@ def run_capture(
         )
         return report(env, fmt)
 
+    if stack == "retell":
+        if not call_id:
+            raise ValueError(
+                "retell capture needs --call-id (of an ended, recorded call), plus "
+                "--api-key or RETELL_API_KEY. Try `hotato setup --stack retell`, or "
+                "`hotato capture --stack retell --demo`, or score an existing "
+                "2-channel WAV with --stereo."
+            )
+        key = api_key or os.environ.get("RETELL_API_KEY")
+        if not key:
+            raise ValueError(
+                "retell capture needs your API key: pass --api-key or set "
+                "RETELL_API_KEY."
+            )
+        path = capture_retell(
+            call_id=call_id, api_key=key, out_path=out, allow_mono=allow_mono
+        )
+        sys.stderr.write(f"[retell] downloaded recording -> {path}\n")
+        env = _score_capture(
+            "retell", path, onset=onset, expect=expect,
+            caller_channel=caller_channel, agent_channel=agent_channel,
+        )
+        return report(env, fmt)
+
     if stack == "twilio":
         if not recording_sid:
             raise ValueError(
@@ -577,16 +798,17 @@ def run_capture(
                 "or set TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN."
             )
         path = capture_twilio(
-            recording_sid=recording_sid, account_sid=sid, auth_token=tok, out_path=out
+            recording_sid=recording_sid, account_sid=sid, auth_token=tok,
+            out_path=out, allow_mono=allow_mono,
         )
         sys.stderr.write(f"[twilio] downloaded recording -> {path}\n")
-        env = score(
-            path, stack="twilio", onset_sec=onset, expect=expect,
+        env = _score_capture(
+            "twilio", path, onset=onset, expect=expect,
             caller_channel=caller_channel, agent_channel=agent_channel,
         )
         return report(env, fmt)
 
-    # livekit / pipecat / retell: no direct fetch -- point at setup + the file path.
+    # livekit / pipecat: no direct fetch -- point at setup + the file path.
     hint = {
         "livekit": (
             "LiveKit capture runs in YOUR deployment via egress. Run "
@@ -600,15 +822,33 @@ def run_capture(
             "drop-in processor, then score the WAV it writes:\n"
             "  hotato capture --stack pipecat --stereo captured.wav"
         ),
-        "retell": (
-            "Retell has no confirmed self-serve stereo export. Run "
-            "`hotato setup --stack retell` for the honest workaround; then score a "
-            "dual-channel WAV you assembled:\n"
-            "  hotato capture --stack retell --stereo dual_channel.wav\n"
-            "Or prove the score path offline with --demo."
-        ),
     }[stack]
     raise ValueError(hint)
+
+
+def _score_capture(
+    stack: str,
+    path: str,
+    *,
+    onset: Optional[float],
+    expect: str,
+    caller_channel: int,
+    agent_channel: int,
+) -> dict:
+    """Score a fetched capture. When an explicit --allow-mono download produced
+    a 1-channel file, score it degraded (the single channel stands in for both
+    parties, so talk-over is not attributable) and say so loudly."""
+    if _wav_channels(path) == 1:
+        sys.stderr.write(
+            f"[{stack}] degraded: mono file, scoring WITHOUT party attribution "
+            "(the single channel stands in for both parties). Treat results as "
+            "indicative only.\n"
+        )
+        return score_two_channel(path, path, stack=stack, onset_sec=onset, expect=expect)
+    return score(
+        path, stack=stack, onset_sec=onset, expect=expect,
+        caller_channel=caller_channel, agent_channel=agent_channel,
+    )
 
 
 # internal alias so run_capture(demo=True) doesn't shadow the public demo()

@@ -127,19 +127,25 @@ def capture_agent_response(
         #           already holds the floor when the caller barges in. Emit
         #           InputAudioRawFrame chunks (10-20 ms) at `sample_rate`.
 
-        # ADJUST 2: your STT -> LLM -> TTS services and interruption settings --
-        #           this is what you are actually testing (allow_interruptions,
-        #           min_interruption_words / duration, your VAD / turn analyzer,
-        #           the endpointing config). Drop a 2-channel AudioBufferProcessor
-        #           in so caller (input) and agent (output) stay on SEPARATE
-        #           channels -- do NOT mix them down:
+        # ADJUST 2: your STT -> LLM -> TTS services and turn-taking settings --
+        #           this is what you are actually testing. On the current Pipecat
+        #           API (verified 2026-07-06) the knobs are PipelineTask's
+        #           user-turn strategies: turn_start_strategies (e.g.
+        #           VADUserTurnStartStrategy, MinWordsUserTurnStartStrategy(
+        #           min_words=...), KrispVivaIPUserTurnStartStrategy for
+        #           backchannel-aware starts) and stop strategies (e.g.
+        #           SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=...),
+        #           TurnAnalyzerUserTurnStopStrategy). MinWordsInterruptionStrategy
+        #           is deprecated since 0.0.99. Drop a 2-channel
+        #           AudioBufferProcessor in so caller (input) and agent (output)
+        #           stay on SEPARATE channels -- do NOT mix them down:
         #     from pipecat.processors.audio.audio_buffer_processor import (
         #         AudioBufferProcessor,
         #     )
         #     audiobuffer = AudioBufferProcessor(sample_rate=sample_rate, num_channels=2)
         #     pipeline = Pipeline([transport.input(), stt, llm, tts,
         #                          transport.output(), audiobuffer])
-        #     task = PipelineTask(pipeline)
+        #     task = PipelineTask(pipeline, turn_start_strategies=[...])
 
         # ADJUST 3: pull the two channels out of the AudioBufferProcessor. Its
         #           on_audio_data delivers interleaved int16 [caller, agent]; split

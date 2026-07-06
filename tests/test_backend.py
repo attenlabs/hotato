@@ -243,3 +243,91 @@ def test_cli_backend_neural_missing_extra_is_clean_exit_2(capsys):
     assert code == 2  # clean config error, not a crash and not a silent energy score
     err = capsys.readouterr().err.lower()
     assert "error:" in err and "neural" in err
+
+
+# --- 4. REAL MODEL (runs only with the [neural] extra installed) -------------
+#
+# Everything above exercises the seam with a dependency-free stub so it is
+# testable offline. The tests below run the REAL Silero model (ONNX weights
+# bundled in the silero-vad package, onnxruntime CPU) and are skipped cleanly
+# when the optional extra is absent, so the zero-dependency test run stays
+# green. They pin the seam's verified PROPERTIES (contract, determinism, the
+# actionable unsupported-rate error); they assert nothing about what the model
+# marks active, because that is a model behavior, not a seam contract.
+
+requires_silero = pytest.mark.skipif(
+    not _silero_installed(),
+    reason="requires the optional [neural] extra (pip install 'hotato[neural]')",
+)
+
+
+@pytest.fixture
+def real_neural():
+    """Force the REAL Silero factory for the test (another test's stub may have
+    been registered), then restore whatever was there before."""
+    from hotato.neural import build_silero_backend
+
+    saved = _vad._NEURAL_FACTORY
+    register_neural_backend(build_silero_backend)
+    try:
+        yield
+    finally:
+        register_neural_backend(saved) if saved is not None else _vad.clear_neural_backend()
+
+
+@requires_silero
+def test_real_silero_vadresult_contract_and_determinism(real_neural):
+    """The real model honors the shared VADResult contract on a bundled fixture
+    and is deterministic: two runs over the same audio give identical tracks."""
+    import dataclasses
+
+    from hotato import _engine
+
+    sig = _engine.read_wav(_bundled("01-hard-interruption"))
+    samples = sig.get(0)
+    rms, hop = frame_rms(samples, sig.sample_rate, 20.0, 10.0)
+
+    r1 = neural_vad(samples, sig.sample_rate, rms, hop, VADParams(backend="neural"))
+    r2 = neural_vad(samples, sig.sample_rate, rms, hop, VADParams(backend="neural"))
+
+    assert type(r1) is VADResult
+    fields = {f.name for f in dataclasses.fields(r1)}
+    assert fields == {"active", "hop_sec", "threshold_db", "noise_floor_db"}
+    assert len(r1.active) == len(rms)
+    assert r1.hop_sec == hop
+    assert all(isinstance(a, bool) for a in r1.active)
+    assert math.isfinite(r1.threshold_db) and math.isfinite(r1.noise_floor_db)
+    # determinism: identical output, run to run
+    assert r1 == r2
+
+
+@requires_silero
+def test_real_silero_end_to_end_score_is_deterministic(real_neural):
+    """backend='neural' with the real model produces a normal ScoreResult through
+    the public scorer, identical across two runs on the same recording."""
+    from hotato import _engine
+
+    sig = _engine.read_wav(_bundled("01-hard-interruption"))
+    cfg = ScoreConfig(
+        caller_vad=VADParams(backend="neural"),
+        agent_vad=VADParams(backend="neural"),
+    )
+    r1 = score_channels(sig.get(0), sig.get(1), sig.sample_rate, caller_onset_sec=0.5, cfg=cfg)
+    r2 = score_channels(sig.get(0), sig.get(1), sig.sample_rate, caller_onset_sec=0.5, cfg=cfg)
+    assert isinstance(r1, ScoreResult)
+    assert set(r1.signals.keys()) == {"barge_in", "latency"}
+    assert r1.as_dict() == r2.as_dict()
+
+
+@requires_silero
+def test_real_silero_unsupported_rate_is_an_actionable_error(real_neural):
+    """REGRESSION: Silero supports 8 kHz, 16 kHz, and 16 kHz multiples. A 44.1 kHz
+    recording must fail with the seam's actionable resample message (never a
+    model-internal error, never a silent energy fallback)."""
+    sr = 44100
+    samples = [0.3 * math.sin(2 * math.pi * 220 * i / sr) for i in range(sr)]
+    rms, hop = frame_rms(samples, sr, 20.0, 10.0)
+    with pytest.raises(ValueError, match="[Rr]esample") as ei:
+        neural_vad(samples, sr, rms, hop, VADParams(backend="neural"))
+    msg = str(ei.value)
+    assert "16000" in msg and "44100" in msg and "energy" in msg
