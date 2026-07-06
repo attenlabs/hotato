@@ -551,6 +551,103 @@ def _cmd_doctor(args) -> int:
     return process_exit_code(env)
 
 
+# --- the guarded fix ladder (read-only phase): diagnose -> inspect -> plan ---
+
+def _load_envelope_for(path: str, flag: str) -> dict:
+    """Load an envelope JSON for diagnose/plan; anything else is a clean usage
+    error (exit 2)."""
+    with open(path, encoding="utf-8") as fh:
+        env = json.load(fh)
+    if not (isinstance(env, dict) and env.get("tool") == "hotato"
+            and env.get("kind") != "frame-dump"
+            and isinstance(env.get("events"), list)):
+        raise ValueError(
+            f"{flag} {path!r} is not a hotato envelope JSON. Save one with: "
+            "hotato run --suite barge-in --format json > result.json"
+        )
+    return env
+
+
+def _cmd_diagnose(args) -> int:
+    from . import diagnose as _diagnose
+
+    env = _load_envelope_for(args.envelope, "diagnose")
+    diagnosis = _diagnose.diagnose_envelope(env, source=args.envelope)
+    if args.format == "json":
+        print(json.dumps(diagnosis, indent=2))
+    else:
+        print(_diagnose.render_text(diagnosis))
+    # 0 = nothing failed, 1 = failing events were diagnosed, 2 = unusable input.
+    return 1 if diagnosis["battery"]["failed"] else 0
+
+
+def _cmd_inspect(args) -> int:
+    from . import inspectcfg as _inspectcfg
+
+    result = _inspectcfg.run_inspect(
+        stack=args.stack,
+        assistant_id=args.assistant_id,
+        agent_id=args.agent_id,
+        config=args.config,
+        api_key=args.api_key,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(_inspectcfg.render_text(result))
+    return 0
+
+
+def _cmd_plan(args) -> int:
+    from . import diagnose as _diagnose
+    from . import fixplan as _fixplan
+    from . import inspectcfg as _inspectcfg
+
+    env = _load_envelope_for(args.run, "--run")
+    diagnosis = _diagnose.diagnose_envelope(env, source=args.run)
+
+    inspected = None
+    target_info = {}
+    has_target = bool(args.assistant_id or args.agent_id or args.config)
+    if has_target:
+        if not args.stack or args.stack == "generic":
+            raise ValueError(
+                "a target flag (--assistant-id / --agent-id / --config) needs "
+                "--stack vapi|retell|livekit|pipecat so plan knows how to "
+                "inspect it"
+            )
+        inspected = _inspectcfg.run_inspect(
+            stack=args.stack,
+            assistant_id=args.assistant_id,
+            agent_id=args.agent_id,
+            config=args.config,
+            api_key=args.api_key,
+        )
+        target_info = {
+            k: v for k, v in (
+                ("assistant_id", args.assistant_id),
+                ("agent_id", args.agent_id),
+                ("config_path", args.config),
+            ) if v
+        }
+
+    plan = _fixplan.build_plan(
+        diagnosis=diagnosis,
+        inspected=inspected,
+        stack=args.stack,
+        target_info=target_info,
+    )
+    with open(args.out, "w", encoding="utf-8") as fh:
+        json.dump(plan, fh, indent=2)
+        fh.write("\n")
+    if args.format == "json":
+        print(json.dumps(plan, indent=2))
+    else:
+        print(_fixplan.render_text(plan))
+    print(f"wrote fix plan ({plan['decision']}) to {args.out}", file=sys.stderr)
+    return 0
+
+
 _DEMO_HEADER = "hotato demo: intentionally bad agent battery"
 _DEMO_NOTE = "demo is intentionally failing; use this to see what Hotato catches."
 
@@ -1003,6 +1100,135 @@ def build_parser() -> argparse.ArgumentParser:
                     help="exit with the real regression code (1: this battery "
                          "fails by design) instead of the default 0")
     dm.set_defaults(func=_cmd_demo)
+
+    # --- diagnose: Level 0 of the guarded fix ladder (read-only) ------------
+    dg = sub.add_parser(
+        "diagnose",
+        help="explain a finished run: per-failure diagnosis + a battery-level "
+             "decision (read-only)",
+        description=(
+            "Read a hotato envelope JSON (hotato run --format json > result.json) "
+            "and emit one diagnosis per failing event (finding, measured evidence, "
+            "likely layer, config_only_safe, plain-language notes) plus a "
+            "battery-level decision. Honesty rules are built in: a battery that "
+            "misses a real interruption AND false-stops on a backchannel gets "
+            "do_not_tune_single_threshold; a slow yield without a passing "
+            "opposite-risk fixture stays unknown_root_cause (TTS buffering, "
+            "transport, and VAD are indistinguishable from one recording); "
+            "not-scorable events are input problems, never agent failures. "
+            "Read-only: nothing is fetched and nothing is changed."
+        ),
+        epilog=(
+            "Exit codes: 0 = no failing events, 1 = failing events diagnosed, "
+            "2 = unusable input.\n"
+            "Examples:\n"
+            "  hotato run --suite barge-in --format json > result.json\n"
+            "  hotato diagnose result.json\n"
+            "  hotato diagnose result.json --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    dg.add_argument("envelope", metavar="RESULT.json",
+                    help="a hotato envelope JSON from run/capture")
+    dg.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text: the Level 0 advisory)")
+    dg.set_defaults(func=_cmd_diagnose)
+
+    # --- inspect: Level 1, read the CURRENT turn-taking config --------------
+    ins = sub.add_parser(
+        "inspect",
+        help="read the current turn-taking config from a stack and normalize "
+             "it (read-only)",
+        description=(
+            "Fetch (Vapi, Retell) or statically parse (LiveKit, Pipecat) the "
+            "turn-taking configuration a target is actually running and "
+            "normalize it into one model: interrupt_min_words, "
+            "interrupt_voice_seconds, resume_backoff_seconds, "
+            "endpointing_wait_seconds, backchannel_aware, plus the raw fields "
+            "and provenance. Unknown or absent options are null with a note; "
+            "values are never guessed. Suspicious values are surfaced as "
+            "observations, not judgments. Read-only by construction: the only "
+            "network calls are GETs, config files are parsed without being "
+            "imported or executed, and nothing is ever written back."
+        ),
+        epilog=(
+            "Exit codes: 0 = inspected, 2 = missing credentials / bad flags / "
+            "unreadable file.\n"
+            "Examples:\n"
+            "  hotato inspect --stack vapi --assistant-id <id>     # + VAPI_API_KEY\n"
+            "  hotato inspect --stack retell --agent-id <id>       # + RETELL_API_KEY\n"
+            "  hotato inspect --stack livekit --config agent.py\n"
+            "  hotato inspect --stack pipecat --config bot.py --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ins.add_argument("--stack", required=True,
+                     choices=["vapi", "retell", "livekit", "pipecat"],
+                     help="which stack to inspect")
+    ins.add_argument("--assistant-id", help="[vapi] assistant id to fetch")
+    ins.add_argument("--agent-id", help="[retell] agent id to fetch")
+    ins.add_argument("--config", metavar="FILE.py",
+                     help="[livekit|pipecat] python config file to parse "
+                          "statically (never imported or executed)")
+    ins.add_argument("--api-key",
+                     help="[vapi|retell] API key (else env VAPI_API_KEY / "
+                          "RETELL_API_KEY); used for one read-only GET")
+    ins.add_argument("--format", default="text", choices=["json", "text"],
+                     help="output format (default text)")
+    ins.set_defaults(func=_cmd_inspect)
+
+    # --- plan: Level 2, a guarded fix plan (proposal only, no apply) --------
+    pl = sub.add_parser(
+        "plan",
+        help="combine a diagnosis with the inspected config into a guarded "
+             "fix-plan JSON (proposal only; no apply command exists)",
+        description=(
+            "Diagnose a finished run, optionally inspect the live config, and "
+            "write a fix plan (schema hotato.fixplan.v1). A change is proposed "
+            "only when the failure maps cleanly to one setting, the step is one "
+            "bounded move in an unambiguous direction within documented bounds, "
+            "the battery contains a passing opposite-risk fixture, and the "
+            "diagnosis is config-only-safe; otherwise the plan downgrades "
+            "honestly (refusal on the threshold funnel, instrumentation "
+            "checklist on an ambiguous slow yield, insufficient_coverage when "
+            "the verifying fixture is missing). Plans never carry an absolute "
+            "magic value: from -> to is one step relative to the inspected "
+            "current value, or direction + bounds only when it is unknown. "
+            "production_apply is always false; applying anything is a later "
+            "phase and is not shipped."
+        ),
+        epilog=(
+            "Exit codes: 0 = plan written (including refusals), 2 = unusable "
+            "input / missing credentials.\n"
+            "Examples:\n"
+            "  hotato plan --run result.json\n"
+            "  hotato plan --run result.json --stack vapi --assistant-id <id>\n"
+            "  hotato plan --run result.json --stack livekit --config agent.py\n"
+            "  hotato plan --run result.json --out my-plan.json --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pl.add_argument("--run", required=True, metavar="RESULT.json",
+                    help="a hotato envelope JSON from run/capture")
+    pl.add_argument("--stack", default="generic",
+                    choices=["generic", "vapi", "retell", "livekit", "pipecat"],
+                    help="target stack (generic: plan from the diagnosis alone, "
+                         "using the generic knob families)")
+    pl.add_argument("--assistant-id", help="[vapi] assistant id to inspect")
+    pl.add_argument("--agent-id", help="[retell] agent id to inspect")
+    pl.add_argument("--config", metavar="FILE.py",
+                    help="[livekit|pipecat] python config file to parse "
+                         "statically for current values")
+    pl.add_argument("--api-key",
+                    help="[vapi|retell] API key (else env VAPI_API_KEY / "
+                         "RETELL_API_KEY); used for one read-only GET")
+    pl.add_argument("--out", default="hotato-fixplan.json", metavar="PATH",
+                    help="where to write the plan JSON (default "
+                         "hotato-fixplan.json)")
+    pl.add_argument("--format", default="text", choices=["json", "text"],
+                    help="stdout format (default text summary; json prints "
+                         "the full plan)")
+    pl.set_defaults(func=_cmd_plan)
 
     return p
 
