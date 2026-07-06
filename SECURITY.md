@@ -2,9 +2,8 @@
 
 Hotato is offline by default. Scoring reads the local WAV files you point it at
 and writes local files; no audio, transcript, or result leaves your machine.
-The only network path in the tool is `hotato capture` for Vapi and Twilio,
-which downloads the one recording you name over HTTPS with your own
-credentials, then scores it locally.
+Network access is used only when you explicitly run hosted-stack capture
+commands. Core scoring, reports, exports, benchmarks, and demos run offline.
 
 ## Reporting
 

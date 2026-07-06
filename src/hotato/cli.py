@@ -46,7 +46,7 @@ Score YOUR OWN call in under a minute (bring a dual-channel recording):
   Twilio:   hotato capture --stack twilio --recording-sid RE...   # + TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN
   LiveKit:  hotato setup   --stack livekit   # scaffold two-track egress, then --caller a.wav --agent b.wav
   Pipecat:  hotato setup   --stack pipecat   # drop in the 2-channel recorder, then score the WAV
-  Retell:   hotato setup   --stack retell    # honest: no self-serve stereo export yet -- prints the workaround
+  Retell:   hotato capture --stack retell --call-id <id>          # + RETELL_API_KEY
 
 Already have a 2-channel WAV (caller on channel 0, agent on channel 1)?
   hotato run --stereo your_call.wav --expect yield
@@ -83,9 +83,18 @@ def _emit(env: dict, fmt: str) -> None:
         f"offline={env['offline']}"
     )
     print(head)
-    print(f"  {s['passed']}/{s['events']} events pass  (failed={s['failed']})")
+    n_not_scorable = s.get("not_scorable", 0)
+    counts = f"failed={s['failed']}"
+    if n_not_scorable:
+        counts += f", not_scorable={n_not_scorable}"
+    print(f"  {s['passed']}/{s['events']} events pass  ({counts})")
     for e in env["events"]:
         v = e["verdict"]
+        if e.get("scorable") is False:
+            # An input problem, never an agent verdict: no PASS, no FAIL.
+            print(f"  [NOT SCORABLE] {e['event_id']}")
+            print(f"         reason: {e['not_scorable_reason']}")
+            continue
         mark = "PASS" if v["passed"] else "FAIL"
         tty = v["seconds_to_yield"]
         tty_s = "-" if tty is None else f"{tty:.2f}s"
@@ -104,7 +113,17 @@ def _emit(env: dict, fmt: str) -> None:
     if env.get("funnel"):
         print("  note: no single sensitivity threshold satisfies this battery; "
               "see funnel pointer in --format json.")
-    print(f"  exit_code={env['exit_code']}")
+    # The envelope exit_code is schema-frozen to 0|1 and reflects scorable
+    # failures only. When the process-level code differs (a single run whose
+    # every event is not scorable maps to the CLI's exit-2 unusable-input
+    # convention), printing the envelope code would mislead; print the code
+    # the process actually returns instead. Fully-scorable runs keep the
+    # exact `exit_code=` line.
+    pec = process_exit_code(env)
+    if pec != env["exit_code"]:
+        print(f"  process_exit_code={pec}")
+    else:
+        print(f"  exit_code={env['exit_code']}")
 
 
 def _cmd_run(args) -> int:
@@ -647,8 +666,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="score a real call from your stack (the out-of-box aha)",
         description=(
             "Capture a real dual-channel call from your voice stack and score its "
-            "turn-taking. Vapi and Twilio pull the recording for you (API key only, "
-            "no SDK); LiveKit/Pipecat capture in your own infra (see `hotato setup`), "
+            "turn-taking. Vapi, Retell, and Twilio pull the recording for you (API "
+            "key only, no SDK); LiveKit/Pipecat capture in your own infra (see `hotato setup`), "
             "then pass the file here. Everything is scored OFFLINE; the only network "
             "is the direct recording download. There is no accuracy percentage -- "
             "reproducible timing measurements only."
@@ -656,6 +675,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  hotato capture --stack vapi --call-id <id>            # + VAPI_API_KEY\n"
+            "  hotato capture --stack retell --call-id <id>          # + RETELL_API_KEY\n"
             "  hotato capture --stack twilio --recording-sid RE...   # + TWILIO_ACCOUNT_SID/TOKEN\n"
             "  hotato capture --stack livekit --caller a.wav --agent b.wav\n"
             "  hotato capture --stack pipecat --stereo captured.wav\n"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "0.2.0"
+version = "0.2.1"
 description = "Hotato: the open turn-taking eval for voice agents. Does your agent drop the turn, or hog it? Score barge-in / talk-over / backchannel / endpointing from a call recording, offline, with an honest fix map. MIT."
 readme = "README.md"
 requires-python = ">=3.9"

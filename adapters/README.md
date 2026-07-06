@@ -120,17 +120,18 @@ hotato capture --stack retell --demo
 
 Each prints the three timing signals and a verdict, and exits `0`.
 
-## Two channels are ground truth
+## Separated channels are the required input
 
-The scorer measures energy per channel, so it can tell "the agent talked over the
-caller" from "the caller talked over the agent" when the two are on separate
-channels:
+Separated caller/agent channels are the required input for attributable overlap
+measurement. They preserve who spoke on which track. Speech activity is still
+measured by Hotato's configured VAD thresholds and remains frame-inspectable
+with `--dump-frames`.
 
 - **channel 0 = caller**, **channel 1 = agent**.
 - Turn on dual-channel / stereo / separate-track recording wherever you configure
   it. Most stacks and telephony providers support it.
 - Keep the two parties split all the way to the WAV, and every overlap number
-  stays authoritative.
+  stays attributable to the right party.
 
 ## Install the optional stack
 

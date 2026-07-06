@@ -28,6 +28,6 @@ from .neural import build_silero_backend as _build_silero_backend
 # fallback to energy that could change a published number).
 _register_neural_backend(_build_silero_backend)
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = ["run_single", "run_suite", "LIMITS", "SUITE_ID", "__version__"]

@@ -41,7 +41,7 @@ from importlib import resources
 from typing import List, Optional, Tuple
 
 from ._engine.audio import write_wav  # noqa: F401  (used by the pipecat scaffold)
-from .core import run_single
+from .core import process_exit_code, run_single
 
 __all__ = [
     "STACKS",
@@ -135,30 +135,45 @@ def score_two_channel(
 
 def report(env: dict, fmt: str = "text") -> int:
     """Print the scored verdict (the three timing signals + PASS/FAIL + any fix)
-    and return the envelope exit code. ``fmt`` is 'text' or 'json'."""
+    and return the process exit code for the envelope. ``fmt`` is 'text' or
+    'json'. The JSON envelope itself is printed untouched; the return value is
+    ``core.process_exit_code(env)``, which maps a single run whose every event
+    is not scorable to the CLI's exit-2 unusable-input convention."""
+    pec = process_exit_code(env)
     if fmt == "json":
         print(json.dumps(env, indent=2))
-        return env["exit_code"]
+        return pec
     ev = env["events"][0]
     v = ev["verdict"]
-    tty = v["seconds_to_yield"]
-    tty_s = "-" if tty is None else f"{tty:.2f}s"
-    mark = "PASS" if v["passed"] else "FAIL"
     print(f"hotato [capture] stack={env['stack']} offline={env['offline']}")
-    print(
-        f"  [{mark}] {ev['event_id']}: did_yield={v['did_yield']} "
-        f"seconds_to_yield={tty_s} talk_over={v['talk_over_sec']:.2f}s"
-    )
-    if not v["passed"] and ev.get("fix"):
-        fx = ev["fix"]
-        print(f"         fix[{fx['fix_class']}]: {fx['title']}")
-        if fx["fix_class"] == "config" and fx.get("knob"):
-            print(f"            knob: {fx['knob']['parameter']}")
-            print(f"            move: {fx['knob']['direction']}")
-        elif fx["fix_class"] == "engagement-control" and fx.get("pointer"):
-            print(f"            -> {fx['pointer']['layer']}")
-    print(f"  exit_code={env['exit_code']}")
-    return env["exit_code"]
+    if ev.get("scorable") is False:
+        # An input problem, never an agent verdict: no PASS, no FAIL.
+        print(f"  [NOT SCORABLE] {ev['event_id']}")
+        print(f"         reason: {ev['not_scorable_reason']}")
+    else:
+        tty = v["seconds_to_yield"]
+        tty_s = "-" if tty is None else f"{tty:.2f}s"
+        mark = "PASS" if v["passed"] else "FAIL"
+        print(
+            f"  [{mark}] {ev['event_id']}: did_yield={v['did_yield']} "
+            f"seconds_to_yield={tty_s} talk_over={v['talk_over_sec']:.2f}s"
+        )
+        if not v["passed"] and ev.get("fix"):
+            fx = ev["fix"]
+            print(f"         fix[{fx['fix_class']}]: {fx['title']}")
+            if fx["fix_class"] == "config" and fx.get("knob"):
+                print(f"            knob: {fx['knob']['parameter']}")
+                print(f"            move: {fx['knob']['direction']}")
+            elif fx["fix_class"] == "engagement-control" and fx.get("pointer"):
+                print(f"            -> {fx['pointer']['layer']}")
+    # Fully-scorable runs keep the exact `exit_code=` line; when the process
+    # code differs (all-not-scorable single run -> 2), print that instead of
+    # the misleading envelope 0.
+    if pec != env["exit_code"]:
+        print(f"  process_exit_code={pec}")
+    else:
+        print(f"  exit_code={env['exit_code']}")
+    return pec
 
 
 # --- zero-dependency, offline demo ----------------------------------------
@@ -306,9 +321,16 @@ def capture_vapi(
     )
     artifact = call.get("artifact") or {}
     recording = artifact.get("recording") or {}
-    # Current shape first, then the two deprecated legacy shapes.
+    # Defensive: some payload variants nest a {"url": ...} dict under
+    # recording.stereo; read it only when it is actually a dict.
+    stereo_obj = recording.get("stereo")
+    stereo_obj_url = stereo_obj.get("url") if isinstance(stereo_obj, dict) else None
+    # Current shape first, then defensive variants, then the two deprecated
+    # legacy shapes.
     url = (
         recording.get("stereoUrl")
+        or recording.get("stereoRecordingUrl")
+        or stereo_obj_url
         or artifact.get("stereoRecordingUrl")
         or call.get("stereoRecordingUrl")
     )

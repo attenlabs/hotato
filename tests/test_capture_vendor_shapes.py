@@ -272,6 +272,60 @@ def test_vapi_legacy_toplevel_stereo_recording_url(tmp_path, monkeypatch):
     assert any("legacy-call.wav" in u for u in _urls(seen))
 
 
+def test_vapi_defensive_recording_stereo_recording_url(tmp_path, monkeypatch):
+    """Defensive variant: stereoRecordingUrl nested under artifact.recording."""
+    stereo = _silent_wav_bytes(tmp_path, 2, "stereo.wav")
+    call = {
+        "artifact": {
+            "recording": {"stereoRecordingUrl": "https://media.test/rec-level.wav"}
+        }
+    }
+    seen = []
+    _install_urlopen(
+        monkeypatch,
+        {"/call/": json.dumps(call).encode(), "rec-level.wav": stereo},
+        seen,
+    )
+    cap.capture_vapi(call_id="v1", api_key="k", out_path=str(tmp_path / "out.wav"))
+    assert any("rec-level.wav" in u for u in _urls(seen))
+
+
+def test_vapi_defensive_recording_stereo_dict_url(tmp_path, monkeypatch):
+    """Defensive variant: a {"url": ...} object under artifact.recording.stereo."""
+    stereo = _silent_wav_bytes(tmp_path, 2, "stereo.wav")
+    call = {
+        "artifact": {
+            "recording": {"stereo": {"url": "https://media.test/stereo-obj.wav"}}
+        }
+    }
+    seen = []
+    _install_urlopen(
+        monkeypatch,
+        {"/call/": json.dumps(call).encode(), "stereo-obj.wav": stereo},
+        seen,
+    )
+    cap.capture_vapi(call_id="v1", api_key="k", out_path=str(tmp_path / "out.wav"))
+    assert any("stereo-obj.wav" in u for u in _urls(seen))
+
+
+def test_vapi_non_dict_stereo_falls_through_to_legacy(tmp_path, monkeypatch):
+    """A non-dict recording.stereo value must not crash; the chain falls
+    through to the legacy fields."""
+    stereo = _silent_wav_bytes(tmp_path, 2, "stereo.wav")
+    call = {
+        "artifact": {"recording": {"stereo": True}},
+        "stereoRecordingUrl": "https://media.test/legacy-call.wav",
+    }
+    seen = []
+    _install_urlopen(
+        monkeypatch,
+        {"/call/": json.dumps(call).encode(), "legacy-call.wav": stereo},
+        seen,
+    )
+    cap.capture_vapi(call_id="v1", api_key="k", out_path=str(tmp_path / "out.wav"))
+    assert any("legacy-call.wav" in u for u in _urls(seen))
+
+
 def test_vapi_no_stereo_anywhere_is_clean_error(tmp_path, monkeypatch):
     call = {
         "artifact": {

@@ -11,6 +11,19 @@ design. See `docs/BENCHMARK.md`.
 
 Nothing yet.
 
+## [0.2.1] - 2026-07-06
+
+### Fixed
+- Sdist completeness: `MANIFEST.in` now ships everything the packaged tests need (corpus suites and manifest, `corpus/validate.py`, `sync_engine.py`, `scripts/pr_comment.py`, golden files, docs and assets, `SECURITY.md`, adapters, examples, ci, `.github`). Rendered suite audio is pruned from the sdist; it regenerates deterministically at test session start. `python -m pytest -q` now runs fully green inside an extracted sdist.
+- Not-scorable rendering: the text output renders a not-scorable event as `[NOT SCORABLE] <id>` with its reason on the next line, never as `[FAIL]`, and the summary line gains `not_scorable=N` when any event is not scorable. Applies to `run`, `doctor`, `demo`, and `capture` text output. JSON envelopes are unchanged.
+- Capture exit mapping: `hotato capture` now returns `process_exit_code(env)`, so a single capture whose every event is not scorable exits 2 (unusable input) instead of 0. When the process exit code differs from the envelope `exit_code`, the trailing text line prints `process_exit_code=N`; fully-scorable runs keep the exact `exit_code=N` line.
+- Defensive Vapi recording parsing: the stereo URL chain also accepts `artifact.recording.stereoRecordingUrl` and `artifact.recording.stereo.url` (when `stereo` is an object), between the current field and the deprecated legacy fields.
+
+### Changed
+- Retell copy: the first-run guide and `capture --help` now show the real self-serve path, `hotato capture --stack retell --call-id <id>` with `RETELL_API_KEY`, replacing the stale "no self-serve stereo export yet" line.
+- `SECURITY.md` states the network posture precisely: network access is used only when you explicitly run hosted-stack capture commands; core scoring, reports, exports, benchmarks, and demos run offline.
+- `adapters/README.md` describes separated caller/agent channels as the required input for attributable overlap measurement, with speech activity still measured by the configured VAD thresholds and frame-inspectable via `--dump-frames`.
+
 ## [0.2.0] - 2026-07-06
 
 ### Added
@@ -158,5 +171,7 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
-[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/attenlabs/hotato/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/attenlabs/hotato/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/attenlabs/hotato/releases/tag/v0.1.0
