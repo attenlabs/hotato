@@ -1,0 +1,758 @@
+{
+ "name": "hotato vapi-defaults real-call example set",
+ "description": "scored moments from 12 operator-recorded probe calls against a Vapi assistant left on DEFAULT interruption settings",
+ "license": "MIT",
+ "builder": "corpus/vapi-defaults/build_vapi_defaults.py",
+ "provenance": {
+  "assistant_name": "hotato-probe",
+  "assistant_id": "37995a11-3b7e-41e7-87b5-198f08b6161a",
+  "model": "openai/gpt-4o",
+  "voice": "vapi/Elliot",
+  "recorded": "2026-07-06",
+  "interruption_settings": "Vapi defaults (stopSpeakingPlan and startSpeakingPlan unset)",
+  "recording": "Vapi artifactPlan.recordingEnabled=true, dual-channel stereo, 44.1 kHz",
+  "channel_map": {
+   "caller": 0,
+   "agent": 1
+  }
+ },
+ "onset_provenance": "energy-VAD caller-onsets-during-agent-activity, derived with the engine's public ScoreConfig defaults on the full 44.1 kHz recordings; per-clip reasoning in onset_derivation",
+ "bounds_policy": "uniform for every should_yield scenario: max_time_to_yield_sec 1.0, max_talk_over_sec 1.0; should_not_yield scenarios carry null bounds per the corpus schema",
+ "source_recordings": {
+  "distributed": false,
+  "note": "the full recordings (about 109 MB) are not part of the repository; this manifest pins their sha256 so the build is verifiable end to end",
+  "files": [
+   {
+    "file": "01-hard-interruption.wav",
+    "sha256": "a763be90faf4fbebff4e5228f42eb58dba23d0bee2c6bc03b4a153c994816bfe",
+    "call_id": "019f3905-f5cb-7991-a4b3-e45b8606b631",
+    "duration_sec": 32.0
+   },
+   {
+    "file": "02-one-word-stop.wav",
+    "sha256": "fb50e4c85c4571ad752d48e0a6d0f1f59dca9b44229f57f396835d80bcea84d2",
+    "call_id": "019f390a-7293-7332-bc2d-f3e289d92a7e",
+    "duration_sec": 70.6
+   },
+   {
+    "file": "03-backchannel-single.wav",
+    "sha256": "52d9a95d5b7f3b91f619ef68479beab11f02082adbc32bf3a17cb8595607fe8b",
+    "call_id": "019f390d-0b3f-7ddc-a92d-df916ed0e782",
+    "duration_sec": 58.0
+   },
+   {
+    "file": "04-backchannel-repeated.wav",
+    "sha256": "9b1c5d39d33deef692ca0316adefeb2787a3a235d5f0ca520b854467beb624d7",
+    "call_id": "019f390f-d0de-7991-a56c-e25d62d86b71",
+    "duration_sec": 61.4
+   },
+   {
+    "file": "05-backchannel-then-real-interrupt.wav",
+    "sha256": "dcfff0416f678dbe5ceca997fb81e402a551709a76d040bb672c8df9e2b84ac4",
+    "call_id": "019f3912-986f-7dde-aba3-adc528d42266",
+    "duration_sec": 82.9
+   },
+   {
+    "file": "06-double-talk.wav",
+    "sha256": "2ba17502f580e2a552b9acbc31236bc40d868df46c46fe30fab98da824e81fd5",
+    "call_id": "019f3916-1917-7dde-abe9-9dff1c04d9bd",
+    "duration_sec": 30.4
+   },
+   {
+    "file": "07-correction.wav",
+    "sha256": "78f9fbc9150f1facfcf19efda9c5852a2581c6222bef2d3e9d89df997f6f41cb",
+    "call_id": "019f3917-ffb2-7dde-ac04-1ab2c20c42f1",
+    "duration_sec": 94.3
+   },
+   {
+    "file": "08-rapid-turns.wav",
+    "sha256": "a56cbd6dc64b098ba323ede8090dea8d2cfa53ae95dd70b6894b86fa5be55cb1",
+    "call_id": "019f391d-99d5-7ccf-b511-18be9b148d02",
+    "duration_sec": 74.2
+   },
+   {
+    "file": "09-long-mid-sentence-pause.wav",
+    "sha256": "f48d3f0c7ddf297594545e8f677952a39b55a5f51e868b45f50979812326b481",
+    "call_id": "019f3926-5f4e-7332-bdf3-0183e0b8671d",
+    "duration_sec": 22.8
+   },
+   {
+    "file": "10-quiet-interruption.wav",
+    "sha256": "01b61e3069b9e5372bd9bb0c0b69b1558abc66ab40f974c721f028e054d9046e",
+    "call_id": "019f3929-9f73-7227-b1a8-2dfdf287c88c",
+    "duration_sec": 25.0
+   },
+   {
+    "file": "12-immediate-overlap.wav",
+    "sha256": "956cac295bfa7e58b9046bc18ce9e83249a195c3ddf48a658b27f172d87b99dc",
+    "call_id": "019f3931-af2c-7229-b12d-bd37e4a937db",
+    "duration_sec": 15.5
+   }
+  ]
+ },
+ "baseline_call_11": {
+  "file": "11-silent-listen.wav",
+  "sha256": "f23c1d6662f8dc36b2ec15de69c4d094795ece5ee453cd0827dbb979f21dbb94",
+  "call_id": "019f392b-f605-7bbf-82cd-57519e9b0788",
+  "duration_sec": 82.5,
+  "measured": "one caller-active run on the whole call (the opening question at 3.32 s, agent quiet); zero caller onsets during agent activity; the agent's answer runs uninterrupted to 72.4 s"
+ },
+ "clip_count": 16,
+ "clips": [
+  {
+   "id": "vapi-default-01-hard-interruption",
+   "kind": "scenario",
+   "script_no": 1,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-01-hard-interruption.example.wav",
+   "source_file": "01-hard-interruption.wav",
+   "call_id": "019f3905-f5cb-7991-a4b3-e45b8606b631",
+   "window_source_sec": [
+    19.41,
+    27.41
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 21.41,
+   "onset_derivation": "the only caller-active run that starts during agent activity on this call: 21.41 s, 2.06 s long, peak -17.7 dBFS; matches the scripted loud cut-in",
+   "field_note": "agent yielded to the interruption",
+   "agreement_with_field_note": "matches: measured yield 0.35 s after onset",
+   "sha256": "84b63327073db43ce3f3e423b57c0a7e7a13aff4d3e6e762c0f14c3ef805df18",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.35,
+    "talk_over_sec": 0.35,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.5,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.35,
+    "talk_over_sec": 0.35,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.49,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-01-hard-interruption.json"
+  },
+  {
+   "id": "vapi-default-02-one-word-stop",
+   "kind": "scenario",
+   "script_no": 2,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-02-one-word-stop.example.wav",
+   "source_file": "02-one-word-stop.wav",
+   "call_id": "019f390a-7293-7332-bc2d-f3e289d92a7e",
+   "window_source_sec": [
+    45.6,
+    53.6
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 47.6,
+   "onset_derivation": "speech-level caller runs during agent activity: 47.60 s (0.45 s, peak -26.7 dBFS) is the scripted 'Stop.' during the agent's paragraph; a second caller burst at 49.48 s (0.38 s, peak -25.9 dBFS) falls in an agent inter-sentence gap; three sub -47 dBFS blips (20.72, 43.97, 62.02 s) are below speech level",
+   "field_note": "agent did NOT yield to the 'Stop.'; it kept talking and then restarted its paragraph",
+   "agreement_with_field_note": "investigated disagreement on the binary: hotato measures did_yield=true at 1.46 s because the agent's own inter-sentence gap (48.86 to 49.49 s) coincides with the second caller burst at 49.48 s; the agent then spoke again at 49.49 s and restarted the whole paragraph at 51.24 s (an 8.7 s re-answer). The 1.46 s seconds_to_yield fails the stated 1.0 s bound, so the verdict is FAIL either way; a resume/restart signal is outside the current measurement set and is documented in RESULTS.md",
+   "sha256": "a54e212339111cdb6414e631c33e39a791729a390a082bb1844ea02dcf0abe4a",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 1.46,
+    "talk_over_sec": 0.45,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.44,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 1.46,
+    "talk_over_sec": 0.45,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.44,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-02-one-word-stop.json"
+  },
+  {
+   "id": "vapi-default-03-backchannel-mhm",
+   "kind": "scenario",
+   "script_no": 3,
+   "category": "should_not_yield",
+   "audio": "audio/vapi-default-03-backchannel-mhm.example.wav",
+   "source_file": "03-backchannel-single.wav",
+   "call_id": "019f390d-0b3f-7ddc-a92d-df916ed0e782",
+   "window_source_sec": [
+    20.74,
+    28.74
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 22.74,
+   "onset_derivation": "the only caller activity during agent speech on this call: two tiny runs at 22.74 and 22.94 s (0.35 s total, peaks -55.4 and -43.5 dBFS), the scripted soft 'mhm'; onset is the first run",
+   "field_note": "agent YIELDED to the mhm: stopped at 'so we can quickly locate', never resumed; the call died on the silence timeout",
+   "agreement_with_field_note": "investigated disagreement: hotato measures did_yield=false because the agent kept talking for 4.19 s after the mhm (last agent activity ends 26.93 s) and the stop is both outside the 3.0 s attribution window and nowhere near caller activity; by the scorer's stated semantics an agent that finishes its phrase seconds later has not yielded TO the caller. The field failure is still visible in the measured timeline: after 26.93 s the agent never speaks again for the remaining 31.1 s of the call. The per-event hold verdict passes by measurement; RESULTS.md carries the full account",
+   "sha256": "db7ad42ec77c41cd3dfb01a08feac0518891735bbea477f61aa610f4e68c3ae2",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": false,
+    "seconds_to_yield": null,
+    "talk_over_sec": 0.35,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 0.65,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": false,
+    "seconds_to_yield": null,
+    "talk_over_sec": 0.35,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 0.65,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-03-backchannel-mhm.json"
+  },
+  {
+   "id": "vapi-default-04-backchannel-restart",
+   "kind": "scenario",
+   "script_no": 4,
+   "category": "should_not_yield",
+   "audio": "audio/vapi-default-04-backchannel-restart.example.wav",
+   "source_file": "04-backchannel-repeated.wav",
+   "call_id": "019f390f-d0de-7991-a56c-e25d62d86b71",
+   "window_source_sec": [
+    18.57,
+    26.57
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 20.57,
+   "onset_derivation": "first of the two caller-active runs during agent speech: 20.57 s (0.32 s, peak -18.8 dBFS); after it the agent stops within 0.34 s and restarts its answer from the top at 21.91 s",
+   "field_note": "agent yielded on a backchannel and restarted its answer from the top (operator note: the word 'right' appears to trigger it)",
+   "agreement_with_field_note": "matches: measured false yield 0.34 s after the backchannel",
+   "sha256": "f0bb7442acc07996360ba674135017839f87b7f43c2c60edf5f3c30c8d44a2c1",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 0.34,
+    "talk_over_sec": 0.32,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.02,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 0.34,
+    "talk_over_sec": 0.32,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.02,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-04-backchannel-restart.json"
+  },
+  {
+   "id": "vapi-default-04-backchannel-halt",
+   "kind": "scenario",
+   "script_no": 4,
+   "category": "should_not_yield",
+   "audio": "audio/vapi-default-04-backchannel-halt.example.wav",
+   "source_file": "04-backchannel-repeated.wav",
+   "call_id": "019f390f-d0de-7991-a56c-e25d62d86b71",
+   "window_source_sec": [
+    34.49,
+    42.49
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 36.49,
+   "onset_derivation": "second caller-active run during agent speech: 36.49 s (0.32 s, peak -16.9 dBFS); the agent halts 0.34 s later at 36.83 s and never speaks again (operator hung up during the dead air at 61.4 s)",
+   "field_note": "agent halted at 'This include,' and went silent; operator hung up",
+   "agreement_with_field_note": "matches: measured false yield 0.34 s after the backchannel; the agent's response_gap is null because it never spoke again",
+   "sha256": "c2c535b1337cca75645cba59a0d8c29db2a631d765720ecddb38b063cc513188",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 0.34,
+    "talk_over_sec": 0.32,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": null,
+    "premature_start_sec": null
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 0.34,
+    "talk_over_sec": 0.32,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": null,
+    "premature_start_sec": null
+   },
+   "label": "scenarios/vapi-default-04-backchannel-halt.json"
+  },
+  {
+   "id": "vapi-default-05-backchannel-yeah",
+   "kind": "scenario",
+   "script_no": 5,
+   "category": "should_not_yield",
+   "audio": "audio/vapi-default-05-backchannel-yeah.example.wav",
+   "source_file": "05-backchannel-then-real-interrupt.wav",
+   "call_id": "019f3912-986f-7dde-aba3-adc528d42266",
+   "window_source_sec": [
+    15.64,
+    23.64
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 17.64,
+   "onset_derivation": "first caller-active run during agent speech: 17.64 s (0.38 s, peak -18.4 dBFS), the scripted soft 'yeah'; the second scripted moment on this call is scored separately",
+   "field_note": "agent WRONGLY yielded and restarted its answer",
+   "agreement_with_field_note": "matches: measured false yield 0.37 s after the backchannel",
+   "sha256": "f92baa2d09f6bbb288c0c2fab8d1e4e21d2f3b475e38d65e0ffd4ba3c047c9b3",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 0.37,
+    "talk_over_sec": 0.37,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.65,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 0.37,
+    "talk_over_sec": 0.37,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.65,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-05-backchannel-yeah.json"
+  },
+  {
+   "id": "vapi-default-05-hold-on",
+   "kind": "scenario",
+   "script_no": 5,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-05-hold-on.example.wav",
+   "source_file": "05-backchannel-then-real-interrupt.wav",
+   "call_id": "019f3912-986f-7dde-aba3-adc528d42266",
+   "window_source_sec": [
+    24.27,
+    32.27
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 26.27,
+   "onset_derivation": "second scripted moment: caller bursts at 26.27, 26.67 and 27.32 s (the multi-word interruption); onset is the first burst, which starts during the agent's 19.67 to 26.63 s run",
+   "field_note": "agent CORRECTLY yielded and acknowledged ('Of course. Take your time...')",
+   "agreement_with_field_note": "matches: measured yield 0.36 s after onset",
+   "sha256": "4c0151f4877398dd2205c9e3182a3069b561eef2291ddc1526a5015af0915257",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.36,
+    "talk_over_sec": 0.33,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.71,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.36,
+    "talk_over_sec": 0.33,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.71,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-05-hold-on.json"
+  },
+  {
+   "id": "vapi-default-06-double-talk",
+   "kind": "scenario",
+   "script_no": 6,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-06-double-talk.example.wav",
+   "source_file": "06-double-talk.wav",
+   "call_id": "019f3916-1917-7dde-abe9-9dff1c04d9bd",
+   "window_source_sec": [
+    14.14,
+    22.14
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 16.14,
+   "onset_derivation": "the only caller run starting during agent activity: 16.14 s (0.72 s, peak -12.8 dBFS), continuing as a 2.32 s run at 16.91 s (the rest of the overlapped sentence)",
+   "field_note": "agent CORRECTLY yielded, stopped at 'seasonal flu shot' and pivoted",
+   "agreement_with_field_note": "matches: measured yield 0.40 s after onset",
+   "sha256": "958f2318a8b750d1839be90047ceb20a8f1d9a3c7a8653412ecffd4ede37ce49",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.4,
+    "talk_over_sec": 0.4,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.45,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.4,
+    "talk_over_sec": 0.4,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.45,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-06-double-talk.json"
+  },
+  {
+   "id": "vapi-default-07-correction",
+   "kind": "scenario",
+   "script_no": 7,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-07-correction.example.wav",
+   "source_file": "07-correction.wav",
+   "call_id": "019f3917-ffb2-7dde-ac04-1ab2c20c42f1",
+   "window_source_sec": [
+    19.32,
+    27.32
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 21.32,
+   "onset_derivation": "the correction utterance starts at 20.87 s in an agent inter-word gap and becomes the 21.32 s run (1.52 s, peak -18.4 dBFS) that overlaps the agent's 21.04 to 22.48 s run; 21.32 s is the caller activity that begins while the agent is talking",
+   "field_note": "first correction attempt NOT picked up, then dead air until the operator said 'Hello?'; the agent apologized and the correction landed on the retry",
+   "agreement_with_field_note": "partial: the agent went quiet 1.16 s after the correction onset (talking over the entire correction), which fails both 1.0 s bounds; the 'not picked up' part is measured as a 21.38 s response_gap (agent's next speech at 44.63 s), the dead air the operator described",
+   "sha256": "38d267f24c4d841f3c92d4ab686a02e6c4d115396a952ba3fd2fe0b8edefddb7",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 1.16,
+    "talk_over_sec": 1.16,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": null,
+    "premature_start_sec": null
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 1.16,
+    "talk_over_sec": 1.16,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 21.38,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-07-correction.json"
+  },
+  {
+   "id": "vapi-default-08-rapid-1",
+   "kind": "scenario",
+   "script_no": 8,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-08-rapid-1.example.wav",
+   "source_file": "08-rapid-turns.wav",
+   "call_id": "019f391d-99d5-7ccf-b511-18be9b148d02",
+   "window_source_sec": [
+    17.75,
+    25.75
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 19.75,
+   "onset_derivation": "first of three speech-level caller runs during agent activity: 19.75 s (0.91 s, peak -22.7 dBFS)",
+   "field_note": "agent yielded (leading words clipped by default endpointing)",
+   "agreement_with_field_note": "matches on timing: measured yield 0.34 s; the word clipping is a transcription artifact hotato does not measure",
+   "sha256": "fcf6f638e2130c852ab3ff4a45e8a6897b82aa79922be9b7a7165579461150cc",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.34,
+    "talk_over_sec": 0.34,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 2.32,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.34,
+    "talk_over_sec": 0.34,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 2.32,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-08-rapid-1.json"
+  },
+  {
+   "id": "vapi-default-08-rapid-2",
+   "kind": "scenario",
+   "script_no": 8,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-08-rapid-2.example.wav",
+   "source_file": "08-rapid-turns.wav",
+   "call_id": "019f391d-99d5-7ccf-b511-18be9b148d02",
+   "window_source_sec": [
+    34.62,
+    42.62
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 36.62,
+   "onset_derivation": "second speech-level caller run during agent activity: 36.62 s (0.85 s, peak -15.4 dBFS)",
+   "field_note": "agent yielded but 'and the nearest' registered as 'In the nearest'; this attempt needed a retry",
+   "agreement_with_field_note": "matches on timing: measured yield 0.33 s; the front-clipped transcription is not a timing signal",
+   "sha256": "a3d4c950bad1bb5fabd4005cce72ad239041037a65684e74b94d19303d15ffc5",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.33,
+    "talk_over_sec": 0.33,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.22,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.33,
+    "talk_over_sec": 0.33,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.22,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-08-rapid-2.json"
+  },
+  {
+   "id": "vapi-default-08-rapid-3",
+   "kind": "scenario",
+   "script_no": 8,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-08-rapid-3.example.wav",
+   "source_file": "08-rapid-turns.wav",
+   "call_id": "019f391d-99d5-7ccf-b511-18be9b148d02",
+   "window_source_sec": [
+    64.18,
+    72.18
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 66.18,
+   "onset_derivation": "the landed third interrupt: 66.18 s (0.75 s, peak -13.8 dBFS), starting as the agent's 64.16 to 66.12 s run ends (inside the engine's 0.10 s lookback, so the agent counts as talking at onset); an earlier sub-speech blip at 61.64 s (peak -47.7 dBFS) is consistent with the operator's 'needed about 3 attempts'",
+   "field_note": "agent yielded; 'and what about parking' registered as just 'parking' after about 3 attempts",
+   "agreement_with_field_note": "matches on timing: the agent was quiet at the onset frame (seconds_to_yield 0.0); the dropped leading words are a transcription artifact",
+   "sha256": "93374a34cb95f17a474d9f096bd5b08e128d68ad0ef744e33065e9f8565884fd",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.0,
+    "talk_over_sec": 0.0,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.75,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.0,
+    "talk_over_sec": 0.0,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.75,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-08-rapid-3.json"
+  },
+  {
+   "id": "vapi-default-09-pause-jump-in",
+   "kind": "analysis",
+   "script_no": 9,
+   "category": null,
+   "audio": "audio/vapi-default-09-pause-jump-in.example.wav",
+   "source_file": "09-long-mid-sentence-pause.wav",
+   "call_id": "019f3926-5f4e-7332-bdf3-0183e0b8671d",
+   "window_source_sec": [
+    1.3,
+    11.3
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 3.3,
+   "onset_derivation": "the caller's unfinished question runs 3.30 to 4.66 s; the agent grabs the floor at 8.10 s, 3.44 s into the scripted 4 s pause; the caller's attempt to continue at 9.14 s then starts during agent speech. Scored as an analysis clip: the agent was not talking at the caller onset, so a yield/hold verdict does not apply; the measured fact is the latency signal (response_gap_sec 3.44, the time the agent waited before taking the floor)",
+   "field_note": "label VIOLATED on all 3 takes: the agent jumped in during the pause, treating the trailing 'about' as end of turn",
+   "agreement_with_field_note": "matches: measured response_gap_sec 3.44 (caller quiet at 4.66 s, agent in at 8.10 s), well inside the scripted 4 s pause",
+   "sha256": "3140ad288880f796a56601fb98107eaddd67cf489f4fe68807cd826ab4c024d2",
+   "bytes": 640044,
+   "measured": {
+    "scorable": false,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 0.0,
+    "talk_over_sec": 0.0,
+    "agent_talking_at_onset": false,
+    "response_gap_sec": 3.44,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": false,
+    "passed": false,
+    "did_yield": true,
+    "seconds_to_yield": 0.0,
+    "talk_over_sec": 0.0,
+    "agent_talking_at_onset": false,
+    "response_gap_sec": 3.44,
+    "premature_start_sec": 0.0
+   }
+  },
+  {
+   "id": "vapi-default-10-quiet-interrupt",
+   "kind": "scenario",
+   "script_no": 10,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-10-quiet-interrupt.example.wav",
+   "source_file": "10-quiet-interruption.wav",
+   "call_id": "019f3929-9f73-7227-b1a8-2dfdf287c88c",
+   "window_source_sec": [
+    11.18,
+    19.18
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 13.18,
+   "onset_derivation": "first caller run during agent activity: 13.18 s (0.25 s above the energy threshold, peak -43.8 dBFS, the audible core of the half-volume attempt); a second quiet attempt at 16.50 s (peak -50.4 dBFS) and the louder retry at 19.27 s are separate moments",
+   "field_note": "the quiet interrupt did NOT trip the default threshold; the agent kept talking",
+   "agreement_with_field_note": "matches: measured did_yield=false, no qualifying agent stop inside the 3.0 s window (the agent's inter-sentence gaps in that stretch are 0.15 and 0.17 s, shorter than the 0.20 s yield hangover)",
+   "sha256": "7aea3b66d214a79a57c439c79404398c999fb1c93e83543d11d17efa1210731f",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": false,
+    "seconds_to_yield": null,
+    "talk_over_sec": 0.25,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 2.18,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": false,
+    "did_yield": false,
+    "seconds_to_yield": null,
+    "talk_over_sec": 0.25,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 2.18,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-10-quiet-interrupt.json"
+  },
+  {
+   "id": "vapi-default-10-quiet-retry",
+   "kind": "scenario",
+   "script_no": 10,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-10-quiet-retry.example.wav",
+   "source_file": "10-quiet-interruption.wav",
+   "call_id": "019f3929-9f73-7227-b1a8-2dfdf287c88c",
+   "window_source_sec": [
+    17.27,
+    25.0
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 19.27,
+   "onset_derivation": "the louder retry: 19.27 s (0.59 s, peak -26.5 dBFS) during the agent's 19.14 to 19.87 s run; this is the attempt the agent finally yielded to",
+   "field_note": "after raising volume 30 to 40 percent a garbled fragment registered and the agent yielded",
+   "agreement_with_field_note": "matches: measured yield 0.60 s after the retry onset",
+   "sha256": "0bc5dcae92e264e34aa840b1dd17df7109cd4a413aad4c350f6a9d24ac6282d1",
+   "bytes": 494764,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.6,
+    "talk_over_sec": 0.59,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 2.29,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.6,
+    "talk_over_sec": 0.59,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 2.29,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-10-quiet-retry.json"
+  },
+  {
+   "id": "vapi-default-12-greeting-overlap",
+   "kind": "scenario",
+   "script_no": 12,
+   "category": "should_yield",
+   "audio": "audio/vapi-default-12-greeting-overlap.example.wav",
+   "source_file": "12-immediate-overlap.wav",
+   "call_id": "019f3931-af2c-7229-b12d-bd37e4a937db",
+   "window_source_sec": [
+    4.48,
+    12.48
+   ],
+   "caller_onset_sec": 2.0,
+   "onset_full_sec": 6.48,
+   "onset_derivation": "the caller run starting during agent activity: 6.48 s (0.88 s, peak -21.8 dBFS) over the agent's 5.69 to 6.85 s greeting continuation; the caller's 2.57 s run precedes any agent speech activity in that window and is the operator opening the call",
+   "field_note": "agent yielded over its own greeting and responded, though STT caught only a partial ('I need help with it')",
+   "agreement_with_field_note": "matches on timing: measured yield 0.37 s; the partial transcription is not a timing signal",
+   "sha256": "32f11d547bfbae990e79d6e24293d765a88669ebc05897b55f6808644ca01e0b",
+   "bytes": 512044,
+   "measured": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.37,
+    "talk_over_sec": 0.37,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.96,
+    "premature_start_sec": 0.0
+   },
+   "measured_full_call_44k": {
+    "scorable": true,
+    "passed": true,
+    "did_yield": true,
+    "seconds_to_yield": 0.37,
+    "talk_over_sec": 0.37,
+    "agent_talking_at_onset": true,
+    "response_gap_sec": 1.59,
+    "premature_start_sec": 0.0
+   },
+   "label": "scenarios/vapi-default-12-greeting-overlap.json"
+  }
+ ]
+}

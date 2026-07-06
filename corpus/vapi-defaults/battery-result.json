@@ -1,0 +1,685 @@
+{
+  "tool": "hotato",
+  "schema_version": "1",
+  "mode": "suite",
+  "stack": "vapi",
+  "offline": true,
+  "engine": {
+    "name": "barge_scoring (vendored, MIT)",
+    "version": "0.1.0",
+    "upstream": "https://github.com/quantumCF/voice-agent-barge-in-tests"
+  },
+  "limits": {
+    "method": "energy-based VAD framing over aligned caller/agent channels; three objective timing signals (did_yield, seconds_to_yield, talk_over).",
+    "accuracy_claim": null,
+    "reproducible": "deterministic given the same audio and config; every threshold is an exposed parameter and every frame is inspectable.",
+    "ceiling": "Automated sub-second scoring on a single channel using neural or energy VAD has a real ceiling. Treat these as reproducible timing measurements, not ground-truth judgements of a detector's internal quality.",
+    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels. Mono is accepted but the caller/agent separation is then only as good as the VAD, which lowers the ceiling further.",
+    "does_not_do": [
+      "no speaker identification",
+      "no diarization",
+      "no speech-to-text / transcription",
+      "no emotion or intent detection",
+      "no claim about any specific vendor's internal accuracy"
+    ],
+    "scope": "barge-in, turn-taking, overlap/talk-over, and backchannel handling from call audio. Latency of the yield is measured; word-level semantics are out of scope.",
+    "offline": "runs locally; no network egress of user audio."
+  },
+  "summary": {
+    "events": 15,
+    "passed": 9,
+    "failed": 6,
+    "regression": true
+  },
+  "events": [
+    {
+      "event_id": "vapi-default-01-hard-interruption",
+      "scenario_id": "vapi-default-01-hard-interruption",
+      "title": "Real call: loud hard interruption mid-paragraph (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.35,
+        "talk_over_sec": 0.35,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.35,
+          "talk_over_sec": 0.35
+        },
+        "latency": {
+          "response_gap_sec": 1.5,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    },
+    {
+      "event_id": "vapi-default-02-one-word-stop",
+      "scenario_id": "vapi-default-02-one-word-stop",
+      "title": "Real call: a single firm 'Stop.' mid-paragraph (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 1.46,
+        "talk_over_sec": 0.45,
+        "reasons": [
+          "yielded in 1.46s, slower than the 1.00s bound"
+        ]
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 1.46,
+          "talk_over_sec": 0.45
+        },
+        "latency": {
+          "response_gap_sec": 1.44,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": {
+        "fix_class": "config",
+        "title": "Slow yield: the agent stopped, but too late",
+        "detail": "The agent did yield, but the latency from the caller's onset to the agent going quiet exceeded the bound. Reduce endpointing / min-silence latency.",
+        "knob": {
+          "stack": "vapi",
+          "parameter": "stopSpeakingPlan.backoffSeconds / smartEndpointingPlan",
+          "direction": "lower backoffSeconds so the agent stops sooner once the caller speaks",
+          "trade_off": "very low backoff can cut the agent off on filler noise."
+        },
+        "pointer": null
+      }
+    },
+    {
+      "event_id": "vapi-default-03-backchannel-mhm",
+      "scenario_id": "vapi-default-03-backchannel-mhm",
+      "title": "Real call: a single soft 'mhm' backchannel (Vapi defaults)",
+      "category": "should_not_yield",
+      "expected_yield": false,
+      "verdict": {
+        "passed": true,
+        "did_yield": false,
+        "seconds_to_yield": null,
+        "talk_over_sec": 0.35,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": false,
+          "time_to_yield_sec": null,
+          "talk_over_sec": 0.35
+        },
+        "latency": {
+          "response_gap_sec": 0.65,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    },
+    {
+      "event_id": "vapi-default-04-backchannel-halt",
+      "scenario_id": "vapi-default-04-backchannel-halt",
+      "title": "Real call: soft backchannel halts the agent mid-word for good (Vapi defaults)",
+      "category": "should_not_yield",
+      "expected_yield": false,
+      "verdict": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 0.34,
+        "talk_over_sec": 0.32,
+        "reasons": [
+          "expected the agent to keep the floor but it yielded (a false or phantom barge-in)"
+        ]
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.34,
+          "talk_over_sec": 0.32
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        }
+      },
+      "fix": {
+        "fix_class": "engagement-control",
+        "title": "False barge-in: a backchannel was treated as a bid for the floor",
+        "detail": "The caller only signalled 'I'm listening' (mhm / right / okay) but the agent stopped mid-thought. You can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' will also ignore 'stop'. This is a discrimination problem, not a threshold problem.",
+        "knob": null,
+        "pointer": {
+          "layer": "a learned engagement-control / addressee-detection layer",
+          "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+          "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+        }
+      }
+    },
+    {
+      "event_id": "vapi-default-04-backchannel-restart",
+      "scenario_id": "vapi-default-04-backchannel-restart",
+      "title": "Real call: soft backchannel makes the agent restart its answer (Vapi defaults)",
+      "category": "should_not_yield",
+      "expected_yield": false,
+      "verdict": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 0.34,
+        "talk_over_sec": 0.32,
+        "reasons": [
+          "expected the agent to keep the floor but it yielded (a false or phantom barge-in)"
+        ]
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.34,
+          "talk_over_sec": 0.32
+        },
+        "latency": {
+          "response_gap_sec": 1.02,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": {
+        "fix_class": "engagement-control",
+        "title": "False barge-in: a backchannel was treated as a bid for the floor",
+        "detail": "The caller only signalled 'I'm listening' (mhm / right / okay) but the agent stopped mid-thought. You can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' will also ignore 'stop'. This is a discrimination problem, not a threshold problem.",
+        "knob": null,
+        "pointer": {
+          "layer": "a learned engagement-control / addressee-detection layer",
+          "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+          "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+        }
+      }
+    },
+    {
+      "event_id": "vapi-default-05-backchannel-yeah",
+      "scenario_id": "vapi-default-05-backchannel-yeah",
+      "title": "Real call: soft 'yeah' backchannel, moment 1 of 2 (Vapi defaults)",
+      "category": "should_not_yield",
+      "expected_yield": false,
+      "verdict": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 0.37,
+        "talk_over_sec": 0.37,
+        "reasons": [
+          "expected the agent to keep the floor but it yielded (a false or phantom barge-in)"
+        ]
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.37,
+          "talk_over_sec": 0.37
+        },
+        "latency": {
+          "response_gap_sec": 1.65,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": {
+        "fix_class": "engagement-control",
+        "title": "False barge-in: a backchannel was treated as a bid for the floor",
+        "detail": "The caller only signalled 'I'm listening' (mhm / right / okay) but the agent stopped mid-thought. You can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' will also ignore 'stop'. This is a discrimination problem, not a threshold problem.",
+        "knob": null,
+        "pointer": {
+          "layer": "a learned engagement-control / addressee-detection layer",
+          "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+          "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+        }
+      }
+    },
+    {
+      "event_id": "vapi-default-05-hold-on",
+      "scenario_id": "vapi-default-05-hold-on",
+      "title": "Real call: loud 'wait, actually, hold on', moment 2 of 2 (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.36,
+        "talk_over_sec": 0.33,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.36,
+          "talk_over_sec": 0.33
+        },
+        "latency": {
+          "response_gap_sec": 1.71,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    },
+    {
+      "event_id": "vapi-default-06-double-talk",
+      "scenario_id": "vapi-default-06-double-talk",
+      "title": "Real call: sustained overlapping full sentence (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.4,
+        "talk_over_sec": 0.4,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.4,
+          "talk_over_sec": 0.4
+        },
+        "latency": {
+          "response_gap_sec": 1.45,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    },
+    {
+      "event_id": "vapi-default-07-correction",
+      "scenario_id": "vapi-default-07-correction",
+      "title": "Real call: mid-answer correction, then 21 s of dead air (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 1.16,
+        "talk_over_sec": 1.16,
+        "reasons": [
+          "yielded in 1.16s, slower than the 1.00s bound",
+          "talked over the caller for 1.16s, more than the 1.00s bound"
+        ]
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 1.16,
+          "talk_over_sec": 1.16
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        }
+      },
+      "fix": {
+        "fix_class": "config",
+        "title": "Slow yield: the agent stopped, but too late",
+        "detail": "The agent did yield, but the latency from the caller's onset to the agent going quiet exceeded the bound. Reduce endpointing / min-silence latency.",
+        "knob": {
+          "stack": "vapi",
+          "parameter": "stopSpeakingPlan.backoffSeconds / smartEndpointingPlan",
+          "direction": "lower backoffSeconds so the agent stops sooner once the caller speaks",
+          "trade_off": "very low backoff can cut the agent off on filler noise."
+        },
+        "pointer": null
+      }
+    },
+    {
+      "event_id": "vapi-default-08-rapid-1",
+      "scenario_id": "vapi-default-08-rapid-1",
+      "title": "Real call: rapid interrupt 1 of 3 (where are you located) (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.34,
+        "talk_over_sec": 0.34,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.34,
+          "talk_over_sec": 0.34
+        },
+        "latency": {
+          "response_gap_sec": 2.32,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    },
+    {
+      "event_id": "vapi-default-08-rapid-2",
+      "scenario_id": "vapi-default-08-rapid-2",
+      "title": "Real call: rapid interrupt 2 of 3 (nearest downtown) (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.33,
+        "talk_over_sec": 0.33,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.33,
+          "talk_over_sec": 0.33
+        },
+        "latency": {
+          "response_gap_sec": 1.22,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    },
+    {
+      "event_id": "vapi-default-08-rapid-3",
+      "scenario_id": "vapi-default-08-rapid-3",
+      "title": "Real call: rapid interrupt 3 of 3 (what about parking) (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.0,
+        "talk_over_sec": 0.0,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.0,
+          "talk_over_sec": 0.0
+        },
+        "latency": {
+          "response_gap_sec": 1.75,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    },
+    {
+      "event_id": "vapi-default-10-quiet-interrupt",
+      "scenario_id": "vapi-default-10-quiet-interrupt",
+      "title": "Real call: half-volume 'sorry, one second' is ignored (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": false,
+        "did_yield": false,
+        "seconds_to_yield": null,
+        "talk_over_sec": 0.25,
+        "reasons": [
+          "expected the agent to yield but it kept talking"
+        ]
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": false,
+          "time_to_yield_sec": null,
+          "talk_over_sec": 0.25
+        },
+        "latency": {
+          "response_gap_sec": 2.18,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": {
+        "fix_class": "config",
+        "title": "Missed interruption: the agent kept talking over the caller",
+        "detail": "The caller took the floor and the agent never stopped within the search window. Increase interruption sensitivity so a genuine floor-taking event registers.",
+        "knob": {
+          "stack": "vapi",
+          "parameter": "startSpeakingPlan.smartEndpointingPlan + stopSpeakingPlan.numWords",
+          "direction": "lower stopSpeakingPlan.numWords and stopSpeakingPlan.backoffSeconds",
+          "trade_off": "lower numWords reacts faster but also lets a single backchannel word interrupt."
+        },
+        "pointer": null
+      }
+    },
+    {
+      "event_id": "vapi-default-10-quiet-retry",
+      "scenario_id": "vapi-default-10-quiet-retry",
+      "title": "Real call: the louder retry after the ignored quiet interrupt (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.6,
+        "talk_over_sec": 0.59,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.6,
+          "talk_over_sec": 0.59
+        },
+        "latency": {
+          "response_gap_sec": 2.29,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    },
+    {
+      "event_id": "vapi-default-12-greeting-overlap",
+      "scenario_id": "vapi-default-12-greeting-overlap",
+      "title": "Real call: barge-in over the greeting itself (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.37,
+        "talk_over_sec": 0.37,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": ""
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.37,
+          "talk_over_sec": 0.37
+        },
+        "latency": {
+          "response_gap_sec": 1.96,
+          "premature_start_sec": 0.0
+        }
+      },
+      "fix": null
+    }
+  ],
+  "fix_map": [
+    {
+      "event_id": "vapi-default-02-one-word-stop",
+      "scenario_id": "vapi-default-02-one-word-stop",
+      "fix_class": "config",
+      "title": "Slow yield: the agent stopped, but too late",
+      "detail": "The agent did yield, but the latency from the caller's onset to the agent going quiet exceeded the bound. Reduce endpointing / min-silence latency.",
+      "knob": {
+        "stack": "vapi",
+        "parameter": "stopSpeakingPlan.backoffSeconds / smartEndpointingPlan",
+        "direction": "lower backoffSeconds so the agent stops sooner once the caller speaks",
+        "trade_off": "very low backoff can cut the agent off on filler noise."
+      },
+      "pointer": null
+    },
+    {
+      "event_id": "vapi-default-04-backchannel-halt",
+      "scenario_id": "vapi-default-04-backchannel-halt",
+      "fix_class": "engagement-control",
+      "title": "False barge-in: a backchannel was treated as a bid for the floor",
+      "detail": "The caller only signalled 'I'm listening' (mhm / right / okay) but the agent stopped mid-thought. You can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' will also ignore 'stop'. This is a discrimination problem, not a threshold problem.",
+      "knob": null,
+      "pointer": {
+        "layer": "a learned engagement-control / addressee-detection layer",
+        "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+        "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+      }
+    },
+    {
+      "event_id": "vapi-default-04-backchannel-restart",
+      "scenario_id": "vapi-default-04-backchannel-restart",
+      "fix_class": "engagement-control",
+      "title": "False barge-in: a backchannel was treated as a bid for the floor",
+      "detail": "The caller only signalled 'I'm listening' (mhm / right / okay) but the agent stopped mid-thought. You can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' will also ignore 'stop'. This is a discrimination problem, not a threshold problem.",
+      "knob": null,
+      "pointer": {
+        "layer": "a learned engagement-control / addressee-detection layer",
+        "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+        "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+      }
+    },
+    {
+      "event_id": "vapi-default-05-backchannel-yeah",
+      "scenario_id": "vapi-default-05-backchannel-yeah",
+      "fix_class": "engagement-control",
+      "title": "False barge-in: a backchannel was treated as a bid for the floor",
+      "detail": "The caller only signalled 'I'm listening' (mhm / right / okay) but the agent stopped mid-thought. You can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' will also ignore 'stop'. This is a discrimination problem, not a threshold problem.",
+      "knob": null,
+      "pointer": {
+        "layer": "a learned engagement-control / addressee-detection layer",
+        "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+        "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+      }
+    },
+    {
+      "event_id": "vapi-default-07-correction",
+      "scenario_id": "vapi-default-07-correction",
+      "fix_class": "config",
+      "title": "Slow yield: the agent stopped, but too late",
+      "detail": "The agent did yield, but the latency from the caller's onset to the agent going quiet exceeded the bound. Reduce endpointing / min-silence latency.",
+      "knob": {
+        "stack": "vapi",
+        "parameter": "stopSpeakingPlan.backoffSeconds / smartEndpointingPlan",
+        "direction": "lower backoffSeconds so the agent stops sooner once the caller speaks",
+        "trade_off": "very low backoff can cut the agent off on filler noise."
+      },
+      "pointer": null
+    },
+    {
+      "event_id": "vapi-default-10-quiet-interrupt",
+      "scenario_id": "vapi-default-10-quiet-interrupt",
+      "fix_class": "config",
+      "title": "Missed interruption: the agent kept talking over the caller",
+      "detail": "The caller took the floor and the agent never stopped within the search window. Increase interruption sensitivity so a genuine floor-taking event registers.",
+      "knob": {
+        "stack": "vapi",
+        "parameter": "startSpeakingPlan.smartEndpointingPlan + stopSpeakingPlan.numWords",
+        "direction": "lower stopSpeakingPlan.numWords and stopSpeakingPlan.backoffSeconds",
+        "trade_off": "lower numWords reacts faster but also lets a single backchannel word interrupt."
+      },
+      "pointer": null
+    }
+  ],
+  "funnel": {
+    "reason": "This battery fails on BOTH axes at once: it missed a genuine interruption AND it false-triggered on a backchannel. No single sensitivity threshold can fix both - turning it up to catch the interruption makes the backchannel worse, and vice versa. That is the signal that the agent needs a discriminating layer, not a different threshold.",
+    "pointer": {
+      "layer": "a learned engagement-control / addressee-detection layer",
+      "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+      "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+    }
+  },
+  "exit_code": 1,
+  "suite": "barge-in"
+}
