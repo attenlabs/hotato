@@ -11,6 +11,70 @@ design. See `docs/BENCHMARK.md`.
 
 Nothing yet.
 
+## [0.3.0] - 2026-07-06
+
+### Added
+- **`hotato fixture create`**: the missing piece of the regression loop. One
+  bad call moment (a recording, an `--onset`, and YOUR `--expect yield|hold`
+  label) becomes a permanent fixture: `scenarios/<id>.json` in the existing
+  scenario schema shape (with provenance: source file, original onset,
+  `created_by`) plus a two-channel `audio/<id>.example.wav`. Clips around the
+  event by default (`--pre` 2.0 s / `--post` 6.0 s) and re-bases the onset to
+  the clip; `--no-clip` keeps the full recording. The created fixture is
+  validated by scoring it through the suite runner immediately; a not-scorable
+  input is refused with the honest reason (exit 2) and partial outputs are
+  removed unless `--force`. Overwrite refused without `--force`. Round-trips
+  through `hotato run --scenarios DIR --audio DIR` as written.
+- **`hotato compare`**: the shareable before/after on one fixed moment. Scores
+  both takes with the identical expectation, bounds, and reference config and
+  reports the per-signal movement plus one machine-stable result word:
+  `fixed`, `regressed`, `improved`, `worse`, `unchanged`, `still_pass`, or
+  `not_scorable`. Marks come from real measurements only; a not-scorable side
+  renders NOT SCORABLE (exit 2), never an invented verdict.
+  `--before-onset` / `--after-onset` handle the moment shifting between takes;
+  `--out report.html` writes the HTML report with the before take as the base
+  comparison; `--fail-on-worse` exits 1 on `regressed`/`worse`.
+- **`hotato scan`**: candidate extraction across a WHOLE recording, as timing
+  facts only. Walks the two VAD activity tracks (windowed pass, so long files
+  never load fully into memory) and surfaces `overlap_while_agent_talking`
+  (with overlap length and whether/when the agent went silent),
+  `agent_start_during_caller`, and `long_response_gap` candidates, sorted by
+  salience with `--top` (default 20). No intent claims anywhere: the output
+  header states that you decide the expected behavior and label the moment
+  with `hotato fixture create`.
+- **`hotato diagnose` / `hotato inspect` / `hotato plan`**: the guarded,
+  read-only fix ladder (landed on main unreleased; first release here).
+  Diagnose explains a finished run per failing event plus a battery-level
+  decision; inspect reads and normalizes the live turn-taking config (GET or
+  static parse, never executed); plan combines them into a
+  `hotato.fixplan.v1` proposal: at most one bounded step on one setting,
+  refusal on the threshold funnel, checklist on ambiguous evidence,
+  `insufficient_coverage` without a passing opposite-risk fixture, and
+  `production_apply` pinned to false.
+- `hotato plan` also accepts the result JSON as a positional argument
+  (`hotato plan result.json`), and every plan now carries `kind: "fix-plan"`,
+  a `platform_mutation` block (`performed` always false), the measured
+  `evidence`, `risks`, `next_commands` (including the `hotato compare`
+  verification step), and not-scorable events as `input_issues`. New Twilio
+  rule: `--stack twilio` never yields agent-config advice; the plan points at
+  channel assignment and the upstream voice-agent stack.
+- `docs/BAD-CALL-TO-CI.md`: the five-step loop from one bad call to a CI
+  gate, with the label semantics up top and explicit use/do-not-use lists;
+  runnable walkthrough in `examples/bad-call-to-ci/`.
+
+### Changed
+- Label wording, stated wherever the backchannel story is told (README,
+  METHODOLOGY, WHY, and the `run`/`doctor`/`demo`/`fixture create` help):
+  Hotato does not infer intent. You label the expected behavior for the
+  event: yield means the agent should stop for the caller. hold means the
+  agent should keep speaking through a backchannel/noise/acknowledgement.
+  Hotato then measures whether the timing matched that label.
+- README positioning line sharpened: Hotato turns bad voice-agent call
+  moments into offline regression tests.
+- Input wording unified: Hotato's main scorer requires separated caller and
+  agent tracks; a single mixed mono call is not enough to attribute talk-over
+  reliably.
+
 ## [0.2.3] - 2026-07-06
 
 ### Changed
@@ -188,7 +252,8 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
-[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/attenlabs/hotato/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/attenlabs/hotato/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/attenlabs/hotato/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/attenlabs/hotato/compare/v0.2.0...v0.2.1
