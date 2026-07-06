@@ -304,11 +304,28 @@ _FINDING_PRIORITY = (
     "endpointing_miss",
 )
 
+# Twilio is the transport, not the turn-taking policy: no Twilio setting
+# decides when the agent yields, so a twilio-targeted plan NEVER proposes an
+# agent-config change. It points at the audio path and the upstream stack.
+_TWILIO_CHECKLIST = [
+    "Twilio carries the audio; it does not decide when the agent yields. No "
+    "Twilio setting is proposed for a turn-taking failure.",
+    "Confirm the recording is dual-channel and the caller/agent channel "
+    "assignment is correct: hotato run --dump-frames shows which channel is "
+    "active while the agent speaks.",
+    "Identify the upstream voice-agent stack behind this number (for example "
+    "Vapi, Retell, LiveKit, or Pipecat) and re-plan against it: "
+    "hotato plan result.json --stack <that stack> with its target flag.",
+]
+
+_READ_ONLY_REASON = "hotato plan is read-only"
+
 
 def _base_plan(*, target: dict, finding: str, hypothesis: str,
                config_only_safe: bool, decision: str, changes: list) -> dict:
     return {
         "schema": SCHEMA_ID,
+        "kind": "fix-plan",
         "target": target,
         "finding": finding,
         "hypothesis": hypothesis,
@@ -317,7 +334,69 @@ def _base_plan(*, target: dict, finding: str, hypothesis: str,
         "changes": changes,
         "required_verification": list(REQUIRED_VERIFICATION),
         "approval": dict(APPROVAL),
+        # No apply path exists in this phase; every plan states so explicitly.
+        "platform_mutation": {"performed": False,
+                              "reason": _READ_ONLY_REASON},
     }
+
+
+def _next_commands(plan: dict) -> list:
+    """What to do with this plan, as concrete commands. Applying any change is
+    always a manual step in YOUR stack; hotato never mutates a platform."""
+    cmds = []
+    if plan["decision"] == "propose_one_step" and plan["changes"]:
+        ch = plan["changes"][0]
+        move = (f"{ch['from']} -> {ch['to']}" if ch["to"] is not None
+                else f"one step, direction: {ch['direction']}")
+        cmds.append(
+            f"apply the one bounded step manually in your stack config: "
+            f"{ch['field']}  {move} (hotato never applies it)"
+        )
+    cmds.append(
+        "re-capture the same call moment through your stack, then verify the "
+        "movement: hotato compare --before <bad-take.wav> --after "
+        "<new-take.wav> --onset <sec> --expect <yield|hold>"
+    )
+    cmds.append(
+        "re-run the battery and re-diagnose: hotato run --suite barge-in "
+        "--format json > result.json && hotato diagnose result.json"
+    )
+    return cmds
+
+
+def _finalize(plan: dict, diagnosis: dict) -> dict:
+    """Attach the shared, always-present blocks: the measured evidence behind
+    the plan, not-scorable events as INPUT ISSUES (never fixed), the stated
+    risks, and the next commands."""
+    diagnoses = (diagnosis or {}).get("diagnoses") or []
+    plan["evidence"] = [
+        {
+            "event_id": d.get("event_id"),
+            "scenario_id": d.get("scenario_id"),
+            "finding": d.get("finding"),
+            "measured": d.get("evidence"),
+        }
+        for d in diagnoses if d.get("finding") != "not_scorable"
+    ]
+    input_issues = [
+        {
+            "event_id": d.get("event_id"),
+            "scenario_id": d.get("scenario_id"),
+            "reason": d.get("notes"),
+        }
+        for d in diagnoses if d.get("finding") == "not_scorable"
+    ]
+    if input_issues:
+        plan["input_issues"] = input_issues
+    if plan["finding"] == "threshold_funnel":
+        plan["risks"] = [
+            "any single-threshold change trades the two failing axes "
+            "against each other"
+        ]
+    else:
+        plan["risks"] = [ch["risk"] for ch in plan["changes"]]
+    plan["next_commands"] = _next_commands(plan)
+    return plan
 
 
 def _one_step(current, direction: str, step, bounds):
@@ -369,8 +448,25 @@ def build_plan(
     """Evaluate the policy rules over one diagnosis (+ optional inspection).
 
     Pure function: reads its inputs, returns the plan dict. Never touches the
-    network or any platform config.
+    network or any platform config (``platform_mutation.performed`` is always
+    false).
     """
+    plan = _build_plan_core(
+        diagnosis=diagnosis,
+        inspected=inspected,
+        stack=stack,
+        target_info=target_info,
+    )
+    return _finalize(plan, diagnosis)
+
+
+def _build_plan_core(
+    *,
+    diagnosis: dict,
+    inspected: Optional[dict] = None,
+    stack: Optional[str] = None,
+    target_info: Optional[dict] = None,
+) -> dict:
     battery = diagnosis.get("battery") or {}
     coverage = battery.get("opposite_risk_coverage") or {}
     diagnoses = diagnosis.get("diagnoses") or []
@@ -379,7 +475,7 @@ def build_plan(
         (stack or (inspected or {}).get("stack") or diagnosis.get("stack")
          or "generic")
     ).strip().lower()
-    if resolved_stack not in _KNOBS:
+    if resolved_stack not in _KNOBS and resolved_stack != "twilio":
         resolved_stack = "generic"
     target = {"stack": resolved_stack, "inspected": bool(inspected)}
     if target_info:
@@ -413,7 +509,8 @@ def build_plan(
         return _base_plan(
             target=target,
             finding="none",
-            hypothesis="No scorable event failed; there is nothing to tune.",
+            hypothesis=("No fix needed: no scorable event failed; there is "
+                        "nothing to tune."),
             config_only_safe=True,
             decision="no_change",
             changes=[],
@@ -424,6 +521,28 @@ def build_plan(
         {d["finding"] for d in diagnoses
          if d["finding"] not in ("not_scorable", finding)}
     )
+
+    # Twilio rule: the transport has no turn-taking knobs, so a failing
+    # finding never becomes agent-config advice here. The plan is a checklist
+    # pointing at the channel assignment and the upstream voice-agent stack.
+    if resolved_stack == "twilio":
+        plan = _base_plan(
+            target=target,
+            finding=finding,
+            hypothesis=(
+                "The recording came through Twilio, which carries the audio "
+                "but does not decide turn-taking. The fix lives in the "
+                "upstream voice-agent stack; check the channel assignment "
+                "first, then re-plan against the stack that runs the agent."
+            ),
+            config_only_safe=False,
+            decision="diagnostic_checklist",
+            changes=[],
+        )
+        plan["checklist"] = list(_TWILIO_CHECKLIST)
+        if others:
+            plan["other_findings"] = others
+        return plan
 
     # Rule (d): not config-only-safe -> instrumentation checklist, never a knob.
     if not primary.get("config_only_safe"):
@@ -642,7 +761,23 @@ def render_text(plan: dict) -> str:
         lines.append(
             f"  add before tuning: {plan['required_fixture_family']}"
         )
+    for issue in plan.get("input_issues") or []:
+        lines.append(
+            f"  input issue (not an agent failure): {issue['event_id']}: "
+            f"{issue['reason']}"
+        )
     lines.append(
         "  verify after any change: " + ", ".join(plan["required_verification"])
     )
+    mutation = plan.get("platform_mutation") or {}
+    if mutation:
+        lines.append(
+            f"  platform mutation: performed="
+            f"{str(mutation.get('performed')).lower()} "
+            f"({mutation.get('reason')})"
+        )
+    if plan.get("next_commands"):
+        lines.append("  next:")
+        for cmd in plan["next_commands"]:
+            lines.append(f"    - {cmd}")
     return "\n".join(lines)

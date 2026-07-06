@@ -20,18 +20,23 @@ The limits come first because they bound everything below.
  short-time energy crosses a threshold. A cough, a slammed door, or a burst of
  line noise reads as active exactly like a word does. Nothing here recovers
  *meaning*, it recovers *when there was speech-level energy*.
+- **You supply the label.** Hotato does not infer intent. You label the
+ expected behavior for the event: yield means the agent should stop for the
+ caller. hold means the agent should keep speaking through a
+ backchannel/noise/acknowledgement. Hotato then measures whether the timing
+ matched that label. "mhm" and "stop" can carry identical speech energy; the
+ verdict is only ever your label checked against measured timing.
 - **Sub-second single-channel boundaries sit near the resolution limit.** At the
  default 10 ms hop a boundary is located to within a frame or two, but the
  hangover that keeps an utterance whole (default 150 ms) smears every trailing
  edge by up to that much, and on one mixed channel deciding *whose* energy
  crossed the threshold is not always possible.
-- **Two channels is the high-validity mode.** With the caller and the agent on
- physically separate channels, overlap is a fact of the recording: both tracks
- are active at once, by construction. Mono is accepted but degraded: with both
- voices summed into one waveform, the scorer cannot attribute energy to a
- speaker, so mono requires a caller onset label and the tool never reports
- caller/agent separation from a single mixed channel as if it were
- authoritative.
+- **Two channels is the required input.** Hotato's main scorer requires
+ separated caller and agent tracks: either one two-channel WAV or two aligned
+ mono WAVs. A single mixed mono call is not enough to attribute talk-over
+ reliably: with both voices summed into one waveform, the scorer cannot
+ attribute energy to a speaker. With physically separate channels, overlap is
+ a fact of the recording: both tracks are active at once, by construction.
 - **Out of scope, permanently:** no speaker identification, no diarization, no
  speech-to-text, no emotion or intent detection, and no claim about any
  vendor's internal accuracy. Word-level semantics are not measured; only the

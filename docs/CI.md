@@ -26,8 +26,11 @@ requests it; if your org restricts the default `GITHUB_TOKEN`, allow that scope.
 ## Point it at your own recordings
 
 The bundled suite is a self-test: it scores frozen synthetic fixtures to prove
-the harness works, not to judge your agent. To gate on your agent, replace one
-step, `Score turn-taking (head)`, with your own capture and score:
+the harness works, not to judge your agent. The strongest gate is a suite of
+your OWN bad moments, pinned as fixtures with `hotato fixture create` and run
+with `hotato run --scenarios DIR --audio DIR`; the full loop from one bad call
+to this gate is [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md). Alternatively, replace
+one step, `Score turn-taking (head)`, with your own capture and score:
 
 1. play each corpus `*.caller.wav` into your agent
 2. record your agent's reply

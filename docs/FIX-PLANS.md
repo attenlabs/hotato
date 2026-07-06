@@ -10,7 +10,7 @@ command mutates any platform config, and no apply command exists.
 |---|---|---|---|
 | 0 | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the honest advisory and the tradeoff stated | never |
 | 1 | `hotato inspect --stack ...` | Reads the CURRENT turn-taking config (GET or static parse) and normalizes it | never |
-| 2 | `hotato plan --run result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | never |
+| 2 | `hotato plan result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | never |
 | 3 | apply / verify | NEXT PHASE, not shipped | see below |
 
 Level 3 is deliberately absent from this release. When it ships it will be
@@ -70,13 +70,27 @@ credentials exit 2 cleanly.
 ## Level 2: plan
 
 ```
-hotato plan --run result.json --stack vapi --assistant-id <id> --out hotato-fixplan.json
-hotato plan --run result.json                        # generic, diagnosis only
+hotato plan result.json --stack vapi --assistant-id <id> --out hotato-fixplan.json
+hotato plan result.json                              # stack from the envelope, else generic
 ```
+
+(`--run result.json` is the equivalent flag form.) The input must be a run
+envelope; frame dumps, benchmark results, and compare results are rejected
+with exit 2.
 
 The plan is `hotato.fixplan.v1` (shipped schema:
 `src/hotato/schema/fixplan.v1.json`). It carries the finding, a hypothesis,
-zero or more changes, the verification gate, and the approval block.
+zero or more changes, the verification gate, and the approval block. Every
+plan also carries `kind: "fix-plan"`, the measured `evidence` behind it, the
+stated `risks`, `next_commands` (apply the step manually, verify with
+`hotato compare`, re-run the battery), not-scorable events as `input_issues`
+(input problems, never fixed), and a `platform_mutation` block whose
+`performed` is always false: hotato plan is read-only.
+
+Twilio rule: `--stack twilio` (or a Twilio-stack envelope) never yields
+agent-config advice. Twilio carries the audio; it does not decide when the
+agent yields. The plan is a checklist: confirm the dual-channel caller/agent
+assignment, then re-plan against the upstream voice-agent stack.
 
 ### Policy rules (verbatim, as implemented and tested)
 
