@@ -1,0 +1,97 @@
+{
+  "id": "ami-es2002a-take-0677",
+  "title": "Real floor-take: caller interrupts and takes the turn (ES2002a)",
+  "category": "should_yield",
+  "source_type": "real",
+  "tags": [
+    "real-audio",
+    "ami",
+    "meeting",
+    "interruption",
+    "barge-in"
+  ],
+  "audio": "ami-es2002a-take-0677.example.wav",
+  "channels": {
+    "caller_channel": 0,
+    "agent_channel": 1
+  },
+  "sample_rate": 16000,
+  "duration_sec": 9.0,
+  "caller_onset_sec": 3.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.13,
+    "max_talk_over_sec": 1.13
+  },
+  "reference_render": {
+    "caller_segments_sec": [
+      [
+        3.0,
+        6.38
+      ],
+      [
+        7.51,
+        9.0
+      ]
+    ],
+    "agent_segments_sec": [
+      [
+        0.0,
+        3.38
+      ],
+      [
+        6.37,
+        6.66
+      ]
+    ]
+  },
+  "transcript": {
+    "caller": "Yeah yeah Like how much does you know a remote control cost Well twenty five Euro I mean that's",
+    "agent": "the thi is this gonna to be like the premium product kinda thing or Uh-huh"
+  },
+  "related_signals": [
+    "did_yield"
+  ],
+  "license": "CC-BY-4.0",
+  "attribution": {
+    "dataset": "AMI Meeting Corpus",
+    "dataset_url": "https://groups.inf.ed.ac.uk/ami/corpus/",
+    "license": "CC-BY-4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "notice": "Contains audio from the AMI Meeting Corpus (https://groups.inf.ed.ac.uk/ami/corpus/), licensed under CC BY 4.0. Changes: cut to a 9 second window, two headset channels paired as caller/agent, 16 kHz 16-bit PCM."
+  },
+  "provenance": {
+    "meeting": "ES2002a",
+    "window_global_sec": [
+      674.15,
+      683.15
+    ],
+    "caller": {
+      "nxt_agent": "B",
+      "global_name": "FEE005",
+      "headset_wav": "ES2002a.Headset-1.wav"
+    },
+    "agent": {
+      "nxt_agent": "D",
+      "global_name": "MEE008",
+      "headset_wav": "ES2002a.Headset-3.wav"
+    },
+    "annotation_files": [
+      "words/ES2002a.B.words.xml",
+      "words/ES2002a.D.words.xml"
+    ],
+    "label_provenance": "caller_onset_sec, segments, and the category come from the AMI manual word alignments; the category states what the human floor holder actually did in the recording.",
+    "description": "B breaks in with a question about remote control cost while D is talking; D stops almost immediately (0.38 s per the alignments).",
+    "notes": "Headset bleed: the floor holder's voice is audible on the quiet caller channel, so onset AUTO-detection fires early on this clip. The labeled caller_onset_sec (from the word alignments) is the usable onset."
+  },
+  "attestation": {
+    "contributor": "build_real.py (AMI Meeting Corpus extraction)",
+    "consent_on_file": true,
+    "consent_note": "AMI participants consented to recording and public release; the corpus is published under CC BY 4.0 by its creators.",
+    "pii_removed": true,
+    "pii_note": "Speakers are identified only by AMI's anonymised codes (e.g. FEE005). Audio content is the corpus's published, publicly released speech.",
+    "no_phi": true,
+    "right_to_release_mit": false,
+    "release_note": "These clips remain CC BY 4.0 (they are adapted AMI material); they are NOT relicensed MIT and are not part of the MIT contribution corpus. See LICENSES.md."
+  }
+}
