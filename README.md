@@ -18,6 +18,8 @@
   <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg"></a>
 </p>
 
+For engineers who own turn-taking quality in a production voice-agent stack and need reproducible, private, cross-platform regression checks from real call recordings.
+
 Hotato turns bad voice-agent call moments into offline regression tests. It scores a call recording on your machine, so call audio never leaves it, and it catches the three failures callers feel most:
 
 - **Talk-over**: the agent keeps talking while the caller is talking.
@@ -92,6 +94,10 @@ uvx hotato run --suite barge-in --format json   # text output is for humans; jso
 ```
 
 The bundled `barge-in` suite scores recordings of callers barging in, that is, starting to talk while the agent is talking. Exit codes: `0` every event passed (or `--no-fail`), `1` a regression, `2` a usage or IO error, or a recording that is not scorable. Not scorable means the recording cannot answer the question (the caller channel is silent, or the agent was not talking when the caller started); the event reports `scorable: false` with the reason, never an invented verdict. Two ready-made gates: copy [`.github/workflows/hotato.yml`](.github/workflows/hotato.yml) for a PR check that posts one self-updating results comment ([`docs/CI.md`](docs/CI.md)), or add `--hotato-suite` to the pytest run you already have; the plugin registers itself on install and fails the session on a regression ([`docs/PYTEST.md`](docs/PYTEST.md)).
+
+## Real calls
+
+`corpus/vapi-defaults/` holds 12 scripted phone calls, recorded against a live production voice assistant left on its provider's default interruption settings, dual channel, scored end to end. The battery misses a genuine interruption and false-stops on backchannels in the same run: no single sensitivity threshold fixes both directions at once, so `hotato plan` refuses to name one and returns `do_not_tune_single_threshold` instead. The funnel this tool exists to catch is confirmed on real audio, not just synthetic fixtures. Recorded by the project maintainers as scripted calls; the clips and labels are MIT licensed in this repository. Full writeup, manifest, and audio: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md).
 
 ## What you get
 
