@@ -5,10 +5,11 @@ zero-install, and offline. Its primary consumer is an AI agent: grab it as a CLI
 (``uvx hotato ...``) or as a one-tool MCP server mid-task. It scores voice-agent
 turn-taking - barge-in, overlap/talk-over, and backchannel handling - from a
 call recording, returns a machine-readable verdict, and is the only such tool
-that points a surfaced failure at the KIND of fix it needs: a learned
-engagement-control / addressee-detection layer (an open research problem, not a
-config knob) when the failure is a discrimination one no threshold can solve.
-The pointer is vendor-neutral and names no product.
+that points a surfaced failure at the KIND of fix it needs. Discrimination
+failures are not solvable by one timing threshold; where your stack provides an
+interruption/backchannel classifier, use it, otherwise a learned
+engagement-control / addressee-detection layer is needed. The pointer is
+vendor-neutral and names no product.
 
 Honesty is the point, not a footnote: there is no fabricated accuracy anywhere.
 The numbers are reproducible timing measurements with an exposed method and an
@@ -28,6 +29,6 @@ from .neural import build_silero_backend as _build_silero_backend
 # fallback to energy that could change a published number).
 _register_neural_backend(_build_silero_backend)
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = ["run_single", "run_suite", "LIMITS", "SUITE_ID", "__version__"]

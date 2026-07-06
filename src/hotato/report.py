@@ -7,7 +7,9 @@ to-scale timeline from the REAL frame data the scorer already produced:
   * a caller activity track and an agent activity track, drawn to scale
   * the talk-over span shaded, labelled with its measured seconds
   * the caller-onset marker and the yield-point marker
-  * expected-vs-actual (should yield / did yield) and a PASS/FAIL chip
+  * expected-vs-actual (should yield / did yield) and a PASS/FAIL chip; an
+    event whose input cannot be judged gets a NOT SCORABLE chip with its
+    reason, never a normal verdict
   * the exact ScoreConfig thresholds used, so the page is reproducible
 
 On top of the per-event cards the page carries an analytics block computed from
@@ -161,6 +163,20 @@ def _event_model(event: dict, frames: list, hop: float, cfg: ScoreConfig) -> dic
     }
 
 
+def _event_status(model: dict) -> str:
+    """Render status for one event model: ``"not_scorable"`` when the scorer
+    marked the input as impossible to judge (``event["scorable"]`` is False),
+    else ``"pass"`` / ``"fail"``. Every PASS/FAIL decision in both renderers
+    goes through here, so a not-scorable input can never surface as a normal
+    verdict on the page."""
+    if model["event"].get("scorable") is False:
+        return "not_scorable"
+    return "pass" if model["passed"] else "fail"
+
+
+_STATUS_LABEL = {"pass": "PASS", "fail": "FAIL", "not_scorable": "NOT SCORABLE"}
+
+
 # --- formatting -----------------------------------------------------------
 
 def _s(x: Optional[float]) -> str:
@@ -268,9 +284,14 @@ def _svg_timeline(model: dict) -> str:
 
 def _analytics_data(env: dict, models: list) -> dict:
     """Aggregate the per-event measurements for the analytics block. Every value
-    comes straight from the envelope / models; nothing is invented."""
+    comes straight from the envelope / models; nothing is invented.
+
+    Not-scorable events are excluded: their null measurements would mislead
+    the latency and talk-over distributions. They get their own section."""
     tty, no_yield, tov = [], [], []
     for m in models:
+        if _event_status(m) == "not_scorable":
+            continue
         sid = m["event"].get("scenario_id") or m["event"].get("event_id") or "event"
         if m["seconds_to_yield"] is not None:
             tty.append((sid, m["seconds_to_yield"]))
@@ -281,9 +302,12 @@ def _analytics_data(env: dict, models: list) -> dict:
 
 
 def _failure_clusters(events: list) -> dict:
-    """Failures grouped by fix_class, with category and event breakdowns."""
+    """Failures grouped by fix_class, with category and event breakdowns.
+    Not-scorable events are input problems, not failures: excluded."""
     groups = {}
     for e in events:
+        if e.get("scorable") is False:
+            continue
         if e["verdict"].get("passed"):
             continue
         fx = e.get("fix") or {}
@@ -385,10 +409,18 @@ def _dist_caption(d: Optional[dict], unit: str = "s") -> str:
             f'max {d["max"]:.2f}{unit}</div>')
 
 
+def _no_failures_text(env: dict) -> str:
+    """Empty-cluster wording: stays byte-identical for fully-scorable runs and
+    says "scorable" only when a not-scorable input is actually present."""
+    if _not_scorable_events(env):
+        return "No failures to cluster. Every scorable event passed."
+    return "No failures to cluster. Every event passed."
+
+
 def _failure_clusters_html(env: dict) -> str:
     groups = _failure_clusters(env["events"])
     if not groups:
-        return '<div class="anempty">No failures to cluster. Every event passed.</div>'
+        return f'<div class="anempty">{_no_failures_text(env)}</div>'
     total = sum(g["count"] for g in groups.values())
     maxc = max(g["count"] for g in groups.values())
     out = []
@@ -436,6 +468,34 @@ def _analytics_section(env: dict, models: list) -> str:
     return "".join(parts)
 
 
+# --- not-scorable inputs (input problems, never agent verdicts) -------------
+
+def _not_scorable_events(env: dict) -> list:
+    return [e for e in env.get("events", []) if e.get("scorable") is False]
+
+
+def _not_scorable_section_html(env: dict) -> str:
+    """Short section listing every not-scorable input with its reason. Rendered
+    only when at least one exists, so all-scorable pages are untouched."""
+    ns = _not_scorable_events(env)
+    if not ns:
+        return ""
+    rows = []
+    for e in ns:
+        sid = e.get("scenario_id") or e.get("event_id") or "event"
+        reason = e.get("not_scorable_reason") or ""
+        rows.append(f'<div class="fcrow"><span class="fck mono">{_esc(sid)}</span></div>'
+                    f'<div class="fcd">{_esc(reason)}</div>')
+    return (
+        '<section class="card">'
+        '<div class="ctitle">Not scorable inputs</div>'
+        '<div class="tnote">Input problems, never agent verdicts. These events '
+        'are excluded from the pass/fail counts, the failure clusters, and the '
+        'timing distributions.</div>'
+        + "".join(rows) + "</section>"
+    )
+
+
 # --- base comparison (regression deltas vs a previous envelope) -------------
 
 _EPS = 0.0005  # values are rounded to 3 decimals; anything beyond this is real
@@ -465,9 +525,17 @@ def _base_rows(env: dict, base_env: dict):
         d_tov = _d(cur.get("talk_over_sec"), bv.get("talk_over_sec"))
         d_tty = _d(cur.get("seconds_to_yield"), bv.get("seconds_to_yield"))
         p_base, p_cur = bool(bv.get("passed")), bool(cur.get("passed"))
+        status_base = ("not_scorable" if b.get("scorable") is False
+                       else "pass" if p_base else "fail")
+        status_cur = ("not_scorable" if e.get("scorable") is False
+                      else "pass" if p_cur else "fail")
         expected_yield = bool(e.get("expected_yield", True))
 
-        if p_base != p_cur:
+        if "not_scorable" in (status_base, status_cur):
+            # An unjudgeable input on either side carries no verdict to
+            # compare against; worse/better would be invented.
+            mark = "n/a"
+        elif p_base != p_cur:
             mark = "worse" if p_base else "better"
         else:
             worse = any(d is not None and d > _EPS for d in (d_tov, d_tty))
@@ -483,6 +551,7 @@ def _base_rows(env: dict, base_env: dict):
         rows.append({
             "id": k, "match": True, "mark": mark,
             "pass_base": p_base, "pass_cur": p_cur,
+            "status_base": status_base, "status_cur": status_cur,
             "tov_base": bv.get("talk_over_sec"), "tov_cur": cur.get("talk_over_sec"),
             "d_tov": d_tov,
             "tty_base": bv.get("seconds_to_yield"), "tty_cur": cur.get("seconds_to_yield"),
@@ -491,7 +560,9 @@ def _base_rows(env: dict, base_env: dict):
     return rows, sorted(base_by.keys())
 
 
-_MARK_COLORS = {"worse": "red", "better": "green", "same": "muted", "mixed": "ember"}
+_MARK_COLORS = {"worse": "red", "better": "green", "same": "muted",
+                "mixed": "ember", "n/a": "muted"}
+_STATUS_COLORS = {"pass": "green", "fail": "red", "not_scorable": "ember"}
 
 
 def _delta_cell(base, cur, d) -> str:
@@ -509,7 +580,8 @@ def _base_section(env: dict, base_env: dict, base_label: Optional[str]) -> str:
     for r in rows:
         if r["match"]:
             counts[r["mark"]] = counts.get(r["mark"], 0) + 1
-    summary = ", ".join(f"{counts[k]} {k}" for k in ("worse", "mixed", "better", "same")
+    summary = ", ".join(f"{counts[k]} {k}"
+                        for k in ("worse", "mixed", "better", "same", "n/a")
                         if counts.get(k))
     body = []
     for r in rows:
@@ -519,9 +591,9 @@ def _base_section(env: dict, base_env: dict, base_label: Optional[str]) -> str:
                         f'<td><span class="mark" style="background:{_C["line"]};'
                         f'color:{_C["muted"]}">NEW</span></td></tr>')
             continue
-        pb = "PASS" if r["pass_base"] else "FAIL"
-        pc = "PASS" if r["pass_cur"] else "FAIL"
-        pcol = _C["green"] if r["pass_cur"] else _C["red"]
+        pb = _STATUS_LABEL[r["status_base"]]
+        pc = _STATUS_LABEL[r["status_cur"]]
+        pcol = _C[_STATUS_COLORS[r["status_cur"]]]
         mcol = _C[_MARK_COLORS[r["mark"]]]
         mstyle = (f'background:{mcol}' if r["mark"] in ("worse", "better", "mixed")
                   else f'background:{_C["line"]};color:{_C["muted"]}')
@@ -563,9 +635,9 @@ def _stat(label: str, value: str, color: Optional[str] = None) -> str:
 def _event_card(model: dict, embed_audio: bool = False) -> str:
     e = model["event"]
     v = e["verdict"]
-    passed = model["passed"]
-    chip_c = _C["green"] if passed else _C["red"]
-    chip = "PASS" if passed else "FAIL"
+    status = _event_status(model)
+    chip_c = _C[_STATUS_COLORS[status]]
+    chip = _STATUS_LABEL[status]
 
     title = e.get("title") or e.get("event_id") or "event"
     sid = e.get("scenario_id") or e.get("event_id") or ""
@@ -584,6 +656,13 @@ def _event_card(model: dict, embed_audio: bool = False) -> str:
     )
     parts.append(f'<div class="chip" style="background:{chip_c}">{chip}</div>')
     parts.append("</div>")
+
+    # a not-scorable input carries its reason on the card, never a verdict
+    if status == "not_scorable":
+        parts.append(
+            f'<div class="fix"><b>not scorable</b> '
+            f'{_esc(e.get("not_scorable_reason") or "")}</div>'
+        )
 
     # expected vs actual
     parts.append(
@@ -616,9 +695,9 @@ def _event_card(model: dict, embed_audio: bool = False) -> str:
     parts.append(_stat("premature start", _s(model["premature_start_sec"])))
     parts.append("</div>")
 
-    # reasons (only when failed)
+    # reasons (only on a real failure; the not-scorable reason is shown above)
     reasons = v.get("reasons") or []
-    if reasons:
+    if reasons and status == "fail":
         items = "".join(f"<li>{_esc(r)}</li>" for r in reasons)
         parts.append(f'<ul class="reasons">{items}</ul>')
 
@@ -910,9 +989,15 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  base_label: Optional[str] = None,
                  embed_audio: bool = False) -> str:
     s = env["summary"]
-    overall_pass = s["failed"] == 0
-    overall_c = _C["green"] if overall_pass else _C["red"]
-    overall_t = "ALL PASS" if overall_pass else "REGRESSION"
+    # A real failure always dominates: REGRESSION beats NOT SCORABLE beats
+    # ALL PASS. NOT SCORABLE appears only when nothing failed but at least one
+    # input could not be judged.
+    if s["failed"] > 0:
+        overall_c, overall_t = _C["red"], "REGRESSION"
+    elif s.get("not_scorable", 0) > 0:
+        overall_c, overall_t = _C["ember"], "NOT SCORABLE"
+    else:
+        overall_c, overall_t = _C["green"], "ALL PASS"
 
     eng = env.get("engine", {})
     mode = env.get("mode", "")
@@ -948,10 +1033,17 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         '</div></div></header>'
     )
 
+    # The counts line mirrors the CLI text: not_scorable=N appears only when
+    # N > 0, so fully-scorable pages stay byte-identical.
+    n_ns = s.get("not_scorable", 0)
+    pass_label = "events pass"
+    if n_ns:
+        pass_label = f'events pass (failed={s["failed"]}, not_scorable={n_ns})'
+
     summary = (
         '<div class="summary">'
         f'<div><div class="bignum">{s["passed"]} of {s["events"]}</div>'
-        '<div class="subtle" style="color:' + _C["muted"] + '">events pass</div></div>'
+        '<div class="subtle" style="color:' + _C["muted"] + f'">{pass_label}</div></div>'
         f'<div class="chip" style="background:{overall_c}">{overall_t}</div>'
         f'{legend}'
         '</div>'
@@ -961,7 +1053,8 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
 
     body = (
         f'<div class="wrap">{head}{summary}'
-        f'{_analytics_section(env, models)}{base_html}{cards}'
+        f'{_analytics_section(env, models)}{_not_scorable_section_html(env)}'
+        f'{base_html}{cards}'
         f'{_thresholds(cfg)}{_footer()}</div>'
     )
 
@@ -1011,7 +1104,16 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
     s = env["summary"]
     eng = env.get("engine", {})
     mode_label = f"suite: {env['suite']}" if env.get("suite") else env.get("mode", "")
-    verdict = "ALL PASS" if s["failed"] == 0 else "REGRESSION"
+    # Same precedence as the HTML chip: REGRESSION beats NOT SCORABLE beats
+    # ALL PASS.
+    if s["failed"] > 0:
+        verdict = "REGRESSION"
+    elif s.get("not_scorable", 0) > 0:
+        verdict = "NOT SCORABLE"
+    else:
+        verdict = "ALL PASS"
+    n_ns = s.get("not_scorable", 0)
+    counts = f" (failed={s['failed']}, not_scorable={n_ns})" if n_ns else ""
 
     L = []
     L.append("# hotato report")
@@ -1027,7 +1129,8 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
     L.append("")
     L.append("## Summary")
     L.append("")
-    L.append(f"**{s['passed']} of {s['events']} events pass.** Verdict: {verdict}.")
+    L.append(f"**{s['passed']} of {s['events']} events pass{counts}.** "
+             f"Verdict: {verdict}.")
     L.append("")
     L.append(_md_row(["event", "category", "expected", "did yield", "time to yield",
                       "talk-over", "response gap", "premature start", "verdict"]))
@@ -1043,12 +1146,12 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
             _s(m["talk_over_sec"]),
             _s(m["response_gap_sec"]),
             _s(m["premature_start_sec"]),
-            "PASS" if m["passed"] else "FAIL",
+            _STATUS_LABEL[_event_status(m)],
         ]))
     L.append("")
 
-    # failures: reasons + fix
-    failed = [m for m in models if not m["passed"]]
+    # failures: reasons + fix (real failures only, never not-scorable inputs)
+    failed = [m for m in models if _event_status(m) == "fail"]
     if failed:
         L.append("## Failures and fixes")
         L.append("")
@@ -1069,6 +1172,20 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
                     L.append(f"  - knob: {knob.get('parameter')}")
                     L.append(f"  - move: {knob.get('direction')}")
             L.append("")
+
+    # not-scorable inputs: id + reason, never listed as failures
+    ns_events = _not_scorable_events(env)
+    if ns_events:
+        L.append("## Not scorable inputs")
+        L.append("")
+        L.append("Input problems, never agent verdicts. These events are "
+                 "excluded from the pass/fail counts, the failure clusters, "
+                 "and the timing distributions.")
+        L.append("")
+        for e in ns_events:
+            sid = e.get("scenario_id") or e.get("event_id") or "event"
+            L.append(f"- {sid}: {e.get('not_scorable_reason') or ''}")
+        L.append("")
 
     # analytics: same aggregates as the HTML charts, as tables
     a = _analytics_data(env, models)
@@ -1115,7 +1232,7 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
             cats = ", ".join(f"{c} ({n})" for c, n in sorted(g["categories"].items()))
             L.append(_md_row([fc, g["count"], cats, ", ".join(g["events"])]))
     else:
-        L.append("No failures to cluster. Every event passed.")
+        L.append(_no_failures_text(env))
     L.append("")
 
     # base comparison
@@ -1139,8 +1256,8 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
 
             L.append(_md_row([
                 r["id"],
-                f"{'PASS' if r['pass_base'] else 'FAIL'} to "
-                f"{'PASS' if r['pass_cur'] else 'FAIL'}",
+                f"{_STATUS_LABEL[r['status_base']]} to "
+                f"{_STATUS_LABEL[r['status_cur']]}",
                 _cell(r["tov_base"], r["tov_cur"], r["d_tov"]),
                 _cell(r["tty_base"], r["tty_cur"], r["d_tty"]),
                 r["mark"].upper(),

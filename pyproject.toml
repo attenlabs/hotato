@@ -1,14 +1,16 @@
 [build-system]
-requires = ["setuptools>=68"]
+# SPDX license expressions (PEP 639) need setuptools >= 77.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "0.2.1"
-description = "Hotato: the open turn-taking eval for voice agents. Does your agent drop the turn, or hog it? Score barge-in / talk-over / backchannel / endpointing from a call recording, offline, with an honest fix map. MIT."
+version = "0.2.2"
+description = "Turn-taking regression tests for voice agents. Catch barge-in, talk-over, and slow-yield regressions from real call recordings. Offline, deterministic, MIT."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Attention Labs, Inc." }]
 keywords = [
     "hotato", "voice-ai", "voice-agents", "evals", "barge-in", "turn-taking",
@@ -16,7 +18,6 @@ keywords = [
     "pipecat", "vapi",
 ]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Topic :: Multimedia :: Sound/Audio :: Analysis",
     "Topic :: Software Development :: Testing",
@@ -30,7 +31,7 @@ dependencies = []
 # The one-tool MCP server needs the MCP SDK. Kept optional so the CLI stays
 # dependency-free and zero-install.
 mcp = ["mcp>=1.2.0"]
-dev = ["pytest>=7", "jsonschema>=4", "setuptools>=68"]
+dev = ["pytest>=7", "jsonschema>=4", "setuptools>=77"]
 
 # Per-stack capture extras. Vapi and Twilio capture use only stdlib (urllib +
 # your API key), so `uvx hotato capture --stack vapi --call-id <id>` needs

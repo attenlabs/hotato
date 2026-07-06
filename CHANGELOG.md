@@ -11,6 +11,15 @@ design. See `docs/BENCHMARK.md`.
 
 Nothing yet.
 
+## [0.2.2] - 2026-07-06
+
+### Fixed
+- Report not-scorable rendering: the HTML and Markdown reports now render a not-scorable event with a NOT SCORABLE chip (or verdict cell) and its reason, never PASS or FAIL. The overall verdict is REGRESSION when any scorable event failed, else NOT SCORABLE when any input could not be judged, else ALL PASS. Not-scorable events are excluded from the failure clusters and from the time-to-yield and talk-over distributions, and are listed in their own "Not scorable inputs" section with id and reason (never under "Failures and fixes"). The summary counts line in both formats gains `not_scorable=N` when N > 0, mirroring the CLI text. Reports for fully-scorable inputs are byte-identical to 0.2.1.
+
+### Changed
+- License metadata modernization: `pyproject.toml` now uses the SPDX string form `license = "MIT"` with `license-files = ["LICENSE"]`, replacing the deprecated license table and the OSI license classifier. Built wheels carry `License-Expression: MIT` and builds emit no license deprecation warnings. Building from source now needs setuptools 77 or newer.
+- Package docstring: the fix-pointer wording is softened. Discrimination failures are not solvable by one timing threshold; where your stack provides an interruption/backchannel classifier, use it, otherwise a learned engagement-control / addressee-detection layer is needed.
+
 ## [0.2.1] - 2026-07-06
 
 ### Fixed

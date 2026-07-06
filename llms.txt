@@ -1,7 +1,8 @@
 # hotato
 
-> An open (MIT), offline, zero-install tool that scores voice-agent turn-taking
-> from a call recording. Does your agent drop the turn, or hog it? It scores the
+> Turn-taking regression tests for voice agents (MIT, offline, zero-install):
+> score a real call recording, keep it as a fixture, fail CI when timing
+> regresses. Does your agent drop the turn, or hog it? It scores the
 > timing from a recording and points each failure at a concrete fix. Runs entirely
 > on your machine. Built to be called by an AI agent mid-task, as a CLI or a
 > one-tool MCP server.

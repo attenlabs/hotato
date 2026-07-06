@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://hotato.dev">
-    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: the open, offline turn-taking eval for voice agents" width="840">
+    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: turn-taking regression tests for voice agents" width="840">
   </a>
 </p>
 
@@ -115,6 +115,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 ## More
 
 - Reports and analytics: [`docs/REPORTS.md`](docs/REPORTS.md) · Pytest gate: [`docs/PYTEST.md`](docs/PYTEST.md) · Suites: [`docs/SUITES.md`](docs/SUITES.md) · CI recipes: [`docs/CI.md`](docs/CI.md)
+- Turn a bad call into a regression test: [hotato.dev/docs/regression-loop.html](https://hotato.dev/docs/regression-loop.html)
 - Python API: [`docs/API.md`](docs/API.md) · Stack benchmarks: [`docs/BENCHMARK-STACKS.md`](docs/BENCHMARK-STACKS.md)
 - Adapters: [`adapters/README.md`](adapters/README.md) · Status and verification dates: [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
 - Why this exists: [`docs/WHY.md`](docs/WHY.md) · Method: [`METHODOLOGY.md`](METHODOLOGY.md) · Security: [`SECURITY.md`](SECURITY.md)
