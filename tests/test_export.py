@@ -129,3 +129,19 @@ def test_export_csv_no_percent_or_dashes(tmp_path):
     for name in ("events.csv", "frames.csv"):
         text = (out / name).read_text(encoding="utf-8")
         assert "–" not in text and "—" not in text
+
+
+def test_export_not_scorable_single_exits_2(tmp_path):
+    """export follows the same not-scorable exit mapping as run."""
+    import struct
+    import wave
+
+    p = tmp_path / "silent.wav"
+    w = wave.open(str(p), "wb")
+    w.setnchannels(2)
+    w.setsampwidth(2)
+    w.setframerate(16000)
+    w.writeframes(struct.pack("<" + "h" * 6400, *([0] * 6400)))
+    w.close()
+    rc = cli.main(["export", "--stereo", str(p), "--out", str(tmp_path / "out")])
+    assert rc == 2

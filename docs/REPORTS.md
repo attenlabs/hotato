@@ -18,7 +18,8 @@ uvx hotato doctor --demo --no-open --out report.html
 
 It is a convenience wrapper over the existing scorer and report. Nothing new is
 claimed, and everything runs offline. Exit codes match `run`: `0` all pass,
-`1` a regression (`--no-fail` forces `0`), `2` usage or IO error.
+`1` a regression (`--no-fail` forces `0`), `2` usage or IO error, or a
+recording that is not scorable (silent caller, or agent silent at onset).
 
 ## `hotato report`: the visual report
 

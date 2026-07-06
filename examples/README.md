@@ -83,6 +83,9 @@ demonstration consumes.
 Because one axis pulls the sensitivity dial up and the other pulls it down, the
 funnel fires. Its text carries zero digits.
 
+The same fixtures also ship inside the package as `hotato demo`: `uvx hotato demo`
+runs this battery and opens its visual report with zero checkout.
+
 ## Run them
 
 ```python

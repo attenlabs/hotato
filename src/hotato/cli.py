@@ -393,7 +393,7 @@ def _cmd_export(args) -> int:
     )
     if args.no_fail:
         return 0
-    return res["env"]["exit_code"]
+    return process_exit_code(res["env"])
 
 
 def _cmd_benchmark(args) -> int:

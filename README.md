@@ -1,11 +1,11 @@
 <p align="center">
   <a href="https://hotato.dev">
-    <img src=".github/banner.png" alt="hotato: the open, offline turn-taking eval for voice agents" width="840">
+    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: the open, offline turn-taking eval for voice agents" width="840">
   </a>
 </p>
 
 <h1 align="center">
-  <img src="docs/assets/mascot.svg" alt="" width="26" align="top"> hotato
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/mascot.svg" alt="" width="26" align="top"> hotato
 </h1>
 
 <p align="center"><b>Find interruption bugs in your voice agent before users do.</b></p>
@@ -29,7 +29,7 @@ signals (`did_yield`, `seconds_to_yield`, `talk_over_sec`) and a fix class that 
 uvx hotato demo
 ```
 
-![Hotato failing demo report](docs/assets/hotato-demo-report.png)
+![Hotato failing demo report](https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo-report.png)
 
 The demo battery is intentionally bad and fully synthetic: it exists to show what a catch looks like.
 
@@ -76,7 +76,7 @@ Each `config` knob ships with a direction and its honest trade-off. When a batte
 uvx hotato run --suite barge-in --format json   # text is the human default; json is the machine envelope
 ```
 
-Exit codes: `0` all pass (or `--no-fail`), `1` a regression, `2` usage or IO error. Two ready-made gates: copy [`.github/workflows/hotato.yml`](.github/workflows/hotato.yml) for a PR check with a sticky results comment ([`docs/CI.md`](docs/CI.md)), or add `--hotato-suite` to your existing pytest run; the plugin auto-registers on install and fails the session on a regression ([`docs/PYTEST.md`](docs/PYTEST.md)).
+Exit codes: `0` all pass (or `--no-fail`), `1` a regression, `2` usage or IO error, or a single recording that is not scorable (silent caller, or agent silent at onset: the event reports `scorable: false` with the reason, never a fake verdict). Two ready-made gates: copy [`.github/workflows/hotato.yml`](.github/workflows/hotato.yml) for a PR check with a sticky results comment ([`docs/CI.md`](docs/CI.md)), or add `--hotato-suite` to your existing pytest run; the plugin auto-registers on install and fails the session on a regression ([`docs/PYTEST.md`](docs/PYTEST.md)).
 
 ## What you get
 
@@ -121,3 +121,5 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - Contributing: the highest-value PR is a real, labelled call fixture. Start at [`docs/SUBMITTING.md`](docs/SUBMITTING.md).
 
 Why "hotato": good turn-taking is a game of hot potato. Take your turn, then pass it, fast and clean. MIT licensed ([`LICENSE`](LICENSE)); the open core stays open.
+
+mcp-name: io.github.attenlabs/hotato

@@ -31,10 +31,14 @@ All scoring functions take keyword arguments only.
   "engine": {"name", "version", "upstream"},
   "limits": {...},               # honest scope and ceiling, hotato.core.LIMITS
   "summary": {"events", "passed", "failed", "regression"},
+                                 # plus additive "not_scorable" (count) when
+                                 # at least one event could not be judged
   "events": [...],               # one dict per scored event, below
   "fix_map": [...],              # one entry per failing event with a fix
   "funnel": {...} | None,        # systemic pointer, fires only when both axes fail
-  "exit_code": 0 | 1,            # 1 when any event failed
+  "exit_code": 0 | 1,            # 1 when any scorable event failed; the CLI
+                                 # process exits 2 for a single recording that
+                                 # is not scorable (see Exit codes below)
   "suite": "barge-in",           # run_suite only
 }
 ```
@@ -72,6 +76,13 @@ Each event:
   },
 }
 ```
+
+An event that cannot be judged (a silent caller channel with no onset label, or
+a should-yield expectation with the agent silent at onset) additionally carries
+`"scorable": False` and a plain `"not_scorable_reason"`. It counts in neither
+`passed` nor `failed`, never routes a fix, and never fires the funnel: an input
+problem is reported as one, not dressed up as an agent verdict. Envelopes for
+valid recordings are byte-identical to before these keys existed.
 
 ## hotato.core
 
@@ -353,7 +364,13 @@ Parameters, all optional:
 
 ## Exit codes and errors
 
-Envelopes carry `exit_code`: 0 all events passed, 1 regression. Malformed
-input (bad WAV, out-of-range channel, negative onset, unknown suite or stack)
-raises `ValueError`, which the CLI surfaces as exit code 2. Nothing is ever
-scored from a file the scorer could not fully read.
+Envelopes carry `exit_code`: 0 all scorable events passed, 1 regression.
+`hotato.core.process_exit_code(env)` maps the finished envelope to the CLI
+process exit: a single-recording run whose event is not scorable (silent
+caller with no onset label, or agent silent at onset; the reason is in
+`not_scorable_reason`) exits 2, because that is an input problem, not an
+agent verdict. Suite runs count such events in `summary.not_scorable` and
+keep their 0/1 semantics. Malformed input (bad WAV, out-of-range channel,
+negative onset, unknown suite or stack) raises `ValueError`, which the CLI
+surfaces as exit code 2. Nothing is ever scored from a file the scorer could
+not fully read.

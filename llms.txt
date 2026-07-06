@@ -11,6 +11,9 @@
 - The 5-minute path: `uvx hotato doctor --stereo call.wav` scores the recording,
   writes the visual HTML report, opens it. `uvx hotato doctor` runs the bundled
   self-test instead.
+- See a catch: `uvx hotato demo` scores the packaged intentionally failing
+  battery and opens its report (exit 0 by design; `--fail` returns the real
+  regression exit code).
 - Score the bundled battery: `uvx hotato run --suite barge-in`
 - Score one recording (two-channel WAV, caller and agent on separate channels):
   `uvx hotato run --stereo call.wav --stack livekit --format json`
@@ -39,7 +42,10 @@ A single JSON envelope (schema: `hotato/schema/envelope.v1.json`, `schema_versio
 `seconds_to_yield`, `talk_over_sec`, plus a `signals` bus (`barge_in`, `latency`)
 and a `verdict`.
 
-Exit codes: `0` all pass, `1` a regression, `2` usage or IO error. Every failing
+Exit codes: `0` all pass, `1` a regression, `2` usage or IO error, or a single
+recording that is not scorable. An event that cannot be judged (silent caller,
+or agent silent at the caller onset) carries `scorable: false` and a plain
+`not_scorable_reason`; it never surfaces as a normal pass or fail. Every failing
 event carries a `fix`:
 
 - `fix_class: "config"`: a concrete knob for your stack (livekit, pipecat, vapi,

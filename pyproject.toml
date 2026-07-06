@@ -30,7 +30,7 @@ dependencies = []
 # The one-tool MCP server needs the MCP SDK. Kept optional so the CLI stays
 # dependency-free and zero-install.
 mcp = ["mcp>=1.2.0"]
-dev = ["pytest>=7", "jsonschema>=4"]
+dev = ["pytest>=7", "jsonschema>=4", "setuptools>=68"]
 
 # Per-stack capture extras. Vapi and Twilio capture use only stdlib (urllib +
 # your API key), so `uvx hotato capture --stack vapi --call-id <id>` needs

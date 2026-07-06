@@ -147,6 +147,6 @@ pip install 'hotato[pipecat]'   # pipecat-ai
 ## Scope
 
 Same as the rest of the tool: it measures the timing of turn-taking (`did_yield`,
-`seconds_to_yield`, `talk_over_sec`) from speech energy over time. The live adapter
-paths use each provider's documented API and are marked for verification against
-your stack. See the top-level `README.md` and `METHODOLOGY.md` for the method.
+`seconds_to_yield`, `talk_over_sec`) from speech energy over time. Each adapter's
+exact API basis and last-verified date: [`docs/ADAPTER-STATUS.md`](../docs/ADAPTER-STATUS.md).
+See the top-level `README.md` and `METHODOLOGY.md` for the method.

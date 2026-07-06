@@ -33,7 +33,9 @@ call with any of these failures as perfect.
 - **It emits machine-readable timing.** One JSON envelope per run, the same
   shape from the CLI, the MCP tool, and the pytest fixture, so an agent or a
   CI job consumes one schema.
-- **It fails CI.** Exit code 1 on a regression, 0 on pass, 2 on a usage error.
+- **It fails CI.** Exit code 1 on a regression, 0 on pass, 2 on a usage error
+  or a single recording that is not scorable (silent caller, or agent silent
+  at onset).
   A turn-taking regression blocks a merge the same way a failing unit test
   does.
 - **It routes every failure to a fix class.** `config` names the exact knob on

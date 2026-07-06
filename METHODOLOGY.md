@@ -125,15 +125,21 @@ it is used directly. Otherwise the onset is the start of the caller's first
 sustained active run, the first run of at least 0.05 s of active frames
 (`first_active_sec`). The label is preferred because on mixed or noisy audio the
 first energy is not always the caller. `onset_idx` is `round(onset / hop_sec)`,
-clamped into range.
+clamped into range. No label and no detectable caller speech means there is no
+caller event to score: the recording is reported not scorable (`scorable: false`
+with a plain reason), never scored against frame 0, and a single-recording run
+exits 2.
 
 ### Step 5, the three barge-in signals
 
 Computed in `score_channels` (`score.py`):
 
 - **`agent_talking_at_onset`**, was any agent frame active in the 0.10 s up to
- and including onset? If not, there is nothing to yield, and a note is attached
- saying `did_yield` is not meaningful for this recording.
+ and including onset? If not, on a should-yield expectation there is nothing to
+ yield: the event is reported not scorable (`scorable: false`, with the reason
+ in `not_scorable_reason`) rather than passed or failed, and a single-recording
+ run exits 2. The input is what is wrong (onset time, channel mapping, or
+ expectation), and it is reported as such.
 - **`did_yield`**, scanning from onset up to `onset + max_search_sec` (300
  frames), the first frame where the agent goes quiet and *stays* quiet for
  `yield_hangover_sec` (20 frames) **and** the caller held the floor within
