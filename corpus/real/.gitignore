@@ -1,0 +1,3 @@
+# Source downloads (AMI headset WAVs + annotation zip). Reproducible:
+# python3 corpus/real/build_real.py re-fetches and sha256-verifies them.
+cache/
