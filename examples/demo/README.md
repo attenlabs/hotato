@@ -1,10 +1,10 @@
-# examples/demo — the site demo, reproducible
+# examples/demo, the site demo, reproducible
 
 This directory backs the walkthrough on the Hotato site
 (`hotato-site/docs/demo.html`): *watch it catch an agent talking over the
 caller, then point at the fix.*
 
-It adds **no tool source** — `run-demo.sh` only *runs* the CLI against the
+It adds **no tool source**, `run-demo.sh` only *runs* the CLI against the
 existing labeled-synthetic fixtures in [`../funnel-demo/`](../funnel-demo/) and
 prints the exact output the page embeds.
 
@@ -18,17 +18,17 @@ prints the exact output the page embeds.
 
 The two failing events are, by design:
 
-- **fd-01** — the agent talks straight over a real interruption
-  (`did_yield=False`) → `fix_class: config` (a sensitivity knob you can turn).
-- **fd-02** — the agent yields to a bare "mhm" (`did_yield=True` where it must
-  be false) → `fix_class: engagement-control`.
+- **fd-01**, the agent talks straight over a real interruption
+ (`did_yield=False`) → `fix_class: config` (a sensitivity knob you can turn).
+- **fd-02**, the agent yields to a bare "mhm" (`did_yield=True` where it must
+ be false) → `fix_class: engagement-control`.
 
-Because the battery fails on **both** axes at once — a missed interruption *and*
-a false trigger — no single sensitivity threshold satisfies it, so the tool
+Because the battery fails on **both** axes at once, a missed interruption *and*
+a false trigger, no single sensitivity threshold satisfies it, so the tool
 emits its `funnel` pointer (the discrimination case). All of that is real tool
 output; nothing on the page is hand-written into the terminal blocks.
 
-> These are **labeled synthetic** bad-agent renders — a runnable floor and a
+> These are **labeled synthetic** bad-agent renders, a runnable floor and a
 > regression guard, not a recording of a real production call.
 
 ## Run it
@@ -50,10 +50,10 @@ Equivalent one-liners (run from the repo root):
 
 ```bash
 PYTHONPATH=src python3 -m hotato.cli run --suite barge-in \
-  --scenarios examples/funnel-demo/scenarios --audio examples/funnel-demo/audio --format text
+ --scenarios examples/funnel-demo/scenarios --audio examples/funnel-demo/audio --format text
 
 PYTHONPATH=src python3 -m hotato.cli run --suite barge-in \
-  --scenarios examples/funnel-demo/scenarios --audio examples/funnel-demo/audio --format json
+ --scenarios examples/funnel-demo/scenarios --audio examples/funnel-demo/audio --format json
 
 PYTHONPATH=src python3 -m hotato.cli run --suite barge-in --format text
 ```
