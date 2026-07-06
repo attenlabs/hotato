@@ -9,8 +9,47 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] - 2026-07-05
+
+Initial release, published on PyPI. Offline, MIT, zero-install turn-taking eval
+for voice agents. It scores one narrow thing well and is honest about the rest.
+
 ### Added
 
+- **Core scorer**: one recording or the bundled battery, returning a single
+  machine-readable envelope (`schema_version` "1"). Three objective timing signals
+  measured from audio energy over aligned caller/agent channels: `did_yield`,
+  `seconds_to_yield` (time to yield), `talk_over_sec`. Delegated unchanged to the
+  vendored MIT `barge_scoring` engine (`src/hotato/_engine`), kept byte-identical
+  to upstream by `sync_engine.py` (a CI drift gate).
+- **Signal bus**: a namespaced `signals` block. `barge_in` mirrors the three
+  originals byte-for-byte; `latency` adds `response_gap_sec` and
+  `premature_start_sec`, pure endpointing timing on the same two VAD tracks.
+- **Fix map**: every failing event carries a concrete fix. `fix_class: "config"`
+  is a stack-specific knob with direction and honest trade-off.
+  `fix_class: "engagement-control"` is a both-axes discrimination failure a single
+  sensitivity dial cannot solve, pointed high-level and numbers-free at an
+  engagement-control / addressee-detection layer. Plus a suite-level funnel that
+  fires only when both axes fail at once.
+- **CLI** (`hotato`): `run` (suite or single recording), `capture` and `setup` for
+  stack adapters (Vapi, Twilio, LiveKit, Pipecat; Retell status stated honestly),
+  `--format json`, non-zero exit for CI, and `--dump-frames` for per-frame,
+  re-derivable evidence behind every number.
+- **One-tool MCP server** (`hotato-mcp`): exposes exactly one tool,
+  `voice_eval_run`, returning the identical JSON envelope, so an AI agent can run
+  the eval mid-task.
+- **Bundled synthetic battery**: an eight-scenario `barge-in` self-test
+  (interruptions, backchannels, telephony 8 kHz, double-talk, echo bleed, rapid
+  turn-taking) with exact rendered ground truth. A floor and a regression guard.
+- **Honest scope, everywhere**: a `limits` block in every result and in the MCP
+  schema. Reproducible timing against published thresholds, an explicit ceiling,
+  energy-is-not-intent, and the best input (two-channel) stated up front. Offline
+  by design.
+- **JSON Schema** (`src/hotato/schema/envelope.v1.json`), `METHODOLOGY.md`,
+  `CONTRIBUTING.md`, `docs/CORPUS-GOVERNANCE.md`, `llms.txt`, and a stdlib-only
+  core with zero required third-party dependencies.
 - **`hotato doctor`**: the 5-minute path in one command. Scores your recording
   (or the bundled self-test when none is given), writes the self-contained visual
   HTML report, and opens it in a browser (best effort; `--no-open` prints the
@@ -37,6 +76,10 @@ design. See `docs/BENCHMARK.md`.
   per VAD frame, the evidence behind every number), and `envelope.json`. Column
   meanings are documented in comment lines at the top of each CSV. Stdlib only,
   offline.
+- **`hotato benchmark`** (`src/hotato/stackbench.py`): comparable stack runs.
+  Scores your captured battery per stack and compares result files side by side
+  with `hotato benchmark compare`. Measurements only; no vendor numbers, no
+  leaderboard, no ranking.
 - **Pytest plugin**, auto-registered on install (`pytest11` entry point): a
   `hotato_score` fixture that scores a recording or suite inside any test, and an
   opt-in `--hotato-suite` session gate that runs the battery after the tests and
@@ -98,46 +141,6 @@ design. See `docs/BENCHMARK.md`.
   release ships no fabricated recording, real-model number, benchmark result,
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
-
-## [0.1.0] - 2026-07-04
-
-Initial build. Offline, MIT, zero-install turn-taking eval for voice agents. It
-scores one narrow thing well and is honest about the rest.
-
-### Added
-
-- **Core scorer**: one recording or the bundled battery, returning a single
-  machine-readable envelope (`schema_version` "1"). Three objective timing signals
-  measured from audio energy over aligned caller/agent channels: `did_yield`,
-  `seconds_to_yield` (time to yield), `talk_over_sec`. Delegated unchanged to the
-  vendored MIT `barge_scoring` engine (`src/hotato/_engine`), kept byte-identical
-  to upstream by `sync_engine.py` (a CI drift gate).
-- **Signal bus**: a namespaced `signals` block. `barge_in` mirrors the three
-  originals byte-for-byte; `latency` adds `response_gap_sec` and
-  `premature_start_sec`, pure endpointing timing on the same two VAD tracks.
-- **Fix map**: every failing event carries a concrete fix. `fix_class: "config"`
-  is a stack-specific knob with direction and honest trade-off.
-  `fix_class: "engagement-control"` is a both-axes discrimination failure a single
-  sensitivity dial cannot solve, pointed high-level and numbers-free at an
-  engagement-control / addressee-detection layer. Plus a suite-level funnel that
-  fires only when both axes fail at once.
-- **CLI** (`hotato`): `run` (suite or single recording), `capture` and `setup` for
-  stack adapters (Vapi, Twilio, LiveKit, Pipecat; Retell status stated honestly),
-  `--format json`, non-zero exit for CI, and `--dump-frames` for per-frame,
-  re-derivable evidence behind every number.
-- **One-tool MCP server** (`hotato-mcp`): exposes exactly one tool,
-  `voice_eval_run`, returning the identical JSON envelope, so an AI agent can run
-  the eval mid-task.
-- **Bundled synthetic battery**: an eight-scenario `barge-in` self-test
-  (interruptions, backchannels, telephony 8 kHz, double-talk, echo bleed, rapid
-  turn-taking) with exact rendered ground truth. A floor and a regression guard.
-- **Honest scope, everywhere**: a `limits` block in every result and in the MCP
-  schema. Reproducible timing against published thresholds, an explicit ceiling,
-  energy-is-not-intent, and the best input (two-channel) stated up front. Offline
-  by design.
-- **JSON Schema** (`src/hotato/schema/envelope.v1.json`), `METHODOLOGY.md`,
-  `CONTRIBUTING.md`, `docs/CORPUS-GOVERNANCE.md`, `llms.txt`, and a stdlib-only
-  core with zero required third-party dependencies.
 
 [Unreleased]: https://github.com/attenlabs/hotato/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/attenlabs/hotato/releases/tag/v0.1.0

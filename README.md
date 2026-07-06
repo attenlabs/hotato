@@ -93,6 +93,7 @@ One scorer, and every surface you need around it. Each line below is one command
 - **`benchmark`**, comparable stack runs: score your captured battery per stack, then compare result files side by side. `hotato benchmark --stack livekit --recordings captures/` then `hotato benchmark compare a.json b.json`
 Deep detail: [`docs/REPORTS.md`](docs/REPORTS.md), [`docs/PYTEST.md`](docs/PYTEST.md),
 [`docs/SUITES.md`](docs/SUITES.md), [`docs/CI.md`](docs/CI.md).
+API reference: [`docs/API.md`](docs/API.md).
 
 ## What it measures
 

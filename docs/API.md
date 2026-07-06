@@ -1,0 +1,359 @@
+# Python API reference
+
+Everything the CLI, the pytest plugin, and the MCP server do is a plain Python
+call. The core is stdlib only, fully offline, and deterministic: the same audio
+and config always produce the same envelope. Import and score:
+
+```python
+from hotato.core import run_single, run_suite
+
+env = run_single(stereo="call.wav", expect="yield")
+env = run_suite()  # bundled 8-scenario battery
+```
+
+The top-level package re-exports the essentials:
+`from hotato import run_single, run_suite, LIMITS, SUITE_ID, __version__`.
+
+All scoring functions take keyword arguments only.
+
+## The envelope
+
+`run_single` and `run_suite` return the same machine-readable dict
+(JSON Schema: `src/hotato/schema/envelope.v1.json`):
+
+```python
+{
+  "tool": "hotato",
+  "schema_version": "1",
+  "mode": "single" | "suite",
+  "stack": "generic",            # normalized stack label
+  "offline": True,
+  "engine": {"name", "version", "upstream"},
+  "limits": {...},               # honest scope and ceiling, hotato.core.LIMITS
+  "summary": {"events", "passed", "failed", "regression"},
+  "events": [...],               # one dict per scored event, below
+  "fix_map": [...],              # one entry per failing event with a fix
+  "funnel": {...} | None,        # systemic pointer, fires only when both axes fail
+  "exit_code": 0 | 1,            # 1 when any event failed
+  "suite": "barge-in",           # run_suite only
+}
+```
+
+Each event:
+
+```python
+{
+  "event_id": str,               # file basename or scenario id
+  "scenario_id": str | None,
+  "title": str | None,
+  "category": str | None,        # e.g. "should_yield"
+  "expected_yield": bool,
+  "verdict": {
+    "passed": bool,
+    "did_yield": bool,
+    "seconds_to_yield": float | None,
+    "talk_over_sec": float,
+    "reasons": [str],            # failure reasons, empty on pass
+  },
+  "measurements": {
+    "caller_onset_sec": float,
+    "agent_talking_at_onset": bool,
+    "hop_sec": float,
+    "notes": str,
+  },
+  "signals": {                   # namespaced signal bus, additive
+    "barge_in": {"did_yield", "time_to_yield_sec", "talk_over_sec"},
+    "latency": {"response_gap_sec", "premature_start_sec"},
+  },
+  "fix": None | {                # set on failing events
+    "fix_class": "config" | "engagement-control",
+    "title": str, "detail": str,
+    "knob": str | None, "pointer": str | None,
+  },
+}
+```
+
+## hotato.core
+
+### run_single
+
+```python
+run_single(
+    *,
+    stereo: str | None = None,        # two-channel WAV path
+    caller: str | None = None,        # mono WAV path (with agent=)
+    agent: str | None = None,         # mono WAV path (with caller=)
+    caller_channel: int = 0,
+    agent_channel: int = 1,
+    onset_sec: float | None = None,   # caller onset hint, seconds from start
+    expect: str = "yield",            # "yield" or "hold" (backchannel)
+    stack: str | None = None,         # livekit | pipecat | vapi | generic
+    max_talk_over_sec: float | None = None,
+    max_time_to_yield_sec: float | None = None,
+    cfg: ScoreConfig | None = None,
+) -> dict
+```
+
+Scores one recording and returns the envelope. Provide either `stereo` or both
+`caller` and `agent`. `expect="hold"` means the caller event is a backchannel
+and the agent should keep the floor. The two `max_*` thresholds tighten the
+pass criteria. Malformed or truncated WAVs raise a clean `ValueError` with the
+ffmpeg export line to fix them.
+
+### run_suite
+
+```python
+run_suite(
+    *,
+    suite: str = "barge-in",          # the only suite id (SUITE_ID)
+    stack: str | None = None,
+    scenarios_dir: str | None = None, # your scenario JSON labels
+    audio_dir: str | None = None,     # your recordings, <scenario-id><suffix>
+    suffix: str = ".example.wav",
+    caller_channel: int = 0,
+    agent_channel: int = 1,
+    cfg: ScoreConfig | None = None,
+) -> dict
+```
+
+Runs a labelled battery and returns the envelope with a `suite` key. Defaults
+to the bundled 8-scenario battery shipped inside the package, zero external
+files. Point `scenarios_dir` and `audio_dir` at your own labelled set (for
+example `corpus/suites/gold/scenarios` and `.../audio`). Suite audio must be
+two-channel.
+
+### dump_frames_for_input
+
+```python
+dump_frames_for_input(
+    *,
+    stereo: str | None = None,
+    caller: str | None = None,
+    agent: str | None = None,
+    caller_channel: int = 0,
+    agent_channel: int = 1,
+    onset_sec: float | None = None,
+    cfg: ScoreConfig | None = None,
+) -> dict
+```
+
+The per-frame evidence behind every reported number: each channel's dBFS, VAD
+activity, threshold, and noise floor, plus a self-describing `config` block.
+Every reported signal is re-derivable by hand from this dump.
+
+### LIMITS and SUITE_ID
+
+`hotato.core.LIMITS` is the honest scope dict embedded in every envelope
+(method, ceiling, best input, what it does not do). `SUITE_ID` is `"barge-in"`.
+
+### ScoreConfig
+
+Every threshold is an exposed parameter:
+
+```python
+from hotato._engine.score import ScoreConfig
+from hotato._engine.vad import VADParams
+
+cfg = ScoreConfig(
+    frame_ms=20.0, hop_ms=10.0,
+    yield_hangover_sec=0.20,       # agent quiet this long = yielded
+    max_search_sec=3.0,            # yield search window after onset
+    caller_proximity_sec=0.5,
+    turn_end_silence_sec=0.20,
+    premature_tolerance_sec=0.05,
+    onset_min_run_sec=0.05,
+    agent_onset_lookback_sec=0.10,
+    caller_vad=VADParams(),        # rel_db=15.0, abs_gate_db=-60.0,
+    agent_vad=VADParams(),         # hangover_sec=0.15, noise_percentile=0.10,
+)                                  # dyn_margin_db=22.0, backend="energy"
+```
+
+`VADParams.backend` is `"energy"` (the deterministic reference behind every
+published number) or `"neural"` (an optional Silero VAD cross-check via
+`pip install 'hotato[neural]'`; without the extra it raises a clean
+`BackendUnavailable`, never a silent fallback).
+
+## hotato.report
+
+Self-contained visual reports scored from the same measurements. All three
+functions accept the full scoring parameter set (`stereo`, `caller`, `agent`,
+`suite`, `scenarios_dir`, `audio_dir`, `suffix`, `caller_channel`,
+`agent_channel`, `onset_sec`, `expect`, `stack`, `max_talk_over_sec`,
+`max_time_to_yield_sec`, `cfg`) as keyword arguments.
+
+```python
+build_report_html(*, base: dict | None = None,
+                  base_label: str | None = None, **kwargs) -> (str, dict)
+build_report_md(*, base: dict | None = None,
+                base_label: str | None = None, **kwargs) -> (str, dict)
+write_report(path: str, fmt: str = "html", **kwargs) -> dict
+```
+
+`build_report_html` scores the input and returns `(html, envelope)`: one
+self-contained file, inline CSS and SVG, per-event timelines, analytics, a
+frame inspector, and print CSS for PDF. `build_report_md` mirrors it as
+Markdown tables. `write_report` builds in `fmt` (`"html"` or `"md"`), writes to
+`path`, and returns the envelope. Pass `base` (a previous envelope dict, for
+example loaded from `hotato run --format json` output) to render per-scenario
+regression deltas; `base_label` names it in the page.
+
+```python
+from hotato.report import write_report
+
+env = write_report("report.html", suite="barge-in", stack="livekit")
+```
+
+## hotato.aggregate
+
+Team mode: many run envelopes, one honest trend view.
+
+```python
+load_run_dir(dirpath: str, order: str = "mtime") -> dict
+    # {"runs": [{"file", "path", "mtime", "env"}], "skipped": [...], "order"}
+    # order: "mtime" (oldest first) or "name" (numeric prefix = explicit index)
+
+aggregate_runs(runs: list, order: str = "mtime",
+               skipped: list | None = None) -> dict
+    # team envelope: kind "team-aggregate", runs, events_total,
+    # talk_over_sec / seconds_to_yield distribution summaries (mean/median/p90),
+    # pass_rate {latest, first, mean, direction}, pass_rate_over_time,
+    # failure_classes, most_common_failure_class, skipped, exit_code 0.
+    # Raises ValueError with fewer than 2 runs, never pads a trend.
+
+build_team_section_html(agg: dict) -> str   # embeddable section
+build_team_page_html(agg: dict) -> str      # full self-contained page
+```
+
+```python
+from hotato.aggregate import load_run_dir, aggregate_runs, build_team_page_html
+
+loaded = load_run_dir("runs/")
+agg = aggregate_runs(loaded["runs"], order=loaded["order"],
+                     skipped=loaded["skipped"])
+html = build_team_page_html(agg)
+```
+
+## hotato.export
+
+Research-grade flat files from the same scorer.
+
+```python
+run_export(
+    *,
+    out_dir: str,
+    # plus the full scoring parameter set: stereo, caller, agent,
+    # caller_channel, agent_channel, onset_sec, expect, stack, suite,
+    # scenarios_dir, audio_dir, suffix, max_talk_over_sec,
+    # max_time_to_yield_sec, cfg
+) -> dict   # {"env", "events_rows", "frames_rows", "paths"}
+```
+
+Writes `events.csv` (one row per event, columns in
+`hotato.export.EVENT_COLUMNS`), `frames.csv` (one row per VAD frame, columns in
+`FRAME_COLUMNS`), and `envelope.json` into `out_dir` (created if missing).
+Column meanings are documented in `#` comment lines at the top of each CSV.
+Empty cell means not derivable, never fabricated.
+
+## hotato.stackbench
+
+Identical scenarios, your stack, comparable result files. No vendor numbers, no
+leaderboard: every number is a measurement of recordings you provide.
+
+### run_stackbench
+
+```python
+run_stackbench(
+    *,
+    stack: str,                       # one of BENCH_STACKS:
+                                      # vapi | twilio | livekit | pipecat | generic
+    recordings_dir: str,              # <scenario-id><suffix> WAVs
+    scenarios_dir: str | None = None, # default: bundled battery
+    suffix: str | None = None,        # default: auto-detected
+                                      # (.wav, .stereo.wav, .example.wav)
+    caller_channel: int = 0,
+    agent_channel: int = 1,
+    cfg: ScoreConfig | None = None,
+) -> dict
+```
+
+Returns a result dict (`kind: "stack-benchmark"`) with the envelope fields plus
+`config`, `scenarios {total, captured, not_captured}`, and `provenance`.
+Scoring is `run_suite` unchanged. Scenarios with no matching recording are
+listed under `not_captured`, never scored and never counted as failures. The
+timestamp derives from input file mtimes, so the same inputs reproduce the same
+result file.
+
+### load_result, compare_results, render_comparison_md
+
+```python
+load_result(path: str) -> dict
+    # loads and validates one result JSON; anything else is a clean ValueError
+
+compare_results(inputs: Sequence[tuple[str, dict]]) -> dict
+    # inputs: (path, loaded_result) pairs, at least two.
+    # Compares the intersection of scenarios scored in EVERY input;
+    # the rest is listed under "skipped". Deltas are signed differences
+    # against the FIRST input. Returns kind "stack-benchmark-comparison"
+    # with inputs, compared, skipped, per_scenario, medians.
+
+render_comparison_md(cmp_env: dict) -> str
+    # the comparison as Markdown tables
+```
+
+```python
+from hotato.stackbench import load_result, compare_results, render_comparison_md
+
+cmp = compare_results([(p, load_result(p)) for p in ("a.json", "b.json")])
+print(render_comparison_md(cmp))
+```
+
+## Pytest fixture
+
+Installed automatically via the `pytest11` entry point (or load explicitly with
+`-p hotato.pytest_plugin`). Inert unless used.
+
+```python
+def test_call_yields(hotato_score):
+    env = hotato_score(stereo="call.wav", expect="yield")
+    assert env["summary"]["regression"] is False
+    assert env["events"][0]["verdict"]["seconds_to_yield"] < 1.0
+```
+
+`hotato_score(**kwargs)` takes the same keyword arguments as `run_single`; pass
+`suite="barge-in"` (plus `run_suite` keywords) to score a battery instead. It
+returns the envelope and never asserts for you.
+
+Session gate flags: `pytest --hotato-suite` runs the battery after your tests
+and fails the session (exit 1) on a regression; `--hotato-suite-scenarios DIR`
+and `--hotato-suite-audio DIR` point it at your own labelled set. Detail:
+`docs/PYTEST.md`.
+
+## MCP tool
+
+`hotato-mcp` (or `python -m hotato.mcp_server`) speaks MCP over stdio and
+exposes exactly one tool, `voice_eval_run`, returning the identical envelope.
+Install: `uvx --from "hotato[mcp]" hotato-mcp`.
+
+Parameters, all optional:
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `stereo` | str | None | two-channel WAV path |
+| `caller` | str | None | mono caller WAV (with `agent`) |
+| `agent` | str | None | mono agent WAV (with `caller`) |
+| `suite` | str | None | `"barge-in"` to run the bundled battery |
+| `stack` | str | `"generic"` | livekit, pipecat, vapi, or generic |
+| `expect` | str | `"yield"` | `"yield"` or `"hold"` |
+| `onset_sec` | float | None | caller onset hint |
+| `caller_channel` | int | 0 | caller channel index |
+| `agent_channel` | int | 1 | agent channel index |
+| `max_talk_over_sec` | float | None | pass threshold |
+| `max_time_to_yield_sec` | float | None | pass threshold |
+| `report_path` | str | None | also write the HTML report here; the envelope then carries `report_path` (absolute) |
+
+## Exit codes and errors
+
+Envelopes carry `exit_code`: 0 all events passed, 1 regression. Malformed
+input (bad WAV, out-of-range channel, negative onset, unknown suite or stack)
+raises `ValueError`, which the CLI surfaces as exit code 2. Nothing is ever
+scored from a file the scorer could not fully read.
