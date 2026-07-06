@@ -8,6 +8,7 @@ outputs removed), and the usage-error exit codes.
 """
 
 import json
+import shlex
 import struct
 import wave
 from importlib import resources
@@ -108,6 +109,45 @@ def test_created_fixture_round_trips_through_run(tmp_path):
     assert event["event_id"] == "fx-created-001"
     assert event["category"] == "should_yield"
     assert event["verdict"]["passed"] is True
+
+
+def test_next_command_from_fixture_create_runs_verbatim(tmp_path, capsys):
+    """Regression: the exact `next` command `fixture create` emits (no bare
+    --suite) must run and PASS on its own fixture -- this is the command a
+    user actually copies and pastes."""
+    assert _create(tmp_path, "--format", "json") == 0
+    out = json.loads(capsys.readouterr().out)
+    next_cmd = out["next"]
+    assert next_cmd.startswith("hotato ")
+    argv = shlex.split(next_cmd)[1:]  # drop the leading "hotato"
+    assert "--suite" not in argv
+    assert cli.main(argv) == 0
+    assert "PASS" in capsys.readouterr().out
+
+
+def test_scenarios_and_audio_without_suite_flag_scores_directly(tmp_path):
+    """`hotato run --scenarios DIR --audio DIR` (no bare --suite) must enter
+    suite mode on its own: this is the exact form documented in the fixture
+    create epilog, docs/BAD-CALL-TO-CI.md, and the CI YAML snippet."""
+    assert _create(tmp_path) == 0
+    assert cli.main([
+        "run", "--scenarios", str(tmp_path / "scenarios"),
+        "--audio", str(tmp_path / "audio"),
+    ]) == 0
+
+
+def test_scenarios_and_audio_with_stereo_is_still_a_usage_error(tmp_path,
+                                                                 capsys):
+    """The implicit suite mode (--scenarios + --audio, no bare --suite) keeps
+    the same conflict rule as the explicit --suite case: it cannot be mixed
+    with a single-recording input."""
+    assert _create(tmp_path) == 0
+    rc = cli.main([
+        "run", "--scenarios", str(tmp_path / "scenarios"),
+        "--audio", str(tmp_path / "audio"), "--stereo", HARD,
+    ])
+    assert rc == 2
+    assert "cannot be combined" in capsys.readouterr().err
 
 
 def test_hold_label_gets_null_bounds_and_hold_category(tmp_path):

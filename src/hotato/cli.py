@@ -143,21 +143,26 @@ def _emit(env: dict, fmt: str) -> None:
 
 def _cmd_run(args) -> int:
     backend = getattr(args, "backend", "energy")
-    # Conflicting inputs: --suite runs the bundled self-test battery and silently
-    # ignoring a single recording passed alongside it would mislead. Reject the
-    # combination up front (clean usage error -> exit 2) rather than quietly
-    # dropping the user's file.
-    if args.suite and (args.stereo or args.caller or args.agent):
+    # A battery runs on an explicit --suite, OR on --scenarios and --audio given
+    # together without it: that is the exact command `fixture create` emits in
+    # its own `next` field (and documents in this command's epilog and
+    # docs/BAD-CALL-TO-CI.md) -- it must not need a bare --suite bolted on.
+    suite_mode = bool(args.suite) or bool(args.scenarios and args.audio)
+    # Conflicting inputs: a battery run scores multiple labelled scenarios and
+    # silently ignoring a single recording passed alongside it would mislead.
+    # Reject the combination up front (clean usage error -> exit 2) rather than
+    # quietly dropping the user's file.
+    if suite_mode and (args.stereo or args.caller or args.agent):
         raise ValueError(
-            "--suite runs the bundled self-test battery and cannot be combined "
-            "with a single recording (--stereo / --caller / --agent). Run one or "
-            "the other."
+            "--suite (or --scenarios/--audio together) runs a labelled battery "
+            "and cannot be combined with a single recording (--stereo / --caller "
+            "/ --agent). Run one or the other."
         )
     if args.dump_frames:
-        if args.suite:
+        if suite_mode:
             raise ValueError(
-                "--dump-frames works on a single recording; drop --suite and pass "
-                "--stereo, or --caller and --agent"
+                "--dump-frames works on a single recording; drop --suite (and/or "
+                "--scenarios/--audio) and pass --stereo, or --caller and --agent"
             )
         dump = dump_frames_for_input(
             stereo=args.stereo,
@@ -174,11 +179,11 @@ def _cmd_run(args) -> int:
             f"{args.dump_frames}",
             file=sys.stderr,
         )
-    if args.suite:
+    if suite_mode:
         # The bundled battery is the ENERGY reference: it always scores with energy
         # so the golden numbers stay byte-stable, regardless of --backend.
         env = run_suite(
-            suite=args.suite,
+            suite=args.suite or SUITE_ID,
             stack=args.stack,
             scenarios_dir=args.scenarios,
             audio_dir=args.audio,
