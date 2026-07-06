@@ -51,6 +51,12 @@ Score YOUR OWN call in under a minute (bring a dual-channel recording):
 Already have a 2-channel WAV (caller on channel 0, agent on channel 1)?
   hotato run --stereo your_call.wav --expect yield
 
+Turn a bad moment into a permanent regression test (docs/BAD-CALL-TO-CI.md):
+  hotato scan --stereo full_call.wav                # list candidate moments
+  hotato fixture create --stereo full_call.wav --onset 42.18 \\
+      --expect yield --id refund-cutoff-001 --out tests/hotato
+  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
+
 See what a failure looks like, in one command (packaged bad-agent battery; it
 fails by design and opens the report):
   hotato demo
@@ -69,6 +75,15 @@ _SELF_TEST_NOTE = (
     "note: --suite is Hotato's SELF-TEST on synthetic fixtures -- it checks the "
     "tool itself, not your agent. To score YOUR agent, bring a real dual-channel "
     "call: hotato capture --stack vapi --call-id <id>  (see: hotato)"
+)
+
+# The label contract, stated wherever yield/hold appears (canonical wording;
+# also in README.md, METHODOLOGY.md, and docs/BAD-CALL-TO-CI.md).
+_LABEL_NOTE = (
+    "Hotato does not infer intent. You label the expected behavior for the "
+    "event: yield means the agent should stop for the caller. hold means the "
+    "agent should keep speaking through a backchannel/noise/acknowledgement. "
+    "Hotato then measures whether the timing matched that label."
 )
 
 
@@ -554,16 +569,19 @@ def _cmd_doctor(args) -> int:
 # --- the guarded fix ladder (read-only phase): diagnose -> inspect -> plan ---
 
 def _load_envelope_for(path: str, flag: str) -> dict:
-    """Load an envelope JSON for diagnose/plan; anything else is a clean usage
-    error (exit 2)."""
+    """Load an envelope JSON for diagnose/plan; anything else (a frame dump,
+    a benchmark result, a compare result, arbitrary JSON) is a clean usage
+    error (exit 2). A run envelope carries no ``kind`` key."""
     with open(path, encoding="utf-8") as fh:
         env = json.load(fh)
     if not (isinstance(env, dict) and env.get("tool") == "hotato"
-            and env.get("kind") != "frame-dump"
+            and env.get("kind") is None
             and isinstance(env.get("events"), list)):
         raise ValueError(
-            f"{flag} {path!r} is not a hotato envelope JSON. Save one with: "
-            "hotato run --suite barge-in --format json > result.json"
+            f"{flag} {path!r} is not a hotato run envelope JSON (frame dumps, "
+            "benchmark results, and compare results are not run envelopes). "
+            "Save one with: hotato run --suite barge-in --format json > "
+            "result.json"
         )
     return env
 
@@ -603,13 +621,33 @@ def _cmd_plan(args) -> int:
     from . import fixplan as _fixplan
     from . import inspectcfg as _inspectcfg
 
-    env = _load_envelope_for(args.run, "--run")
-    diagnosis = _diagnose.diagnose_envelope(env, source=args.run)
+    # The result JSON arrives either as the positional argument
+    # (hotato plan result.json) or as --run result.json; exactly one.
+    if args.result_json and args.run and args.result_json != args.run:
+        raise ValueError(
+            "two different result files were given (positional "
+            f"{args.result_json!r} and --run {args.run!r}); pass one"
+        )
+    run_path = args.run or args.result_json
+    if not run_path:
+        raise ValueError(
+            "provide the finished run to plan from: hotato plan result.json "
+            "(or --run result.json). Save one with: hotato run --suite "
+            "barge-in --format json > result.json"
+        )
+    env = _load_envelope_for(run_path, "plan input")
+    diagnosis = _diagnose.diagnose_envelope(env, source=run_path)
 
     inspected = None
     target_info = {}
     has_target = bool(args.assistant_id or args.agent_id or args.config)
     if has_target:
+        if args.stack == "twilio":
+            raise ValueError(
+                "Twilio carries the audio but has no turn-taking agent "
+                "config to inspect; point the target flag at the stack that "
+                "runs the agent (--stack vapi|retell|livekit|pipecat)"
+            )
         if not args.stack or args.stack == "generic":
             raise ValueError(
                 "a target flag (--assistant-id / --agent-id / --config) needs "
@@ -645,6 +683,126 @@ def _cmd_plan(args) -> int:
     else:
         print(_fixplan.render_text(plan))
     print(f"wrote fix plan ({plan['decision']}) to {args.out}", file=sys.stderr)
+    return 0
+
+
+# --- the regression loop: scan -> fixture create -> run -> compare ---------
+
+def _cmd_fixture_create(args) -> int:
+    from . import fixture as _fixture
+
+    result = _fixture.create_fixture(
+        stereo=args.stereo,
+        caller=args.caller,
+        agent=args.agent,
+        fixture_id=args.id,
+        title=args.title,
+        onset_sec=args.onset,
+        expect=args.expect,
+        out_dir=args.out,
+        stack=args.stack,
+        max_talk_over_sec=args.max_talk_over,
+        max_time_to_yield_sec=args.max_time_to_yield,
+        tags=args.tags,
+        category=args.category,
+        pre_sec=args.pre,
+        post_sec=args.post,
+        no_clip=args.no_clip,
+        force=args.force,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+    )
+    if args.format == "json":
+        print(json.dumps(_fixture.result_json(result), indent=2))
+    else:
+        print(_fixture.render_text(result))
+    return 0
+
+
+def _cmd_compare(args) -> int:
+    from . import compare as _compare
+
+    cmp_env = _compare.compare_recordings(
+        before_stereo=args.before,
+        before_caller=args.before_caller,
+        before_agent=args.before_agent,
+        after_stereo=args.after,
+        after_caller=args.after_caller,
+        after_agent=args.after_agent,
+        onset_sec=args.onset,
+        before_onset_sec=args.before_onset,
+        after_onset_sec=args.after_onset,
+        expect=args.expect,
+        stack=args.stack,
+        max_talk_over_sec=args.max_talk_over,
+        max_time_to_yield_sec=args.max_time_to_yield,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+    )
+    before_name = _compare.input_name(args.before, args.before_caller,
+                                      args.before_agent)
+    after_name = _compare.input_name(args.after, args.after_caller,
+                                     args.after_agent)
+    if args.out:
+        # The shareable HTML report: the after take scored in full, with the
+        # before take as the base for the per-scenario regression deltas.
+        _report.write_report(
+            args.out,
+            fmt="html",
+            base=cmp_env["before"]["envelope"],
+            base_label=f"before: {before_name}",
+            stereo=args.after,
+            caller=args.after_caller,
+            agent=args.after_agent,
+            caller_channel=args.caller_channel,
+            agent_channel=args.agent_channel,
+            onset_sec=(args.after_onset if args.after_onset is not None
+                       else args.onset),
+            expect=args.expect,
+            stack=args.stack,
+            max_talk_over_sec=args.max_talk_over,
+            max_time_to_yield_sec=args.max_time_to_yield,
+        )
+        print(f"wrote before/after HTML report to {args.out}",
+              file=sys.stderr)
+    if args.format == "json":
+        print(json.dumps(cmp_env, indent=2))
+    else:
+        print(_compare.render_text(cmp_env, before_name, after_name))
+    if cmp_env["result"] == "not_scorable":
+        # No verdict is invented for an unjudgeable side: unusable input.
+        return 2
+    if args.fail_on_worse and cmp_env["result"] in ("regressed", "worse"):
+        return 1
+    return 0
+
+
+def _cmd_scan(args) -> int:
+    from . import scan as _scan
+
+    result = _scan.scan_recording(
+        args.stereo,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+        min_gap_sec=args.min_gap,
+    )
+    if args.out:
+        # The file gets EVERY candidate; --top caps only the stdout listing.
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2)
+            fh.write("\n")
+        print(
+            f"wrote {result['total_candidates']} candidates to {args.out}",
+            file=sys.stderr,
+        )
+    if args.format == "json":
+        capped = dict(result)
+        if args.top > 0:
+            capped["candidates"] = result["candidates"][:args.top]
+        capped["shown"] = len(capped["candidates"])
+        print(json.dumps(capped, indent=2))
+    else:
+        print(_scan.render_text(result, top=args.top))
     return 0
 
 
@@ -715,7 +873,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Offline: runs locally; no audio leaves the machine. There is no "
             "accuracy percentage anywhere -- results are reproducible timing "
             "measurements with every threshold exposed and every frame inspectable "
-            "(see --dump-frames)."
+            "(see --dump-frames).\n\n" + _LABEL_NOTE
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1041,6 +1199,7 @@ def build_parser() -> argparse.ArgumentParser:
             "and report -- nothing new is claimed. Everything runs offline."
         ),
         epilog=(
+            _LABEL_NOTE + "\n\n"
             "Examples:\n"
             "  hotato doctor --stereo call.wav        # score your call, open the report\n"
             "  hotato doctor --demo                   # self-test, open the report\n"
@@ -1082,6 +1241,7 @@ def build_parser() -> argparse.ArgumentParser:
             "to get the real regression exit code. Offline, zero extra files."
         ),
         epilog=(
+            _LABEL_NOTE + "\n\n"
             "Examples:\n"
             "  hotato demo                          # run, print, open the report\n"
             "  hotato demo --no-open --out demo.html\n"
@@ -1201,19 +1361,28 @@ def build_parser() -> argparse.ArgumentParser:
             "Exit codes: 0 = plan written (including refusals), 2 = unusable "
             "input / missing credentials.\n"
             "Examples:\n"
-            "  hotato plan --run result.json\n"
-            "  hotato plan --run result.json --stack vapi --assistant-id <id>\n"
-            "  hotato plan --run result.json --stack livekit --config agent.py\n"
-            "  hotato plan --run result.json --out my-plan.json --format json"
+            "  hotato plan result.json\n"
+            "  hotato plan result.json --stack vapi --assistant-id <id>\n"
+            "  hotato plan result.json --stack livekit --config agent.py\n"
+            "  hotato plan result.json --out my-plan.json --format json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    pl.add_argument("--run", required=True, metavar="RESULT.json",
+    pl.add_argument("result_json", nargs="?", default=None,
+                    metavar="RESULT.json",
+                    help="a hotato envelope JSON from run/capture "
+                         "(equivalent to --run)")
+    pl.add_argument("--run", default=None, metavar="RESULT.json",
                     help="a hotato envelope JSON from run/capture")
-    pl.add_argument("--stack", default="generic",
-                    choices=["generic", "vapi", "retell", "livekit", "pipecat"],
-                    help="target stack (generic: plan from the diagnosis alone, "
-                         "using the generic knob families)")
+    pl.add_argument("--stack", default=None,
+                    choices=["generic", "vapi", "retell", "livekit",
+                             "pipecat", "twilio"],
+                    help="target stack (default: the stack recorded in the "
+                         "envelope, else generic: plan from the diagnosis "
+                         "alone, using the generic knob families; twilio: the "
+                         "transport has no turn-taking knobs, so the plan "
+                         "points at channel assignment and the upstream "
+                         "voice-agent stack)")
     pl.add_argument("--assistant-id", help="[vapi] assistant id to inspect")
     pl.add_argument("--agent-id", help="[retell] agent id to inspect")
     pl.add_argument("--config", metavar="FILE.py",
@@ -1229,6 +1398,208 @@ def build_parser() -> argparse.ArgumentParser:
                     help="stdout format (default text summary; json prints "
                          "the full plan)")
     pl.set_defaults(func=_cmd_plan)
+
+    # --- fixture create: bad call moment -> permanent regression fixture ----
+    fx = sub.add_parser(
+        "fixture",
+        help="turn a bad call moment into a permanent regression fixture "
+             "(hotato fixture create)",
+        description=(
+            "Fixture tooling for the regression loop (see "
+            "docs/BAD-CALL-TO-CI.md)."
+        ),
+    )
+    fxsub = fx.add_subparsers(dest="fixture_command", required=True,
+                              metavar="create")
+    fc = fxsub.add_parser(
+        "create",
+        help="write scenarios/<id>.json + audio/<id>.example.wav from one "
+             "call moment, validated by scoring it immediately",
+        description=(
+            "Turn ONE moment of a recording you already have into a fixture "
+            "that `hotato run --scenarios DIR --audio DIR` scores forever. "
+            "By default the audio is clipped around the event (--pre seconds "
+            "before the onset, --post after) and the fixture onset is "
+            "re-based to the clip; --no-clip keeps the full recording. The "
+            "audio is always written as ONE two-channel WAV (caller on "
+            "channel 0, agent on channel 1). The created fixture is scored "
+            "immediately; an input that cannot be judged is refused with the "
+            "honest reason (exit 2), never written as a fixture that would "
+            "report a meaningless verdict. Offline; no accuracy percentage "
+            "anywhere."
+        ),
+        epilog=(
+            _LABEL_NOTE + "\n\n"
+            "Examples:\n"
+            "  hotato fixture create --stereo bad-call.wav --id refund-cutoff-001 \\\n"
+            "      --onset 42.18 --expect yield --max-talk-over 0.6 --out tests/hotato\n"
+            "  hotato fixture create --caller c.wav --agent a.wav --id ack-hold-002 \\\n"
+            "      --onset 12.4 --expect hold --out tests/hotato\n"
+            "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    fc.add_argument("--stereo", help="two-channel WAV (caller on one channel, agent on the other)")
+    fc.add_argument("--caller", help="mono WAV of the caller channel (with --agent)")
+    fc.add_argument("--agent", help="mono WAV of the agent channel (with --caller)")
+    fc.add_argument("--id", required=True,
+                    help="fixture id slug, e.g. refund-interruption-001")
+    fc.add_argument("--title", default=None,
+                    help="human title (default: the id with spaces)")
+    fc.add_argument("--onset", type=float, required=True,
+                    help="the moment (seconds into the SOURCE recording) the "
+                         "caller took or attempted the floor")
+    fc.add_argument("--expect", required=True, choices=["yield", "hold"],
+                    help="YOUR label for the event: 'yield' (the agent should "
+                         "stop for the caller) or 'hold' (the agent should "
+                         "keep speaking)")
+    fc.add_argument("--out", required=True, metavar="DIR",
+                    help="fixture root; writes DIR/scenarios/<id>.json and "
+                         "DIR/audio/<id>.example.wav")
+    fc.add_argument("--stack", default="generic",
+                    choices=["generic", "vapi", "twilio", "livekit",
+                             "pipecat", "retell"],
+                    help="voice stack the recording came from (labels the "
+                         "validation fix knob only)")
+    fc.add_argument("--max-talk-over", type=float, default=None,
+                    help="[yield] fail the fixture if talk-over exceeds this many seconds")
+    fc.add_argument("--max-time-to-yield", type=float, default=None,
+                    help="[yield] fail the fixture if the yield is slower than this many seconds")
+    fc.add_argument("--tags", default=None,
+                    help="comma-separated tags for the scenario JSON")
+    fc.add_argument("--category", default=None,
+                    choices=["should_yield", "should_not_yield"],
+                    help="scenario category (default: derived from --expect)")
+    fc.add_argument("--pre", type=float, default=2.0,
+                    help="seconds of audio kept BEFORE the onset when clipping (default 2.0)")
+    fc.add_argument("--post", type=float, default=6.0,
+                    help="seconds of audio kept AFTER the onset when clipping (default 6.0)")
+    fc.add_argument("--no-clip", action="store_true",
+                    help="keep the full recording and the original onset instead of clipping")
+    fc.add_argument("--force", action="store_true",
+                    help="overwrite an existing fixture with the same id")
+    fc.add_argument("--caller-channel", type=int, default=0)
+    fc.add_argument("--agent-channel", type=int, default=1)
+    fc.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    fc.set_defaults(func=_cmd_fixture_create)
+
+    # --- compare: the shareable before/after on one fixed moment ------------
+    cp = sub.add_parser(
+        "compare",
+        help="score a before and an after take of the same moment and report "
+             "what actually moved",
+        description=(
+            "Score two recordings of the SAME scenario (the bad take and the "
+            "take after your change) with the identical expectation, bounds, "
+            "and reference config, and report the movement per measured "
+            "signal plus one machine-stable result word: fixed, regressed, "
+            "improved, worse, unchanged, still_pass, or not_scorable. Every "
+            "mark is computed from real measurements only; an unjudgeable "
+            "side renders NOT SCORABLE, never an invented verdict. Offline; "
+            "no accuracy percentage anywhere."
+        ),
+        epilog=(
+            "Exit codes: 0 (compare measures, it does not gate); with "
+            "--fail-on-worse, 1 on regressed/worse; 2 unusable input or a "
+            "not-scorable side.\n\n"
+            "Examples:\n"
+            "  hotato compare --before bad.wav --after fixed.wav --onset 12.4 --expect yield\n"
+            "  hotato compare --before bad.wav --after fixed.wav \\\n"
+            "      --before-onset 12.4 --after-onset 11.9 --expect yield --out report.html\n"
+            "  hotato compare --before a.wav --after b.wav --onset 3.1 --expect hold --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cp.add_argument("--before", metavar="WAV",
+                    help="two-channel WAV of the BEFORE take")
+    cp.add_argument("--after", metavar="WAV",
+                    help="two-channel WAV of the AFTER take")
+    cp.add_argument("--before-caller", metavar="WAV",
+                    help="mono caller WAV of the before take (with --before-agent)")
+    cp.add_argument("--before-agent", metavar="WAV",
+                    help="mono agent WAV of the before take (with --before-caller)")
+    cp.add_argument("--after-caller", metavar="WAV",
+                    help="mono caller WAV of the after take (with --after-agent)")
+    cp.add_argument("--after-agent", metavar="WAV",
+                    help="mono agent WAV of the after take (with --after-caller)")
+    cp.add_argument("--onset", type=float, default=None,
+                    help="caller onset in seconds, applied to BOTH takes "
+                         "(else auto-detected per take)")
+    cp.add_argument("--before-onset", type=float, default=None,
+                    help="override the onset for the before take (the moment "
+                         "often shifts between takes)")
+    cp.add_argument("--after-onset", type=float, default=None,
+                    help="override the onset for the after take")
+    cp.add_argument("--expect", default="yield", choices=["yield", "hold"],
+                    help="the shared label: 'yield' (stop for the caller) or "
+                         "'hold' (keep the floor)")
+    cp.add_argument("--stack", default="generic",
+                    choices=["generic", "vapi", "twilio", "livekit",
+                             "pipecat", "retell"],
+                    help="voice stack the recordings came from (labels the fix knob only)")
+    cp.add_argument("--max-talk-over", type=float, default=None,
+                    help="fail bound applied identically to both takes")
+    cp.add_argument("--max-time-to-yield", type=float, default=None,
+                    help="fail bound applied identically to both takes")
+    cp.add_argument("--caller-channel", type=int, default=0)
+    cp.add_argument("--agent-channel", type=int, default=1)
+    cp.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    cp.add_argument("--out", default=None, metavar="PATH",
+                    help="also write the self-contained HTML report: the "
+                         "after take with the before take as the base "
+                         "comparison")
+    cp.add_argument("--fail-on-worse", action="store_true",
+                    help="exit 1 when the result is regressed or worse "
+                         "(default: exit 0; compare measures, it does not gate)")
+    cp.set_defaults(func=_cmd_compare)
+
+    # --- scan: candidate turn-taking moments across a whole call ------------
+    sc = sub.add_parser(
+        "scan",
+        help="list candidate turn-taking moments in a whole recording "
+             "(timing facts only; you label them)",
+        description=(
+            "Walk the caller and agent VAD activity tracks across the WHOLE "
+            "recording and list candidate turn-taking moments as timing "
+            "facts: overlap onsets (the caller became active while the agent "
+            "was active, with the overlap length and whether the agent went "
+            "silent), agent starts during caller activity, and long response "
+            "gaps after the caller finished. Candidates are timing events, "
+            "not intent: this tool cannot know whether a caller sound was "
+            "'mhm' or 'stop'. You decide the expected behavior and label the "
+            "moment with hotato fixture create. Long files are read in a "
+            "windowed pass. Offline; no accuracy percentage anywhere."
+        ),
+        epilog=(
+            "Exit codes: 0 (with or without candidates; the count is "
+            "reported), 2 usage/IO error.\n\n"
+            "Examples:\n"
+            "  hotato scan --stereo full-call.wav\n"
+            "  hotato scan --stereo full-call.wav --top 5\n"
+            "  hotato scan --stereo full-call.wav --format json --out candidates.json\n"
+            "  hotato fixture create --stereo full-call.wav --onset 42.18 \\\n"
+            "      --expect yield --id found-moment-001 --out tests/hotato"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sc.add_argument("--stereo", required=True, metavar="WAV",
+                    help="two-channel WAV (caller on one channel, agent on the other)")
+    sc.add_argument("--caller-channel", type=int, default=0)
+    sc.add_argument("--agent-channel", type=int, default=1)
+    sc.add_argument("--top", type=int, default=20,
+                    help="cap the printed candidates by salience (overlap or "
+                         "gap length, longest first); 0 shows all (default 20)")
+    sc.add_argument("--min-gap", type=float, default=2.0,
+                    help="minimum response gap in seconds to surface as a "
+                         "candidate (default 2.0)")
+    sc.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    sc.add_argument("--out", default=None, metavar="PATH",
+                    help="write EVERY candidate as JSON here (--top caps only "
+                         "the stdout listing)")
+    sc.set_defaults(func=_cmd_scan)
 
     return p
 
