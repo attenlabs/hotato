@@ -1,0 +1,52 @@
+{
+  "id": "gl-8k-bc-repeated",
+  "title": "Four backchannels at 8 kHz (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "repeated",
+    "telephony",
+    "8khz"
+  ],
+  "family": "telephony-8k",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 6.3,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        5.9
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        2.28
+      ],
+      [
+        3.0,
+        3.28
+      ],
+      [
+        4.0,
+        4.28
+      ],
+      [
+        5.0,
+        5.28
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Telephony rate replica of the repeated backchannel hold.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

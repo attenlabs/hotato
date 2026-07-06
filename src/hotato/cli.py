@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 
 from . import __version__
 from . import capture as _capture
+from . import report as _report
 from ._engine.score import ScoreConfig
 from ._engine.vad import BackendUnavailable, VADParams
 from .core import SUITE_ID, dump_frames_for_input, run_single, run_suite
@@ -204,6 +207,312 @@ def _cmd_setup(args) -> int:
     return _capture.run_setup(args.stack)
 
 
+def _load_base_envelope(path: str) -> dict:
+    """Load a previous envelope JSON for --base. Anything that is not a hotato
+    envelope is a clean usage error (exit 2), never a silent no-op diff."""
+    with open(path, encoding="utf-8") as fh:
+        base = json.load(fh)
+    if not (isinstance(base, dict) and base.get("tool") == "hotato"
+            and base.get("kind") != "frame-dump"
+            and isinstance(base.get("events"), list)):
+        raise ValueError(
+            f"--base {path!r} is not a hotato envelope JSON. Save one with: "
+            "hotato run --suite barge-in --format json > base.json"
+        )
+    return base
+
+
+def _cmd_report(args) -> int:
+    # --suite is the bundled self-test battery; combining it with one recording
+    # would silently drop the file, so reject the mix (clean usage error -> 2).
+    if args.suite and (args.stereo or args.caller or args.agent):
+        raise ValueError(
+            "--suite renders the bundled self-test battery and cannot be combined "
+            "with a single recording (--stereo / --caller / --agent). Run one or "
+            "the other."
+        )
+    base = _load_base_envelope(args.base) if args.base else None
+    base_label = os.path.basename(args.base) if args.base else None
+    out = args.out
+    if out is None:
+        out = "hotato-report.md" if args.format == "md" else "hotato-report.html"
+    if args.suite:
+        env = _report.write_report(
+            out,
+            fmt=args.format,
+            base=base,
+            base_label=base_label,
+            suite=args.suite,
+            stack=args.stack,
+            scenarios_dir=args.scenarios,
+            audio_dir=args.audio,
+        )
+    else:
+        if not (args.stereo or (args.caller and args.agent)):
+            raise ValueError(
+                "provide --stereo FILE, or both --caller FILE and --agent FILE, "
+                "or --suite to render the bundled battery"
+            )
+        env = _report.write_report(
+            out,
+            fmt=args.format,
+            base=base,
+            base_label=base_label,
+            stereo=args.stereo,
+            caller=args.caller,
+            agent=args.agent,
+            caller_channel=args.caller_channel,
+            agent_channel=args.agent_channel,
+            onset_sec=args.onset,
+            expect=args.expect,
+            stack=args.stack,
+            max_talk_over_sec=args.max_talk_over,
+            max_time_to_yield_sec=args.max_time_to_yield,
+        )
+    kind = ("self-contained HTML report" if args.format == "html"
+            else "markdown report")
+    print(
+        f"wrote {kind} ({env['summary']['events']} events) to {out}",
+        file=sys.stderr,
+    )
+    if args.no_fail:
+        return 0
+    return env["exit_code"]
+
+
+def _emit_team_text(agg: dict, dirpath: str) -> None:
+    pr = agg["pass_rate"]
+    latest = agg["pass_rate_over_time"][-1]
+    print(f"hotato team: {agg['runs']} runs from {dirpath} "
+          f"(ordered by {agg['ordered_by']})")
+    print(f"  events: {agg['events_total']} total")
+    if pr["latest"] is not None:
+        print(f"  pass rate: latest {latest['passed']} of {latest['events']} "
+              f"({pr['latest']:.2f}), mean {pr['mean']:.2f}")
+        print(f"  trend: {pr['first']:.2f} to {pr['latest']:.2f} "
+              f"({pr['direction']}) across {agg['runs']} runs")
+    for name, key in (("talk-over", "talk_over_sec"),
+                      ("time to yield", "seconds_to_yield")):
+        d = agg[key]
+        if d:
+            print(f"  {name}: mean {d['mean']:.2f}s median {d['median']:.2f}s "
+                  f"p90 {d['p90']:.2f}s (n={d['n']})")
+        else:
+            print(f"  {name}: no measurements")
+    mc = agg["most_common_failure_class"]
+    if mc:
+        print(f"  most common failure class: {mc['fix_class']} "
+              f"({mc['count']} of {mc['of_failures']} failures)")
+    else:
+        print("  most common failure class: no failures")
+    if agg["skipped"]:
+        skipped = ", ".join(s["file"] for s in agg["skipped"])
+        print(f"  skipped (not run envelopes): {skipped}")
+
+
+def _cmd_team(args) -> int:
+    from . import aggregate as _aggregate
+
+    loaded = _aggregate.load_run_dir(args.dir, order=args.order)
+    runs = loaded["runs"]
+    if len(runs) < 2:
+        # Stated plainly, exit 0: one run has no trend and we never pad one.
+        print(
+            f"team mode needs at least 2 run envelopes to aggregate; found "
+            f"{len(runs)} in {args.dir}. Save runs with: "
+            "hotato run --suite barge-in --format json > runs/001.json"
+        )
+        return 0
+    agg = _aggregate.aggregate_runs(runs, order=args.order,
+                                    skipped=loaded["skipped"])
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(agg, fh, indent=2)
+        print(f"wrote aggregate envelope to {args.out}", file=sys.stderr)
+    if args.html:
+        with open(args.html, "w", encoding="utf-8") as fh:
+            fh.write(_aggregate.build_team_page_html(agg))
+        print(f"wrote self-contained HTML team page to {args.html}",
+              file=sys.stderr)
+    if args.format == "json":
+        print(json.dumps(agg, indent=2))
+    else:
+        _emit_team_text(agg, args.dir)
+    return 0
+
+
+def _cmd_export(args) -> int:
+    from . import export as _export
+
+    if args.suite and (args.stereo or args.caller or args.agent):
+        raise ValueError(
+            "--suite exports the bundled self-test battery and cannot be "
+            "combined with a single recording (--stereo / --caller / --agent). "
+            "Run one or the other."
+        )
+    if not args.suite and not (args.stereo or (args.caller and args.agent)):
+        raise ValueError(
+            "provide --stereo FILE, or both --caller FILE and --agent FILE, "
+            "or --suite to export the bundled battery"
+        )
+    res = _export.run_export(
+        out_dir=args.out,
+        stereo=args.stereo,
+        caller=args.caller,
+        agent=args.agent,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+        onset_sec=args.onset,
+        expect=args.expect,
+        stack=args.stack,
+        suite=args.suite,
+        scenarios_dir=args.scenarios,
+        audio_dir=args.audio,
+        max_talk_over_sec=args.max_talk_over,
+        max_time_to_yield_sec=args.max_time_to_yield,
+    )
+    print(
+        f"wrote {res['events_rows']} event rows to {res['paths']['events']}, "
+        f"{res['frames_rows']} frame rows to {res['paths']['frames']}, "
+        f"and the envelope to {res['paths']['envelope']}",
+        file=sys.stderr,
+    )
+    if args.no_fail:
+        return 0
+    return res["env"]["exit_code"]
+
+
+def _cmd_benchmark(args) -> int:
+    from . import stackbench as _stackbench
+
+    if not args.stack or not args.recordings:
+        raise ValueError(
+            "hotato benchmark scores YOUR captured recordings against a fixed "
+            "scenario set: provide --stack and --recordings DIR (one dual-channel "
+            "recording per scenario, named <scenario-id>.wav). To compare saved "
+            "results: hotato benchmark compare A.json B.json"
+        )
+    result = _stackbench.run_stackbench(
+        stack=args.stack,
+        recordings_dir=args.recordings,
+        scenarios_dir=args.scenarios,
+        suffix=args.suffix,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+    )
+    sc = result["scenarios"]
+    print(
+        f"scored {sc['captured']} of {sc['total']} scenarios from "
+        f"{args.recordings} (stack={result['stack']})",
+        file=sys.stderr,
+    )
+    if sc["not_captured"]:
+        # Stated plainly; these were never scored and never count as failures.
+        print(
+            "not captured (no matching recording; not scored, not failed): "
+            + ", ".join(sc["not_captured"]),
+            file=sys.stderr,
+        )
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2)
+            fh.write("\n")
+        print(f"wrote stack benchmark result to {args.out}", file=sys.stderr)
+    else:
+        print(json.dumps(result, indent=2))
+    if args.fail_on_regression and result["summary"]["regression"]:
+        return 1
+    return 0
+
+
+def _cmd_benchmark_compare(args) -> int:
+    from . import stackbench as _stackbench
+
+    if len(args.results) < 2:
+        raise ValueError(
+            "compare needs at least two benchmark result files: "
+            "hotato benchmark compare A.json B.json"
+        )
+    loaded = [(p, _stackbench.load_result(p)) for p in args.results]
+    cmp_env = _stackbench.compare_results(loaded)
+    if args.format == "json":
+        text = json.dumps(cmp_env, indent=2)
+    else:
+        text = _stackbench.render_comparison_md(cmp_env)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            if not text.endswith("\n"):
+                fh.write("\n")
+        print(
+            f"wrote comparison ({len(cmp_env['compared'])} shared scenarios, "
+            f"{len(cmp_env['skipped'])} skipped) to {args.out}",
+            file=sys.stderr,
+        )
+    else:
+        print(text)
+    return 0
+
+
+def _try_open(path: str) -> None:
+    """Best-effort: open the report in a browser. Never crash if headless; on a
+    clearly-headless machine just print the path so the run stays clean."""
+    abspath = os.path.abspath(path)
+    headless = (
+        sys.platform.startswith("linux")
+        and not os.environ.get("DISPLAY")
+        and not os.environ.get("WAYLAND_DISPLAY")
+    )
+    if not headless:
+        try:
+            import webbrowser
+
+            if webbrowser.open("file://" + abspath):
+                return
+        except Exception:
+            pass
+    print(f"open it in your browser to see the per-event timelines: {abspath}")
+
+
+def _cmd_doctor(args) -> int:
+    # The 5-minute path in one command: score a recording if given, else run the
+    # bundled self-test; render the HTML report; open it best-effort. A pure
+    # convenience wrapper over the existing scorer + report -- nothing new claimed.
+    has_recording = bool(args.stereo or (args.caller and args.agent))
+    out = args.out or os.path.join(tempfile.gettempdir(), "hotato-report.html")
+
+    if has_recording:
+        html_str, env = _report.build_report_html(
+            stereo=args.stereo,
+            caller=args.caller,
+            agent=args.agent,
+            caller_channel=args.caller_channel,
+            agent_channel=args.agent_channel,
+            onset_sec=args.onset,
+            expect=args.expect,
+            stack=args.stack,
+        )
+    else:
+        # No recording (or explicit --demo): fall back to the bundled self-test.
+        html_str, env = _report.build_report_html(suite=SUITE_ID, stack=args.stack)
+        print(_SELF_TEST_NOTE, file=sys.stderr)
+
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(html_str)
+
+    _emit(env, "text")
+    print(f"\nreport: {out}")
+    if args.no_open:
+        print(f"open it in your browser to see the per-event timelines: "
+              f"{os.path.abspath(out)}")
+    else:
+        _try_open(out)
+
+    if args.no_fail:
+        return 0
+    return env["exit_code"]
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hotato",
@@ -327,6 +636,243 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--stack", required=True, choices=list(_capture.STACKS),
                    help="voice stack to scaffold")
     s.set_defaults(func=_cmd_setup)
+
+    # --- report: one self-contained, offline HTML page with per-event timelines
+    rp = sub.add_parser(
+        "report",
+        help="render a shareable, self-contained HTML report with per-event timelines",
+        description=(
+            "Render ONE self-contained HTML file (inline CSS + inline SVG, zero "
+            "external requests, opens offline by double-click). For every event it "
+            "draws a to-scale caller/agent activity timeline from the real frame "
+            "data: the overlap shaded, the caller-onset and yield markers, the "
+            "measured talk-over seconds, expected-vs-actual, a PASS/FAIL chip, and "
+            "the exact ScoreConfig thresholds used. Every number is a real "
+            "measurement; there is no accuracy percentage anywhere."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  hotato report --stereo call.wav --out report.html\n"
+            "  hotato report --caller a.wav --agent b.wav --expect yield --out r.html\n"
+            "  hotato report --suite barge-in --out selftest.html"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rp.add_argument("--stereo", help="two-channel WAV (caller on one channel, agent on the other)")
+    rp.add_argument("--caller", help="mono WAV of the caller channel")
+    rp.add_argument("--agent", help="mono WAV of the agent channel")
+    rp.add_argument("--onset", type=float, default=None, help="caller onset in seconds (else auto-detected)")
+    rp.add_argument("--expect", default="yield", choices=["yield", "hold"],
+                    help="expected behaviour: 'yield' (stop for the caller) or 'hold' (keep the floor)")
+    rp.add_argument("--max-talk-over", type=float, default=None, help="fail if talk-over exceeds this many seconds")
+    rp.add_argument("--max-time-to-yield", type=float, default=None, help="fail if the yield is slower than this many seconds")
+    rp.add_argument("--suite", nargs="?", const=SUITE_ID, default=None,
+                    help=f"render a labelled battery instead of a single file (default suite: {SUITE_ID!r})")
+    rp.add_argument("--scenarios", default=None, help="dir of scenario JSON labels (defaults to the bundled battery)")
+    rp.add_argument("--audio", default=None, help="dir of scenario audio (defaults to the bundled fixtures)")
+    rp.add_argument("--stack", default="generic",
+                    choices=["generic", "vapi", "twilio", "livekit", "pipecat", "retell"],
+                    help="voice stack the recording came from (labels the fix knob only)")
+    rp.add_argument("--caller-channel", type=int, default=0)
+    rp.add_argument("--agent-channel", type=int, default=1)
+    rp.add_argument("--format", default="html", choices=["html", "md"],
+                    help="report format: 'html' (self-contained page, default) or "
+                         "'md' (same content as Markdown tables). For PDF, print "
+                         "the HTML from any browser; the page ships print CSS.")
+    rp.add_argument("--base", default=None, metavar="BASE.json",
+                    help="a previous envelope JSON (hotato run --format json > "
+                         "base.json) to compare against: renders per-scenario "
+                         "talk-over and time-to-yield deltas with clear "
+                         "worse/better marks")
+    rp.add_argument("--out", default=None, metavar="PATH",
+                    help="where to write the report (default hotato-report.html, "
+                         "or hotato-report.md with --format md)")
+    rp.add_argument("--no-fail", action="store_true", help="always exit 0 (do not fail CI on a regression)")
+    rp.set_defaults(func=_cmd_report)
+
+    # --- team: aggregate a directory of run envelopes -----------------------
+    t = sub.add_parser(
+        "team",
+        help="aggregate a directory of run envelopes into a trend (pass rate, "
+             "talk-over, time to yield)",
+        description=(
+            "Aggregate many runs into one honest trend view. Point it at a "
+            "directory of envelope JSONs (hotato run --format json > runs/001.json). "
+            "It reports runs, mean/median/p90 talk-over and time-to-yield pooled "
+            "across all events, pass rate per run over time, the most common "
+            "failure class, and a pass-rate trend line in the HTML page. Every "
+            "number is a real measurement pooled from the envelopes; fewer than 2 "
+            "runs is stated plainly (exit 0), never padded into a trend."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  hotato run --suite barge-in --format json > runs/001.json\n"
+            "  hotato team runs/ --html team.html\n"
+            "  hotato team runs/ --order name --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    t.add_argument("dir", help="directory of hotato envelope JSONs")
+    t.add_argument("--order", default="mtime", choices=["mtime", "name"],
+                   help="run order for the trend: file mtime (default) or "
+                        "filename (use a numeric prefix as an explicit index)")
+    t.add_argument("--out", default=None, metavar="PATH",
+                   help="write the aggregate envelope JSON here")
+    t.add_argument("--html", default=None, metavar="PATH",
+                   help="write a self-contained HTML team page here")
+    t.add_argument("--format", default="text", choices=["json", "text"],
+                   help="stdout format (default text)")
+    t.set_defaults(func=_cmd_team)
+
+    # --- export: research-grade CSVs + the envelope --------------------------
+    x = sub.add_parser(
+        "export",
+        help="write research CSVs (events.csv, frames.csv) plus envelope.json",
+        description=(
+            "Score a recording (or the bundled battery) exactly like `hotato run` "
+            "and write three files into a directory: events.csv (one row per "
+            "event, every measured signal + verdict), frames.csv (one row per "
+            "VAD frame, the evidence behind every number), and envelope.json "
+            "(the standard machine envelope). Column meanings are documented in "
+            "comment lines at the top of each CSV. Stdlib only, offline."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  hotato export --stereo call.wav --out research/\n"
+            "  hotato export --suite barge-in --out research/"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    x.add_argument("--stereo", help="two-channel WAV (caller on one channel, agent on the other)")
+    x.add_argument("--caller", help="mono WAV of the caller channel")
+    x.add_argument("--agent", help="mono WAV of the agent channel")
+    x.add_argument("--onset", type=float, default=None, help="caller onset in seconds (else auto-detected)")
+    x.add_argument("--expect", default="yield", choices=["yield", "hold"],
+                   help="expected behaviour: 'yield' (stop for the caller) or 'hold' (keep the floor)")
+    x.add_argument("--max-talk-over", type=float, default=None, help="fail if talk-over exceeds this many seconds")
+    x.add_argument("--max-time-to-yield", type=float, default=None, help="fail if the yield is slower than this many seconds")
+    x.add_argument("--suite", nargs="?", const=SUITE_ID, default=None,
+                   help=f"export a labelled battery instead of a single file (default suite: {SUITE_ID!r})")
+    x.add_argument("--scenarios", default=None, help="dir of scenario JSON labels (defaults to the bundled battery)")
+    x.add_argument("--audio", default=None, help="dir of scenario audio (defaults to the bundled fixtures)")
+    x.add_argument("--stack", default="generic",
+                   choices=["generic", "vapi", "twilio", "livekit", "pipecat", "retell"],
+                   help="voice stack the recording came from (labels the fix knob only)")
+    x.add_argument("--caller-channel", type=int, default=0)
+    x.add_argument("--agent-channel", type=int, default=1)
+    x.add_argument("--out", required=True, metavar="DIR",
+                   help="output directory (created if missing): events.csv, "
+                        "frames.csv, envelope.json")
+    x.add_argument("--no-fail", action="store_true", help="always exit 0 (do not fail CI on a regression)")
+    x.set_defaults(func=_cmd_export)
+
+    # --- benchmark: identical scenarios, YOUR stack, comparable results ----
+    b = sub.add_parser(
+        "benchmark",
+        help="score YOUR stack's captured recordings on a fixed scenario set; "
+             "compare result files with: hotato benchmark compare",
+        description=(
+            "Run one fixed scenario set through YOUR configured voice stack and "
+            "score the recordings you captured, so result files are comparable "
+            "across stacks and configs. You bring the captures (see `hotato "
+            "setup` and `hotato capture`); hotato measures timing on the "
+            "recordings it is given, offline. It ships no vendor numbers, no "
+            "leaderboard, and no accuracy percentage. Scenarios without a "
+            "matching recording are listed as not captured, never scored as "
+            "failures. Walkthrough: docs/BENCHMARK-STACKS.md."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  hotato benchmark --stack livekit --recordings captures/livekit --out livekit.json\n"
+            "  hotato benchmark --stack vapi --recordings captures/vapi --out vapi.json\n"
+            "  hotato benchmark compare livekit.json vapi.json\n"
+            "  hotato benchmark compare livekit.json vapi.json --format json --out cmp.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bsub = b.add_subparsers(dest="bench_command", required=False,
+                            metavar="compare")
+    bc = bsub.add_parser(
+        "compare",
+        help="side-by-side table of two or more benchmark result files",
+        description=(
+            "Compare two or more benchmark result JSONs scenario by scenario: "
+            "yielded, talk-over, and time to yield per input, with signed "
+            "deltas against the first file, plus summary medians. Only the "
+            "intersection of scenarios captured in every input is compared; "
+            "the rest is listed as skipped. Measurements only: no ranking, "
+            "no winner."
+        ),
+    )
+    bc.add_argument("results", nargs="+", metavar="RESULT.json",
+                    help="benchmark result files written by "
+                         "`hotato benchmark --out` (two or more)")
+    bc.add_argument("--format", default="md", choices=["md", "json"],
+                    help="comparison format (default md)")
+    bc.add_argument("--out", default=None, metavar="FILE",
+                    help="write the comparison here (default: stdout)")
+    bc.set_defaults(func=_cmd_benchmark_compare)
+    b.add_argument("--stack", default=None,
+                   choices=["vapi", "twilio", "livekit", "pipecat", "generic"],
+                   help="the voice stack the recordings came from (labels the "
+                        "result and the fix knobs; never changes a measurement)")
+    b.add_argument("--recordings", default=None, metavar="DIR",
+                   help="directory of YOUR captured dual-channel recordings, "
+                        "one per scenario, named <scenario-id>.wav")
+    b.add_argument("--scenarios", default=None, metavar="DIR",
+                   help="dir of scenario JSON labels (default: the bundled "
+                        "battery; corpus/suites/*/scenarios also work)")
+    b.add_argument("--suffix", default=None,
+                   help="recording filename suffix (default: auto-detect among "
+                        ".wav, .stereo.wav, .example.wav)")
+    b.add_argument("--caller-channel", type=int, default=0)
+    b.add_argument("--agent-channel", type=int, default=1)
+    b.add_argument("--out", default=None, metavar="PATH",
+                   help="write the benchmark result JSON here (default: stdout)")
+    b.add_argument("--fail-on-regression", action="store_true",
+                   help="exit 1 when any SCORED event fails its scenario "
+                        "thresholds (default: exit 0; the benchmark measures, "
+                        "it does not gate)")
+    b.set_defaults(func=_cmd_benchmark)
+
+    # --- doctor: the 5-minute path in one command --------------------------
+    d = sub.add_parser(
+        "doctor",
+        help="one command: score (or self-test), render the HTML report, open it",
+        description=(
+            "The 5-minute path in one command. If you pass a recording (--stereo, "
+            "or --caller and --agent) it scores that; otherwise it runs the bundled "
+            "self-test battery. Either way it renders the self-contained HTML report "
+            "and tries to open it in your browser (best-effort; on a headless box it "
+            "just prints the path). A convenience wrapper over the existing scorer "
+            "and report -- nothing new is claimed. Everything runs offline."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  hotato doctor --stereo call.wav        # score your call, open the report\n"
+            "  hotato doctor --demo                   # self-test, open the report\n"
+            "  hotato doctor                          # same self-test fallback"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    d.add_argument("--stereo", help="two-channel WAV (caller on one channel, agent on the other)")
+    d.add_argument("--caller", help="mono WAV of the caller channel")
+    d.add_argument("--agent", help="mono WAV of the agent channel")
+    d.add_argument("--demo", action="store_true",
+                   help="run the bundled self-test battery (the default when no recording is given)")
+    d.add_argument("--onset", type=float, default=None, help="caller onset in seconds (else auto-detected)")
+    d.add_argument("--expect", default="yield", choices=["yield", "hold"],
+                   help="expected behaviour for a recording: 'yield' or 'hold'")
+    d.add_argument("--stack", default="generic",
+                   choices=["generic", "vapi", "twilio", "livekit", "pipecat", "retell"],
+                   help="voice stack the recording came from (labels the fix knob only)")
+    d.add_argument("--caller-channel", type=int, default=0)
+    d.add_argument("--agent-channel", type=int, default=1)
+    d.add_argument("--out", default=None, metavar="PATH",
+                   help="where to write the report (default: a temp file)")
+    d.add_argument("--no-open", action="store_true", help="do not launch a browser; just write and print the path")
+    d.add_argument("--no-fail", action="store_true", help="always exit 0 (do not fail on a regression)")
+    d.set_defaults(func=_cmd_doctor)
 
     return p
 

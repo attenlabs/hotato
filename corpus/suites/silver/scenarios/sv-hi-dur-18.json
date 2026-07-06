@@ -1,0 +1,41 @@
+{
+  "id": "sv-hi-dur-18",
+  "title": "Hard interruption, caller holds the floor for 1.8s",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "floor-taking",
+    "duration"
+  ],
+  "family": "hard-interrupt-duration",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 4.8,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.95,
+    "max_talk_over_sec": 1.1
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.45
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        3.8
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "A real interrupt lasting 1.8s; a short hold of the floor still counts as taking it.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

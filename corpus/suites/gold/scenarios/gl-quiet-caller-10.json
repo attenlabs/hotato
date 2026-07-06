@@ -1,0 +1,42 @@
+{
+  "id": "gl-quiet-caller-10",
+  "title": "Quiet caller, channel scaled to 0.1x",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "gain",
+    "quiet-caller"
+  ],
+  "family": "channel-gain",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.5
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ],
+    "caller_gain": 0.1
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Caller channel scaled to 0.1x; a low capture level must still read as a floor take.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

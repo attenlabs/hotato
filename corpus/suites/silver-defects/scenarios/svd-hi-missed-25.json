@@ -1,0 +1,42 @@
+{
+  "id": "svd-hi-missed-25",
+  "title": "DEFECT RENDER: agent talks through a real interrupt at 2.5s (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "missed",
+    "bad-agent"
+  ],
+  "family": "missed-interrupt",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.5,
+  "caller_onset_sec": 2.5,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        6.1
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.5,
+        4.7
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The agent never stops for a clear floor take; this fixture must fail.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

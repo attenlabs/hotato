@@ -1,0 +1,42 @@
+{
+  "id": "gl-hi-noise-020",
+  "title": "Hard interruption with the noise floor raised to 0.02 amplitude",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "noise-floor",
+    "snr"
+  ],
+  "family": "noise-hard-interrupt",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.5
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ],
+    "noise_floor_amp": 0.02
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Same hard interrupt with the noise floor at 0.02 peak amplitude (about -38.8 dBFS RMS); speech stays at 0.6 peak.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

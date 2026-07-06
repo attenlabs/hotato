@@ -1,0 +1,53 @@
+{
+  "id": "gld-ri-missed-8k",
+  "title": "DEFECT RENDER: re-interrupt ignored at 8 kHz (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "turn-taking",
+    "re-interrupt",
+    "missed",
+    "telephony",
+    "8khz",
+    "bad-agent"
+  ],
+  "family": "telephony-8k-defect",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 8.8,
+  "caller_onset_sec": 4.9,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.8,
+    "max_talk_over_sec": 1.0
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.4
+      ],
+      [
+        4.2,
+        8.4
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.2,
+        3.5
+      ],
+      [
+        4.9,
+        6.6
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The 8 kHz replica of a clean first yield followed by a missed re-interrupt; scored at the second take.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

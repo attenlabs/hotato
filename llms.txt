@@ -8,11 +8,29 @@
 
 ## Run it (zero-install)
 
+- The 5-minute path: `uvx hotato doctor --stereo call.wav` scores the recording,
+  writes the visual HTML report, opens it. `uvx hotato doctor` runs the bundled
+  self-test instead.
 - Score the bundled battery: `uvx hotato run --suite barge-in`
 - Score one recording (two-channel WAV, caller and agent on separate channels):
   `uvx hotato run --stereo call.wav --stack livekit --format json`
+- Visual report (self-contained HTML, per-event SVG timelines, analytics,
+  per-frame inspector, print CSS): `uvx hotato report --stereo call.wav --out report.html`.
+  `--format md` for Markdown; `--base base.json` for regression deltas.
+- Team trends over many runs (pass rate, mean/median/p90 talk-over and
+  time-to-yield, most common failure class): `uvx hotato team runs/ --html team.html`
+- Research CSVs (events.csv, frames.csv, envelope.json, columns documented
+  in-file): `uvx hotato export --stereo call.wav --out research/`
+- Pytest plugin, auto-registered on install: a `hotato_score` fixture, plus
+  `pytest --hotato-suite` to fail the session on a regression
+  (`--hotato-suite-scenarios DIR --hotato-suite-audio DIR` for your own sets).
 - As a one-tool MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes
   exactly one tool, `voice_eval_run`, returning the identical JSON envelope.
+  Optional `report_path` also writes the HTML report; the envelope carries the path.
+- Tiered corpus suites (silver, silver-defects, gold, gold-defects; defect suites
+  exit 1 by design): `hotato run --suite barge-in --scenarios corpus/suites/gold/scenarios --audio corpus/suites/gold/audio`
+- PR check: copy `.github/workflows/hotato.yml` for a sticky results comment and
+  a regression gate on every pull request.
 
 ## What it returns
 
@@ -43,9 +61,18 @@ event carries a `fix`:
 - The bundled fixtures are synthetic: a deterministic floor and a regression
   guard. Real validity comes from your own labelled calls.
 
+- `hotato benchmark --stack S --recordings DIR` scores your captured battery; `benchmark compare a.json b.json` renders side-by-side deltas.
+
 ## Links
 
 - README.md: quickstart and scope.
-- METHODOLOGY.md: exactly how every number is computed.
+- METHODOLOGY.md: exactly how every number is computed, including the mean,
+  median, and p90 definitions (p90 is linear interpolation; rates are fractions,
+  never a percentage).
+- docs/REPORTS.md: doctor, report, team, and export in depth.
+- docs/PYTEST.md: the pytest fixture and the suite gate.
+- docs/SUITES.md: the tiered corpus suites and the deterministic builder.
+- docs/CI.md: the GitHub PR check and the sticky results comment.
+- docs/SUBMITTING.md: contribute a consented, labelled real call.
 - CONTRIBUTING.md, docs/CORPUS-GOVERNANCE.md: contribute real labelled fixtures.
 - LICENSE: MIT. The open core is never relicensed.

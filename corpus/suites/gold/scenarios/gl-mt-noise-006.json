@@ -1,0 +1,46 @@
+{
+  "id": "gl-mt-noise-006",
+  "title": "Three-turn exchange over a raised noise floor",
+  "category": "should_yield",
+  "tags": [
+    "turn-taking",
+    "multi-turn",
+    "noise-floor"
+  ],
+  "family": "noise-multi-turn",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 7.0,
+  "caller_onset_sec": 2.1,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.85,
+    "max_talk_over_sec": 1.0
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.45
+      ],
+      [
+        4.1,
+        6.3
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.1,
+        3.6
+      ]
+    ],
+    "noise_floor_amp": 0.006
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The three-turn exchange over a 0.006 amplitude noise floor (about -49.2 dBFS RMS).",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

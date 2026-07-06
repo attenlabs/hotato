@@ -1,0 +1,40 @@
+{
+  "id": "svd-bc-false-early",
+  "title": "DEFECT RENDER: agent yields to an early backchannel (must FAIL)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "false-trigger",
+    "bad-agent"
+  ],
+  "family": "false-barge",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 3.5,
+  "caller_onset_sec": 1.2,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.35
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.2,
+        1.48
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. One early acknowledgement and the agent hands over the floor; a false barge-in.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

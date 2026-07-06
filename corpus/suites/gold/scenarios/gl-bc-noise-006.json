@@ -1,0 +1,40 @@
+{
+  "id": "gl-bc-noise-006",
+  "title": "Backchannel hold with the noise floor raised to 0.006 amplitude (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "noise-floor",
+    "snr"
+  ],
+  "family": "noise-backchannel",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 7.0,
+  "caller_onset_sec": 3.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        6.6
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        3.0,
+        3.3
+      ]
+    ],
+    "noise_floor_amp": 0.006
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "A single acknowledgement over a noise floor of 0.006 peak amplitude (about -49.2 dBFS RMS); the hold must survive the noise.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

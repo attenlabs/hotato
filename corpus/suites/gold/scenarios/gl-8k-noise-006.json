@@ -1,0 +1,43 @@
+{
+  "id": "gl-8k-noise-006",
+  "title": "Hard interruption at 8 kHz over a raised noise floor",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "telephony",
+    "8khz",
+    "noise-floor"
+  ],
+  "family": "telephony-8k",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.5
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ],
+    "noise_floor_amp": 0.006
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "8 kHz and a 0.006 amplitude noise floor (about -49.2 dBFS RMS) at once; conditions compound.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

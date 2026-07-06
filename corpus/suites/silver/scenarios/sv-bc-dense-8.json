@@ -1,0 +1,66 @@
+{
+  "id": "sv-bc-dense-8",
+  "title": "Eight backchannels in eight seconds (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "dense"
+  ],
+  "family": "backchannel-dense",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 8.6,
+  "caller_onset_sec": 1.2,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        8.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.2,
+        1.48
+      ],
+      [
+        2.1,
+        2.38
+      ],
+      [
+        3.0,
+        3.28
+      ],
+      [
+        3.9,
+        4.18
+      ],
+      [
+        4.8,
+        5.08
+      ],
+      [
+        5.7,
+        5.98
+      ],
+      [
+        6.6,
+        6.88
+      ],
+      [
+        7.5,
+        7.78
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Eight acknowledgements in eight seconds; every one is feedback, none is a bid for the floor.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

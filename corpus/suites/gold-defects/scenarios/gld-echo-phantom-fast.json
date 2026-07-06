@@ -1,0 +1,39 @@
+{
+  "id": "gld-echo-phantom-fast",
+  "title": "DEFECT RENDER: agent yields to its own 0.12s echo (must FAIL)",
+  "category": "should_not_yield",
+  "tags": [
+    "echo",
+    "self-interrupt",
+    "phantom",
+    "bad-agent"
+  ],
+  "family": "echo-phantom",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.6
+      ]
+    ],
+    "caller_segments_sec": [],
+    "caller_is_echo_of_agent": true,
+    "echo_delay_sec": 0.12,
+    "echo_gain": 0.5
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The only input energy is the agent's own delayed output, and the agent stops for it; a phantom self-interruption.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

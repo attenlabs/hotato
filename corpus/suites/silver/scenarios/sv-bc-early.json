@@ -1,0 +1,39 @@
+{
+  "id": "sv-bc-early",
+  "title": "Single backchannel at 1.0s (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "false-trigger",
+    "early"
+  ],
+  "family": "backchannel-position",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 1.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        4.6
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.0,
+        1.3
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "One brief acknowledgement while the agent talks; listener feedback, not a bid for the floor.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

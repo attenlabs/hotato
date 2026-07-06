@@ -1,0 +1,41 @@
+{
+  "id": "gl-ov-long-lead",
+  "title": "A slow but bounded yield under full overlap",
+  "category": "should_yield",
+  "tags": [
+    "overlap",
+    "double-talk",
+    "talk-over"
+  ],
+  "family": "overlap-heavy",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.2,
+  "caller_onset_sec": 1.4,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 2.2,
+    "max_talk_over_sec": 2.4
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        3.0
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.4,
+        4.6
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The agent takes 1.6s to hand over while both channels run; inside the labeled tolerant bound.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

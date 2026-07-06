@@ -1,0 +1,40 @@
+{
+  "id": "gl-edge-tail",
+  "title": "Interrupt near the end of the recording",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "edge-timing"
+  ],
+  "family": "edge-timing",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 4.8,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.9,
+    "max_talk_over_sec": 1.05
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        5.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        4.8,
+        5.9
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The floor take lands 1.2s before the file ends; the yield window barely fits and must still resolve.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

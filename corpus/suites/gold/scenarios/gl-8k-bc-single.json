@@ -1,0 +1,39 @@
+{
+  "id": "gl-8k-bc-single",
+  "title": "Single backchannel at 8 kHz (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "telephony",
+    "8khz"
+  ],
+  "family": "telephony-8k",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 7.0,
+  "caller_onset_sec": 3.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        6.6
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        3.0,
+        3.3
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Telephony rate replica of the mid-turn backchannel hold.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

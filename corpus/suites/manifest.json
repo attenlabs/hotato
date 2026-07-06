@@ -1,0 +1,220 @@
+{
+  "generated_by": "corpus/suites/build_suites.py",
+  "synthetic": true,
+  "note": "Every scenario is synthetic shaped noise rendered deterministically from its own reference_render timings (seed = sha256(id)). The timings are the ground truth. No accuracy claim is made or implied.",
+  "total_scenarios": 112,
+  "suites": [
+    {
+      "name": "silver",
+      "path": "silver",
+      "tier": "silver",
+      "note": "clean conditions, 16 kHz, default noise floor; every reference render passes",
+      "scenarios": 40,
+      "barge_in_pass": 40,
+      "barge_in_fail": 0,
+      "latency_axis_fail": 0,
+      "expected_exit_code": 0,
+      "sample_rates": [
+        16000
+      ],
+      "families": {
+        "backchannel-dense": 1,
+        "backchannel-longack": 1,
+        "backchannel-position": 3,
+        "backchannel-repeated": 4,
+        "double-talk-graceful": 3,
+        "hard-interrupt-duration": 4,
+        "hard-interrupt-onset": 5,
+        "hard-interrupt-resume": 2,
+        "hard-interrupt-speed": 4,
+        "latency-prompt": 3,
+        "multi-turn": 2,
+        "one-word-interrupt": 3,
+        "resume-reinterrupt": 2,
+        "stutter-onset": 3
+      },
+      "categories": {
+        "latency": 3,
+        "should_not_yield": 9,
+        "should_yield": 28
+      }
+    },
+    {
+      "name": "silver-defects",
+      "path": "silver-defects",
+      "tier": "silver",
+      "note": "clean conditions, deliberate defect renders; every scenario fails on its labeled axis",
+      "scenarios": 16,
+      "barge_in_pass": 4,
+      "barge_in_fail": 12,
+      "latency_axis_fail": 4,
+      "expected_exit_code": 1,
+      "sample_rates": [
+        16000
+      ],
+      "families": {
+        "double-talk-stubborn": 1,
+        "false-barge": 3,
+        "latency-overeager": 2,
+        "latency-sluggish": 2,
+        "missed-interrupt": 4,
+        "missed-reinterrupt": 1,
+        "slow-yield": 2,
+        "talk-over-bound": 1
+      },
+      "categories": {
+        "latency": 4,
+        "should_not_yield": 3,
+        "should_yield": 9
+      }
+    },
+    {
+      "name": "gold",
+      "path": "gold",
+      "tier": "gold",
+      "note": "hard conditions: noise floors, 8 kHz, gain extremes, echo, edge timings, endurance; reference renders pass",
+      "scenarios": 40,
+      "barge_in_pass": 40,
+      "barge_in_fail": 0,
+      "latency_axis_fail": 0,
+      "expected_exit_code": 0,
+      "sample_rates": [
+        8000,
+        16000
+      ],
+      "families": {
+        "channel-gain": 8,
+        "echo-hold": 3,
+        "edge-timing": 2,
+        "endurance": 1,
+        "noise-backchannel": 3,
+        "noise-double-talk": 2,
+        "noise-hard-interrupt": 3,
+        "noise-latency": 2,
+        "noise-multi-turn": 2,
+        "noise-one-word": 1,
+        "noise-stutter": 1,
+        "overlap-heavy": 2,
+        "telephony-8k": 10
+      },
+      "categories": {
+        "latency": 3,
+        "should_not_yield": 9,
+        "should_yield": 28
+      }
+    },
+    {
+      "name": "gold-defects",
+      "path": "gold-defects",
+      "tier": "gold",
+      "note": "hard-condition defect renders plus two labeled capture-defect cases; every scenario fails on its labeled axis",
+      "scenarios": 16,
+      "barge_in_pass": 2,
+      "barge_in_fail": 14,
+      "latency_axis_fail": 2,
+      "expected_exit_code": 1,
+      "sample_rates": [
+        8000,
+        16000
+      ],
+      "families": {
+        "capture-defect": 2,
+        "echo-phantom": 2,
+        "endurance-defect": 1,
+        "noise-false-barge": 1,
+        "noise-latency-defect": 1,
+        "noise-missed": 2,
+        "noise-slow-yield": 1,
+        "noise-talk-over": 1,
+        "telephony-8k-defect": 5
+      },
+      "categories": {
+        "latency": 2,
+        "should_not_yield": 4,
+        "should_yield": 10
+      }
+    }
+  ],
+  "dimensions": {
+    "sample_rates": [
+      8000,
+      16000
+    ],
+    "noise_floor_amps": [
+      0.0006,
+      0.002,
+      0.006,
+      0.02,
+      0.1
+    ],
+    "caller_gains": [
+      0.003,
+      0.05,
+      0.1,
+      0.2,
+      0.3,
+      1.0,
+      1.5
+    ],
+    "agent_gains": [
+      0.3,
+      1.0,
+      1.5
+    ],
+    "echo_variants": [
+      "delay 0.08s gain 0.50x",
+      "delay 0.12s gain 0.35x",
+      "delay 0.12s gain 0.50x",
+      "delay 0.25s gain 0.35x",
+      "delay 0.30s gain 0.45x",
+      "delay 0.40s gain 0.20x"
+    ],
+    "max_duration_sec": 60.0,
+    "families": [
+      "backchannel-dense",
+      "backchannel-longack",
+      "backchannel-position",
+      "backchannel-repeated",
+      "capture-defect",
+      "channel-gain",
+      "double-talk-graceful",
+      "double-talk-stubborn",
+      "echo-hold",
+      "echo-phantom",
+      "edge-timing",
+      "endurance",
+      "endurance-defect",
+      "false-barge",
+      "hard-interrupt-duration",
+      "hard-interrupt-onset",
+      "hard-interrupt-resume",
+      "hard-interrupt-speed",
+      "latency-overeager",
+      "latency-prompt",
+      "latency-sluggish",
+      "missed-interrupt",
+      "missed-reinterrupt",
+      "multi-turn",
+      "noise-backchannel",
+      "noise-double-talk",
+      "noise-false-barge",
+      "noise-hard-interrupt",
+      "noise-latency",
+      "noise-latency-defect",
+      "noise-missed",
+      "noise-multi-turn",
+      "noise-one-word",
+      "noise-slow-yield",
+      "noise-stutter",
+      "noise-talk-over",
+      "one-word-interrupt",
+      "overlap-heavy",
+      "resume-reinterrupt",
+      "slow-yield",
+      "stutter-onset",
+      "talk-over-bound",
+      "telephony-8k",
+      "telephony-8k-defect"
+    ]
+  }
+}

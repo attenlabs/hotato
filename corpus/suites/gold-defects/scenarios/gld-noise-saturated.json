@@ -1,0 +1,43 @@
+{
+  "id": "gld-noise-saturated",
+  "title": "CAPTURE DEFECT RENDER: noise floor saturates the energy VAD (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "noise-floor",
+    "capture-defect"
+  ],
+  "family": "capture-defect",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.5
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ],
+    "noise_floor_amp": 0.1
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "CAPTURE DEFECT RENDER. A 0.1 amplitude noise floor (about -24.8 dBFS RMS) sits within the VAD's 22 dB dynamic margin of the speech peaks, so every frame reads active and the agent's stop is not observable; the fixture must fail. This is the honest measurement ceiling.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

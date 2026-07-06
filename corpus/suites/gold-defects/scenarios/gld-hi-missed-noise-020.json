@@ -1,0 +1,44 @@
+{
+  "id": "gld-hi-missed-noise-020",
+  "title": "DEFECT RENDER: missed interrupt under a 0.02 amplitude noise floor (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "missed",
+    "noise-floor",
+    "bad-agent"
+  ],
+  "family": "noise-missed",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        5.6
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ],
+    "noise_floor_amp": 0.02
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The agent talks through a floor take over a 0.02 amplitude noise floor (about -38.8 dBFS RMS); noise must not excuse the miss.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

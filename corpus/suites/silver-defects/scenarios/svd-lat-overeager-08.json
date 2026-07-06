@@ -1,0 +1,56 @@
+{
+  "id": "svd-lat-overeager-08",
+  "title": "DEFECT RENDER: agent starts 0.8s before the caller finishes (latency must FAIL)",
+  "category": "latency",
+  "tags": [
+    "latency",
+    "endpointing",
+    "premature-start",
+    "bad-agent"
+  ],
+  "family": "latency-overeager",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 4.7,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.0,
+    "premature_is_failure": true,
+    "boundary_tolerance_hops": 1,
+    "note": "Exposed timing thresholds applied to signals.latency by the suite tests; the barge-in verdict is a separate axis and the reference agent yields cleanly in every latency fixture."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.7
+      ],
+      [
+        2.4,
+        3.9
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        3.2
+      ]
+    ],
+    "caller_offset_sec": 3.2,
+    "agent_response_onset_sec": 2.4,
+    "rendered_premature_lead_sec": 0.8
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "latency",
+  "why_it_matters": "DEFECT RENDER. Nearly a second of step-on; the opposite failure to dead air.",
+  "related_signals": [
+    "premature_start_sec",
+    "did_yield"
+  ]
+}

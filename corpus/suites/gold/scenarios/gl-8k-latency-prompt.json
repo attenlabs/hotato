@@ -1,0 +1,55 @@
+{
+  "id": "gl-8k-latency-prompt",
+  "title": "Prompt response at 8 kHz (latency PASS)",
+  "category": "latency",
+  "tags": [
+    "latency",
+    "endpointing",
+    "telephony",
+    "8khz"
+  ],
+  "family": "telephony-8k",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 5.8,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.0,
+    "premature_is_failure": true,
+    "boundary_tolerance_hops": 1,
+    "note": "Exposed timing thresholds applied to signals.latency by the suite tests; the barge-in verdict is a separate axis and the reference agent yields cleanly in every latency fixture."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.7
+      ],
+      [
+        3.5,
+        5.0
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        3.0
+      ]
+    ],
+    "caller_offset_sec": 3.0,
+    "agent_response_onset_sec": 3.5,
+    "rendered_response_gap_sec": 0.5
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Telephony rate replica of the prompt-response case; 0.5s of gap inside the 1.0s bound.",
+  "related_signals": [
+    "response_gap_sec",
+    "did_yield"
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "sv-lat-gap-06",
+  "title": "Prompt response 0.6s after the caller stops (latency PASS)",
+  "category": "latency",
+  "tags": [
+    "latency",
+    "endpointing",
+    "response-gap"
+  ],
+  "family": "latency-prompt",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.9,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.0,
+    "premature_is_failure": true,
+    "boundary_tolerance_hops": 1,
+    "note": "Exposed timing thresholds applied to signals.latency by the suite tests; the barge-in verdict is a separate axis and the reference agent yields cleanly in every latency fixture."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.7
+      ],
+      [
+        3.6,
+        5.1
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        3.0
+      ]
+    ],
+    "caller_offset_sec": 3.0,
+    "agent_response_onset_sec": 3.6,
+    "rendered_response_gap_sec": 0.6
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The caller stops and the agent answers 0.6s later, inside the 1.0s bound.",
+  "related_signals": [
+    "response_gap_sec",
+    "did_yield"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "gld-hi-slow-noise",
+  "title": "DEFECT RENDER: slow yield under a raised noise floor (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "slow-yield",
+    "noise-floor",
+    "bad-agent"
+  ],
+  "family": "noise-slow-yield",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.4,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.8,
+    "max_talk_over_sec": 2.6
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        3.8
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.6
+      ]
+    ],
+    "noise_floor_amp": 0.006
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. A 1.8s yield against a 0.8s bound, over a 0.006 amplitude noise floor (about -49.2 dBFS RMS).",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "gld-8k-false-barge",
+  "title": "DEFECT RENDER: false barge on a backchannel at 8 kHz (must FAIL)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "false-trigger",
+    "telephony",
+    "8khz",
+    "bad-agent"
+  ],
+  "family": "telephony-8k-defect",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 4.5,
+  "caller_onset_sec": 2.2,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.35
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.2,
+        2.48
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The 8 kHz replica of a false barge-in on a bare acknowledgement.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://attentionlabs.ai/hotato/corpus/label.schema.json",
+  "$id": "https://hotato.dev/corpus/label.schema.json",
   "title": "hotato corpus contribution label, v1",
   "description": "The label that accompanies one contributed dual-channel recording in the hotato open test corpus. It extends the bundled scenario shape (src/hotato/data/scenarios/*.json) with the provenance, consent, PII, and attestation fields a REAL recording must carry. The turn-taking ground truth reuses the scenario fields verbatim: category, caller_onset_sec, expected, and an optional reference_render with human-labelled segment timings. Governing policy: docs/CORPUS-GOVERNANCE.md. Nothing here implies an accuracy percentage; validity is reported as millisecond error + a confusion matrix (see docs/BENCHMARK.md).",
   "type": "object",

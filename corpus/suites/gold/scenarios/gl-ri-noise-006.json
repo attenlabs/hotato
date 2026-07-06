@@ -1,0 +1,50 @@
+{
+  "id": "gl-ri-noise-006",
+  "title": "Re-interrupt scored under a raised noise floor",
+  "category": "should_yield",
+  "tags": [
+    "turn-taking",
+    "re-interrupt",
+    "noise-floor"
+  ],
+  "family": "noise-multi-turn",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 7.0,
+  "caller_onset_sec": 4.9,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.85
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.4
+      ],
+      [
+        4.2,
+        5.1
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.2,
+        3.5
+      ],
+      [
+        4.9,
+        6.4
+      ]
+    ],
+    "noise_floor_amp": 0.006
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The re-interrupt case over a 0.006 amplitude noise floor (about -49.2 dBFS RMS); scored at the second take.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

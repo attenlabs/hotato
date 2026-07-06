@@ -1,0 +1,94 @@
+# hotato turn-taking eval, on every pull request.
+#
+# What it does, all offline and dependency light:
+#   1. install the package (pip install .)
+#   2. score the bundled barge-in suite to a JSON envelope
+#   3. optionally score the SAME suite on the PR base branch for deltas
+#   4. render a Markdown summary with scripts/pr_comment.py
+#   5. post (or update in place) one STICKY PR comment, found by a hidden marker
+#   6. fail the job on any regression, read straight from the scored envelope
+#
+# Drop this file in your repo at .github/workflows/hotato.yml and you get a
+# turn-taking gate plus a running comment on each PR, with no extra services.
+#
+# The score step (step 2) is a self-test of the harness against the FROZEN
+# reference fixtures. To gate on YOUR agent instead, REPLACE that one step: play
+# each corpus *.caller.wav into your agent, record its reply, and score
+# [caller + your recording]. The envelope shape and exit codes are identical, so
+# nothing else in this file has to change. See docs/CI.md.
+
+name: hotato turn-taking eval
+
+on:
+  pull_request:
+
+# github-script needs write to post the sticky comment; everything else is read.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  turn-taking:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so the base branch is scorable for deltas
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install hotato
+        run: python -m pip install .
+
+      # STEP 2, replaceable. Score the frozen self-test suite to a JSON envelope.
+      # --no-fail keeps the envelope flowing even on a regression, so the comment
+      # still posts; the true pass/fail lives in the envelope's exit_code field,
+      # which the gate step below reads.
+      - name: Score turn-taking (head)
+        run: hotato run --suite barge-in --format json --no-fail > head.json
+
+      # Best effort baseline for talk over / time to yield deltas. Scored in an
+      # isolated venv so it never disturbs the head install. If anything here
+      # fails the job continues and the comment falls back to the pass/fail table.
+      - name: Score turn-taking (base, for deltas)
+        continue-on-error: true
+        run: |
+          git worktree add _base "origin/${{ github.base_ref }}"
+          python -m venv _basevenv
+          _basevenv/bin/python -m pip install ./_base
+          _basevenv/bin/hotato run --suite barge-in --format json --no-fail > base.json
+
+      - name: Render comment body
+        run: |
+          if [ -s base.json ]; then
+            python scripts/pr_comment.py --base base.json head.json > comment.md
+          else
+            python scripts/pr_comment.py head.json > comment.md
+          fi
+
+      - name: Post or update the sticky PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('comment.md', 'utf8');
+            const marker = '<!-- hotato-pr-comment -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      # The gate. Reuse the already scored envelope: its exit_code is 1 on any
+      # regression, 0 otherwise. No second scoring run.
+      - name: Fail on regression
+        run: python -c "import json, sys; sys.exit(json.load(open('head.json'))['exit_code'])"

@@ -1,26 +1,74 @@
-# corpus/ the real turn-taking corpus (tooling and schema)
+# corpus/ the turn-taking corpus (suites, tooling, schema)
 
-This directory is the pipeline for the slow-compounding part of Hotato: a small,
-high-integrity corpus of **real** dual-channel voice-agent calls with
-human-labelled turn-taking ground truth.
+This directory carries two things: the **tiered synthetic scenario suites** that
+stress the scorer across 100+ labeled conditions today, and the pipeline for the
+slow-compounding part of Hotato, a small, high-integrity corpus of **real**
+dual-channel voice-agent calls with human-labelled turn-taking ground truth.
 
-The synthetic fixtures prove the scorer does what the spec says. Real recordings
-prove it measures what happens on an actual phone line. The second kind moves the
-needle, and it is the hardest to fake, which is exactly why it is worth doing
-right.
-
-Right now this directory ships the tooling (a labelling schema and a validator)
-plus one clearly-labelled synthetic example so the mechanics are runnable. Real
-audio comes from contributors, under rules that hold.
+The synthetic suites prove the scorer does what the spec says, across noise
+floors, sample rates, gain extremes, echo, and edge timings, with every verdict
+regression-tested. Real recordings prove it measures what happens on an actual
+phone line. The second kind moves the needle, and it is the hardest to fake,
+which is exactly why it is worth doing right.
 
 ## What's here
 
 | file | what it is |
 |---|---|
+| `suites/` | Four tiered synthetic suites, 112 scenarios: `silver`, `silver-defects`, `gold`, `gold-defects`. See the next section. |
+| `suites/manifest.json` | Machine-readable index: every suite, its scenario count, expected pass/fail split, and dimension coverage. |
+| `suites/build_suites.py` | Deterministic builder. Regenerates every label and WAV byte-identically; `--check` proves it. |
 | `label.schema.json` | JSON Schema (draft-07) for a contribution: the bundled scenario shape extended with provenance, consent, PII, and attestation fields. |
 | `validate.py` | Standalone, stdlib-only validator for one `(recording, label)` pair. Runnable: `python3 corpus/validate.py <label.json> [audio.wav]`. |
 | `examples/sample-contribution.json` | A schema example. Its `source_type` is `synthetic` and it says so everywhere: it exercises the validator. |
 | `examples/sample-contribution.example.wav` | The synthetic audio for that example (a deterministic render reused from the bundled `01-hard-interruption` fixture). |
+
+## The tiered suites
+
+Every scenario is synthetic and says so in its own JSON (`source_type:
+"synthetic"`). The audio is deterministic shaped noise rendered from the exact
+`reference_render` segment timings in the label, seeded by `sha256(id)`, so the
+timings are the ground truth, two renders are byte-identical on any machine,
+and no accuracy percentage is claimed anywhere. Where a scenario hardens the
+conditions, the label states the exact physical parameter used: a noise floor
+raised to a stated amplitude, a channel scaled by a stated gain, an echo at a
+stated delay. Nothing is dressed up as a recording of a real place.
+
+| suite | scenarios | what it holds |
+|---|---|---|
+| `silver` | 40 | Clean conditions at 16 kHz. Interruptions across onsets, durations, and yield speeds; one-word interrupts; single, repeated, dense, and near-miss backchannels; graceful double-talk; rapid multi-turn and re-interrupt; prompt-response latency; stutter shaped onsets. Every reference render passes. |
+| `silver-defects` | 16 | The same clean conditions with deliberately bad agent renders: missed interrupts, slow yields, talk-over past bound, false barges on backchannels, stubborn double-talk, sluggish and premature responses. Every scenario fails on its labeled axis. |
+| `gold` | 40 | Hard conditions: noise floor sweeps, 8 kHz telephony replicas, quiet and hot channels, echo bleed at varied delay and gain, edge timings, heavy overlap, combined conditions, and a one minute endurance case. Every reference render passes. |
+| `gold-defects` | 16 | Defects under hard conditions, plus two labeled capture-defect cases (a caller below the absolute gate, a noise floor that saturates the energy VAD) that document the measurement ceiling honestly. Every scenario fails on its labeled axis. |
+
+Run any suite with the standard CLI:
+
+```bash
+hotato run --suite barge-in \
+  --scenarios corpus/suites/silver/scenarios \
+  --audio corpus/suites/silver/audio
+```
+
+`silver` and `gold` exit 0. The defect suites exit 1 by design: they are what a
+regression looks like, and they keep the failure detection itself under test.
+Each scenario JSON carries `reference_verdict` (`pass` or `fail`) and, for
+defects, `failure_axis` (`barge_in` or `latency`), so a runner can assert every
+verdict individually. Latency scenarios carry their exposed bounds in
+`latency_bounds` and their rendered ground truth in `reference_render`.
+
+Rebuild or verify the whole tree:
+
+```bash
+python3 corpus/suites/build_suites.py          # write labels + render audio
+python3 corpus/suites/build_suites.py --check  # regenerate to a temp dir, byte-compare
+```
+
+`tests/test_corpus_suites.py` holds the regression gate: manifest vs disk,
+schema shape, every labeled verdict through `run_suite`, latency measurements
+against rendered ground truth, and the byte-identical regenerate.
+
+The suites are the runnable floor. The ceiling comes from real recordings, and
+that is what the rest of this directory is for: contribute one below.
 
 ## Contribute a call (the short version)
 
@@ -72,3 +120,8 @@ validator prints a note every time it sees one.
 When real recordings arrive, they live beside their labels here with `source_type`
 set to `real-call` or `role-played` and a complete consent trail, and the
 synthetic examples keep their honest label next to them.
+
+## Submit end to end
+
+The complete walkthrough, from recording through the issue form or PR to
+maintainer intake, is [`docs/SUBMITTING.md`](../docs/SUBMITTING.md).

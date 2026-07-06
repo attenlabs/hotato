@@ -1,0 +1,45 @@
+{
+  "id": "sv-ow-030",
+  "title": "One-word interrupt, 0.3s of caller speech",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "one-word",
+    "short"
+  ],
+  "family": "one-word-interrupt",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 1.8,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.75,
+    "max_talk_over_sec": 0.9
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.05
+      ],
+      [
+        3.0,
+        4.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.8,
+        2.1
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "A single short word takes the floor and the agent stops; brevity alone must not demote a real interrupt.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

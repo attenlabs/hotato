@@ -1,0 +1,57 @@
+{
+  "id": "sv-st-burst-4",
+  "title": "Interrupt onset arriving as 4 short bursts then the full utterance",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "stutter",
+    "burst-onset"
+  ],
+  "family": "stutter-onset",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 4.6,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.3,
+    "max_talk_over_sec": 1.45
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.4
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        1.72
+      ],
+      [
+        1.83,
+        1.95
+      ],
+      [
+        2.06,
+        2.18
+      ],
+      [
+        2.29,
+        2.41
+      ],
+      [
+        2.52,
+        3.82
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The onset arrives as short bursts before the full utterance; burst shaped starts must still read as one floor take.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "svd-hi-slow-22",
+  "title": "DEFECT RENDER: yield after 2.2s against a 1.0s bound (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "slow-yield",
+    "bad-agent"
+  ],
+  "family": "slow-yield",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.8,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 3.2
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        4.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.9
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. A very late yield; the caller repeated themselves long before the agent stopped.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

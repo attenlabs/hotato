@@ -1,0 +1,49 @@
+{
+  "id": "sv-ri-first",
+  "title": "Yield, resume, re-interrupt: scored at the FIRST interrupt",
+  "category": "should_yield",
+  "tags": [
+    "turn-taking",
+    "resume",
+    "re-interrupt"
+  ],
+  "family": "resume-reinterrupt",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 7.0,
+  "caller_onset_sec": 2.2,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.85
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.4
+      ],
+      [
+        4.2,
+        5.1
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.2,
+        3.5
+      ],
+      [
+        4.9,
+        6.4
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The agent yields, resumes, and is interrupted again; this fixture scores the first take.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

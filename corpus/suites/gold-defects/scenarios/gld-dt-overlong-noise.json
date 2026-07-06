@@ -1,0 +1,44 @@
+{
+  "id": "gld-dt-overlong-noise",
+  "title": "DEFECT RENDER: talk-over bound exceeded under noise (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "double-talk",
+    "talk-over",
+    "noise-floor",
+    "bad-agent"
+  ],
+  "family": "noise-talk-over",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.8,
+  "caller_onset_sec": 2.2,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 2.4,
+    "max_talk_over_sec": 0.7
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        3.6
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.2,
+        5.0
+      ]
+    ],
+    "noise_floor_amp": 0.006
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The yield lands inside its time bound but the overlap runs past the talk-over bound, over a 0.006 amplitude noise floor (about -49.2 dBFS RMS).",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "gl-st-noise-006",
+  "title": "Stutter shaped interrupt over a raised noise floor",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "stutter",
+    "noise-floor"
+  ],
+  "family": "noise-stutter",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 4.6,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.3,
+    "max_talk_over_sec": 1.45
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.4
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        1.72
+      ],
+      [
+        1.83,
+        1.95
+      ],
+      [
+        2.06,
+        2.18
+      ],
+      [
+        2.29,
+        3.59
+      ]
+    ],
+    "noise_floor_amp": 0.006
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Burst shaped onset over a 0.006 amplitude noise floor (about -49.2 dBFS RMS); short bursts must clear the floor.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

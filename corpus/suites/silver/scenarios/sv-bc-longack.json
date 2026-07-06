@@ -1,0 +1,38 @@
+{
+  "id": "sv-bc-longack",
+  "title": "A 0.8s acknowledgement that flirts with a floor take (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "near-miss"
+  ],
+  "family": "backchannel-longack",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 7.2,
+  "caller_onset_sec": 3.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        6.8
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        3.0,
+        3.8
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "A long acknowledgement that briefly resembles a floor take; still feedback, the agent holds.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

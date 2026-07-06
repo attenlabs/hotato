@@ -1,0 +1,42 @@
+{
+  "id": "svd-hi-talkover",
+  "title": "DEFECT RENDER: talk-over exceeds its bound while the yield bound is met (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "talk-over",
+    "bad-agent"
+  ],
+  "family": "talk-over-bound",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 2.2,
+    "max_talk_over_sec": 0.6
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        3.3
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The yield lands inside its bound but the agent talked over the caller past the talk-over bound.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

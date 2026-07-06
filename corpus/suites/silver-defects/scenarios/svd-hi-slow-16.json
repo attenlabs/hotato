@@ -1,0 +1,42 @@
+{
+  "id": "svd-hi-slow-16",
+  "title": "DEFECT RENDER: yield after 1.6s against a 0.8s bound (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "slow-yield",
+    "bad-agent"
+  ],
+  "family": "slow-yield",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.2,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.8,
+    "max_talk_over_sec": 2.5
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        3.6
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.4
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The agent does stop, but 1.6s is twice the labeled bound; slow is a failure too.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

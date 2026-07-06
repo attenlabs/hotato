@@ -11,6 +11,63 @@ design. See `docs/BENCHMARK.md`.
 
 ### Added
 
+- **`hotato doctor`**: the 5-minute path in one command. Scores your recording
+  (or the bundled self-test when none is given), writes the self-contained visual
+  HTML report, and opens it in a browser (best effort; `--no-open` prints the
+  path). A convenience wrapper over the existing scorer and report; nothing new
+  is claimed.
+- **`hotato report --format {html,md} [--base BASE.json]`**: a self-contained
+  visual report (inline CSS and SVG, zero external requests, opens offline). Per
+  event it draws a to-scale caller/agent timeline from the real frame data with
+  the overlap shaded, onset and yield markers, measured talk-over, expected vs
+  actual, and the exact `ScoreConfig` thresholds used. An analytics block
+  computed from the same measurements: a time-to-yield distribution strip, a
+  talk-over histogram, and failure clustering by fix class. A collapsible
+  per-event frame inspector puts the full frame dump behind every timeline.
+  `--base` renders per-scenario talk-over and time-to-yield deltas against a
+  previous envelope. Ships print CSS, so print-to-PDF from any browser.
+  `--format md` renders the same content as Markdown tables.
+- **`hotato team DIR [--order mtime|name] [--html team.html] [--out agg.json]`**:
+  aggregates a directory of run envelopes into one trend view. Reports runs,
+  mean/median/p90 talk-over and time-to-yield pooled across all events, pass rate
+  per run over time, the most common failure class, and a pass-rate trend line in
+  the HTML page. Fewer than 2 runs is stated plainly, never padded into a trend.
+- **`hotato export ... --out DIR`**: research-grade output. Writes `events.csv`
+  (one row per event, every measured signal plus verdict), `frames.csv` (one row
+  per VAD frame, the evidence behind every number), and `envelope.json`. Column
+  meanings are documented in comment lines at the top of each CSV. Stdlib only,
+  offline.
+- **Pytest plugin**, auto-registered on install (`pytest11` entry point): a
+  `hotato_score` fixture that scores a recording or suite inside any test, and an
+  opt-in `--hotato-suite` session gate that runs the battery after the tests and
+  fails the session on a regression. `--hotato-suite-scenarios` and
+  `--hotato-suite-audio` point the gate at your own labelled sets.
+- **MCP: optional `report_path`** on the one `voice_eval_run` tool. When set, the
+  server also writes the self-contained HTML report there and the returned
+  envelope carries `report_path` (absolute). Additive; the envelope is otherwise
+  unchanged.
+- **Tiered corpus suites** (`corpus/suites/`): `silver`, `silver-defects`,
+  `gold`, and `gold-defects`, 112 scenarios total, all synthetic shaped noise
+  rendered deterministically from each scenario's own labelled timings (seed
+  `sha256(id)`). The defect suites exist to fail: every scenario in them fails on
+  its labelled axis, so `exit_code 1` there proves the scorer catches what it
+  claims to catch. Built and byte-verified by `corpus/suites/build_suites.py`
+  (`--check` regenerates to a temp dir and byte-compares); `manifest.json` is the
+  machine-readable inventory. Run any suite via
+  `hotato run --suite barge-in --scenarios DIR --audio DIR`.
+- **GitHub PR check** (`.github/workflows/hotato.yml` plus
+  `scripts/pr_comment.py`): scores the suite on every pull request, posts one
+  sticky comment (results table, pass/fail line, regressions with deltas against
+  the base branch when scorable), and fails the job on a regression. See
+  `docs/CI.md`.
+- **Documented distribution statistics** (`src/hotato/_stats.py`): mean, median,
+  and p90 used by `report` and `team` have one stdlib implementation with the
+  definition in the docstring. p90 is linear interpolation between closest ranks.
+  Rates are reported as fractions, never a percentage. Empty input returns null,
+  never a fabricated number.
+- **New docs pages**: `docs/REPORTS.md` (doctor, report, team, export),
+  `docs/PYTEST.md` (the plugin and the gate), `docs/SUITES.md` (the tiered
+  corpus suites), and `docs/SUBMITTING.md` (the corpus submission walkthrough).
 - **Reproducible benchmark harness** (`src/hotato/benchmark.py`, run it with
   `python3 -m hotato.benchmark`). Takes labelled dual-channel recordings and
   reports per-signal measurement error in milliseconds (onset, time-to-yield,

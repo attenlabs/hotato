@@ -1,0 +1,37 @@
+{
+  "id": "gl-echo-hold-mid",
+  "title": "Echo bleed, 0.25s delay at 0.35x gain (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "echo",
+    "self-interrupt",
+    "aec"
+  ],
+  "family": "echo-hold",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        5.7
+      ]
+    ],
+    "caller_segments_sec": [],
+    "caller_is_echo_of_agent": true,
+    "echo_delay_sec": 0.25,
+    "echo_gain": 0.35
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The input channel carries only the agent's own output delayed 0.25s at 0.35x gain; the correct agent keeps talking.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

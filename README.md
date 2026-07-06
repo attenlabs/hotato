@@ -60,6 +60,40 @@ hotato [suite] stack=generic offline=True
 This self-test proves the tool itself behaves. Point it at a real call to measure
 your agent.
 
+Even faster: one command that scores, renders the visual report, and opens it.
+
+```bash
+uvx hotato doctor --stereo your_call.wav    # or plain `uvx hotato doctor` for the self-test
+```
+
+## What you get
+
+One scorer, and every surface you need around it. Each line below is one command.
+
+- **`doctor`**, the 5-minute path: score a recording (or the bundled self-test),
+  write the visual HTML report, open it. `uvx hotato doctor --stereo call.wav`
+- **`report`**, a self-contained visual report: per-event SVG timelines, analytics,
+  a per-frame inspector, print CSS for PDF, and regression deltas with
+  `--base base.json`. `uvx hotato report --stereo call.wav --out report.html`
+- **`team`**, the trend view: aggregate a directory of runs into pass rate over
+  time plus mean/median/p90 talk-over and time-to-yield.
+  `uvx hotato team runs/ --html team.html`
+- **`export`**, research-grade CSVs: `events.csv`, `frames.csv`, `envelope.json`,
+  columns documented in-file. `uvx hotato export --stereo call.wav --out research/`
+- **Pytest plugin**, auto-registered on install: a `hotato_score` fixture and a
+  session gate that fails the run on a regression. `pytest --hotato-suite`
+- **MCP tool**: one tool, `voice_eval_run`; pass `report_path` and the envelope
+  comes back with the written HTML report. `uvx --from "hotato[mcp]" hotato-mcp`
+- **PR check**: a sticky PR comment with the results table and deltas, and a gate
+  on regression. Copy `.github/workflows/hotato.yml` into your repo.
+- **Tiered corpus suites**: 112 deterministic scenarios across silver and gold
+  tiers, plus defect suites that must fail.
+  `hotato run --suite barge-in --scenarios corpus/suites/gold/scenarios --audio corpus/suites/gold/audio`
+
+- **`benchmark`**, comparable stack runs: score your captured battery per stack, then compare result files side by side. `hotato benchmark --stack livekit --recordings captures/` then `hotato benchmark compare a.json b.json`
+Deep detail: [`docs/REPORTS.md`](docs/REPORTS.md), [`docs/PYTEST.md`](docs/PYTEST.md),
+[`docs/SUITES.md`](docs/SUITES.md), [`docs/CI.md`](docs/CI.md).
+
 ## What it measures
 
 It scores the audio timing of turn-taking. Per event, three objective signals:
@@ -142,7 +176,9 @@ uvx --from "hotato[mcp]" hotato-mcp
 ```
 
 It exposes exactly one tool, `voice_eval_run`, returning the same JSON envelope as
-the CLI, with the scope and limits stated inline in the tool description.
+the CLI, with the scope and limits stated inline in the tool description. Pass an
+optional `report_path` and it also writes the visual HTML report; the returned
+envelope carries the absolute path.
 
 ## CI
 
@@ -154,12 +190,18 @@ uvx hotato run --suite barge-in --format json
 
 Exit codes: `0` all pass (or `--no-fail`), `1` a regression, `2` usage or IO error.
 
+Two ready-made gates sit on top. Copy `.github/workflows/hotato.yml` for a PR
+check with a sticky results comment (`docs/CI.md`), or add `--hotato-suite` to
+your existing pytest run (`docs/PYTEST.md`).
+
 ## Contributing
 
 Bug fixes, scorer tuning, docs, and new scenarios are all welcome. The highest
 value contribution is a real, labelled call fixture: synthetic fixtures make the
-eval runnable, real recordings make it credible. Start with `CONTRIBUTING.md` and
-`docs/CORPUS-GOVERNANCE.md`.
+eval runnable, real recordings make it credible. The full path is
+[`docs/SUBMITTING.md`](docs/SUBMITTING.md), and the
+[corpus-submission issue form](https://github.com/attenlabs/hotato/issues/new?template=corpus_submission.yml)
+walks you through it. Governance: `CONTRIBUTING.md` and `docs/CORPUS-GOVERNANCE.md`.
 
 ## Why "hotato"
 

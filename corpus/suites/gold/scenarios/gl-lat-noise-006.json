@@ -1,0 +1,55 @@
+{
+  "id": "gl-lat-noise-006",
+  "title": "Prompt response over a raised noise floor (latency PASS)",
+  "category": "latency",
+  "tags": [
+    "latency",
+    "endpointing",
+    "noise-floor"
+  ],
+  "family": "noise-latency",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.8,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.0,
+    "premature_is_failure": true,
+    "boundary_tolerance_hops": 1,
+    "note": "Exposed timing thresholds applied to signals.latency by the suite tests; the barge-in verdict is a separate axis and the reference agent yields cleanly in every latency fixture."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.7
+      ],
+      [
+        3.5,
+        5.0
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        3.0
+      ]
+    ],
+    "caller_offset_sec": 3.0,
+    "agent_response_onset_sec": 3.5,
+    "rendered_response_gap_sec": 0.5,
+    "noise_floor_amp": 0.006
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "A 0.5s response gap measured over a 0.006 amplitude noise floor (about -49.2 dBFS RMS).",
+  "related_signals": [
+    "response_gap_sec",
+    "did_yield"
+  ]
+}

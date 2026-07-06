@@ -1,0 +1,46 @@
+{
+  "id": "gl-8k-one-word",
+  "title": "One-word interrupt at 8 kHz",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "one-word",
+    "telephony",
+    "8khz"
+  ],
+  "family": "telephony-8k",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 1.8,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.75,
+    "max_talk_over_sec": 0.9
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.05
+      ],
+      [
+        3.0,
+        4.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.8,
+        2.18
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Telephony rate replica of the one-word interrupt.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

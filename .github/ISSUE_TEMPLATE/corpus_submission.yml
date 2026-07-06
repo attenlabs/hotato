@@ -1,0 +1,98 @@
+name: "Corpus submission: labeled recording"
+description: Contribute a consented, de-identified, dual-channel recording with a human turn-taking label to the hotato corpus.
+title: "Corpus submission: "
+labels: ["corpus-submission"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        One consented, labeled real call strengthens this eval. The full
+        walkthrough is
+        [docs/SUBMITTING.md](https://github.com/attenlabs/hotato/blob/main/docs/SUBMITTING.md);
+        consent, PII, and PHI rules are normative in
+        [docs/CORPUS-GOVERNANCE.md](https://github.com/attenlabs/hotato/blob/main/docs/CORPUS-GOVERNANCE.md).
+        Before filing, run `python3 corpus/validate.py your_label.json` until it
+        prints PASS.
+  - type: textarea
+    id: situation
+    attributes:
+      label: What happens in the recording
+      description: >-
+        The situation, in a few lines: who is talking, what the caller does
+        (interrupts, backchannels, corrects), and roughly when. If you already
+        wrote the label JSON, paste it here too.
+      placeholder: "Agent is reading back a shipping date; caller cuts in around 3s to change the address. Dual-channel, 8 kHz telephony."
+    validations:
+      required: true
+  - type: dropdown
+    id: stack
+    attributes:
+      label: Stack it came from
+      description: The voice-agent stack that produced the call.
+      options:
+        - LiveKit
+        - Pipecat
+        - Vapi
+        - Retell
+        - Twilio
+        - Other (name it in the description above)
+    validations:
+      required: true
+  - type: dropdown
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: >-
+        Maps to the label's category field: should yield = should_yield,
+        should hold = should_not_yield (for example, a backchannel the agent
+        should talk through).
+      options:
+        - Should yield
+        - Should hold
+    validations:
+      required: true
+  - type: input
+    id: caller_onset_sec
+    attributes:
+      label: Caller onset (seconds)
+      description: >-
+        The human-labeled moment the caller takes or attempts the floor, in
+        seconds from the start of the recording. Same value as caller_onset_sec
+        in your label JSON.
+      placeholder: "3.15"
+    validations:
+      required: true
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Consent and de-identification
+      description: >-
+        All three are required. The rules, release template, and redaction
+        guidance live in docs/CORPUS-GOVERNANCE.md; your label's attestation
+        block affirms the same facts.
+      options:
+        - label: I have documented consent from every speaker to redistribute this audio under MIT
+          required: true
+        - label: PII is removed
+          required: true
+        - label: No PHI is present
+          required: true
+  - type: textarea
+    id: audio
+    attributes:
+      label: Audio
+      description: >-
+        Attach the dual-channel WAV by dragging a .zip of it into this box
+        (GitHub accepts .zip attachments; a raw .wav upload is rejected), or
+        paste a link to it. Caller on one channel, agent on the other,
+        separated at capture.
+      placeholder: "call-021.zip attached, or https://example.com/call-021.wav"
+    validations:
+      required: true
+  - type: checkboxes
+    id: governance
+    attributes:
+      label: Governance
+      options:
+        - label: This submission follows docs/CORPUS-GOVERNANCE.md
+          required: true

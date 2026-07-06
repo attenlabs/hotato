@@ -1,0 +1,67 @@
+{
+  "id": "gld-endurance-missed",
+  "title": "DEFECT RENDER: interrupt at 45s of a 50s call ignored (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "endurance",
+    "missed",
+    "bad-agent"
+  ],
+  "family": "endurance-defect",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 50.0,
+  "caller_onset_sec": 45.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        38.6,
+        49.4
+      ],
+      [
+        0.2,
+        10.0
+      ],
+      [
+        10.8,
+        24.0
+      ],
+      [
+        24.7,
+        38.0
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        7.0,
+        7.3
+      ],
+      [
+        20.0,
+        20.3
+      ],
+      [
+        33.0,
+        33.3
+      ],
+      [
+        45.0,
+        47.6
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. Fifty seconds in, the agent talks through the scored interrupt; endurance must not blunt the failure.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

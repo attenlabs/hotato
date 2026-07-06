@@ -1,0 +1,39 @@
+{
+  "id": "sv-bc-late",
+  "title": "Single backchannel at 4.4s (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "false-trigger",
+    "late"
+  ],
+  "family": "backchannel-position",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 8.4,
+  "caller_onset_sec": 4.4,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        8.0
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        4.4,
+        4.7
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "One brief acknowledgement while the agent talks; listener feedback, not a bid for the floor.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

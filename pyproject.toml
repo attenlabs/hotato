@@ -56,6 +56,13 @@ all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5",
 hotato = "hotato.cli:main"
 hotato-mcp = "hotato.mcp_server:main"
 
+# Pytest integration (the `hotato_score` fixture and the opt-in --hotato-suite
+# session gate). Auto-discovered by pytest when hotato is installed; inert
+# unless the fixture or flag is actually used, and needs nothing beyond pytest
+# itself (the scoring core stays stdlib-only).
+[project.entry-points.pytest11]
+hotato = "hotato.pytest_plugin"
+
 [project.urls]
 Repository = "https://github.com/attenlabs/hotato"
 Homepage = "https://hotato.dev"

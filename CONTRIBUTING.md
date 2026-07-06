@@ -17,6 +17,8 @@ Synthetic fixtures make the eval runnable. Real recordings make it credible. Mos
 of this guide is about how to add fixtures well. If you read one section, read
 that one.
 
+The end-to-end path for a real recording, from capture through the issue form or PR to maintainer intake, is [`docs/SUBMITTING.md`](docs/SUBMITTING.md).
+
 ---
 
 ## Ground rules (non-negotiable)

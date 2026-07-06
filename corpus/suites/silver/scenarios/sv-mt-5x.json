@@ -1,0 +1,65 @@
+{
+  "id": "sv-mt-5x",
+  "title": "Five-turn rapid exchange, scored at the first interrupt",
+  "category": "should_yield",
+  "tags": [
+    "turn-taking",
+    "multi-turn",
+    "rapid"
+  ],
+  "family": "multi-turn",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 12.2,
+  "caller_onset_sec": 1.7,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.85
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.9
+      ],
+      [
+        3.5,
+        4.8
+      ],
+      [
+        6.4,
+        7.7
+      ],
+      [
+        9.3,
+        10.4
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.7,
+        2.9
+      ],
+      [
+        5.2,
+        6.0
+      ],
+      [
+        8.1,
+        8.9
+      ],
+      [
+        10.9,
+        11.6
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Four caller turns and four agent turns in twelve seconds; a longer back and forth must score the same.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

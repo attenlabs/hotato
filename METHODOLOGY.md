@@ -209,6 +209,24 @@ inclusive, 50 frames, so `talk_over_sec = 50 * 0.01 = 0.50 s`. Every one of
 those booleans is just `dbfs >= threshold` (plus hangover), which you can
 recompute yourself from the two dBFS columns and the header thresholds.
 
+## Aggregate statistics: one definition each
+
+The `report` and `team` surfaces summarize many events with mean, median, and
+p90. All three come from one stdlib implementation (`src/hotato/_stats.py`) so
+every published aggregate is re-derivable by hand:
+
+- **mean** is the arithmetic mean (`statistics.fmean`).
+- **median** is `statistics.median`.
+- **p90** is linear interpolation between closest ranks (the definition NumPy
+ calls "linear"): sort the values ascending, let `pos = 0.9 * (n - 1)`, then
+ `p90 = v[floor(pos)] + frac * (v[floor(pos) + 1] - v[floor(pos)])`.
+- **Rates are fractions**, never a percentage: a pass rate of 8 of 8 reads
+ `1.00`. That keeps every aggregate in the same unit system as the
+ measurements and leaves no door open to an accuracy-percentage reading.
+- **Empty input returns null.** No aggregate is ever fabricated from zero
+ measurements, and fewer than two runs is stated plainly rather than drawn as
+ a trend.
+
 ## Optional neural cross-check (non-reference)
 
 The energy VAD above is the **reference**: every published, golden, and bundled

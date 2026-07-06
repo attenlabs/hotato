@@ -1,0 +1,40 @@
+{
+  "id": "sv-hi-speed-120",
+  "title": "Hard interruption, reference agent stops after 1.2s",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "yield-speed"
+  ],
+  "family": "hard-interrupt-speed",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.7,
+    "max_talk_over_sec": 1.85
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        3.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The reference agent stops 1.2s after onset; the bound checks yield speed, not just that it happened.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "gl-loud-caller-150",
+  "title": "Hot caller channel, scaled to 1.5x",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "gain",
+    "loud-caller"
+  ],
+  "family": "channel-gain",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.5
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ],
+    "caller_gain": 1.5
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Caller channel scaled to 1.5x of the reference level; a hot capture must not change the verdict.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

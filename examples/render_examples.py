@@ -52,11 +52,15 @@ SETS = [
 ]
 
 
-def render_channel(sample_rate, total_samples, segments, seed, continuous=False):
+def render_channel(sample_rate, total_samples, segments, seed, continuous=False,
+                   noise_floor_amp=0.0006):
     """Syllable-modulated band-limited noise inside each segment (short words
     with brief sub-hangover gaps, near-silence between segments), or, when
     ``continuous`` is set, one unbroken run per segment so the active-track
     boundaries equal the rendered segment boundaries to within one frame hop.
+    ``noise_floor_amp`` sets the uniform noise floor's peak amplitude (default
+    0.0006, about -69 dBFS RMS); raising it renders a noisier line with the
+    same RNG draw order, so default renders stay byte-identical.
 
     Byte-for-byte identical to the upstream ``render_channel``."""
     rng = random.Random(seed)
@@ -98,7 +102,7 @@ def render_channel(sample_rate, total_samples, segments, seed, continuous=False)
         scale = 0.6 / peak
         buf = [x * scale for x in buf]
     for i in range(total_samples):
-        buf[i] += rng.uniform(-1.0, 1.0) * 0.0006
+        buf[i] += rng.uniform(-1.0, 1.0) * noise_floor_amp
     return buf
 
 
@@ -109,9 +113,19 @@ def build_scenario(scenario):
     agent_seg = rr.get("agent_segments_sec", [])
     caller_seg = rr.get("caller_segments_sec", [])
     continuous = bool(rr.get("continuous", False))
+    # Optional physical knobs, byte-identical defaults (mirrors upstream):
+    # noise_floor_amp (+ per-channel overrides) and post-render channel gains.
+    base_noise = float(rr.get("noise_floor_amp", 0.0006))
+    agent_noise = float(rr.get("agent_noise_floor_amp", base_noise))
+    caller_noise = float(rr.get("caller_noise_floor_amp", base_noise))
+    caller_gain = float(rr.get("caller_gain", 1.0))
+    agent_gain = float(rr.get("agent_gain", 1.0))
     scenario_id = scenario["id"]
     seed_base = int(hashlib.sha256(scenario_id.encode()).hexdigest()[:8], 16)
-    agent = render_channel(sr, total, agent_seg, seed_base + 1, continuous=continuous)
+    agent = render_channel(sr, total, agent_seg, seed_base + 1, continuous=continuous,
+                           noise_floor_amp=agent_noise)
+    if agent_gain != 1.0:
+        agent = [x * agent_gain for x in agent]
     if rr.get("caller_is_echo_of_agent"):
         delay = int(round(rr.get("echo_delay_sec", 0.12) * sr))
         gain = float(rr.get("echo_gain", 0.35))
@@ -122,9 +136,12 @@ def build_scenario(scenario):
                 caller[i] = agent[j] * gain
         rng = random.Random(seed_base + 99)
         for i in range(total):
-            caller[i] += rng.uniform(-1.0, 1.0) * 0.0006
+            caller[i] += rng.uniform(-1.0, 1.0) * caller_noise
     else:
-        caller = render_channel(sr, total, caller_seg, seed_base + 2, continuous=continuous)
+        caller = render_channel(sr, total, caller_seg, seed_base + 2, continuous=continuous,
+                                noise_floor_amp=caller_noise)
+    if caller_gain != 1.0:
+        caller = [x * caller_gain for x in caller]
     return sr, caller, agent
 
 

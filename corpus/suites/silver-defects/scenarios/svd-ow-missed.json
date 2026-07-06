@@ -1,0 +1,43 @@
+{
+  "id": "svd-ow-missed",
+  "title": "DEFECT RENDER: one-word interrupt ignored (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "one-word",
+    "missed",
+    "bad-agent"
+  ],
+  "family": "missed-interrupt",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.6,
+  "caller_onset_sec": 1.8,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.75,
+    "max_talk_over_sec": 0.9
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        5.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.8,
+        2.18
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. A single word takes the floor and the agent talks through it.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "gl-quiet-noise-combo",
+  "title": "Quiet caller over a raised noise floor",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "gain",
+    "noise-floor",
+    "quiet-caller"
+  ],
+  "family": "channel-gain",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.5
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ],
+    "noise_floor_amp": 0.002,
+    "caller_gain": 0.3
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Caller at 0.3x gain over a 0.002 amplitude noise floor (about -58.8 dBFS RMS); low level and noise at once.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

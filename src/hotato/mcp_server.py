@@ -15,6 +15,7 @@ envelope as the CLI. Everything runs locally; no audio leaves the machine.
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Optional
 
@@ -37,6 +38,11 @@ TWO MODES:
                          is a backchannel and the agent should keep the floor).
   * battery           -> pass suite="{SUITE_ID}" to run the bundled 8-scenario
                          labelled battery shipped inside the package.
+
+REPORT (optional): set `report_path` to also write the self-contained HTML
+report (per-event timelines + analytics, offline, zero external requests) to
+that path. The returned envelope then carries `report_path` (absolute path);
+everything else in the envelope is unchanged. Purely additive.
 
 FIX MAP: every failing event carries a fix. fix_class is one of:
   * "config"            - a concrete knob for the named `stack`
@@ -72,8 +78,35 @@ def _run_tool(
     agent_channel: int = 1,
     max_talk_over_sec: Optional[float] = None,
     max_time_to_yield_sec: Optional[float] = None,
+    report_path: Optional[str] = None,
 ) -> dict:
-    """Shared implementation for the single MCP tool. Returns the JSON envelope."""
+    """Shared implementation for the single MCP tool. Returns the JSON envelope.
+
+    With ``report_path`` set it also writes the self-contained HTML report
+    there and adds ``report_path`` (absolute) to the envelope. Scoring is
+    deterministic, so the envelope core is byte-identical either way.
+    """
+    if report_path:
+        from . import report as _report
+
+        if suite:
+            env = _report.write_report(report_path, suite=suite, stack=stack)
+        else:
+            env = _report.write_report(
+                report_path,
+                stereo=stereo,
+                caller=caller,
+                agent=agent,
+                caller_channel=caller_channel,
+                agent_channel=agent_channel,
+                onset_sec=onset_sec,
+                expect=expect,
+                stack=stack,
+                max_talk_over_sec=max_talk_over_sec,
+                max_time_to_yield_sec=max_time_to_yield_sec,
+            )
+        env["report_path"] = os.path.abspath(report_path)
+        return env
     if suite:
         return run_suite(suite=suite, stack=stack)
     return run_single(
@@ -118,6 +151,7 @@ def build_server():
         agent_channel: int = 1,
         max_talk_over_sec: Optional[float] = None,
         max_time_to_yield_sec: Optional[float] = None,
+        report_path: Optional[str] = None,
     ) -> dict:
         return _run_tool(
             stereo=stereo,
@@ -131,6 +165,7 @@ def build_server():
             agent_channel=agent_channel,
             max_talk_over_sec=max_talk_over_sec,
             max_time_to_yield_sec=max_time_to_yield_sec,
+            report_path=report_path,
         )
 
     return server

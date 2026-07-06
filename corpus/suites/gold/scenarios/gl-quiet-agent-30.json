@@ -1,0 +1,42 @@
+{
+  "id": "gl-quiet-agent-30",
+  "title": "Quiet agent channel, scaled to 0.3x",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "gain",
+    "quiet-agent"
+  ],
+  "family": "channel-gain",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.5
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ],
+    "agent_gain": 0.3
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "Agent channel scaled to 0.3x; a quiet agent still has to stop, and the stop must still be visible.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://attentionlabs.ai/hotato/schema/envelope.v1.json",
+  "$id": "https://hotato.dev/schema/envelope.v1.json",
   "title": "hotato result envelope, schema_version 1",
   "description": "The single machine-readable shape emitted by the CLI, the one MCP tool, and the suite runner. Additive-only: new signal dimensions and sub-verdicts may appear as extra keys without a version bump, so consumers must ignore unknown fields. The stable core below is frozen for schema_version 1.",
   "type": "object",
