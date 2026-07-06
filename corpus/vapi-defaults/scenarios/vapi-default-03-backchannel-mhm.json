@@ -1,0 +1,66 @@
+{
+  "id": "vapi-default-03-backchannel-mhm",
+  "title": "Real call: a single soft 'mhm' backchannel (Vapi defaults)",
+  "category": "should_not_yield",
+  "source_type": "role-played",
+  "tags": [
+    "real-audio",
+    "vapi",
+    "defaults",
+    "backchannel",
+    "false-trigger"
+  ],
+  "audio": "vapi-default-03-backchannel-mhm.example.wav",
+  "channels": {
+    "caller_channel": 0,
+    "agent_channel": 1
+  },
+  "sample_rate": 16000,
+  "duration_sec": 8.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "transcript": {
+    "caller": "mhm",
+    "note": "caller wording from the operator's call script and session notes, not an STT transcript; the agent side is the assistant's spoken answer"
+  },
+  "related_signals": [
+    "did_yield",
+    "seconds_to_yield",
+    "talk_over_sec"
+  ],
+  "license": "MIT",
+  "provenance": {
+    "source": "operator-recorded probe call against a Vapi assistant on DEFAULT interruption settings",
+    "assistant": "hotato-probe",
+    "assistant_id": "37995a11-3b7e-41e7-87b5-198f08b6161a",
+    "model": "openai/gpt-4o",
+    "voice": "vapi/Elliot",
+    "recorded": "2026-07-06",
+    "interruption_settings": "Vapi defaults (stopSpeakingPlan and startSpeakingPlan unset)",
+    "call_id": "019f390d-0b3f-7ddc-a92d-df916ed0e782",
+    "source_file": "03-backchannel-single.wav",
+    "source_sha256": "52d9a95d5b7f3b91f619ef68479beab11f02082adbc32bf3a17cb8595607fe8b",
+    "window_source_sec": [
+      20.74,
+      28.74
+    ],
+    "onset_derivation": "the only caller activity during agent speech on this call: two tiny runs at 22.74 and 22.94 s (0.35 s total, peaks -55.4 and -43.5 dBFS), the scripted soft 'mhm'; onset is the first run",
+    "field_note": "agent YIELDED to the mhm: stopped at 'so we can quickly locate', never resumed; the call died on the silence timeout",
+    "agreement_with_field_note": "investigated disagreement: hotato measures did_yield=false because the agent kept talking for 4.19 s after the mhm (last agent activity ends 26.93 s) and the stop is both outside the 3.0 s attribution window and nowhere near caller activity; by the scorer's stated semantics an agent that finishes its phrase seconds later has not yielded TO the caller. The field failure is still visible in the measured timeline: after 26.93 s the agent never speaks again for the remaining 31.1 s of the call. The per-event hold verdict passes by measurement; RESULTS.md carries the full account",
+    "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
+  },
+  "attestation": {
+    "contributor": "operator-recorded probe calls (build_vapi_defaults.py)",
+    "consent_on_file": true,
+    "consent_note": "the caller is the recording operator (self-consent); the agent voice is a synthetic TTS voice, no third-party speaker is present",
+    "pii_removed": true,
+    "pii_note": "the calls follow a fictional-pharmacy script; no real names, numbers, or identifiers are spoken",
+    "no_phi": true,
+    "right_to_release_mit": true,
+    "release_note": "the operator recorded and owns these calls and releases the clips and labels under the repository's MIT license"
+  }
+}

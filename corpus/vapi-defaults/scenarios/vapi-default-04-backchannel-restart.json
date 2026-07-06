@@ -1,0 +1,66 @@
+{
+  "id": "vapi-default-04-backchannel-restart",
+  "title": "Real call: soft backchannel makes the agent restart its answer (Vapi defaults)",
+  "category": "should_not_yield",
+  "source_type": "role-played",
+  "tags": [
+    "real-audio",
+    "vapi",
+    "defaults",
+    "backchannel",
+    "false-trigger"
+  ],
+  "audio": "vapi-default-04-backchannel-restart.example.wav",
+  "channels": {
+    "caller_channel": 0,
+    "agent_channel": 1
+  },
+  "sample_rate": 16000,
+  "duration_sec": 8.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "transcript": {
+    "caller": "soft spaced backchannels (mhm / right / okay), first backchannel",
+    "note": "caller wording from the operator's call script and session notes, not an STT transcript; the agent side is the assistant's spoken answer"
+  },
+  "related_signals": [
+    "did_yield",
+    "seconds_to_yield",
+    "talk_over_sec"
+  ],
+  "license": "MIT",
+  "provenance": {
+    "source": "operator-recorded probe call against a Vapi assistant on DEFAULT interruption settings",
+    "assistant": "hotato-probe",
+    "assistant_id": "37995a11-3b7e-41e7-87b5-198f08b6161a",
+    "model": "openai/gpt-4o",
+    "voice": "vapi/Elliot",
+    "recorded": "2026-07-06",
+    "interruption_settings": "Vapi defaults (stopSpeakingPlan and startSpeakingPlan unset)",
+    "call_id": "019f390f-d0de-7991-a56c-e25d62d86b71",
+    "source_file": "04-backchannel-repeated.wav",
+    "source_sha256": "9b1c5d39d33deef692ca0316adefeb2787a3a235d5f0ca520b854467beb624d7",
+    "window_source_sec": [
+      18.57,
+      26.57
+    ],
+    "onset_derivation": "first of the two caller-active runs during agent speech: 20.57 s (0.32 s, peak -18.8 dBFS); after it the agent stops within 0.34 s and restarts its answer from the top at 21.91 s",
+    "field_note": "agent yielded on a backchannel and restarted its answer from the top (operator note: the word 'right' appears to trigger it)",
+    "agreement_with_field_note": "matches: measured false yield 0.34 s after the backchannel",
+    "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
+  },
+  "attestation": {
+    "contributor": "operator-recorded probe calls (build_vapi_defaults.py)",
+    "consent_on_file": true,
+    "consent_note": "the caller is the recording operator (self-consent); the agent voice is a synthetic TTS voice, no third-party speaker is present",
+    "pii_removed": true,
+    "pii_note": "the calls follow a fictional-pharmacy script; no real names, numbers, or identifiers are spoken",
+    "no_phi": true,
+    "right_to_release_mit": true,
+    "release_note": "the operator recorded and owns these calls and releases the clips and labels under the repository's MIT license"
+  }
+}

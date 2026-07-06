@@ -1,0 +1,66 @@
+{
+  "id": "vapi-default-06-double-talk",
+  "title": "Real call: sustained overlapping full sentence (Vapi defaults)",
+  "category": "should_yield",
+  "source_type": "role-played",
+  "tags": [
+    "real-audio",
+    "vapi",
+    "defaults",
+    "barge-in",
+    "double-talk"
+  ],
+  "audio": "vapi-default-06-double-talk.example.wav",
+  "channels": {
+    "caller_channel": 0,
+    "agent_channel": 1
+  },
+  "sample_rate": 16000,
+  "duration_sec": 8.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.0
+  },
+  "transcript": {
+    "caller": "sustained overlapping sentence about the mother's medication",
+    "note": "caller wording from the operator's call script and session notes, not an STT transcript; the agent side is the assistant's spoken answer"
+  },
+  "related_signals": [
+    "did_yield",
+    "seconds_to_yield",
+    "talk_over_sec"
+  ],
+  "license": "MIT",
+  "provenance": {
+    "source": "operator-recorded probe call against a Vapi assistant on DEFAULT interruption settings",
+    "assistant": "hotato-probe",
+    "assistant_id": "37995a11-3b7e-41e7-87b5-198f08b6161a",
+    "model": "openai/gpt-4o",
+    "voice": "vapi/Elliot",
+    "recorded": "2026-07-06",
+    "interruption_settings": "Vapi defaults (stopSpeakingPlan and startSpeakingPlan unset)",
+    "call_id": "019f3916-1917-7dde-abe9-9dff1c04d9bd",
+    "source_file": "06-double-talk.wav",
+    "source_sha256": "2ba17502f580e2a552b9acbc31236bc40d868df46c46fe30fab98da824e81fd5",
+    "window_source_sec": [
+      14.14,
+      22.14
+    ],
+    "onset_derivation": "the only caller run starting during agent activity: 16.14 s (0.72 s, peak -12.8 dBFS), continuing as a 2.32 s run at 16.91 s (the rest of the overlapped sentence)",
+    "field_note": "agent CORRECTLY yielded, stopped at 'seasonal flu shot' and pivoted",
+    "agreement_with_field_note": "matches: measured yield 0.40 s after onset",
+    "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
+  },
+  "attestation": {
+    "contributor": "operator-recorded probe calls (build_vapi_defaults.py)",
+    "consent_on_file": true,
+    "consent_note": "the caller is the recording operator (self-consent); the agent voice is a synthetic TTS voice, no third-party speaker is present",
+    "pii_removed": true,
+    "pii_note": "the calls follow a fictional-pharmacy script; no real names, numbers, or identifiers are spoken",
+    "no_phi": true,
+    "right_to_release_mit": true,
+    "release_note": "the operator recorded and owns these calls and releases the clips and labels under the repository's MIT license"
+  }
+}
