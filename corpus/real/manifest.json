@@ -1,0 +1,343 @@
+{
+  "name": "hotato real-audio example set",
+  "dataset": "AMI Meeting Corpus",
+  "dataset_url": "https://groups.inf.ed.ac.uk/ami/corpus/",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "builder": "corpus/real/build_real.py",
+  "onset_provenance": "AMI manual word alignments (words/*.words.xml)",
+  "sources": [
+    {
+      "file": "ami_public_manual_1.6.2.zip",
+      "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusAnnotations/ami_public_manual_1.6.2.zip",
+      "sha256": "b56e5babb2496b8795deeeda7e71178d7fbc9963f94276cf2a3f4b56ebbc9f9d",
+      "bytes": 22887865
+    },
+    {
+      "file": "EN2002b.Headset-2.wav",
+      "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002b/audio/EN2002b.Headset-2.wav",
+      "sha256": "2f01166f3895c987e91f4ad47426ac38ac80e900d4b6ee4da125112d7292b197",
+      "bytes": 57179180
+    },
+    {
+      "file": "EN2002b.Headset-3.wav",
+      "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002b/audio/EN2002b.Headset-3.wav",
+      "sha256": "68f495547ef9674d1d6848c12d7358829cc6e6d302268c0c51c3e3c470b7f692",
+      "bytes": 57179180
+    },
+    {
+      "file": "ES2002a.Headset-1.wav",
+      "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2002a/audio/ES2002a.Headset-1.wav",
+      "sha256": "285ed5b5eaa4f871cc146900d0cf87487ca757aa57a7062def2eb49feaabc23d",
+      "bytes": 40727594
+    },
+    {
+      "file": "ES2002a.Headset-3.wav",
+      "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2002a/audio/ES2002a.Headset-3.wav",
+      "sha256": "fa65d53a97074e31bf83da4ab4cc6235f6e7625d6d40bd223158467d7df9f581",
+      "bytes": 40727594
+    }
+  ],
+  "clip_count": 13,
+  "clips": [
+    {
+      "id": "ami-es2002a-take-0677",
+      "category": "should_yield",
+      "audio": "audio/ami-es2002a-take-0677.example.wav",
+      "label": "scenarios/ami-es2002a-take-0677.json",
+      "meeting": "ES2002a",
+      "window_global_sec": [
+        674.15,
+        683.15
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "ce416742035fbc3b9ec835e4a6327273379802dcb24b9352df1fcc5f752d7b3b",
+      "bytes": 576044,
+      "measured": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.61,
+        "talk_over_sec": 0.58,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 1.57,
+        "onset_delta_sec": -1.43
+      }
+    },
+    {
+      "id": "ami-es2002a-bc-0526",
+      "category": "should_not_yield",
+      "audio": "audio/ami-es2002a-bc-0526.example.wav",
+      "label": "scenarios/ami-es2002a-bc-0526.json",
+      "meeting": "ES2002a",
+      "window_global_sec": [
+        523.79,
+        532.79
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "73905426da3a5576551c84298642adea9a5b900f59687343da7bd56506fdb603",
+      "bytes": 576044,
+      "measured": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 1.82,
+        "talk_over_sec": 0.45,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.0,
+        "onset_delta_sec": 0.0
+      }
+    },
+    {
+      "id": "ami-es2002a-bc-0687",
+      "category": "should_not_yield",
+      "audio": "audio/ami-es2002a-bc-0687.example.wav",
+      "label": "scenarios/ami-es2002a-bc-0687.json",
+      "meeting": "ES2002a",
+      "window_global_sec": [
+        684.72,
+        693.72
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "e60b781daa6ba32c7e3c4853d94c02b1ff630e93eca9f1470264fbc8c54f5238",
+      "bytes": 576044,
+      "measured": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 1.67,
+        "talk_over_sec": 0.33,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.01,
+        "onset_delta_sec": 0.01
+      }
+    },
+    {
+      "id": "ami-es2002a-bc-1049",
+      "category": "should_not_yield",
+      "audio": "audio/ami-es2002a-bc-1049.example.wav",
+      "label": "scenarios/ami-es2002a-bc-1049.json",
+      "meeting": "ES2002a",
+      "window_global_sec": [
+        1046.54,
+        1055.54
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "714d2482fa2baf2fa2566a67f4b2dd5387b07926a2d7e7513aeb54acc47f163a",
+      "bytes": 576044,
+      "measured": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 0.26,
+        "talk_over_sec": 0.26,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.0,
+        "onset_delta_sec": 0.0
+      }
+    },
+    {
+      "id": "ami-en2002b-take-0149",
+      "category": "should_yield",
+      "audio": "audio/ami-en2002b-take-0149.example.wav",
+      "label": "scenarios/ami-en2002b-take-0149.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        146.11,
+        155.11
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "aa9302125f2f05bd7225c3ef4b81a77de6e3c004e008dbe20ec9e98a3c548c99",
+      "bytes": 576044,
+      "measured": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 1.25,
+        "talk_over_sec": 0.58,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.0,
+        "onset_delta_sec": 0.0
+      }
+    },
+    {
+      "id": "ami-en2002b-take-0772",
+      "category": "should_yield",
+      "audio": "audio/ami-en2002b-take-0772.example.wav",
+      "label": "scenarios/ami-en2002b-take-0772.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        769.04,
+        778.04
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "f2213d1f227dbd5fa0baa77334f651812ae313feb69e73de50fd8679965ff216",
+      "bytes": 576044,
+      "measured": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.72,
+        "talk_over_sec": 0.65,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 2.61,
+        "onset_delta_sec": -0.39
+      }
+    },
+    {
+      "id": "ami-en2002b-take-0913",
+      "category": "should_yield",
+      "audio": "audio/ami-en2002b-take-0913.example.wav",
+      "label": "scenarios/ami-en2002b-take-0913.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        910.03,
+        919.03
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "3fa5603da6d6a8e86fee2dd9ce30001b54841d554fa7484e2469d865556a7400",
+      "bytes": 576044,
+      "measured": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.58,
+        "talk_over_sec": 0.57,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.01,
+        "onset_delta_sec": 0.01
+      }
+    },
+    {
+      "id": "ami-en2002b-take-0930",
+      "category": "should_yield",
+      "audio": "audio/ami-en2002b-take-0930.example.wav",
+      "label": "scenarios/ami-en2002b-take-0930.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        927.8,
+        936.8
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "3b69ea8fc6d9d2273de2b38aa14c0ba270c392481e326edf4bd258d32e49240c",
+      "bytes": 576044,
+      "measured": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.0,
+        "talk_over_sec": 0.0,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.03,
+        "onset_delta_sec": 0.03
+      }
+    },
+    {
+      "id": "ami-en2002b-take-1069",
+      "category": "should_yield",
+      "audio": "audio/ami-en2002b-take-1069.example.wav",
+      "label": "scenarios/ami-en2002b-take-1069.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        1066.55,
+        1075.55
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "94180b2b18c71564027374f2bd6fe8002fed65bc054f59cf208129328cfb7c96",
+      "bytes": 576044,
+      "measured": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.42,
+        "talk_over_sec": 0.35,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.01,
+        "onset_delta_sec": 0.01
+      }
+    },
+    {
+      "id": "ami-en2002b-bc-0859",
+      "category": "should_not_yield",
+      "audio": "audio/ami-en2002b-bc-0859.example.wav",
+      "label": "scenarios/ami-en2002b-bc-0859.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        856.8,
+        865.8
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "8ea55110fc7888a05e1ffb5613fb5d9acfb737cbd5ece0b968cd2858ca18a623",
+      "bytes": 576044,
+      "measured": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 0.39,
+        "talk_over_sec": 0.37,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.02,
+        "onset_delta_sec": 0.02
+      }
+    },
+    {
+      "id": "ami-en2002b-bc-1049",
+      "category": "should_not_yield",
+      "audio": "audio/ami-en2002b-bc-1049.example.wav",
+      "label": "scenarios/ami-en2002b-bc-1049.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        1046.91,
+        1055.91
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "23f20d2a3f033b4725306f589059034d8e822a60250b6e605a67808e4229fc42",
+      "bytes": 576044,
+      "measured": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 0.49,
+        "talk_over_sec": 0.47,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.02,
+        "onset_delta_sec": 0.02
+      }
+    },
+    {
+      "id": "ami-en2002b-bc-1114",
+      "category": "should_not_yield",
+      "audio": "audio/ami-en2002b-bc-1114.example.wav",
+      "label": "scenarios/ami-en2002b-bc-1114.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        1111.86,
+        1120.86
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "3a202f285c252606417cc0b8c422b5288fcdf245b5bb4f6a53eb3de24225cece",
+      "bytes": 576044,
+      "measured": {
+        "passed": true,
+        "did_yield": false,
+        "seconds_to_yield": null,
+        "talk_over_sec": 0.63,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 3.02,
+        "onset_delta_sec": 0.02
+      }
+    },
+    {
+      "id": "ami-en2002b-bc-1416",
+      "category": "should_not_yield",
+      "audio": "audio/ami-en2002b-bc-1416.example.wav",
+      "label": "scenarios/ami-en2002b-bc-1416.json",
+      "meeting": "EN2002b",
+      "window_global_sec": [
+        1413.84,
+        1422.84
+      ],
+      "caller_onset_sec": 3.0,
+      "sha256": "92fa56c97d3f899de73f718566837a9333eab4481a364cb304844e02ac9e2849",
+      "bytes": 576044,
+      "measured": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 0.13,
+        "talk_over_sec": 0.13,
+        "agent_talking_at_onset": true,
+        "detected_onset_sec": 2.9,
+        "onset_delta_sec": -0.1
+      }
+    }
+  ]
+}

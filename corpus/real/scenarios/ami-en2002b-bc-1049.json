@@ -1,0 +1,93 @@
+{
+  "id": "ami-en2002b-bc-1049",
+  "title": "Real backchannel: 'Oh mm-hmm' while the floor holder talks (EN2002b)",
+  "category": "should_not_yield",
+  "source_type": "real",
+  "tags": [
+    "real-audio",
+    "ami",
+    "meeting",
+    "backchannel",
+    "false-trigger"
+  ],
+  "audio": "ami-en2002b-bc-1049.example.wav",
+  "channels": {
+    "caller_channel": 0,
+    "agent_channel": 1
+  },
+  "sample_rate": 16000,
+  "duration_sec": 9.0,
+  "caller_onset_sec": 3.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "caller_segments_sec": [
+      [
+        3.0,
+        3.95
+      ],
+      [
+        6.45,
+        7.61
+      ]
+    ],
+    "agent_segments_sec": [
+      [
+        0.0,
+        9.0
+      ]
+    ]
+  },
+  "transcript": {
+    "caller": "Oh mm-hmm Yeah yeah I can imagine",
+    "agent": "to the actual highlight the transcript or highlight the topic or highlight the summary At that point that's sorta where it starts getting a little bit tricky 'cause you're working with an event handler within the one"
+  },
+  "related_signals": [
+    "did_yield"
+  ],
+  "license": "CC-BY-4.0",
+  "attribution": {
+    "dataset": "AMI Meeting Corpus",
+    "dataset_url": "https://groups.inf.ed.ac.uk/ami/corpus/",
+    "license": "CC-BY-4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "notice": "Contains audio from the AMI Meeting Corpus (https://groups.inf.ed.ac.uk/ami/corpus/), licensed under CC BY 4.0. Changes: cut to a 9 second window, two headset channels paired as caller/agent, 16 kHz 16-bit PCM."
+  },
+  "provenance": {
+    "meeting": "EN2002b",
+    "window_global_sec": [
+      1046.91,
+      1055.91
+    ],
+    "caller": {
+      "nxt_agent": "C",
+      "global_name": "FEO072",
+      "headset_wav": "EN2002b.Headset-2.wav"
+    },
+    "agent": {
+      "nxt_agent": "D",
+      "global_name": "MEE073",
+      "headset_wav": "EN2002b.Headset-3.wav"
+    },
+    "annotation_files": [
+      "words/EN2002b.C.words.xml",
+      "words/EN2002b.D.words.xml"
+    ],
+    "label_provenance": "caller_onset_sec, segments, and the category come from the AMI manual word alignments; the category states what the human floor holder actually did in the recording.",
+    "description": "C acknowledges mid-turn; D keeps the floor for many more seconds per the transcript.",
+    "notes": "The human floor holder pauses briefly right around the backchannel; the energy VAD counts a pause of 0.25 s or more with the caller nearby as a yield, so this clip measures did_yield=true even though the transcript shows the floor holder kept the turn. Real behavior, honestly labeled."
+  },
+  "attestation": {
+    "contributor": "build_real.py (AMI Meeting Corpus extraction)",
+    "consent_on_file": true,
+    "consent_note": "AMI participants consented to recording and public release; the corpus is published under CC BY 4.0 by its creators.",
+    "pii_removed": true,
+    "pii_note": "Speakers are identified only by AMI's anonymised codes (e.g. FEE005). Audio content is the corpus's published, publicly released speech.",
+    "no_phi": true,
+    "right_to_release_mit": false,
+    "release_note": "These clips remain CC BY 4.0 (they are adapted AMI material); they are NOT relicensed MIT and are not part of the MIT contribution corpus. See LICENSES.md."
+  }
+}

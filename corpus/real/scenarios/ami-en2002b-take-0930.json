@@ -1,0 +1,92 @@
+{
+  "id": "ami-en2002b-take-0930",
+  "title": "Real floor-take: caller interrupts and takes the turn (EN2002b)",
+  "category": "should_yield",
+  "source_type": "real",
+  "tags": [
+    "real-audio",
+    "ami",
+    "meeting",
+    "interruption",
+    "barge-in"
+  ],
+  "audio": "ami-en2002b-take-0930.example.wav",
+  "channels": {
+    "caller_channel": 0,
+    "agent_channel": 1
+  },
+  "sample_rate": 16000,
+  "duration_sec": 9.0,
+  "caller_onset_sec": 3.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 3.0,
+    "max_talk_over_sec": 3.0
+  },
+  "reference_render": {
+    "caller_segments_sec": [
+      [
+        3.0,
+        7.12
+      ]
+    ],
+    "agent_segments_sec": [
+      [
+        0.0,
+        5.27
+      ],
+      [
+        7.12,
+        9.0
+      ]
+    ]
+  },
+  "transcript": {
+    "caller": "Yeah I mean we could we could order them by meeting for example",
+    "agent": "Um or we could just put them all into one result pane on that same window and just indicate Yeah Yeah Oh yeah I guess that"
+  },
+  "related_signals": [
+    "did_yield"
+  ],
+  "license": "CC-BY-4.0",
+  "attribution": {
+    "dataset": "AMI Meeting Corpus",
+    "dataset_url": "https://groups.inf.ed.ac.uk/ami/corpus/",
+    "license": "CC-BY-4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "notice": "Contains audio from the AMI Meeting Corpus (https://groups.inf.ed.ac.uk/ami/corpus/), licensed under CC BY 4.0. Changes: cut to a 9 second window, two headset channels paired as caller/agent, 16 kHz 16-bit PCM."
+  },
+  "provenance": {
+    "meeting": "EN2002b",
+    "window_global_sec": [
+      927.8,
+      936.8
+    ],
+    "caller": {
+      "nxt_agent": "C",
+      "global_name": "FEO072",
+      "headset_wav": "EN2002b.Headset-2.wav"
+    },
+    "agent": {
+      "nxt_agent": "D",
+      "global_name": "MEE073",
+      "headset_wav": "EN2002b.Headset-3.wav"
+    },
+    "annotation_files": [
+      "words/EN2002b.C.words.xml",
+      "words/EN2002b.D.words.xml"
+    ],
+    "label_provenance": "caller_onset_sec, segments, and the category come from the AMI manual word alignments; the category states what the human floor holder actually did in the recording.",
+    "description": "C comes in with a counter-proposal while D is talking; D trails off within 2.3 s per the alignments. The trailing words are quiet: the energy VAD reads the agent as done at the onset itself, earlier than the word alignment suggests."
+  },
+  "attestation": {
+    "contributor": "build_real.py (AMI Meeting Corpus extraction)",
+    "consent_on_file": true,
+    "consent_note": "AMI participants consented to recording and public release; the corpus is published under CC BY 4.0 by its creators.",
+    "pii_removed": true,
+    "pii_note": "Speakers are identified only by AMI's anonymised codes (e.g. FEE005). Audio content is the corpus's published, publicly released speech.",
+    "no_phi": true,
+    "right_to_release_mit": false,
+    "release_note": "These clips remain CC BY 4.0 (they are adapted AMI material); they are NOT relicensed MIT and are not part of the MIT contribution corpus. See LICENSES.md."
+  }
+}
