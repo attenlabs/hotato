@@ -2,10 +2,9 @@ include README.md LICENSE SECURITY.md CHANGELOG.md CONTRIBUTING.md METHODOLOGY.m
 recursive-include docs *
 recursive-include adapters *
 recursive-include scripts *
-recursive-include corpus *
-recursive-include examples *
 recursive-include tests *
 recursive-include ci *
 recursive-include .github *
-prune corpus/suites/*/audio
+prune corpus
+prune examples
 global-exclude __pycache__ *.py[cod]
