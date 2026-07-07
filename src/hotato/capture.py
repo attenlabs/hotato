@@ -37,7 +37,6 @@ import os
 import shutil
 import sys
 import tempfile
-from importlib import resources
 from typing import List, Optional, Tuple
 
 from ._engine.audio import write_wav  # noqa: F401  (used by the pipecat scaffold)
@@ -74,11 +73,15 @@ _DEMO_SCENARIO = {
 # --- bundled resources ----------------------------------------------------
 
 def _bundled_audio(name: str):
+    from importlib import resources  # deferred: costs ~17ms at interpreter start
+
     return resources.files("hotato").joinpath("data", "audio", name)
 
 
 def _scenario_meta(scenario_id: str) -> Tuple[Optional[float], str, str]:
     """Read a bundled scenario label -> (caller_onset_sec, expect, title)."""
+    from importlib import resources  # deferred: costs ~17ms at interpreter start
+
     label = resources.files("hotato").joinpath(
         "data", "scenarios", scenario_id + ".json"
     )
@@ -190,6 +193,8 @@ def demo(stack: str, fmt: str = "text") -> int:
     out = tempfile.NamedTemporaryFile(
         prefix=f"hotato-{stack}-", suffix=".captured.wav", delete=False
     ).name
+    from importlib import resources  # deferred: costs ~17ms at interpreter start
+
     with resources.as_file(_bundled_audio(scenario_id + ".example.wav")) as src:
         shutil.copyfile(src, out)
     print(f"[demo] {stack}: bundled two-channel reference '{scenario_id}' ({title})")
