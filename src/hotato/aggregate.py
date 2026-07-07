@@ -195,8 +195,11 @@ def _svg_trend(over_time: list) -> str:
     def Y(rate: float) -> float:
         return ay - rate * (ay - top)
 
+    aria = (f'Pass-rate trend line: one point per run, {len(pts)} plotted '
+            f'runs of {len(over_time)} total, y axis pass rate 0 to 1')
     p = [f'<svg class="trend-svg" viewBox="0 0 {_TEAM_W} {_TEAM_H}" '
          f'width="{_TEAM_W}" height="{_TEAM_H}" role="img" '
+         f'aria-label="{_esc(aria)}" '
          f'font-family="ui-monospace, SFMono-Regular, Menlo, monospace">']
     # y axis: 0, 0.5, 1.0 pass-rate gridlines
     for rate in (0.0, 0.5, 1.0):
@@ -336,7 +339,8 @@ def build_team_page_html(agg: dict) -> str:
         'method and an explicit ceiling. No accuracy score. Pass rates are '
         'counts of real verdicts, shown as 0 to 1 fractions.</footer>'
     )
-    body = f'<div class="wrap">{head}{build_team_section_html(agg)}{foot}</div>'
+    body = (f'<div class="wrap">{head}<main>{build_team_section_html(agg)}'
+            f'</main>{foot}</div>')
     return (
         "<!doctype html>\n<html lang=\"en\"><head>"
         "<meta charset=\"utf-8\">"
