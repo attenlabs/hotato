@@ -7,6 +7,7 @@ on it is a real measurement the scorer produced, and no accuracy percentage or
 competitor vendor name ever leaks onto the page.
 """
 
+import json
 import re
 
 import pytest
@@ -152,6 +153,35 @@ def test_doctor_defaults_to_self_test_without_a_recording(tmp_path):
     code = cli.main(["doctor", "--no-open", "--out", str(out)])
     assert code == 0
     assert out.exists()
+
+
+def test_doctor_format_json_emits_only_the_envelope_on_stdout(tmp_path, capsys):
+    # Mirrors `demo --format json`: stdout is the pure machine envelope, the
+    # report path and every human-readable line land on stderr instead.
+    out = tmp_path / "doctor3.html"
+    code = cli.main(["doctor", "--demo", "--no-open", "--format", "json",
+                      "--out", str(out)])
+    assert code == 0
+    cap = capsys.readouterr()
+    env = json.loads(cap.out)  # raises if stdout carries anything but JSON
+    assert env["tool"] == "hotato"
+    assert "ok" not in env
+    assert f"report: {out}" in cap.err
+    assert cap.out.strip().endswith("}")  # nothing appended after the envelope
+    assert out.exists()
+
+
+def test_doctor_format_json_scores_a_real_recording(tmp_path, capsys):
+    from importlib import resources
+
+    wav = str(resources.files("hotato").joinpath(
+        "data", "audio", "01-hard-interruption.example.wav"))
+    out = tmp_path / "doctor4.html"
+    code = cli.main(["doctor", "--stereo", wav, "--no-open", "--format", "json",
+                      "--out", str(out)])
+    env = json.loads(capsys.readouterr().out)
+    assert env["mode"] == "single"
+    assert code == env["exit_code"]
 
 
 # --- audio embedding (--embed-audio) ---------------------------------------
