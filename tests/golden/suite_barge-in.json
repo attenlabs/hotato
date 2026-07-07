@@ -23,6 +23,11 @@
           "talk_over_sec": 0.5,
           "time_to_yield_sec": 0.5
         },
+        "echo": {
+          "coherence": 0.306,
+          "echo_suspected": false,
+          "lag_sec": 0.5
+        },
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
@@ -54,6 +59,11 @@
           "did_yield": false,
           "talk_over_sec": 1.57,
           "time_to_yield_sec": null
+        },
+        "echo": {
+          "coherence": 0.446,
+          "echo_suspected": false,
+          "lag_sec": 0.5
         },
         "latency": {
           "premature_start_sec": null,
@@ -87,6 +97,11 @@
           "talk_over_sec": 0.56,
           "time_to_yield_sec": 0.65
         },
+        "echo": {
+          "coherence": 0.294,
+          "echo_suspected": false,
+          "lag_sec": 0.41
+        },
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
@@ -118,6 +133,11 @@
           "did_yield": true,
           "talk_over_sec": 0.5,
           "time_to_yield_sec": 0.5
+        },
+        "echo": {
+          "coherence": 0.327,
+          "echo_suspected": false,
+          "lag_sec": 0.37
         },
         "latency": {
           "premature_start_sec": null,
@@ -151,6 +171,11 @@
           "talk_over_sec": 0.5,
           "time_to_yield_sec": 0.5
         },
+        "echo": {
+          "coherence": 0.352,
+          "echo_suspected": false,
+          "lag_sec": 0.41
+        },
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
@@ -182,6 +207,11 @@
           "did_yield": true,
           "talk_over_sec": 1.05,
           "time_to_yield_sec": 1.05
+        },
+        "echo": {
+          "coherence": 0.417,
+          "echo_suspected": false,
+          "lag_sec": 0.41
         },
         "latency": {
           "premature_start_sec": null,
@@ -215,6 +245,11 @@
           "talk_over_sec": 3.0,
           "time_to_yield_sec": null
         },
+        "echo": {
+          "coherence": 1.0,
+          "echo_suspected": true,
+          "lag_sec": 0.12
+        },
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
@@ -246,6 +281,11 @@
           "did_yield": true,
           "talk_over_sec": 0.5,
           "time_to_yield_sec": 0.5
+        },
+        "echo": {
+          "coherence": 0.288,
+          "echo_suspected": false,
+          "lag_sec": 0.45
         },
         "latency": {
           "premature_start_sec": 0.0,

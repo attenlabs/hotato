@@ -187,6 +187,7 @@ def _cmd_run(args) -> int:
             audio_dir=args.audio,
             caller_channel=args.caller_channel,
             agent_channel=args.agent_channel,
+            echo_gate=getattr(args, "echo_gate", False),
         )
         if backend != "energy":
             print(_SUITE_ENERGY_ONLY_NOTE, file=sys.stderr)
@@ -217,6 +218,7 @@ def _cmd_run(args) -> int:
             max_talk_over_sec=args.max_talk_over,
             max_time_to_yield_sec=args.max_time_to_yield,
             cfg=cfg,
+            echo_gate=getattr(args, "echo_gate", False),
         )
     _emit(env, args.format)
     if args.no_fail:
@@ -955,6 +957,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "active flags, threshold and noise floor for both channels) "
                         "to PATH as JSON, so every reported number is re-derivable "
                         "by hand; requires a single recording (--stereo or --caller/--agent)")
+    r.add_argument("--echo-gate", action="store_true",
+                   help="hold a yield out of the verdict (mark it not-scorable) when it "
+                        "coincides with high cross-channel echo coherence, i.e. the agent "
+                        "most likely heard its own audio bleed rather than a real caller; "
+                        "off by default, and the additive signals.echo block is always "
+                        "reported either way")
     r.add_argument("--no-fail", action="store_true", help="always exit 0 (do not fail CI on a regression)")
     r.set_defaults(func=_cmd_run)
 
