@@ -15,6 +15,11 @@ recording and lists the moments where turn-taking physically happened:
                                 caller energy anywhere nearby; nothing on the
                                 caller channel explains the drop (not a
                                 barge-in, not a caller-driven handoff)
+  echo_correlated_activity      a caller run whose envelope is a lag-shifted
+                                copy of the agent's own audio (high cross-channel
+                                cosine coherence); the "caller" energy is likely
+                                leaked TTS, so any yield to it may be the agent
+                                hearing itself, not a real interruption
 
 HONESTY, stated once and repeated in the output header: candidates are timing
 events. This tool cannot know whether a caller sound was "mhm" or "stop";
@@ -65,7 +70,8 @@ __all__ = ["scan_recording", "render_text", "KINDS", "SCAN_NOTE",
            "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC"]
 
 KINDS = ("overlap_while_agent_talking", "agent_start_during_caller",
-         "long_response_gap", "agent_stop_no_caller")
+         "long_response_gap", "agent_stop_no_caller",
+         "echo_correlated_activity")
 
 SCAN_NOTE = (
     "Candidates are timing events. You decide the expected behavior; label "
@@ -403,6 +409,35 @@ def scan_recording(
             "_salience": trailing * hop,
         })
 
+    # 5. echo-correlated caller activity: the caller channel is carrying a
+    #    lag-shifted copy of the agent's OWN audio (leaked TTS), not independent
+    #    speech. Computed on the same RMS envelopes: a whole-call coherence finds
+    #    the echo lag, then each caller run is scored locally at that lag. Runs
+    #    above the coherence threshold are flagged so a "barge-in" that is really
+    #    the agent hearing itself is not mistaken for a real caller event.
+    from .echo import (echo_signal, window_cosine,
+                       DEFAULT_COHERENCE_THRESHOLD)
+    echo = echo_signal(rms_c[:n], rms_a[:n], hop)
+    if echo["echo_suspected"]:
+        lag_frames = int(round(echo["lag_sec"] / hop))
+        for cs, ce in caller_runs:
+            coh = window_cosine(rms_c, rms_a, cs, ce, lag_frames)
+            if coh < DEFAULT_COHERENCE_THRESHOLD:
+                continue
+            candidates.append({
+                "t_sec": round(cs * hop, 3),
+                "kind": "echo_correlated_activity",
+                "durations": {
+                    "activity_sec": round((ce - cs) * hop, 3),
+                    "lag_sec": echo["lag_sec"],
+                },
+                "agent_reaction": {
+                    "coherence": round(coh, 3),
+                    "echo_suspected": True,
+                },
+                "_salience": coh,
+            })
+
     candidates.sort(key=lambda c: (-c["_salience"], c["t_sec"]))
     for c in candidates:
         del c["_salience"]
@@ -445,6 +480,11 @@ def _line(i: int, c: dict) -> str:
         nxt = c["agent_reaction"]["next_agent_onset_sec"]
         detail += (f"  next agent onset {nxt:.2f}s" if nxt is not None
                    else "  no agent onset before the end of the recording")
+    elif c["kind"] == "echo_correlated_activity":
+        coh = c["agent_reaction"]["coherence"]
+        detail = (f"WARNING likely agent echo: coherence={coh:.2f} at lag "
+                  f"{d['lag_sec']:.2f}s  (caller channel looks like leaked TTS; "
+                  f"a yield here may be the agent hearing itself)")
     else:
         detail = (f"trailing silence={d['trailing_silence_sec']:.2f}s  "
                   f"no caller energy within {d['caller_proximity_sec']:.2f}s")

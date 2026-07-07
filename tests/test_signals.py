@@ -301,6 +301,8 @@ def test_every_event_carries_full_signal_bus():
     env = run_suite(suite="barge-in")
     for e in env["events"]:
         sig = e["signals"]
-        assert set(sig.keys()) == {"barge_in", "latency"}, e["scenario_id"]
+        # echo is an additive dimension alongside barge_in and latency.
+        assert set(sig.keys()) == {"barge_in", "latency", "echo"}, e["scenario_id"]
         assert set(sig["barge_in"]) == {"did_yield", "time_to_yield_sec", "talk_over_sec"}
         assert set(sig["latency"]) == {"response_gap_sec", "premature_start_sec"}
+        assert set(sig["echo"]) == {"coherence", "lag_sec", "echo_suspected"}

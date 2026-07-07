@@ -192,6 +192,29 @@ def _latency(event: dict) -> dict:
     return (event.get("signals") or {}).get("latency") or {}
 
 
+def _echo(event: dict) -> dict:
+    return (event.get("signals") or {}).get("echo") or {}
+
+
+def echo_warnings(events: list) -> list:
+    """Every event that YIELDED while the caller channel showed high
+    cross-channel echo coherence. Such a yield may be the agent hearing its own
+    audio bleed rather than a real caller, so it must not be read as a clean
+    yield. Read-only; deterministic; independent of pass/fail."""
+    out = []
+    for e in events:
+        echo = _echo(e)
+        did_yield = (e.get("verdict") or {}).get("did_yield")
+        if did_yield and echo.get("echo_suspected"):
+            out.append({
+                "event_id": e.get("event_id"),
+                "scenario_id": e.get("scenario_id"),
+                "coherence": echo.get("coherence"),
+                "lag_sec": echo.get("lag_sec"),
+            })
+    return out
+
+
 def _evidence(event: dict) -> dict:
     """The real measured fields for one event; nothing derived, nothing guessed."""
     verdict = event.get("verdict") or {}
@@ -541,6 +564,7 @@ def diagnose_envelope(env: dict, source: Optional[str] = None) -> dict:
         "mode": env.get("mode"),
         "stack": env.get("stack", "generic"),
         "diagnoses": diagnoses,
+        "echo_warnings": echo_warnings(events),
         "battery": _battery_block(events, diagnoses, coverage, funnel),
     }
 
@@ -553,6 +577,16 @@ def render_text(diagnosis: dict) -> str:
         f"  {b['passed']}/{b['events']} events pass  (failed={b['failed']}, "
         f"not_scorable={b['not_scorable']})",
     ]
+    for w in diagnosis.get("echo_warnings") or []:
+        lines.append(
+            f"  WARNING echo-suspected yield: {w['event_id']}  "
+            f"coherence={w['coherence']} at lag {w['lag_sec']}s"
+        )
+        lines.append(
+            "    This yield may be the agent hearing its own audio bleed on the "
+            "caller channel, not a real caller. Do not treat it as a clean "
+            "yield; fix echo cancellation / channel separation before tuning."
+        )
     for d in diagnosis["diagnoses"]:
         layer = d["likely_layer"] or "input"
         lines.append(

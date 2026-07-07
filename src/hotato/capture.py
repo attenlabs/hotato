@@ -161,6 +161,16 @@ def report(env: dict, fmt: str = "text") -> int:
             f"  [{mark}] {ev['event_id']}: did_yield={v['did_yield']} "
             f"seconds_to_yield={tty_s} talk_over={v['talk_over_sec']:.2f}s"
         )
+        echo = (ev.get("signals") or {}).get("echo") or {}
+        if v["did_yield"] and echo.get("echo_suspected"):
+            print(
+                "         WARNING: this yield coincides with high cross-channel "
+                f"echo coherence ({echo.get('coherence')} at lag "
+                f"{echo.get('lag_sec')}s). The caller channel looks like a copy "
+                "of the agent's own audio, so the agent may have yielded to its "
+                "own voice bleed, not a real caller. Do not treat this as a "
+                "clean yield; check echo cancellation / channel separation."
+            )
         if not v["passed"] and ev.get("fix"):
             fx = ev["fix"]
             print(f"         fix[{fx['fix_class']}]: {fx['title']}")

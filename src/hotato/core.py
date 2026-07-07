@@ -117,9 +117,18 @@ def _event_from_result(
     tags: Optional[list] = None,
     title: Optional[str] = None,
     onset_provided: bool = True,
+    echo: Optional[dict] = None,
+    echo_gate: bool = False,
 ) -> dict:
     verdict = evaluate(result, expected)
     expected_yield = bool(expected.get("yield", True))
+    # Namespaced signal bus (additive; schema_version stays "1"). signals.barge_in
+    # mirrors the verdict's three original values byte-for-byte; signals.latency
+    # adds the pure-timing endpointing measurements; signals.echo (this addition)
+    # is the ADDITIVE cross-channel coherence block, computed entirely in hotato's
+    # own layer. New dimensions slot in here without changing the existing verdict
+    # or measurements blocks.
+    signals = result.signals if echo is None else {**result.signals, "echo": echo}
     event = {
         "event_id": event_id,
         "scenario_id": scenario_id,
@@ -139,16 +148,32 @@ def _event_from_result(
             "hop_sec": result.hop_sec,
             "notes": result.notes,
         },
-        # Namespaced signal bus (additive; schema_version stays "1"). signals.barge_in
-        # mirrors the verdict's three original values byte-for-byte; signals.latency
-        # adds the pure-timing endpointing measurements. New dimensions slot in here
-        # without changing the existing verdict or measurements blocks.
-        "signals": result.signals,
+        "signals": signals,
         "fix": None,
     }
     reason = _not_scorable_reason(
         result=result, expected_yield=expected_yield, onset_provided=onset_provided
     )
+    # Echo gate (OPT-IN, off by default): a yield that coincides with high
+    # cross-channel echo coherence is most likely the agent hearing its own TTS
+    # bleed, not a real caller event. Rather than count that spurious yield, hold
+    # it out of the verdict exactly like any other not-scorable input problem.
+    # This never fires on clean audio and, being opt-in, never changes a default
+    # run: it is a stricter mode a user asks for explicitly.
+    if (
+        reason is None
+        and echo_gate
+        and echo is not None
+        and echo.get("echo_suspected")
+        and result.did_yield
+    ):
+        reason = (
+            "the yield coincides with high cross-channel echo coherence "
+            f"(coherence {echo.get('coherence')} at lag {echo.get('lag_sec')}s), "
+            "so it is most likely the agent hearing its own audio bleed rather "
+            "than a real caller. Fix the audio path (echo cancellation, channel "
+            "separation) before treating this as a yield."
+        )
     if reason is not None:
         # The `scorable` key is emitted ONLY here, on not-scorable events, so
         # every envelope for a valid recording stays byte-identical to before.
@@ -318,6 +343,19 @@ def _require_channel(signal, index: int, role: str) -> None:
         )
 
 
+def _echo_block(caller_samples, agent_samples, sample_rate: int, cfg: ScoreConfig) -> dict:
+    """The additive ``signals.echo`` cross-channel coherence block for one
+    recording, framed exactly like the engine's VAD tracks. Computed in hotato's
+    own layer (see ``echo.py``); never touches the vendored engine and never
+    changes any existing number."""
+    from .echo import echo_block_from_samples
+
+    return echo_block_from_samples(
+        caller_samples, agent_samples, sample_rate,
+        frame_ms=cfg.frame_ms, hop_ms=cfg.hop_ms,
+    )
+
+
 def _check_onset(onset_sec: Optional[float]) -> None:
     if onset_sec is not None and onset_sec < 0:
         raise ValueError(
@@ -341,6 +379,7 @@ def run_single(
     max_talk_over_sec: Optional[float] = None,
     max_time_to_yield_sec: Optional[float] = None,
     cfg: Optional[ScoreConfig] = None,
+    echo_gate: bool = False,
 ) -> dict:
     """Score ONE recording and return the standard envelope.
 
@@ -348,6 +387,10 @@ def run_single(
     ``agent`` mono WAVs. ``expect`` is 'yield' (the agent should stop for the
     caller) or 'hold' (the caller event is a backchannel and the agent should
     keep the floor).
+
+    ``echo_gate`` (opt-in, default off) holds a yield out of the verdict when it
+    coincides with high cross-channel echo coherence; the additive
+    ``signals.echo`` block is always attached regardless.
     """
     if cfg is None:
         cfg = ScoreConfig()
@@ -365,6 +408,10 @@ def run_single(
         result = score_stereo(
             signal, caller_channel, agent_channel, caller_onset_sec=onset_sec, cfg=cfg
         )
+        echo = _echo_block(
+            signal.get(caller_channel), signal.get(agent_channel),
+            signal.sample_rate, cfg,
+        )
         source = os.path.basename(stereo)
     elif caller and agent:
         c = _read_wav(caller)
@@ -378,6 +425,7 @@ def run_single(
         result = score_channels(
             c.get(0)[:n], a.get(0)[:n], c.sample_rate, caller_onset_sec=onset_sec, cfg=cfg
         )
+        echo = _echo_block(c.get(0)[:n], a.get(0)[:n], c.sample_rate, cfg)
         source = f"{os.path.basename(caller)}+{os.path.basename(agent)}"
     else:
         raise ValueError("provide --stereo FILE, or both --caller FILE and --agent FILE")
@@ -397,6 +445,8 @@ def run_single(
         category="should_yield" if want_yield else "should_not_yield",
         title=f"single recording ({source})",
         onset_provided=onset_sec is not None,
+        echo=echo,
+        echo_gate=echo_gate,
     )
     return _envelope(mode="single", stack=stack, events=[event])
 
@@ -532,6 +582,7 @@ def run_suite(
     caller_channel: int = 0,
     agent_channel: int = 1,
     cfg: Optional[ScoreConfig] = None,
+    echo_gate: bool = False,
 ) -> dict:
     """Run the labelled battery and return the standard envelope.
 
@@ -588,6 +639,11 @@ def run_suite(
                             "response_gap_sec": None,
                             "premature_start_sec": None,
                         },
+                        "echo": {
+                            "coherence": 0.0,
+                            "lag_sec": 0.0,
+                            "echo_suspected": False,
+                        },
                     },
                     "fix": {
                         "fix_class": "config",
@@ -616,6 +672,10 @@ def run_suite(
             caller_onset_sec=scenario_onset,
             cfg=cfg,
         )
+        echo = _echo_block(
+            signal.get(caller_channel), signal.get(agent_channel),
+            signal.sample_rate, cfg,
+        )
         events.append(
             _event_from_result(
                 event_id=sid,
@@ -627,6 +687,8 @@ def run_suite(
                 tags=sc.get("tags"),
                 title=sc.get("title"),
                 onset_provided=scenario_onset is not None,
+                echo=echo,
+                echo_gate=echo_gate,
             )
         )
 
