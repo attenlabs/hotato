@@ -1,10 +1,12 @@
 include README.md LICENSE SECURITY.md CHANGELOG.md CONTRIBUTING.md METHODOLOGY.md llms.txt sync_engine.py
 recursive-include docs *
+prune docs/assets
 recursive-include adapters *
 recursive-include scripts *
 recursive-include tests *
 recursive-include ci *
 recursive-include .github *
+exclude .github/banner.png
 prune corpus
 prune examples
 global-exclude __pycache__ *.py[cod]
