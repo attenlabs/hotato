@@ -847,6 +847,24 @@ def _cmd_scan(args) -> int:
     return 0
 
 
+def _cmd_ingest(args) -> int:
+    from . import ingest as _ingest
+
+    return _ingest.run_ingest(
+        args.stack,
+        event=args.event,
+        call_id=args.call_id,
+        recording_sid=args.recording_sid,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+        allow_mono=args.allow_mono,
+        out=args.out,
+        fmt=args.format,
+        top=args.top,
+        min_gap=args.min_gap,
+    )
+
+
 _DEMO_HEADER = "hotato demo: intentionally bad agent battery"
 _DEMO_NOTE = "demo is intentionally failing; use this to see what Hotato catches."
 
@@ -1669,6 +1687,76 @@ def build_parser() -> argparse.ArgumentParser:
                     help="write EVERY candidate as JSON here (--top caps only "
                          "the stdout listing)")
     sc.set_defaults(func=_cmd_scan)
+
+    # --- ingest: the composable passive on-ramp (webhook -> candidates) ------
+    ig = sub.add_parser(
+        "ingest",
+        help="wire a webhook to auto-scan every completed call for candidate "
+             "moments (discovery, not a verdict)",
+        description=(
+            "The composable passive on-ramp: point a webhook at `hotato ingest` "
+            "once and every completed call is scanned for CANDIDATE turn-taking "
+            "moments automatically, so you never have to remember to run a CLI "
+            "after a bad call. It COMPOSES existing primitives -- it parses the "
+            "platform's webhook payload for the call id / recording locator, "
+            "reuses the SAME per-stack fetch as `hotato capture` to pull the "
+            "dual-channel recording, then runs `hotato scan` for candidates. "
+            "Ingest is DISCOVERY, never a pass/fail and never an intent claim: "
+            "it surfaces TIMING candidates only. You review them and promote one "
+            "to a permanent regression test with `hotato fixture create` -- the "
+            "human label step stays human; ingest never auto-labels, "
+            "auto-fixtures, or auto-tunes. It is NOT a daemon: Hotato ships the "
+            "command, YOU own the trigger (a webhook handler, a serverless "
+            "function, a cron over your call log). The only network is the same "
+            "recording fetch `capture` does; everything else is offline. A "
+            "webhook payload is untrusted DATA and is never executed."
+        ),
+        epilog=(
+            "Exit codes: 0 = ran (candidates reported, possibly zero); "
+            "2 = parse / fetch / IO error or not-scorable input. NOT a "
+            "pass/fail.\n\n"
+            "Wire your webhook -> hotato ingest (see docs/INGEST.md):\n"
+            "  # in your webhook handler, save the payload and call ingest\n"
+            "  hotato ingest --stack vapi   --event payload.json    # + VAPI_API_KEY\n"
+            "  hotato ingest --stack retell --event payload.json    # + RETELL_API_KEY\n"
+            "  hotato ingest --stack twilio --event payload.json    # + TWILIO_ACCOUNT_SID/TOKEN\n"
+            "  hotato ingest --stack livekit --event payload.json   # egress file locator\n"
+            "  hotato ingest --stack pipecat --event payload.json   # your own event\n\n"
+            "Or skip the payload with a direct id:\n"
+            "  hotato ingest --stack vapi   --call-id <id> --out candidates.html\n"
+            "  hotato ingest --stack twilio --recording-sid RE... --format json\n\n"
+            "Then promote a candidate to a regression test:\n"
+            "  hotato fixture create --stereo <call>.wav --onset <t> \\\n"
+            "      --expect yield|hold --id found-moment-001 --out tests/hotato"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ig.add_argument("--stack", required=True, choices=list(_capture.STACKS),
+                    help="voice stack the webhook came from")
+    ig.add_argument("--event", metavar="PAYLOAD.json",
+                    help="the platform webhook payload (JSON, or a form-encoded "
+                         "body for Twilio); untrusted DATA, never executed")
+    ig.add_argument("--call-id", metavar="ID",
+                    help="[vapi|retell] a call id directly, instead of --event")
+    ig.add_argument("--recording-sid", metavar="RE...",
+                    help="[twilio] a Recording SID directly, instead of --event")
+    ig.add_argument("--allow-mono", action="store_true",
+                    help="let the fetch pull a mono-only recording (retell/twilio); "
+                         "discovery still needs 2 channels to attribute overlap, so "
+                         "a mono mix is reported not-scorable (exit 2)")
+    ig.add_argument("--caller-channel", type=int, default=0)
+    ig.add_argument("--agent-channel", type=int, default=1)
+    ig.add_argument("--top", type=int, default=20,
+                    help="cap the listing by salience (longest overlap or gap "
+                         "first); 0 shows all (default 20)")
+    ig.add_argument("--min-gap", type=float, default=2.0,
+                    help="minimum response gap in seconds to surface as a "
+                         "candidate (default 2.0)")
+    ig.add_argument("--format", default="text", choices=["text", "json"],
+                    help="stdout format (default text); JSON is the candidate list")
+    ig.add_argument("--out", default=None, metavar="report.html",
+                    help="also write an HTML candidate report here (all candidates)")
+    ig.set_defaults(func=_cmd_ingest)
 
     return p
 
