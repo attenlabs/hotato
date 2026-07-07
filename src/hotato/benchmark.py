@@ -400,6 +400,21 @@ def _repo_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def _examples_root() -> str:
+    """The out-of-package ``examples/`` tree, found package-relative first and,
+    failing that, relative to the current working directory. The CWD fallback
+    matters when hotato is pip-installed (``_repo_root()`` then points inside
+    site-packages) yet run from a source checkout, for example the extracted
+    sdist whose tests run from the tree root. Returns the package-relative path
+    unchanged when no examples tree exists, so an end-user install with no
+    checkout still resolves to bundled-only."""
+    for base in (_repo_root(), os.getcwd()):
+        cand = os.path.join(base, "examples")
+        if os.path.isdir(os.path.join(cand, "scenarios")):
+            return cand
+    return os.path.join(_repo_root(), "examples")
+
+
 def default_fixture_sets() -> List[FixtureSet]:
     """Every SYNTHETIC labelled set available in this checkout.
 
@@ -409,7 +424,7 @@ def default_fixture_sets() -> List[FixtureSet]:
     synthetic floors, clearly labelled as such -- never passed off as real.
     """
     sets = [load_bundled_set()]
-    examples = os.path.join(_repo_root(), "examples")
+    examples = _examples_root()
     ex_scen = os.path.join(examples, "scenarios")
     ex_aud = os.path.join(examples, "audio")
     if os.path.isdir(ex_scen) and os.path.isdir(ex_aud):
