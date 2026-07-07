@@ -8,8 +8,19 @@ are inside the crop).
 
 import os
 
+import pytest
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = os.path.join(ROOT, "docs", "assets")
+
+# docs/assets/ is a screenshot artifact pruned from the sdist to keep it lean
+# (regenerated with scripts/render_readme_assets.py, which needs a browser). In
+# a source checkout the assets are present and these tests run; from an extracted
+# sdist they are legitimately absent, so skip rather than error.
+_HAVE_ASSETS = os.path.isdir(ASSETS)
+pytestmark = pytest.mark.skipif(
+    not _HAVE_ASSETS, reason="docs/assets pruned from sdist (regenerate in a checkout)"
+)
 
 
 def test_demo_report_png_exists_and_is_a_real_png():
