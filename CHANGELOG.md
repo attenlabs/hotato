@@ -9,6 +9,22 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+### Fixed
+- **Softer unsourced wording in `docs/WHY.md` and `README.md`**: "about one in
+  five reported barge-in bugs" is now "in our observed reports, many alleged
+  barge-in bugs," and "the two highest-frequency complaints" is now "two
+  common complaints"; no percentage or frequency ranking is claimed. Same
+  treatment for "four timing failures dominate real transcripts" in
+  `docs/WHY.md`, now "show up again and again."
+
+### Added
+- **CI sdist guard**: a new `sdist-guard` job in
+  `.github/workflows/tests.yml`, separate from the `pytest` job, builds the
+  sdist, extracts it to a clean directory, installs only that extracted tree
+  into a fresh venv, and runs the full pytest suite from inside it. Fails the
+  build on any collection error. This is the failure mode that shipped
+  unguarded in 0.2.3 and 0.3.0: a green wheel masked a broken sdist.
+
 ## [0.3.1] - 2026-07-07
 
 ### Fixed

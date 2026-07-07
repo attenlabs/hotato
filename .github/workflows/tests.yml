@@ -17,3 +17,43 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: python -m pytest -q
+
+  # Guard against a green wheel masking a broken sdist (shipped in 0.2.3 and
+  # 0.3.0: MANIFEST.in omitted small non-audio test dependencies, so an
+  # extracted sdist hit collection errors even though the editable install
+  # above was fine). This job builds the sdist, extracts it to a CLEAN
+  # directory (no leftover repo files to paper over a MANIFEST gap), installs
+  # ONLY that extracted tree into a fresh venv, and runs the full suite from
+  # inside it. Kept as its own job, separate from `pytest` above, on purpose.
+  sdist-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+
+      - name: Extract the sdist to a clean directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdist-extract"
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP/sdist-extract"
+          sdist_dir=$(find "$RUNNER_TEMP/sdist-extract" -mindepth 1 -maxdepth 1 -type d)
+          echo "SDIST_DIR=$sdist_dir" >> "$GITHUB_ENV"
+
+      - name: Install the extracted sdist plus test deps into a fresh venv
+        run: |
+          python -m venv "$RUNNER_TEMP/sdist-venv"
+          "$RUNNER_TEMP/sdist-venv/bin/pip" install "$SDIST_DIR[dev]"
+
+      # Run FROM the extracted tree, not the checkout: this is what proves the
+      # sdist is self-consistent. Fails the build (nonzero exit) on any
+      # collection error; skips remain allowed for genuinely-absent heavy real
+      # audio fixtures.
+      - name: Run the full suite from the extracted sdist tree
+        working-directory: ${{ env.SDIST_DIR }}
+        run: $RUNNER_TEMP/sdist-venv/bin/python -m pytest -q
