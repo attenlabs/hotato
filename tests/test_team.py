@@ -12,9 +12,13 @@ import pytest
 from hotato import aggregate, cli
 
 
-def _env(passed, tovs, ttys, fix_class=None):
+def _env(passed, tovs, ttys, fix_class=None, rgaps=None):
     events = []
     for i, p in enumerate(passed):
+        signals = {}
+        if rgaps is not None and rgaps[i] is not None:
+            signals = {"latency": {"response_gap_sec": rgaps[i],
+                                   "premature_start_sec": None}}
         e = {
             "event_id": f"e{i}",
             "scenario_id": f"e{i}",
@@ -27,7 +31,7 @@ def _env(passed, tovs, ttys, fix_class=None):
                 "reasons": [] if p else ["expected the agent to yield"],
             },
             "measurements": {},
-            "signals": {},
+            "signals": signals,
             "fix": None,
         }
         if not p:
@@ -62,6 +66,78 @@ def _write_runs(dirpath):
         with open(p, "w", encoding="utf-8") as fh:
             json.dump(env, fh)
         os.utime(p, (mtime, mtime))
+
+
+def _write_runs_with_gaps(dirpath):
+    """Three synthetic runs with known response_gap_sec values, pooled:
+    [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]."""
+    runs = {
+        "001.json": (_env([True, True], [0.3, 0.4], [0.6, 0.7],
+                          rgaps=[0.2, 0.3]), 1000),
+        "002.json": (_env([True, True], [0.1, 0.2], [0.5, 0.6],
+                          rgaps=[0.4, 0.5]), 2000),
+        "003.json": (_env([True, True], [0.5, 0.6], [0.7, 0.8],
+                          rgaps=[0.6, 0.7]), 3000),
+    }
+    for name, (env, mtime) in runs.items():
+        p = os.path.join(str(dirpath), name)
+        with open(p, "w", encoding="utf-8") as fh:
+            json.dump(env, fh)
+        os.utime(p, (mtime, mtime))
+
+
+def test_response_gap_percentile_math_on_known_events(tmp_path):
+    _write_runs_with_gaps(tmp_path)
+    loaded = aggregate.load_run_dir(str(tmp_path), order="mtime")
+    agg = aggregate.aggregate_runs(loaded["runs"], order="mtime")
+
+    d = agg["response_gap_sec"]
+    assert d["n"] == 6
+    assert d["min"] == 0.2 and d["max"] == 0.7
+    assert d["mean"] == 0.45
+    assert d["median"] == 0.45
+    # p90: pos = 0.9*5 = 4.5 -> 0.6 + 0.5*0.1 = 0.65
+    assert d["p90"] == 0.65
+    # p95: pos = 0.95*5 = 4.75 -> 0.6 + 0.75*0.1 = 0.675
+    assert d["p95"] == 0.675
+
+    # gate not configured -> never a failure
+    sla = agg["latency_sla"]
+    assert sla == {"bound_sec": None, "observed_p95_sec": 0.675, "passed": None}
+    assert agg["exit_code"] == 0
+
+
+def test_latency_sla_gate_fails_over_bound_and_passes_under_it(tmp_path):
+    _write_runs_with_gaps(tmp_path)
+    loaded = aggregate.load_run_dir(str(tmp_path), order="mtime")
+
+    over = aggregate.aggregate_runs(loaded["runs"], order="mtime",
+                                    max_response_gap_sec=0.5)
+    assert over["latency_sla"]["passed"] is False
+    assert over["exit_code"] == 1
+
+    under = aggregate.aggregate_runs(loaded["runs"], order="mtime",
+                                     max_response_gap_sec=0.9)
+    assert under["latency_sla"]["passed"] is True
+    assert under["exit_code"] == 0
+
+
+def test_team_cli_latency_sla_gate(tmp_path, capsys):
+    _write_runs_with_gaps(tmp_path)
+    code = cli.main(["team", str(tmp_path), "--max-response-gap", "0.5"])
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "response gap: mean 0.45s median 0.45s p90 0.65s p95 0.68s (n=6)" in out
+    assert "latency SLA: p95 response gap 0.68s vs bound 0.50s (fail)" in out
+
+    code = cli.main(["team", str(tmp_path), "--max-response-gap", "0.5",
+                     "--no-fail"])
+    assert code == 0
+
+    code = cli.main(["team", str(tmp_path), "--max-response-gap", "0.9"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "(pass)" in out
 
 
 def test_aggregate_math_on_synthetic_envelopes(tmp_path):
