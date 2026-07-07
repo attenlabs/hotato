@@ -3,8 +3,8 @@
 ## Voice agents fail in ways your tests do not catch
 
 Your test suite checks what the agent says. Production calls fail on when it
-speaks. Four timing failures dominate real transcripts, and all four are
-invisible to text-level tests:
+speaks. Four timing failures show up again and again in real transcripts, and
+all four are invisible to text-level tests:
 
 1. **Missed interruption.** The caller says "stop, take that off" and the agent
    keeps talking. `did_yield` is false where it must be true. The caller
@@ -32,8 +32,8 @@ measures whether the timing matched that label.
 
 ## Is this even a turn-taking bug?
 
-About one in five reported "barge-in bugs" turn out not to be turn-taking
-bugs at all. Each of these produces a symptom that reads exactly like a
+In our observed reports, many alleged barge-in bugs turn out not to be
+turn-taking bugs at all. Each of these produces a symptom that reads exactly like a
 missed interruption or a false stop, but the fix lives in a different layer,
 and no VAD threshold will ever touch it:
 
@@ -66,11 +66,10 @@ and no VAD threshold will ever touch it:
 This is both an honesty guard and a shortcut. If your bug matches one of
 these five, Hotato will not find it no matter how you tune it, because it is
 not a timing bug; you will save the day you would have spent staring at
-`turn_end_silence_sec`. If it matches none of them: agent-talks-over-caller
-and false-stop-on-backchannel are the two highest-frequency complaints
-reported against production voice agents, and that is exactly what Hotato
-measures, with the funnel (no single config value fixes both directions at
-once) proven on real recorded calls, not synthetic fixtures
+`turn_end_silence_sec`. If it matches none of them: two common complaints are
+agent-talks-over-caller and false-stop-on-backchannel, and that is exactly what
+Hotato measures, with the funnel (no single config value fixes both directions
+at once) proven on real recorded calls, not synthetic fixtures
 (`corpus/vapi-defaults/README.md`).
 
 ## What makes Hotato different

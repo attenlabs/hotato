@@ -95,7 +95,7 @@ Each `config` fix states which direction to move the setting and what that trade
 
 ## Is this even a turn-taking bug?
 
-About one in five reported "barge-in bugs" are not turn-taking bugs. Before
+In our observed reports, many alleged "barge-in bugs" are not turn-taking bugs. Before
 tuning a threshold, rule out: **STT hallucination** (the transcript has words
 nobody said; check ASR word-error-rate, not VAD), **client-side audio
 buffering** (the caller's own device queues audio before it reaches the
@@ -108,11 +108,11 @@ identical to a false stop on a backchannel; check your safety logs), and
 covers poorly, which reads as a missed interruption; check per-locale STT
 accuracy). Full breakdown: [`docs/WHY.md`](docs/WHY.md#is-this-even-a-turn-taking-bug).
 
-If your bug is not one of those five: agent-talks-over-caller and
-false-stop-on-backchannel are the two highest-frequency complaints reported
-against production voice agents, and that funnel, no single config value
-fixes both directions at once, is exactly what Hotato measures, proven on
-real recorded calls, not synthetic fixtures (see Real calls, below).
+If your bug is not one of those five: two common complaints are
+agent-talks-over-caller and false-stop-on-backchannel, and that funnel, no
+single config value fixes both directions at once, is exactly what Hotato
+measures, proven on real recorded calls, not synthetic fixtures (see Real
+calls, below).
 
 ## CI
 
