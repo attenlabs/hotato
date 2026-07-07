@@ -119,6 +119,16 @@
                 "response_gap_sec": { "type": ["number", "null"] },
                 "premature_start_sec": { "type": ["number", "null"] }
               }
+            },
+            "resume": {
+              "type": "object",
+              "description": "Post-yield behaviour on the agent VAD track; present only when the agent yielded. resumed: did the agent start speaking again within the window after the yield. resume_gap_sec: seconds from the yield to that fresh onset (null when it did not resume). restart_suspected: the longest post-resume run is unusually long, a timing proxy for re-answering from the top (a transcript repeat is out of scope).",
+              "additionalProperties": true,
+              "properties": {
+                "resumed": { "type": "boolean" },
+                "resume_gap_sec": { "type": ["number", "null"] },
+                "restart_suspected": { "type": "boolean" }
+              }
             }
           }
         },
