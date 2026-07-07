@@ -16,11 +16,9 @@ import json
 import os
 import sys
 import tempfile
-from importlib import resources
 
 from . import __version__
 from . import capture as _capture
-from . import report as _report
 from ._engine.score import ScoreConfig
 from ._engine.vad import BackendUnavailable, VADParams
 from .core import SUITE_ID, dump_frames_for_input, process_exit_code, run_single, run_suite
@@ -268,6 +266,8 @@ def _load_base_envelope(path: str) -> dict:
 
 
 def _cmd_report(args) -> int:
+    from . import report as _report
+
     # --suite is the bundled self-test battery; combining it with one recording
     # would silently drop the file, so reject the mix (clean usage error -> 2).
     if args.suite and (args.stereo or args.caller or args.agent):
@@ -528,6 +528,8 @@ def _try_open(path: str) -> None:
 
 
 def _cmd_doctor(args) -> int:
+    from . import report as _report
+
     # The 5-minute path in one command: score a recording if given, else run the
     # bundled self-test; render the HTML report; open it best-effort. A pure
     # convenience wrapper over the existing scorer + report -- nothing new claimed.
@@ -726,6 +728,7 @@ def _cmd_fixture_create(args) -> int:
 
 def _cmd_compare(args) -> int:
     from . import compare as _compare
+    from . import report as _report
 
     cmp_env = _compare.compare_recordings(
         before_stereo=args.before,
@@ -822,6 +825,10 @@ def _cmd_demo(args) -> int:
     # exactly what Hotato catches: the [FAIL] verdicts, both fix classes
     # (config and engagement-control), and the report timelines. Same scorer,
     # same envelope, same report as `run` and `doctor`; nothing new is claimed.
+    from importlib import resources
+
+    from . import report as _report
+
     demo_root = resources.files("hotato").joinpath("data", "demo", "failing")
     scenarios_dir = str(demo_root.joinpath("scenarios"))
     audio_dir = str(demo_root.joinpath("audio"))

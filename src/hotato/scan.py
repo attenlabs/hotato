@@ -38,10 +38,24 @@ from typing import List, Optional, Tuple
 from ._engine.score import ScoreConfig
 from ._engine.vad import energy_vad
 
-try:  # optional acceleration only, mirroring the engine
-    import numpy as _np
-except Exception:  # pragma: no cover - numpy is genuinely optional
-    _np = None
+# numpy is an optional acceleration only, mirroring the engine. It is
+# resolved lazily on first use so importing the module stays cheap; an
+# explicit ``_np = None`` assignment (tests) forces the stdlib path.
+_NP_UNRESOLVED = object()
+_np = _NP_UNRESOLVED
+
+
+def _resolve_np():
+    """Return the numpy module if importable, else None. Memoized in ``_np``."""
+    global _np
+    if _np is _NP_UNRESOLVED:
+        try:  # optional acceleration only, mirroring the engine
+            import numpy
+        except Exception:  # pragma: no cover - numpy is genuinely optional
+            _np = None
+        else:
+            _np = numpy
+    return _np
 
 __all__ = ["scan_recording", "render_text", "KINDS", "SCAN_NOTE",
            "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC"]
@@ -88,9 +102,10 @@ def _decode(raw: bytes, sampwidth: int) -> List[float]:
 
 def _rms(seg: List[float]) -> float:
     """Identical math to the engine's ``frame_rms`` inner step."""
-    if _np is not None:
-        arr = _np.asarray(seg, dtype=_np.float64)
-        return float(_np.sqrt(_np.mean(arr * arr))) if arr.size else 0.0
+    np = _resolve_np()
+    if np is not None:
+        arr = np.asarray(seg, dtype=np.float64)
+        return float(np.sqrt(np.mean(arr * arr))) if arr.size else 0.0
     if not seg:
         return 0.0
     acc = 0.0

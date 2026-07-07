@@ -19,7 +19,6 @@ import json
 import os
 import struct
 import wave
-from importlib import resources
 from typing import Optional
 
 from . import _engine
@@ -504,6 +503,8 @@ def dump_frames_for_input(
 # --- bundled battery ------------------------------------------------------
 
 def _load_bundled_scenarios() -> list:
+    from importlib import resources  # deferred: costs ~17ms at interpreter start
+
     scenarios = []
     pkg = resources.files("hotato").joinpath("data", "scenarios")
     for entry in sorted(pkg.iterdir(), key=lambda p: p.name):
@@ -514,6 +515,8 @@ def _load_bundled_scenarios() -> list:
 
 
 def _bundled_audio_path(scenario_id: str, suffix: str = ".example.wav") -> str:
+    from importlib import resources  # deferred: costs ~17ms at interpreter start
+
     return str(
         resources.files("hotato").joinpath("data", "audio", scenario_id + suffix)
     )
