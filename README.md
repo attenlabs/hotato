@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo.gif" alt="uvx hotato demo failing a bad agent, then hotato compare showing the FAIL to PASS delta" width="760">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo.gif" alt="hotato scan finding a missed-interruption moment in a real recorded call, hotato run scoring it against a yield expectation and reporting the measured FAIL, then hotato fixture create promoting that moment into a permanent regression fixture" width="760">
 </p>
 
 Hotato finds the moments where your voice agent talks over the caller, turns each one into a regression test, and fails CI if it comes back. It scores a call recording on your machine, so the audio never leaves it. It catches the three failures callers feel most:
