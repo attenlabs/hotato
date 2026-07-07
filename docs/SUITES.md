@@ -62,6 +62,21 @@ python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte
 the audio on disk is exactly what the labelled timings say it is, on any
 machine. CI can run it as a drift gate.
 
+## Additive scenario classes
+
+`corpus/classes/` ships four small, deterministic classes on top of the four
+suites above, built the same way (synthetic shaped noise, seed
+`sha256(scenario_id)`, `--check` byte-compares a rebuild): `mid-utterance-pause`
+(a multi-second thinking gap mid-turn, not a true turn end), `backchannel-multilingual`
+(short non-English acknowledgement tokens; Hotato's VAD is energy-based and
+does not detect language), `noise-hold` (sustained background presence, not a
+brief backchannel, that the agent should hold through), and
+`telephony-degraded` (an existing gold scenario re-rendered through G.711
+mu-law plus a fixed packet-loss schedule, to prove the verdict is stable
+across codec degradation). Kept separate from `corpus/suites/` because
+`mid-utterance-pause` needs a non-default `turn_end_silence_sec` that the
+generic suite tests do not apply. Full per-class detail: `corpus/classes/README.md`.
+
 ## Against a live stack
 
 To run scenario audio through a real voice stack and score what comes back,

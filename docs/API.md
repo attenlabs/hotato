@@ -68,6 +68,14 @@ Each event:
   "signals": {                   # namespaced signal bus, additive
     "barge_in": {"did_yield", "time_to_yield_sec", "talk_over_sec"},
     "latency": {"response_gap_sec", "premature_start_sec"},
+    "echo": {                    # every event; cross-channel coherence,
+                                 # deterministic, computed in hotato's own
+                                 # layer (hotato/echo.py), never _engine
+      "coherence", "lag_sec", "echo_suspected",
+    },
+    "resume": {                  # only on events where the agent yielded
+      "resumed", "resume_gap_sec", "restart_suspected",
+    },
   },
   "fix": None | {                # set on failing events
     "fix_class": "config" | "engagement-control",
@@ -101,6 +109,9 @@ run_single(
     stack: str | None = None,         # livekit | pipecat | vapi | generic
     max_talk_over_sec: float | None = None,
     max_time_to_yield_sec: float | None = None,
+    echo_gate: bool = False,          # hold an echo-suspected yield out of
+                                      # the verdict (scorable: false) instead
+                                      # of counting it as a clean pass
     cfg: ScoreConfig | None = None,
 ) -> dict
 ```
@@ -108,7 +119,9 @@ run_single(
 Scores one recording and returns the envelope. Provide either `stereo` or both
 `caller` and `agent`. `expect="hold"` means the caller's speech is a
 backchannel, a short acknowledgement like "mhm", and a correct agent keeps
-talking through it. The two `max_*` thresholds tighten the pass criteria. Malformed or truncated WAVs raise a clean `ValueError` with the
+talking through it. The two `max_*` thresholds tighten the pass criteria.
+`echo_gate` is opt-in and off by default; `signals.echo` is always computed
+and reported either way. Malformed or truncated WAVs raise a clean `ValueError` with the
 ffmpeg export line to fix them.
 
 ### run_suite
@@ -123,6 +136,7 @@ run_suite(
     suffix: str = ".example.wav",
     caller_channel: int = 0,
     agent_channel: int = 1,
+    echo_gate: bool = False,          # see run_single
     cfg: ScoreConfig | None = None,
 ) -> dict
 ```

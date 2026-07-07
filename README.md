@@ -87,6 +87,27 @@ Every failing event carries exactly one fix, in one of two classes. Pass `--stac
 
 Each `config` fix states which direction to move the setting and what that trades away. When one test set fails both ways at once (the agent missed a real interruption AND stopped for a backchannel), Hotato flags the pattern by name: a single sensitivity threshold trades those two failures against each other, so the fix is a classifier, not another threshold value.
 
+## Is this even a turn-taking bug?
+
+About one in five reported "barge-in bugs" are not turn-taking bugs. Before
+tuning a threshold, rule out: **STT hallucination** (the transcript has words
+nobody said; check ASR word-error-rate, not VAD), **client-side audio
+buffering** (the caller's own device queues audio before it reaches the
+agent; check the jitter buffer, not interruption sensitivity), **LLM
+verbosity or tool-selection** (the agent is mid-generation or mid-tool-call
+and misses the stop signal; check response-length and tool-call tracing),
+**safety false-refusal** (a moderation layer cuts the agent off, which looks
+identical to a false stop on a backchannel; check your safety logs), and
+**wrong-language STT** (recognition fails silently on a language or accent it
+covers poorly, which reads as a missed interruption; check per-locale STT
+accuracy). Full breakdown: [`docs/WHY.md`](docs/WHY.md#is-this-even-a-turn-taking-bug).
+
+If your bug is not one of those five: agent-talks-over-caller and
+false-stop-on-backchannel are the two highest-frequency complaints reported
+against production voice agents, and that funnel, no single config value
+fixes both directions at once, is exactly what Hotato measures, proven on
+real recorded calls, not synthetic fixtures (see Real calls, below).
+
 ## CI
 
 ```bash

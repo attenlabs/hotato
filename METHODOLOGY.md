@@ -177,6 +177,48 @@ Pure timing on the same two VAD tracks, no second model (`score.py`):
  null when not derivable from the tracks, never fabricated. Reported values
  are rounded to the millisecond (3 decimal places of seconds).
 
+### Step 7, two additive, opt-in cross-checks: echo and resume
+
+Both live entirely in hotato's own layer (`echo.py`, `resume.py`), never in
+the vendored `_engine`, and both add an optional `signals` block without
+changing `did_yield`, `seconds_to_yield`, or `talk_over_sec` for any existing
+recording.
+
+- **`signals.echo`** (`echo.py`), computed on every scored event. Leaked TTS
+ (an agent that hears its own audio back on the caller channel) is, by
+ construction, a delayed, scaled copy of the agent's own envelope. The check
+ is a deterministic cross-channel coherence: at each lag from 0 up to
+ `DEFAULT_MAX_LAG_SEC` (0.5 s), take the cosine similarity between the caller
+ frame-RMS envelope and the agent envelope shifted by that lag; `coherence`
+ is the best (highest) cosine found, `lag_sec` is the lag it occurred at, and
+ `echo_suspected` is `coherence >= DEFAULT_COHERENCE_THRESHOLD` (0.7) with at
+ least `_MIN_OVERLAP_FRAMES` (8) of overlap. Independent speech (real
+ turn-taking, backchannels) does not correlate with the agent's own envelope
+ at any lag, so it scores low. `--echo-gate` (opt-in, `hotato run`) holds an
+ echo-suspected yield out of the verdict (`scorable: false`) instead of
+ counting it as a clean pass; without the flag the primary verdict is
+ unchanged and `signals.echo` is still reported. `hotato diagnose` and the
+ single-run text output print a WARNING for every echo-suspected yield.
+- **`signals.resume`** (`resume.py`), present only on events where the agent
+ yielded. From the agent's own VAD track, look for a fresh onset within
+ `DEFAULT_RESUME_WINDOW_SEC` (4.0 s) after the yield: `resumed` is whether one
+ is found, `resume_gap_sec` is the seconds from yield to that onset (`null`
+ if it did not resume). `restart_suspected` flags whether the longest
+ contiguous agent run at or after the resume onset reaches
+ `DEFAULT_RESTART_MIN_SEC` (2.0 s), the timing fingerprint of re-answering a
+ whole paragraph from the top rather than finishing the interrupted clause.
+ Whether the resumed words literally repeat the earlier ones is a transcript
+ question, explicitly out of scope: `restart_suspected` is a run-length
+ heuristic on timing, not a text diff.
+- **`agent_stop_no_caller`** (`scan.py`, not part of the scored envelope: a
+ `hotato scan` candidate) surfaces the companion timing fact: the agent went
+ from active to quiet with zero caller energy anywhere in
+ `caller_proximity_sec` on either side, so nothing on the caller channel
+ explains the drop. It is a candidate for self-truncation, endpointing
+ mis-fire, or an upstream (LLM/TTS) cutoff, not a verdict; label it with
+ `hotato fixture create --expect hold` (or `yield`, if that silence was in
+ fact correct) to turn it into a scored fixture.
+
 ## Why it is reproducible
 
 - **Deterministic** given `(audio, ScoreConfig)`. No randomness, no network, no
@@ -224,21 +266,34 @@ recompute yourself from the two dBFS columns and the header thresholds.
 
 ## Aggregate statistics: one definition each
 
-The `report` and `team` surfaces summarize many events with mean, median, and
-p90. All three come from one stdlib implementation (`src/hotato/_stats.py`) so
-every published aggregate is re-derivable by hand:
+The `report`, `team`, and `export` surfaces summarize many events with mean,
+median, p90, and p95. All four come from one stdlib implementation
+(`src/hotato/_stats.py`, `dist_summary`) so every published aggregate is
+re-derivable by hand:
 
 - **mean** is the arithmetic mean (`statistics.fmean`).
-- **median** is `statistics.median`.
-- **p90** is linear interpolation between closest ranks (the definition NumPy
- calls "linear"): sort the values ascending, let `pos = 0.9 * (n - 1)`, then
- `p90 = v[floor(pos)] + frac * (v[floor(pos) + 1] - v[floor(pos)])`.
+- **median** is `statistics.median` (p50).
+- **p90** and **p95** are linear interpolation between closest ranks (the
+ definition NumPy calls "linear"): sort the values ascending, let
+ `pos = q * (n - 1)` for `q` in `{0.90, 0.95}`, then
+ `p_q = v[floor(pos)] + frac * (v[floor(pos) + 1] - v[floor(pos)])`.
 - **Rates are fractions**, never a percentage: a pass rate of 8 of 8 reads
  `1.00`. That keeps every aggregate in the same unit system as the
  measurements and leaves no door open to an accuracy-percentage reading.
 - **Empty input returns null.** No aggregate is ever fabricated from zero
  measurements, and fewer than two runs is stated plainly rather than drawn as
  a trend.
+
+`team` and `export` pool `response_gap_sec` (dead air before the agent
+speaks, defined above) across every scored event into the same `dist_summary`
+shape already used for talk-over and time-to-yield. `--max-response-gap`
+turns the pooled p95 into a latency SLA gate: the run exits 1 exactly when the
+pooled p95 exceeds the bound, the same pass/fail contract as
+`--max-talk-over` and `--max-time-to-yield`, just pooled instead of
+per-event. A plain `hotato export` (no `--max-response-gap`) still writes a
+byte-identical `envelope.json` to a run with none of this stage's work
+applied; the p95 and gate live only in the printed summary and the returned
+manifest.
 
 ## Optional neural cross-check (non-reference)
 

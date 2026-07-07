@@ -45,7 +45,9 @@ hotato scan --stereo bad-call.wav
 ```
 
 `scan` reports timing facts only (overlap onsets, agent starts during caller
-speech, long response gaps). You pick the moment and supply the label.
+speech, long response gaps, an agent going quiet with no caller energy nearby,
+a caller run that correlates with the agent's own audio, i.e. suspected TTS
+echo). You pick the moment and supply the label.
 
 ## Step 2: run it
 
