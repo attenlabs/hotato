@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/error.v1.json",
+  "title": "hotato structured error, schema_version 1",
+  "description": "The single failure counterpart to envelope.v1.json. The CLI (--format json) and the one MCP tool emit this exact shape for the same classes of bad input, so an agent needs one parser for the whole call lifecycle: a success is the result envelope (this object's ok key is absent there), a failure is this object with ok=false. Additive and stable: the error_code slugs are append-only and an existing slug never changes meaning. There is NO accuracy percentage anywhere, here or in any message.",
+  "type": "object",
+  "required": ["tool", "schema_version", "ok", "error_code", "message", "exit_code"],
+  "additionalProperties": true,
+  "properties": {
+    "tool": { "const": "hotato" },
+    "schema_version": { "const": "1" },
+    "ok": { "const": false, "description": "Always false on this shape. A successful call returns the result envelope, which has no ok key; branching on ok cleanly separates the two." },
+    "error_code": {
+      "type": "string",
+      "enum": [
+        "missing_input",
+        "mode_conflict",
+        "mono_as_stereo",
+        "sample_rate_mismatch",
+        "file_not_found",
+        "unknown_suite",
+        "not_scorable",
+        "backend_unavailable",
+        "usage_error"
+      ],
+      "description": "Stable machine slug for the failure class. Append-only: a consumer may branch on these and an existing slug never changes meaning. missing_input: no input mode, or an incomplete single (caller without agent). mode_conflict: more than one input mode supplied (for example a suite together with a single recording). mono_as_stereo: a single-channel file was given where a two-channel recording is required. sample_rate_mismatch: the caller and agent channels differ in sample rate. file_not_found: an input path does not exist. unknown_suite: a suite name that is not shipped. not_scorable: the input is well formed but carries no scorable event (for example no detectable caller speech, or the agent silent at the caller onset under a should-yield expectation). backend_unavailable: an optional VAD backend was requested without its extra installed. usage_error: any other clean usage or input error."
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable, actionable reason. On the MCP surface any CLI flag names in the message are rewritten to the tool's parameter names (for example stereo, caller, agent, suite) so the message instructs the model in its own vocabulary. Never carries an accuracy percentage."
+    },
+    "exit_code": {
+      "const": 2,
+      "description": "The process exit code the CLI returns for this failure: always 2 (unusable input / usage error). Distinct from the result envelope's own exit_code, which is frozen to 0 or 1 and reflects scorable failures only."
+    }
+  }
+}

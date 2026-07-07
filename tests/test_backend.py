@@ -241,8 +241,14 @@ def test_cli_backend_neural_missing_extra_is_clean_exit_2(capsys):
         "--backend", "neural", "--format", "json",
     ])
     assert code == 2  # clean config error, not a crash and not a silent energy score
-    err = capsys.readouterr().err.lower()
-    assert "error:" in err and "neural" in err
+    # --format json emits the structured error contract (schema/error.v1.json)
+    # to stdout, not a plain "error:" line.
+    import json
+    err_obj = json.loads(capsys.readouterr().out)
+    assert err_obj["ok"] is False
+    assert err_obj["error_code"] == "backend_unavailable"
+    assert err_obj["exit_code"] == 2
+    assert "neural" in err_obj["message"].lower()
 
 
 # --- 4. REAL MODEL (runs only with the [neural] extra installed) -------------

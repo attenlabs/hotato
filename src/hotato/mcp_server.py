@@ -19,7 +19,8 @@ import os
 import sys
 from typing import Optional
 
-from .core import LIMITS, SUITE_ID, run_single, run_suite
+from . import errors as _errors
+from .core import LIMITS, SUITE_ID, process_exit_code, run_single, run_suite
 
 _TOOL_DESCRIPTION = f"""\
 Find where your voice agent talks over callers, and keep it from coming back.
@@ -82,7 +83,68 @@ def _run_tool(
     max_time_to_yield_sec: Optional[float] = None,
     report_path: Optional[str] = None,
 ) -> dict:
-    """Shared implementation for the single MCP tool. Returns the JSON envelope.
+    """The single MCP tool. Returns the success envelope, or the SAME structured
+    error object the CLI emits (schema/error.v1.json) for a bad input, so the
+    model parses one shape for the whole call lifecycle.
+
+    Every expected failure (a missing / mono / mismatched / not-found file, an
+    unknown suite, or an ambiguous input mode) comes back as ``ok: false`` with a
+    stable ``error_code`` and a message in this tool's OWN parameter vocabulary,
+    never as a raw uncaught exception. An input that is well formed but carries no
+    scorable event surfaces as ``error_code: not_scorable`` rather than an
+    envelope whose frozen ``exit_code`` reads 0. On success the envelope is
+    byte-identical to the core; ``report_path`` remains purely additive.
+    """
+    try:
+        # Structurally enforce EXACTLY ONE input mode (the oneOf / root-validator
+        # equivalent) before any file is touched, so "only caller" or "suite and
+        # a recording together" is a clean structured error, not a raw throw.
+        _errors.validate_input_mode(
+            stereo=stereo, caller=caller, agent=agent, suite=suite
+        )
+        env = _run_tool_impl(
+            stereo=stereo,
+            caller=caller,
+            agent=agent,
+            suite=suite,
+            stack=stack,
+            expect=expect,
+            onset_sec=onset_sec,
+            caller_channel=caller_channel,
+            agent_channel=agent_channel,
+            max_talk_over_sec=max_talk_over_sec,
+            max_time_to_yield_sec=max_time_to_yield_sec,
+            report_path=report_path,
+        )
+    except _errors.HANDLED as exc:
+        return _errors.mcp_error(exc)
+    # Unusable-input parity with the CLI: an all-not-scorable single recording is
+    # the CLI's exit-2 case. Surface it to the model as the shared structured
+    # error (its actionable reason) instead of an envelope reading exit_code 0.
+    if process_exit_code(env) == 2:
+        reason = "the recording carries no scorable event."
+        events = env.get("events") or []
+        if events and events[0].get("not_scorable_reason"):
+            reason = events[0]["not_scorable_reason"]
+        return _errors.error_object("not_scorable", _errors.rewrite_flags(reason))
+    return env
+
+
+def _run_tool_impl(
+    stereo: Optional[str] = None,
+    caller: Optional[str] = None,
+    agent: Optional[str] = None,
+    suite: Optional[str] = None,
+    stack: str = "generic",
+    expect: str = "yield",
+    onset_sec: Optional[float] = None,
+    caller_channel: int = 0,
+    agent_channel: int = 1,
+    max_talk_over_sec: Optional[float] = None,
+    max_time_to_yield_sec: Optional[float] = None,
+    report_path: Optional[str] = None,
+) -> dict:
+    """Score and return the JSON envelope (no error handling; see ``_run_tool``).
 
     With ``report_path`` set it also writes the self-contained HTML report
     there and adds ``report_path`` (absolute) to the envelope. Scoring is
