@@ -19,6 +19,7 @@ import tempfile
 
 from . import __version__
 from . import capture as _capture
+from . import errors as _errors
 from ._engine.score import ScoreConfig
 from ._engine.vad import BackendUnavailable, VADParams
 from .core import SUITE_ID, dump_frames_for_input, process_exit_code, run_single, run_suite
@@ -1773,6 +1774,14 @@ def main(argv=None) -> int:
         # BackendUnavailable = --backend neural requested without the [neural] extra
         # (or without cached weights): a clean, explicit config error, never a silent
         # fallback to the energy reference.
+        if getattr(args, "format", "text") == "json":
+            # The machine surface gets the SAME structured error object the one
+            # MCP tool emits (schema/error.v1.json): ok=false, a stable
+            # error_code, and exit_code 2. So an agent parses one shape for the
+            # whole call lifecycle (success envelope, or this on failure). The
+            # plain "error:" line below stays for --format text.
+            print(json.dumps(_errors.cli_error(exc), indent=2))
+            return 2
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
