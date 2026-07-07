@@ -9,6 +9,32 @@ dual-channel recordings. This is the set where the both-axes funnel fires on
 real audio: the same default configuration misses a real interruption AND
 false-stops on backchannels, in the same battery.
 
+## Reproduce it
+
+One command, from a fresh clone of this repository, re-scores the 15-scenario
+battery, prints the both-directions-fail funnel, and prints the
+`do_not_tune_single_threshold` verdict:
+
+```bash
+PYTHONPATH=src python3 -m hotato.cli run --suite barge-in \
+  --scenarios corpus/vapi-defaults/scenarios --audio corpus/vapi-defaults/audio \
+  --stack vapi --format json > /tmp/vapi-defaults-result.json; \
+python3 -c "import json; d=json.load(open('/tmp/vapi-defaults-result.json')); print(json.dumps(d['funnel'], indent=2))"; \
+PYTHONPATH=src python3 -m hotato.cli diagnose /tmp/vapi-defaults-result.json
+```
+
+Expect exit code 1 (six scenarios fail by design), the `funnel` object
+(`reason` plus the engagement-control `pointer`), and a `diagnose` printout
+ending in `battery decision: do_not_tune_single_threshold`. This is the exact
+output pasted in `RESULTS.md`, reproduced live, not retyped.
+
+The visual below is generated from the same real scored envelope (not hand
+drawn): `PYTHONPATH=src python3 corpus/vapi-defaults/render_funnel.py` rebuilds
+it from `corpus/vapi-defaults/scenarios/` and `audio/` via the repo's own
+report-timeline renderer.
+
+![One battery, one default config, one run: a missed real interruption and a false stop on a backchannel, at once](both-directions-fail.png)
+
 ## Provenance
 
 - Recorded 2026-07-06 by the repository operator (the caller is the
@@ -111,6 +137,8 @@ measurement-vs-field-note disagreements in `RESULTS.md`):
 | `audio/*.example.wav` | 16 committed two-channel clips, 16 kHz 16-bit PCM (15 scenarios + the script 9 analysis clip), about 8.3 MB total. |
 | `manifest.json` | Provenance, pinned source sha256s, per-clip onset derivation, and the measured numbers (clip and full call). |
 | `battery-result.json` | The committed battery envelope (`run --suite ... --format json`), input to `diagnose`. |
+| `render_funnel.py` | Rebuilds `both-directions-fail.svg`/`.png` from the committed scenarios and audio via the repo's own report-timeline renderer; no hand-drawn numbers. |
+| `both-directions-fail.svg` / `.png` | The shareable visual: the missed-interruption and false-stop-on-backchannel timelines, from the real scored envelope. |
 | `sample-report.html` | The battery report with the real call audio embedded (`report --embed-audio`). |
 | `RESULTS.md` | The full results table, the two investigated disagreements, and the verbatim funnel + diagnose outputs. |
 
