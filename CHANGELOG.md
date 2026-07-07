@@ -18,6 +18,25 @@ design. See `docs/BENCHMARK.md`.
   `docs/WHY.md`, now "show up again and again."
 
 ### Added
+- **`hotato ingest`, the composable passive on-ramp**: wire a webhook to invoke
+  `hotato ingest` once and every completed call is scanned for candidate
+  turn-taking moments automatically, so you never have to remember to run a CLI
+  after a bad call. It composes existing primitives and adds only a per-stack
+  webhook parser: it parses the platform payload for the call id / recording
+  locator (`message.call.id` for Vapi, top-level `event` + `call.call_id` for
+  Retell, `RecordingSid` for Twilio's form-encoded `recordingStatusCallback`,
+  `egressInfo.fileResults[].location` for LiveKit egress, and a user-supplied
+  `recording_path` / `recording_url` for Pipecat; field paths verified against
+  live vendor docs on 2026-07-07, parsed defensively where unconfirmable), reuses
+  the same per-stack fetch as `hotato capture` for the dual-channel recording,
+  then runs `hotato scan` for candidates. Ingest is discovery, never a pass/fail
+  and never an intent claim: exit 0 means it ran (candidates possibly zero), exit
+  2 means a parse/fetch/IO error or not-scorable input. It never auto-labels,
+  auto-fixtures, or auto-tunes; you promote a candidate with `hotato fixture
+  create`. It is not a daemon (you own the trigger), the only network is the same
+  recording fetch `capture` does, and a webhook payload is treated strictly as
+  untrusted data and never executed. `--out` writes an HTML candidate report; new
+  guide in `docs/INGEST.md` with the webhook-to-ingest recipe per stack.
 - **CI sdist guard**: a new `sdist-guard` job in
   `.github/workflows/tests.yml`, separate from the `pytest` job, builds the
   sdist, extracts it to a clean directory, installs only that extracted tree
