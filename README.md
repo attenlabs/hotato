@@ -28,7 +28,7 @@ Hotato turns bad voice-agent call moments into offline regression tests. It scor
 
 Hotato does not infer intent. You label the expected behavior for the event: yield means the agent should stop for the caller. hold means the agent should keep speaking through a backchannel/noise/acknowledgement. Hotato then measures whether the timing matched that label.
 
-Every failing event returns three measured signals (`did_yield`, `seconds_to_yield`, `talk_over_sec`) and a fix that names the exact setting to change in your stack.
+Every failing event returns three measured signals (`did_yield`, `seconds_to_yield`, `talk_over_sec`) and a fix class. When the failure maps cleanly to stack config, the fix names the setting family and the direction to investigate; when no single threshold can win, it says so rather than inventing one.
 
 ## See it fail a bad agent
 

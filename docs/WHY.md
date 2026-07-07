@@ -88,8 +88,9 @@ once) proven on real recorded calls, not synthetic fixtures
   question (the caller channel is silent, or the agent was not talking when
   the caller started), so no verdict is given. A turn-taking regression blocks
   a merge the same way a failing unit test does.
-- **It routes every failure to a fix class.** `config` names the exact setting
-  on your stack and the direction to move it. `engagement-control` tells you
+- **It routes every failure to a fix class.** When the failure maps cleanly to
+  stack config, `config` names the setting family on your stack and the
+  direction to investigate. `engagement-control` tells you
   no threshold value can fix this failure, because telling "mhm" apart from
   "stop" is a classification problem, so you stop burning days retuning a
   setting that cannot win.
