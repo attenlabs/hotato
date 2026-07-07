@@ -22,16 +22,16 @@ Set Width 1200
 Set Height 680
 Set Padding 20
 Set Theme { "background": "#0e1a1b", "foreground": "#d6f2df", "black": "#0e1a1b", "red": "#ff6b6b", "green": "#D6F20F", "yellow": "#D6F20F", "cursor": "#D6F20F" }
-Set TypingSpeed 45ms
+Set TypingSpeed 20ms
 
 Type "uvx hotato scan --stereo corpus/vapi-defaults/audio/vapi-default-10-quiet-interrupt.example.wav"
 Enter
-Sleep 700ms
+Sleep 300ms
 
 Type "uvx hotato run --stereo corpus/vapi-defaults/audio/vapi-default-10-quiet-interrupt.example.wav --onset 2.00 --expect yield"
 Enter
-Sleep 700ms
+Sleep 300ms
 
 Type "uvx hotato fixture create --stereo corpus/vapi-defaults/audio/vapi-default-10-quiet-interrupt.example.wav --onset 2.00 --expect yield --id demo-missed-interrupt --out /tmp/hotato-demo-fixture"
 Enter
-Sleep 2s
+Sleep 1s
