@@ -8,7 +8,7 @@
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/mascot.svg" alt="" width="26" align="top"> hotato
 </h1>
 
-<p align="center"><b>Find interruption bugs in your voice agent before users do.</b></p>
+<p align="center"><b>Turn-taking regression tests for voice agents. Same recording, same verdict, every time.</b></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
@@ -17,6 +17,12 @@
   <img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-blue.svg">
   <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg"></a>
 </p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo.gif" alt="uvx hotato demo failing a bad agent, then hotato compare showing the FAIL to PASS delta" width="760">
+</p>
+
+<p align="center"><b>Reproduce a real funnel</b>: <a href="corpus/vapi-defaults/README.md#reproduce-it">one command re-scores 12 real production calls</a> and prints <code>do_not_tune_single_threshold</code>, a genuine interruption missed AND a backchannel false-stopped, in the same run. See <a href="#real-calls">Real calls</a>.</p>
 
 For engineers who own turn-taking quality in a production voice-agent stack and need reproducible, private, cross-platform regression checks from real call recordings.
 
@@ -118,7 +124,13 @@ The bundled `barge-in` suite scores recordings of callers barging in, that is, s
 
 ## Real calls
 
-`corpus/vapi-defaults/` holds 12 scripted phone calls, recorded against a live production voice assistant left on its provider's default interruption settings, dual channel, scored end to end. The battery misses a genuine interruption and false-stops on backchannels in the same run: no single sensitivity threshold fixes both directions at once, so `hotato plan` refuses to name one and returns `do_not_tune_single_threshold` instead. The funnel this tool exists to catch is confirmed on real audio, not just synthetic fixtures. Recorded by the project maintainers as scripted calls; the clips and labels are MIT licensed in this repository. Full writeup, manifest, and audio: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md).
+`corpus/vapi-defaults/` holds 12 scripted phone calls, recorded against a live production voice assistant left on its provider's default interruption settings, dual channel, scored end to end. The battery misses a genuine interruption and false-stops on backchannels in the same run: no single sensitivity threshold fixes both directions at once, so `hotato diagnose` refuses to name one and returns `do_not_tune_single_threshold` instead. The funnel this tool exists to catch is confirmed on real audio, not just synthetic fixtures.
+
+Reproduce it: [`corpus/vapi-defaults/README.md#reproduce-it`](corpus/vapi-defaults/README.md#reproduce-it) has the single copy-paste command that re-scores the battery from a fresh clone and prints this verbatim.
+
+![One battery, one default config, one run: a missed real interruption and a false stop on a backchannel, at once](https://raw.githubusercontent.com/attenlabs/hotato/main/corpus/vapi-defaults/both-directions-fail.png)
+
+This is one assistant, one vendor's default configuration, one recording date, one cooperative scripted caller: a reproducible case study, not a vendor benchmark or ranking, and it carries no accuracy percentage. Recorded by the project maintainers as scripted calls; the clips and labels are MIT licensed in this repository. Full writeup, manifest, and audio: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md).
 
 ## What you get
 
