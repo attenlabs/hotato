@@ -9,6 +9,24 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-07
+
+### Fixed
+- **Self-consistent source distribution**: the sdist now ships the small,
+  non-audio test dependencies (scenario labels, manifests, the corpus
+  validator, and the deterministic builders under `corpus/` and `examples/`),
+  so an extracted sdist collects and runs the full test suite instead of
+  hitting collection errors. The heavy real and rendered audio stays pruned;
+  suite and class audio is regenerated deterministically by
+  `tests/conftest.py` (seed = sha256(id)) when absent, and the tests that
+  depend on genuinely-absent heavy real audio skip cleanly rather than error.
+- **Honest fix-plan wording in `README.md` and `docs/WHY.md`**: reworded the
+  claim that every failing event returns a fix that "names the exact setting to
+  change in your stack." A `plan()` may correctly refuse to tune a single
+  threshold, report insufficient coverage, or emit a checklist, so the copy now
+  says a fix class is always returned and, when the failure maps cleanly to
+  stack config, the setting family and direction to investigate.
+
 ### Added
 - **`hotato scan` self-truncation candidate**: a new candidate kind,
   `agent_stop_no_caller`, surfaces the agent going from active to quiet with
@@ -52,6 +70,12 @@ design. See `docs/BENCHMARK.md`.
   safety false-refusal, wrong-language STT) and which tool class to reach for
   instead, alongside a plain statement of the flagship case Hotato covers
   (agent-talks-over-caller and false-stop-on-backchannel).
+- **Report accessibility**: the generated HTML report carries aria-labels on
+  its inline SVGs and audio elements, a `main` landmark, and measured titles,
+  so the artifact is navigable by assistive tech. Visual output is unchanged.
+- **Startup lazy-imports**: `importlib.resources`, the report renderer, and the
+  numpy accelerator used only inside `scan` are deferred to first use, so plain
+  CLI paths import less at startup. Behavior and output are unchanged.
 
 All of the above are additive optional fields or opt-in flags: `did_yield`
 and `passed` for every existing fixture are unchanged, and the vendored
@@ -299,7 +323,8 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
-[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/attenlabs/hotato/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/attenlabs/hotato/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/attenlabs/hotato/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/attenlabs/hotato/compare/v0.2.1...v0.2.2
