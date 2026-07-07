@@ -1,0 +1,42 @@
+{
+  "id": "nh-cafe-false-yield",
+  "title": "DEFECT RENDER: agent yields to sustained ambient energy (must FAIL)",
+  "category": "should_not_yield",
+  "tags": [
+    "noise-hold",
+    "ambient",
+    "non-speech",
+    "false-trigger",
+    "bad-agent"
+  ],
+  "family": "noise-hold",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 7.5,
+  "caller_onset_sec": 0.3,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        0.6
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        0.3,
+        6.9
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. Continuous non-speech energy on the caller channel and the agent hands over the floor almost immediately; a false barge-in triggered by ambient presence, not a caller utterance.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

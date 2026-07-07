@@ -19,6 +19,7 @@ hardest thing here to fake, which is exactly why they are worth doing right.
 | `suites/` | Four tiered synthetic suites, 112 scenarios: `silver`, `silver-defects`, `gold`, `gold-defects`. See the next section. |
 | `suites/manifest.json` | Machine-readable index: every suite, its scenario count, expected pass/fail split, and dimension coverage. |
 | `suites/build_suites.py` | Deterministic builder. Regenerates every label and WAV byte-identically; `--check` proves it. |
+| `classes/` | Four additional, standalone scenario classes built the same deterministic way: `mid-utterance-pause`, `backchannel-multilingual`, `noise-hold`, `telephony-degraded`. See `classes/README.md`. |
 | `label.schema.json` | JSON Schema (draft-07) for a contribution: the bundled scenario shape extended with provenance, consent, PII, and attestation fields. |
 | `validate.py` | Standalone, stdlib-only validator for one `(recording, label)` pair. Runnable: `python3 corpus/validate.py <label.json> [audio.wav]`. |
 | `examples/sample-contribution.json` | A schema example. Its `source_type` is `synthetic` and it says so everywhere: it exercises the validator. |

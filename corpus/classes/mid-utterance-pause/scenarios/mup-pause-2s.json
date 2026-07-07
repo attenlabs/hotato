@@ -1,0 +1,61 @@
+{
+  "id": "mup-pause-2s",
+  "title": "Caller pauses 2.0s mid-utterance, then resumes; agent waits (latency PASS)",
+  "category": "latency",
+  "tags": [
+    "latency",
+    "endpointing",
+    "pause",
+    "thinking-pause"
+  ],
+  "family": "mid-utterance-pause",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 8.5,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.0,
+    "premature_is_failure": true,
+    "boundary_tolerance_hops": 1,
+    "turn_end_silence_sec": 2.6,
+    "note": "Scored with a ScoreConfig(turn_end_silence_sec=2.60) wider than the 2.00s pause, so the pause is not mistaken for the caller's true turn end. tests/test_corpus_classes.py is the only place that config is applied; the barge-in verdict is a separate axis and the reference agent yields cleanly."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.4
+      ],
+      [
+        5.9,
+        7.4
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        2.6
+      ],
+      [
+        4.6,
+        5.6
+      ]
+    ],
+    "caller_offset_sec": 5.6,
+    "agent_response_onset_sec": 5.9,
+    "pause_gap_sec": 2.0,
+    "rendered_response_gap_sec": 0.3
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The caller stops to think for 2.0s mid-sentence and finishes afterward; the agent waits past the true end and answers promptly. This is the highest-frequency pain in practice: a thinking pause must not read as the caller being done.",
+  "related_signals": [
+    "response_gap_sec",
+    "did_yield"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "scenarios": [
+    {
+      "id": "nh-cafe-hold",
+      "title": "Sustained cafe-like ambient energy on the caller channel (should NOT yield)",
+      "category": "should_not_yield",
+      "family": "noise-hold",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/nh-cafe-hold.example.wav",
+      "caller_wav": "audio/nh-cafe-hold.caller.wav"
+    },
+    {
+      "id": "nh-tv-hold",
+      "title": "Sustained TV-like ambient energy on the caller channel (should NOT yield)",
+      "category": "should_not_yield",
+      "family": "noise-hold",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/nh-tv-hold.example.wav",
+      "caller_wav": "audio/nh-tv-hold.caller.wav"
+    },
+    {
+      "id": "nh-cafe-false-yield",
+      "title": "DEFECT RENDER: agent yields to sustained ambient energy (must FAIL)",
+      "category": "should_not_yield",
+      "family": "noise-hold",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "fail",
+      "failure_axis": "barge_in",
+      "example_wav": "audio/nh-cafe-false-yield.example.wav",
+      "caller_wav": "audio/nh-cafe-false-yield.caller.wav"
+    }
+  ]
+}

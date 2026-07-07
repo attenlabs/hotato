@@ -1,0 +1,64 @@
+{
+  "scenarios": [
+    {
+      "id": "bcm-hi-hmm",
+      "title": "Hindi acknowledgement 'hmm' over agent speech (should NOT yield)",
+      "category": "should_not_yield",
+      "family": "backchannel-multilingual",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/bcm-hi-hmm.example.wav",
+      "caller_wav": "audio/bcm-hi-hmm.caller.wav"
+    },
+    {
+      "id": "bcm-te-hmm",
+      "title": "Telugu acknowledgement 'hmm' over agent speech (should NOT yield)",
+      "category": "should_not_yield",
+      "family": "backchannel-multilingual",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/bcm-te-hmm.example.wav",
+      "caller_wav": "audio/bcm-te-hmm.caller.wav"
+    },
+    {
+      "id": "bcm-es-si",
+      "title": "Spanish acknowledgement 'si' over agent speech (should NOT yield)",
+      "category": "should_not_yield",
+      "family": "backchannel-multilingual",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/bcm-es-si.example.wav",
+      "caller_wav": "audio/bcm-es-si.caller.wav"
+    },
+    {
+      "id": "bcm-ja-hai",
+      "title": "Japanese acknowledgement 'hai' over agent speech (should NOT yield)",
+      "category": "should_not_yield",
+      "family": "backchannel-multilingual",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/bcm-ja-hai.example.wav",
+      "caller_wav": "audio/bcm-ja-hai.caller.wav"
+    },
+    {
+      "id": "bcm-es-si-false",
+      "title": "DEFECT RENDER: agent yields to a Spanish 'si' acknowledgement (must FAIL)",
+      "category": "should_not_yield",
+      "family": "backchannel-multilingual",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "fail",
+      "failure_axis": "barge_in",
+      "example_wav": "audio/bcm-es-si-false.example.wav",
+      "caller_wav": "audio/bcm-es-si-false.caller.wav"
+    }
+  ]
+}

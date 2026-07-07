@@ -1,0 +1,48 @@
+{
+  "id": "td-8k-hard-interrupt-degraded",
+  "title": "Hard interruption at 8 kHz, degraded telephony line (mu-law + mild packet loss)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "telephony",
+    "8khz",
+    "codec",
+    "packet-loss"
+  ],
+  "family": "telephony-degraded",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 5.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.15
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.5
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The exact reference_render of gl-8k-hard-interrupt, re-rendered through a degraded telephony line: G.711 mu-law companding plus a fixed, mild, short and infrequent packet-loss schedule. Proves the scorer's PASS verdict is stable across codec degradation, not just clean 8 kHz.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ],
+  "telephony_degradation": {
+    "codec": "mu-law",
+    "packet_loss": true,
+    "note": "Post-processed by corpus/classes/telephony_codec.py (degrade_telephony) after the standard deterministic render, applied identically to both channels."
+  }
+}
