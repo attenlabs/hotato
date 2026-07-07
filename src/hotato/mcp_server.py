@@ -22,8 +22,9 @@ from typing import Optional
 from .core import LIMITS, SUITE_ID, run_single, run_suite
 
 _TOOL_DESCRIPTION = f"""\
-Score voice-agent reliability from a call recording and return a machine-readable
-verdict with an actionable, honest fix for each failing event.
+Turn-taking regression tests for voice agents. Score a call recording and
+return a machine-readable verdict with an actionable, honest fix for each
+failing event.
 
 WHAT IT MEASURES (scope): barge-in, turn-taking, overlap / talk-over, and
 backchannel handling. For each event it returns three objective TIMING signals:
