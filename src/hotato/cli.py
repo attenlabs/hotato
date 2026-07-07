@@ -85,6 +85,114 @@ _LABEL_NOTE = (
     "Hotato then measures whether the timing matched that label."
 )
 
+# The single source of truth for every subcommand's exit-code contract. Keyed
+# by the dotted subcommand name ("benchmark compare", "fixture create", ...).
+# Both the per-subparser "Exit codes:" epilog (below) AND `hotato describe`'s
+# capability manifest are templated straight from this table, so the two
+# surfaces can never drift apart. Append-only in spirit: a shipped code's
+# meaning does not change once documented.
+_EXIT_CODES: dict = {
+    "run": (
+        (0, "every scorable event passed"),
+        (1, "a scorable event failed (regression)"),
+        (2, "usage error or unusable input (bad flags, a corrupt file, or a "
+            "single recording with no scorable events); --no-fail always "
+            "exits 0"),
+    ),
+    "capture": (
+        (0, "captured and scored, every scorable event passed"),
+        (1, "a scorable event failed"),
+        (2, "usage error, missing credentials, or unusable input (including "
+            "a capture with no scorable events)"),
+    ),
+    "setup": (
+        (0, "the recording scaffold was printed"),
+    ),
+    "report": (
+        (0, "report written, every scorable event passed"),
+        (1, "a scorable event failed"),
+        (2, "usage error or unusable input; --no-fail always exits 0"),
+    ),
+    "team": (
+        (0, "aggregated (fewer than 2 runs is stated plainly, never padded "
+            "into a trend); --no-fail always exits 0"),
+        (1, "--max-response-gap latency SLA breached"),
+        (2, "usage error or an unreadable run directory"),
+    ),
+    "export": (
+        (0, "exported, every scorable event passed"),
+        (1, "a scorable event failed, or --max-response-gap latency SLA "
+            "breached; --no-fail always exits 0"),
+        (2, "usage error or unusable input"),
+    ),
+    "benchmark": (
+        (0, "scored (a regression is reported but does not fail by default)"),
+        (1, "with --fail-on-regression, a scored event failed its scenario "
+            "thresholds"),
+        (2, "usage error (missing --stack / --recordings) or unusable "
+            "input"),
+    ),
+    "benchmark compare": (
+        (0, "compared (measurements only; never a gate)"),
+        (2, "usage error (fewer than two result files) or unreadable "
+            "input"),
+    ),
+    "doctor": (
+        (0, "every scorable event passed"),
+        (1, "a scorable event failed"),
+        (2, "usage error or unusable input; --no-fail always exits 0"),
+    ),
+    "demo": (
+        (0, "ran (the battery fails by design; stays 0 unless --fail)"),
+        (1, "with --fail, the real regression code -- this battery fails by "
+            "design"),
+    ),
+    "diagnose": (
+        (0, "no failing events"),
+        (1, "failing events were diagnosed"),
+        (2, "unusable input"),
+    ),
+    "inspect": (
+        (0, "inspected"),
+        (2, "missing credentials, bad flags, or an unreadable file"),
+    ),
+    "plan": (
+        (0, "plan written (including refusals)"),
+        (2, "unusable input or missing credentials"),
+    ),
+    "fixture": (
+        (2, "no subcommand given (see hotato fixture create --help)"),
+    ),
+    "fixture create": (
+        (0, "fixture written (scored immediately)"),
+        (2, "refused: unusable input or a not-scorable moment"),
+    ),
+    "compare": (
+        (0, "compared (measures, does not gate by default)"),
+        (1, "with --fail-on-worse, the result is regressed or worse"),
+        (2, "usage error, unusable input, or a not-scorable side"),
+    ),
+    "scan": (
+        (0, "scanned (with or without candidates; the count is reported)"),
+        (2, "usage error or unreadable input"),
+    ),
+    "ingest": (
+        (0, "ran (candidates reported, possibly zero; never a pass/fail)"),
+        (2, "parse / fetch / IO error, or not-scorable input"),
+    ),
+    "describe": (
+        (0, "manifest printed"),
+    ),
+}
+
+
+def _exit_codes_epilog(key: str) -> str:
+    """Render the ``Exit codes:`` line for subcommand ``key`` from the single
+    ``_EXIT_CODES`` source of truth, so the CLI --help text and `hotato
+    describe`'s manifest can never say something different."""
+    parts = ", ".join(f"{code} = {desc}" for code, desc in _EXIT_CODES[key])
+    return f"Exit codes: {parts}."
+
 
 def _emit(env: dict, fmt: str) -> None:
     if fmt == "json":
@@ -594,11 +702,21 @@ def _cmd_doctor(args) -> int:
     with open(out, "w", encoding="utf-8") as fh:
         fh.write(html_str)
 
-    _emit(env, "text")
-    print(f"\nreport: {out}")
+    fmt = getattr(args, "format", "text")
+    if fmt == "json":
+        # Mirrors `demo --format json`: stdout stays the pure machine
+        # envelope, every human-readable line (including the report path)
+        # goes to stderr, so an agent parsing stdout never has to skip lines.
+        _emit(env, "json")
+        print(f"report: {out}", file=sys.stderr)
+    else:
+        _emit(env, "text")
+        print(f"\nreport: {out}")
+
     if args.no_open:
-        print(f"open it in your browser to see the per-event timelines: "
-              f"{os.path.abspath(out)}")
+        msg = (f"open it in your browser to see the per-event timelines: "
+               f"{os.path.abspath(out)}")
+        print(msg, file=sys.stderr if fmt == "json" else sys.stdout)
     else:
         _try_open(out)
 
@@ -916,6 +1034,147 @@ def _cmd_demo(args) -> int:
     return 0
 
 
+# --- describe: the generated capability manifest (machine-drivability) -----
+
+def _scalar_type_name(py_type) -> str:
+    if py_type is float:
+        return "float"
+    if py_type is int:
+        return "int"
+    return "str"
+
+
+def _arg_type_name(action: argparse.Action) -> str:
+    if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
+        return "bool"
+    if action.nargs in ("+", "*"):
+        return f"list[{_scalar_type_name(action.type)}]"
+    return _scalar_type_name(action.type)
+
+
+def _manifest_arg(action: argparse.Action) -> "dict | None":
+    """One argparse action -> a manifest arg entry, or None to skip an action
+    that is not a real user-facing argument (-h/--help, and the subparsers
+    action itself, which is walked separately as ``subcommands``)."""
+    if isinstance(action, (argparse._HelpAction, argparse._SubParsersAction)):
+        return None
+    positional = not action.option_strings
+    name = action.dest if positional else "/".join(action.option_strings)
+    required = (action.nargs not in ("?", "*")) if positional else bool(action.required)
+    default = action.default if action.default is not argparse.SUPPRESS else None
+    entry = {
+        "name": name,
+        "type": _arg_type_name(action),
+        "required": required,
+        "default": default,
+        "help": action.help or "",
+    }
+    if action.choices:
+        entry["choices"] = list(action.choices)
+    return entry
+
+
+def _describe_subcommand(name: str, parser: argparse.ArgumentParser, prefix: str) -> dict:
+    """Walk one subparser (recursing into any nested subparsers, e.g.
+    ``benchmark compare`` / ``fixture create``) into a manifest entry."""
+    full_name = f"{prefix} {name}".strip()
+    args = []
+    subcommands = []
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for sub_name, sub_parser in action.choices.items():
+                subcommands.append(_describe_subcommand(sub_name, sub_parser, full_name))
+            continue
+        entry = _manifest_arg(action)
+        if entry is not None:
+            args.append(entry)
+    out = {
+        "name": full_name,
+        "purpose": parser.description or parser.format_usage().strip(),
+        "args": args,
+    }
+    if full_name in _EXIT_CODES:
+        out["exit_codes"] = [
+            {"code": code, "meaning": meaning}
+            for code, meaning in _EXIT_CODES[full_name]
+        ]
+    if subcommands:
+        out["subcommands"] = subcommands
+    return out
+
+
+def build_capability_manifest() -> dict:
+    """Generate the CAPABILITY MANIFEST straight from ``build_parser()``'s own
+    argparse structure: every subcommand's name, purpose, argument list, and
+    documented exit codes, plus the tool version and the two schema URLs. This
+    is the ``hotato describe`` payload -- one call for an agent to learn the
+    whole CLI instead of scraping --help across every subcommand. Because it
+    is generated from the live parser (not hand-maintained), it can never
+    drift from the real flags; it is otherwise pure and deterministic."""
+    from importlib import resources
+
+    parser = build_parser()
+    subs_action = None
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            subs_action = action
+            break
+    subcommands = [
+        _describe_subcommand(name, sub_parser, "")
+        for name, sub_parser in (subs_action.choices.items() if subs_action else ())
+    ]
+
+    def _schema_id(filename: str) -> str:
+        return json.loads(
+            resources.files("hotato").joinpath("schema", filename)
+            .read_text(encoding="utf-8")
+        )["$id"]
+
+    return {
+        "tool": _errors.TOOL,
+        "schema_version": _errors.SCHEMA_VERSION,
+        "version": __version__,
+        "schemas": {
+            "envelope": _schema_id("envelope.v1.json"),
+            "error": _schema_id("error.v1.json"),
+        },
+        "subcommands": subcommands,
+    }
+
+
+def _render_describe_text(manifest: dict) -> str:
+    lines = [f"hotato {manifest['version']} -- capability manifest"]
+    lines.append(f"schemas: envelope={manifest['schemas']['envelope']} "
+                 f"error={manifest['schemas']['error']}")
+    lines.append("")
+
+    def _walk(cmds, indent=""):
+        for c in cmds:
+            lines.append(f"{indent}hotato {c['name']}")
+            if c.get("purpose"):
+                lines.append(f"{indent}  {c['purpose']}")
+            for a in c["args"]:
+                tag = "required" if a["required"] else f"default={a['default']!r}"
+                lines.append(f"{indent}    {a['name']} ({a['type']}, {tag}): {a['help']}")
+            if c.get("exit_codes"):
+                codes = ", ".join(f"{e['code']}={e['meaning']}" for e in c["exit_codes"])
+                lines.append(f"{indent}    exit codes: {codes}")
+            if c.get("subcommands"):
+                _walk(c["subcommands"], indent + "  ")
+
+    _walk(manifest["subcommands"])
+    return "\n".join(lines) + "\n"
+
+
+def _cmd_describe(args) -> int:
+    manifest = build_capability_manifest()
+    if args.format == "json":
+        print(json.dumps(manifest, indent=2))
+    else:
+        print(_render_describe_text(manifest), end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hotato",
@@ -933,7 +1192,15 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser(
         "run",
         help="score one recording, or run the synthetic self-test battery",
+        description=(
+            "Score one dual-channel recording's turn-taking, or run the "
+            "bundled synthetic self-test battery. Offline; no audio leaves "
+            "the machine. There is no accuracy percentage anywhere: results "
+            "are reproducible timing measurements with every threshold "
+            "exposed and every frame inspectable (see --dump-frames)."
+        ),
         epilog=(
+            _exit_codes_epilog("run") + "\n\n"
             "Offline: runs locally; no audio leaves the machine. There is no "
             "accuracy percentage anywhere -- results are reproducible timing "
             "measurements with every threshold exposed and every frame inspectable "
@@ -998,6 +1265,7 @@ def build_parser() -> argparse.ArgumentParser:
             "reproducible timing measurements only."
         ),
         epilog=(
+            _exit_codes_epilog("capture") + "\n\n"
             "Examples:\n"
             "  hotato capture --stack vapi --call-id <id>            # + VAPI_API_KEY\n"
             "  hotato capture --stack retell --call-id <id>          # + RETELL_API_KEY\n"
@@ -1045,6 +1313,8 @@ def build_parser() -> argparse.ArgumentParser:
             "dual-channel / two-track / stereo capture so caller and agent stay on "
             "separate channels, plus the command to score the result."
         ),
+        epilog=_exit_codes_epilog("setup"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     s.add_argument("--stack", required=True, choices=list(_capture.STACKS),
                    help="voice stack to scaffold")
@@ -1064,6 +1334,7 @@ def build_parser() -> argparse.ArgumentParser:
             "measurement; there is no accuracy percentage anywhere."
         ),
         epilog=(
+            _exit_codes_epilog("report") + "\n\n"
             "Examples:\n"
             "  hotato report --stereo call.wav --out report.html\n"
             "  hotato report --stereo call.wav --embed-audio --out report.html\n"
@@ -1129,6 +1400,7 @@ def build_parser() -> argparse.ArgumentParser:
             "that fails (exit 1) exactly when p95 exceeds the bound."
         ),
         epilog=(
+            _exit_codes_epilog("team") + "\n\n"
             "Examples:\n"
             "  hotato run --suite barge-in --format json > runs/001.json\n"
             "  hotato team runs/ --html team.html\n"
@@ -1171,6 +1443,7 @@ def build_parser() -> argparse.ArgumentParser:
             "the pooled p95 as a latency SLA (exit 1 when it is exceeded)."
         ),
         epilog=(
+            _exit_codes_epilog("export") + "\n\n"
             "Examples:\n"
             "  hotato export --stereo call.wav --out research/\n"
             "  hotato export --suite barge-in --out research/\n"
@@ -1221,6 +1494,7 @@ def build_parser() -> argparse.ArgumentParser:
             "failures. Walkthrough: docs/BENCHMARK-STACKS.md."
         ),
         epilog=(
+            _exit_codes_epilog("benchmark") + "\n\n"
             "Examples:\n"
             "  hotato benchmark --stack livekit --recordings captures/livekit --out livekit.json\n"
             "  hotato benchmark --stack vapi --recordings captures/vapi --out vapi.json\n"
@@ -1242,6 +1516,8 @@ def build_parser() -> argparse.ArgumentParser:
             "the rest is listed as skipped. Measurements only: no ranking, "
             "no winner."
         ),
+        epilog=_exit_codes_epilog("benchmark compare"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     bc.add_argument("results", nargs="+", metavar="RESULT.json",
                     help="benchmark result files written by "
@@ -1287,11 +1563,12 @@ def build_parser() -> argparse.ArgumentParser:
             "and report -- nothing new is claimed. Everything runs offline."
         ),
         epilog=(
-            _LABEL_NOTE + "\n\n"
+            _exit_codes_epilog("doctor") + "\n\n" + _LABEL_NOTE + "\n\n"
             "Examples:\n"
             "  hotato doctor --stereo call.wav        # score your call, open the report\n"
             "  hotato doctor --demo                   # self-test, open the report\n"
-            "  hotato doctor                          # same self-test fallback"
+            "  hotato doctor                          # same self-test fallback\n"
+            "  hotato doctor --no-open --format json  # the machine envelope"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1310,6 +1587,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--agent-channel", type=int, default=1)
     d.add_argument("--out", default=None, metavar="PATH",
                    help="where to write the report (default: a temp file)")
+    d.add_argument("--format", default="text", choices=["json", "text"],
+                   help="stdout format (default text summary; json prints "
+                        "only the machine envelope to stdout, with the report "
+                        "path on stderr)")
     d.add_argument("--no-open", action="store_true", help="do not launch a browser; just write and print the path")
     d.add_argument("--no-fail", action="store_true", help="always exit 0 (do not fail on a regression)")
     d.set_defaults(func=_cmd_doctor)
@@ -1329,7 +1610,7 @@ def build_parser() -> argparse.ArgumentParser:
             "to get the real regression exit code. Offline, zero extra files."
         ),
         epilog=(
-            _LABEL_NOTE + "\n\n"
+            _exit_codes_epilog("demo") + "\n\n" + _LABEL_NOTE + "\n\n"
             "Examples:\n"
             "  hotato demo                          # run, print, open the report\n"
             "  hotato demo --no-open --out demo.html\n"
@@ -1367,8 +1648,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Read-only: nothing is fetched and nothing is changed."
         ),
         epilog=(
-            "Exit codes: 0 = no failing events, 1 = failing events diagnosed, "
-            "2 = unusable input.\n"
+            _exit_codes_epilog("diagnose") + "\n"
             "Examples:\n"
             "  hotato run --suite barge-in --format json > result.json\n"
             "  hotato diagnose result.json\n"
@@ -1400,8 +1680,7 @@ def build_parser() -> argparse.ArgumentParser:
             "imported or executed, and nothing is ever written back."
         ),
         epilog=(
-            "Exit codes: 0 = inspected, 2 = missing credentials / bad flags / "
-            "unreadable file.\n"
+            _exit_codes_epilog("inspect") + "\n"
             "Examples:\n"
             "  hotato inspect --stack vapi --assistant-id <id>     # + VAPI_API_KEY\n"
             "  hotato inspect --stack retell --agent-id <id>       # + RETELL_API_KEY\n"
@@ -1446,8 +1725,7 @@ def build_parser() -> argparse.ArgumentParser:
             "phase and is not shipped."
         ),
         epilog=(
-            "Exit codes: 0 = plan written (including refusals), 2 = unusable "
-            "input / missing credentials.\n"
+            _exit_codes_epilog("plan") + "\n"
             "Examples:\n"
             "  hotato plan result.json\n"
             "  hotato plan result.json --stack vapi --assistant-id <id>\n"
@@ -1496,6 +1774,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Fixture tooling for the regression loop (see "
             "docs/BAD-CALL-TO-CI.md)."
         ),
+        epilog=_exit_codes_epilog("fixture"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     fxsub = fx.add_subparsers(dest="fixture_command", required=True,
                               metavar="create")
@@ -1517,7 +1797,7 @@ def build_parser() -> argparse.ArgumentParser:
             "anywhere."
         ),
         epilog=(
-            _LABEL_NOTE + "\n\n"
+            _exit_codes_epilog("fixture create") + "\n\n" + _LABEL_NOTE + "\n\n"
             "Examples:\n"
             "  hotato fixture create --stereo bad-call.wav --id refund-cutoff-001 \\\n"
             "      --onset 42.18 --expect yield --max-talk-over 0.6 --out tests/hotato\n"
@@ -1588,9 +1868,7 @@ def build_parser() -> argparse.ArgumentParser:
             "no accuracy percentage anywhere."
         ),
         epilog=(
-            "Exit codes: 0 (compare measures, it does not gate); with "
-            "--fail-on-worse, 1 on regressed/worse; 2 unusable input or a "
-            "not-scorable side.\n\n"
+            _exit_codes_epilog("compare") + "\n\n"
             "Examples:\n"
             "  hotato compare --before bad.wav --after fixed.wav --onset 12.4 --expect yield\n"
             "  hotato compare --before bad.wav --after fixed.wav \\\n"
@@ -1661,8 +1939,7 @@ def build_parser() -> argparse.ArgumentParser:
             "windowed pass. Offline; no accuracy percentage anywhere."
         ),
         epilog=(
-            "Exit codes: 0 (with or without candidates; the count is "
-            "reported), 2 usage/IO error.\n\n"
+            _exit_codes_epilog("scan") + "\n\n"
             "Examples:\n"
             "  hotato scan --stereo full-call.wav\n"
             "  hotato scan --stereo full-call.wav --top 5\n"
@@ -1713,9 +1990,7 @@ def build_parser() -> argparse.ArgumentParser:
             "webhook payload is untrusted DATA and is never executed."
         ),
         epilog=(
-            "Exit codes: 0 = ran (candidates reported, possibly zero); "
-            "2 = parse / fetch / IO error or not-scorable input. NOT a "
-            "pass/fail.\n\n"
+            _exit_codes_epilog("ingest") + "\n\n"
             "Wire your webhook -> hotato ingest (see docs/INGEST.md):\n"
             "  # in your webhook handler, save the payload and call ingest\n"
             "  hotato ingest --stack vapi   --event payload.json    # + VAPI_API_KEY\n"
@@ -1758,6 +2033,29 @@ def build_parser() -> argparse.ArgumentParser:
     ig.add_argument("--out", default=None, metavar="report.html",
                     help="also write an HTML candidate report here (all candidates)")
     ig.set_defaults(func=_cmd_ingest)
+
+    # --- describe: the generated capability manifest (machine-drivability) --
+    ds = sub.add_parser(
+        "describe",
+        help="emit a generated capability manifest of the whole CLI (every "
+             "subcommand, its args, and its exit codes)",
+        description=(
+            "Walk this CLI's own argparse structure and emit a generated "
+            "CAPABILITY MANIFEST: every subcommand's name, purpose, argument "
+            "list (name, type, required, default, help), and documented exit "
+            "codes, plus the tool version and the two schema URLs (envelope, "
+            "error). One call for an agent to learn the whole CLI instead of "
+            "scraping --help across every subcommand. Generated straight from "
+            "the parser, so it can never drift from the real flags. Pure and "
+            "deterministic: same input, same output, every time."
+        ),
+        epilog=_exit_codes_epilog("describe"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ds.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text: a readable summary; "
+                         "json for the machine manifest)")
+    ds.set_defaults(func=_cmd_describe)
 
     return p
 
