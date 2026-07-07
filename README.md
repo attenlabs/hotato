@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://hotato.dev">
-    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: turn-taking regression tests for voice agents" width="840">
+    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: find where your voice agent talks over callers, and keep it from coming back" width="840">
   </a>
 </p>
 
@@ -8,7 +8,9 @@
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/mascot.svg" alt="" width="26" align="top"> hotato
 </h1>
 
-<p align="center"><b>Turn-taking regression tests for voice agents. Same recording, same verdict, every time.</b></p>
+<p align="center"><b>Find where your voice agent talks over callers, and keep it from coming back.</b></p>
+
+<p align="center">Offline regression tests from your own call recordings. MIT.</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
@@ -22,11 +24,7 @@
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo.gif" alt="uvx hotato demo failing a bad agent, then hotato compare showing the FAIL to PASS delta" width="760">
 </p>
 
-<p align="center"><b>Reproduce a real funnel</b>: <a href="corpus/vapi-defaults/README.md#reproduce-it">one command re-scores 12 real production calls</a> and prints <code>do_not_tune_single_threshold</code>, a genuine interruption missed AND a backchannel false-stopped, in the same run. See <a href="#real-calls">Real calls</a>.</p>
-
-For engineers who own turn-taking quality in a production voice-agent stack and need reproducible, private, cross-platform regression checks from real call recordings.
-
-Hotato turns bad voice-agent call moments into offline regression tests. It scores a call recording on your machine, so call audio never leaves it, and it catches the three failures callers feel most:
+Hotato finds the moments where your voice agent talks over the caller, turns each one into a regression test, and fails CI if it comes back. It scores a call recording on your machine, so the audio never leaves it. It catches the three failures callers feel most:
 
 - **Talk-over**: the agent keeps talking while the caller is talking.
 - **False stop**: the caller says a short acknowledgement like "mhm" (a backchannel, not a request to take over) and the agent stops mid-sentence.
@@ -109,10 +107,8 @@ covers poorly, which reads as a missed interruption; check per-locale STT
 accuracy). Full breakdown: [`docs/WHY.md`](docs/WHY.md#is-this-even-a-turn-taking-bug).
 
 If your bug is not one of those five: two common complaints are
-agent-talks-over-caller and false-stop-on-backchannel, and that funnel, no
-single config value fixes both directions at once, is exactly what Hotato
-measures, proven on real recorded calls, not synthetic fixtures (see Real
-calls, below).
+agent-talks-over-caller and false-stop-on-backchannel, and no single config
+value fixes both directions at once. That is exactly what Hotato measures.
 
 ## CI
 
@@ -124,7 +120,7 @@ The bundled `barge-in` suite scores recordings of callers barging in, that is, s
 
 ## Real calls
 
-`corpus/vapi-defaults/` holds 12 scripted phone calls, recorded against a live production voice assistant left on its provider's default interruption settings, dual channel, scored end to end. The battery misses a genuine interruption and false-stops on backchannels in the same run: no single sensitivity threshold fixes both directions at once, so `hotato diagnose` refuses to name one and returns `do_not_tune_single_threshold` instead. The funnel this tool exists to catch is confirmed on real audio, not just synthetic fixtures.
+`corpus/vapi-defaults/` holds 12 scripted phone calls, recorded against a live production voice assistant left on its provider's default interruption settings, dual channel, scored end to end. The battery misses a genuine interruption and false-stops on backchannels in the same run: no single sensitivity threshold fixes both directions at once, so `hotato diagnose` refuses to name one and returns `do_not_tune_single_threshold` instead.
 
 Reproduce it: [`corpus/vapi-defaults/README.md#reproduce-it`](corpus/vapi-defaults/README.md#reproduce-it) has the single copy-paste command that re-scores the battery from a fresh clone and prints this verbatim.
 

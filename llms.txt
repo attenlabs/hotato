@@ -1,10 +1,11 @@
 # hotato
 
-> Turn-taking regression tests for voice agents. Same recording, same verdict,
-> every time. MIT, offline, zero-install: score a real call recording, keep it
-> as a fixture, fail CI when the timing regresses. Hotato measures whether the
-> agent stopped talking when the caller started (a yield), how many seconds
-> that took, and how many seconds both were talking at once (talk-over).
+> Find where your voice agent talks over callers, and keep it from coming back.
+> Offline regression tests from your own call recordings, MIT and zero-install:
+> score a real call recording, keep it as a fixture, fail CI when the timing
+> regresses. Hotato measures whether the agent stopped talking when the caller
+> started (a yield), how many seconds that took, and how many seconds both were
+> talking at once (talk-over).
 > Every failure points at a concrete fix. Runs entirely on your machine. Built
 > to be called by an AI agent mid-task, as a CLI or a one-tool MCP server.
 
