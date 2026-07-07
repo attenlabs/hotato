@@ -25,15 +25,20 @@
   --onset 42.18 --expect yield --out tests/hotato`, then
   `hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio`.
   Find the moment first with `uvx hotato scan --stereo bad-call.wav`
-  (candidate moments as timing facts; you supply the yield/hold label).
+  (candidate moments as timing facts, including an agent that went quiet with
+  no caller energy nearby and a caller run that correlates with the agent's
+  own audio, i.e. suspected echo; you supply the yield/hold label).
   Prove a fix with `uvx hotato compare --before bad.wav --after fixed.wav
   --onset 42.18 --expect yield` (result: fixed | regressed | improved | worse
   | unchanged | still_pass | not_scorable). Full loop: docs/BAD-CALL-TO-CI.md.
 - Visual report (self-contained HTML, per-event SVG timelines, analytics,
   per-frame inspector, print CSS): `uvx hotato report --stereo call.wav --out report.html`.
   `--format md` for Markdown; `--base base.json` for regression deltas.
-- Team trends over many runs (pass rate, mean/median/p90 talk-over and
-  time-to-yield, most common failure class): `uvx hotato team runs/ --html team.html`
+- Team trends over many runs (pass rate, mean/median/p90/p95 talk-over,
+  time-to-yield, and response gap, most common failure class):
+  `uvx hotato team runs/ --html team.html`. `--max-response-gap SECONDS` gates
+  the pooled p95 response gap as a latency SLA (exit 1 when it is exceeded);
+  `hotato export` takes the identical flag.
 - Research CSVs (events.csv, frames.csv, envelope.json, columns documented
   in-file): `uvx hotato export --stereo call.wav --out research/`
 - Pytest plugin, auto-registered on install: a `hotato_score` fixture, plus
@@ -45,6 +50,10 @@
 - Tiered corpus suites (silver, silver-defects, gold, gold-defects; the defect
   suites fail on purpose and exit 1):
   `hotato run --suite barge-in --scenarios corpus/suites/gold/scenarios --audio corpus/suites/gold/audio`
+- Additive scenario classes (`corpus/classes/`): mid-utterance-pause,
+  backchannel-multilingual, noise-hold, telephony-degraded. Same deterministic
+  build/`--check` contract as the suites above; detail in
+  `corpus/classes/README.md`.
 - PR check: copy `.github/workflows/hotato.yml` to score every pull request,
   post one self-updating results comment, and fail the job on a regression.
 
@@ -55,7 +64,13 @@ A single JSON envelope, the machine-readable result object (schema:
 event, three timing signals: `did_yield` (did the agent stop talking after the
 caller started), `seconds_to_yield` (seconds between the caller starting and
 the agent stopping), `talk_over_sec` (seconds both were talking at once), plus
-a namespaced `signals` block (`barge_in`, `latency`) and a `verdict`.
+a namespaced `signals` block (`barge_in`, `latency`, `echo`, `resume`) and a
+`verdict`. `signals.echo` (every event) flags when the caller channel
+correlates with the agent's own audio (suspected TTS bleed); `--echo-gate` on
+`hotato run` opts in to holding such a yield out of the verdict instead of
+counting it as a clean pass. `signals.resume` (yielded events only) reports
+whether, how fast, and with how long a run the agent came back after it
+yielded, the timing fingerprint of a restart-from-the-top.
 
 Exit codes: `0` all pass, `1` a regression, `2` usage or IO error, or a single
 recording that is not scorable. Not scorable means the recording cannot answer
@@ -98,9 +113,13 @@ measures whether the timing matched that label.
 ## Links
 
 - README.md: quickstart and scope.
+- docs/WHY.md: why timing bugs are invisible to text-level tests, and the
+  "is this even a turn-taking bug" triage for conflated failure modes (STT
+  hallucination, client-side buffering, LLM verbosity/tool-selection, safety
+  false-refusal, wrong-language STT).
 - METHODOLOGY.md: exactly how every number is computed, including the mean,
-  median, and p90 definitions (p90 is linear interpolation; rates are fractions,
-  never a percentage).
+  median, p90, and p95 definitions (linear interpolation; rates are fractions,
+  never a percentage), and the echo/resume cross-check methodology.
 - docs/BAD-CALL-TO-CI.md: one bad call to a CI gate in five steps (fixture
   create, run, compare, the CI snippet, plan), with the use/do-not-use lists.
 - docs/FIX-PLANS.md: the read-only diagnose/inspect/plan ladder.

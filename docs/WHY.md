@@ -30,6 +30,49 @@ yield means the agent should stop for the caller. hold means the agent should
 keep speaking through a backchannel/noise/acknowledgement. Hotato then
 measures whether the timing matched that label.
 
+## Is this even a turn-taking bug?
+
+About one in five reported "barge-in bugs" turn out not to be turn-taking
+bugs at all. Each of these produces a symptom that reads exactly like a
+missed interruption or a false stop, but the fix lives in a different layer,
+and no VAD threshold will ever touch it:
+
+- **STT hallucination.** The transcript has words the caller never said, or
+  drops words that mattered, so the agent responds to something that was not
+  actually said. That looks like an interruption the agent ignored. Reach
+  for: an STT/ASR word-error-rate check against the raw audio, not a
+  turn-taking scorer.
+- **Client-side audio buffering.** The caller's own device or browser queues
+  outgoing audio before it reaches the agent, so "the agent talked over me"
+  is audio arriving late, not the agent failing to yield. Reach for:
+  client/WebRTC jitter-buffer and network-latency instrumentation, not an
+  interruption-sensitivity setting.
+- **LLM verbosity or tool-selection.** The agent "kept talking through the
+  interruption" because it was mid-tool-call or committed to finishing a long
+  generation before it re-checked for a stop signal. Reach for: response-length
+  and tool-call latency tracing in your agent framework, not a VAD setting.
+- **Safety false-refusal.** The agent stops abruptly mid-sentence because a
+  moderation or safety layer cut it off, not because it heard a barge-in or a
+  backchannel. Timing-wise this is indistinguishable from a false stop on
+  "mhm". Reach for: your safety/moderation logs, not an engagement-control
+  layer.
+- **Wrong-language STT.** The caller is speaking a language or accent the STT
+  covers poorly, recognition comes back empty or garbled, and the agent's
+  response looks unrelated or missing entirely. That reads as a missed
+  interruption; it is a language-coverage gap. Reach for: per-locale STT
+  accuracy tooling. (Hotato's own detector is energy-based and does not
+  detect language either, by design: see `corpus/classes/README.md`.)
+
+This is both an honesty guard and a shortcut. If your bug matches one of
+these five, Hotato will not find it no matter how you tune it, because it is
+not a timing bug; you will save the day you would have spent staring at
+`turn_end_silence_sec`. If it matches none of them: agent-talks-over-caller
+and false-stop-on-backchannel are the two highest-frequency complaints
+reported against production voice agents, and that is exactly what Hotato
+measures, with the funnel (no single config value fixes both directions at
+once) proven on real recorded calls, not synthetic fixtures
+(`corpus/vapi-defaults/README.md`).
+
 ## What makes Hotato different
 
 - **It scores recordings you already have.** A dual-channel WAV from your

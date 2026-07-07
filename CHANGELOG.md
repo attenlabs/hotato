@@ -9,7 +9,54 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **`hotato scan` self-truncation candidate**: a new candidate kind,
+  `agent_stop_no_caller`, surfaces the agent going from active to quiet with
+  zero caller energy anywhere nearby, a drop nothing on the caller channel
+  explains (not a barge-in, not a caller-driven handoff). Additive; existing
+  candidate kinds and scoring are unchanged.
+- **Response-gap percentiles and a latency SLA gate**: `hotato team` and
+  `hotato export` now also report p95 (alongside the existing mean/median/p90)
+  for talk-over and time-to-yield, and pool `response_gap_sec` (dead air
+  before the agent speaks) into the same distribution shape. `--max-response-gap
+  SECONDS` on both commands gates the pooled p95 and fails (exit 1) exactly
+  when it is exceeded, the same pass/fail contract as `--max-talk-over` /
+  `--max-time-to-yield`. A plain export's `envelope.json` stays byte-identical
+  to before; the new numbers live only in the printed summary and the
+  returned manifest.
+- **Echo detector**: a deterministic cross-channel coherence signal
+  (`signals.echo`: `coherence`, `lag_sec`, `echo_suspected`) on every scored
+  event, flagging when the caller channel looks like a lag-shifted copy of
+  the agent's own audio (leaked TTS), so a stop the agent makes because it
+  heard itself is no longer indistinguishable from a clean yield. New `scan`
+  candidate kind `echo_correlated_activity`; a loud WARNING in `hotato
+  diagnose` and the single-run text output for every echo-suspected yield;
+  opt-in `--echo-gate` on `hotato run` holds a bleed-induced yield out of the
+  verdict (`scorable: false`) instead of counting it as a pass. Default run
+  behavior, and every existing golden verdict, is unchanged; `--echo-gate` is
+  off by default.
+- **Resume/restart detector**: on events where the agent yielded, an additive
+  `signals.resume` block (`resumed`, `resume_gap_sec`, `restart_suspected`)
+  measures from the agent's own VAD track whether it came back after the
+  yield, how fast, and whether the post-resume run is long enough to look
+  like a restart-from-the-top rather than a short continuation. Whether the
+  resumed words repeat the earlier ones is out of scope (a transcript
+  question, not a timing one).
+- **Four corpus scenario classes** under `corpus/classes/` (deterministic,
+  additive, same seeded-render/`--check` contract as `corpus/suites/`):
+  `mid-utterance-pause`, `backchannel-multilingual`, `noise-hold`, and
+  `telephony-degraded`. Detail: `corpus/classes/README.md`.
+- **"Is this even a turn-taking bug?" triage** in `docs/WHY.md` and `README.md`:
+  names the failure modes commonly conflated with turn-taking bugs (STT
+  hallucination, client-side audio buffering, LLM verbosity/tool-selection,
+  safety false-refusal, wrong-language STT) and which tool class to reach for
+  instead, alongside a plain statement of the flagship case Hotato covers
+  (agent-talks-over-caller and false-stop-on-backchannel).
+
+All of the above are additive optional fields or opt-in flags: `did_yield`
+and `passed` for every existing fixture are unchanged, and the vendored
+`src/hotato/_engine` is untouched (verify with `python3 sync_engine.py
+--check`).
 
 ## [0.3.0] - 2026-07-06
 

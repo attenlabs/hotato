@@ -81,10 +81,17 @@ hotato team runs/ --html team.html --out agg.json
 ```
 
 It reports: number of runs, mean/median/p90 talk-over and time-to-yield pooled
-across all events, pass rate per run over time, the most common failure class,
-and a pass-rate trend line in the HTML page. `--order mtime` (default) orders
-runs by file time; `--order name` uses the filename, so a numeric prefix is an
-explicit index.
+across all events, mean/median/p90/p95 response gap (dead air before the agent
+speaks) pooled the same way, pass rate per run over time, the most common
+failure class, and a pass-rate trend line in the HTML page. `--order mtime`
+(default) orders runs by file time; `--order name` uses the filename, so a
+numeric prefix is an explicit index.
+
+`--max-response-gap SECONDS` turns the pooled p95 response gap into a latency
+SLA: the run exits `1` exactly when p95 exceeds the bound, the same
+pass/fail contract as a talk-over or time-to-yield regression (`--no-fail`
+always exits `0`). Percentile definitions: `METHODOLOGY.md`; the pooling
+shape is `dist_summary` in `src/hotato/_stats.py`.
 
 Fewer than two runs is stated plainly and exits `0`. It is never padded into a
 trend, because a trend of one point is a fabrication.
@@ -107,3 +114,10 @@ Column meanings are documented in comment lines at the top of each CSV, so the
 files are self-describing when they land in a notebook or a stats package
 months later. An empty cell means "not derivable", never zero. Stdlib only,
 offline.
+
+`export` also prints mean/median/p90/p95 response gap pooled across the
+exported events, and accepts the same `--max-response-gap SECONDS` latency
+SLA gate as `team` (exit `1` when the pooled p95 exceeds the bound). A plain
+export with no `--max-response-gap` writes a byte-identical `envelope.json`;
+the pooled numbers and the gate live only in the printed summary and the
+returned manifest, never in the CSVs or the envelope file.
