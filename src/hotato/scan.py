@@ -11,6 +11,10 @@ recording and lists the moments where turn-taking physically happened:
                                 caller was active (a premature-start candidate)
   long_response_gap             the caller finished a turn and the agent's next
                                 utterance came late (or never)
+  agent_stop_no_caller          the agent went from active to quiet with no
+                                caller energy anywhere nearby; nothing on the
+                                caller channel explains the drop (not a
+                                barge-in, not a caller-driven handoff)
 
 HONESTY, stated once and repeated in the output header: candidates are timing
 events. This tool cannot know whether a caller sound was "mhm" or "stop";
@@ -61,7 +65,7 @@ __all__ = ["scan_recording", "render_text", "KINDS", "SCAN_NOTE",
            "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC"]
 
 KINDS = ("overlap_while_agent_talking", "agent_start_during_caller",
-         "long_response_gap")
+         "long_response_gap", "agent_stop_no_caller")
 
 SCAN_NOTE = (
     "Candidates are timing events. You decide the expected behavior; label "
@@ -282,6 +286,7 @@ def scan_recording(
     quiet_frames = max(1, int(round(cfg.yield_hangover_sec / hop)))
     silence_frames = max(1, int(round(cfg.turn_end_silence_sec / hop)))
     search_frames = int(round(cfg.max_search_sec / hop))
+    proximity_frames = max(1, int(round(cfg.caller_proximity_sec / hop)))
 
     caller_runs = _runs(caller, min_run)
     agent_runs = _runs(agent, min_run)
@@ -368,6 +373,36 @@ def scan_recording(
             "_salience": gap,
         })
 
+    # 4. the agent went quiet mid-run with no caller energy anywhere nearby
+    #    (no barge-in, no caller-driven handoff explains the drop). Pure
+    #    timing: an active agent run ends, stays quiet for at least
+    #    yield_hangover_sec (a real stop, not a brief mid-sentence breath),
+    #    and the caller track shows zero activity within caller_proximity_sec
+    #    of that stop on either side.
+    for idx, (a_start, a_end) in enumerate(agent_runs):
+        if a_end >= n:
+            continue  # agent still talking at end of recording
+        next_agent = (agent_runs[idx + 1][0]
+                      if idx + 1 < len(agent_runs) else None)
+        trailing = (next_agent - a_end) if next_agent is not None else n - a_end
+        if trailing < quiet_frames:
+            continue  # not a real stop, the same run resumes shortly
+        lo = max(0, a_end - proximity_frames)
+        hi = min(n, a_end + proximity_frames)
+        caller_nearby = any(caller[k] for k in range(lo, hi))
+        if caller_nearby:
+            continue  # caller energy nearby explains the drop
+        candidates.append({
+            "t_sec": round(a_end * hop, 3),
+            "kind": "agent_stop_no_caller",
+            "durations": {
+                "trailing_silence_sec": round(trailing * hop, 3),
+                "caller_proximity_sec": cfg.caller_proximity_sec,
+            },
+            "agent_reaction": None,
+            "_salience": trailing * hop,
+        })
+
     candidates.sort(key=lambda c: (-c["_salience"], c["t_sec"]))
     for c in candidates:
         del c["_salience"]
@@ -405,11 +440,14 @@ def _line(i: int, c: dict) -> str:
         if d.get("caller_kept_talking_sec") is not None:
             detail += (f"  caller kept talking "
                        f"{d['caller_kept_talking_sec']:.2f}s")
-    else:
+    elif c["kind"] == "long_response_gap":
         detail = f"gap={d['gap_sec']:.2f}s"
         nxt = c["agent_reaction"]["next_agent_onset_sec"]
         detail += (f"  next agent onset {nxt:.2f}s" if nxt is not None
                    else "  no agent onset before the end of the recording")
+    else:
+        detail = (f"trailing silence={d['trailing_silence_sec']:.2f}s  "
+                  f"no caller energy within {d['caller_proximity_sec']:.2f}s")
     return (f"  [{i:>2}] t={c['t_sec']:.2f}s  {c['kind']:<28} {detail}")
 
 
