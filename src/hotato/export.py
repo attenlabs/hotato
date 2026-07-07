@@ -11,6 +11,16 @@
 Stdlib ``csv`` only. Column meanings are documented in ``#`` comment lines at
 the top of each CSV. Every value is a real measurement; empty cell = the
 measurement was not derivable (never fabricated).
+
+The manifest returned by ``run_export`` (and the JSON keys the CLI can print)
+additionally carries ``latency_summary``: mean/median/p90/p95 of talk-over,
+time-to-yield, and response-gap (dead air before the agent speaks), pooled
+across the exported events -- the same pooled definitions ``hotato team``
+uses, computed here for a single export instead of across many run files.
+``latency_sla`` gates the pooled p95 response-gap against an optional
+``--max-response-gap`` bound, matching ``--max-talk-over`` /
+``--max-time-to-yield``. Neither key is written into ``envelope.json``, which
+stays byte-identical to a plain ``hotato run`` / ``hotato run --suite``.
 """
 
 from __future__ import annotations
@@ -21,6 +31,7 @@ import os
 from typing import Optional
 
 from ._engine.score import ScoreConfig
+from ._stats import dist_summary, latency_sla
 from .core import dump_frames_for_input, run_single, run_suite
 from .report import _frames_for_suite_event
 
@@ -106,6 +117,29 @@ def _event_row(e: dict) -> list:
     ]]
 
 
+def _pooled_latency_summary(events: list) -> dict:
+    """Pool talk-over, time-to-yield, and response-gap across ``events`` into
+    the same mean/median/p90/p95 shape ``hotato team`` reports, plus the
+    n-stated definitions in ``hotato._stats``. Never written into
+    envelope.json; only into the manifest ``run_export`` returns."""
+    tov, tty, rg = [], [], []
+    for e in events:
+        v = e.get("verdict", {})
+        if v.get("talk_over_sec") is not None:
+            tov.append(v["talk_over_sec"])
+        if v.get("seconds_to_yield") is not None:
+            tty.append(v["seconds_to_yield"])
+        sig = e.get("signals") or {}
+        lat = sig.get("latency") or {}
+        if lat.get("response_gap_sec") is not None:
+            rg.append(lat["response_gap_sec"])
+    return {
+        "talk_over_sec": dist_summary(tov),
+        "seconds_to_yield": dist_summary(tty),
+        "response_gap_sec": dist_summary(rg),
+    }
+
+
 def _frame_row(event_id: str, f: dict) -> list:
     return [_cell(x) for x in [
         event_id, f.get("t_sec"), f.get("caller_dbfs"), f.get("agent_dbfs"),
@@ -132,11 +166,15 @@ def run_export(
     suffix: str = ".example.wav",
     max_talk_over_sec: Optional[float] = None,
     max_time_to_yield_sec: Optional[float] = None,
+    max_response_gap_sec: Optional[float] = None,
     cfg: Optional[ScoreConfig] = None,
 ) -> dict:
     """Score the input, write events.csv + frames.csv + envelope.json into
     ``out_dir`` (created if missing) and return a small manifest dict:
-    ``{"env", "events_rows", "frames_rows", "paths"}``."""
+    ``{"env", "events_rows", "frames_rows", "paths", "latency_summary",
+    "latency_sla"}``. ``max_response_gap_sec`` optionally bounds the pooled
+    p95 response-gap (the latency SLA gate); left ``None`` the gate is not
+    configured and never fails."""
     cfg = cfg or ScoreConfig()
 
     # score exactly like `hotato run`, then resolve the per-event frames
@@ -192,6 +230,9 @@ def run_export(
     with open(envelope_path, "w", encoding="utf-8") as fh:
         json.dump(env, fh, indent=2)
 
+    latency_summary = _pooled_latency_summary(env["events"])
+    sla = latency_sla(latency_summary["response_gap_sec"], max_response_gap_sec)
+
     return {
         "env": env,
         "events_rows": len(env["events"]),
@@ -201,4 +242,6 @@ def run_export(
             "frames": frames_path,
             "envelope": envelope_path,
         },
+        "latency_summary": latency_summary,
+        "latency_sla": sla,
     }

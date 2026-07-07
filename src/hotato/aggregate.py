@@ -8,13 +8,17 @@ pass-rate trend line (inline SVG, zero external requests).
 Every number is computed from the envelopes' real measurements:
 
 * runs, total events
-* mean / median / p90 of talk-over and time-to-yield, pooled across all events
-  (definitions in ``hotato._stats``; time-to-yield only over measured yields,
-  with the n stated)
+* mean / median / p90 / p95 of talk-over, time-to-yield, and response-gap
+  (dead air before the agent speaks), pooled across all events (definitions
+  in ``hotato._stats``; time-to-yield and response-gap only over measured
+  values, with the n stated)
 * pass rate per run over time, ordered by file mtime or by filename (use a
   numeric filename prefix as an explicit index)
 * the most common failure class across all runs
 * a regression trend line (pass rate per run)
+* an optional latency SLA gate: bound the pooled p95 response-gap with
+  ``--max-response-gap SEC``; the gate fails (exit 1) exactly when p95
+  exceeds the bound, and is not configured (never a failure) otherwise
 
 Fewer than 2 runs is stated plainly and exits 0, never padded into a trend.
 No accuracy percentage anywhere; pass rates are shown as counts and 0..1
@@ -27,7 +31,7 @@ import json
 import os
 from typing import Optional
 
-from ._stats import dist_summary
+from ._stats import dist_summary, latency_sla
 from .report import _C, _esc
 
 __all__ = ["load_run_dir", "aggregate_runs", "build_team_section_html",
@@ -90,19 +94,22 @@ def load_run_dir(dirpath: str, order: str = "mtime") -> dict:
 # --- aggregation --------------------------------------------------------------
 
 def aggregate_runs(runs: list, order: str = "mtime",
-                   skipped: Optional[list] = None) -> dict:
+                   skipped: Optional[list] = None,
+                   max_response_gap_sec: Optional[float] = None) -> dict:
     """Aggregate loaded runs (see ``load_run_dir``) into a team envelope.
 
     Requires at least 2 runs; the caller states the shortfall plainly instead
     (see the CLI). Every field is computed from the envelopes' verdicts and
-    measurements.
+    measurements. ``max_response_gap_sec`` optionally bounds the pooled p95
+    response-gap (the latency SLA gate, see ``hotato._stats.latency_sla``);
+    left ``None`` the gate is not configured and never fails the aggregate.
     """
     if len(runs) < 2:
         raise ValueError(
             f"team aggregation needs at least 2 run envelopes; got {len(runs)}"
         )
 
-    tov, tty = [], []
+    tov, tty, rg = [], [], []
     over_time = []
     failure_classes = {}
     events_total = 0
@@ -117,6 +124,10 @@ def aggregate_runs(runs: list, order: str = "mtime",
                 tov.append(v["talk_over_sec"])
             if v.get("seconds_to_yield") is not None:
                 tty.append(v["seconds_to_yield"])
+            sig = e.get("signals") or {}
+            lat = sig.get("latency") or {}
+            if lat.get("response_gap_sec") is not None:
+                rg.append(lat["response_gap_sec"])
             fx = e.get("fix")
             if not v.get("passed") and fx:
                 fc = fx.get("fix_class") or "unclassified"
@@ -151,6 +162,9 @@ def aggregate_runs(runs: list, order: str = "mtime",
         most_common = {"fix_class": fc[0], "count": fc[1],
                        "of_failures": sum(failure_classes.values())}
 
+    response_gap_sec = dist_summary(rg)
+    sla = latency_sla(response_gap_sec, max_response_gap_sec)
+
     return {
         "tool": "hotato",
         "kind": "team-aggregate",
@@ -161,6 +175,8 @@ def aggregate_runs(runs: list, order: str = "mtime",
         "events_total": events_total,
         "talk_over_sec": dist_summary(tov),
         "seconds_to_yield": dist_summary(tty),
+        "response_gap_sec": response_gap_sec,
+        "latency_sla": sla,
         "pass_rate": {
             "latest": latest_rate,
             "first": first_rate,
@@ -171,7 +187,7 @@ def aggregate_runs(runs: list, order: str = "mtime",
         "failure_classes": failure_classes,
         "most_common_failure_class": most_common,
         "skipped": skipped or [],
-        "exit_code": 0,
+        "exit_code": 1 if sla["passed"] is False else 0,
     }
 
 
@@ -237,10 +253,21 @@ def _dist_tiles(name: str, d: Optional[dict]) -> str:
         return _tile(name, "no measurements")
     return "".join([
         _tile(f"{name} mean", f'{d["mean"]:.2f}s'),
-        _tile(f"{name} median", f'{d["median"]:.2f}s'),
+        _tile(f"{name} median (p50)", f'{d["median"]:.2f}s'),
         _tile(f"{name} p90", f'{d["p90"]:.2f}s'),
+        _tile(f"{name} p95", f'{d["p95"]:.2f}s'),
         _tile(f"{name} n", str(d["n"])),
     ])
+
+
+def _latency_sla_tile(sla: dict) -> str:
+    if sla["bound_sec"] is None:
+        return _tile("latency SLA (p95 response gap)", "not configured")
+    observed = (f'{sla["observed_p95_sec"]:.2f}s'
+                if sla["observed_p95_sec"] is not None else "no measurements")
+    verdict = "pass" if sla["passed"] else "fail"
+    return _tile("latency SLA (p95 response gap)",
+                 f'{observed} vs bound {sla["bound_sec"]:.2f}s ({verdict})')
 
 
 def build_team_section_html(agg: dict) -> str:
@@ -260,6 +287,8 @@ def build_team_section_html(agg: dict) -> str:
     ]
     tiles.append(_dist_tiles("talk-over", agg["talk_over_sec"]))
     tiles.append(_dist_tiles("time to yield", agg["seconds_to_yield"]))
+    tiles.append(_dist_tiles("response gap", agg["response_gap_sec"]))
+    tiles.append(_latency_sla_tile(agg["latency_sla"]))
     if mc:
         tiles.append(_tile("most common failure class",
                            f'{mc["fix_class"]} ({mc["count"]} of '

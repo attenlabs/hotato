@@ -352,6 +352,19 @@ def _emit_team_text(agg: dict, dirpath: str) -> None:
                   f"p90 {d['p90']:.2f}s (n={d['n']})")
         else:
             print(f"  {name}: no measurements")
+    d = agg["response_gap_sec"]
+    if d:
+        print(f"  response gap: mean {d['mean']:.2f}s median {d['median']:.2f}s "
+              f"p90 {d['p90']:.2f}s p95 {d['p95']:.2f}s (n={d['n']})")
+    else:
+        print("  response gap: no measurements")
+    sla = agg["latency_sla"]
+    if sla["bound_sec"] is not None:
+        observed = (f'{sla["observed_p95_sec"]:.2f}s'
+                    if sla["observed_p95_sec"] is not None else "no measurements")
+        verdict = "pass" if sla["passed"] else "fail"
+        print(f"  latency SLA: p95 response gap {observed} vs bound "
+              f"{sla['bound_sec']:.2f}s ({verdict})")
     mc = agg["most_common_failure_class"]
     if mc:
         print(f"  most common failure class: {mc['fix_class']} "
@@ -377,7 +390,8 @@ def _cmd_team(args) -> int:
         )
         return 0
     agg = _aggregate.aggregate_runs(runs, order=args.order,
-                                    skipped=loaded["skipped"])
+                                    skipped=loaded["skipped"],
+                                    max_response_gap_sec=args.max_response_gap)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
             json.dump(agg, fh, indent=2)
@@ -391,7 +405,9 @@ def _cmd_team(args) -> int:
         print(json.dumps(agg, indent=2))
     else:
         _emit_team_text(agg, args.dir)
-    return 0
+    if args.no_fail:
+        return 0
+    return agg["exit_code"]
 
 
 def _cmd_export(args) -> int:
@@ -423,6 +439,7 @@ def _cmd_export(args) -> int:
         audio_dir=args.audio,
         max_talk_over_sec=args.max_talk_over,
         max_time_to_yield_sec=args.max_time_to_yield,
+        max_response_gap_sec=args.max_response_gap,
     )
     print(
         f"wrote {res['events_rows']} event rows to {res['paths']['events']}, "
@@ -430,8 +447,22 @@ def _cmd_export(args) -> int:
         f"and the envelope to {res['paths']['envelope']}",
         file=sys.stderr,
     )
+    d = res["latency_summary"]["response_gap_sec"]
+    if d:
+        print(f"response gap: mean {d['mean']:.2f}s median {d['median']:.2f}s "
+              f"p90 {d['p90']:.2f}s p95 {d['p95']:.2f}s (n={d['n']})",
+              file=sys.stderr)
+    sla = res["latency_sla"]
+    if sla["bound_sec"] is not None:
+        observed = (f'{sla["observed_p95_sec"]:.2f}s'
+                    if sla["observed_p95_sec"] is not None else "no measurements")
+        verdict = "pass" if sla["passed"] else "fail"
+        print(f"latency SLA: p95 response gap {observed} vs bound "
+              f"{sla['bound_sec']:.2f}s ({verdict})", file=sys.stderr)
     if args.no_fail:
         return 0
+    if sla["passed"] is False:
+        return 1
     return process_exit_code(res["env"])
 
 
@@ -1062,16 +1093,20 @@ def build_parser() -> argparse.ArgumentParser:
             "Aggregate many runs into one honest trend view. Point it at a "
             "directory of envelope JSONs (hotato run --format json > runs/001.json). "
             "It reports runs, mean/median/p90 talk-over and time-to-yield pooled "
-            "across all events, pass rate per run over time, the most common "
+            "across all events, mean/median/p90/p95 response gap (dead air before "
+            "the agent speaks), pass rate per run over time, the most common "
             "failure class, and a pass-rate trend line in the HTML page. Every "
             "number is a real measurement pooled from the envelopes; fewer than 2 "
-            "runs is stated plainly (exit 0), never padded into a trend."
+            "runs is stated plainly (exit 0), never padded into a trend. "
+            "--max-response-gap gates the pooled p95 response gap: a latency SLA "
+            "that fails (exit 1) exactly when p95 exceeds the bound."
         ),
         epilog=(
             "Examples:\n"
             "  hotato run --suite barge-in --format json > runs/001.json\n"
             "  hotato team runs/ --html team.html\n"
-            "  hotato team runs/ --order name --format json"
+            "  hotato team runs/ --order name --format json\n"
+            "  hotato team runs/ --max-response-gap 0.8"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1085,6 +1120,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="write a self-contained HTML team page here")
     t.add_argument("--format", default="text", choices=["json", "text"],
                    help="stdout format (default text)")
+    t.add_argument("--max-response-gap", type=float, default=None,
+                   help="latency SLA: fail if the pooled p95 response gap "
+                        "(dead air before the agent speaks) exceeds this many "
+                        "seconds")
+    t.add_argument("--no-fail", action="store_true",
+                   help="always exit 0 (do not fail CI on a latency SLA breach)")
     t.set_defaults(func=_cmd_team)
 
     # --- export: research-grade CSVs + the envelope --------------------------
@@ -1097,12 +1138,16 @@ def build_parser() -> argparse.ArgumentParser:
             "event, every measured signal + verdict), frames.csv (one row per "
             "VAD frame, the evidence behind every number), and envelope.json "
             "(the standard machine envelope). Column meanings are documented in "
-            "comment lines at the top of each CSV. Stdlib only, offline."
+            "comment lines at the top of each CSV. Stdlib only, offline. Also "
+            "prints mean/median/p90/p95 response gap (dead air before the agent "
+            "speaks) pooled across the exported events; --max-response-gap gates "
+            "the pooled p95 as a latency SLA (exit 1 when it is exceeded)."
         ),
         epilog=(
             "Examples:\n"
             "  hotato export --stereo call.wav --out research/\n"
-            "  hotato export --suite barge-in --out research/"
+            "  hotato export --suite barge-in --out research/\n"
+            "  hotato export --suite barge-in --out research/ --max-response-gap 0.8"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1114,6 +1159,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="expected behaviour: 'yield' (stop for the caller) or 'hold' (keep the floor)")
     x.add_argument("--max-talk-over", type=float, default=None, help="fail if talk-over exceeds this many seconds")
     x.add_argument("--max-time-to-yield", type=float, default=None, help="fail if the yield is slower than this many seconds")
+    x.add_argument("--max-response-gap", type=float, default=None,
+                   help="latency SLA: fail if the pooled p95 response gap "
+                        "(dead air before the agent speaks, across the exported "
+                        "events) exceeds this many seconds")
     x.add_argument("--suite", nargs="?", const=SUITE_ID, default=None,
                    help=f"export a labelled battery instead of a single file (default suite: {SUITE_ID!r})")
     x.add_argument("--scenarios", default=None, help="dir of scenario JSON labels (defaults to the bundled battery)")

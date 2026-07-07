@@ -9,7 +9,7 @@ import json
 
 from importlib import resources
 
-from hotato import cli
+from hotato import cli, export
 from hotato.core import dump_frames_for_input, run_suite
 from hotato.export import EVENT_COLUMNS, FRAME_COLUMNS
 
@@ -129,6 +129,52 @@ def test_export_csv_no_percent_or_dashes(tmp_path):
     for name in ("events.csv", "frames.csv"):
         text = (out / name).read_text(encoding="utf-8")
         assert "–" not in text and "—" not in text
+
+
+def test_export_emits_latency_summary_and_sla_keys(tmp_path):
+    """run_export pools talk-over / time-to-yield / response-gap across the
+    exported events (mean/median/p90/p95, hotato._stats.dist_summary shape)
+    and reports the (unconfigured) latency SLA gate, without touching
+    envelope.json."""
+    out = tmp_path / "research"
+    res = export.run_export(out_dir=str(out), suite="barge-in")
+
+    env = run_suite(suite="barge-in")
+    rg_values = [
+        (e.get("signals") or {}).get("latency", {}).get("response_gap_sec")
+        for e in env["events"]
+    ]
+    rg_values = [v for v in rg_values if v is not None]
+    assert rg_values == [0.34]  # only 08-rapid-turn-taking carries a gap
+
+    d = res["latency_summary"]["response_gap_sec"]
+    assert d["n"] == 1
+    assert d["p90"] == d["p95"] == 0.34
+
+    assert res["latency_sla"] == {
+        "bound_sec": None, "observed_p95_sec": 0.34, "passed": None,
+    }
+    # additive-only: the pinned envelope.json never carries these new keys
+    written = json.loads((out / "envelope.json").read_text(encoding="utf-8"))
+    assert "latency_summary" not in written
+    assert "latency_sla" not in written
+
+
+def test_export_latency_sla_gate_fails_over_bound_and_passes_under_it(tmp_path):
+    over = tmp_path / "over"
+    code = cli.main(["export", "--suite", "barge-in", "--out", str(over),
+                     "--max-response-gap", "0.1"])
+    assert code == 1
+
+    under = tmp_path / "under"
+    code = cli.main(["export", "--suite", "barge-in", "--out", str(under),
+                     "--max-response-gap", "1.0"])
+    assert code == 0
+
+    no_fail = tmp_path / "no_fail"
+    code = cli.main(["export", "--suite", "barge-in", "--out", str(no_fail),
+                     "--max-response-gap", "0.1", "--no-fail"])
+    assert code == 0
 
 
 def test_export_not_scorable_single_exits_2(tmp_path):
