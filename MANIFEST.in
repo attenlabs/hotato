@@ -7,6 +7,18 @@ recursive-include tests *
 recursive-include ci *
 recursive-include .github *
 exclude .github/banner.png
-prune corpus
-prune examples
+
+# Corpus and examples: ship the SMALL, non-audio test dependencies so the
+# shipped test suite collects and runs from an extracted sdist, while keeping
+# the heavy real and rendered audio pruned. The extension filters below match
+# scenario labels, manifests, validators, and the deterministic builders, and
+# never match *.wav, so no heavy audio is carried. Suite and class audio is
+# regenerated deterministically by tests/conftest.py (seed = sha256(id)) when
+# absent; tests that need genuinely-absent heavy real audio skip cleanly.
+recursive-include corpus *.json *.py *.md *.txt *.html
+recursive-include examples *.json *.py *.md *.sh
+# the schema example's small stereo wav is the validator's PASS fixture, not
+# heavy audio (~0.4 MB); ship it so test_corpus_validate has its example.
+include corpus/examples/sample-contribution.example.wav
+
 global-exclude __pycache__ *.py[cod]
