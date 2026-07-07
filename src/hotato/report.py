@@ -212,9 +212,23 @@ def _svg_timeline(model: dict) -> str:
         t = max(0.0, min(t, dur))
         return _GUT + t * scale
 
+    # Accessible name restating the measured markers the drawing shows.
+    if model.get("onset") is not None and model.get("yield_abs") is not None:
+        aria = (f'Scored timeline: the caller track starts at '
+                f'{model["onset"]:.2f} seconds and the agent track stops at a '
+                f'yield marker {model["yield_abs"] - model["onset"]:.2f} '
+                f'seconds after onset')
+    elif model.get("onset") is not None:
+        aria = (f'Scored timeline: the caller track starts at '
+                f'{model["onset"]:.2f} seconds and the agent track keeps '
+                f'going with no yield marker')
+    else:
+        aria = 'Scored timeline of caller and agent activity from the recording'
+
     p = []
     p.append(f'<svg class="tl-svg" viewBox="0 0 {_W} {_H}" width="{_W}" height="{_H}" '
-             f'role="img" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">')
+             f'role="img" aria-label="{_esc(aria)}" '
+             f'font-family="ui-monospace, SFMono-Regular, Menlo, monospace">')
 
     # second gridlines + axis ticks
     step = 1.0 if dur <= 9 else 2.0
@@ -330,8 +344,15 @@ def _svg_latency_strip(pairs: list) -> str:
     def X(t: float) -> float:
         return gut + (t / vmax) * pw
 
+    if vals:
+        aria = (f'Strip plot of time to yield: {len(vals)} measured yields '
+                f'between {min(vals):.2f} and {max(vals):.2f} seconds, one dot '
+                f'per event')
+    else:
+        aria = 'Strip plot of time to yield: no measured yields'
     p = [f'<svg class="an-svg" viewBox="0 0 {_W} {H}" width="{_W}" height="{H}" '
-         f'role="img" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">']
+         f'role="img" aria-label="{_esc(aria)}" '
+         f'font-family="ui-monospace, SFMono-Regular, Menlo, monospace">']
     p.append(f'<line x1="{gut}" y1="{ay}" x2="{gut + pw}" y2="{ay}" '
              f'stroke="{_C["grid"]}" stroke-width="1" />')
     for t in (0.0, vmax / 2.0, vmax):
@@ -372,8 +393,11 @@ def _svg_histogram(values: list) -> str:
     bw = pw / n
     cmax = max(counts) or 1
 
+    aria = (f'Talk-over histogram: {len(values)} events bucketed in '
+            f'{width:.2f} second bins, tallest bin {cmax} events')
     p = [f'<svg class="an-svg" viewBox="0 0 {_W} {H}" width="{_W}" height="{H}" '
-         f'role="img" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">']
+         f'role="img" aria-label="{_esc(aria)}" '
+         f'font-family="ui-monospace, SFMono-Regular, Menlo, monospace">']
     p.append(f'<line x1="{gut}" y1="{ay}" x2="{gut + pw}" y2="{ay}" '
              f'stroke="{_C["grid"]}" stroke-width="1" />')
     for i, c in enumerate(counts):
@@ -793,6 +817,7 @@ def _audio_block(model: dict) -> str:
         rows.append(
             f'<div class="audrow"><span class="audk">{_esc(src["label"])}</span>'
             f'<audio controls preload="metadata" '
+            f'aria-label="Play clip: {_esc(src["label"])}" '
             f'src="data:audio/wav;base64,{b64}"></audio>'
             f'<span class="audnote">{_esc(name)}{synth}</span></div>'
         )
@@ -868,6 +893,8 @@ def _footer() -> str:
 
 _CSS = """
 :root{color-scheme:dark}
+:where(a,button,summary,audio,[tabindex]):focus-visible{
+ outline:3px solid %(ember)s;outline-offset:3px;border-radius:3px}
 *{box-sizing:border-box}
 body{margin:0;background:%(bg)s;color:%(cream)s;
  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -1052,17 +1079,30 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     base_html = _base_section(env, base_env, base_label) if base_env else ""
 
     body = (
-        f'<div class="wrap">{head}{summary}'
+        f'<div class="wrap">{head}<main>{summary}'
         f'{_analytics_section(env, models)}{_not_scorable_section_html(env)}'
         f'{base_html}{cards}'
-        f'{_thresholds(cfg)}{_footer()}</div>'
+        f'{_thresholds(cfg)}</main>{_footer()}</div>'
+    )
+
+    # Distinguishing title + description built only from measured counts.
+    title = "hotato report"
+    if env.get("suite"):
+        title += f": {_esc(env['suite'])} suite"
+    title += f", {s['passed']} of {s['events']} events pass"
+    desc = (
+        f"Self-contained hotato report: {s['events']} events scored offline, "
+        f"{s['passed']} pass, {s['failed']} fail. Every value is a real "
+        "measurement from the scorer; the page embeds its own evidence and "
+        "opens offline."
     )
 
     return (
         "<!doctype html>\n<html lang=\"en\"><head>"
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-        "<title>hotato report</title>"
+        f"<title>{title}</title>"
+        f"<meta name=\"description\" content=\"{_esc(desc)}\">"
         f"<style>{_CSS}</style></head><body>{body}</body></html>\n"
     )
 
