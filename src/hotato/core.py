@@ -119,16 +119,20 @@ def _event_from_result(
     onset_provided: bool = True,
     echo: Optional[dict] = None,
     echo_gate: bool = False,
+    resume: Optional[dict] = None,
 ) -> dict:
     verdict = evaluate(result, expected)
     expected_yield = bool(expected.get("yield", True))
     # Namespaced signal bus (additive; schema_version stays "1"). signals.barge_in
     # mirrors the verdict's three original values byte-for-byte; signals.latency
-    # adds the pure-timing endpointing measurements; signals.echo (this addition)
-    # is the ADDITIVE cross-channel coherence block, computed entirely in hotato's
-    # own layer. New dimensions slot in here without changing the existing verdict
-    # or measurements blocks.
+    # adds the pure-timing endpointing measurements; signals.echo is the ADDITIVE
+    # cross-channel coherence block; signals.resume (this addition) is the ADDITIVE
+    # post-yield resume/restart block, present only when the agent actually
+    # yielded. All computed entirely in hotato's own layer. New dimensions slot in
+    # here without changing the existing verdict or measurements blocks.
     signals = result.signals if echo is None else {**result.signals, "echo": echo}
+    if resume is not None:
+        signals = {**signals, "resume": resume}
     event = {
         "event_id": event_id,
         "scenario_id": scenario_id,
@@ -356,6 +360,31 @@ def _echo_block(caller_samples, agent_samples, sample_rate: int, cfg: ScoreConfi
     )
 
 
+def _resume_block(agent_samples, sample_rate: int, result, cfg: ScoreConfig) -> Optional[dict]:
+    """The additive ``signals.resume`` post-yield block for one recording, or
+    ``None`` when there was no scorable yield to measure after.
+
+    Meaningful only once the agent has yielded: it measures, from the agent's own
+    VAD track, whether the agent resumed, how quickly, and whether the post-resume
+    run is long enough to look like a restart-from-the-top. Computed in hotato's
+    own layer (see ``resume.py``); never touches the vendored engine and never
+    changes any existing number."""
+    if not result.did_yield or result.time_to_yield_sec is None:
+        return None
+    from .resume import resume_block_from_samples
+
+    yield_time_sec = result.caller_onset_sec + result.time_to_yield_sec
+    return resume_block_from_samples(
+        agent_samples,
+        sample_rate,
+        yield_time_sec,
+        cfg.agent_vad,
+        frame_ms=cfg.frame_ms,
+        hop_ms=cfg.hop_ms,
+        onset_min_run_sec=cfg.onset_min_run_sec,
+    )
+
+
 def _check_onset(onset_sec: Optional[float]) -> None:
     if onset_sec is not None and onset_sec < 0:
         raise ValueError(
@@ -412,6 +441,7 @@ def run_single(
             signal.get(caller_channel), signal.get(agent_channel),
             signal.sample_rate, cfg,
         )
+        resume = _resume_block(signal.get(agent_channel), signal.sample_rate, result, cfg)
         source = os.path.basename(stereo)
     elif caller and agent:
         c = _read_wav(caller)
@@ -426,6 +456,7 @@ def run_single(
             c.get(0)[:n], a.get(0)[:n], c.sample_rate, caller_onset_sec=onset_sec, cfg=cfg
         )
         echo = _echo_block(c.get(0)[:n], a.get(0)[:n], c.sample_rate, cfg)
+        resume = _resume_block(a.get(0)[:n], c.sample_rate, result, cfg)
         source = f"{os.path.basename(caller)}+{os.path.basename(agent)}"
     else:
         raise ValueError("provide --stereo FILE, or both --caller FILE and --agent FILE")
@@ -447,6 +478,7 @@ def run_single(
         onset_provided=onset_sec is not None,
         echo=echo,
         echo_gate=echo_gate,
+        resume=resume,
     )
     return _envelope(mode="single", stack=stack, events=[event])
 
@@ -676,6 +708,7 @@ def run_suite(
             signal.get(caller_channel), signal.get(agent_channel),
             signal.sample_rate, cfg,
         )
+        resume = _resume_block(signal.get(agent_channel), signal.sample_rate, result, cfg)
         events.append(
             _event_from_result(
                 event_id=sid,
@@ -689,6 +722,7 @@ def run_suite(
                 onset_provided=scenario_onset is not None,
                 echo=echo,
                 echo_gate=echo_gate,
+                resume=resume,
             )
         )
 

@@ -31,6 +31,11 @@
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
+        },
+        "resume": {
+          "restart_suspected": false,
+          "resume_gap_sec": null,
+          "resumed": false
         }
       },
       "title": "Hard mid-sentence interruption",
@@ -105,6 +110,11 @@
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
+        },
+        "resume": {
+          "restart_suspected": false,
+          "resume_gap_sec": null,
+          "resumed": false
         }
       },
       "title": "Interruption that starts with a filler (um, actually...)",
@@ -142,6 +152,11 @@
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
+        },
+        "resume": {
+          "restart_suspected": false,
+          "resume_gap_sec": null,
+          "resumed": false
         }
       },
       "title": "Urgent correction (no, I said Tuesday)",
@@ -179,6 +194,11 @@
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
+        },
+        "resume": {
+          "restart_suspected": false,
+          "resume_gap_sec": null,
+          "resumed": false
         }
       },
       "title": "Hard interruption at 8 kHz telephony sample rate",
@@ -216,6 +236,11 @@
         "latency": {
           "premature_start_sec": null,
           "response_gap_sec": null
+        },
+        "resume": {
+          "restart_suspected": false,
+          "resume_gap_sec": null,
+          "resumed": false
         }
       },
       "title": "Sustained double-talk (both parties live)",
@@ -290,6 +315,11 @@
         "latency": {
           "premature_start_sec": 0.0,
           "response_gap_sec": 0.34
+        },
+        "resume": {
+          "restart_suspected": true,
+          "resume_gap_sec": 1.49,
+          "resumed": true
         }
       },
       "title": "Rapid turn-taking after an interruption",
