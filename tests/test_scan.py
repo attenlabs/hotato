@@ -10,6 +10,9 @@ over the whole file.
 """
 
 import json
+import math
+import struct
+import wave
 from importlib import resources
 
 import pytest
@@ -136,6 +139,64 @@ def test_header_states_the_labeling_contract(long_call, capsys):
             "--expect yield|hold") in out
 
 
+# --- agent self-truncation with a silent caller ---------------------------
+
+def _write_stereo_segments(path, caller_segments, agent_segments,
+                            duration_sec, sr=16000):
+    """Two-channel PCM WAV: caller on channel 0, agent on channel 1. Each
+    channel is a pure sine inside its active segments and exact digital
+    silence outside them."""
+    n = int(duration_sec * sr)
+
+    def _on(segments, t):
+        return any(start <= t < end for start, end in segments)
+
+    frames = bytearray()
+    for i in range(n):
+        t = i / sr
+        c = (int(0.35 * 32767 * math.sin(2 * math.pi * 220.0 * i / sr))
+             if _on(caller_segments, t) else 0)
+        a = (int(0.35 * 32767 * math.sin(2 * math.pi * 330.0 * i / sr))
+             if _on(agent_segments, t) else 0)
+        frames += struct.pack("<hh", c, a)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(bytes(frames))
+    return str(path)
+
+
+def test_agent_stops_mid_run_with_silent_caller_is_flagged(tmp_path):
+    # The agent talks 0.5s-3.0s then goes quiet for the rest of the
+    # recording; the caller channel is silent throughout. Nothing on the
+    # caller track explains the drop.
+    path = _write_stereo_segments(
+        tmp_path / "mid-run-stop.wav", [], [(0.5, 3.0)], duration_sec=4.0
+    )
+    result = scan_recording(path)
+    assert result["total_candidates"] == 1
+    (c,) = result["candidates"]
+    assert c["kind"] == "agent_stop_no_caller"
+    assert set(c) == {"t_sec", "kind", "durations", "agent_reaction"}
+    assert c["durations"]["trailing_silence_sec"] > 0.5
+    assert c["durations"]["caller_proximity_sec"] == pytest.approx(0.5)
+    assert c["agent_reaction"] is None
+
+
+def test_normal_end_of_turn_is_not_flagged(tmp_path):
+    # The agent talks 0.5s-3.0s, goes quiet, and the caller takes the floor
+    # a beat later (well inside the proximity window): a real hand-off, not
+    # a self-truncation.
+    path = _write_stereo_segments(
+        tmp_path / "normal-handoff.wav", [(3.3, 3.9)], [(0.5, 3.0)],
+        duration_sec=4.3,
+    )
+    result = scan_recording(path)
+    kinds = {c["kind"] for c in result["candidates"]}
+    assert "agent_stop_no_caller" not in kinds
+
+
 # --- caps, counts, exits -------------------------------------------------------
 
 def test_top_caps_the_listing_and_reports_the_total(long_call, capsys):
@@ -152,14 +213,28 @@ def test_top_caps_the_listing_and_reports_the_total(long_call, capsys):
     assert len(data["candidates"]) == 2
     assert data["total_candidates"] >= 4
 
+    # --top still works when the mixed candidate set includes the new kind.
+    full = scan_recording(path)
+    assert full["total_candidates"] >= 6
+    assert {c["kind"] for c in full["candidates"]} >= {
+        "overlap_while_agent_talking", "long_response_gap",
+        "agent_stop_no_caller",
+    }
+
+
+def _salience_value(c):
+    d = c["durations"]
+    for key in ("gap_sec", "overlap_sec", "trailing_silence_sec"):
+        if key in d:
+            return d[key]
+    raise AssertionError(f"no known salience key in {d!r} for kind {c['kind']}")
+
 
 def test_candidates_are_sorted_by_salience(long_call):
     path, _ = long_call
     result = scan_recording(path)
-    saliences = [
-        c["durations"].get("gap_sec", c["durations"].get("overlap_sec"))
-        for c in result["candidates"]
-    ]
+    assert any(c["kind"] == "agent_stop_no_caller" for c in result["candidates"])
+    saliences = [_salience_value(c) for c in result["candidates"]]
     assert saliences == sorted(saliences, reverse=True)
 
 
@@ -177,12 +252,12 @@ def test_out_writes_every_candidate_even_when_top_caps_stdout(long_call,
 
 
 def test_zero_candidates_is_exit_0_with_the_count(tmp_path, capsys):
-    # Agent speech only: no caller activity, so no overlaps and no caller
-    # turns to leave a response gap after.
+    # Both channels silent: no caller activity and no agent activity, so
+    # none of the four candidate kinds has anything to find.
     src = read_wav(_bundled("01-hard-interruption"))
-    quiet = tmp_path / "agent-only.wav"
+    quiet = tmp_path / "silence.wav"
     write_wav(str(quiet), src.sample_rate,
-              [[0.0] * src.num_samples, src.get(1)])
+              [[0.0] * src.num_samples, [0.0] * src.num_samples])
     assert cli.main(["scan", "--stereo", str(quiet)]) == 0
     out = capsys.readouterr().out
     assert "0 candidate moments" in out
