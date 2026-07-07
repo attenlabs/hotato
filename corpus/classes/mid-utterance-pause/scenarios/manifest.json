@@ -1,0 +1,40 @@
+{
+  "scenarios": [
+    {
+      "id": "mup-pause-2s",
+      "title": "Caller pauses 2.0s mid-utterance, then resumes; agent waits (latency PASS)",
+      "category": "latency",
+      "family": "mid-utterance-pause",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/mup-pause-2s.example.wav",
+      "caller_wav": "audio/mup-pause-2s.caller.wav"
+    },
+    {
+      "id": "mup-pause-4s",
+      "title": "Caller pauses 4.0s mid-utterance, then resumes; agent waits (latency PASS)",
+      "category": "latency",
+      "family": "mid-utterance-pause",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/mup-pause-4s.example.wav",
+      "caller_wav": "audio/mup-pause-4s.caller.wav"
+    },
+    {
+      "id": "mup-pause-jumpin",
+      "title": "DEFECT RENDER: agent grabs the floor inside the caller's pause (latency must FAIL)",
+      "category": "latency",
+      "family": "mid-utterance-pause",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "fail",
+      "failure_axis": "latency",
+      "example_wav": "audio/mup-pause-jumpin.example.wav",
+      "caller_wav": "audio/mup-pause-jumpin.caller.wav"
+    }
+  ]
+}

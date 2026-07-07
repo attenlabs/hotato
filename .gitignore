@@ -57,3 +57,5 @@ tests/test_saa_card.py
 
 # rendered suite audio regenerates byte-identically in ~19s: python3 corpus/suites/build_suites.py
 corpus/suites/*/audio/
+# rendered class-corpus audio regenerates byte-identically: python3 corpus/classes/build_classes.py
+corpus/classes/*/audio/

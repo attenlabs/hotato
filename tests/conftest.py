@@ -11,11 +11,17 @@ import pathlib
 import subprocess
 
 _SUITES = pathlib.Path(_ROOT) / "corpus" / "suites"
+_CLASSES = pathlib.Path(_ROOT) / "corpus" / "classes"
 
 def pytest_sessionstart(session):
-    """Render suite audio when absent. Deterministic (seed = sha256(id)), ~19s."""
+    """Render suite/class audio when absent. Deterministic (seed = sha256(id))."""
     if _SUITES.is_dir():
         missing = [d for d in _SUITES.iterdir()
                    if d.is_dir() and (d / "scenarios").is_dir() and not (d / "audio").is_dir()]
         if missing:
             subprocess.run(["python3", str(_SUITES / "build_suites.py")], check=True, cwd=_ROOT)
+    if _CLASSES.is_dir():
+        missing = [d for d in _CLASSES.iterdir()
+                   if d.is_dir() and (d / "scenarios").is_dir() and not (d / "audio").is_dir()]
+        if missing:
+            subprocess.run(["python3", str(_CLASSES / "build_classes.py")], check=True, cwd=_ROOT)

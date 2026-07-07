@@ -1,0 +1,28 @@
+{
+  "scenarios": [
+    {
+      "id": "td-8k-hard-interrupt-degraded",
+      "title": "Hard interruption at 8 kHz, degraded telephony line (mu-law + mild packet loss)",
+      "category": "should_yield",
+      "family": "telephony-degraded",
+      "sample_rate": 8000,
+      "expected_yield": true,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/td-8k-hard-interrupt-degraded.example.wav",
+      "caller_wav": "audio/td-8k-hard-interrupt-degraded.caller.wav"
+    },
+    {
+      "id": "td-8k-missed-degraded",
+      "title": "DEFECT RENDER: missed interrupt at 8 kHz, degraded telephony line (must FAIL)",
+      "category": "should_yield",
+      "family": "telephony-degraded",
+      "sample_rate": 8000,
+      "expected_yield": true,
+      "reference_verdict": "fail",
+      "failure_axis": "barge_in",
+      "example_wav": "audio/td-8k-missed-degraded.example.wav",
+      "caller_wav": "audio/td-8k-missed-degraded.caller.wav"
+    }
+  ]
+}

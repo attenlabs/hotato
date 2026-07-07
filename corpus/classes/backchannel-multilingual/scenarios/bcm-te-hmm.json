@@ -1,0 +1,39 @@
+{
+  "id": "bcm-te-hmm",
+  "title": "Telugu acknowledgement 'hmm' over agent speech (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "backchannel",
+    "multilingual",
+    "te"
+  ],
+  "family": "backchannel-multilingual",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.6,
+  "caller_onset_sec": 2.6,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        6.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.6,
+        2.9
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "A brief Telugu acknowledgement token ('hmm', romanized label only; the audio is rendered shaped noise like every fixture in this corpus, not real phonetic content). Hotato's VAD is energy-based and language-agnostic; this fixture documents that the false-trigger funnel is not English-only.",
+  "related_signals": [
+    "did_yield"
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "id": "td-8k-missed-degraded",
+  "title": "DEFECT RENDER: missed interrupt at 8 kHz, degraded telephony line (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "missed",
+    "telephony",
+    "8khz",
+    "codec",
+    "packet-loss",
+    "bad-agent"
+  ],
+  "family": "telephony-degraded",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        5.6
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        4.2
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. The same missed-interrupt shape as gld-8k-missed, re-rendered through the identical degraded telephony line. Proves codec degradation does not mask a real miss: the FAIL verdict is stable too.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ],
+  "telephony_degradation": {
+    "codec": "mu-law",
+    "packet_loss": true,
+    "note": "Post-processed by corpus/classes/telephony_codec.py (degrade_telephony) after the standard deterministic render, applied identically to both channels."
+  }
+}

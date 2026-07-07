@@ -1,0 +1,39 @@
+{
+  "id": "nh-cafe-hold",
+  "title": "Sustained cafe-like ambient energy on the caller channel (should NOT yield)",
+  "category": "should_not_yield",
+  "tags": [
+    "noise-hold",
+    "ambient",
+    "non-speech"
+  ],
+  "family": "noise-hold",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 7.5,
+  "caller_onset_sec": 0.3,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        7.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        0.3,
+        6.9
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The caller channel carries continuous non-speech energy for nearly the whole call (a cafe-like background presence), not a brief backchannel. Hotato measures whether the agent held the floor through it; it does not classify the energy as noise versus speech, and neither does this label.",
+  "related_signals": [
+    "did_yield"
+  ]
+}
