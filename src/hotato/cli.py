@@ -652,13 +652,33 @@ def _cmd_team(args) -> int:
 
     loaded = _aggregate.load_run_dir(args.dir, order=args.order)
     runs = loaded["runs"]
+    skipped = loaded["skipped"]
     if len(runs) < 2:
-        # Stated plainly, exit 0: one run has no trend and we never pad one.
-        print(
+        # Not enough runs to show a trend, exit 0 (we never pad one). This path
+        # must STILL honor --format json (an agent piping this into json.load
+        # would otherwise crash on a plain sentence) and STILL surface WHY each
+        # file was rejected (load_run_dir already recorded file+reason), so the
+        # user can see why 0 of N files were recognized as run envelopes.
+        msg = (
             f"team mode needs at least 2 run envelopes to aggregate; found "
             f"{len(runs)} in {args.dir}. Save runs with: "
             "hotato run --suite barge-in --format json > runs/001.json"
         )
+        if args.format == "json":
+            print(json.dumps({
+                "tool": "hotato",
+                "kind": "team",
+                "runs_found": len(runs),
+                "message": msg,
+                "skipped": skipped,
+            }, indent=2))
+        else:
+            print(msg)
+            if skipped:
+                print(f"  {len(skipped)} file(s) not recognized as run "
+                      "envelopes:")
+                for s in skipped:
+                    print(f"    {s['file']}: {s['why']}")
         return 0
     agg = _aggregate.aggregate_runs(runs, order=args.order,
                                     skipped=loaded["skipped"],

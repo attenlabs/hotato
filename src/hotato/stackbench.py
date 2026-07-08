@@ -35,7 +35,13 @@ from typing import List, Optional, Sequence, Tuple
 
 from . import __version__
 from ._engine.score import ScoreConfig
-from .core import SUITE_ID, _config_block, _load_bundled_scenarios, run_suite
+from .core import (
+    SUITE_ID,
+    _config_block,
+    _load_bundled_scenarios,
+    _safe_scenario_id,
+    run_suite,
+)
 
 __all__ = [
     "BENCH_STACKS",
@@ -148,13 +154,15 @@ def run_stackbench(
     ids = []
     for sc in scenarios:
         sid = sc.get("id")
-        if not sid or os.sep in str(sid) or (os.altsep and os.altsep in str(sid)):
+        if not sid:
             raise ValueError(
-                f"scenario id {sid!r} is missing or not filename-safe; every "
-                "scenario needs a plain-filename 'id' so recordings can be "
-                "matched to it"
+                "every scenario needs a plain-filename 'id' so recordings can "
+                "be matched to it"
             )
-        ids.append(str(sid))
+        # The id becomes a filesystem path here AND inside run_suite, so enforce
+        # the same safe-slug rule (no path separator, not absolute, no '..')
+        # rather than only screening for '/'.
+        ids.append(_safe_scenario_id(sid))
 
     use_suffix = _detect_suffix(recordings_dir, ids, suffix)
     captured, not_captured = [], []

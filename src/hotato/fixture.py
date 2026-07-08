@@ -34,7 +34,12 @@ import tempfile
 from typing import Optional
 
 from ._engine.audio import write_wav
-from .core import _read_wav, _require_channel, run_suite
+from .core import (
+    _read_wav,
+    _require_channel,
+    _require_distinct_channels,
+    run_suite,
+)
 
 __all__ = ["create_fixture", "CREATED_BY"]
 
@@ -66,6 +71,7 @@ def _load_channels(*, stereo, caller, agent, caller_channel, agent_channel):
                 "and --agent as two mono files, or export a real two-channel "
                 "recording."
             )
+        _require_distinct_channels(caller_channel, agent_channel)
         _require_channel(signal, caller_channel, "caller")
         _require_channel(signal, agent_channel, "agent")
         return (signal.get(caller_channel), signal.get(agent_channel),

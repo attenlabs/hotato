@@ -19,6 +19,18 @@ from __future__ import annotations
 
 from ._engine.vad import BackendUnavailable
 
+
+class ChannelRangeError(ValueError):
+    """A caller/agent channel index that is out of range for a recording. A
+    ``ValueError`` subclass so every existing ``except ValueError`` and the
+    :data:`HANDLED` contract still catch it (exit 2, structured error), but a
+    distinct type so a batch command (``analyze`` / ``loop`` / ``sweep``) can
+    tell a GLOBAL flag mistake -- the same bad ``--caller-channel`` /
+    ``--agent-channel`` for every file -- apart from a genuinely per-file
+    problem (a mono or corrupt WAV) and propagate it as a usage error instead
+    of silently degrading it into a per-file skip."""
+
+
 TOOL = "hotato"
 SCHEMA_VERSION = "1"
 # Every failure class maps to the CLI's existing exit-2 (unusable input / usage
