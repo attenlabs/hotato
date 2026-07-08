@@ -66,8 +66,8 @@ def _resolve_np():
             _np = numpy
     return _np
 
-__all__ = ["scan_recording", "render_text", "KINDS", "SCAN_NOTE",
-           "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC"]
+__all__ = ["scan_recording", "activity_tracks", "render_text", "KINDS",
+           "SCAN_NOTE", "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC"]
 
 KINDS = ("overlap_while_agent_talking", "agent_start_during_caller",
          "long_response_gap", "agent_stop_no_caller",
@@ -458,6 +458,33 @@ def scan_recording(
         "total_candidates": len(candidates),
         "candidates": candidates,
     }
+
+
+def activity_tracks(
+    path: str,
+    *,
+    caller_channel: int = 0,
+    agent_channel: int = 1,
+    cfg: Optional[ScoreConfig] = None,
+) -> Tuple[List[bool], List[bool], float, int, float]:
+    """The exact per-frame caller/agent VAD activity tracks ``scan_recording``
+    walks, for callers that also need to DRAW the tracks (a per-moment timeline)
+    rather than just list candidates.
+
+    Returns ``(caller_active, agent_active, hop_sec, sample_rate, duration_sec)``
+    with the two boolean tracks trimmed to a common length. Same windowed pass,
+    same ``energy_vad``, so the tracks line up frame-for-frame with the
+    candidates ``scan_recording`` emits for the same file and config.
+    """
+    if cfg is None:
+        cfg = ScoreConfig()
+    rms_c, rms_a, hop, sample_rate, duration = windowed_frame_rms(
+        path, caller_channel, agent_channel, cfg.frame_ms, cfg.hop_ms
+    )
+    caller = energy_vad(rms_c, hop, cfg.caller_vad).active
+    agent = energy_vad(rms_a, hop, cfg.agent_vad).active
+    n = min(len(caller), len(agent))
+    return caller[:n], agent[:n], hop, sample_rate, duration
 
 
 def _line(i: int, c: dict) -> str:

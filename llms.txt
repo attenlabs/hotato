@@ -49,6 +49,15 @@
   a whole recording as timing facts only (overlap onsets, agent-starts-during
   caller-activity, long response gaps); you supply the yield/hold label. Long
   files are read in a windowed pass.
+- `hotato analyze FOLDER` (or bare `hotato FOLDER`) -- zero-config drop-a-folder
+  discovery: walk EVERY dual-channel recording label-free with `scan`, aggregate
+  the candidate moments across all calls, and rank them by the scanner's own
+  salience. Writes one self-contained offline HTML dashboard; for the top
+  moments the real audio around each is embedded inline (base64, nothing
+  uploaded) with a playhead that sweeps that moment's timeline in sync with
+  playback, so you HEAR the overlap or gap land where the chart marks it.
+  `--format json` for the ranked candidates. Measured candidate moments you
+  review and label, never a pass/fail. Detail: `docs/ANALYZE.md`.
 - `hotato fixture create --stereo bad-call.wav --id ID --onset SEC --expect
   {yield,hold} --out DIR` -- turn one bad call moment into a permanent
   regression fixture (scenario JSON + clipped two-channel WAV), validated by
@@ -201,6 +210,8 @@ measures whether the timing matched that label.
 - docs/INGEST.md: the passive webhook-to-`ingest` on-ramp, per-stack payload
   fields, and why it composes `capture` + `scan` instead of adding new scope.
 - docs/FIX-PLANS.md: the read-only diagnose/inspect/plan ladder.
+- docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
+  dashboard with the hear-the-bug audio playhead.
 - docs/REPORTS.md: doctor, report, team, and export in depth.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.

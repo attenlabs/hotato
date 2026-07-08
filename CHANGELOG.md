@@ -18,6 +18,32 @@ design. See `docs/BENCHMARK.md`.
   `docs/WHY.md`, now "show up again and again."
 
 ### Added
+- **`hotato analyze <folder>`, the zero-config drop-a-folder flagship**: point
+  it at a folder of real dual-channel call recordings and it walks EVERY
+  recording label-free with the existing whole-call scanner (`hotato scan`),
+  aggregates the candidate turn-taking moments across all calls, and ranks them
+  by the scanner's own salience (overlap seconds / gap seconds / echo coherence)
+  so the worst moments float to the top. No scenarios, no labels, no onset, no
+  flags required. It writes ONE self-contained, offline HTML dashboard reusing
+  the `report.py` house style and its timeline SVG renderer: each top moment
+  shows the call file, the timestamp, the candidate kind, the measured number,
+  and a to-scale caller/agent timeline. For the top moments (`--audio-top`,
+  default 8) the REAL audio around the moment is embedded inline as a base64 WAV
+  data URI (nothing uploaded, zero external requests) with the **hear-the-bug
+  player**: press play and a playhead sweeps that moment's timeline in sync with
+  `audio.currentTime` (via `requestAnimationFrame`), landing on the measured
+  overlap or gap; reduced-motion safe (the playhead rides `timeupdate` instead
+  of the animation loop). `--format json` emits the ranked candidates plus their
+  metadata for an agent to drive. Framed honestly throughout as MEASURED
+  candidate timing moments you review and label with `hotato fixture create` —
+  never a pass/fail, a failure count, an intent claim, or an accuracy number.
+  Non-dual-channel or unreadable files are reported cleanly as skipped with
+  their reason, never a crash. A bare `hotato <folder>` (a directory as the
+  first argument) routes to `analyze`. Exit codes: 0 ran (candidate moments
+  listed, possibly zero), 2 usage/IO error. Docs: `docs/ANALYZE.md`. Reuses
+  `scan.py`, `report.py`, and the stdlib WAV reader; adds `scan.activity_tracks`
+  (the exact per-frame tracks the scanner walks, for drawing the per-moment
+  timelines).
 - **`hotato ingest`, the composable passive on-ramp**: wire a webhook to invoke
   `hotato ingest` once and every completed call is scanned for candidate
   turn-taking moments automatically, so you never have to remember to run a CLI

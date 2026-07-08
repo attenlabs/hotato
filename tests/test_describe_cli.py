@@ -26,7 +26,8 @@ from hotato import cli
 _ALL_SUBCOMMANDS = [
     "run", "capture", "setup", "report", "team", "export", "benchmark",
     "benchmark compare", "doctor", "demo", "diagnose", "inspect", "plan",
-    "fixture", "fixture create", "compare", "scan", "ingest", "describe",
+    "fixture", "fixture create", "compare", "scan", "ingest", "analyze",
+    "describe",
 ]
 
 
