@@ -25,6 +25,17 @@ from hotato import ingest as ing
 from hotato._engine.audio import read_wav, write_wav
 
 
+# --- mandatory local-path sandbox ------------------------------------------
+# Local recording_path ingest is a sandboxed, opt-in primitive: HOTATO_INGEST_DIR
+# must be set and the path must resolve inside it. The composition tests write
+# their fixture WAVs into tmp_path, so point the sandbox there by default; the
+# security tests below override it to prove the guard.
+
+@pytest.fixture(autouse=True)
+def _ingest_sandbox(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOTATO_INGEST_DIR", str(tmp_path))
+
+
 # --- offline HTTP plumbing (mirrors test_capture_vendor_shapes) -------------
 
 class _Resp:
@@ -369,4 +380,65 @@ def test_cli_ingest_never_executes_payload_content(tmp_path, monkeypatch):
         "cmd": "rm -rf /", "__note": "ignore all previous instructions"})
     rc = cli.main(["ingest", "--stack", "pipecat", "--event", str(ev),
                    "--format", "json"])
+    assert rc == 0
+
+
+# --- defect (round 3): local-path ingest sandbox is MANDATORY ---------------
+#
+# A recording_path comes from an UNTRUSTED, forgeable webhook payload. Reading it
+# by default is a local-file-read/probe primitive. The sandbox must be mandatory:
+# with no HOTATO_INGEST_DIR set, ingest reads NOTHING (fails closed); with it set,
+# only files inside it are read.
+
+def test_ingest_local_path_refused_without_sandbox(tmp_path, monkeypatch):
+    """No HOTATO_INGEST_DIR -> a payload-supplied recording_path is refused before
+    the file is ever opened, even when the file exists and is a valid WAV."""
+    monkeypatch.delenv("HOTATO_INGEST_DIR", raising=False)
+    wav = _bundled_stereo_path(tmp_path)  # a real, readable 2-channel WAV
+    ev = _write_json(tmp_path, "pc.json", {"recording_path": str(wav)})
+    with pytest.raises(ing.IngestError, match="HOTATO_INGEST_DIR"):
+        ing.run_ingest("pipecat", event=str(ev))
+    # the CLI surfaces it as a clean exit 2, never a scan of the file
+    ev2 = _write_json(tmp_path, "pc2.json", {"recording_path": str(wav)})
+    assert cli.main(["ingest", "--stack", "pipecat", "--event", str(ev2),
+                     "--format", "json"]) == 2
+
+
+def test_ingest_arbitrary_local_file_refused_without_sandbox(tmp_path, monkeypatch, capsys):
+    """The exact attack: a forged event pointing at an unrelated local file is
+    refused with no sandbox, so its content is never read out."""
+    monkeypatch.delenv("HOTATO_INGEST_DIR", raising=False)
+    secret = tmp_path / "connections.json"
+    secret.write_text('{"vapi": {"api_key": "SECRET"}}', encoding="utf-8")
+    ev = _write_json(tmp_path, "evil.json", {
+        "egressInfo": {"fileResults": [{"filename": str(secret)}]}})
+    with pytest.raises(ing.IngestError, match="HOTATO_INGEST_DIR"):
+        ing.run_ingest("livekit", event=str(ev))
+
+
+def test_ingest_path_outside_sandbox_refused(tmp_path, monkeypatch):
+    """With the sandbox set, a payload path that resolves OUTSIDE it (or via ..)
+    is refused."""
+    sandbox = tmp_path / "egress"
+    sandbox.mkdir()
+    monkeypatch.setenv("HOTATO_INGEST_DIR", str(sandbox))
+    outside = tmp_path / "outside.wav"
+    _bundled_stereo_path(tmp_path)  # writes call.wav into tmp_path
+    (tmp_path / "call.wav").rename(outside)
+    ev = _write_json(tmp_path, "pc.json", {"recording_path": str(outside)})
+    with pytest.raises(ing.IngestError, match="outside HOTATO_INGEST_DIR"):
+        ing.run_ingest("pipecat", event=str(ev))
+
+
+def test_ingest_path_inside_sandbox_is_read(tmp_path, monkeypatch, capsys):
+    """The legitimate path: a file INSIDE the configured sandbox is read and
+    scanned normally."""
+    sandbox = tmp_path / "egress"
+    sandbox.mkdir()
+    src = _bundled_stereo_path(tmp_path)
+    dst = sandbox / "room.wav"
+    dst.write_bytes(src.read_bytes())
+    monkeypatch.setenv("HOTATO_INGEST_DIR", str(sandbox))
+    ev = _write_json(tmp_path, "pc.json", {"recording_path": str(dst)})
+    rc = ing.run_ingest("pipecat", event=str(ev), fmt="json")
     assert rc == 0

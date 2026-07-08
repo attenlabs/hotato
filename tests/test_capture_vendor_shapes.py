@@ -392,3 +392,66 @@ def test_twilio_mono_validation_rejects_1_channel_download(tmp_path, monkeypatch
             recording_sid="RE1", account_sid="AC1", auth_token="t",
             out_path=str(tmp_path / "out.wav"),
         )
+
+
+# --- defect (round 3): wrong-typed nested/url fields -> clean ValueError -----
+#
+# A vendor response can carry a documented field of the WRONG type (a nested
+# object where a dict is expected, or a URL field that is a list/dict/number).
+# Every capture_* adapter must raise a clean ValueError naming the field, never a
+# raw AttributeError from a `.get()` chain or `urlparse` on a non-string.
+
+def test_vapi_recording_not_a_dict_is_clean_error(tmp_path, monkeypatch):
+    call = {"artifact": {"recording": "not-a-dict"}}
+    seen = []
+    _install_urlopen(monkeypatch, {"/call/": json.dumps(call).encode()}, seen)
+    with pytest.raises(ValueError, match="artifact.recording"):
+        cap.capture_vapi(call_id="v1", api_key="k")
+    # nothing beyond the call JSON was fetched (no download attempted)
+    assert all("/call/" in u for u in _urls(seen))
+
+
+def test_vapi_stereo_url_is_a_list_is_clean_error(tmp_path, monkeypatch):
+    call = {"artifact": {"recording": {"stereoUrl": ["https://media.test/a.wav"]}}}
+    _install_urlopen(monkeypatch, {"/call/": json.dumps(call).encode()})
+    with pytest.raises(ValueError, match="URL string"):
+        cap.capture_vapi(call_id="v1", api_key="k")
+
+
+def test_retell_multichannel_url_is_a_list_is_clean_error(tmp_path, monkeypatch):
+    call = {"recording_multi_channel_url": ["https://x", "https://y"]}
+    seen = []
+    _install_urlopen(monkeypatch, _retell_routes(tmp_path, call), seen)
+    with pytest.raises(ValueError, match="URL string"):
+        cap.capture_retell(call_id="c1", api_key="k")
+    assert all("/v2/get-call/" in u for u in _urls(seen))
+
+
+def test_millis_nested_recording_url_is_a_dict_is_clean_error(tmp_path, monkeypatch):
+    call = {"recording": {"recording_url": {"nested": "oops"}}}
+    _install_urlopen(monkeypatch, {"/call-logs/": json.dumps(call).encode()})
+    with pytest.raises(ValueError, match="URL string"):
+        cap.capture_millis(session_id="s1", api_key="k")
+
+
+def test_bland_recording_url_is_a_dict_is_clean_error(tmp_path, monkeypatch):
+    call = {"recording_url": {"n": 1}}
+    _install_urlopen(monkeypatch, {"/v1/calls/": json.dumps(call).encode()})
+    with pytest.raises(ValueError, match="URL string"):
+        cap.capture_bland(call_id="c1", api_key="k")
+
+
+def test_synthflow_recording_url_is_a_number_is_clean_error(tmp_path, monkeypatch):
+    call = {"response": {"calls": [{"recording_url": 123}]}}
+    _install_urlopen(monkeypatch, {"/v2/calls/": json.dumps(call).encode()})
+    with pytest.raises(ValueError, match="URL string"):
+        cap.capture_synthflow(call_id="c1", api_key="k")
+
+
+def test_capture_wrong_typed_fields_cli_exit_2(tmp_path, monkeypatch):
+    """The flagship single-call `hotato capture` surfaces the clean error as
+    exit 2, never a traceback."""
+    call = {"artifact": {"recording": "not-a-dict"}}
+    _install_urlopen(monkeypatch, {"/call/": json.dumps(call).encode()})
+    assert cli.main(["capture", "--stack", "vapi", "--call-id", "v1",
+                     "--api-key", "k"]) == 2

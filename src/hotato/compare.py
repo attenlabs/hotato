@@ -60,16 +60,29 @@ def _side(*, stereo, caller, agent, caller_channel, agent_channel, onset_sec,
     return env, env["events"][0]
 
 
+def _num(x):
+    """A verdict metric as a number, or None. A verify caller may pass an event
+    from a malformed / older-schema side whose verdict omits talk_over_sec /
+    seconds_to_yield entirely (or carries a non-numeric value); read every metric
+    None-safely so ``_both_fail_result`` degrades to ``unchanged`` rather than
+    raising KeyError / TypeError on a hand-edited envelope."""
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+
+
 def _both_fail_result(expect_yield: bool, be: dict, ae: dict) -> str:
     bv, av = be["verdict"], ae["verdict"]
+    b_tov, a_tov = _num(bv.get("talk_over_sec")), _num(av.get("talk_over_sec"))
+    b_tty, a_tty = _num(bv.get("seconds_to_yield")), _num(av.get("seconds_to_yield"))
     if expect_yield:
-        # Priority: lower talk-over, then a faster (or newly present) yield.
-        d_tov = av["talk_over_sec"] - bv["talk_over_sec"]
-        if d_tov < -_EPS:
-            return "improved"
-        if d_tov > _EPS:
-            return "worse"
-        b_tty, a_tty = bv["seconds_to_yield"], av["seconds_to_yield"]
+        # Priority: lower talk-over, then a faster (or newly present) yield. When
+        # a side lacks a numeric talk-over, skip the talk-over comparison and fall
+        # through to the yield-timing comparison.
+        if b_tov is not None and a_tov is not None:
+            d_tov = a_tov - b_tov
+            if d_tov < -_EPS:
+                return "improved"
+            if d_tov > _EPS:
+                return "worse"
         if b_tty is None and a_tty is not None:
             return "improved"       # a yield appeared, even if still too slow
         if b_tty is not None and a_tty is None:
@@ -83,7 +96,6 @@ def _both_fail_result(expect_yield: bool, be: dict, ae: dict) -> str:
     # Hold label: both failing means both yielded when they should not have.
     # Not yielding beats yielding (handled by the flip); among false yields a
     # later one is less disruptive than a fast one.
-    b_tty, a_tty = bv["seconds_to_yield"], av["seconds_to_yield"]
     if b_tty is not None and a_tty is not None:
         if a_tty > b_tty + _EPS:
             return "improved"

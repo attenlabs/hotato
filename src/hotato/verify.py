@@ -51,6 +51,11 @@ DEFAULT_MIN_N = 3
 
 
 def _event_key(event: dict) -> Optional[str]:
+    # A malformed / hand-edited side may carry a non-object entry in events[] (an
+    # int, a string, null). It is not a fixture and has no key: return None so the
+    # loader skips it cleanly instead of raising AttributeError on ``.get``.
+    if not isinstance(event, dict):
+        return None
     return event.get("event_id") or event.get("scenario_id")
 
 
@@ -97,9 +102,24 @@ def _load_side(path: str, label: str) -> Tuple[list, list]:
     seen: dict = {}
     for fname, env in envelopes:
         for ev in env.get("events", []):
+            # A non-object events[] entry (int/str/null) is not a fixture: skip it
+            # rather than crash on the malformed side.
+            if not isinstance(ev, dict):
+                continue
             key = _event_key(ev)
             if key is None:
                 continue
+            # A fixture key must be a hashable scalar (str or number). A hand-edited
+            # side can carry a list/object event_id, which is unhashable and would
+            # raise ``TypeError: unhashable type`` at ``key in seen``. Reject it as
+            # a clean, named usage error (exit 2) instead.
+            if not isinstance(key, (str, int, float)) or isinstance(key, bool):
+                raise ValueError(
+                    f"--{label} has a fixture in {fname!r} whose event_id / "
+                    f"scenario_id is a {type(key).__name__}, not a string or "
+                    "number; each fixture needs a scalar id so before/after "
+                    "pairing is unambiguous."
+                )
             if key in seen:
                 raise ValueError(
                     f"--{label} has fixture {key!r} more than once "
@@ -133,10 +153,15 @@ def _pooled(events: list) -> dict:
         if not _scorable(e):
             continue
         v = e.get("verdict") or {}
-        if v.get("talk_over_sec") is not None:
-            tov.append(v["talk_over_sec"])
-        if v.get("seconds_to_yield") is not None:
-            tty.append(v["seconds_to_yield"])
+        # Only pool real numeric measurements: a malformed / hand-edited side can
+        # carry a non-numeric talk_over_sec / seconds_to_yield (a string, a list),
+        # which must never reach dist_summary's sort/round.
+        tov_val = v.get("talk_over_sec")
+        if isinstance(tov_val, (int, float)) and not isinstance(tov_val, bool):
+            tov.append(tov_val)
+        tty_val = v.get("seconds_to_yield")
+        if isinstance(tty_val, (int, float)) and not isinstance(tty_val, bool):
+            tty.append(tty_val)
     return {
         "talk_over_sec": dist_summary(tov),
         "seconds_to_yield": dist_summary(tty),

@@ -140,10 +140,16 @@ def windowed_frame_rms(
     """
     try:
         wf = wave.open(path, "rb")
-    except (wave.Error, EOFError, struct.error) as exc:
+    except (wave.Error, EOFError, struct.error, RuntimeError) as exc:
+        # stdlib ``wave`` raises a bare ``RuntimeError`` from Chunk.skip()/seek()
+        # when the outer RIFF/WAVE header is well-formed but an inner sub-chunk is
+        # malformed or oversized (what an interrupted/partial recording write
+        # looks like). Normalize it to the same honest ValueError as any other
+        # unreadable WAV so `scan`/`run`/`analyze`/`loop` return the clean exit-2
+        # contract instead of dumping a traceback and exiting 1.
         raise ValueError(
-            f"{path!r} is not a readable PCM WAV ({exc}). Export a PCM WAV, "
-            "e.g. ffmpeg -i input -acodec pcm_s16le output.wav"
+            f"{path!r} is not a readable PCM WAV ({exc or type(exc).__name__}). "
+            "Export a PCM WAV, e.g. ffmpeg -i input -acodec pcm_s16le output.wav"
         ) from exc
     with wf:
         n_channels = wf.getnchannels()
@@ -203,11 +209,13 @@ def windowed_frame_rms(
         while True:
             try:
                 raw = wf.readframes(_CHUNK_FRAMES)
-            except (wave.Error, EOFError, struct.error) as exc:
+            except (wave.Error, EOFError, struct.error, RuntimeError) as exc:
+                # A malformed data sub-chunk can also surface mid-read as a bare
+                # RuntimeError (seek past a truncated chunk); normalize it too.
                 raise ValueError(
-                    f"{path!r} is not a readable PCM WAV ({exc}). Export a "
-                    "PCM WAV, e.g. ffmpeg -i input -acodec pcm_s16le "
-                    "output.wav"
+                    f"{path!r} is not a readable PCM WAV "
+                    f"({exc or type(exc).__name__}). Export a PCM WAV, e.g. "
+                    "ffmpeg -i input -acodec pcm_s16le output.wav"
                 ) from exc
             if not raw:
                 break

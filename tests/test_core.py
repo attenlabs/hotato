@@ -86,6 +86,55 @@ def test_numpy_and_stdlib_decode_agree():
     assert with_numpy == without_numpy
 
 
+def test_numpy_and_stdlib_agree_on_fuzzed_random_wavs(tmp_path):
+    """Defect (round 3): the bundled suite happens to round the same way on its
+    fixed fixtures, which gives false confidence that the numpy and stdlib RMS
+    paths are identical everywhere. numpy's np.mean uses pairwise summation while
+    the stdlib path accumulates sequentially, so they can disagree in the last
+    bit. This fuzzes many random 2-channel WAVs (varied amplitudes down to the
+    16-bit quantization floor) and asserts the FULL exposed envelope -- every
+    surfaced, rounded number and the verdict -- is byte-identical with numpy on
+    vs forced off. If a future precision change ever breaks the rounded-output
+    invariant at a threshold boundary, this catches it instead of the fixed
+    suite silently masking it."""
+    import random
+
+    from hotato._engine import audio as A
+    from hotato._engine.audio import write_wav
+
+    saved = A._np
+    if saved is None:
+        pytest.skip("numpy not installed; nothing to compare against")
+
+    sr = 16000
+    rng = random.Random(20260708)
+    paths = []
+    for k in range(40):
+        n = rng.randint(12000, 40000)
+        amp = rng.choice([1.0, 0.5, 0.05, 1.0 / 32768.0, 3.0 / 32768.0])
+        caller = [amp * rng.uniform(-1, 1) for _ in range(n)]
+        agent = [amp * rng.uniform(-1, 1) for _ in range(n)]
+        p = tmp_path / f"fuzz-{k}.wav"
+        write_wav(str(p), sr, [caller, agent])
+        paths.append(str(p))
+
+    def _envs():
+        out = []
+        for p in paths:
+            for expect in ("yield", "hold"):
+                env = run_single(stereo=p, expect=expect, onset_sec=0.3)
+                out.append(json.dumps(env, sort_keys=True))
+        return out
+
+    with_numpy = _envs()
+    try:
+        A._np = None  # force the pure-stdlib decode + RMS path
+        without_numpy = _envs()
+    finally:
+        A._np = saved
+    assert without_numpy == with_numpy
+
+
 def test_regression_sets_exit_code_and_fix():
     """A failing verdict must flip exit_code to 1, mark regression, and attach a
     fix. Score a real interruption fixture but demand an impossible latency."""

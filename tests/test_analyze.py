@@ -224,6 +224,79 @@ def test_json_format_has_a_stable_shape(corpus_folder, capsys):
     assert "fixture create" in doc["note"]
 
 
+# --- salience ordering: echo caveat never outranks a real overlap ----------
+
+def _write_float_wav(path, channels, sample_rate=16000):
+    from hotato._engine.audio import write_wav
+    write_wav(str(path), sample_rate, channels)
+
+
+def test_echo_candidate_ranks_below_a_short_real_overlap(tmp_path):
+    """Regression: an echo_correlated_activity candidate is a caveat ('may be the
+    agent hearing its own leaked TTS'), so it must rank BELOW every real
+    talk-over/gap candidate -- even a sub-second overlap whose salience in seconds
+    is far smaller than echo's 0..1 coherence. Before the fix the two scales were
+    mixed and a coherence~1.0 echo buried a genuine 0.3s barge-in."""
+    import math
+
+    sr = 16000
+
+    def tone(dur, f, amp, seed):
+        import random
+        r = random.Random(seed)
+        n = int(sr * dur)
+        return [amp * math.sin(2 * math.pi * f * i / sr) + 0.02 * r.uniform(-1, 1)
+                for i in range(n)]
+
+    folder = tmp_path / "mixed"
+    folder.mkdir()
+
+    # short_overlap.wav: agent talks 0..6s; caller has a single ~0.15s burst at
+    # 2.0s that overlaps the agent -> a genuine, SHORT overlap candidate.
+    agent = tone(6.0, 180, 0.35, 1)
+    caller = [0.0] * len(agent)
+    b0, blen = int(2.0 * sr), int(0.15 * sr)
+    burst = tone(0.15, 300, 0.35, 2)
+    for i in range(blen):
+        caller[b0 + i] = burst[i]
+    _write_float_wav(folder / "short_overlap.wav", [caller, agent])
+
+    # echo_only.wav: the caller channel is a lag-shifted, attenuated copy of the
+    # agent's own audio (leaked TTS) -> a coherence~1.0 echo_correlated_activity
+    # candidate (plus, incidentally, a large overlap candidate).
+    agent2 = tone(6.0, 200, 0.4, 3)
+    lag = int(0.12 * sr)
+    caller2 = [0.0] * len(agent2)
+    for i in range(len(agent2)):
+        if i - lag >= 0:
+            caller2[i] = 0.5 * agent2[i - lag]
+    _write_float_wav(folder / "echo_only.wav", [caller2, agent2])
+
+    agg, _ = analyze_mod.analyze_folder(str(folder), min_gap_sec=0.05)
+    kinds = [c["kind"] for c in agg["candidates"]]
+    assert "echo_correlated_activity" in kinds, "fixture must surface an echo caveat"
+
+    # the genuine short overlap from short_overlap.wav
+    short = [i for i, c in enumerate(agg["candidates"])
+             if c["kind"] == "overlap_while_agent_talking"
+             and c["source"] == "short_overlap.wav"]
+    assert short, "the short real overlap must be present"
+    short_idx = short[0]
+
+    # every echo candidate sits strictly AFTER (below) the short real overlap
+    echo_idx = [i for i, c in enumerate(agg["candidates"])
+                if c["kind"] == "echo_correlated_activity"]
+    assert echo_idx
+    assert min(echo_idx) > short_idx, (
+        "an echo_correlated_activity caveat must never outrank a genuine "
+        f"overlap; got order {[ (round(c['salience'],2), c['kind']) for c in agg['candidates'] ]}"
+    )
+    # and no non-echo candidate is ever ranked below an echo one
+    first_echo = min(echo_idx)
+    assert all(agg["candidates"][i]["kind"] == "echo_correlated_activity"
+               for i in range(first_echo, len(agg["candidates"])))
+
+
 # --- routing + exit codes ---------------------------------------------------
 
 def test_bare_folder_routes_to_analyze(corpus_folder, tmp_path):

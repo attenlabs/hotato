@@ -363,3 +363,49 @@ def test_diagnose_rejects_frame_dump():
     with pytest.raises(ValueError):
         diagnose_envelope({"tool": "hotato", "kind": "frame-dump",
                            "events": []})
+
+
+# --- defect (round 3): non-speech ambient false-yield diagnosis --------------
+
+def test_ambient_noise_false_yield_is_config_not_backchannel_or_funnel():
+    """A non-speech ambient false-yield (marker) beside a missed real
+    interruption: diagnose must (1) find false_stop_on_ambient_noise (config,
+    not backchannel), (2) never fabricate 'I'm listening' caller intent, and
+    (3) NOT declare the both-axes threshold funnel."""
+    missed = _event("fd-missed", expected_yield=True, did_yield=False,
+                    passed=False, reasons=["kept talking over the caller"])
+    ambient = _event("nh-cafe", expected_yield=False, did_yield=True,
+                     passed=False, reasons=["yielded to the caller"])
+    ambient["non_speech"] = True          # the durable corpus marker
+    ambient["tags"] = ["noise-hold", "ambient", "non-speech"]
+    ambient["family"] = "noise-hold"
+
+    diag = diagnose_envelope({"tool": "hotato", "mode": "suite",
+                              "events": [missed, ambient]})
+    by = {d["scenario_id"]: d for d in diag["diagnoses"]}
+    assert by["nh-cafe"]["finding"] == "false_stop_on_ambient_noise"
+    assert by["nh-cafe"]["config_only_safe"] is True
+    notes = by["nh-cafe"]["notes"].lower()
+    # the fabricated caller-intent claim from the old backchannel notes is gone
+    assert "signalled" not in notes and "only signalled" not in notes
+    assert "ambient" in notes or "noise" in notes
+    # the funnel must NOT fire -> no do_not_tune_single_threshold, no SAA pointer
+    assert diag["battery"]["finding"] != "threshold_funnel"
+    assert diag["battery"]["decision"] != "do_not_tune_single_threshold"
+
+
+def test_real_backchannel_beside_missed_still_funnels():
+    """Control: a genuine backchannel false-stop (no non_speech marker) beside a
+    missed interruption still trips the threshold funnel."""
+    missed = _event("miss", expected_yield=True, did_yield=False,
+                    passed=False, reasons=["kept talking"])
+    bc = _event("bc", expected_yield=False, did_yield=True, passed=False,
+                reasons=["yielded to a backchannel"])
+    diag = diagnose_envelope({"tool": "hotato", "mode": "suite",
+                              "events": [missed, bc]})
+    assert diag["battery"]["finding"] == "threshold_funnel"
+    assert diag["battery"]["decision"] == "do_not_tune_single_threshold"
+
+
+def test_ambient_finding_is_in_findings_enum():
+    assert "false_stop_on_ambient_noise" in FINDINGS

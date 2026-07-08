@@ -32,13 +32,23 @@ def percentile(values, q: float) -> Optional[float]:
     return v[lo] + (v[hi] - v[lo]) * frac
 
 
+def _numeric(values) -> list:
+    """Only the real numeric measurements. Defensive: a caller pooling values from
+    a malformed / hand-edited envelope side may include a non-numeric verdict
+    field (a string, a list, null); those must never reach ``sorted`` / ``round``
+    below (a raw TypeError). ``bool`` is excluded so a stray True/False is not
+    silently treated as 1/0."""
+    return [x for x in values
+            if isinstance(x, (int, float)) and not isinstance(x, bool)]
+
+
 def dist_summary(values) -> Optional[dict]:
     """n / min / mean / median / p90 / p95 / max of real measurements; None if
-    empty. ``median`` is p50; ``p95`` is additive (present alongside p90 for
-    every caller of this function)."""
-    if not values:
+    empty (or nothing numeric). ``median`` is p50; ``p95`` is additive (present
+    alongside p90 for every caller of this function)."""
+    v = sorted(_numeric(values))
+    if not v:
         return None
-    v = sorted(values)
     return {
         "n": len(v),
         "min": round(v[0], 3),

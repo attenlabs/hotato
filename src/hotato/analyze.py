@@ -66,11 +66,27 @@ _EMBED_BUDGET_BYTES = 12 * 1024 * 1024
 
 # --- salience + headline (recomputed from the scanner's own numbers) --------
 
+_ECHO_KIND = "echo_correlated_activity"
+
+
+def _is_echo_kind(c: dict) -> bool:
+    """An echo_correlated_activity candidate is a CAVEAT ('this may be the agent
+    hearing its own leaked TTS'), never a talk-over. It must rank strictly beneath
+    every real talk-over/gap candidate regardless of its coherence value."""
+    return c["kind"] == _ECHO_KIND
+
+
 def _salience(c: dict) -> float:
     """The scanner's own salience for one candidate, recomputed from its
     measured numbers so moments can be ranked across calls and kinds (bigger =
-    worse). Overlap and gap seconds dominate; echo coherence (a caveat, not a
-    talk-over) sits below them by construction."""
+    worse). Overlap and gap seconds dominate.
+
+    Echo coherence lives on a DIFFERENT scale (0..1) from overlap/gap SECONDS, so
+    it is never mixed into this number for ordering: echo candidates are demoted
+    beneath every non-echo candidate by the two-level sort key (see
+    ``_sort_key``), which is what actually enforces the 'a caveat sits below them
+    by construction' promise. This value is still reported per candidate as the
+    honest measured salience; for echo that is its coherence."""
     d = c.get("durations", {})
     k = c["kind"]
     if k in ("overlap_while_agent_talking", "agent_start_during_caller"):
@@ -79,9 +95,17 @@ def _salience(c: dict) -> float:
         return float(d.get("gap_sec", 0.0) or 0.0)
     if k == "agent_stop_no_caller":
         return float(d.get("trailing_silence_sec", 0.0) or 0.0)
-    if k == "echo_correlated_activity":
+    if k == _ECHO_KIND:
         return float((c.get("agent_reaction") or {}).get("coherence", 0.0) or 0.0)
     return 0.0
+
+
+def _sort_key(c: dict):
+    """Ranking key: every non-echo talk-over/gap candidate first (by descending
+    salience seconds), then all echo caveats. ``_is_echo_kind`` is the primary
+    key so a short (sub-second) genuine overlap can never be buried under a
+    high-coherence echo caveat -- the exact invariant analyze promises."""
+    return (_is_echo_kind(c), -c["salience"], c["source"], c["t_sec"], c["kind"])
 
 
 def _headline(c: dict) -> str:
@@ -174,10 +198,13 @@ def analyze_folder(
                 ap, caller_channel=caller_channel, agent_channel=agent_channel,
                 cfg=cfg,
             )
-        except (ValueError, FileNotFoundError, OSError, wave.Error) as exc:
+        except (ValueError, FileNotFoundError, OSError, wave.Error,
+                RuntimeError) as exc:
             # A single bad file is reported cleanly, never fatal: a mono mix, a
-            # corrupt header, an unsupported width, or an empty file all land
-            # here with their honest reason.
+            # corrupt header, an unsupported width, an empty file, or a valid
+            # RIFF/WAVE header with a malformed inner sub-chunk (stdlib ``wave``
+            # raises a bare RuntimeError for that last one) all land here with
+            # their honest reason, so one bad file never aborts the whole batch.
             skipped.append({"file": rel, "reason": str(exc)})
             continue
 
@@ -208,7 +235,7 @@ def analyze_folder(
                 "window": {"start_sec": w0, "end_sec": w1},
             })
 
-    ranked.sort(key=lambda c: (-c["salience"], c["source"], c["t_sec"], c["kind"]))
+    ranked.sort(key=_sort_key)
 
     aggregate = {
         "tool": "hotato",
@@ -304,7 +331,7 @@ def _clip_wav_bytes(path: str, w0: float, w1: float) -> Optional[bytes]:
             out.setframerate(sr)
             out.writeframes(raw)
         return buf.getvalue()
-    except (wave.Error, EOFError, OSError, ValueError):
+    except (wave.Error, EOFError, OSError, ValueError, RuntimeError):
         return None
 
 

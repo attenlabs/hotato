@@ -182,3 +182,70 @@ def test_no_accuracy_percentage_in_any_fix_map_text():
     blob = " ".join(_all_strings(env["fix_map"])) + " " + " ".join(_all_strings(env.get("funnel") or {}))
     assert "%" not in blob
     assert "accuracy" not in blob.lower()
+
+
+# --- defect (round 3): non-speech ambient false-yield -> config, not SAA -----
+#
+# A false-yield triggered by continuous NON-SPEECH ambient energy (cafe/TV/
+# background) is a VAD/noise-floor sensitivity bug, NOT a backchannel-vs-
+# interruption discrimination problem: there is no caller utterance to
+# discriminate. It must route to a CONFIG fix (raise the noise gate), never the
+# engagement-control pointer, and never trip the both-axes funnel.
+
+def test_non_speech_ambient_false_yield_routes_to_config_not_engagement():
+    fix = classify_event(
+        expected_yield=False, did_yield=True,
+        reasons=["expected the agent to hold the floor but it yielded"],
+        stack="vapi", non_speech=True,
+    )
+    assert fix["fix_class"] == "config"
+    assert fix["pointer"] is None                      # never the SAA pointer
+    assert fix["knob"] is not None
+    # no fabricated caller intent
+    blob = (fix["title"] + " " + fix["detail"]).lower()
+    assert "i'm listening" not in blob and "mhm" not in blob
+    assert "ambient" in blob or "background" in blob
+
+
+def test_non_speech_ambient_via_family_tag_label():
+    fix = classify_event(
+        expected_yield=False, did_yield=True,
+        reasons=["yielded"], stack="generic", family="noise-hold",
+    )
+    assert fix["fix_class"] == "config"
+    assert fix["pointer"] is None
+
+
+def test_echo_still_beats_non_speech_label():
+    """A MEASURED self-echo is an audio-routing bug and takes precedence over a
+    non-speech label."""
+    fix = classify_event(
+        expected_yield=False, did_yield=True, reasons=["yielded"],
+        stack="vapi", non_speech=True, echo_suspected=True,
+    )
+    assert fix["fix_class"] == "config"
+    # the echo (phantom self-interruption) fix, NOT the ambient-noise fix
+    assert "phantom self-interruption" in fix["title"].lower()
+    assert "ambient" not in fix["title"].lower()
+
+
+def test_funnel_does_not_fire_on_ambient_false_yield():
+    """[missed real interruption] + [ambient non-speech false-yield] must NOT be
+    the both-axes funnel: the ambient case is config-fixable, so no SAA pointer."""
+    events = [
+        {"expected_yield": True, "verdict": {"passed": False, "did_yield": False}},
+        {"expected_yield": False, "non_speech": True,
+         "verdict": {"passed": False, "did_yield": True}},
+    ]
+    assert systemic_pointer(events) is None
+
+
+def test_funnel_still_fires_on_real_backchannel_false_barge():
+    """Control: a genuine (non-ambient, non-echo) backchannel false-barge next to
+    a missed interruption still trips the funnel."""
+    events = [
+        {"expected_yield": True, "verdict": {"passed": False, "did_yield": False}},
+        {"expected_yield": False,
+         "verdict": {"passed": False, "did_yield": True}},
+    ]
+    assert systemic_pointer(events) is not None
