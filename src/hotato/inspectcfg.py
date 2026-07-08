@@ -56,6 +56,8 @@ from __future__ import annotations
 
 import ast
 import json
+
+from . import errors as _errors
 import os
 from datetime import datetime, timezone
 from typing import Optional
@@ -634,7 +636,7 @@ def render_text(result: dict) -> str:
         value = tt.get(field)
         lines.append(f"    {field} = {'null' if value is None else value}")
     if tt.get("raw"):
-        lines.append(f"    raw: {json.dumps(tt['raw'], sort_keys=True)}")
+        lines.append(f"    raw: {_errors.safe_json_dumps(tt['raw'], sort_keys=True)}")
     for obs in result["observations"]:
         lines.append(f"  observation: {obs}")
     for note in result["notes"]:

@@ -447,3 +447,41 @@ def test_sweep_json_carries_pull_summary(tmp_path, monkeypatch, capsys):
     payload = json.loads(out)
     assert payload["kind"] == "analyze"
     assert payload["pull"]["stack"] == "vapi" and payload["pull"]["pulled"] == 1
+
+
+def test_download_is_atomic_preserves_existing_file_on_local_write_failure(
+        tmp_path, monkeypatch):
+    """Regression: _download writes to a sibling temp then os.replace()s, so a
+    LOCAL write/finalize failure AFTER a successful fetch (ENOSPC / quota /
+    permission race) can never clobber a pre-existing file at dest with a
+    truncated mix -- dest is only ever the old bytes or the complete new bytes.
+    Before the fix _download did open(dest,'wb').write(data) and destroyed the
+    original in place on any such failure."""
+    dest = tmp_path / "precious.wav"
+    dest.write_bytes(b"PRECIOUS-GOOD-DATA" * 100)
+    before = dest.read_bytes()
+
+    monkeypatch.setattr(cap, "_http_get", lambda *a, **k: b"X" * 5000)
+    monkeypatch.setattr(cap, "_validate_download_url", lambda u, *a, **k: u)
+    # Simulate the finalize step failing (e.g. the rename hitting a full disk).
+    def boom(src, dst):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(cap.os, "replace", boom)
+
+    with pytest.raises(OSError):
+        cap._download("http://vendor.example/rec.wav", str(dest))
+
+    assert dest.read_bytes() == before, "original file must be untouched"
+    # no orphaned temp part-file left behind next to dest
+    leftovers = [p for p in os.listdir(str(tmp_path)) if ".hotato-dl-" in p]
+    assert leftovers == [], f"temp part-file leaked: {leftovers}"
+
+
+def test_download_writes_new_bytes_on_success(tmp_path, monkeypatch):
+    """The atomic path still delivers the complete fetched bytes on success."""
+    dest = tmp_path / "out.wav"
+    monkeypatch.setattr(cap, "_http_get", lambda *a, **k: b"NEWDATA" * 10)
+    monkeypatch.setattr(cap, "_validate_download_url", lambda u, *a, **k: u)
+    cap._download("http://vendor.example/rec.wav", str(dest))
+    assert dest.read_bytes() == b"NEWDATA" * 10
+    assert [p for p in os.listdir(str(tmp_path)) if ".hotato-dl-" in p] == []

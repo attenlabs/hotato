@@ -60,6 +60,8 @@ field could not be confirmed from the live docs it is parsed DEFENSIVELY:
 from __future__ import annotations
 
 import json
+
+from . import errors as _errors
 import os
 import sys
 from typing import Optional
@@ -269,6 +271,14 @@ def _validate_recording_url(url: str, stack: str) -> str:
                 f"recording_url host {parsed.hostname!r} is not in "
                 "HOTATO_INGEST_ALLOWED_HOSTS; refusing to fetch it."
             )
+    # Default-deny SSRF: a spoofed webhook must not make ingest fetch an internal
+    # service or cloud-metadata endpoint (169.254.169.254, 127.0.0.1, RFC1918,
+    # ...). Reuse capture's guard; it raises ValueError, which we surface as the
+    # ingest-native IngestError.
+    try:
+        _capture._reject_private_host(parsed.hostname, "a recording_url")
+    except ValueError as exc:
+        raise IngestError(str(exc)) from exc
     return url
 
 
@@ -551,7 +561,7 @@ def run_ingest(
         if top > 0:
             capped["candidates"] = result["candidates"][:top]
         capped["shown"] = len(capped["candidates"])
-        print(json.dumps(capped, indent=2))
+        print(_errors.safe_json_dumps(capped, indent=2))
     else:
         print(_scan.render_text(result, top=top))
         print(

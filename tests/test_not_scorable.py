@@ -212,6 +212,55 @@ def test_suite_lists_not_scorable_without_failing(tmp_path):
     assert process_exit_code(env) == 0  # exit-2 mapping is single mode only
 
 
+def test_missing_scenario_audio_is_not_scorable_not_a_missed_interruption(tmp_path):
+    """Regression: a scenario whose audio file does not exist is an INPUT problem,
+    not a 'missed real interruption'. run_suite must mark it scorable:false (like
+    every other not-scorable input problem) so it is excluded from passed/failed,
+    the funnel, and fix_map -- and can never spuriously fire the engagement-control
+    pointer on a typo or an untrusted third-party scenario submission. Before the
+    fix run_suite fabricated a did_yield:False verdict + a fix block, so a
+    should-yield scenario with a missing file counted as a genuine failed
+    interruption and could arm the funnel; diagnose already refused it, so the two
+    commands disagreed on the same battery."""
+    scen_dir = tmp_path / "scenarios"
+    audio_dir = tmp_path / "audio"
+    scen_dir.mkdir()
+    audio_dir.mkdir()
+
+    # a real should-HOLD backchannel (the other funnel axis), so that if the
+    # missing should-yield file were mis-scored as a real miss, the funnel would
+    # fire on both axes.
+    _write_stereo(audio_dir / "aa-backchannel.example.wav",
+                  [(1.0, 1.2)], [(0.0, 3.0)])
+    (scen_dir / "aa-backchannel.json").write_text(
+        json.dumps({"id": "aa-backchannel", "category": "should_hold",
+                    "expected": {"yield": False}}),
+        encoding="utf-8",
+    )
+    # a should-yield scenario with NO audio file created
+    (scen_dir / "missing-01-should-yield.json").write_text(
+        json.dumps({"id": "missing-01-should-yield", "category": "should_yield",
+                    "expected": {"yield": True}}),
+        encoding="utf-8",
+    )
+
+    env = run_suite(
+        suite="barge-in", scenarios_dir=str(scen_dir), audio_dir=str(audio_dir)
+    )
+    by = {e["event_id"]: e for e in env["events"]}
+    miss = by["missing-01-should-yield"]
+    assert miss["scorable"] is False
+    assert "missing audio" in miss["not_scorable_reason"]
+    # no fabricated did_yield:False verdict, no fix block
+    assert miss["verdict"]["did_yield"] is None
+    assert "fix" not in miss
+    # excluded from failed and the funnel; cannot fire the engagement pointer
+    assert env["summary"]["not_scorable"] == 1
+    assert env["funnel"] is None
+    assert all(f["scenario_id"] != "missing-01-should-yield"
+               for f in env.get("fix_map", []))
+
+
 # --- (c) valid recordings are byte-identical to before ----------------------
 
 def test_bundled_suite_has_no_scorable_key_and_golden_matches():

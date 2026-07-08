@@ -868,6 +868,19 @@ def run_suite(
 
         expected = sc.get("expected", {"yield": True})
         if not os.path.exists(wav_path):
+            # A missing audio file is an INPUT problem, not a measurement: there
+            # is no recording to score, so we must not fabricate a
+            # `did_yield: False` verdict that reads as a genuine missed
+            # interruption. Mark it not-scorable exactly like every other
+            # not-scorable input problem (_score_event / _not_scorable_reason):
+            # `scorable: False` + `not_scorable_reason` excludes it from
+            # passed/failed, the funnel, fix_map, and the exit code -- so a typo
+            # in a scenario id (or an untrusted third-party scenario submission,
+            # which docs/SUBMITTING.md invites) can never spuriously fire the
+            # engagement-control pointer. No `fix` block: not-scorable events
+            # carry no fix, and `diagnose` already reports this as
+            # insufficient_coverage.
+            reason = f"missing audio: {wav_path}"
             events.append(
                 {
                     "event_id": sid,
@@ -875,19 +888,21 @@ def run_suite(
                     "title": sc.get("title"),
                     "category": sc.get("category"),
                     "expected_yield": bool(expected.get("yield", True)),
+                    "scorable": False,
+                    "not_scorable_reason": reason,
                     "verdict": {
                         "passed": False,
-                        "did_yield": False,
+                        "did_yield": None,
                         "seconds_to_yield": None,
-                        "talk_over_sec": 0.0,
-                        "reasons": [f"missing audio: {wav_path}"],
+                        "talk_over_sec": None,
+                        "reasons": [reason],
                     },
                     "measurements": {},
                     "signals": {
                         "barge_in": {
-                            "did_yield": False,
+                            "did_yield": None,
                             "time_to_yield_sec": None,
-                            "talk_over_sec": 0.0,
+                            "talk_over_sec": None,
                         },
                         "latency": {
                             "response_gap_sec": None,
@@ -898,13 +913,6 @@ def run_suite(
                             "lag_sec": 0.0,
                             "echo_suspected": False,
                         },
-                    },
-                    "fix": {
-                        "fix_class": "config",
-                        "title": "Missing fixture audio",
-                        "detail": f"Expected a recording at {wav_path}.",
-                        "knob": None,
-                        "pointer": None,
                     },
                 }
             )

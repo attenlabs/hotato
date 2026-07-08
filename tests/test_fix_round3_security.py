@@ -26,6 +26,17 @@ import pytest
 from hotato import capture as cap
 
 
+@pytest.fixture(autouse=True)
+def _allow_loopback_test_servers(monkeypatch):
+    """These tests deliberately stand up REAL HTTP servers on 127.0.0.1 to
+    exercise capture's credential/redirect handling over the real urllib path.
+    The default-deny SSRF guard (added later) would otherwise refuse loopback
+    before the credential logic runs, so opt into private URLs here -- the
+    documented operator lever for reaching an internal/test host. The SSRF guard
+    itself has its own dedicated tests in test_fix_round1.py."""
+    monkeypatch.setenv("HOTATO_ALLOW_PRIVATE_URLS", "1")
+
+
 class _Srv:
     """A throwaway localhost HTTP server driven by a per-request handler fn."""
 

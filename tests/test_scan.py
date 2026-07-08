@@ -238,6 +238,83 @@ def test_candidates_are_sorted_by_salience(long_call):
     assert saliences == sorted(saliences, reverse=True)
 
 
+def test_echo_candidate_ranks_below_a_short_real_overlap(tmp_path):
+    """Regression (scan.py path): an echo_correlated_activity candidate is a
+    caveat ('may be the agent hearing its own leaked TTS'), so scan_recording
+    must rank it BELOW every real talk-over candidate -- even a sub-second
+    overlap whose salience in SECONDS is far smaller than echo's 0..1 coherence.
+
+    Before the fix scan.py's own ``candidates.sort`` mixed the two scales in a
+    single numeric field, so a coherence~1.0 echo buried a genuine ~0.3s
+    barge-in and ``--top`` could drop the real event entirely. This mirrors
+    test_analyze.py::test_echo_candidate_ranks_below_a_short_real_overlap on the
+    ``hotato scan`` code path specifically."""
+    sr = 16000
+
+    def tone(dur, f, amp, seed):
+        import random
+        r = random.Random(seed)
+        n = int(sr * dur)
+        return [amp * math.sin(2 * math.pi * f * i / sr) + 0.02 * r.uniform(-1, 1)
+                for i in range(n)]
+
+    # Segment A (0..6s): agent talks; caller is a lag-shifted, attenuated copy of
+    # the agent's own audio -> a coherence~1.0 echo_correlated_activity caveat
+    # (and, incidentally, a large real overlap on the same run).
+    agentA = tone(6.0, 200, 0.4, 3)
+    lag = int(0.12 * sr)
+    callerA = [0.0] * len(agentA)
+    for i in range(len(agentA)):
+        if i - lag >= 0:
+            callerA[i] = 0.5 * agentA[i - lag]
+
+    # 5 s of silence so the runs are cleanly separated.
+    gap = [0.0] * int(5.0 * sr)
+
+    # Segment B (11..13s): a fresh, independent agent utterance with a genuine
+    # ~0.31s caller barge-in near its start -> a real overlap_while_agent_talking
+    # whose salience (0.31s) is far below the echo's coherence.
+    agentB = tone(2.0, 170, 0.35, 5)
+    callerB = [0.0] * len(agentB)
+    b0, blen = int(0.99 * sr), int(0.31 * sr)
+    burst = tone(0.31, 320, 0.35, 6)
+    for i in range(blen):
+        callerB[b0 + i] = burst[i]
+
+    caller = callerA + gap + callerB
+    agent = agentA + gap + agentB
+    path = tmp_path / "single_file_echo_vs_real.wav"
+    write_wav(str(path), sr, [caller, agent])
+
+    result = scan_recording(str(path), min_gap_sec=0.5)
+    cands = result["candidates"]
+    kinds = [c["kind"] for c in cands]
+    assert "echo_correlated_activity" in kinds, "fixture must surface an echo caveat"
+
+    # the genuine short overlap from segment B (t ~ 11.99s, sub-second)
+    real = [i for i, c in enumerate(cands)
+            if c["kind"] == "overlap_while_agent_talking" and c["t_sec"] > 10.0]
+    assert real, f"the short real overlap must be present; got {kinds}"
+    real_idx = real[0]
+
+    echo_idx = [i for i, c in enumerate(cands)
+                if c["kind"] == "echo_correlated_activity"]
+    assert echo_idx
+    # every echo caveat sits strictly AFTER (below) the genuine short overlap
+    assert min(echo_idx) > real_idx, (
+        "an echo_correlated_activity caveat must never outrank a genuine "
+        f"overlap; got order {[(c['kind'], c['t_sec']) for c in cands]}"
+    )
+    # and no non-echo candidate is ever ranked below an echo one
+    first_echo = min(echo_idx)
+    assert all(cands[i]["kind"] == "echo_correlated_activity"
+               for i in range(first_echo, len(cands)))
+
+    # and --top can no longer drop the real barge-in while keeping an echo caveat
+    top_kinds = kinds[:first_echo + 1]
+    assert "overlap_while_agent_talking" in top_kinds
+
+
 def test_out_writes_every_candidate_even_when_top_caps_stdout(long_call,
                                                               tmp_path,
                                                               capsys):
@@ -289,3 +366,86 @@ def test_windowed_rms_equals_reference_frame_rms(long_call, monkeypatch):
     assert len(rms_c) == len(ref_c) and len(rms_a) == len(ref_a)
     assert rms_c == ref_c
     assert rms_a == ref_a
+
+
+def test_numpy_and_stdlib_scan_agree_on_fuzzed_random_wavs(tmp_path):
+    """Determinism regression (scan.py path): scan.py resolves its OWN numpy
+    (scan._np, independent of _engine.audio._np) and its _rms uses np.mean
+    (pairwise summation) vs a sequential accumulator, which can differ in the
+    last double-precision bit -- exactly the class of divergence core.py needed
+    a fuzzed test to pin. Before this, no test forced scan._np = None and diffed
+    it against the numpy path, so `hotato scan`'s determinism across a
+    numpy-present vs numpy-absent machine was unproven. This fuzzes many random
+    2-channel WAVs and asserts the FULL scan_recording result (every surfaced,
+    rounded number and candidate) is byte-identical with numpy on vs forced off.
+    Mirrors test_core.py::test_numpy_and_stdlib_agree_on_fuzzed_random_wavs."""
+    import random
+
+    np = scan_mod._resolve_np()
+    if np is None:
+        pytest.skip("numpy not installed; nothing to compare against")
+
+    sr = 16000
+    rng = random.Random(20260708)
+    paths = []
+    for k in range(40):
+        n = rng.randint(12000, 40000)
+        amp = rng.choice([1.0, 0.5, 0.05, 1.0 / 32768.0, 3.0 / 32768.0])
+        caller = [amp * rng.uniform(-1, 1) for _ in range(n)]
+        agent = [amp * rng.uniform(-1, 1) for _ in range(n)]
+        p = tmp_path / f"fuzz-{k}.wav"
+        write_wav(str(p), sr, [caller, agent])
+        paths.append(str(p))
+
+    def _results():
+        return [json.dumps(scan_recording(p, min_gap_sec=0.5), sort_keys=True)
+                for p in paths]
+
+    saved = scan_mod._np
+    try:
+        scan_mod._np = np
+        with_numpy = _results()
+        scan_mod._np = None  # force the pure-stdlib decode + RMS path
+        without_numpy = _results()
+    finally:
+        scan_mod._np = saved
+    assert without_numpy == with_numpy
+
+
+def test_numpy_and_stdlib_analyze_agree_on_fuzzed_random_wavs(tmp_path):
+    """Twin of the scan parity test for analyze_folder, which walks the same
+    scan.py fast-path per file (analyze.analyze_folder -> scan.scan_recording).
+    The whole aggregated analyze envelope must be byte-identical with scan._np
+    on vs forced off."""
+    import random
+
+    from hotato import analyze as analyze_mod
+
+    np = scan_mod._resolve_np()
+    if np is None:
+        pytest.skip("numpy not installed; nothing to compare against")
+
+    sr = 16000
+    rng = random.Random(4242)
+    folder = tmp_path / "fuzz"
+    folder.mkdir()
+    for k in range(12):
+        n = rng.randint(12000, 40000)
+        amp = rng.choice([1.0, 0.5, 0.05, 3.0 / 32768.0])
+        write_wav(str(folder / f"f{k}.wav"), sr,
+                  [[amp * rng.uniform(-1, 1) for _ in range(n)],
+                   [amp * rng.uniform(-1, 1) for _ in range(n)]])
+
+    def _agg():
+        agg, _ = analyze_mod.analyze_folder(str(folder), min_gap_sec=0.5)
+        return json.dumps(agg, sort_keys=True)
+
+    saved = scan_mod._np
+    try:
+        scan_mod._np = np
+        with_numpy = _agg()
+        scan_mod._np = None
+        without_numpy = _agg()
+    finally:
+        scan_mod._np = saved
+    assert without_numpy == with_numpy

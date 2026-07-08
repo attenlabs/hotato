@@ -49,7 +49,7 @@ def _atomic_write_text(path: str, text: str) -> None:
 def _atomic_write_json(path: str, obj) -> None:
     """Atomic JSON write mirroring the existing ``json.dump(obj, fh, indent=2)``
     + trailing newline form, but crash-safe (see ``_atomic_write_text``)."""
-    _atomic_write_text(path, json.dumps(obj, indent=2) + "\n")
+    _atomic_write_text(path, _errors.safe_json_dumps(obj, indent=2) + "\n")
 
 
 # Printed to stderr when `--backend neural` is combined with `--suite`: the bundled
@@ -293,7 +293,7 @@ def _add_cred_args(parser) -> None:
 
 def _emit(env: dict, fmt: str) -> None:
     if fmt == "json":
-        print(json.dumps(env, indent=2))
+        print(_errors.safe_json_dumps(env, indent=2))
         return
     # human-readable summary
     s = env["summary"]
@@ -665,7 +665,7 @@ def _cmd_team(args) -> int:
             "hotato run --suite barge-in --format json > runs/001.json"
         )
         if args.format == "json":
-            print(json.dumps({
+            print(_errors.safe_json_dumps({
                 "tool": "hotato",
                 "kind": "team",
                 "runs_found": len(runs),
@@ -691,7 +691,7 @@ def _cmd_team(args) -> int:
         print(f"wrote self-contained HTML team page to {args.html}",
               file=sys.stderr)
     if args.format == "json":
-        print(json.dumps(agg, indent=2))
+        print(_errors.safe_json_dumps(agg, indent=2))
     else:
         _emit_team_text(agg, args.dir)
     if args.no_fail:
@@ -790,7 +790,7 @@ def _cmd_benchmark(args) -> int:
         _atomic_write_json(args.out, result)
         print(f"wrote stack benchmark result to {args.out}", file=sys.stderr)
     else:
-        print(json.dumps(result, indent=2))
+        print(_errors.safe_json_dumps(result, indent=2))
     if args.fail_on_regression and result["summary"]["regression"]:
         return 1
     return 0
@@ -807,7 +807,7 @@ def _cmd_benchmark_compare(args) -> int:
     loaded = [(p, _stackbench.load_result(p)) for p in args.results]
     cmp_env = _stackbench.compare_results(loaded)
     if args.format == "json":
-        text = json.dumps(cmp_env, indent=2)
+        text = _errors.safe_json_dumps(cmp_env, indent=2)
     else:
         text = _stackbench.render_comparison_md(cmp_env)
     if args.out:
@@ -923,7 +923,7 @@ def _cmd_diagnose(args) -> int:
     env = _load_envelope_for(args.envelope, "diagnose")
     diagnosis = _diagnose.diagnose_envelope(env, source=args.envelope)
     if args.format == "json":
-        print(json.dumps(diagnosis, indent=2))
+        print(_errors.safe_json_dumps(diagnosis, indent=2))
     else:
         print(_diagnose.render_text(diagnosis))
     # 0 = nothing failed, 1 = failing events were diagnosed, 2 = unusable input.
@@ -941,7 +941,7 @@ def _cmd_inspect(args) -> int:
         api_key=args.api_key,
     )
     if args.format == "json":
-        print(json.dumps(result, indent=2))
+        print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_inspectcfg.render_text(result))
     return 0
@@ -1008,7 +1008,7 @@ def _cmd_plan(args) -> int:
     )
     _atomic_write_json(args.out, plan)
     if args.format == "json":
-        print(json.dumps(plan, indent=2))
+        print(_errors.safe_json_dumps(plan, indent=2))
     else:
         print(_fixplan.render_text(plan))
     print(f"wrote fix plan ({plan['decision']}) to {args.out}", file=sys.stderr)
@@ -1028,7 +1028,7 @@ def _cmd_patch(args) -> int:
         _atomic_write_json(args.out, result)
         print(f"wrote patch artifact to {args.out}", file=sys.stderr)
     if args.format == "json":
-        print(json.dumps(result, indent=2))
+        print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_patch.render_text(result))
     return 0
@@ -1042,7 +1042,7 @@ def _cmd_verify(args) -> int:
         _atomic_write_json(args.out, result)
         print(f"wrote verify proof to {args.out}", file=sys.stderr)
     if args.format == "json":
-        print(json.dumps(result, indent=2))
+        print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_verify.render_text(result))
     # 0 = rollup produced; 1 = a regression, only when the user opts to gate on it.
@@ -1064,7 +1064,7 @@ def _cmd_loop(args) -> int:
         top=args.top,
     )
     if args.format == "json":
-        print(json.dumps(result, indent=2))
+        print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_loop.render_text(result))
     return code
@@ -1097,7 +1097,7 @@ def _cmd_fixture_create(args) -> int:
         agent_channel=args.agent_channel,
     )
     if args.format == "json":
-        print(json.dumps(_fixture.result_json(result), indent=2))
+        print(_errors.safe_json_dumps(_fixture.result_json(result), indent=2))
     else:
         print(_fixture.render_text(result))
     return 0
@@ -1151,7 +1151,7 @@ def _cmd_compare(args) -> int:
         print(f"wrote before/after HTML report to {args.out}",
               file=sys.stderr)
     if args.format == "json":
-        print(json.dumps(cmp_env, indent=2))
+        print(_errors.safe_json_dumps(cmp_env, indent=2))
     else:
         print(_compare.render_text(cmp_env, before_name, after_name))
     if cmp_env["result"] == "not_scorable":
@@ -1183,7 +1183,7 @@ def _cmd_scan(args) -> int:
         if args.top > 0:
             capped["candidates"] = result["candidates"][:args.top]
         capped["shown"] = len(capped["candidates"])
-        print(json.dumps(capped, indent=2))
+        print(_errors.safe_json_dumps(capped, indent=2))
     else:
         print(_scan.render_text(result, top=args.top))
     return 0
@@ -1207,7 +1207,7 @@ def _cmd_analyze(args) -> int:
         if args.top > 0:
             capped["candidates"] = aggregate["candidates"][:args.top]
         capped["shown"] = len(capped["candidates"])
-        text = json.dumps(capped, indent=2)
+        text = _errors.safe_json_dumps(capped, indent=2)
         if args.out:
             _atomic_write_text(args.out, text + "\n")
             print(f"wrote ranked candidates JSON to {args.out}", file=sys.stderr)
@@ -1440,7 +1440,7 @@ def _render_describe_text(manifest: dict) -> str:
 def _cmd_describe(args) -> int:
     manifest = build_capability_manifest()
     if args.format == "json":
-        print(json.dumps(manifest, indent=2))
+        print(_errors.safe_json_dumps(manifest, indent=2))
     else:
         print(_render_describe_text(manifest), end="")
     return 0
@@ -2756,7 +2756,7 @@ def main(argv=None) -> int:
             # error_code, and exit_code 2. So an agent parses one shape for the
             # whole call lifecycle (success envelope, or this on failure). The
             # plain "error:" line below stays for --format text.
-            print(json.dumps(_errors.cli_error(exc), indent=2))
+            print(_errors.safe_json_dumps(_errors.cli_error(exc), indent=2))
             return 2
         print(f"error: {exc}", file=sys.stderr)
         return 2

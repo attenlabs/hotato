@@ -89,6 +89,28 @@ def load_state(path: str) -> Optional[dict]:
                 f"{path!r} has a corrupt {field!r} field (expected {label} or "
                 "null). Delete the loop state and re-run."
             )
+    # Beyond type: a stage that RENDERS from a sub-object must actually carry the
+    # specific keys _message()/render_text() subscript, or they raise a raw
+    # KeyError deep in rendering (a full traceback + exit 1) instead of the clean
+    # exit-2 usage error every other corruption class gets. A well-formed state
+    # always saves these keys together with the stage, so their absence means the
+    # file is corrupt/truncated/hand-edited. Fail here, at input-validation time.
+    stage = obj.get("stage")
+    if stage == "awaiting_label":
+        disc = obj.get("discovery")
+        if not isinstance(disc, dict) or "total_candidates" not in disc:
+            raise ValueError(
+                f"{path!r} is a corrupt loop-state file: stage 'awaiting_label' "
+                "without a completed discovery. Delete it and re-run."
+            )
+    elif stage in ("awaiting_verify", "complete"):
+        plan = obj.get("planning")
+        required = ("decision", "plan_path", "fixes_awaiting_verify")
+        if not isinstance(plan, dict) or any(k not in plan for k in required):
+            raise ValueError(
+                f"{path!r} is a corrupt loop-state file: stage {stage!r} without "
+                "a completed plan. Delete it and re-run."
+            )
     return obj
 
 
@@ -220,8 +242,16 @@ def _message(stage: str, state: dict) -> Tuple[str, list]:
                 "hotato verify --before <old-run>.json --after <new-run>.json",
             ],
         )
-    # complete
-    return ("loop complete: the fix was verified across the battery.", [])
+    # complete. This is only ever reached via decision == "no_change" (see
+    # run_loop): the labeled battery already passed, so NOTHING was proposed,
+    # patched, applied, or verified. Say that honestly -- do not claim "the fix
+    # was verified", which would assert a verification step this loop never runs
+    # (hotato verify is a human step; loop.py never invokes it).
+    return (
+        "loop complete: all labeled fixtures already pass; there was nothing "
+        "to fix.",
+        [],
+    )
 
 
 def run_loop(

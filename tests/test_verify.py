@@ -121,6 +121,46 @@ def test_low_n_refuses_the_battery_scale_claim(tmp_path):
     assert "min-n 3" in v["claim"]["statement"]
 
 
+def test_claim_never_calls_a_regression_an_improvement(tmp_path):
+    """Regression (honesty): when the battery got strictly worse (n==0 now pass,
+    every fixture regressed) the headline claim must NOT say 'This improvement'.
+    Before the fix the same fixed template unconditionally called any
+    min-n-supported outcome an 'improvement', even a pure regression."""
+    before = _write(tmp_path, "b.json",
+                    [_ev(f"f{i}", True, False, 0.1) for i in range(3)])
+    after = _write(tmp_path, "a.json",
+                   [_ev(f"f{i}", True, False, 0.9) for i in range(3)])
+    v = _verify.verify_sides(before, after, min_n=3)
+    assert v["results"]["worse"] == 3
+    assert v["regression_axis"]["now_pass"] == 0
+    assert v["regressions"] == ["f0", "f1", "f2"]
+    stmt = v["claim"]["statement"].lower()
+    # the misleading headline is "this improvement COINCIDES..."; it must be gone
+    assert "this improvement" not in stmt, stmt
+    assert "regress" in stmt
+    assert "caused by" not in stmt
+
+
+def test_claim_mixed_result_is_not_called_an_improvement(tmp_path):
+    """When some fixtures newly pass but others regress, the outcome is 'mixed',
+    not an unqualified 'improvement'."""
+    before = _write(tmp_path, "b.json", [
+        _ev("f0", True, False, 1.2), _ev("f1", True, False, 0.1),
+        _ev("f2", True, False, 0.1),
+    ])
+    after = _write(tmp_path, "a.json", [
+        _ev("f0", True, True, 0.3, 0.4),  # fixed
+        _ev("f1", True, False, 0.9),       # worse
+        _ev("f2", True, False, 0.9),       # worse
+    ])
+    v = _verify.verify_sides(before, after, min_n=3)
+    assert v["regression_axis"]["now_pass"] == 1
+    assert len(v["regressions"]) == 2
+    stmt = v["claim"]["statement"].lower()
+    assert "mixed" in stmt
+    assert "this improvement" not in stmt
+
+
 def test_claim_says_coincides_never_caused(tmp_path):
     before = _write(tmp_path, "b.json",
                     [_ev(f"f{i}", True, False, 1.2) for i in range(4)])
