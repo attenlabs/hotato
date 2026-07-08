@@ -18,6 +18,39 @@ design. See `docs/BENCHMARK.md`.
   `docs/WHY.md`, now "show up again and again."
 
 ### Added
+- **`hotato patch` / `verify` / `loop`, the closed loop (find -> fix -> prove it
+  is fixed)**: three commands that carry a fix plan the rest of the way, with the
+  two irreversible decisions kept in human hands. `hotato patch <fixplan.json>`
+  renders a plan's abstract `{field, from, to}` into a LITERAL, paste-ready
+  artifact per platform: a JSON merge-patch body plus a ready `curl` against the
+  platform's real config-update endpoint (Vapi `PATCH /assistant/{id}`, Retell
+  `PATCH /update-agent/{agent_id}`), using the exact field names the plan carries
+  from fixmap's verified knob catalogue; for LiveKit/Pipecat, whose config lives
+  in agent source, it emits the exact constructor-kwarg source edit instead of a
+  fabricated endpoint; for an unknown stack it names the knob family and asks for
+  a target. For the genuine both-axes `do_not_tune_single_threshold` plan it
+  emits NO config patch and prints the vendor-neutral, numbers-free
+  engagement-control pointer instead (which fires ONLY on that case, never as a
+  generic upsell). HONEST: patch PRODUCES the change; it never applies it to your
+  platform and makes no network call (`applies_change` is pinned false).
+  `hotato verify --before <old-run> --after <new-run>` gives a battery-scale
+  before/after proof after you apply the change and re-capture the failing
+  fixtures: "N of M fixtures that used to fail now pass, and K of L hold fixtures
+  still pass". It reuses the `hotato compare` taxonomy per fixture (`fixed`,
+  `regressed`, `improved`, `worse`, `unchanged`, `still_pass`, `not_scorable`)
+  and aggregate's pooled-distribution definitions for the talk-over / time-to-
+  yield shift. It reports COINCIDENCE, never causation; refuses the headline
+  claim under low n (`--min-n`, default 3) while still printing the per-fixture
+  facts; treats an unjudgeable side as `not_scorable` and an unpaired fixture as
+  reported, never silently dropped; `--fail-on-regression` exits 1 on a
+  regressed/worse fixture. `hotato loop [FOLDER]` is one-command orchestration
+  with memory: the first run discovers candidate moments (`analyze` -> `scan` ->
+  rank) into `.hotato/loop-state.json`; once you have labeled fixtures with
+  `fixture create`, the next run plans a guarded fix and points at `hotato patch`
+  then `hotato verify`. It tracks state across runs and NEVER auto-labels (you
+  supply every yield/hold intent) or auto-applies. New docs: `docs/FIX-LOOP.md`;
+  wired into `hotato describe` and the exit-code epilogs. See also
+  `docs/FIX-PLANS.md`.
 - **`hotato connect` / `pull` / `sweep`, the connect-once bulk pull-and-analyze
   flow**: `hotato connect <stack>` captures a stack's credentials once, runs a
   lightweight live auth check, and stores them at `~/.hotato/connections.json`

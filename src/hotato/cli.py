@@ -203,6 +203,27 @@ _EXIT_CODES: dict = {
             "never a pass/fail and never a verdict)"),
         (2, "usage error (not a folder) or an IO error reading the folder"),
     ),
+    "patch": (
+        (0, "patch produced (a config merge-patch/curl or source edit for a "
+            "config-fixable plan, or the vendor-neutral engagement-control "
+            "pointer for the both-axes case -- both are valid outputs; hotato "
+            "never applies the change)"),
+        (2, "the input is not a hotato fix plan, or is unreadable"),
+    ),
+    "verify": (
+        (0, "verified: the before/after rollup was produced (a low-n claim is "
+            "refused honestly but still exits 0; the per-fixture facts hold)"),
+        (1, "with --fail-on-regression, at least one fixture regressed or got "
+            "worse"),
+        (2, "usage error, unreadable input, or no fixtures pair between the two "
+            "sides"),
+    ),
+    "loop": (
+        (0, "advanced the loop and persisted state (or re-reported where it "
+            "left off)"),
+        (2, "usage error: no folder on the first run, an unreadable state file, "
+            "or a path that is not a folder"),
+    ),
     "describe": (
         (0, "manifest printed"),
     ),
@@ -950,6 +971,65 @@ def _cmd_plan(args) -> int:
         print(_fixplan.render_text(plan))
     print(f"wrote fix plan ({plan['decision']}) to {args.out}", file=sys.stderr)
     return 0
+
+
+def _cmd_patch(args) -> int:
+    from . import patch as _patch
+
+    # A fix plan JSON (hotato.fixplan.v1), not a run envelope. A missing file
+    # (FileNotFoundError), malformed JSON (ValueError), or a non-plan document
+    # (ValueError from build_patch) all surface as the clean exit-2 usage error.
+    with open(args.fixplan, encoding="utf-8") as fh:
+        plan = json.load(fh)
+    result = _patch.build_patch(plan, source=args.fixplan)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2)
+            fh.write("\n")
+        print(f"wrote patch artifact to {args.out}", file=sys.stderr)
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(_patch.render_text(result))
+    return 0
+
+
+def _cmd_verify(args) -> int:
+    from . import verify as _verify
+
+    result = _verify.verify_sides(args.before, args.after, min_n=args.min_n)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2)
+            fh.write("\n")
+        print(f"wrote verify proof to {args.out}", file=sys.stderr)
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(_verify.render_text(result))
+    # 0 = rollup produced; 1 = a regression, only when the user opts to gate on it.
+    if args.fail_on_regression and result["regressions"]:
+        return 1
+    return 0
+
+
+def _cmd_loop(args) -> int:
+    from . import loop as _loop
+
+    result, code = _loop.run_loop(
+        args.folder,
+        fixtures_dir=args.fixtures,
+        state_path=args.state,
+        rediscover=args.rediscover,
+        stack=args.stack,
+        min_gap=args.min_gap,
+        top=args.top,
+    )
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(_loop.render_text(result))
+    return code
 
 
 # --- the regression loop: scan -> fixture create -> run -> compare ---------
@@ -2416,6 +2496,159 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not launch a browser for the HTML dashboard; just "
                          "write and print the path")
     an.set_defaults(func=_cmd_analyze)
+
+    # --- patch: Level 3, turn a fix plan into a paste-ready patch ------------
+    pt = sub.add_parser(
+        "patch",
+        help="render a fix plan into a literal, paste-ready patch per platform "
+             "(produces the change; never applies it)",
+        description=(
+            "Read a fix plan (schema hotato.fixplan.v1, from hotato plan) and "
+            "render its abstract {field, from, to} recommendation into a "
+            "LITERAL, paste-ready artifact for the target stack: a JSON "
+            "merge-patch body plus a ready curl against the platform's real "
+            "config-update endpoint (Vapi, Retell), or the exact source edit "
+            "when the config lives in agent code (LiveKit, Pipecat). Field names "
+            "come straight from the plan (verified in fixmap's knob catalogue). "
+            "patch ONLY handles the config-fixable classes: for a plan whose "
+            "decision is do_not_tune_single_threshold (the genuine both-axes "
+            "case) it emits NO config patch and prints the vendor-neutral, "
+            "numbers-free engagement-control pointer instead. HONEST: patch "
+            "PRODUCES the change; it NEVER applies it to your platform and makes "
+            "no network call. You review it, apply it, then prove it with "
+            "hotato verify."
+        ),
+        epilog=(
+            _exit_codes_epilog("patch") + "\n\n"
+            "Examples:\n"
+            "  hotato plan result.json --stack vapi --assistant-id <id> --out fixplan.json\n"
+            "  hotato patch fixplan.json                 # the curl + merge-patch to paste\n"
+            "  hotato patch fixplan.json --format json --out patch.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pt.add_argument("fixplan", metavar="FIXPLAN.json",
+                    help="a fix plan JSON from hotato plan (schema "
+                         "hotato.fixplan.v1)")
+    pt.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text; json prints the full "
+                         "patch artifact)")
+    pt.add_argument("--out", default=None, metavar="PATH",
+                    help="also write the patch artifact JSON here")
+    pt.set_defaults(func=_cmd_patch)
+
+    # --- verify: battery-scale before/after proof a fix held ----------------
+    vf = sub.add_parser(
+        "verify",
+        help="prove a fix across the whole battery: before/after run envelopes "
+             "-> N of M failing fixtures now pass",
+        description=(
+            "After you apply a config change and RE-CAPTURE the previously "
+            "failing fixtures, verify scores the old and new run envelopes "
+            "against each other and reports what really moved across the whole "
+            "battery: 'N of M fixtures that used to fail now pass, and K of L "
+            "hold fixtures still pass'. It reuses the compare TAXONOMY (fixed, "
+            "regressed, improved, worse, unchanged, still_pass, not_scorable) "
+            "per fixture and aggregate's pooled-distribution definitions for the "
+            "before/after talk-over and time-to-yield shift. It reports "
+            "COINCIDENCE, never causation, and REFUSES a battery-scale claim "
+            "when too few fixtures failed to characterize (--min-n): the "
+            "per-fixture facts still print, but the headline proof is withheld "
+            "and said so. An unjudgeable side is not_scorable, never an invented "
+            "verdict; a fixture on only one side is reported unpaired, never "
+            "silently dropped. Each side is a single run envelope JSON or a "
+            "directory of them; fixtures pair by event_id then scenario_id."
+        ),
+        epilog=(
+            _exit_codes_epilog("verify") + "\n\n"
+            "Examples:\n"
+            "  # score the same battery before and after the change\n"
+            "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio \\\n"
+            "      --format json > before.json      # (the failing take)\n"
+            "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio-new \\\n"
+            "      --format json > after.json       # (after applying the patch + re-capturing)\n"
+            "  hotato verify --before before.json --after after.json\n"
+            "  hotato verify --before before/ --after after/ --min-n 5 --fail-on-regression"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    vf.add_argument("--before", required=True, metavar="RUN.json|DIR",
+                    help="the OLD run envelope(s): a single hotato run JSON, or "
+                         "a directory of them (the previously-failing take)")
+    vf.add_argument("--after", required=True, metavar="RUN.json|DIR",
+                    help="the NEW run envelope(s) after applying the change and "
+                         "re-capturing the same fixtures")
+    vf.add_argument("--min-n", type=int, default=3,
+                    help="minimum number of previously-failing fixtures needed "
+                         "to state a battery-scale proof; below it the headline "
+                         "claim is refused honestly (default 3)")
+    vf.add_argument("--fail-on-regression", action="store_true",
+                    help="exit 1 if any fixture regressed or got worse (default: "
+                         "exit 0; verify measures, it does not gate)")
+    vf.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text)")
+    vf.add_argument("--out", default=None, metavar="PATH",
+                    help="also write the full proof JSON here")
+    vf.set_defaults(func=_cmd_verify)
+
+    # --- loop: one-command orchestration of the closed loop, with memory ----
+    lp = sub.add_parser(
+        "loop",
+        help="drive the closed fix loop (find -> label -> plan -> verify) and "
+             "remember where it left off across runs",
+        description=(
+            "One command for the closed loop, with memory. First run over a "
+            "FOLDER of calls runs discovery (analyze -> scan -> rank) and "
+            "records the candidate moments in a small local state file "
+            "(.hotato/loop-state.json by default): a second run then tells you "
+            "what is waiting on YOU -- 'you have N candidate moments awaiting "
+            "your label', or, once you have labeled fixtures with hotato fixture "
+            "create, 'a fix plan is ready; apply it with hotato patch, then "
+            "prove it with hotato verify'. It orchestrates and tracks state; the "
+            "human keeps the two irreversible decisions. HARD rules: it NEVER "
+            "auto-labels (you supply every yield/hold intent), NEVER auto-applies "
+            "(it produces a plan and points at hotato patch; applying and "
+            "verifying stay human), and mutates no platform."
+        ),
+        epilog=(
+            _exit_codes_epilog("loop") + "\n\n"
+            "Examples:\n"
+            "  hotato loop ./recordings                          # run 1: discover -> awaiting_label\n"
+            "  hotato fixture create --stereo rec.wav --onset 12.4 \\\n"
+            "      --expect yield --id refund-001 --out tests/hotato\n"
+            "  hotato loop ./recordings --fixtures tests/hotato   # run 2: plan -> awaiting_verify\n"
+            "  hotato loop ./recordings --format json             # machine state\n\n"
+            + _LABEL_NOTE
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    lp.add_argument("folder", nargs="?", default=None, metavar="FOLDER",
+                    help="a directory of dual-channel call recordings to "
+                         "discover from (required on the first run)")
+    lp.add_argument("--fixtures", default=None, metavar="DIR",
+                    help="the fixture root you labeled with hotato fixture "
+                         "create --out DIR (DIR/scenarios + DIR/audio); when it "
+                         "has scenarios, loop plans a fix from them")
+    lp.add_argument("--state", default=None, metavar="PATH",
+                    help="loop state file (default .hotato/loop-state.json in "
+                         "the current directory)")
+    lp.add_argument("--rediscover", action="store_true",
+                    help="re-run discovery over the folder even if state already "
+                         "exists")
+    lp.add_argument("--stack", default="generic",
+                    choices=["generic", "vapi", "retell", "livekit", "pipecat",
+                             "twilio"],
+                    help="stack to plan against when it reaches the planning "
+                         "step (default generic)")
+    lp.add_argument("--min-gap", type=float, default=2.0,
+                    help="minimum response gap in seconds to surface as a "
+                         "discovery candidate (default 2.0)")
+    lp.add_argument("--top", type=int, default=10,
+                    help="how many top candidate moments to record in state for "
+                         "the label step (default 10)")
+    lp.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text)")
+    lp.set_defaults(func=_cmd_loop)
 
     # --- describe: the generated capability manifest (machine-drivability) --
     ds = sub.add_parser(

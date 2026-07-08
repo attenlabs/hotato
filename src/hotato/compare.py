@@ -32,7 +32,7 @@ from typing import Optional
 
 from .core import run_single
 
-__all__ = ["compare_recordings", "render_text", "RESULTS"]
+__all__ = ["compare_recordings", "classify_pair", "render_text", "RESULTS"]
 
 RESULTS = ("fixed", "regressed", "improved", "worse", "unchanged",
            "still_pass", "not_scorable")
@@ -92,6 +92,30 @@ def _both_fail_result(expect_yield: bool, be: dict, ae: dict) -> str:
     return "unchanged"
 
 
+def classify_pair(expect_yield: bool, before_event: dict, after_event: dict) -> str:
+    """The before/after result WORD for one scored event pair, from real
+    measurements only (see the module docstring's taxonomy). This is the single
+    source of truth for the taxonomy: ``compare_recordings`` scores two
+    recordings then calls this, and ``hotato verify`` calls it directly on two
+    already-scored envelope events so the two surfaces can never disagree.
+
+    An unjudgeable side is ``not_scorable`` -- never an invented verdict.
+    """
+    b_scorable = before_event.get("scorable") is not False
+    a_scorable = after_event.get("scorable") is not False
+    if not (b_scorable and a_scorable):
+        return "not_scorable"
+    b_pass = bool(before_event["verdict"]["passed"])
+    a_pass = bool(after_event["verdict"]["passed"])
+    if not b_pass and a_pass:
+        return "fixed"
+    if b_pass and not a_pass:
+        return "regressed"
+    if b_pass and a_pass:
+        return "still_pass"
+    return _both_fail_result(expect_yield, before_event, after_event)
+
+
 def compare_recordings(
     *,
     before_stereo: Optional[str] = None,
@@ -142,19 +166,7 @@ def compare_recordings(
 
     b_scorable = b_event.get("scorable") is not False
     a_scorable = a_event.get("scorable") is not False
-    if not (b_scorable and a_scorable):
-        result = "not_scorable"
-    else:
-        b_pass = bool(b_event["verdict"]["passed"])
-        a_pass = bool(a_event["verdict"]["passed"])
-        if not b_pass and a_pass:
-            result = "fixed"
-        elif b_pass and not a_pass:
-            result = "regressed"
-        elif b_pass and a_pass:
-            result = "still_pass"
-        else:
-            result = _both_fail_result(want_yield, b_event, a_event)
+    result = classify_pair(want_yield, b_event, a_event)
 
     bv, av = b_event["verdict"], a_event["verdict"]
     d_tov = None
