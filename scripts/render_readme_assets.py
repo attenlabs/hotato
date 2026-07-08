@@ -4,7 +4,8 @@
 Writes two files under docs/assets/:
 
 - ``hotato-demo-report.html``: the self-contained HTML report for the packaged
-  INTENTIONALLY FAILING demo battery (the same thing ``hotato demo`` renders).
+  demo battery of two REAL recorded failing calls, with the exact scored audio
+  embedded under each timeline (the same thing ``hotato demo`` renders).
 - ``hotato-demo-report.png``: a 1200 px wide screenshot of that page, cropped
   from the top of the page to the first fix card, so it shows the failing
   summary, at least one per-event timeline, and at least one fix card.
@@ -92,6 +93,7 @@ def build_html() -> None:
         stack="generic",
         scenarios_dir=str(demo_root.joinpath("scenarios")),
         audio_dir=str(demo_root.joinpath("audio")),
+        embed_audio=True,
     )
     if env["summary"]["failed"] != env["summary"]["events"]:
         raise SystemExit(
