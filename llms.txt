@@ -8,7 +8,7 @@
 > talking at once (talk-over).
 > Every failure points at a concrete fix. Runs entirely on your machine. Built
 > to be called by an AI agent mid-task, as a CLI or a one-tool MCP server.
-> Version 0.4.0. This file is the machine-readable index; `hotato describe
+> Version 0.4.1. This file is the machine-readable index; `hotato describe
 > --format json` emits the same information generated straight from the CLI's
 > own argparse structure (every subcommand, its args, its exit codes, plus the
 > schema URLs and the version), so it can never drift from the real flags.
