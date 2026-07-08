@@ -273,26 +273,37 @@ def _validate_recording_url(url: str, stack: str) -> str:
 
 
 def _validate_recording_path(path: str, stack: str) -> str:
-    """A recording_path arrives from an UNTRUSTED webhook payload. When
-    ``HOTATO_INGEST_DIR`` is set the resolved real path MUST stay inside that
-    egress directory, so a spoofed event cannot point ingest at an arbitrary
-    local file (``/etc/...``) or escape via ``..``. With no base configured the
-    path is used as-is (the historical behaviour: you point ingest at the file
-    your own infra wrote), but a base is the operator's lever to lock it down."""
-    real = os.path.realpath(os.path.expanduser(path))
+    """A recording_path arrives from an UNTRUSTED webhook payload, so reading it
+    is a local-file-read primitive triggerable by anyone who can forge a
+    LiveKit/Pipecat-shaped event. The sandbox is therefore MANDATORY, not opt-in:
+    ``HOTATO_INGEST_DIR`` must be set, and the resolved real path MUST stay inside
+    that egress directory. A spoofed event can then never point ingest at an
+    arbitrary local file (``/etc/...``, ``~/.hotato/connections.json``) or escape
+    via ``..``. With no base configured ingest fails CLOSED (it reads nothing)
+    rather than trusting the payload's path -- the operator opts IN to local-path
+    ingest by naming the directory their own infra writes to."""
     base = os.environ.get("HOTATO_INGEST_DIR", "").strip()
-    if base:
-        base_real = os.path.realpath(os.path.expanduser(base))
-        try:
-            inside = os.path.commonpath([base_real, real]) == base_real
-        except ValueError:  # different drives (Windows) -> never inside
-            inside = False
-        if not inside:
-            raise IngestError(
-                f"recording_path {path!r} resolves outside HOTATO_INGEST_DIR "
-                f"({base}); refusing to read it. Point ingest at a file inside "
-                "your configured egress directory."
-            )
+    if not base:
+        raise IngestError(
+            "reading a local recording_path from a webhook payload is disabled "
+            "until you set HOTATO_INGEST_DIR to the egress directory your "
+            f"{stack} infra writes to. ingest will then read ONLY files inside "
+            "that directory. This fails closed so a forged/untrusted webhook "
+            "event cannot make ingest read an arbitrary local file (for example "
+            "~/.hotato/connections.json or /etc/passwd)."
+        )
+    real = os.path.realpath(os.path.expanduser(path))
+    base_real = os.path.realpath(os.path.expanduser(base))
+    try:
+        inside = os.path.commonpath([base_real, real]) == base_real
+    except ValueError:  # different drives (Windows) -> never inside
+        inside = False
+    if not inside:
+        raise IngestError(
+            f"recording_path {path!r} resolves outside HOTATO_INGEST_DIR "
+            f"({base}); refusing to read it. Point ingest at a file inside "
+            "your configured egress directory."
+        )
     return real
 
 

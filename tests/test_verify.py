@@ -213,3 +213,70 @@ def test_cli_directory_inputs(tmp_path):
         encoding="utf-8")
     assert cli.main(["verify", "--before", str(bdir), "--after", str(adir),
                      "--min-n", "3"]) == 0
+
+
+# --- defect (round 3): malformed / hand-edited envelope sides never crash ---
+#
+# verify's contract is a clean exit-2 structured error for a malformed side, the
+# same as every other bad-input path -- never a raw AttributeError / TypeError /
+# KeyError traceback. Four distinct crash sites, one clean-error contract.
+
+def _write_raw(tmp_path, name, events):
+    """An envelope whose events[] is written verbatim (no _ev/_env scoring), so a
+    deliberately malformed shape reaches the loader/comparator/stats path."""
+    env = {"tool": "hotato", "kind": "run", "schema_version": "1",
+           "mode": "suite", "stack": "vapi", "summary": {}, "events": events}
+    p = tmp_path / name
+    p.write_text(json.dumps(env), encoding="utf-8")
+    return str(p)
+
+
+def test_verify_non_object_events_do_not_crash(tmp_path):
+    """events=[1,2,3]: a non-object entry is not a fixture and must be skipped,
+    not crash _event_key with AttributeError."""
+    b = _write_raw(tmp_path, "b.json", [1, 2, 3])
+    a = _write_raw(tmp_path, "a.json", [1, 2, 3])
+    # no scalar fixtures pair -> clean exit 2, no traceback
+    assert cli.main(["verify", "--before", b, "--after", a]) == 2
+
+
+def test_verify_unhashable_event_id_is_clean_error(tmp_path):
+    """A list event_id is unhashable; it must be a named exit-2 usage error, not a
+    raw TypeError: unhashable type at ``key in seen``."""
+    ev = [{"event_id": ["a", "b"], "expected_yield": True,
+           "verdict": {"passed": True}}]
+    b = _write_raw(tmp_path, "b.json", ev)
+    a = _write_raw(tmp_path, "a.json", ev)
+    assert cli.main(["verify", "--before", b, "--after", a]) == 2
+
+
+def test_verify_both_fail_missing_metrics_do_not_crash(tmp_path):
+    """Both sides scorable and failing, but the verdict omits talk_over_sec /
+    seconds_to_yield: compare._both_fail_result must degrade to 'unchanged', not
+    raise KeyError."""
+    ev = [{"event_id": "e1", "expected_yield": True,
+           "verdict": {"passed": False}}]
+    b = _write_raw(tmp_path, "b.json", ev)
+    a = _write_raw(tmp_path, "a.json", ev)
+    v = _verify.verify_sides(b, a)
+    assert v["per_fixture"][0]["result"] == "unchanged"
+    assert cli.main(["verify", "--before", b, "--after", a]) == 0
+
+
+def test_verify_non_numeric_metric_does_not_crash_stats(tmp_path):
+    """A non-numeric talk_over_sec ('oops') must be excluded from the pooled
+    distribution, not raise TypeError in _stats.dist_summary's round()."""
+    ev = [{"event_id": "e1", "expected_yield": True,
+           "verdict": {"passed": True, "talk_over_sec": "oops"}}]
+    b = _write_raw(tmp_path, "b.json", ev)
+    a = _write_raw(tmp_path, "a.json", ev)
+    v = _verify.verify_sides(b, a)
+    # the bogus value never enters the distribution
+    assert v["distribution"]["before"]["talk_over_sec"] is None
+    assert cli.main(["verify", "--before", b, "--after", a]) == 0
+
+
+def test_dist_summary_skips_non_numeric():
+    from hotato._stats import dist_summary
+    assert dist_summary(["oops", None, [1], {"x": 1}]) is None
+    assert dist_summary([1.0, "oops", 3.0])["n"] == 2

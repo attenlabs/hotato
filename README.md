@@ -32,7 +32,7 @@ One command finds every moment your agent talks over the caller:
 uvx hotato scan --stereo your-call.wav   # two-channel WAV: caller ch0, agent ch1
 ```
 
-From there: `run` scores a call to a PASS/FAIL verdict and an HTML report, `compare` proves a fix as a before/after delta, and `fixture create` saves any moment as a permanent regression test that fails CI if it comes back. Everything runs on your machine; the audio never leaves it.
+From there: `run` scores a call to a PASS/FAIL verdict and an HTML report, `compare` measures a before/after delta for one fixed moment (fixed/regressed/improved/worse), `verify` proves it at battery scale across every fixture (reporting coincidence, not causation), and `fixture create` saves any moment as a permanent regression test that fails CI if it comes back. Everything runs on your machine; the audio never leaves it.
 
 Hotato catches the three talk-over failures callers feel: the agent talking over the caller, false-stopping on a backchannel ("mhm"), or yielding too slowly. You label the expected behavior (`yield` = stop for the caller, `hold` = keep talking through a backchannel); Hotato measures whether the timing matched. It reports what it measured, never a guess at intent.
 

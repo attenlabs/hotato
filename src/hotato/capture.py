@@ -307,10 +307,67 @@ class _HTTPStatusError(ValueError):
         self.code = code
 
 
+class _CredentialSafeRedirectHandler:
+    """urllib follows 3xx redirects and, by default, RE-SENDS every original
+    request header -- INCLUDING ``Authorization`` -- to the redirect target even
+    when it is a DIFFERENT host. Every authenticated call here carries a Bearer
+    API key (Vapi/Retell/Bland/Synthflow/Millis/Cartesia) or a Twilio Basic
+    ``AccountSid:AuthToken`` token, so a tampered/compromised vendor endpoint, a
+    malicious CDN/proxy in front of it, a DNS-poisoned path, or an operator's bad
+    ``--base-url`` could 302 the request to attacker infra and receive the full
+    credential verbatim (= vendor-account takeover).
+
+    This handler strips credential headers whenever a redirect crosses to a
+    different host (reusing ``_same_host``), so a same-host CDN redirect still
+    works but the secret is never sent off-domain. It complements
+    ``_auth_headers_for``, which only guards the vendor-JSON-supplied URL BEFORE
+    the fetch and does nothing once the vendor's own endpoint issues a redirect
+    mid-request."""
+
+    def __new__(cls):
+        import urllib.request
+
+        base = urllib.request.HTTPRedirectHandler
+
+        class _Handler(base):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                new = super().redirect_request(req, fp, code, msg, headers, newurl)
+                if new is not None and not _same_host(req.full_url, newurl):
+                    for h in list(new.headers):
+                        if h.lower() in (
+                            "authorization", "proxy-authorization", "cookie",
+                        ):
+                            del new.headers[h]
+                return new
+
+        return _Handler()
+
+
+_SAFE_OPENER_INSTALLED = False
+
+
+def _ensure_safe_opener() -> None:
+    """Install (once, process-wide) a default urllib opener whose redirect handler
+    strips credentials on a cross-host redirect. Installed lazily on the first
+    network call so importing the module has no global side effect. Tests that
+    monkeypatch ``urllib.request.urlopen`` replace the call entirely and are
+    unaffected; the real ``urlopen`` uses this opener in production."""
+    global _SAFE_OPENER_INSTALLED
+    if _SAFE_OPENER_INSTALLED:
+        return
+    import urllib.request
+
+    urllib.request.install_opener(
+        urllib.request.build_opener(_CredentialSafeRedirectHandler())
+    )
+    _SAFE_OPENER_INSTALLED = True
+
+
 def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> bytes:
     import urllib.error
     import urllib.request
 
+    _ensure_safe_opener()
     req = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user-supplied API
@@ -344,6 +401,25 @@ def _require_json_object(value, what: str) -> dict:
             f"expected a JSON object for {what}, got {type(value).__name__}. The "
             "endpoint returned an unexpected shape (a proxy/error page, a wrong "
             "--base-url, or a vendor failure response)."
+        )
+    return value
+
+
+def _require_url_str(value, what: str) -> str:
+    """A recording location pulled out of a vendor JSON response (``stereoUrl``,
+    ``recording_multi_channel_url``, ``recording_url``, ``recording.recording_url``
+    ...) is documented to be a string, but a proxy/error page, a wrong
+    ``--base-url``, or a vendor failure can put a list / dict / number there
+    instead. Reject a non-string (or empty) here with a clean, named ValueError so
+    it never reaches ``urlparse`` in ``_validate_download_url`` / ``_same_host`` /
+    ``_auth_headers_for`` as a raw AttributeError. Mirrors ``_require_json_object``
+    for the URL fields the adapters read."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(
+            f"expected a URL string for {what}, got {type(value).__name__}. The "
+            "vendor response returned an unexpected shape for the recording "
+            "location (a proxy/error page, a wrong --base-url, or a vendor "
+            "failure response)."
         )
     return value
 
@@ -443,7 +519,9 @@ def _wav_channels(path: str) -> Optional[int]:
     try:
         with wave.open(path, "rb") as wf:
             return wf.getnchannels()
-    except (wave.Error, EOFError, OSError):
+    except (wave.Error, EOFError, OSError, RuntimeError):
+        # RuntimeError: stdlib ``wave`` raises it for a well-formed RIFF/WAVE
+        # header with a malformed/oversized inner sub-chunk; treat as unreadable.
         return None
 
 
@@ -500,8 +578,16 @@ def capture_vapi(
         ),
         f"Vapi call {call_id!r}",
     )
-    artifact = call.get("artifact") or {}
-    recording = artifact.get("recording") or {}
+    # artifact / recording are documented objects; a wrong-typed vendor response
+    # (a string/list where a dict is expected) must be a clean usage error, not a
+    # raw AttributeError on the next ``.get``.
+    artifact = _require_json_object(
+        call.get("artifact") or {}, f"artifact on Vapi call {call_id!r}"
+    )
+    recording = _require_json_object(
+        artifact.get("recording") or {},
+        f"artifact.recording on Vapi call {call_id!r}",
+    )
     # Defensive: some payload variants nest a {"url": ...} dict under
     # recording.stereo; read it only when it is actually a dict.
     stereo_obj = recording.get("stereo")
@@ -523,6 +609,7 @@ def capture_vapi(
             "recording is enabled and the call has ended; a stereo (2-channel) "
             f"artifact is what Hotato needs ({_MONO_WHY})."
         )
+    url = _require_url_str(url, "Vapi stereo recording URL (artifact.recording.stereoUrl)")
     dest = _out_wav(out_path, "hotato-vapi-")
     _download(url, dest, timeout=max(timeout, 120))
     ch = _wav_channels(dest)
@@ -574,12 +661,14 @@ def capture_retell(
         "recording_multi_channel_url"
     )
     if url:
+        url = _require_url_str(url, "Retell recording_multi_channel_url")
         dest = _out_wav(out_path, "hotato-retell-")
         _download(url, dest, timeout=max(timeout, 120))
         _require_two_channels(dest, "Retell (multi-channel recording)")
         return dest
     mono_url = call.get("recording_url")
     if mono_url:
+        mono_url = _require_url_str(mono_url, "Retell recording_url")
         if not allow_mono:
             raise ValueError(
                 "this Retell call only exposes the mono recording_url; no "
@@ -1448,6 +1537,7 @@ def capture_bland(*, call_id, api_key, out_path=None,
             f"no recording_url on Bland call {call_id!r} (only present when the "
             "call was created with record=true, after it ends)."
         )
+    url = _require_url_str(url, "Bland recording_url")
     dest = _out_wav(out_path, "hotato-bland-")
     return _download(url, dest,
                      headers=_auth_headers_for(url, base_url, {"authorization": api_key}),
@@ -1485,6 +1575,7 @@ def capture_synthflow(*, call_id, api_key, out_path=None,
             f"no recording_url on Synthflow call {call_id!r} "
             "(response.response.calls[0].recording_url was empty)."
         )
+    url = _require_url_str(url, "Synthflow recording_url")
     dest = _out_wav(out_path, "hotato-synthflow-")
     return _download(url, dest, timeout=max(timeout, 120))
 
@@ -1506,6 +1597,7 @@ def capture_millis(*, session_id, api_key, out_path=None,
             f"no recording.recording_url on Millis session {session_id!r} "
             "(recording is only present when enable_recording was set)."
         )
+    url = _require_url_str(url, "Millis recording.recording_url")
     dest = _out_wav(out_path, "hotato-millis-")
     return _download(url, dest,
                      headers=_auth_headers_for(url, base_url, {"authorization": api_key}),

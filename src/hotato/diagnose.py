@@ -37,6 +37,7 @@ from typing import Optional
 FINDINGS = (
     "missed_real_interruption",
     "false_stop_on_backchannel",
+    "false_stop_on_ambient_noise",
     "slow_yield",
     "excess_talk_over",
     "endpointing_miss",
@@ -69,6 +70,11 @@ OPPOSITE_RISK = {
         "coverage_key": "real_interruption_pass",
         "family": "a should-yield real interruption fixture (expected_yield=true) that passes",
         "why": "lowering sensitivity risks missing genuine short interruptions",
+    },
+    "false_stop_on_ambient_noise": {
+        "coverage_key": "real_interruption_pass",
+        "family": "a should-yield real interruption fixture (expected_yield=true) that passes",
+        "why": "raising the input energy/noise gate risks missing a genuinely quiet caller",
     },
     "slow_yield": {
         "coverage_key": "backchannel_hold_pass",
@@ -108,6 +114,13 @@ _ADVISORIES = {
     ("false_stop_on_backchannel", False): (
         "False stop, but tuning a single threshold is not safe here. See the "
         "notes for this event and the battery decision."
+    ),
+    ("false_stop_on_ambient_noise", True): (
+        "False yield to non-speech ambient noise (background/room energy, not a "
+        "caller utterance). Likely the input VAD/noise-floor. Try raising the "
+        "input energy gate one step and enable input denoising. Tradeoff: too "
+        "high a gate can miss a genuinely quiet caller; verify against a "
+        "passing should-yield interruption fixture."
     ),
     ("slow_yield", True): (
         "Slow yield: the agent stopped, but late. Likely endpointing layer. Try "
@@ -194,6 +207,21 @@ def _is_echo(event: dict) -> bool:
     return "echo" in (event.get("scenario_id") or "").lower()
 
 
+def _is_non_speech_ambient(event: dict) -> bool:
+    """A NON-SPEECH ambient false-trigger (corpus family 'noise-hold' / tag
+    'non-speech'): continuous background energy on the caller channel, NOT a
+    caller utterance. It is a VAD/noise-floor sensitivity case, not a
+    backchannel-vs-interruption discrimination case, so it must never feed the
+    threshold funnel or be described with fabricated caller intent. Reads the
+    durable ``non_speech`` marker the scorer records; falls back to raw
+    family/tags for an older envelope."""
+    if event.get("non_speech"):
+        return True
+    from .fixmap import is_non_speech_ambient_label
+
+    return is_non_speech_ambient_label(event.get("tags"), event.get("family"))
+
+
 def _latency(event: dict) -> dict:
     return (event.get("signals") or {}).get("latency") or {}
 
@@ -278,6 +306,7 @@ def _funnel_active(events: list) -> bool:
         and not e.get("expected_yield")
         and (e.get("verdict") or {}).get("did_yield")
         and not _is_echo(e)
+        and not _is_non_speech_ambient(e)
         for e in scorable
     )
     return missed and false_stop
@@ -345,6 +374,24 @@ def _diagnose_event(event: dict, coverage: dict, funnel: bool) -> Optional[dict]
         )
 
     if not expected_yield and did_yield:
+        if _is_non_speech_ambient(event) and not _is_echo(event):
+            return dict(
+                base,
+                finding="false_stop_on_ambient_noise",
+                evidence=_evidence(event),
+                likely_layer="interruption_detection",
+                config_only_safe=True,
+                notes=(
+                    "The caller channel carried continuous NON-SPEECH ambient "
+                    "energy (background/room noise), not a caller utterance, and "
+                    "the agent gave up the floor. This is an input VAD / "
+                    "noise-floor sensitivity case, not a backchannel-vs-"
+                    "interruption discrimination problem: there is no caller "
+                    "speech here to discriminate. Raise the input energy gate one "
+                    "step (and enable input denoising); the tradeoff is that too "
+                    "high a gate can miss a genuinely quiet caller."
+                ),
+            )
         if _is_echo(event):
             return dict(
                 base,

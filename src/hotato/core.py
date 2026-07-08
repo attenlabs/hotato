@@ -32,7 +32,7 @@ from ._engine.score import (
     score_channels,
     score_stereo,
 )
-from .fixmap import classify_event, systemic_pointer
+from .fixmap import classify_event, is_non_speech_ambient_label, systemic_pointer
 
 __all__ = [
     "run_single",
@@ -117,6 +117,7 @@ def _event_from_result(
     stack: Optional[str],
     scenario_id: Optional[str] = None,
     category: Optional[str] = None,
+    family: Optional[str] = None,
     tags: Optional[list] = None,
     title: Optional[str] = None,
     onset_provided: bool = True,
@@ -166,6 +167,15 @@ def _event_from_result(
         "signals": signals,
         "fix": None,
     }
+    # A corpus label marking a NON-SPEECH ambient fixture (family "noise-hold" /
+    # tag "non-speech"): a VAD/noise-floor sensitivity case, not a backchannel.
+    # Recorded as a durable, additive marker ONLY when true, so a scored envelope
+    # for a real call (no scenario labels) and the bundled golden stay
+    # byte-identical. Downstream fix routing (fixmap / diagnose) reads it to keep
+    # an ambient false-yield off the engagement-control pointer.
+    non_speech = is_non_speech_ambient_label(tags, family)
+    if non_speech:
+        event["non_speech"] = True
     reason = _not_scorable_reason(
         result=result, expected_yield=expected_yield, onset_provided=onset_provided
     )
@@ -214,6 +224,8 @@ def _event_from_result(
             # engagement-control pointer with fabricated caller-intent wording.
             # curator tags/ids remain a fallback for scenarios that carry no audio.
             echo_suspected=bool(echo and echo.get("echo_suspected")),
+            family=family,
+            non_speech=non_speech,
         )
     return event
 
@@ -311,8 +323,14 @@ def _load_signal(path: str):
     difference between a multi-GB Python-object list and a compact float64 buffer
     on a multi-hour recording, so ``run``/``capture``/``compare``/``verify``/
     ``fixture create``/``benchmark`` scale like the streaming ``scan``/``analyze``
-    path instead of OOM-ing on the same long call. The numbers are byte-identical:
-    the engine's ``frame_rms`` sees the identical values either way.
+    path instead of OOM-ing on the same long call. The decoded sample VALUES are
+    byte-identical either way: the engine's ``frame_rms`` sees the identical
+    inputs whether numpy did the byte->float conversion or the stdlib list
+    comprehension did. (``frame_rms``'s own per-frame summation is a separate
+    step; with numpy it uses pairwise summation and without it a sequential
+    accumulator, which can differ in the last double-precision bit -- a difference
+    masked everywhere numbers are surfaced by the 3-decimal rounding, and pinned
+    by test_core.py's fuzzed numpy-vs-stdlib envelope parity check.)
 
     When numpy is absent (or a test has forced ``_engine.audio._np = None`` to
     exercise the pure-stdlib path), it delegates unchanged to the engine's own
@@ -377,10 +395,15 @@ def _read_wav(path: str):
     """
     try:
         signal = _load_signal(path)
-    except (wave.Error, EOFError, struct.error) as exc:
+    except (wave.Error, EOFError, struct.error, RuntimeError) as exc:
+        # RuntimeError: a well-formed RIFF/WAVE header whose inner sub-chunk is
+        # malformed/oversized makes stdlib ``wave`` raise a bare RuntimeError from
+        # Chunk.skip()/seek() (what a partial/interrupted recording write looks
+        # like). Normalize it to the same clean ValueError so `run`/`compare`/
+        # `verify`/`fixture` return the exit-2 usage contract, not a traceback.
         raise ValueError(
-            f"{path!r} is not a readable PCM WAV ({exc}). Export a PCM WAV, "
-            "e.g. ffmpeg -i input -acodec pcm_s16le output.wav"
+            f"{path!r} is not a readable PCM WAV ({exc or type(exc).__name__}). "
+            "Export a PCM WAV, e.g. ffmpeg -i input -acodec pcm_s16le output.wav"
         ) from exc
     except ValueError as exc:
         # A corrupt data chunk whose byte length is not a whole number of samples
@@ -836,6 +859,7 @@ def run_suite(
                 scenario_id=sid,
                 category=sc.get("category"),
                 tags=sc.get("tags"),
+                family=sc.get("family"),
                 title=sc.get("title"),
                 onset_provided=scenario_onset is not None,
                 echo=echo,

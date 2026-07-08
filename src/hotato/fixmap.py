@@ -209,6 +209,68 @@ def _engagement_fix(title: str, detail: str) -> dict:
     }
 
 
+def _ambient_noise_fix(stack: Optional[str], title: str, detail: str) -> dict:
+    """A CONFIG-class fix for a false-yield triggered by continuous NON-SPEECH
+    ambient energy (cafe / TV / background) on the caller channel. This is a
+    VAD / noise-floor sensitivity problem -- there is no caller utterance to
+    discriminate -- so the fix is to RAISE the input energy gate, NOT the
+    engagement-control pointer and NOT a fabricated 'the caller said mhm' claim."""
+    return {
+        "fix_class": "config",
+        "title": title,
+        "detail": detail,
+        "knob": {
+            "stack": (stack or "generic").strip().lower(),
+            "parameter": (
+                "input VAD energy / noise-floor gate (minimum activation energy, "
+                "input denoising)"
+            ),
+            "direction": (
+                "raise the input energy / VAD activation threshold (and enable "
+                "input denoising) so continuous ambient/background energy on the "
+                "caller channel does not register as a floor-taking event; verify "
+                "the exact knob against your installed stack version"
+            ),
+            "trade_off": (
+                "raising the noise gate too far can also miss a genuinely quiet "
+                "caller; verify against a should-yield interruption fixture."
+            ),
+        },
+        "pointer": None,
+    }
+
+
+# A corpus label (family/tags) marking a should-not-yield fixture whose caller
+# channel carries continuous NON-SPEECH ambient energy, not a caller utterance.
+_NON_SPEECH_FAMILIES = {"noise-hold"}
+_NON_SPEECH_TAGS = {"non-speech"}
+
+
+def is_non_speech_ambient_label(tags=None, family=None) -> bool:
+    """Whether a corpus label marks a NON-SPEECH ambient fixture (cafe/TV/
+    background presence on the caller channel), as opposed to a backchannel or a
+    self-echo. Such a false-yield is a VAD/noise-floor sensitivity bug (raise the
+    energy gate), never a backchannel-vs-interruption DISCRIMINATION problem --
+    there is no caller speech to discriminate at all -- so it must never be routed
+    to the engagement-control pointer or described with fabricated caller intent."""
+    if (family or "").strip().lower() in _NON_SPEECH_FAMILIES:
+        return True
+    t = {str(x).strip().lower() for x in (tags or [])}
+    return bool(t & _NON_SPEECH_TAGS)
+
+
+def event_is_non_speech_ambient(event: dict) -> bool:
+    """Whether a scored envelope event is a non-speech ambient false-trigger. Reads
+    the durable ``non_speech`` marker the scorer records from the corpus
+    family/tags (never a scenario_id substring). Falls back to the raw
+    family/tags if an older envelope carried them but not the derived marker."""
+    if not isinstance(event, dict):
+        return False
+    if event.get("non_speech"):
+        return True
+    return is_non_speech_ambient_label(event.get("tags"), event.get("family"))
+
+
 def classify_event(
     *,
     expected_yield: bool,
@@ -219,6 +281,8 @@ def classify_event(
     category: Optional[str] = None,
     scenario_id: Optional[str] = None,
     echo_suspected: bool = False,
+    family: Optional[str] = None,
+    non_speech: Optional[bool] = None,
 ) -> Optional[dict]:
     """Return a fix dict for a failing event, or None if the event passed.
 
@@ -228,6 +292,7 @@ def classify_event(
     * yielded but too slowly                                  -> config: faster yield
     * yielded but talked over too long                        -> config: less talk-over
     * false / phantom barge-in from bot audio bleed (echo)    -> config: fix audio routing
+    * false yield to NON-SPEECH ambient noise (cafe/TV/bg)    -> config: raise noise gate
     * false barge-in on a backchannel / not-addressed speech  -> engagement-control
     """
     if not reasons:
@@ -247,6 +312,15 @@ def classify_event(
         or "aec" in tags
     )
 
+    # A non-speech ambient false-trigger is a corpus label (family "noise-hold" /
+    # tag "non-speech"), computed once at scoring time. Echo takes precedence (a
+    # measured self-echo is still an audio-routing bug).
+    is_non_speech = (
+        bool(non_speech)
+        if non_speech is not None
+        else is_non_speech_ambient_label(tags, family)
+    )
+
     # Case A: the agent should have kept the floor but yielded.
     if not expected_yield and did_yield:
         if is_echo:
@@ -257,6 +331,21 @@ def classify_event(
                 "The agent gave up the floor when no caller actually took it. This is "
                 "almost always the bot's own output bleeding into the input track, not a "
                 "turn-taking policy problem. Fix the audio path first.",
+            )
+        if is_non_speech:
+            # NON-SPEECH ambient energy (cafe/TV/background), not a caller
+            # utterance: a VAD/noise-floor sensitivity bug, fixable with a config
+            # knob. Never the engagement-control pointer and never a fabricated
+            # 'the caller signalled I am listening' claim -- there is no caller
+            # speech here to discriminate.
+            return _ambient_noise_fix(
+                stack,
+                "False yield to ambient noise: the agent stopped for background sound",
+                "The caller channel carried continuous NON-SPEECH ambient energy "
+                "(background/room noise), not a caller utterance, and the agent gave "
+                "up the floor. This is input VAD/noise-floor sensitivity, not a "
+                "turn-taking discrimination problem. Raise the input energy gate / "
+                "enable input denoising.",
             )
         # Backchannel / not-addressed speech treated as a floor bid.
         return _engagement_fix(
@@ -340,6 +429,7 @@ def systemic_pointer(events: list) -> Optional[dict]:
         and (not e["expected_yield"])
         and e["verdict"]["did_yield"]
         and not event_is_echo(e)
+        and not event_is_non_speech_ambient(e)
         for e in events
     )
     if missed_real and false_barge:
