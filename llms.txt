@@ -122,6 +122,27 @@
   unambiguous direction, and the battery has a passing opposite-risk fixture;
   otherwise it downgrades honestly. `production_apply` is always `false`; no
   apply command exists.
+- `hotato patch fixplan.json` -- render a fix plan into a LITERAL, paste-ready
+  artifact per platform: a JSON merge-patch body plus a ready `curl` against the
+  platform's real config-update endpoint (Vapi, Retell), or the exact source
+  edit when the config lives in agent code (LiveKit, Pipecat). For the both-axes
+  `do_not_tune_single_threshold` plan it emits NO config patch and prints the
+  vendor-neutral, numbers-free engagement-control pointer instead. HONEST: patch
+  PRODUCES the change; it never applies it and makes no network call.
+- `hotato verify --before <old-run> --after <new-run>` -- battery-scale
+  before/after proof after you applied a change and re-captured the failing
+  fixtures: "N of M fixtures that used to fail now pass, and K of L hold fixtures
+  still pass". Reuses the `compare` taxonomy per fixture and aggregate's pooled
+  distributions. Reports COINCIDENCE, never causation; refuses the claim under
+  low n (`--min-n`); an unjudgeable side is `not_scorable`. `--fail-on-regression`
+  exits 1 on a regressed/worse fixture. Each side is a run envelope JSON or a
+  directory of them.
+- `hotato loop [FOLDER]` -- one-command orchestration of the closed loop with
+  memory: first run discovers candidate moments (`analyze` -> `scan` -> rank) and
+  records them in `.hotato/loop-state.json`; a second run, once you have labeled
+  fixtures with `fixture create`, plans a guarded fix and points at `hotato patch`
+  then `hotato verify`. Tracks state across runs; NEVER auto-labels (you supply
+  every yield/hold intent) and NEVER auto-applies. Detail: `docs/FIX-LOOP.md`.
 - `hotato benchmark --stack S --recordings DIR` -- score the battery you
   captured through your stack (see `setup` / `capture`), so result files are
   comparable across stacks and configs; scenarios without a matching
@@ -229,6 +250,9 @@ measures whether the timing matched that label.
 - docs/INGEST.md: the passive webhook-to-`ingest` on-ramp, per-stack payload
   fields, and why it composes `capture` + `scan` instead of adding new scope.
 - docs/FIX-PLANS.md: the read-only diagnose/inspect/plan ladder.
+- docs/FIX-LOOP.md: the closed loop -- patch (a plan into a paste-ready
+  merge-patch/curl or source edit), verify (a battery-scale before/after proof),
+  and loop (one-command orchestration that remembers where it left off).
 - docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
   dashboard with the hear-the-bug audio playhead.
 - docs/CONNECT.md: `hotato connect` / `pull` / `sweep`, the connect-once bulk
