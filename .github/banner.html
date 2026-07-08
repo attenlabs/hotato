@@ -1,0 +1,68 @@
+<!doctype html>
+<!--
+  Source for .github/banner.png (the README hero). Rendered to a 1200x630 PNG
+  by: python3 scripts/render_banner.py
+  The tagline here is the ONE canonical line, verbatim from the README and the
+  GIF/banner alt text. If you change the tagline, change it in all three.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; }
+  .banner {
+    width: 1200px; height: 630px; position: relative; overflow: hidden;
+    background:
+      radial-gradient(120% 130% at 78% 38%, #3a2213 0%, #22150b 52%, #150d06 100%);
+    font-family: "DejaVu Sans", "Helvetica Neue", Arial, sans-serif;
+    display: flex; align-items: center;
+  }
+  .left { padding: 0 0 0 84px; width: 700px; }
+  .accent { width: 46px; height: 8px; border-radius: 4px; background: #e8551d; margin: 0 0 26px 4px; }
+  .wordmark { font-size: 118px; font-weight: 700; letter-spacing: -3px; line-height: 1; }
+  .wordmark .w1 { color: #f4ecdd; }
+  .wordmark .w2 { color: #f2792a; }
+  .tagline {
+    margin: 34px 0 0 6px; max-width: 600px;
+    font-size: 40px; font-weight: 500; line-height: 1.28; color: #ecd6bd;
+  }
+  .art { position: absolute; right: 96px; top: 50%; transform: translateY(-50%); }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <div class="left">
+      <div class="accent"></div>
+      <div class="wordmark"><span class="w1">hot</span><span class="w2">ato</span></div>
+      <div class="tagline">Find where your voice agent talks over callers, and keep it from coming back.</div>
+    </div>
+    <div class="art">
+      <svg width="340" height="340" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-label="hotato mascot">
+        <g opacity="0.92">
+          <path d="M15 9 q-3 -3 0 -6" fill="none" stroke="#e2470f" stroke-width="1.9" stroke-linecap="round"/>
+          <path d="M22 8 q3 -3 0 -6" fill="none" stroke="#ff5a1f" stroke-width="1.9" stroke-linecap="round"/>
+        </g>
+        <!-- little arms -->
+        <path d="M8.5 25 q-3 1 -3.5 4" fill="none" stroke="#c9974f" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M31.5 25 q3 1 3.5 4" fill="none" stroke="#c9974f" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M8 24c-1.5-8 4-14 13-14.5 10-.5 12 6 12 12 0 7-5.5 12-13.5 12C12 33.5 9 30 8 24Z" fill="#dcac5f" stroke="#1c140d" stroke-width="1.7"/>
+        <!-- rosy cheeks -->
+        <ellipse cx="14.2" cy="25.4" rx="2.1" ry="1.35" fill="#e0805f" opacity="0.55"/>
+        <ellipse cx="27.6" cy="25.4" rx="2.1" ry="1.35" fill="#e0805f" opacity="0.55"/>
+        <!-- spots -->
+        <ellipse cx="15" cy="19" rx="1.1" ry="0.85" fill="#7d531f"/>
+        <ellipse cx="28" cy="27" rx="1.1" ry="0.85" fill="#7d531f"/>
+        <!-- deadpan face -->
+        <line x1="15" y1="22" x2="19" y2="22" stroke="#1c140d" stroke-width="2" stroke-linecap="round"/>
+        <line x1="23" y1="22" x2="27" y2="22" stroke="#1c140d" stroke-width="2" stroke-linecap="round"/>
+        <line x1="18" y1="28" x2="24" y2="28" stroke="#1c140d" stroke-width="2" stroke-linecap="round"/>
+        <!-- interrupt bubble: the talk-over it catches -->
+        <circle cx="33.5" cy="30.5" r="4.2" fill="#22150b"/>
+        <circle cx="33.5" cy="30.5" r="3" fill="#ff5a1f"/>
+        <circle cx="33.5" cy="30.5" r="3" fill="none" stroke="#ffb27a" stroke-width="0.4" opacity="0.8"/>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>
