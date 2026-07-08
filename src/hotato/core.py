@@ -15,10 +15,12 @@ the honest limits block. It introduces no new accuracy claim.
 
 from __future__ import annotations
 
+import array
 import json
 import math
 import os
 import struct
+import sys
 import wave
 from typing import Optional
 
@@ -298,6 +300,70 @@ def process_exit_code(envelope: dict) -> int:
 # empty, truncated, or non-WAV file -- or an out-of-range channel / negative onset
 # -- can never escape as a Python traceback or masquerade as a real low score.
 
+def _load_signal(path: str):
+    """Decode a PCM WAV into an ``_engine`` ``Signal`` with the SAME float values
+    the vendored ``_engine.read_wav`` produces, but without materializing a
+    per-sample Python ``list`` of tens of millions of floats.
+
+    When numpy is available (the same optional acceleration the engine keys off,
+    ``_engine.audio._np``), the integer samples are converted to float in one
+    vectorized step and each channel is kept as a numpy array. That is the
+    difference between a multi-GB Python-object list and a compact float64 buffer
+    on a multi-hour recording, so ``run``/``capture``/``compare``/``verify``/
+    ``fixture create``/``benchmark`` scale like the streaming ``scan``/``analyze``
+    path instead of OOM-ing on the same long call. The numbers are byte-identical:
+    the engine's ``frame_rms`` sees the identical values either way.
+
+    When numpy is absent (or a test has forced ``_engine.audio._np = None`` to
+    exercise the pure-stdlib path), it delegates unchanged to the engine's own
+    list-based ``read_wav`` so behaviour and published numbers are untouched.
+    """
+    from ._engine import audio as _audio
+
+    _np = _audio._np
+    if _np is None:
+        # Pure-stdlib decode path; also the path tests pin with _np = None so the
+        # numpy-vs-stdlib parity check stays honest.
+        return _engine.read_wav(path)
+
+    with wave.open(path, "rb") as wf:
+        n_channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        sample_rate = wf.getframerate()
+        n_frames = wf.getnframes()
+        raw = wf.readframes(n_frames)
+
+    # array.array first: it decodes the integers cheaply (2 bytes/sample for
+    # 16-bit) AND raises the exact "bytes length not a multiple of item size"
+    # ValueError the engine does on a corrupt data chunk, which _read_wav already
+    # knows how to re-wrap. numpy then does the byte->float conversion in one
+    # vectorized shot rather than a per-sample Python list comprehension.
+    if sampwidth == 1:
+        a = array.array("B")
+        a.frombytes(raw)
+        floats = (_np.frombuffer(a, dtype=_np.uint8).astype(_np.float64) - 128.0) / 128.0
+    elif sampwidth == 2:
+        a = array.array("h")
+        a.frombytes(raw)
+        if sys.byteorder == "big":  # WAV is little-endian; match the engine
+            a.byteswap()
+        floats = _np.frombuffer(a, dtype=_np.int16).astype(_np.float64) / 32768.0
+    elif sampwidth == 4:
+        a = array.array("i")
+        a.frombytes(raw)
+        if sys.byteorder == "big":
+            a.byteswap()
+        floats = _np.frombuffer(a, dtype=_np.int32).astype(_np.float64) / 2147483648.0
+    else:
+        raise ValueError(
+            f"unsupported sample width {sampwidth * 8}-bit; "
+            "please convert to 16-bit PCM (for example with ffmpeg -acodec pcm_s16le)"
+        )
+
+    channels = [floats[ch::n_channels] for ch in range(max(1, n_channels))]
+    return _audio.Signal(sample_rate=sample_rate, channels=channels)
+
+
 def _read_wav(path: str):
     """Read a WAV via the vendored engine, translating low-level parse failures
     into a clean, actionable ValueError.
@@ -310,7 +376,7 @@ def _read_wav(path: str):
     so a partial read can never masquerade as a genuine (low) score.
     """
     try:
-        signal = _engine.read_wav(path)
+        signal = _load_signal(path)
     except (wave.Error, EOFError, struct.error) as exc:
         raise ValueError(
             f"{path!r} is not a readable PCM WAV ({exc}). Export a PCM WAV, "
@@ -331,6 +397,16 @@ def _read_wav(path: str):
     if signal.num_samples == 0:
         raise ValueError(
             f"{path!r} contains no audio samples (empty or header-only WAV)."
+        )
+    # A zero (or negative) sample rate is a corrupt header: Python's ``wave``
+    # reads it back happily but every downstream duration/hop computation divides
+    # by it. Reject it here so it surfaces as a clean exit-2 error rather than a
+    # bare ZeroDivisionError traceback from ``num_samples / sample_rate``.
+    if signal.sample_rate <= 0:
+        raise ValueError(
+            f"{path!r} declares an invalid sample rate ({signal.sample_rate} Hz); "
+            "the file is corrupt or was mis-exported. Re-export a PCM WAV, e.g. "
+            "ffmpeg -i input -acodec pcm_s16le -ar 16000 output.wav"
         )
     # Truncation guard: for a well-formed file the wave header's declared frame
     # count equals the number of decoded samples per channel; a short data chunk

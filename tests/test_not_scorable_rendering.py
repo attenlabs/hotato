@@ -74,7 +74,11 @@ def test_run_text_not_scorable(silent_caller_wav, capsys):
     assert rc == 2
     out = capsys.readouterr().out
     _assert_not_scorable_text(out)
-    assert "0/1 events pass  (failed=0, not_scorable=1)" in out
+    # The pass RATE is over scorable events only: the single not-scorable event is
+    # an input problem, excluded from the denominator (not counted as a failure),
+    # so the headline is 0/0 with the not-scorable event reported separately -- it
+    # never silently deflates the rate. See test_pass_rate_excludes_not_scorable.
+    assert "0/0 events pass  (failed=0, not_scorable=1)" in out
 
 
 def test_run_json_envelope_unchanged(silent_caller_wav, capsys):

@@ -65,6 +65,30 @@ def load_state(path: str) -> Optional[dict]:
         raise ValueError(
             f"{path!r} is not a hotato loop-state file. Delete it and re-run."
         )
+    # Type-validate the fields run_loop later relies on. A corrupt / hand-edited /
+    # partially-written state file (e.g. "run": "3" as a string) must be a clean
+    # exit-2 usage error, not a raw TypeError from ``state['run'] + 1`` or an
+    # iteration over a non-list history.
+    run = obj.get("run", 0)
+    if isinstance(run, bool) or not isinstance(run, int):
+        raise ValueError(
+            f"{path!r} has a corrupt 'run' field ({run!r}; expected an integer). "
+            "Delete the loop state and re-run."
+        )
+    for field, kind, label in (
+        ("stage", str, "string"),
+        ("discovery", dict, "object"),
+        ("planning", dict, "object"),
+        ("history", list, "list"),
+    ):
+        val = obj.get(field)
+        if val is None:
+            continue  # unset is fine; these default cleanly elsewhere
+        if not isinstance(val, kind):
+            raise ValueError(
+                f"{path!r} has a corrupt {field!r} field (expected {label} or "
+                "null). Delete the loop state and re-run."
+            )
     return obj
 
 

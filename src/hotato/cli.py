@@ -24,6 +24,34 @@ from ._engine.score import ScoreConfig
 from ._engine.vad import BackendUnavailable, VADParams
 from .core import SUITE_ID, dump_frames_for_input, process_exit_code, run_single, run_suite
 
+def _atomic_write_text(path: str, text: str) -> None:
+    """Write ``text`` to ``path`` atomically: a temp file in the SAME directory,
+    then ``os.replace`` (the pattern already proven in connections.py /
+    loop.save_state). ``open(path, "w")`` truncates the target the instant it is
+    opened, so a crash / full disk / kill mid-write leaves a previously-good
+    ``--out`` file truncated in place; writing a temp file first and renaming it
+    means the destination is only ever the old bytes or the complete new bytes,
+    never a half-written mix."""
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".hotato-tmp-", suffix=".part")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_json(path: str, obj) -> None:
+    """Atomic JSON write mirroring the existing ``json.dump(obj, fh, indent=2)``
+    + trailing newline form, but crash-safe (see ``_atomic_write_text``)."""
+    _atomic_write_text(path, json.dumps(obj, indent=2) + "\n")
+
+
 # Printed to stderr when `--backend neural` is combined with `--suite`: the bundled
 # self-test IS the energy reference, so it always scores with energy regardless.
 _SUITE_ENERGY_ONLY_NOTE = (
@@ -278,7 +306,12 @@ def _emit(env: dict, fmt: str) -> None:
     counts = f"failed={s['failed']}"
     if n_not_scorable:
         counts += f", not_scorable={n_not_scorable}"
-    print(f"  {s['passed']}/{s['events']} events pass  ({counts})")
+    # The pass RATE is over the SCORABLE events only (passed + failed). A
+    # not-scorable event is an input problem, excluded from both sides of the
+    # ratio, so it never silently deflates the headline. It is reported
+    # separately in the counts above.
+    n_scorable = s["passed"] + s["failed"]
+    print(f"  {s['passed']}/{n_scorable} events pass  ({counts})")
     for e in env["events"]:
         v = e["verdict"]
         if e.get("scorable") is False:
@@ -348,8 +381,7 @@ def _cmd_run(args) -> int:
             agent_channel=args.agent_channel,
             onset_sec=args.onset,
         )
-        with open(args.dump_frames, "w", encoding="utf-8") as fh:
-            json.dump(dump, fh, indent=2)
+        _atomic_write_json(args.dump_frames, dump)
         print(
             f"wrote per-frame evidence ({len(dump['frames'])} frames) to "
             f"{args.dump_frames}",
@@ -632,12 +664,10 @@ def _cmd_team(args) -> int:
                                     skipped=loaded["skipped"],
                                     max_response_gap_sec=args.max_response_gap)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(agg, fh, indent=2)
+        _atomic_write_json(args.out, agg)
         print(f"wrote aggregate envelope to {args.out}", file=sys.stderr)
     if args.html:
-        with open(args.html, "w", encoding="utf-8") as fh:
-            fh.write(_aggregate.build_team_page_html(agg))
+        _atomic_write_text(args.html, _aggregate.build_team_page_html(agg))
         print(f"wrote self-contained HTML team page to {args.html}",
               file=sys.stderr)
     if args.format == "json":
@@ -737,9 +767,7 @@ def _cmd_benchmark(args) -> int:
             file=sys.stderr,
         )
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(result, fh, indent=2)
-            fh.write("\n")
+        _atomic_write_json(args.out, result)
         print(f"wrote stack benchmark result to {args.out}", file=sys.stderr)
     else:
         print(json.dumps(result, indent=2))
@@ -763,10 +791,7 @@ def _cmd_benchmark_compare(args) -> int:
     else:
         text = _stackbench.render_comparison_md(cmp_env)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            if not text.endswith("\n"):
-                fh.write("\n")
+        _atomic_write_text(args.out, text if text.endswith("\n") else text + "\n")
         print(
             f"wrote comparison ({len(cmp_env['compared'])} shared scenarios, "
             f"{len(cmp_env['skipped'])} skipped) to {args.out}",
@@ -827,8 +852,7 @@ def _cmd_doctor(args) -> int:
         html_str, env = _report.build_report_html(suite=SUITE_ID, stack=args.stack)
         print(_SELF_TEST_NOTE, file=sys.stderr)
 
-    with open(out, "w", encoding="utf-8") as fh:
-        fh.write(html_str)
+    _atomic_write_text(out, html_str)
 
     fmt = getattr(args, "format", "text")
     if fmt == "json":
@@ -962,9 +986,7 @@ def _cmd_plan(args) -> int:
         stack=args.stack,
         target_info=target_info,
     )
-    with open(args.out, "w", encoding="utf-8") as fh:
-        json.dump(plan, fh, indent=2)
-        fh.write("\n")
+    _atomic_write_json(args.out, plan)
     if args.format == "json":
         print(json.dumps(plan, indent=2))
     else:
@@ -983,9 +1005,7 @@ def _cmd_patch(args) -> int:
         plan = json.load(fh)
     result = _patch.build_patch(plan, source=args.fixplan)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(result, fh, indent=2)
-            fh.write("\n")
+        _atomic_write_json(args.out, result)
         print(f"wrote patch artifact to {args.out}", file=sys.stderr)
     if args.format == "json":
         print(json.dumps(result, indent=2))
@@ -999,9 +1019,7 @@ def _cmd_verify(args) -> int:
 
     result = _verify.verify_sides(args.before, args.after, min_n=args.min_n)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(result, fh, indent=2)
-            fh.write("\n")
+        _atomic_write_json(args.out, result)
         print(f"wrote verify proof to {args.out}", file=sys.stderr)
     if args.format == "json":
         print(json.dumps(result, indent=2))
@@ -1135,9 +1153,7 @@ def _cmd_scan(args) -> int:
     )
     if args.out:
         # The file gets EVERY candidate; --top caps only the stdout listing.
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(result, fh, indent=2)
-            fh.write("\n")
+        _atomic_write_json(args.out, result)
         print(
             f"wrote {result['total_candidates']} candidates to {args.out}",
             file=sys.stderr,
@@ -1173,9 +1189,7 @@ def _cmd_analyze(args) -> int:
         capped["shown"] = len(capped["candidates"])
         text = json.dumps(capped, indent=2)
         if args.out:
-            with open(args.out, "w", encoding="utf-8") as fh:
-                fh.write(text)
-                fh.write("\n")
+            _atomic_write_text(args.out, text + "\n")
             print(f"wrote ranked candidates JSON to {args.out}", file=sys.stderr)
         print(text)
         return 0
@@ -1184,8 +1198,7 @@ def _cmd_analyze(args) -> int:
     html_str = _analyze.build_dashboard_html(
         aggregate, per_file, top=args.top, audio_top=args.audio_top,
     )
-    with open(out, "w", encoding="utf-8") as fh:
-        fh.write(html_str)
+    _atomic_write_text(out, html_str)
     size = os.path.getsize(out)
     print(
         f"wrote analyze dashboard ({aggregate['total_candidates']} candidate "
@@ -1802,9 +1815,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     t.add_argument("dir", help="directory of hotato envelope JSONs")
-    t.add_argument("--order", default="mtime", choices=["mtime", "name"],
-                   help="run order for the trend: file mtime (default) or "
-                        "filename (use a numeric prefix as an explicit index)")
+    t.add_argument("--order", default="name", choices=["name", "mtime"],
+                   help="run order for the trend: filename (DEFAULT, "
+                        "content-derived; use a numeric prefix as an explicit "
+                        "index) or file mtime (filesystem-dependent, not "
+                        "reproducible across checkout/extract/rsync)")
     t.add_argument("--out", default=None, metavar="PATH",
                    help="write the aggregate envelope JSON here")
     t.add_argument("--html", default=None, metavar="PATH",

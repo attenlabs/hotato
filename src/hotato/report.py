@@ -1063,13 +1063,18 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     # The counts line mirrors the CLI text: not_scorable=N appears only when
     # N > 0, so fully-scorable pages stay byte-identical.
     n_ns = s.get("not_scorable", 0)
+    # The headline fraction is over SCORABLE events only (passed + failed); a
+    # not-scorable event is an input problem, excluded from both sides of the
+    # ratio so it never deflates the big number. It is surfaced separately in the
+    # label and its own section below.
+    n_scorable = s["passed"] + s["failed"]
     pass_label = "events pass"
     if n_ns:
         pass_label = f'events pass (failed={s["failed"]}, not_scorable={n_ns})'
 
     summary = (
         '<div class="summary">'
-        f'<div><div class="bignum">{s["passed"]} of {s["events"]}</div>'
+        f'<div><div class="bignum">{s["passed"]} of {n_scorable}</div>'
         '<div class="subtle" style="color:' + _C["muted"] + f'">{pass_label}</div></div>'
         f'<div class="chip" style="background:{overall_c}">{overall_t}</div>'
         f'{legend}'
@@ -1089,9 +1094,9 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     title = "hotato report"
     if env.get("suite"):
         title += f": {_esc(env['suite'])} suite"
-    title += f", {s['passed']} of {s['events']} events pass"
+    title += f", {s['passed']} of {n_scorable} events pass"
     desc = (
-        f"Self-contained hotato report: {s['events']} events scored offline, "
+        f"Self-contained hotato report: {n_scorable} events scored offline, "
         f"{s['passed']} pass, {s['failed']} fail. Every value is a real "
         "measurement from the scorer; the page embeds its own evidence and "
         "opens offline."
@@ -1154,6 +1159,9 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
         verdict = "ALL PASS"
     n_ns = s.get("not_scorable", 0)
     counts = f" (failed={s['failed']}, not_scorable={n_ns})" if n_ns else ""
+    # Headline fraction over scorable events only (passed + failed); not-scorable
+    # input problems are excluded from the ratio and reported separately.
+    n_scorable = s["passed"] + s["failed"]
 
     L = []
     L.append("# hotato report")
@@ -1169,7 +1177,7 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
     L.append("")
     L.append("## Summary")
     L.append("")
-    L.append(f"**{s['passed']} of {s['events']} events pass{counts}.** "
+    L.append(f"**{s['passed']} of {n_scorable} events pass{counts}.** "
              f"Verdict: {verdict}.")
     L.append("")
     L.append(_md_row(["event", "category", "expected", "did yield", "time to yield",

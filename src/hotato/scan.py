@@ -149,6 +149,17 @@ def windowed_frame_rms(
         n_channels = wf.getnchannels()
         sampwidth = wf.getsampwidth()
         sample_rate = wf.getframerate()
+        declared_frames = wf.getnframes()
+        # A zero/negative sample rate is a corrupt header: ``wave`` reads it back
+        # but ``hop / sample_rate`` below would raise a bare ZeroDivisionError.
+        # Reject it as a clean usage error, matching core._read_wav so `run` and
+        # `scan`/`analyze` agree on this input.
+        if sample_rate <= 0:
+            raise ValueError(
+                f"{path!r} declares an invalid sample rate ({sample_rate} Hz); "
+                "the file is corrupt or was mis-exported. Re-export a PCM WAV, "
+                "e.g. ffmpeg -i input -acodec pcm_s16le -ar 16000 output.wav"
+            )
         if n_channels < 2:
             raise ValueError(
                 "--stereo file has one channel; a single mixed mono call is "
@@ -214,6 +225,17 @@ def windowed_frame_rms(
             raise ValueError(
                 f"{path!r} contains no audio samples (empty or header-only "
                 "WAV)."
+            )
+        # Truncation guard, matching core._read_wav: for a well-formed file the
+        # header's declared frame count equals the decoded samples per channel; a
+        # short/cut-off data chunk decodes fewer. Without this, `analyze`/`scan`
+        # would silently report a truncated recording as a normal short call while
+        # `run` (via core._read_wav) correctly rejects the same file.
+        if declared_frames and n_total < declared_frames:
+            raise ValueError(
+                f"{path!r} is truncated or corrupt: its header declares "
+                f"{declared_frames} frames but only {n_total} are present. "
+                "Re-export the full recording."
             )
         # Tail: partial frames, exactly like frame_rms (frames exist while
         # their start lies inside the signal).
