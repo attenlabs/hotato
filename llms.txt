@@ -39,6 +39,25 @@
   network call is the direct recording download; scoring itself is offline.
 - `hotato setup --stack {livekit,pipecat}` -- print the copy-paste dual-channel
   recording scaffold for your stack, plus the command to score the result.
+- `hotato connect <stack>` -- store a stack's credentials ONCE, locally
+  (`~/.hotato/connections.json`, mode 0600, never sent anywhere but the
+  vendor's own API), after a lightweight live auth check. Connectable stacks:
+  vapi, retell, twilio, bland, elevenlabs, synthflow, millis, cartesia. After
+  connecting, `--stack` and the key are optional for `pull`/`sweep` when one
+  stack is connected.
+- `hotato pull [--stack X] [--since 7d] [--limit 50] [--out DIR] [--allow-mono]`
+  -- bulk-fetch your recent recordings by looping `capture`'s single-call fetch
+  over the vendor's verified list endpoint, into a folder. Dual-channel stacks
+  (vapi, twilio, retell) fetch stereo; mono/mixed stacks (bland, elevenlabs,
+  synthflow, millis, cartesia) require `--allow-mono` and are indicative only.
+  Retell has no verified list endpoint -- pull it from explicit `--call-id`
+  values (never a fabricated endpoint). One bad call is a clean skip, never a
+  crash. Platform payloads are treated strictly as untrusted data.
+- `hotato sweep [--stack X] [--since 7d] ...` -- the flagship: `pull` recent
+  recordings, then run the same zero-config `analyze` over them and write one
+  self-contained offline dashboard of the ranked turn-taking moments across
+  every real call. `--format json` for the ranked candidates plus a pull
+  summary. Detail: `docs/CONNECT.md`; per-stack support: `docs/ADAPTER-STATUS.md`.
 - `hotato doctor [--stereo call.wav]` -- the 5-minute path in one command:
   score (or self-test), render the self-contained HTML report, open it
   best-effort.
@@ -212,6 +231,11 @@ measures whether the timing matched that label.
 - docs/FIX-PLANS.md: the read-only diagnose/inspect/plan ladder.
 - docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
   dashboard with the hear-the-bug audio playhead.
+- docs/CONNECT.md: `hotato connect` / `pull` / `sweep`, the connect-once bulk
+  pull-and-analyze recipe across your real calls, with per-stack credentials.
+- docs/ADAPTER-STATUS.md: the honest per-stack map -- auto-pull dual-channel,
+  mono-only (`--allow-mono`), capture-in-your-infra, not integrable, and
+  unconfirmed -- each with the exact verified endpoint.
 - docs/REPORTS.md: doctor, report, team, and export in depth.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.
