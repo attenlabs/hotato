@@ -23,6 +23,7 @@ import re
 import shutil
 import struct
 import wave
+from importlib import resources
 
 import pytest
 
@@ -35,10 +36,27 @@ CORPUS = os.path.join(
 )
 
 
+def _bundled_dual_channel_wav():
+    """A packaged bundled two-channel fixture (always present in the wheel/sdist),
+    so the synthetic tests never depend on the heavy repo corpus."""
+    d = resources.files("hotato").joinpath("data", "audio")
+    for p in sorted(d.iterdir(), key=lambda x: x.name):
+        if p.name.endswith(".example.wav"):
+            return str(p)
+    raise RuntimeError("no bundled .example.wav fixture found")
+
+
 @pytest.fixture(scope="module")
 def corpus_folder(tmp_path_factory):
     """A temp folder of the bundled real corpus clips (copied so the test owns
-    the directory and never writes into the packaged corpus)."""
+    the directory and never writes into the packaged corpus).
+
+    Skips cleanly when the vapi-defaults audio is absent (partial checkout or
+    the extracted sdist tree, which ships corpus JSON but not the heavy audio),
+    exactly like tests/test_corpus_vapi_defaults.py. The fully-synthetic tests
+    below cover analyze without the corpus, so it stays exercised everywhere."""
+    if not os.path.isdir(CORPUS):
+        pytest.skip("corpus/vapi-defaults/audio not present (partial checkout / sdist)")
     dst = tmp_path_factory.mktemp("analyze-corpus")
     for name in sorted(os.listdir(CORPUS)):
         if name.lower().endswith(".wav"):
@@ -148,9 +166,8 @@ def test_no_failure_verdict_or_accuracy_percentage_anywhere(corpus_folder, tmp_p
 def test_mono_and_unreadable_files_are_skipped_with_reason(tmp_path):
     folder = tmp_path / "mixed"
     folder.mkdir()
-    # one good dual-channel clip from the corpus
-    good = next(n for n in sorted(os.listdir(CORPUS)) if n.endswith(".wav"))
-    shutil.copy(os.path.join(CORPUS, good), folder / "good.wav")
+    # one good dual-channel clip (packaged fixture: present in every tree)
+    shutil.copy(_bundled_dual_channel_wav(), folder / "good.wav")
     # a mono WAV: cannot attribute talk-over -> skipped with reason
     with wave.open(str(folder / "mono.wav"), "wb") as w:
         w.setnchannels(1)
