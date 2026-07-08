@@ -137,6 +137,65 @@ def _guard_report_path(report_path: str) -> str:
     return report_path
 
 
+def _guard_input_path(path: str, param: str) -> str:
+    """Sandbox an MCP-supplied INPUT recording path (``stereo`` / ``caller`` /
+    ``agent``) before it is opened.
+
+    Same threat model as :func:`_guard_report_path`, but for READS: this tool is
+    driven by an LLM that may be acting on untrusted content carrying an injected
+    'score /some/other/tenant/call.wav' instruction. A read is a disclosure
+    primitive -- scoring an arbitrary readable 2-channel WAV reveals exactly when
+    each party spoke, and with ``report_path`` emits a full HTML timeline of it.
+    So input paths are confined, mirroring ``report_path``:
+
+      * when ``HOTATO_MCP_INPUT_DIR`` is set, the resolved real path MUST stay
+        inside it (no absolute escape, no ``..`` traversal);
+      * otherwise it fails CLOSED to a small default allowlist -- the OS temp
+        directory, the server's working directory, and hotato's OWN bundled
+        fixtures -- never an arbitrary absolute path anywhere on the host.
+
+    Raises ValueError (surfaced as the shared structured error) on refusal."""
+    import tempfile
+
+    real = os.path.realpath(os.path.expanduser(path))
+    base = os.environ.get("HOTATO_MCP_INPUT_DIR", "").strip()
+    if base:
+        roots = [os.path.realpath(os.path.expanduser(base))]
+        label = f"HOTATO_MCP_INPUT_DIR ({base})"
+    else:
+        roots = [
+            os.path.realpath(tempfile.gettempdir()),
+            os.path.realpath(os.getcwd()),
+        ]
+        try:  # hotato's own bundled fixtures (read-only shipped demo audio)
+            from importlib import resources
+
+            roots.append(os.path.realpath(
+                str(resources.files("hotato").joinpath("data"))))
+        except Exception:  # pragma: no cover - resources always present in prod
+            pass
+        label = (
+            "the OS temp directory, the server working directory, or hotato's "
+            "bundled fixtures; set HOTATO_MCP_INPUT_DIR to read recordings from "
+            "another directory"
+        )
+    inside = False
+    for r in roots:
+        try:
+            if os.path.commonpath([r, real]) == r:
+                inside = True
+                break
+        except ValueError:  # different drives (Windows)
+            continue
+    if not inside:
+        raise ValueError(
+            f"{param} must resolve inside {label}; refusing to read {path!r}. "
+            "This sandbox stops an MCP caller (or untrusted content steering it) "
+            "from scoring an arbitrary file on the host."
+        )
+    return path
+
+
 def _run_tool(
     stereo: Optional[str] = None,
     caller: Optional[str] = None,
@@ -170,6 +229,13 @@ def _run_tool(
         _errors.validate_input_mode(
             stereo=stereo, caller=caller, agent=agent, suite=suite
         )
+        # Sandbox every INPUT recording path the same way report_path is
+        # sandboxed: an LLM tool-caller (or untrusted content steering it) must
+        # not be able to score an arbitrary file anywhere on the host.
+        for _param, _val in (("stereo", stereo), ("caller", caller),
+                             ("agent", agent)):
+            if _val:
+                _guard_input_path(_val, _param)
         env = _run_tool_impl(
             stereo=stereo,
             caller=caller,

@@ -70,9 +70,15 @@ def _resolve_np():
 __all__ = ["scan_recording", "activity_tracks", "render_text", "KINDS",
            "SCAN_NOTE", "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC"]
 
+# A caller run whose envelope is a lag-shifted copy of the agent's own audio: a
+# CAVEAT ("this may be the agent hearing its leaked TTS"), never a real event.
+# Its salience is a 0..1 coherence, on a different scale from overlap/gap
+# SECONDS, so it is demoted beneath every real candidate by the sort key.
+ECHO_CORRELATED_KIND = "echo_correlated_activity"
+
 KINDS = ("overlap_while_agent_talking", "agent_start_during_caller",
          "long_response_gap", "agent_stop_no_caller",
-         "echo_correlated_activity")
+         ECHO_CORRELATED_KIND)
 
 SCAN_NOTE = (
     "Candidates are timing events. You decide the expected behavior; label "
@@ -466,7 +472,7 @@ def scan_recording(
                 continue
             candidates.append({
                 "t_sec": round(cs * hop, 3),
-                "kind": "echo_correlated_activity",
+                "kind": ECHO_CORRELATED_KIND,
                 "durations": {
                     "activity_sec": round((ce - cs) * hop, 3),
                     "lag_sec": echo["lag_sec"],
@@ -478,7 +484,24 @@ def scan_recording(
                 "_salience": coh,
             })
 
-    candidates.sort(key=lambda c: (-c["_salience"], c["t_sec"]))
+    # Two-level ranking, identical to analyze.py's ``_sort_key``: every non-echo
+    # talk-over/gap candidate first (by descending salience), then all echo
+    # caveats -- because ``_salience`` carries SECONDS for overlap/gap kinds but a
+    # 0..1 COHERENCE for echo_correlated_activity, and mixing the two scales in a
+    # single numeric sort buries a genuine sub-second barge-in under a
+    # high-coherence echo. ``kind == ECHO_CORRELATED_KIND`` is the primary key so
+    # an echo caveat always sorts strictly beneath every real event regardless of
+    # its coherence value, matching this module's own docstring promise ("so a
+    # barge-in that is really the agent hearing itself is not mistaken for a real
+    # caller event").
+    candidates.sort(
+        key=lambda c: (
+            c["kind"] == ECHO_CORRELATED_KIND,
+            -c["_salience"],
+            c["t_sec"],
+            c["kind"],
+        )
+    )
     for c in candidates:
         del c["_salience"]
 

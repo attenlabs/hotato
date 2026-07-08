@@ -17,7 +17,32 @@ surfaced message instructs the model in its own vocabulary. The shape and the
 
 from __future__ import annotations
 
+import json as _json
+
 from ._engine.vad import BackendUnavailable
+
+
+def safe_json_dumps(obj, **kwargs) -> str:
+    """``json.dumps`` that refuses to emit RFC-8259-invalid output.
+
+    Python's default (``allow_nan=True``) silently serializes
+    ``float('nan')`` / ``float('inf')`` / ``float('-inf')`` as the bare,
+    non-standard tokens ``NaN`` / ``Infinity`` / ``-Infinity``. Any strict
+    JSON parser (JavaScript's ``JSON.parse``, most non-Python consumers)
+    throws on those, and ``jq`` silently coerces them to ``null`` (data loss).
+    Since hotato advertises its ``--format json`` output as literal,
+    paste-ready, agent-drivable JSON, every emitter forces ``allow_nan=False``
+    and converts the resulting ``ValueError`` into the tool's standard clean,
+    finite-number usage error (caught by the CLI/MCP HANDLED boundary -> exit
+    2, structured error) instead of shipping broken JSON."""
+    kwargs.setdefault("allow_nan", False)
+    try:
+        return _json.dumps(obj, **kwargs)
+    except ValueError as exc:
+        raise ValueError(
+            "a value in the output is not a finite number (NaN/Infinity); "
+            "check the input fix plan / config for non-finite numbers."
+        ) from exc
 
 
 class ChannelRangeError(ValueError):

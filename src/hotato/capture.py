@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import base64
 import json
+
+from . import errors as _errors
 import os
 import shutil
 import sys
@@ -232,7 +234,7 @@ def report(env: dict, fmt: str = "text") -> int:
     is not scorable to the CLI's exit-2 unusable-input convention."""
     pec = process_exit_code(env)
     if fmt == "json":
-        print(json.dumps(env, indent=2))
+        print(_errors.safe_json_dumps(env, indent=2))
         return pec
     ev = env["events"][0]
     v = ev["verdict"]
@@ -343,6 +345,15 @@ class _CredentialSafeRedirectHandler:
                             "authorization", "proxy-authorization", "cookie",
                         ):
                             del new.headers[h]
+                # A 3xx can point the request at an internal / metadata IP just as
+                # the original URL could, so re-apply the default-deny SSRF guard
+                # to the redirect TARGET (not just the credential-stripping check).
+                if new is not None:
+                    from urllib.parse import urlparse
+
+                    host = urlparse(newurl).hostname
+                    if host:
+                        _reject_private_host(host, "a redirected recording fetch")
                 return new
 
         return _Handler()
@@ -450,6 +461,56 @@ def _require_url_str(value, what: str) -> str:
 _ALLOWED_DOWNLOAD_SCHEMES = ("http", "https")
 
 
+def _resolve_host_addresses(hostname: str):
+    """Resolve ``hostname`` to a list of IP strings. A single seam so the SSRF
+    guard has ONE resolver and tests can stub it. An IP literal resolves to
+    itself with no network I/O."""
+    import socket
+
+    return [info[4][0] for info in socket.getaddrinfo(hostname, None)]
+
+
+def _reject_private_host(hostname: str, what: str) -> None:
+    """Default-deny SSRF guard: resolve ``hostname`` and refuse if ANY resolved
+    address is loopback / private (RFC1918) / link-local (169.254.0.0/16 incl.
+    the AWS/GCP/Azure metadata endpoint 169.254.169.254) / multicast / reserved /
+    unspecified. Both the vendor-JSON download URL and the untrusted webhook
+    recording_url flow through here BEFORE any fetch, so a compromised vendor
+    account, tampered metadata, malicious --base-url, or a spoofed webhook can no
+    longer make the host fetch an internal service or cloud-metadata endpoint.
+
+    This is default-DENY, not opt-in: the operator can set
+    ``HOTATO_ALLOW_PRIVATE_URLS=1`` to deliberately permit internal hosts (a
+    local test recording server), but the safe posture requires no configuration.
+
+    A hostname that does not resolve is left to the fetch layer to fail on its
+    own (there is no reachable target, so it is not an SSRF vector); only a host
+    that DOES resolve to a non-public address is refused here."""
+    import ipaddress
+
+    if os.environ.get("HOTATO_ALLOW_PRIVATE_URLS", "").strip() in ("1", "true", "TRUE"):
+        return
+    try:
+        addrs = _resolve_host_addresses(hostname)
+    except OSError:
+        # Unresolvable -> the real fetch cannot reach anything either; not SSRF.
+        return
+    for ip_str in addrs:
+        try:
+            ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
+        except ValueError:
+            continue
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+            raise ValueError(
+                f"refusing to fetch {what}: host {hostname!r} resolves to the "
+                f"non-public address {ip_str} (loopback / private / link-local / "
+                "cloud-metadata / reserved). This is a default-deny SSRF guard; "
+                "set HOTATO_ALLOW_PRIVATE_URLS=1 only if you intend to reach an "
+                "internal host."
+            )
+
+
 def _validate_download_url(url: str) -> str:
     """Every download URL here (``stereoUrl`` / ``recording_url`` /
     ``recording_multi_channel_url`` ...) is taken VERBATIM from the vendor's JSON
@@ -484,14 +545,33 @@ def _validate_download_url(url: str) -> str:
                 f"recording download host {parsed.hostname!r} is not in "
                 "HOTATO_INGEST_ALLOWED_HOSTS; refusing to fetch it."
             )
+    # Default-deny SSRF: block a host that resolves to an internal / metadata IP.
+    _reject_private_host(parsed.hostname, "a recording download")
     return url
 
 
 def _download(url: str, dest: str, headers: Optional[dict] = None, timeout: int = 120) -> str:
     _validate_download_url(url)
     data = _http_get(url, headers=headers, timeout=timeout)
-    with open(dest, "wb") as fh:
-        fh.write(data)
+    # Atomic local write: a temp file in dest's OWN directory, then os.replace,
+    # mirroring _atomic_write_text / cli._atomic_write_text / connections.save.
+    # ``open(dest, "wb")`` truncates any pre-existing file the instant it opens,
+    # so a local write failure AFTER a successful fetch (ENOSPC / quota /
+    # permission race / kill mid-write) would clobber a previously-good file at
+    # --out with a truncated mix. Writing to a sibling temp and renaming means
+    # dest is only ever the old bytes or the complete new bytes -- never partial.
+    d = os.path.dirname(os.path.abspath(dest)) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".hotato-dl-", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, dest)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return dest
 
 
@@ -1890,7 +1970,7 @@ def run_connect(stack, *, api_key=None, account_sid=None, auth_token=None,
     path = connections.save(stack, creds)
     fields = ", ".join(sorted(creds.keys()))
     if fmt == "json":
-        print(json.dumps({
+        print(_errors.safe_json_dumps({
             "tool": "hotato", "kind": "connect", "stack": stack,
             "stored_fields": sorted(creds.keys()), "path": path,
             "verified": verified, "note": note,
@@ -1925,7 +2005,7 @@ def run_pull(stack=None, *, ids=None, since=None, limit=50, out=None,
     res = pull(stack, creds, out_dir=out_dir, ids=ids, since=since, limit=limit,
                allow_mono=allow_mono, log=lambda m: sys.stderr.write(m + "\n"))
     if fmt == "json":
-        print(json.dumps(res, indent=2))
+        print(_errors.safe_json_dumps(res, indent=2))
     else:
         print(f"hotato pull: {stack} -> {res['out_dir']}")
         print(f"  listed {res['listed']}, pulled {len(res['pulled'])}, "
@@ -2001,7 +2081,7 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
             "stack": stack, "listed": res["listed"],
             "pulled": len(res["pulled"]), "skipped": len(res["skipped"]),
         }
-        print(json.dumps(capped, indent=2))
+        print(_errors.safe_json_dumps(capped, indent=2))
         return 0
 
     out_file = out or f"hotato-sweep-{stack}.html"

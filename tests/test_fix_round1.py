@@ -316,6 +316,64 @@ def test_validate_recording_url_blocks_file_and_allows_https():
         "https://storage.test/x.wav", "pipecat") == "https://storage.test/x.wav"
 
 
+# --- defect: SSRF -- private/link-local/loopback IP block (default posture) --
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("url", [
+    "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+    "http://127.0.0.1:6379/",
+    "http://10.0.0.5/rec.wav",
+    "http://192.168.1.10/rec.wav",
+    "http://[::1]/rec.wav",
+])
+def test_capture_download_url_blocks_internal_ips_by_default(url, monkeypatch):
+    """SSRF default-deny: a vendor-response download URL that resolves to a
+    loopback/private/link-local (cloud-metadata) address is refused BEFORE any
+    fetch, with no HOTATO_INGEST_ALLOWED_HOSTS configured. IP literals resolve to
+    themselves, so no DNS is needed."""
+    monkeypatch.delenv("HOTATO_ALLOW_PRIVATE_URLS", raising=False)
+    monkeypatch.delenv("HOTATO_INGEST_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(ValueError, match="non-public|SSRF|private|metadata"):
+        cap._validate_download_url(url)
+
+
+@_pytest.mark.parametrize("url", [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://127.0.0.1:6379/",
+    "http://10.1.2.3/x.wav",
+])
+def test_ingest_recording_url_blocks_internal_ips_by_default(url, monkeypatch):
+    """Same default-deny SSRF block on the untrusted webhook recording_url path
+    (the livekit/pipecat blind-SSRF primitive)."""
+    monkeypatch.delenv("HOTATO_ALLOW_PRIVATE_URLS", raising=False)
+    monkeypatch.delenv("HOTATO_INGEST_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(ing.IngestError, match="non-public|SSRF|private|metadata"):
+        ing._validate_recording_url(url, "livekit")
+
+
+def test_ssrf_block_catches_hostname_resolving_to_private_ip(monkeypatch):
+    """DNS-based SSRF: a public-looking hostname that RESOLVES to an internal IP
+    is refused (the check inspects resolved addresses, not just the literal)."""
+    monkeypatch.delenv("HOTATO_ALLOW_PRIVATE_URLS", raising=False)
+    monkeypatch.setattr(cap, "_resolve_host_addresses",
+                        lambda h: ["169.254.169.254"])
+    with pytest.raises(ValueError, match="non-public"):
+        cap._validate_download_url("https://totally-legit-cdn.example/rec.wav")
+
+
+def test_ssrf_block_allows_public_ip_and_is_opt_outable(monkeypatch):
+    """A public address is accepted; the operator can opt into private hosts."""
+    monkeypatch.delenv("HOTATO_ALLOW_PRIVATE_URLS", raising=False)
+    assert cap._validate_download_url("http://1.1.1.1/rec.wav") == \
+        "http://1.1.1.1/rec.wav"
+    # explicit opt-out lever restores internal-host access (local test server)
+    monkeypatch.setenv("HOTATO_ALLOW_PRIVATE_URLS", "1")
+    assert cap._validate_download_url("http://127.0.0.1:8080/rec.wav") == \
+        "http://127.0.0.1:8080/rec.wav"
+
+
 def test_ingest_confines_recording_path_to_configured_dir(tmp_path, monkeypatch):
     base = tmp_path / "egress"
     base.mkdir()
@@ -477,3 +535,39 @@ def test_mcp_report_path_confined_to_report_dir(tmp_path, monkeypatch):
                               report_path=str(reports / "r.html"))
     assert ok.get("ok") is not False
     assert (reports / "r.html").exists()
+
+
+# --- defect: MCP input paths (stereo/caller/agent) unsandboxed ---------------
+
+def test_mcp_input_path_refuses_arbitrary_absolute_path(monkeypatch):
+    """Regression: stereo/caller/agent had NO sandbox, unlike report_path. An
+    LLM tool-caller (or untrusted content steering it) could point the tool at
+    any readable file on the host and get a spoken-timeline disclosure. The input
+    path must now be confined, returning the shared structured error, not a read."""
+    monkeypatch.delenv("HOTATO_MCP_INPUT_DIR", raising=False)
+    out = mcp_server._run_tool(stereo="/etc/hostname", expect="yield")
+    assert out["ok"] is False
+    assert "sandbox" in out["message"].lower() or "refusing to read" in out["message"].lower()
+
+
+def test_mcp_input_path_confined_to_input_dir(tmp_path, monkeypatch):
+    """When HOTATO_MCP_INPUT_DIR is set, only paths inside it are scorable."""
+    allowed = tmp_path / "inbox"
+    allowed.mkdir()
+    wav = _talking_stereo(allowed / "c.wav")
+    monkeypatch.setenv("HOTATO_MCP_INPUT_DIR", str(allowed))
+    # a real WAV outside the configured dir is refused
+    outside = _talking_stereo(tmp_path / "outside.wav")
+    out = mcp_server._run_tool(stereo=outside, expect="yield")
+    assert out["ok"] is False
+    # inside the configured dir it scores normally
+    ok = mcp_server._run_tool(stereo=wav, expect="yield")
+    assert ok.get("ok") is not False
+
+
+def test_mcp_guard_input_path_rejects_traversal(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOTATO_MCP_INPUT_DIR", str(tmp_path / "inbox"))
+    (tmp_path / "inbox").mkdir()
+    with pytest.raises(ValueError):
+        mcp_server._guard_input_path(
+            str(tmp_path / "inbox" / ".." / "escape.wav"), "stereo")

@@ -241,12 +241,37 @@ def verify_sides(
     claim_supported = m >= min_n
 
     if claim_supported:
-        statement = (
+        head = (
             f"{n} of {m} fixtures that used to fail now pass"
             + (f", and {k} of {l} hold fixtures still pass" if l else "")
-            + ". This improvement COINCIDES with your change; hotato measures "
-            "timing and does not attribute cause."
         )
+        # Only call the outcome an "improvement" when something actually newly
+        # passes AND nothing regressed. A zero-improvement or strictly-worse
+        # battery must NOT be described as "This improvement"; say what happened.
+        coincidence = (
+            " hotato measures timing and does not attribute cause."
+        )
+        if n == 0 and regressions:
+            statement = (
+                head + f". This battery REGRESSED on {len(regressions)} "
+                "fixture(s) and no fixture that used to fail now passes; this "
+                "is not an improvement." + coincidence
+            )
+        elif n == 0:
+            statement = (
+                head + ". No fixture that used to fail now passes; this change "
+                "did not improve the battery." + coincidence
+            )
+        elif regressions:
+            statement = (
+                head + f", but {len(regressions)} fixture(s) REGRESSED. This "
+                "mixed result COINCIDES with your change;" + coincidence
+            )
+        else:
+            statement = (
+                head + ". This improvement COINCIDES with your change;"
+                + coincidence
+            )
     else:
         statement = (
             f"only {m} fixture(s) used to fail, below --min-n {min_n}: too few to "

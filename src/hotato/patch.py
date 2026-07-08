@@ -43,6 +43,9 @@ them). Field-name and endpoint basis, verified 2026-07-06:
 from __future__ import annotations
 
 import json
+import math
+
+from . import errors as _errors
 import re
 import shlex
 from typing import Optional
@@ -174,7 +177,37 @@ def _validate_plan(plan: dict) -> dict:
                 "fixplan changes[0].field must be a non-empty string. "
                 "Regenerate the plan with hotato plan."
             )
+        # A NaN/Infinity numeric (e.g. `"to": NaN` in a hand-edited or
+        # machine-generated plan) would otherwise flow straight into the
+        # paste-ready merge-patch and curl body and be emitted as an
+        # RFC-8259-invalid bare token. Reject non-finite from/to/bounds up front,
+        # the same way missing keys and wrong types are rejected above.
+        _reject_non_finite(first.get("to"), "changes[0].to")
+        _reject_non_finite(first.get("from"), "changes[0].from")
+        _reject_non_finite(first.get("bounds"), "changes[0].bounds")
     return plan
+
+
+def _reject_non_finite(value, where: str) -> None:
+    """Raise a clean ValueError if ``value`` (or, recursively, any number inside
+    a list/dict such as ``bounds``) is a non-finite float (NaN/Infinity). Bools
+    are ints and always finite; strings/None are ignored."""
+    if isinstance(value, bool) or value is None:
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(
+                f"fixplan {where} is not a finite number (NaN/Infinity). "
+                "Regenerate the plan with hotato plan."
+            )
+        return
+    if isinstance(value, (list, tuple)):
+        for i, v in enumerate(value):
+            _reject_non_finite(v, f"{where}[{i}]")
+        return
+    if isinstance(value, dict):
+        for k, v in value.items():
+            _reject_non_finite(v, f"{where}.{k}")
 
 
 def _nest(keys: list, value) -> dict:
@@ -189,7 +222,7 @@ def _nest(keys: list, value) -> dict:
 
 
 def _curl(endpoint: dict, url: str, body: dict) -> str:
-    payload = json.dumps(body, sort_keys=True)
+    payload = _errors.safe_json_dumps(body, sort_keys=True)
     # Shell-quote every interpolated value. The URL and the JSON body are
     # derived from a fixplan.json that may be shared, copied, or hand-edited, so
     # a raw f-string here would let a crafted value break out of the quoting and
@@ -493,7 +526,7 @@ def render_text(patch: dict) -> str:
             lines.append(f"    basis: {ep['provenance']}")
         if art.get("merge_patch") is not None:
             lines.append("    merge-patch body: "
-                         + json.dumps(art["merge_patch"], sort_keys=True))
+                         + _errors.safe_json_dumps(art["merge_patch"], sort_keys=True))
         if art.get("curl"):
             lines.append("    curl (you run this; hotato does not):")
             for cl in art["curl"].split("\n"):

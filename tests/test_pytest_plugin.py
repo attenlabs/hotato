@@ -86,10 +86,11 @@ def test_hotato_suite_flag_passes_on_green_battery(pytester):
                                  "*8 of 8 events pass*"])
 
 
-def test_hotato_suite_flag_fails_session_on_regression(pytester, tmp_path):
-    # An empty audio dir makes every battery scenario fail with a REAL
-    # missing-audio verdict: the session must exit 1 even though the
-    # collected test itself passes.
+def test_hotato_suite_flag_fails_session_on_insufficient_coverage(pytester, tmp_path):
+    # An empty audio dir makes every battery scenario NOT-SCORABLE (a missing
+    # audio file is an input problem, never a measured miss). The gate must still
+    # fail the session (exit 1) -- scoring nothing is a setup failure -- but
+    # HONESTLY, as insufficient coverage, never as a fabricated "regression".
     empty = tmp_path / "no-audio"
     empty.mkdir()
     pytester.makepyfile("""
@@ -99,7 +100,10 @@ def test_hotato_suite_flag_fails_session_on_regression(pytester, tmp_path):
     result = pytester.runpytest(*_PLUGIN, "--hotato-suite",
                                 "--hotato-suite-audio", str(empty))
     assert result.ret == 1
-    result.stdout.fnmatch_lines(["*regression detected*"])
+    result.stdout.fnmatch_lines(["*no scorable events*"])
+    # a missing file must NOT be reported as a regression
+    assert not any("regression detected" in ln
+                   for ln in result.stdout.lines)
     # the tests themselves still passed; the gate is what failed the session
     result.assert_outcomes(passed=1)
 

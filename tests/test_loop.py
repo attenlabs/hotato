@@ -165,6 +165,55 @@ def test_non_loop_state_file_is_rejected(tmp_path):
         _loop.run_loop(str(tmp_path), state_path=str(state))
 
 
+def _write_state(path, **overrides):
+    base = {
+        "schema": _loop.STATE_SCHEMA_ID, "root": None, "fixtures_dir": None,
+        "stage": "awaiting_label", "created_at": "x", "updated_at": None,
+        "run": 1, "discovery": {}, "planning": None, "history": [],
+    }
+    base.update(overrides)
+    path.write_text(json.dumps(base), encoding="utf-8")
+
+
+def test_well_typed_but_incomplete_discovery_is_a_clean_usage_error(tmp_path):
+    """Regression: a state file that passes the isinstance checks but whose
+    'discovery' object is missing the total_candidates key _message()/
+    render_text() subscript must be a clean exit-2 usage error via load_state,
+    NOT a raw KeyError traceback (exit 1) deep in rendering."""
+    calls = tmp_path / "calls"
+    calls.mkdir()
+    _bundled_wavs(str(calls), ["02-backchannel"])
+    state = tmp_path / "state.json"
+    _write_state(state, stage="awaiting_label", discovery={})
+    with pytest.raises(ValueError):
+        _loop.load_state(str(state))
+    # and via the CLI it is exit 2 (structured), not exit 1 (traceback)
+    assert cli.main(["loop", str(calls), "--state", str(state),
+                     "--format", "json"]) == 2
+
+
+def test_well_typed_but_incomplete_planning_is_a_clean_usage_error(tmp_path):
+    """Regression twin for the planning/awaiting_verify path (KeyError
+    'decision')."""
+    calls = tmp_path / "calls"
+    calls.mkdir()
+    _bundled_wavs(str(calls), ["02-backchannel"])
+    state = tmp_path / "state.json"
+    _write_state(state, stage="awaiting_verify", discovery=None, planning={})
+    with pytest.raises(ValueError):
+        _loop.load_state(str(state))
+    assert cli.main(["loop", str(calls), "--state", str(state)]) == 2
+
+
+def test_complete_stage_message_is_honest_no_verify_claim():
+    """Regression (honesty): the only reachable 'complete' stage is reached via
+    decision == 'no_change' -- nothing was proposed, patched, or verified. Its
+    message must NOT claim 'the fix was verified'."""
+    msg, nxt = _loop._message("complete", {"planning": {"decision": "no_change"}})
+    assert "verified" not in msg.lower()
+    assert "nothing to fix" in msg.lower()
+
+
 # --- CLI --------------------------------------------------------------------
 
 def test_cli_loop_json_and_text(recordings, tmp_path, capsys):

@@ -114,6 +114,20 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if s["failed"]:
         tr.write_line("hotato: regression detected; failing the session.")
         _fail_session(tr, config)
+        return
+    # Coverage gate: a battery that scored NOTHING (every scenario not-scorable
+    # -- e.g. a wrong/empty --hotato-suite-audio dir -- or no scenarios at all)
+    # is a setup failure, not a green run. Fail the session, but honestly: this
+    # is insufficient coverage, NOT a regression (a missing audio file is an
+    # input problem, never a measured miss).
+    scorable = s["events"] - s.get("not_scorable", 0)
+    if scorable <= 0:
+        tr.write_line(
+            "hotato: no scorable events (check --hotato-suite-audio / "
+            "--hotato-suite-scenarios); failing the session on insufficient "
+            "coverage."
+        )
+        _fail_session(tr, config)
 
 
 def _fail_session(terminalreporter, config) -> None:

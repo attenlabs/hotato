@@ -257,3 +257,57 @@ def test_cli_patch_on_non_plan_exits_2(tmp_path):
 
 def test_cli_patch_missing_file_exits_2(tmp_path):
     assert cli.main(["patch", str(tmp_path / "nope.json")]) == 2
+
+
+def test_patch_rejects_non_finite_to_value(tmp_path, capsys):
+    """Regression: a NaN/Infinity numeric in a schema-valid plan must be a clean
+    exit-2 usage error -- never flow into the paste-ready merge-patch / curl body
+    as an RFC-8259-invalid bare token. Python's json.load parses NaN, so the plan
+    file loads; _validate_plan is the gate."""
+    plan = tmp_path / "nan_plan.json"
+    # Written literally (json.dumps(allow_nan=True) would refuse) so the file
+    # carries the bare NaN token exactly as a hand-edit/other tool might.
+    plan.write_text(
+        '{"schema":"hotato.fixplan.v1","kind":"fix-plan",'
+        '"target":{"stack":"vapi","inspected":false},'
+        '"decision":"propose_one_step","changes":[{'
+        '"field":"stopSpeakingPlan.voiceSeconds","direction":"decrease",'
+        '"from":0.2,"to":NaN,"bounds":[0,0.5]}]}',
+        encoding="utf-8",
+    )
+    assert cli.main(["patch", str(plan)]) == 2
+    # and --format json emits VALID json (no bare NaN token) for the error
+    capsys.readouterr()
+    assert cli.main(["patch", str(plan), "--format", "json"]) == 2
+    out = capsys.readouterr().out
+    doc = json.loads(out)  # strict: raises if a bare NaN leaked through
+    assert doc["ok"] is False
+    assert doc["exit_code"] == 2
+    assert "finite" in doc["message"]
+
+
+def test_patch_rejects_non_finite_inside_bounds(tmp_path):
+    """A non-finite value nested inside bounds is rejected too."""
+    plan = tmp_path / "inf_bounds.json"
+    plan.write_text(
+        '{"schema":"hotato.fixplan.v1","kind":"fix-plan",'
+        '"target":{"stack":"vapi","inspected":false},'
+        '"decision":"propose_one_step","changes":[{'
+        '"field":"stopSpeakingPlan.voiceSeconds","direction":"decrease",'
+        '"from":0.2,"to":0.1,"bounds":[0,Infinity]}]}',
+        encoding="utf-8",
+    )
+    assert cli.main(["patch", str(plan)]) == 2
+
+
+def test_safe_json_dumps_refuses_nan():
+    """The shared emitter forces allow_nan=False and raises a finite-number
+    usage error instead of shipping the bare NaN/Infinity token."""
+    from hotato import errors as _errors
+
+    # a normal, finite payload round-trips unchanged
+    assert _errors.safe_json_dumps({"a": 1.5}) == json.dumps({"a": 1.5})
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError) as ei:
+            _errors.safe_json_dumps({"x": bad})
+        assert "finite" in str(ei.value)
