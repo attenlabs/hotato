@@ -140,7 +140,7 @@ This is one assistant, one vendor's default configuration, one recording date, o
 - **`export`**: research-grade CSVs (`events.csv`, `frames.csv`, `envelope.json`), columns documented in-file.
 - **`benchmark`**: score the battery you captured through each stack, then compare the result files side by side.
 - **Pytest plugin**: a `hotato_score` fixture plus a session gate (`pytest --hotato-suite`).
-- **MCP server**: one tool, `voice_eval_run`; pass `report_path` to also get the HTML report. `uvx --from "hotato[mcp]" hotato-mcp`
+- **MCP server**: one tool, `voice_eval_run`; pass `report_path` to also get the HTML report. `uvx --from "hotato[mcp]" hotato-mcp` (`uvx hotato-mcp` alone fails; see [`docs/MCP.md`](docs/MCP.md) for why and for copy-paste client configs)
 - **Tiered corpus suites**: 112 deterministic scenarios across silver and gold tiers, plus defect suites that fail on purpose to prove the scorer catches what it claims.
 
 ## Optional neural cross-check (verified, non-reference)
@@ -168,7 +168,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 
 ## More
 
-- Reports and analytics: [`docs/REPORTS.md`](docs/REPORTS.md) · Pytest gate: [`docs/PYTEST.md`](docs/PYTEST.md) · Suites: [`docs/SUITES.md`](docs/SUITES.md) · CI recipes: [`docs/CI.md`](docs/CI.md)
+- Reports and analytics: [`docs/REPORTS.md`](docs/REPORTS.md) · Pytest gate: [`docs/PYTEST.md`](docs/PYTEST.md) · Suites: [`docs/SUITES.md`](docs/SUITES.md) · CI recipes: [`docs/CI.md`](docs/CI.md) · MCP server: [`docs/MCP.md`](docs/MCP.md)
 - Turn a bad call into a regression test with `hotato fixture create`: [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md) · runnable example: [`examples/bad-call-to-ci/`](examples/bad-call-to-ci/README.md) · hosted: [hotato.dev/docs/regression-loop.html](https://hotato.dev/docs/regression-loop.html)
 - Python API: [`docs/API.md`](docs/API.md) · Stack benchmarks: [`docs/BENCHMARK-STACKS.md`](docs/BENCHMARK-STACKS.md)
 - Adapters: [`adapters/README.md`](adapters/README.md) · Status and verification dates: [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)

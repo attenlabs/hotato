@@ -43,6 +43,26 @@ design. See `docs/BENCHMARK.md`.
   into a fresh venv, and runs the full pytest suite from inside it. Fails the
   build on any collection error. This is the failure mode that shipped
   unguarded in 0.2.3 and 0.3.0: a green wheel masked a broken sdist.
+- **MCP registry manifest and docs**: `server.json` at the repo root (name
+  `io.github.attenlabs/hotato`, matching the `mcp-name:` marker already in
+  `README.md`), pointing at the `hotato[mcp]` PyPI extra and the
+  `hotato-mcp` console script. `.github/workflows/release.yml` wires a
+  `publish-mcp-registry` job (`mcp-publisher publish`) for the eventual
+  first publish, hard-gated (`if: false`, plus workflow_dispatch-only) until
+  an operator explicitly lifts it; nothing publishes today. New
+  `docs/MCP.md`: copy-paste `mcpServers` configs for Claude Desktop, Cursor,
+  and Codex CLI, and the `uvx --from "hotato[mcp]" hotato-mcp` footgun
+  (`uvx hotato-mcp` alone fails) called out explicitly. `mcp_server.py`'s
+  tool description now states the envelope schema URL and the correct
+  zero-install command. `ci/github_action.yml` now says plainly it is
+  hotato's own dev CI, not a copy-paste template (that footgun pointed a
+  copying agent at the wrong workflow); the real drop-in stays
+  `.github/workflows/hotato.yml`. `llms.txt` is reconciled to every shipped
+  0.3.1 command (`capture`, `setup`, `ingest`, `describe`, and the rest were
+  missing) plus both schema URLs and the MCP one-liner; new `llms-full.txt`
+  concatenates README + every `docs/*.md` + `METHODOLOGY.md` + the envelope
+  schema with file-boundary headers, built deterministically by
+  `scripts/build_llms_full.py`. New `CITATION.cff`.
 
 ## [0.3.1] - 2026-07-07
 

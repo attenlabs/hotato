@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.attenlabs/hotato",
+  "description": "Find where your voice agent talks over callers, and keep it from coming back. Offline, MIT.",
+  "version": "0.3.1",
+  "repository": {
+    "url": "https://github.com/attenlabs/hotato",
+    "source": "github",
+    "id": "1290364502"
+  },
+  "websiteUrl": "https://hotato.dev",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "hotato",
+      "version": "0.3.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "--from",
+          "description": "uvx flag: install the named package (with extras) and run a console script from it, rather than the bare 'hotato' script"
+        },
+        {
+          "type": "positional",
+          "value": "hotato[mcp]",
+          "description": "hotato with the mcp extra, so the hotato-mcp console script and its mcp>=1.2.0 dependency are installed"
+        },
+        {
+          "type": "positional",
+          "value": "hotato-mcp",
+          "description": "console script entry point: the one-tool MCP server (voice_eval_run), stdio transport"
+        }
+      ]
+    }
+  ]
+}

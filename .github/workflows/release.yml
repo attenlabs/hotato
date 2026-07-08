@@ -1,0 +1,124 @@
+# hotato release workflow.
+#
+# Two jobs:
+#   1. sanity ..................... build sdist + wheel from a clean checkout,
+#      confirm server.json's version matches pyproject.toml, install the built
+#      wheel into a fresh venv, and smoke-test it (`hotato run --suite barge-in`).
+#      Runs on every version tag push and on manual dispatch. PURELY A CHECK:
+#      it does not publish anything anywhere.
+#   2. publish-mcp-registry ....... OPERATOR-GATED, see the block below. Wires
+#      `mcp-publisher publish` against the root server.json so hotato becomes
+#      discoverable in the official MCP registry
+#      (https://registry.modelcontextprotocol.io). This job does NOT touch
+#      PyPI: PyPI publish stays the manual step in docs/RELEASE-CHECKLIST.md.
+#
+# ============================================================================
+# OPERATOR GATE -- READ BEFORE TOUCHING THIS FILE
+# ============================================================================
+# The FIRST publish of "io.github.attenlabs/hotato" to the MCP registry is a
+# one-way, human-owned action: once the name is claimed there, it is public
+# and effectively permanent. `publish-mcp-registry` below is therefore gated
+# TWICE, on purpose:
+#
+#   (a) it only runs on `workflow_dispatch`, never on a tag push, AND
+#   (b) `if: false` is hardcoded on the job itself, so even a manual dispatch
+#       with confirm_registry_publish=true cannot make it run.
+#
+# To perform the first (or any subsequent) registry publish:
+#   1. An operator reviews server.json (name, description, package block,
+#      version) against the release being cut.
+#   2. The hardcoded `if: false` on the `publish-mcp-registry` job below is
+#      replaced with a real condition, e.g.
+#      `if: ${{ inputs.confirm_registry_publish == true }}`, in its own
+#      reviewed commit.
+#   3. The workflow is dispatched manually with confirm_registry_publish set
+#      to true, and the run is watched to completion.
+#
+# Until step 2 lands, this job cannot fire under any input or trigger.
+# Do not remove this comment block when editing the gate.
+# ============================================================================
+
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      confirm_registry_publish:
+        description: >-
+          Publish server.json to the MCP registry. Has no effect until an
+          operator lifts the hardcoded `if: false` gate on the
+          publish-mcp-registry job (see the header comment in release.yml).
+        type: boolean
+        default: false
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: server.json version matches pyproject.toml
+        run: |
+          python - <<'PY'
+          import json
+          import re
+
+          pyproject = open("pyproject.toml").read()
+          m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+          if not m:
+              raise SystemExit("could not find version in pyproject.toml")
+          pv = m.group(1)
+
+          server = json.load(open("server.json"))
+          if server["name"] != "io.github.attenlabs/hotato":
+              raise SystemExit(f"server.json name {server['name']!r} != io.github.attenlabs/hotato")
+          if server["version"] != pv:
+              raise SystemExit(f"server.json version {server['version']!r} != pyproject.toml {pv!r}")
+          for pkg in server.get("packages", []):
+              if pkg.get("version") != pv:
+                  raise SystemExit(f"package version {pkg.get('version')!r} != pyproject.toml {pv!r}")
+
+          print(f"server.json version {pv} matches pyproject.toml (name: {server['name']})")
+          PY
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Install the built wheel into a fresh venv and smoke test
+        run: |
+          python -m venv /tmp/release-venv
+          /tmp/release-venv/bin/pip install dist/*.whl
+          /tmp/release-venv/bin/hotato run --suite barge-in --format json > /dev/null
+          /tmp/release-venv/bin/hotato --version
+
+  # OPERATOR-GATED. Read the block at the top of this file before touching
+  # the `if:` line. Left in place, intentionally inert, so the registry
+  # publish wiring exists and is reviewable ahead of the first real publish.
+  publish-mcp-registry:
+    needs: sanity
+    if: false # <-- operator: only flip after the header-comment review + explicit sign-off
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for GitHub OIDC auth to the MCP registry
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Authenticate to the MCP registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json to the MCP registry
+        run: ./mcp-publisher publish

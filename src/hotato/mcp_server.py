@@ -66,6 +66,9 @@ HONEST SCOPE AND LIMITS (read before trusting a number):
   * It does NOT do: speaker identification, diarization, transcription, or emotion
     detection, and it makes no claim about any vendor's internal accuracy.
   * Offline: runs locally; no audio egress.
+
+SCHEMA: the returned envelope's shape is documented at https://hotato.dev/schema/envelope.v1.json (schema_version "1", additive-only).
+RUN THIS SERVER (zero-install): `uvx --from "hotato[mcp]" hotato-mcp` (the bare `uvx hotato-mcp`, with no `--from`, fails).
 """
 
 
