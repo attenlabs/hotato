@@ -1,21 +1,30 @@
-# hotato — CI hardening workflow.
+# hotato's OWN internal dev CI workflow -- NOT a template. Do not copy this
+# file into your repository; it will not gate YOUR agent, it re-checks
+# hotato's own source tree (its example fixtures, its test suite, its
+# vendored engine, its bundled frozen battery).
 #
-# Five gates, all offline and dependency-light:
+# If you landed here looking for a drop-in PR gate for your voice agent, use
+# .github/workflows/hotato.yml instead (docs/CI.md): copy THAT file, unchanged,
+# to .github/workflows/hotato.yml in your own repository. It scores YOUR
+# recordings (or the bundled self-test as a placeholder until you point it at
+# your own captures), posts one self-updating PR comment, and fails the job on
+# a regression.
+#
+# What this file (hotato's own dev CI) actually does, five gates, all offline
+# and dependency-light:
 #   1. deterministic generation .... render the example fixtures TWICE, diff
 #   2. tests ....................... python -m pytest -q
 #   3. engine drift ................ python sync_engine.py --check
 #   4. bundled battery ............. score the frozen barge-in suite, fail on regression
 #   5. report ...................... write results.md to the job summary, upload results.json
 #
-# The scoring step (4) is a smoke test of the harness against the FROZEN reference
-# fixtures. To gate on YOUR agent instead, REPLACE it with your capture step: play
-# each `*.caller.wav` into your agent, record its response, and score
-# [caller + your recording]. The envelope shape and exit codes are identical, so
-# the report/upload steps below need no change.
-#
-# Copy this to .github/workflows/hotato.yml in your repository.
+# Step 4 here is a smoke test of the harness against hotato's own FROZEN
+# reference fixtures, not a check on any external agent -- that is exactly why
+# this file must not be copied as-is. The real drop-in template
+# (.github/workflows/hotato.yml) documents how to point that equivalent step
+# at your own captured recordings instead.
 
-name: hotato
+name: hotato-dev-ci
 
 on:
   pull_request:

@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: If you use hotato, please cite it as below.
+title: "hotato: offline turn-taking regression tests for voice agents"
+abstract: >-
+  Find where your voice agent talks over callers, and keep it from coming
+  back. Offline regression tests from your own call recordings: score a
+  real call recording, keep it as a fixture, fail CI when the timing
+  regresses.
+type: software
+authors:
+  - name: "Attention Labs, Inc."
+license: MIT
+version: 0.3.1
+date-released: "2026-07-07"
+repository-code: "https://github.com/attenlabs/hotato"
+url: "https://hotato.dev"
+keywords:
+  - voice-ai
+  - voice-agents
+  - evals
+  - barge-in
+  - turn-taking
+  - mcp
+  - agent-native
+  - observability
+  - reliability
