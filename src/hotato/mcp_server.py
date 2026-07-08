@@ -87,19 +87,34 @@ def _guard_report_path(report_path: str) -> str:
         never clobber an arbitrary pre-existing file.
 
     Raises ValueError (surfaced as the shared structured error) on refusal."""
+    import tempfile
+
     real = os.path.realpath(os.path.expanduser(report_path))
     base = os.environ.get("HOTATO_MCP_REPORT_DIR", "").strip()
     if base:
         base_real = os.path.realpath(os.path.expanduser(base))
-        try:
-            inside = os.path.commonpath([base_real, real]) == base_real
-        except ValueError:  # different drives (Windows)
-            inside = False
-        if not inside:
-            raise ValueError(
-                "report_path must resolve inside HOTATO_MCP_REPORT_DIR "
-                f"({base}); refusing to write outside it."
-            )
+        base_label = f"HOTATO_MCP_REPORT_DIR ({base})"
+    else:
+        # SANDBOX BY DEFAULT. Without an explicit HOTATO_MCP_REPORT_DIR the write
+        # is still confined -- to the OS temp directory -- so an agent (or
+        # untrusted content steering it) can never make this tool drop an HTML
+        # file at an arbitrary sensitive path (~/.ssh/authorized_keys, a source
+        # file, a shell rc, /etc/...). Operators who want reports elsewhere set
+        # HOTATO_MCP_REPORT_DIR explicitly.
+        base_real = os.path.realpath(tempfile.gettempdir())
+        base_label = (
+            f"the OS temp directory ({tempfile.gettempdir()}); set "
+            "HOTATO_MCP_REPORT_DIR to write reports elsewhere"
+        )
+    try:
+        inside = os.path.commonpath([base_real, real]) == base_real
+    except ValueError:  # different drives (Windows)
+        inside = False
+    if not inside:
+        raise ValueError(
+            f"report_path must resolve inside {base_label}; refusing to write "
+            "outside it."
+        )
     if os.path.exists(real):
         if os.path.isdir(real):
             raise ValueError(

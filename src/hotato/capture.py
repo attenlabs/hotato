@@ -332,7 +332,64 @@ def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 60) 
     return json.loads(_http_get(url, headers=headers, timeout=timeout).decode("utf-8"))
 
 
+def _require_json_object(value, what: str) -> dict:
+    """The vendor endpoints here are documented to return a single JSON OBJECT.
+    A proxy/CDN error page, a misconfigured ``--base-url``, or a vendor failure can
+    instead return a JSON array, string, or null -- which ``json.loads`` accepts and
+    which then blows up on the first ``.get()`` with a raw AttributeError. Reject a
+    non-object here so it is a clean usage error, matching the isinstance checks the
+    list adapters already do."""
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"expected a JSON object for {what}, got {type(value).__name__}. The "
+            "endpoint returned an unexpected shape (a proxy/error page, a wrong "
+            "--base-url, or a vendor failure response)."
+        )
+    return value
+
+
+_ALLOWED_DOWNLOAD_SCHEMES = ("http", "https")
+
+
+def _validate_download_url(url: str) -> str:
+    """Every download URL here (``stereoUrl`` / ``recording_url`` /
+    ``recording_multi_channel_url`` ...) is taken VERBATIM from the vendor's JSON
+    RESPONSE -- untrusted data. ``urllib`` will happily open ``file://`` (arbitrary
+    local-file read, e.g. ~/.hotato/connections.json holding every stack's
+    credentials) or reach an internal/metadata endpoint over http, so a compromised
+    account, tampered metadata, or a redirect could turn a "download the recording"
+    step into local-file exfiltration or SSRF. Restrict it to an http(s) URL with a
+    host before it is ever fetched. ``HOTATO_INGEST_ALLOWED_HOSTS`` (shared with
+    ingest) is the operator lever to also pin the allowed download hosts."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in _ALLOWED_DOWNLOAD_SCHEMES:
+        raise ValueError(
+            f"refusing to download a recording from scheme {scheme or '(none)'!r}: "
+            "the URL comes from the vendor's response, and only http(s) is allowed. "
+            "file://, data:, ftp:// and similar are refused so a tampered or "
+            "compromised response cannot read a local file or an internal endpoint."
+        )
+    if not parsed.hostname:
+        raise ValueError(
+            "refusing to download a recording from a URL with no host "
+            "(from the vendor's response); only http(s) URLs with a host are fetched."
+        )
+    allow = os.environ.get("HOTATO_INGEST_ALLOWED_HOSTS", "").strip()
+    if allow:
+        hosts = {h.strip().lower() for h in allow.split(",") if h.strip()}
+        if parsed.hostname.lower() not in hosts:
+            raise ValueError(
+                f"recording download host {parsed.hostname!r} is not in "
+                "HOTATO_INGEST_ALLOWED_HOSTS; refusing to fetch it."
+            )
+    return url
+
+
 def _download(url: str, dest: str, headers: Optional[dict] = None, timeout: int = 120) -> str:
+    _validate_download_url(url)
     data = _http_get(url, headers=headers, timeout=timeout)
     with open(dest, "wb") as fh:
         fh.write(data)
@@ -435,10 +492,13 @@ def capture_vapi(
     Live-verification is on your side: recording must be enabled and the call must
     have ENDED for the stereo artifact to exist.
     """
-    call = _http_get_json(
-        f"{base_url.rstrip('/')}/call/{call_id}",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        timeout=timeout,
+    call = _require_json_object(
+        _http_get_json(
+            f"{base_url.rstrip('/')}/call/{call_id}",
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=timeout,
+        ),
+        f"Vapi call {call_id!r}",
     )
     artifact = call.get("artifact") or {}
     recording = artifact.get("recording") or {}
@@ -502,10 +562,13 @@ def capture_retell(
     ``recording_url`` is rejected unless ``allow_mono=True``: a mono mix cannot
     attribute talk-over to caller vs agent.
     """
-    call = _http_get_json(
-        f"{base_url.rstrip('/')}/v2/get-call/{call_id}",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        timeout=timeout,
+    call = _require_json_object(
+        _http_get_json(
+            f"{base_url.rstrip('/')}/v2/get-call/{call_id}",
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=timeout,
+        ),
+        f"Retell call {call_id!r}",
     )
     url = call.get("scrubbed_recording_multi_channel_url") or call.get(
         "recording_multi_channel_url"
@@ -1621,12 +1684,19 @@ def pull(stack, creds, *, out_dir, ids=None, since=None, limit=50,
             pulled.append({"id": ident, "path": path})
             if log:
                 log(f"[{stack}] pulled {ident} -> {path}")
-        except (ValueError, OSError) as exc:
-            # _HTTPStatusError is a ValueError subclass, so HTTP failures land
-            # here too. One unscorable/failed call is skipped honestly.
-            skipped.append({"id": ident, "reason": str(exc)})
+        except Exception as exc:
+            # pull()'s contract is "one bad call never aborts the pull": a single
+            # unscorable/failed call is skipped honestly and the batch continues.
+            # ValueError/_HTTPStatusError/OSError are the expected failures, but
+            # ANY adapter (current or future) that raises something else must not
+            # take down the whole run and every other id with it -- so catch
+            # broadly and record the type in the reason for diagnosis.
+            reason = str(exc) or f"{type(exc).__name__}"
+            if not isinstance(exc, (ValueError, OSError)):
+                reason = f"{type(exc).__name__}: {reason}"
+            skipped.append({"id": ident, "reason": reason})
             if log:
-                log(f"[{stack}] skipped {ident}: {exc}")
+                log(f"[{stack}] skipped {ident}: {reason}")
     return {
         "stack": stack,
         "out_dir": out_dir,

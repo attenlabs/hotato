@@ -138,6 +138,15 @@ def _validate_plan(plan: dict) -> dict:
             "fixplan is missing its 'target' object (target.stack / target ids). "
             "Regenerate it with: hotato plan result.json --out fixplan.json"
         )
+    # target.stack, when present, must be a string: build_patch does
+    # ``stack.strip().lower()`` on it, so a non-string (e.g. an int from a
+    # hand-edited plan) would otherwise raise a raw AttributeError.
+    stack = target.get("stack")
+    if stack is not None and not isinstance(stack, str):
+        raise ValueError(
+            f"fixplan target.stack must be a string (got {type(stack).__name__}). "
+            "Regenerate the plan with hotato plan."
+        )
     if plan.get("decision") == "propose_one_step":
         changes = plan.get("changes")
         if not isinstance(changes, list) or not changes:
@@ -148,12 +157,23 @@ def _validate_plan(plan: dict) -> dict:
         first = changes[0]
         if not isinstance(first, dict):
             raise ValueError("fixplan changes[0] is not an object.")
-        for required in ("field", "direction"):
+        # Every key the artifact builders index (directly or via an f-string)
+        # must be present BEFORE any indexing, so a schema-tagged but partial /
+        # hand-edited plan is a clean usage error (exit 2) rather than a raw
+        # KeyError/AttributeError traceback. ``from``/``bounds`` are read in the
+        # ``to is None`` branch of both _rest_artifact and _source_artifact.
+        for required in ("field", "direction", "from", "bounds"):
             if required not in first:
                 raise ValueError(
                     f"fixplan changes[0] is missing required key {required!r}. "
                     "Regenerate the plan with hotato plan."
                 )
+        field = first.get("field")
+        if not isinstance(field, str) or not field.strip():
+            raise ValueError(
+                "fixplan changes[0].field must be a non-empty string. "
+                "Regenerate the plan with hotato plan."
+            )
     return plan
 
 
@@ -217,7 +237,7 @@ def _rest_artifact(stack: str, change: dict, target: dict) -> dict:
         artifact["curl"] = None
         artifact["note"] = (
             f"The plan has no concrete target value for {field} "
-            f"(direction: {change['direction']}, bounds {change['bounds']}). "
+            f"(direction: {change['direction']}, bounds {change.get('bounds')}). "
             "Inspect the live config to resolve the current value, then re-plan: "
             f"hotato inspect --stack {stack} ...  Nothing to paste yet."
         )
@@ -227,7 +247,7 @@ def _rest_artifact(stack: str, change: dict, target: dict) -> dict:
     artifact["curl"] = _curl(endpoint, url, body)
     artifact["note"] = (
         f"Sets {field} to {to} (one bounded step {change['direction']} from "
-        f"{change['from']}). This is a config-update request you run; hotato "
+        f"{change.get('from')}). This is a config-update request you run; hotato "
         "does not run it."
     )
     return artifact
@@ -269,7 +289,7 @@ def _source_artifact(stack: str, change: dict) -> dict:
         }
         artifact["note"] = (
             f"No concrete target value: move {ctor}({kwarg}=...) one step "
-            f"{change['direction']} (bounds {change['bounds']}). Inspect the live "
+            f"{change['direction']} (bounds {change.get('bounds')}). Inspect the live "
             f"config for the current value first. " + _SOURCE_EDIT_NOTE[stack]
         )
         return artifact
@@ -281,7 +301,7 @@ def _source_artifact(stack: str, change: dict) -> dict:
     }
     artifact["note"] = (
         f"Set {ctor}({kwarg}={to}) in your agent config (one bounded step "
-        f"{change['direction']} from {change['from']}), then redeploy. "
+        f"{change['direction']} from {change.get('from')}), then redeploy. "
         + _SOURCE_EDIT_NOTE[stack]
     )
     return artifact

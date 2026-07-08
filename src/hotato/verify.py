@@ -115,10 +115,12 @@ def _load_side(path: str, label: str) -> Tuple[list, list]:
 
 def _scorable(event: dict) -> bool:
     # An event is judgeable only if it is not flagged not-scorable AND actually
-    # carries a verdict object. A malformed / incomplete side (no verdict) is
+    # carries a verdict object WITH a `passed` field. A malformed / incomplete /
+    # older-schema side (no verdict, or a verdict missing `passed`) is
     # not_scorable, never a crash -- matching compare.classify_pair's guard.
+    v = event.get("verdict")
     return (event.get("scorable") is not False
-            and isinstance(event.get("verdict"), dict))
+            and isinstance(v, dict) and "passed" in v)
 
 
 def _passed(event: dict) -> bool:

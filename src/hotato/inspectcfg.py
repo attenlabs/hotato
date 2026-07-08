@@ -193,6 +193,21 @@ def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 30) 
         raise ValueError(f"network error fetching {url}: {exc.reason}") from exc
 
 
+def _require_object(value, what: str) -> dict:
+    """These endpoints return a single JSON OBJECT. A proxy/error page, a wrong
+    ``--base-url``, or a vendor failure can return a JSON array/string/null, which
+    ``json.loads`` accepts and which then crashes on the first ``.get()`` /
+    indexing with a raw AttributeError/TypeError. Reject a non-object as a clean
+    usage error instead."""
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"expected a JSON object for {what}, got {type(value).__name__}. The "
+            "endpoint returned an unexpected shape (a proxy/error page, a wrong "
+            "--base-url, or a vendor failure response)."
+        )
+    return value
+
+
 def _num(value):
     """A number exactly as reported, or None; never coerced from strings."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -210,10 +225,13 @@ def inspect_vapi(
     timeout: int = 30,
 ) -> dict:
     url = f"{base_url.rstrip('/')}/assistant/{assistant_id}"
-    assistant = _http_get_json(
-        url,
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        timeout=timeout,
+    assistant = _require_object(
+        _http_get_json(
+            url,
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=timeout,
+        ),
+        f"Vapi assistant {assistant_id!r}",
     )
     start = assistant.get("startSpeakingPlan") or {}
     stop = assistant.get("stopSpeakingPlan") or {}
@@ -281,10 +299,13 @@ def inspect_retell(
     timeout: int = 30,
 ) -> dict:
     url = f"{base_url.rstrip('/')}/get-agent/{agent_id}"
-    agent = _http_get_json(
-        url,
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        timeout=timeout,
+    agent = _require_object(
+        _http_get_json(
+            url,
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=timeout,
+        ),
+        f"Retell agent {agent_id!r}",
     )
     raw = {k: agent[k] for k in _RETELL_RAW_KEYS if k in agent}
     notes = [

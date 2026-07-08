@@ -51,13 +51,18 @@ def is_envelope(obj) -> bool:
     )
 
 
-def load_run_dir(dirpath: str, order: str = "mtime") -> dict:
+def load_run_dir(dirpath: str, order: str = "name") -> dict:
     """Load every envelope JSON in ``dirpath``, ordered for the trend.
 
-    ``order`` is 'mtime' (file modification time, oldest first; name breaks
-    ties) or 'name' (lexicographic filename: a numeric prefix acts as an
-    explicit index). Non-envelope JSONs (frame dumps, unrelated files) are
-    skipped and reported, never guessed at.
+    ``order`` is 'name' (DEFAULT: lexicographic filename, so a numeric prefix
+    acts as an explicit, content-derived index) or 'mtime' (file modification
+    time, oldest first; name breaks ties). ``name`` is the default because the
+    aggregate must be a pure function of the envelope FILES: mtime is filesystem
+    metadata that a git checkout, tar/zip extract, rsync without -t, or docker
+    COPY all rewrite, so ordering by it makes the same bytes produce a different
+    trend. ``mtime`` stays available but is opt-in and filesystem-dependent.
+    Non-envelope JSONs (frame dumps, unrelated files) are skipped and reported,
+    never guessed at.
     """
     if order not in ("mtime", "name"):
         raise ValueError(f"unknown order {order!r}; use 'mtime' or 'name'")
@@ -93,7 +98,7 @@ def load_run_dir(dirpath: str, order: str = "mtime") -> dict:
 
 # --- aggregation --------------------------------------------------------------
 
-def aggregate_runs(runs: list, order: str = "mtime",
+def aggregate_runs(runs: list, order: str = "name",
                    skipped: Optional[list] = None,
                    max_response_gap_sec: Optional[float] = None) -> dict:
     """Aggregate loaded runs (see ``load_run_dir``) into a team envelope.
@@ -132,16 +137,29 @@ def aggregate_runs(runs: list, order: str = "mtime",
             if not v.get("passed") and fx:
                 fc = fx.get("fix_class") or "unclassified"
                 failure_classes[fc] = failure_classes.get(fc, 0) + 1
-        n_ev = s.get("events", len(events))
-        n_pass = s.get("passed", sum(1 for e in events
-                                     if e.get("verdict", {}).get("passed")))
+        # The pass-rate denominator is the SCORABLE population, never the raw
+        # event total: a not-scorable event (an input problem) is neither a pass
+        # nor a fail, so counting it in the denominator would silently deflate the
+        # rate (and n_ev - n_pass would mislabel it as a failure). This matches
+        # core._envelope, compare.py and verify.py, which all exclude not-scorable
+        # events from both sides of any ratio.
+        scor_events = [e for e in events if e.get("scorable") is not False]
+        n_pass = s.get("passed", sum(
+            1 for e in scor_events if e.get("verdict", {}).get("passed")))
+        n_fail = s.get("failed", sum(
+            1 for e in scor_events if not e.get("verdict", {}).get("passed")))
+        n_scorable = n_pass + n_fail
+        # Deliberately no ``mtime`` field here: the aggregate output must be a
+        # pure function of the envelope FILES, and mtime is filesystem metadata
+        # that a checkout / extract / rsync rewrites. Ordering already uses it
+        # only as an opt-in tie-break inside load_run_dir; it never leaks into the
+        # emitted, comparable result.
         over_time.append({
             "file": r["file"],
-            "mtime": r["mtime"],
-            "events": n_ev,
+            "events": n_scorable,
             "passed": n_pass,
-            "failed": n_ev - n_pass,
-            "pass_rate": round(n_pass / n_ev, 4) if n_ev else None,
+            "failed": n_fail,
+            "pass_rate": round(n_pass / n_scorable, 4) if n_scorable else None,
         })
 
     rates = [p["pass_rate"] for p in over_time if p["pass_rate"] is not None]
