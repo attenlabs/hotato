@@ -236,6 +236,66 @@ def parse_event(stack: str, payload: dict) -> dict:
 
 # --- fetch: reuse capture's fetch logic ------------------------------------
 
+_ALLOWED_RECORDING_URL_SCHEMES = ("http", "https")
+
+
+def _validate_recording_url(url: str, stack: str) -> str:
+    """A recording_url arrives from an UNTRUSTED webhook payload. Restrict it to
+    an http(s) URL with a host before it is fetched, so a spoofed event cannot
+    make ingest read a local file (``file://``), inline data (``data:``), or an
+    arbitrary non-web endpoint. When ``HOTATO_INGEST_ALLOWED_HOSTS`` is set (a
+    comma-separated host list) the URL's host must be on it -- the operator's
+    lever to also close internal-network / cloud-metadata SSRF."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in _ALLOWED_RECORDING_URL_SCHEMES:
+        raise IngestError(
+            f"recording_url in the {stack} event uses the unsupported scheme "
+            f"{scheme or '(none)'!r}; ingest only downloads http(s) recording "
+            "URLs. file://, data:, ftp:// and similar are refused so a webhook "
+            "payload cannot make ingest read a local file or an internal endpoint."
+        )
+    if not parsed.hostname:
+        raise IngestError(
+            f"recording_url in the {stack} event has no host; refusing to fetch it."
+        )
+    allow = os.environ.get("HOTATO_INGEST_ALLOWED_HOSTS", "").strip()
+    if allow:
+        hosts = {h.strip().lower() for h in allow.split(",") if h.strip()}
+        if parsed.hostname.lower() not in hosts:
+            raise IngestError(
+                f"recording_url host {parsed.hostname!r} is not in "
+                "HOTATO_INGEST_ALLOWED_HOSTS; refusing to fetch it."
+            )
+    return url
+
+
+def _validate_recording_path(path: str, stack: str) -> str:
+    """A recording_path arrives from an UNTRUSTED webhook payload. When
+    ``HOTATO_INGEST_DIR`` is set the resolved real path MUST stay inside that
+    egress directory, so a spoofed event cannot point ingest at an arbitrary
+    local file (``/etc/...``) or escape via ``..``. With no base configured the
+    path is used as-is (the historical behaviour: you point ingest at the file
+    your own infra wrote), but a base is the operator's lever to lock it down."""
+    real = os.path.realpath(os.path.expanduser(path))
+    base = os.environ.get("HOTATO_INGEST_DIR", "").strip()
+    if base:
+        base_real = os.path.realpath(os.path.expanduser(base))
+        try:
+            inside = os.path.commonpath([base_real, real]) == base_real
+        except ValueError:  # different drives (Windows) -> never inside
+            inside = False
+        if not inside:
+            raise IngestError(
+                f"recording_path {path!r} resolves outside HOTATO_INGEST_DIR "
+                f"({base}); refusing to read it. Point ingest at a file inside "
+                "your configured egress directory."
+            )
+    return real
+
+
 def _require_env(name: str, stack: str, what: str) -> str:
     val = os.environ.get(name)
     if not val:
@@ -296,17 +356,19 @@ def _resolve_recording(
     # downloaded with capture's stdlib downloader.
     path = locator.get("recording_path")
     if path:
-        if not os.path.exists(path):
+        safe_path = _validate_recording_path(path, stack)
+        if not os.path.exists(safe_path):
             raise IngestError(
                 f"recording_path {path!r} from the {stack} event does not exist "
                 "on this machine. LiveKit/Pipecat recordings live in your own "
                 "storage; point ingest at the file your infra produced."
             )
-        return path
+        return safe_path
     url = locator.get("recording_url")
     if url:
+        safe_url = _validate_recording_url(url, stack)
         dest = _capture._out_wav(out, f"hotato-{stack}-")
-        return _capture._download(url, dest)
+        return _capture._download(safe_url, dest)
     raise IngestError(
         f"no recording locator in the {stack} event: supply recording_path (a "
         "local 2-channel WAV) or recording_url. LiveKit egress and Pipecat "

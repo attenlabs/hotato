@@ -16,6 +16,7 @@ the honest limits block. It introduces no new accuracy claim.
 from __future__ import annotations
 
 import json
+import math
 import os
 import struct
 import wave
@@ -133,6 +134,14 @@ def _event_from_result(
     signals = result.signals if echo is None else {**result.signals, "echo": echo}
     if resume is not None:
         signals = {**signals, "resume": resume}
+    # The engine reports a `-1.0` sentinel for caller_onset_sec when no caller
+    # onset was detected/provided (a physically impossible negative timestamp).
+    # Surface it as null instead, mirroring how detected_caller_onset_sec is
+    # already emitted, so a fabricated number never flows into the envelope or an
+    # export CSV. Every valid recording keeps a real float here, unchanged.
+    onset_measurement = result.caller_onset_sec
+    if onset_measurement is not None and onset_measurement < 0:
+        onset_measurement = None
     event = {
         "event_id": event_id,
         "scenario_id": scenario_id,
@@ -147,7 +156,7 @@ def _event_from_result(
             "reasons": verdict.reasons,
         },
         "measurements": {
-            "caller_onset_sec": result.caller_onset_sec,
+            "caller_onset_sec": onset_measurement,
             "agent_talking_at_onset": result.agent_talking_at_onset,
             "hop_sec": result.hop_sec,
             "notes": result.notes,
@@ -198,6 +207,11 @@ def _event_from_result(
             tags=tags,
             category=category,
             scenario_id=scenario_id,
+            # The measured cross-channel echo signal is authoritative: a self-echo
+            # yield routes to the audio-routing (config) fix, never to the
+            # engagement-control pointer with fabricated caller-intent wording.
+            # curator tags/ids remain a fallback for scenarios that carry no audio.
+            echo_suspected=bool(echo and echo.get("echo_suspected")),
         )
     return event
 
@@ -386,10 +400,34 @@ def _resume_block(agent_samples, sample_rate: int, result, cfg: ScoreConfig) -> 
 
 
 def _check_onset(onset_sec: Optional[float]) -> None:
-    if onset_sec is not None and onset_sec < 0:
+    if onset_sec is None:
+        return
+    # NaN / +-Inf reach here as floats but are neither a valid time nor safely
+    # convertible to a frame index (int(inf) raises OverflowError deep in the
+    # engine, NaN silently compares False and clamps to frame 0 -> a fabricated
+    # verdict). Reject them up front as a clean usage error (exit 2), the same
+    # guard fixture.py already applies to `fixture create --onset`.
+    if not math.isfinite(onset_sec):
+        raise ValueError(
+            f"--onset must be a finite number of seconds (time from the start "
+            f"of the recording); got {onset_sec}."
+        )
+    if onset_sec < 0:
         raise ValueError(
             f"--onset must be >= 0 seconds (time from the start of the "
             f"recording); got {onset_sec}."
+        )
+
+
+def _check_onset_within_duration(onset_sec: Optional[float], duration_sec: float) -> None:
+    """An onset at or past the end of the recording is out of range: the engine
+    silently clamps it to the last frame and then emits a confident-sounding
+    verdict about a moment that is not in the audio. Refuse it here (exit 2), the
+    same bound fixture.py's ``create_fixture`` already enforces."""
+    if onset_sec is not None and onset_sec >= duration_sec:
+        raise ValueError(
+            f"--onset {onset_sec}s is beyond the end of the recording "
+            f"({duration_sec:.2f}s)."
         )
 
 
@@ -434,6 +472,7 @@ def run_single(
             )
         _require_channel(signal, caller_channel, "caller")
         _require_channel(signal, agent_channel, "agent")
+        _check_onset_within_duration(onset_sec, signal.num_samples / signal.sample_rate)
         result = score_stereo(
             signal, caller_channel, agent_channel, caller_onset_sec=onset_sec, cfg=cfg
         )
@@ -452,6 +491,7 @@ def run_single(
                 f"{a.sample_rate} Hz); resample so both match."
             )
         n = min(c.num_samples, a.num_samples)
+        _check_onset_within_duration(onset_sec, n / c.sample_rate)
         result = score_channels(
             c.get(0)[:n], a.get(0)[:n], c.sample_rate, caller_onset_sec=onset_sec, cfg=cfg
         )
@@ -544,6 +584,7 @@ def dump_frames_for_input(
             )
         _require_channel(signal, caller_channel, "caller")
         _require_channel(signal, agent_channel, "agent")
+        _check_onset_within_duration(onset_sec, signal.num_samples / signal.sample_rate)
         caller_samples = signal.get(caller_channel)
         agent_samples = signal.get(agent_channel)
         sample_rate = signal.sample_rate
@@ -557,6 +598,7 @@ def dump_frames_for_input(
                 f"{a.sample_rate} Hz); resample so both match."
             )
         n = min(c.num_samples, a.num_samples)
+        _check_onset_within_duration(onset_sec, n / c.sample_rate)
         caller_samples = c.get(0)[:n]
         agent_samples = a.get(0)[:n]
         sample_rate = c.sample_rate

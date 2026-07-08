@@ -28,7 +28,15 @@ ERROR_EXIT_CODE = 2
 # The exception classes the input-hardening layer raises for a clean, expected
 # error (never a bug). Both surfaces catch exactly these and turn them into the
 # structured error object; anything else is a real fault and must not be masked.
-HANDLED = (ValueError, FileNotFoundError, BackendUnavailable)
+#
+# ``OSError`` (the superclass of FileNotFoundError, PermissionError,
+# IsADirectoryError, NotADirectoryError, FileExistsError, ...) is included so that
+# EVERY filesystem-input problem -- not just a missing file -- gets the same clean
+# exit-2 / structured-json treatment instead of leaking a raw traceback and the
+# wrong exit code. A directory passed where a file is expected, an unreadable
+# (chmod 000) input, or an existing --out that cannot be replaced are all input
+# errors, not bugs.
+HANDLED = (ValueError, OSError, BackendUnavailable)
 
 # Stable error_code slugs. Append-only: a consumer may branch on these, so an
 # existing slug never changes meaning. Kept in sync with the enum in
@@ -84,6 +92,16 @@ def classify(exc: Exception) -> tuple[str, str]:
         if name:
             return "file_not_found", f"{name!r}: no such file."
         return "file_not_found", str(exc) or "no such file."
+    if isinstance(exc, OSError):
+        # Any other filesystem-input error (a directory where a file was
+        # expected, a permission-denied read/write, an --out that already
+        # exists). A clean usage error, not a crash: name the path and the OS
+        # reason without a Python traceback.
+        name = getattr(exc, "filename", None)
+        reason = getattr(exc, "strerror", None) or str(exc)
+        if name:
+            return "usage_error", f"{name!r}: {reason}."
+        return "usage_error", reason or "unusable file input."
 
     msg = str(exc)
     low = msg.lower()

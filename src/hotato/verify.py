@@ -114,7 +114,11 @@ def _load_side(path: str, label: str) -> Tuple[list, list]:
 
 
 def _scorable(event: dict) -> bool:
-    return event.get("scorable") is not False
+    # An event is judgeable only if it is not flagged not-scorable AND actually
+    # carries a verdict object. A malformed / incomplete side (no verdict) is
+    # not_scorable, never a crash -- matching compare.classify_pair's guard.
+    return (event.get("scorable") is not False
+            and isinstance(event.get("verdict"), dict))
 
 
 def _passed(event: dict) -> bool:

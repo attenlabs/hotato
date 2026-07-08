@@ -185,6 +185,12 @@ def _is_failing(event: dict) -> bool:
 
 
 def _is_echo(event: dict) -> bool:
+    # The MEASURED cross-channel coherence signal is authoritative (so the
+    # threshold-funnel mirror agrees with the envelope funnel on real captured
+    # calls that carry no scenario_id); the id substring is only a fallback.
+    echo = (event.get("signals") or {}).get("echo") or {}
+    if echo.get("echo_suspected"):
+        return True
     return "echo" in (event.get("scenario_id") or "").lower()
 
 

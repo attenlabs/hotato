@@ -72,6 +72,56 @@ RUN THIS SERVER (zero-install): `uvx --from "hotato[mcp]" hotato-mcp` (the bare 
 """
 
 
+def _guard_report_path(report_path: str) -> str:
+    """Validate an MCP-supplied ``report_path`` before it is written.
+
+    This tool is called by an LLM agent, possibly acting on untrusted content it
+    is summarising (a transcript / document that could carry an injected
+    'write to ~/.ssh/authorized_keys' instruction). ``write_report`` does a bare
+    truncate-and-overwrite, so the destination is validated here:
+
+      * when ``HOTATO_MCP_REPORT_DIR`` is set, the resolved real path MUST stay
+        inside that directory (no absolute escape, no ``..`` traversal);
+      * an EXISTING destination is only overwritten if it is already a
+        hotato-produced report (carries the ``hotato`` marker), so the tool can
+        never clobber an arbitrary pre-existing file.
+
+    Raises ValueError (surfaced as the shared structured error) on refusal."""
+    real = os.path.realpath(os.path.expanduser(report_path))
+    base = os.environ.get("HOTATO_MCP_REPORT_DIR", "").strip()
+    if base:
+        base_real = os.path.realpath(os.path.expanduser(base))
+        try:
+            inside = os.path.commonpath([base_real, real]) == base_real
+        except ValueError:  # different drives (Windows)
+            inside = False
+        if not inside:
+            raise ValueError(
+                "report_path must resolve inside HOTATO_MCP_REPORT_DIR "
+                f"({base}); refusing to write outside it."
+            )
+    if os.path.exists(real):
+        if os.path.isdir(real):
+            raise ValueError(
+                f"report_path {report_path!r} is a directory; pass a file path."
+            )
+        try:
+            with open(real, "r", encoding="utf-8", errors="ignore") as fh:
+                head = fh.read(4096)
+        except OSError as exc:
+            raise ValueError(
+                f"report_path {report_path!r} already exists and cannot be "
+                f"inspected before overwrite ({exc})."
+            ) from exc
+        if "hotato" not in head.lower():
+            raise ValueError(
+                f"report_path {report_path!r} already exists and is not a "
+                "hotato-produced report; refusing to overwrite it. Choose a new "
+                "path (ideally inside HOTATO_MCP_REPORT_DIR)."
+            )
+    return report_path
+
+
 def _run_tool(
     stereo: Optional[str] = None,
     caller: Optional[str] = None,
@@ -156,6 +206,7 @@ def _run_tool_impl(
     if report_path:
         from . import report as _report
 
+        _guard_report_path(report_path)
         if suite:
             env = _report.write_report(report_path, suite=suite, stack=stack)
         else:

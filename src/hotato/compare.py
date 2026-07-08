@@ -101,8 +101,14 @@ def classify_pair(expect_yield: bool, before_event: dict, after_event: dict) -> 
 
     An unjudgeable side is ``not_scorable`` -- never an invented verdict.
     """
-    b_scorable = before_event.get("scorable") is not False
-    a_scorable = after_event.get("scorable") is not False
+    # An event is only judgeable if it is not flagged not-scorable AND actually
+    # carries a verdict object. An envelope event that omits `scorable` yet also
+    # omits `verdict` (a malformed / incomplete / older-schema side) degrades to
+    # the honest not_scorable outcome instead of raising KeyError('verdict').
+    b_scorable = (before_event.get("scorable") is not False
+                  and isinstance(before_event.get("verdict"), dict))
+    a_scorable = (after_event.get("scorable") is not False
+                  and isinstance(after_event.get("verdict"), dict))
     if not (b_scorable and a_scorable):
         return "not_scorable"
     b_pass = bool(before_event["verdict"]["passed"])
