@@ -8,6 +8,16 @@ recursive-include ci *
 recursive-include .github *
 exclude .github/banner.png
 
+# Internal, gitignored demonstration artifacts (curated 2026-07-05 in
+# .gitignore): kept local, never published. MANIFEST.in reads the working
+# tree, not git, so without these excludes a locally-built sdist ships files
+# that a clean checkout (and the CI sdist-guard) never sees -- the 0.3.1
+# sdist did exactly that.
+exclude docs/SAA-FIX-POINTER.md
+exclude docs/SAA-BEHAVIOR-CARD.md
+exclude docs/saa_behavior_card.py
+exclude tests/test_saa_card.py
+
 # Corpus and examples: ship the SMALL, non-audio test dependencies so the
 # shipped test suite collects and runs from an extracted sdist, while keeping
 # the heavy real and rendered audio pruned. The extension filters below match

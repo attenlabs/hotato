@@ -9,6 +9,8 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-08
+
 ### Fixed
 - **Softer unsourced wording in `docs/WHY.md` and `README.md`**: "about one in
   five reported barge-in bugs" is now "in our observed reports, many alleged
@@ -18,6 +20,20 @@ design. See `docs/BENCHMARK.md`.
   `docs/WHY.md`, now "show up again and again."
 
 ### Added
+- **`hotato describe`, the generated capability manifest**: `hotato describe
+  [--format json|text]` walks `build_parser()`'s own subparsers (including the
+  nested `benchmark compare` / `fixture create`) and emits every subcommand's
+  name, purpose, argument list (name, type, required, default, help), and
+  documented exit codes, plus the tool version and the two schema URLs read
+  straight from the shipped schema files' `$id`. One call for an agent to
+  learn the whole CLI instead of scraping `--help` across ~18 subparsers;
+  generated from the live parser, so it can never drift from the real flags;
+  pure and deterministic. Alongside it: `hotato doctor --format json` (the
+  machine envelope on stdout, `report: <path>` on stderr, mirroring `demo`),
+  and a single `_EXIT_CODES` source of truth that templates a uniform "Exit
+  codes:" epilog into every subparser (previously only six carried one, with
+  inconsistent wording); `describe`'s manifest reads the same table, so the
+  help text and the manifest cannot disagree.
 - **`hotato patch` / `verify` / `loop`, the closed loop (find -> fix -> prove it
   is fixed)**: three commands that carry a fix plan the rest of the way, with the
   two irreversible decisions kept in human hands. `hotato patch <fixplan.json>`
@@ -153,12 +169,81 @@ design. See `docs/BENCHMARK.md`.
   zero-install command. `ci/github_action.yml` now says plainly it is
   hotato's own dev CI, not a copy-paste template (that footgun pointed a
   copying agent at the wrong workflow); the real drop-in stays
-  `.github/workflows/hotato.yml`. `llms.txt` is reconciled to every shipped
-  0.3.1 command (`capture`, `setup`, `ingest`, `describe`, and the rest were
-  missing) plus both schema URLs and the MCP one-liner; new `llms-full.txt`
+  `.github/workflows/hotato.yml`. `llms.txt` is reconciled to the real
+  command surface: the commands shipped in 0.3.1 that it was missing
+  (`capture`, `setup`, and the rest) plus `ingest` and `describe`, which are
+  unreleased until this release (they were previously mislabelled here as
+  shipped in 0.3.1), and both schema URLs and the MCP one-liner; new `llms-full.txt`
   concatenates README + every `docs/*.md` + `METHODOLOGY.md` + the envelope
   schema with file-boundary headers, built deterministically by
   `scripts/build_llms_full.py`. New `CITATION.cff`.
+
+### Changed
+- **`hotato demo` (and the hosted demo report) now score two real recorded
+  calls**: the packaged battery's audio was two synthetic shaped-noise
+  renders; it is now two real probe calls against a voice agent running a
+  provider's default interruption settings -- a missed real interruption
+  (`did_yield` false, 0.25 s talk-over) and a false stop on a soft
+  backchannel (yielded 0.34 s in). The battery still fails on both funnel
+  axes, fires the funnel pointer, and maps to the same two fix classes; the
+  audio under each timeline is the exact scored WAV, and two runs remain
+  byte-identical. Provenance, plainly: the recordings were made by the
+  project itself, per its own recording runbook -- operator-recorded probe
+  calls against a scripted fictional-pharmacy assistant. The only human
+  voice is the recording operator's own; the agent side is a synthetic TTS
+  voice, so no third-party speaker is present. No real names, numbers, or
+  identifiers are spoken, and the clips are released under MIT with full
+  per-scenario provenance and attestation carried in the scenario metadata.
+  Demo copy reworded off "intentionally bad agent" to the honest real-call
+  framing.
+
+### Fixed
+- **Atomic writes for downloads, sweep, and every `--out`**: `capture`'s
+  recording download goes through a temp file + `os.replace`, so a local
+  write failure after a successful fetch can never clobber a pre-existing
+  file at `--out`; `sweep`'s HTML dashboard and every CLI `--out` writer use
+  the same atomic helper, so an interrupted run cannot truncate a
+  previously-good artifact.
+- **JSON NaN safety**: every JSON emitter (cli, capture, ingest, patch,
+  inspect) goes through `safe_json_dumps` with `allow_nan=False`, so
+  NaN/Infinity can never ship as RFC-8259-invalid bare tokens; a non-finite
+  value surfaces as the clean exit-2 usage error, and `patch` rejects
+  non-finite `from`/`to`/bounds up front.
+- **Loop-state validation**: `.hotato/loop-state.json` is validated on load
+  (run/stage/discovery/planning/history field types, plus the stage-specific
+  keys the renderer reads), so a well-typed but incomplete or hand-edited
+  state file is a clean exit-2 error, never a KeyError.
+- **WAV / onset / flag validation**: a `sample_rate=0` header or a malformed
+  RIFF sub-chunk is a clean exit-2 error (never a ZeroDivisionError or a raw
+  stdlib traceback); identical caller/agent channels are refused everywhere
+  (comparing a channel against itself produced a confident, meaningless
+  verdict and could mint a bogus permanent fixture); onset validity,
+  out-of-range channels, and the global scan flags are validated up front so
+  a bad flag is a top-level usage error, never a per-file skip that degrades
+  into a false clean "found nothing"; a truncated recording is skipped with
+  an honest reason; and one bad file never aborts an `analyze`/`loop` batch.
+  (These landed across five overnight hardening rounds, each fix with a
+  regression test; the vendored `_engine` stayed untouched and golden
+  envelopes byte-identical throughout.)
+
+### Security
+- **Default-deny SSRF IP-block**: every vendor-response download URL in
+  `capture` and `ingest` is restricted to http(s), and the resolved host is
+  refused when it is loopback, private, link-local (cloud-metadata), or
+  reserved -- re-checked on every redirect target. `HOTATO_ALLOW_PRIVATE_URLS`
+  is the explicit opt-out. Credential headers are stripped on cross-host
+  redirects, so a Bearer/Basic secret is never carried off-domain.
+- **MCP input sandbox**: the MCP server's `voice_eval_run` stereo/caller/agent
+  input paths are sandboxed (`HOTATO_MCP_INPUT_DIR`, else OS temp / CWD /
+  bundled fixtures), mirroring the existing `report_path` sandbox.
+- **Ingest sandbox, fail-closed**: `hotato ingest`'s local `recording_path`
+  handling requires `HOTATO_INGEST_DIR` and fails closed, so a forged webhook
+  payload cannot point the scanner at an arbitrary local file.
+- **Scenario ids as safe path segments**: scenario ids are validated (no
+  separators, no `..`, not absolute) before any path join in
+  `run_suite`/`stackbench`/the bundled-audio fallback, plus a realpath
+  containment check under `--audio`, so a crafted scenario pack can no longer
+  read (or, via `--embed-audio`, exfiltrate) an arbitrary local WAV.
 
 ## [0.3.1] - 2026-07-07
 
@@ -474,7 +559,8 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
-[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/attenlabs/hotato/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/attenlabs/hotato/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/attenlabs/hotato/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/attenlabs/hotato/compare/v0.2.2...v0.2.3
