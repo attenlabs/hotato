@@ -180,6 +180,11 @@ _EXIT_CODES: dict = {
         (0, "ran (candidates reported, possibly zero; never a pass/fail)"),
         (2, "parse / fetch / IO error, or not-scorable input"),
     ),
+    "analyze": (
+        (0, "ran (candidate moments listed across the folder, possibly zero; "
+            "never a pass/fail and never a verdict)"),
+        (2, "usage error (not a folder) or an IO error reading the folder"),
+    ),
     "describe": (
         (0, "manifest printed"),
     ),
@@ -963,6 +968,52 @@ def _cmd_scan(args) -> int:
         print(json.dumps(capped, indent=2))
     else:
         print(_scan.render_text(result, top=args.top))
+    return 0
+
+
+def _cmd_analyze(args) -> int:
+    from . import analyze as _analyze
+
+    aggregate, per_file = _analyze.analyze_folder(
+        args.folder,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+        min_gap_sec=args.min_gap,
+        pre_sec=args.pre,
+        post_sec=args.post,
+    )
+    if args.format == "json":
+        # stdout is the machine surface: the ranked candidates capped by --top,
+        # with the full count kept in total_candidates so nothing is hidden.
+        capped = dict(aggregate)
+        if args.top > 0:
+            capped["candidates"] = aggregate["candidates"][:args.top]
+        capped["shown"] = len(capped["candidates"])
+        text = json.dumps(capped, indent=2)
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as fh:
+                fh.write(text)
+                fh.write("\n")
+            print(f"wrote ranked candidates JSON to {args.out}", file=sys.stderr)
+        print(text)
+        return 0
+    # Default: the self-contained HTML dashboard with the hear-the-bug player.
+    out = args.out or "hotato-analyze.html"
+    html_str = _analyze.build_dashboard_html(
+        aggregate, per_file, top=args.top, audio_top=args.audio_top,
+    )
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(html_str)
+    size = os.path.getsize(out)
+    print(
+        f"wrote analyze dashboard ({aggregate['total_candidates']} candidate "
+        f"moments across {aggregate['calls_scanned']} calls"
+        + (f", {aggregate['calls_skipped']} skipped" if aggregate['calls_skipped'] else "")
+        + f") to {out}  [{size / 1048576.0:.1f} MB]",
+        file=sys.stderr,
+    )
+    if not args.no_open:
+        _try_open(out)
     return 0
 
 
@@ -2042,6 +2093,74 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also write an HTML candidate report here (all candidates)")
     ig.set_defaults(func=_cmd_ingest)
 
+    # --- analyze: zero-config drop-a-folder discovery + hear-the-bug ---------
+    an = sub.add_parser(
+        "analyze",
+        help="drop a FOLDER of dual-channel calls: ranked candidate-moment "
+             "dashboard with a hear-the-bug audio playhead (zero config)",
+        description=(
+            "Zero-config discovery over a whole FOLDER of dual-channel call "
+            "recordings. No scenarios, no labels, no onset, no flags required: "
+            "just point it at the folder. Every WAV is walked label-free with "
+            "the same whole-call scanner as `hotato scan`; the candidate "
+            "turn-taking moments are aggregated across all calls and ranked by "
+            "the scanner's own salience (overlap seconds, gap seconds, echo "
+            "coherence) so the worst moments float to the top. It writes ONE "
+            "self-contained, offline HTML dashboard: each top moment shows the "
+            "call file, the timestamp, the candidate kind, the measured number, "
+            "and a to-scale caller/agent timeline. For the top moments the REAL "
+            "audio around the moment is embedded inline (base64, nothing "
+            "uploaded) with a PLAYHEAD that sweeps the timeline in sync with "
+            "playback, so you press play and HEAR the overlap or gap land where "
+            "the chart marks it. Candidates are MEASURED timing moments, never "
+            "verdicts and never intent: you decide the expected behavior and "
+            "label the ones that matter with `hotato fixture create`. "
+            "Non-dual-channel or unreadable files are reported cleanly as "
+            "skipped with their reason, never a crash. Offline; no accuracy "
+            "percentage anywhere."
+        ),
+        epilog=(
+            _exit_codes_epilog("analyze") + "\n\n"
+            "Examples:\n"
+            "  hotato analyze ./recordings                      # dashboard -> hotato-analyze.html\n"
+            "  hotato analyze ./recordings --out calls.html --audio-top 12\n"
+            "  hotato analyze ./recordings --format json        # ranked candidates for an agent\n"
+            "  hotato ./recordings                              # bare folder routes here\n\n"
+            + _LABEL_NOTE
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    an.add_argument("folder", metavar="FOLDER",
+                    help="a directory of dual-channel call recordings (WAVs); "
+                         "walked recursively, label-free")
+    an.add_argument("--caller-channel", type=int, default=0)
+    an.add_argument("--agent-channel", type=int, default=1)
+    an.add_argument("--top", type=int, default=25,
+                    help="cap the ranked moments shown in the dashboard (and the "
+                         "stdout JSON) by salience, longest overlap or gap first; "
+                         "0 shows all (default 25)")
+    an.add_argument("--audio-top", type=int, default=8,
+                    help="embed the hear-the-bug audio player for the top N "
+                         "moments (the rest show the timeline only); keeps the "
+                         "page a reasonable size (default 8)")
+    an.add_argument("--pre", type=float, default=2.0,
+                    help="seconds of audio/timeline kept BEFORE each moment (default 2.0)")
+    an.add_argument("--post", type=float, default=4.0,
+                    help="seconds of audio/timeline kept AFTER each moment (default 4.0)")
+    an.add_argument("--min-gap", type=float, default=2.0,
+                    help="minimum response gap in seconds to surface as a "
+                         "candidate (default 2.0)")
+    an.add_argument("--format", default="html", choices=["html", "json"],
+                    help="output: 'html' (the self-contained dashboard, default) "
+                         "or 'json' (ranked candidates + metadata to stdout)")
+    an.add_argument("--out", default=None, metavar="PATH",
+                    help="where to write the dashboard (default hotato-analyze.html); "
+                         "with --format json, also writes the full ranked JSON here")
+    an.add_argument("--no-open", action="store_true",
+                    help="do not launch a browser for the HTML dashboard; just "
+                         "write and print the path")
+    an.set_defaults(func=_cmd_analyze)
+
     # --- describe: the generated capability manifest (machine-drivability) --
     ds = sub.add_parser(
         "describe",
@@ -2068,8 +2187,32 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _route_bare_folder(argv, parser) -> "list | None":
+    """Nicety: ``hotato <folder>`` (a bare positional that is an existing
+    directory, not a known subcommand or a flag) routes to ``analyze <folder>``.
+    Returns the rewritten argv, or None to leave it untouched."""
+    if not argv:
+        return None
+    first = argv[0]
+    if first.startswith("-"):
+        return None
+    subcommands = set()
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            subcommands = set(action.choices)
+            break
+    if first in subcommands:
+        return None
+    if os.path.isdir(first):
+        return ["analyze"] + list(argv)
+    return None
+
+
 def main(argv=None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    raw = sys.argv[1:] if argv is None else list(argv)
+    rerouted = _route_bare_folder(raw, parser)
+    args = parser.parse_args(rerouted if rerouted is not None else raw)
     # Bare `hotato` (no subcommand): guide the user to score their OWN call.
     if getattr(args, "func", None) is None:
         print(_FIRST_RUN_GUIDE, end="")
