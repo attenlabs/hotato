@@ -42,16 +42,45 @@ import wave
 from typing import List, Optional, Tuple
 
 from ._engine.score import ScoreConfig
+from .errors import ChannelRangeError
 from .scan import SCAN_NOTE, activity_tracks, scan_recording
 
 __all__ = [
     "analyze_folder",
     "build_dashboard_html",
+    "validate_scan_args",
     "DEFAULT_TOP",
     "DEFAULT_AUDIO_TOP",
     "DEFAULT_PRE_SEC",
     "DEFAULT_POST_SEC",
 ]
+
+
+def validate_scan_args(
+    *, caller_channel: int, agent_channel: int, min_gap_sec: float
+) -> None:
+    """Validate the GLOBAL scan flags ONCE, up front, for the folder-batch
+    commands (analyze / loop / sweep). A bad ``--min-gap`` or a bad
+    ``--caller-channel`` / ``--agent-channel`` is a single usage mistake, not a
+    property of any one recording, so it must raise here (-> exit-2 usage error)
+    rather than be swallowed per file as a 'skip' -- which would turn a typo'd
+    flag into a false clean 'found nothing' result and, for ``loop``, conclude
+    there is nothing to fix. (Out-of-range-high channels are still caught per
+    file as ``ChannelRangeError`` and re-raised, since the channel count is only
+    known once a file is opened.)"""
+    if min_gap_sec <= 0:
+        raise ValueError(f"--min-gap must be > 0 seconds; got {min_gap_sec}.")
+    if caller_channel < 0 or agent_channel < 0:
+        raise ValueError(
+            "--caller-channel and --agent-channel must be >= 0 "
+            f"(got caller={caller_channel}, agent={agent_channel})."
+        )
+    if caller_channel == agent_channel:
+        raise ValueError(
+            f"--caller-channel and --agent-channel must be different (both are "
+            f"{caller_channel}); pass distinct channels for a 2-channel "
+            "recording (the caller and the agent are on separate channels)."
+        )
 
 DEFAULT_TOP = 25            # moments shown in the dashboard / capped in stdout json
 DEFAULT_AUDIO_TOP = 8       # top moments that get the embedded hear-the-bug player
@@ -179,6 +208,14 @@ def analyze_folder(
         raise ValueError(
             f"--pre must be >= 0 and --post > 0 (got pre={pre_sec}, post={post_sec})."
         )
+    # Validate the GLOBAL scan flags ONCE, up front, exactly like pre/post above:
+    # a bad --min-gap or bad channel flag is one usage mistake, not a per-file
+    # problem, so it must not degrade into a per-file skip below.
+    validate_scan_args(
+        caller_channel=caller_channel,
+        agent_channel=agent_channel,
+        min_gap_sec=min_gap_sec,
+    )
 
     scanned: List[dict] = []
     skipped: List[dict] = []
@@ -198,6 +235,12 @@ def analyze_folder(
                 ap, caller_channel=caller_channel, agent_channel=agent_channel,
                 cfg=cfg,
             )
+        except ChannelRangeError:
+            # An out-of-range channel index is a GLOBAL flag mistake (the same
+            # --caller-channel/--agent-channel for every file), not a per-file
+            # problem, so it must propagate as a usage error (exit 2) instead of
+            # skipping every file and reporting a false clean 'found nothing'.
+            raise
         except (ValueError, FileNotFoundError, OSError, wave.Error,
                 RuntimeError) as exc:
             # A single bad file is reported cleanly, never fatal: a mono mix, a

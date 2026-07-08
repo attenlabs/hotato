@@ -395,6 +395,40 @@ def classify_event(
     )
 
 
+def downgrade_lone_engagement_fix(event: dict, stack: Optional[str] = None) -> None:
+    """Downgrade a LONE engagement-control fix to the config fix it really is.
+
+    The engagement-control pointer is honest only for the both-axes battery
+    (``systemic_pointer`` fires): a battery that missed a real interruption AND
+    false-stopped on a backchannel, where no single threshold can satisfy both.
+    A single backchannel false-stop with no paired missed-real-interruption --
+    always the case for one ``hotato run`` / ``hotato capture`` -- is genuinely
+    config-tunable: raise the words-to-interrupt threshold one step, exactly as
+    ``fixplan``'s ``suppress_false_trigger`` intent and ``diagnose``'s
+    ``config_only_safe=True`` already say. Callers invoke this ONLY when the
+    battery-level funnel is absent, so the pointer never fires on a lone event.
+
+    Mutates ``event['fix']`` in place. A no-op unless the fix is
+    ``engagement-control``."""
+    fix = event.get("fix")
+    if not fix or fix.get("fix_class") != "engagement-control":
+        return
+    event["fix"] = _config_fix(
+        stack,
+        "suppress_false_trigger",
+        "False barge-in on a backchannel: raise the words-to-interrupt threshold",
+        "The caller only signalled 'I'm listening' (mhm / right / okay) and the "
+        "agent stopped mid-thought. On a battery that does NOT also miss a real "
+        "interruption, this is config-tunable: raise the words-to-interrupt "
+        "threshold one step so a lone backchannel no longer takes the floor. "
+        "HONEST TRADE-OFF: the same threshold that ignores 'mhm' can also delay a "
+        "one-word 'stop', so add an opposite-risk real-interruption fixture and "
+        "re-run. Only a battery that fails on BOTH axes at once (a missed real "
+        "interruption AND a backchannel false-stop) is beyond any single "
+        "threshold and needs a discriminating engagement-control layer.",
+    )
+
+
 def event_is_echo(event: dict) -> bool:
     """Whether an event is a self-echo / phantom self-interruption rather than a
     genuine backchannel false-barge. The MEASURED cross-channel coherence signal

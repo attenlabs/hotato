@@ -19,6 +19,7 @@ import array
 import json
 import math
 import os
+import re
 import struct
 import sys
 import wave
@@ -32,7 +33,35 @@ from ._engine.score import (
     score_channels,
     score_stereo,
 )
-from .fixmap import classify_event, is_non_speech_ambient_label, systemic_pointer
+from .errors import ChannelRangeError
+from .fixmap import (
+    classify_event,
+    downgrade_lone_engagement_fix,
+    is_non_speech_ambient_label,
+    systemic_pointer,
+)
+
+# A scenario ``id`` becomes a filesystem path (``<audio_dir>/<id><suffix>``), so
+# it MUST be a safe single path segment or a crafted scenarios pack could read
+# (and, via --embed-audio, exfiltrate) an arbitrary local WAV outside --audio.
+# The rule mirrors the corpus intake schema (corpus/label.schema.json): a plain
+# slug with NO path separator, not absolute, and not starting with '.', so
+# '..', '../x', '/etc/x', 'C:\\x' and 'a/b' are all rejected before any join.
+_SCENARIO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _safe_scenario_id(sid) -> str:
+    """Validate a scenario ``id`` as a safe path segment, or raise a clean
+    ValueError (-> exit 2). Never sanitizes silently: a bad id is refused, never
+    quietly rewritten into a different file."""
+    s = str(sid)
+    if not _SCENARIO_ID_RE.match(s):
+        raise ValueError(
+            f"scenario id {sid!r} is not a safe id: use letters, digits, '.', "
+            "'-', '_' and no path separators (a scenario id becomes a file "
+            "name under --audio, so '/', '..' or an absolute path is refused)."
+        )
+    return s
 
 __all__ = [
     "run_single",
@@ -239,6 +268,22 @@ def _envelope(*, mode: str, stack: Optional[str], events: list) -> dict:
     not_scorable = [e for e in events if e.get("scorable") is False]
     scorable = [e for e in events if e.get("scorable") is not False]
     failed = [e for e in scorable if not e["verdict"]["passed"]]
+
+    # The engagement-control pointer is honest ONLY on the both-axes case: a
+    # battery that BOTH missed a real interruption AND false-stopped on a
+    # backchannel, where no single threshold can win. A LONE backchannel
+    # false-stop (no missed-real-interruption anywhere in the battery -- always
+    # true for a single `hotato run`/`hotato capture`) is config-tunable: raise
+    # the words-to-interrupt threshold one step, exactly as `hotato plan`/
+    # `diagnose` already treat it. So compute the funnel FIRST and, when it is
+    # absent, downgrade any lone engagement-control fix to that config fix before
+    # the fix_map is built -- the pointer never rides on a single occurrence.
+    funnel = systemic_pointer(scorable)
+    if funnel is None:
+        for e in failed:
+            if e.get("fix"):
+                downgrade_lone_engagement_fix(e, stack)
+
     fix_map = [
         {
             "event_id": e["event_id"],
@@ -273,7 +318,7 @@ def _envelope(*, mode: str, stack: Optional[str], events: list) -> dict:
         "summary": summary,
         "events": events,
         "fix_map": fix_map,
-        "funnel": systemic_pointer(scorable),
+        "funnel": funnel,
         "exit_code": 1 if failed else 0,
     }
 
@@ -450,13 +495,30 @@ def _read_wav(path: str):
 
 
 def _require_channel(signal, index: int, role: str) -> None:
-    """Fail cleanly (ValueError -> exit 2) on an out-of-range channel index rather
-    than let ``Signal.get`` raise a bare IndexError traceback deep in the engine."""
+    """Fail cleanly (ChannelRangeError -> exit 2) on an out-of-range channel index
+    rather than let ``Signal.get`` raise a bare IndexError traceback deep in the
+    engine. ``ChannelRangeError`` is a ValueError subclass, so the exit-2 /
+    structured-error contract is unchanged; the distinct type only lets the
+    folder-batch commands treat it as a global flag error, not a per-file skip."""
     if index < 0 or index >= signal.num_channels:
-        raise ValueError(
+        raise ChannelRangeError(
             f"--{role}-channel {index} is out of range for a "
             f"{signal.num_channels}-channel recording "
             f"(valid channels: 0..{signal.num_channels - 1})."
+        )
+
+
+def _require_distinct_channels(caller_channel: int, agent_channel: int) -> None:
+    """Refuse identical caller/agent channels (ValueError -> exit 2). Comparing a
+    channel against itself makes the agent 'hear' its own channel as the caller,
+    producing a confident but meaningless verdict and -- via ``fixture create`` --
+    a bogus regression fixture that passes/fails the battery forever. A
+    two-channel recording carries the two parties on two DIFFERENT channels."""
+    if caller_channel == agent_channel:
+        raise ValueError(
+            f"--caller-channel and --agent-channel must be different (both are "
+            f"{caller_channel}); pass distinct channels for a 2-channel "
+            "recording (the caller and the agent are on separate channels)."
         )
 
 
@@ -569,6 +631,7 @@ def run_single(
                 "--stereo file has one channel; pass --caller and --agent as two "
                 "mono files, or export a real two-channel recording."
             )
+        _require_distinct_channels(caller_channel, agent_channel)
         _require_channel(signal, caller_channel, "caller")
         _require_channel(signal, agent_channel, "agent")
         _check_onset_within_duration(onset_sec, signal.num_samples / signal.sample_rate)
@@ -681,6 +744,7 @@ def dump_frames_for_input(
                 "--stereo file has one channel; pass --caller and --agent as two "
                 "mono files, or export a real two-channel recording."
             )
+        _require_distinct_channels(caller_channel, agent_channel)
         _require_channel(signal, caller_channel, "caller")
         _require_channel(signal, agent_channel, "agent")
         _check_onset_within_duration(onset_sec, signal.num_samples / signal.sample_rate)
@@ -740,8 +804,11 @@ def _load_bundled_scenarios() -> list:
 def _bundled_audio_path(scenario_id: str, suffix: str = ".example.wav") -> str:
     from importlib import resources  # deferred: costs ~17ms at interpreter start
 
+    # Defense in depth: bundled ids are trusted, but validate before the join so
+    # this helper can never be reused to escape the packaged audio directory.
+    safe = _safe_scenario_id(scenario_id)
     return str(
-        resources.files("hotato").joinpath("data", "audio", scenario_id + suffix)
+        resources.files("hotato").joinpath("data", "audio", safe + suffix)
     )
 
 
@@ -778,10 +845,24 @@ def run_suite(
         scenarios = _load_bundled_scenarios()
 
     events = []
+    audio_base_real = os.path.realpath(audio_dir) if audio_dir else None
     for sc in scenarios:
-        sid = sc["id"]
+        # Validate the id BEFORE it is turned into a path: a scenarios pack is
+        # untrusted input (docs/SUBMITTING.md invites third-party scenario+audio
+        # submissions), and an id like '../../secret/leaked' would otherwise read
+        # -- and, under report --embed-audio, exfiltrate -- an arbitrary local WAV.
+        sid = _safe_scenario_id(sc["id"])
         if audio_dir:
             wav_path = os.path.join(audio_dir, sid + suffix)
+            # Defense in depth on top of the slug check: the resolved recording
+            # must stay inside --audio (the same commonpath containment check
+            # used for HOTATO_INGEST_DIR / HOTATO_MCP_REPORT_DIR).
+            wav_real = os.path.realpath(wav_path)
+            if os.path.commonpath([audio_base_real, wav_real]) != audio_base_real:
+                raise ValueError(
+                    f"scenario id {sc['id']!r} resolves to {wav_real!r}, outside "
+                    f"the --audio directory {audio_dir!r}; refusing to read it."
+                )
         else:
             wav_path = _bundled_audio_path(sid, suffix)
 
@@ -835,6 +916,7 @@ def run_suite(
                 f"suite audio {wav_path!r} has one channel; scenario audio must be "
                 "a two-channel recording (caller on one channel, agent on the other)."
             )
+        _require_distinct_channels(caller_channel, agent_channel)
         _require_channel(signal, caller_channel, "caller")
         _require_channel(signal, agent_channel, "agent")
         scenario_onset = sc.get("caller_onset_sec")

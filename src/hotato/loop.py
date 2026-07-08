@@ -238,6 +238,12 @@ def run_loop(
     driven by observable facts (does the fixtures dir have labeled scenarios
     yet?). Returns ``(result, exit_code)``. Never auto-labels, never
     auto-applies. Raises ValueError (exit 2) on unusable input."""
+    # Validate the global scan flag UP FRONT, before any state transition, so a
+    # typo'd --min-gap is always an exit-2 usage error and can never make the
+    # closed loop conclude (from a discovery it silently skipped) that there is
+    # nothing to fix -- regardless of the persisted stage.
+    if min_gap <= 0:
+        raise ValueError(f"--min-gap must be > 0 seconds; got {min_gap}.")
     state_path = state_path or default_state_path()
     state = load_state(state_path)
     state_dir = os.path.dirname(os.path.abspath(state_path))

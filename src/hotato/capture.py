@@ -83,11 +83,16 @@ __all__ = [
 # scaffolds are keyed on exactly this tuple).
 STACKS = ("vapi", "twilio", "livekit", "pipecat", "retell")
 
-# Mono/mixed-only stacks, all verified verbatim in
-# hotato-launch/INTEGRATION-SPEC-2026-07-07.md as producing a single combined
-# recording with no per-party channel separation. Every one is scored ONLY
-# behind an explicit --allow-mono / HOTATO_ALLOW_MONO=1 opt-in, labelled
-# indicative only.
+# Stacks treated as mono/mixed (no trusted per-party channel separation), so
+# every one is scored ONLY behind an explicit --allow-mono / HOTATO_ALLOW_MONO=1
+# opt-in, labelled indicative only. NOTE the two provenance tiers, kept honest:
+#   * bland / elevenlabs / synthflow / millis are spec-CONFIRMED mono-only
+#     (INTEGRATION-SPEC-2026-07-07.md tags each [yes-mono-only]).
+#   * cartesia is spec-tagged [unclear]: the spec could NOT confirm its channel
+#     count either way (dual_channel: UNCLEAR / NOT CONFIRMED IN DOCS), so it is
+#     DEFENSIVELY treated as mono (fail-safe default) until a live test proves
+#     otherwise -- NOT because the spec verified it. capture_cartesia's own
+#     docstring says the same; do not "upgrade" this to a verified claim.
 MONO_STACKS = ("bland", "elevenlabs", "synthflow", "millis", "cartesia")
 
 # `hotato capture --stack` accepts the original five plus the mono adapters.
@@ -385,8 +390,26 @@ def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> by
         raise ValueError(f"network error fetching {url}: {exc.reason}") from exc
 
 
-def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 60) -> dict:
-    return json.loads(_http_get(url, headers=headers, timeout=timeout).decode("utf-8"))
+def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 60):
+    """GET ``url`` and parse a JSON body. A 200 response whose body is NOT JSON
+    (a WAF/captcha interstitial, an HTML error page, an expired-session redirect,
+    or a typo'd --base-url all commonly served with HTTP 200) would otherwise
+    surface as a raw, context-free ``json.JSONDecodeError`` ("Expecting value:
+    line 1 column 1"). Turn it into the same clean, actionable usage error the
+    sibling validators (_require_json_object / _require_url_str) give: name the
+    URL and show the start of the non-JSON body."""
+    raw = _http_get(url, headers=headers, timeout=timeout).decode("utf-8", "replace")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        preview = " ".join(raw.split())[:200]
+        raise ValueError(
+            f"expected a JSON response from {url}, got a non-JSON body "
+            f"({exc.msg}). This is usually a proxy/CDN or WAF error page, an "
+            "expired-session HTML redirect, a vendor outage page served with "
+            "HTTP 200, or a wrong --base-url. First bytes: "
+            f"{preview!r}"
+        ) from exc
 
 
 def _require_json_object(value, what: str) -> dict:
@@ -1162,13 +1185,29 @@ def _score_capture(
     caller_channel: int,
     agent_channel: int,
 ) -> dict:
-    """Score a fetched capture. When an explicit --allow-mono download produced
-    a 1-channel file, score it degraded (the single channel stands in for both
-    parties, so talk-over is not attributable) and say so loudly."""
-    if _wav_channels(path) == 1:
+    """Score a fetched capture, honestly gated on the STACK's verified channel
+    status -- not merely on how many channels the download happens to have.
+
+    A confident dual-channel verdict is produced ONLY for stacks whose separated
+    (2-channel) recording the integration spec confirms verbatim
+    (``DUAL_PULL_STACKS`` = vapi / twilio / retell). For every other stack --
+    the spec-confirmed mono ones AND cartesia, whose channel order the spec
+    marks [unclear] and never verified -- the download is scored degraded /
+    indicative only, even if it happens to arrive with 2 channels, because we
+    cannot trust which channel carries which party. A mono file from ANY stack
+    is likewise degraded. In every degraded case a single channel stands in for
+    both parties, so talk-over is not attributable, and we say so loudly."""
+    nch = _wav_channels(path)
+    trusted_dual = stack in DUAL_PULL_STACKS and nch == 2
+    if not trusted_dual:
+        if nch == 1:
+            why = "mono file"
+        else:
+            why = (f"{nch}-channel file, but this stack's channel separation is "
+                   "not spec-verified")
         sys.stderr.write(
-            f"[{stack}] degraded: mono file, scoring WITHOUT party attribution "
-            "(the single channel stands in for both parties). Treat results as "
+            f"[{stack}] degraded: {why}, scoring WITHOUT party attribution (a "
+            "single channel stands in for both parties). Treat results as "
             "indicative only.\n"
         )
         return score_two_channel(path, path, stack=stack, onset_sec=onset, expect=expect)
@@ -1899,6 +1938,27 @@ def run_pull(stack=None, *, ids=None, since=None, limit=50, out=None,
     return 0
 
 
+def _atomic_write_text(path: str, text: str) -> None:
+    """Write ``text`` to ``path`` atomically: a temp file in the SAME directory,
+    then ``os.replace`` (mirroring cli._atomic_write_text / loop.save_state).
+    ``open(path, "w")`` truncates the target the instant it is opened, so a crash
+    / full disk / kill mid-write leaves a previously-good file truncated in
+    place; writing a temp file first and renaming means the destination is only
+    ever the old bytes or the complete new bytes."""
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".hotato-tmp-", suffix=".part")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
               allow_mono=False, top=25, audio_top=8, pre=2.0, post=4.0,
               min_gap=2.0, no_open=False, api_key=None, account_sid=None,
@@ -1908,6 +1968,14 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
     -- the 'connect once, see every turn-taking problem across your real calls'
     flow. The analyze step is reused wholesale."""
     from . import analyze as _analyze
+
+    # Validate the global scan flags BEFORE the (slow, network) pull, so a typo'd
+    # --min-gap / bad channel is an immediate exit-2 usage error, never a pull
+    # followed by a false clean 'found nothing'.
+    _analyze.validate_scan_args(
+        caller_channel=caller_channel, agent_channel=agent_channel,
+        min_gap_sec=min_gap,
+    )
 
     overrides = _overrides_from(api_key, account_sid, auth_token, model_id,
                                 agent_id, base_url)
@@ -1940,8 +2008,11 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
     html_str = _analyze.build_dashboard_html(
         aggregate, per_file, top=top, audio_top=audio_top,
     )
-    with open(out_file, "w", encoding="utf-8") as fh:
-        fh.write(html_str)
+    # Atomic write, like every other --out writer: a kill / disk-full mid-write
+    # must not destroy a previously-good report at this path (sweep can run long
+    # -- it downloads real recordings first -- so it is exactly the command most
+    # likely to be interrupted).
+    _atomic_write_text(out_file, html_str)
     size = os.path.getsize(out_file)
     print(
         f"hotato sweep: {stack} -> {out_file}  "

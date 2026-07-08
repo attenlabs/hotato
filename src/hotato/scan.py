@@ -46,6 +46,7 @@ from typing import List, Optional, Tuple
 
 from ._engine.score import ScoreConfig
 from ._engine.vad import energy_vad
+from .errors import ChannelRangeError
 
 # numpy is an optional acceleration only, mirroring the engine. It is
 # resolved lazily on first use so importing the module stays cheap; an
@@ -175,7 +176,10 @@ def windowed_frame_rms(
             )
         for role, idx in (("caller", caller_channel), ("agent", agent_channel)):
             if idx < 0 or idx >= n_channels:
-                raise ValueError(
+                # ChannelRangeError (a ValueError subclass, so the exit-2
+                # contract is unchanged) lets analyze/loop/sweep treat a bad
+                # channel flag as a GLOBAL usage error instead of a per-file skip.
+                raise ChannelRangeError(
                     f"--{role}-channel {idx} is out of range for a "
                     f"{n_channels}-channel recording "
                     f"(valid channels: 0..{n_channels - 1})."
@@ -309,6 +313,12 @@ def scan_recording(
         cfg = ScoreConfig()
     if min_gap_sec <= 0:
         raise ValueError(f"--min-gap must be > 0 seconds; got {min_gap_sec}.")
+    if caller_channel == agent_channel:
+        raise ValueError(
+            f"--caller-channel and --agent-channel must be different (both are "
+            f"{caller_channel}); pass distinct channels for a 2-channel "
+            "recording (the caller and the agent are on separate channels)."
+        )
     rms_c, rms_a, hop, sample_rate, duration = windowed_frame_rms(
         path, caller_channel, agent_channel, cfg.frame_ms, cfg.hop_ms
     )
