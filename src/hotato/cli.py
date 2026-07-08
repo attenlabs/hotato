@@ -984,17 +984,21 @@ def _cmd_ingest(args) -> int:
     )
 
 
-_DEMO_HEADER = "hotato demo: intentionally bad agent battery"
-_DEMO_NOTE = "demo is intentionally failing; use this to see what Hotato catches."
+_DEMO_HEADER = "hotato demo: real recorded calls a provider's default agent fails"
+_DEMO_NOTE = ("these are two real recorded calls on a provider's default "
+              "settings; run it to see what Hotato catches.")
 
 
 def _cmd_demo(args) -> int:
-    # The packaged INTENTIONALLY FAILING battery: two deliberate bad-agent
-    # renders (fd-01 misses a real interruption, fd-02 yields to a bare
-    # backchannel). It fails on both axes by design, so a first-time user sees
-    # exactly what Hotato catches: the [FAIL] verdicts, both fix classes
-    # (config and engagement-control), and the report timelines. Same scorer,
-    # same envelope, same report as `run` and `doctor`; nothing new is claimed.
+    # The packaged demo battery: two REAL recorded probe calls against a voice
+    # agent on a provider's DEFAULT interruption settings (fd-01 misses a real
+    # interruption, fd-02 false-stops on a backchannel). Both fail, on both
+    # axes, so a first-time user hears exactly what Hotato catches: the [FAIL]
+    # verdicts, both fix classes (config and engagement-control), the report
+    # timelines, and the exact scored audio embedded under each one. Same
+    # scorer, same envelope, same report as `run` and `doctor`; nothing new is
+    # claimed. The clips are operator-recorded and MIT-licensed (see each
+    # scenario's provenance block).
     from importlib import resources
 
     from . import report as _report
@@ -1011,6 +1015,7 @@ def _cmd_demo(args) -> int:
         stack="generic",
         scenarios_dir=scenarios_dir,
         audio_dir=audio_dir,
+        embed_audio=True,
     )
 
     if args.format == "json":
@@ -1595,19 +1600,22 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--no-fail", action="store_true", help="always exit 0 (do not fail on a regression)")
     d.set_defaults(func=_cmd_doctor)
 
-    # --- demo: the packaged intentionally failing battery -------------------
+    # --- demo: the packaged real-call failing battery -----------------------
     dm = sub.add_parser(
         "demo",
-        help="run the packaged intentionally failing battery and open its report",
+        help="run the packaged battery of two real failing calls and open its report",
         description=(
-            "Run the packaged INTENTIONALLY FAILING two-scenario battery: one "
-            "agent that talks straight over a real interruption, one that yields "
-            "to a bare backchannel. Both fail by design, so you see what Hotato "
-            "catches in under a minute: the [FAIL] verdicts, the fix classes "
-            "(config and engagement-control), and the per-event report timelines. "
-            "Renders the self-contained HTML report and opens it best-effort. "
-            "Exits 0 by default because the failures are intentional; pass --fail "
-            "to get the real regression exit code. Offline, zero extra files."
+            "Run the packaged two-scenario battery of REAL recorded calls "
+            "against a voice agent on a provider's DEFAULT interruption "
+            "settings: one where the agent talks straight over a real "
+            "interruption, one where it false-stops on a backchannel. Both "
+            "fail, so you hear what Hotato catches in under a minute: the "
+            "[FAIL] verdicts, the fix classes (config and engagement-control), "
+            "the per-event report timelines, and the exact scored audio "
+            "embedded under each one. Renders the self-contained HTML report "
+            "and opens it best-effort. Exits 0 by default so a demo never "
+            "breaks a script; pass --fail to get the real regression exit "
+            "code. Offline, zero extra files."
         ),
         epilog=(
             _exit_codes_epilog("demo") + "\n\n" + _LABEL_NOTE + "\n\n"

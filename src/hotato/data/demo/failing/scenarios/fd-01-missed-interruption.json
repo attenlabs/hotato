@@ -1,26 +1,67 @@
 {
   "id": "fd-01-missed-interruption",
-  "title": "BAD-AGENT DEMO: agent talks straight over a real interruption (FAIL: should yield, did not)",
+  "title": "Real call: half-volume 'sorry, one second' is ignored (Vapi defaults)",
   "category": "should_yield",
-  "tags": ["interruption", "floor-taking", "bad-agent", "missed"],
+  "source_type": "role-played",
+  "tags": [
+    "real-audio",
+    "vapi",
+    "defaults",
+    "barge-in",
+    "quiet-interruption",
+    "missed-interruption"
+  ],
+  "audio": "fd-01-missed-interruption.example.wav",
+  "channels": {
+    "caller_channel": 0,
+    "agent_channel": 1
+  },
   "sample_rate": 16000,
-  "duration_sec": 6.5,
-  "caller_onset_sec": 2.00,
+  "duration_sec": 8.0,
+  "caller_onset_sec": 2.0,
   "expected": {
     "yield": true,
-    "max_time_to_yield_sec": 0.70,
-    "max_talk_over_sec": 0.80
+    "max_time_to_yield_sec": 1.0,
+    "max_talk_over_sec": 1.0
   },
   "transcript": {
-    "agent": "So the total comes to two hundred and forty dollars and that includes the delivery fee and the setup and the extended warranty which I would really recommend because...",
-    "caller": "stop, I did not agree to the warranty, take it off"
+    "caller": "sorry, one second (half volume)",
+    "note": "caller wording from the operator's call script and session notes, not an STT transcript; the agent side is the assistant's spoken answer"
   },
-  "reference_render": {
-    "agent_segments_sec": [[0.20, 6.00]],
-    "caller_segments_sec": [[2.00, 4.50]],
-    "agent_pitch": "low",
-    "caller_pitch": "high"
+  "related_signals": [
+    "did_yield",
+    "seconds_to_yield",
+    "talk_over_sec"
+  ],
+  "license": "MIT",
+  "provenance": {
+    "source": "operator-recorded probe call against a Vapi assistant on DEFAULT interruption settings",
+    "assistant": "hotato-probe",
+    "assistant_id": "37995a11-3b7e-41e7-87b5-198f08b6161a",
+    "model": "openai/gpt-4o",
+    "voice": "vapi/Elliot",
+    "recorded": "2026-07-06",
+    "interruption_settings": "Vapi defaults (stopSpeakingPlan and startSpeakingPlan unset)",
+    "call_id": "019f3929-9f73-7227-b1a8-2dfdf287c88c",
+    "source_file": "10-quiet-interruption.wav",
+    "source_sha256": "01b61e3069b9e5372bd9bb0c0b69b1558abc66ab40f974c721f028e054d9046e",
+    "window_source_sec": [
+      11.18,
+      19.18
+    ],
+    "onset_derivation": "first caller run during agent activity: 13.18 s (0.25 s above the energy threshold, peak -43.8 dBFS, the audible core of the half-volume attempt); a second quiet attempt at 16.50 s (peak -50.4 dBFS) and the louder retry at 19.27 s are separate moments",
+    "field_note": "the quiet interrupt did NOT trip the default threshold; the agent kept talking",
+    "agreement_with_field_note": "matches: measured did_yield=false, no qualifying agent stop inside the 3.0 s window (the agent's inter-sentence gaps in that stretch are 0.15 and 0.17 s, shorter than the 0.20 s yield hangover)",
+    "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
-  "why_it_matters": "DELIBERATE BAD-AGENT RENDER. The caller clearly takes the floor and keeps it for over two seconds, but the agent never stops: did_yield is false, so this should-yield event FAILS. This is the missed-real-interruption axis of the funnel. Paired with fd-02 (a false barge-in on a backchannel), it proves no single sensitivity threshold can satisfy both at once.",
-  "related_signals": ["did_yield", "talk_over"]
+  "attestation": {
+    "contributor": "operator-recorded probe calls (build_vapi_defaults.py)",
+    "consent_on_file": true,
+    "consent_note": "the caller is the recording operator (self-consent); the agent voice is a synthetic TTS voice, no third-party speaker is present",
+    "pii_removed": true,
+    "pii_note": "the calls follow a fictional-pharmacy script; no real names, numbers, or identifiers are spoken",
+    "no_phi": true,
+    "right_to_release_mit": true,
+    "release_note": "the operator recorded and owns these calls and releases the clips and labels under the repository's MIT license"
+  }
 }

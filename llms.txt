@@ -181,8 +181,10 @@ measures whether the timing matched that label.
 - Two separate channels make overlap a fact of the recording. On a mono mix
   the scorer needs a caller-onset label and marks its overlap numbers as
   estimates.
-- The bundled fixtures are synthetic: a deterministic floor and a regression
-  guard. Real validity comes from your own labelled calls.
+- The bundled barge-in SUITE fixtures are synthetic: a deterministic floor and
+  a regression guard. The `hotato demo` battery, by contrast, is two real
+  operator-recorded calls (MIT-licensed). Real validity comes from your own
+  labelled calls.
 
 ## Links
 

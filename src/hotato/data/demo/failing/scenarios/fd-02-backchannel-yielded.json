@@ -1,26 +1,66 @@
 {
   "id": "fd-02-backchannel-yielded",
-  "title": "BAD-AGENT DEMO: agent yields to a bare backchannel (FAIL: should hold, yielded)",
+  "title": "Real call: soft backchannel halts the agent mid-word for good (Vapi defaults)",
   "category": "should_not_yield",
-  "tags": ["backchannel", "false-trigger", "bad-agent", "yielded"],
+  "source_type": "role-played",
+  "tags": [
+    "real-audio",
+    "vapi",
+    "defaults",
+    "backchannel",
+    "false-trigger"
+  ],
+  "audio": "fd-02-backchannel-yielded.example.wav",
+  "channels": {
+    "caller_channel": 0,
+    "agent_channel": 1
+  },
   "sample_rate": 16000,
-  "duration_sec": 3.5,
-  "caller_onset_sec": 2.20,
+  "duration_sec": 8.0,
+  "caller_onset_sec": 2.0,
   "expected": {
     "yield": false,
     "max_time_to_yield_sec": null,
     "max_talk_over_sec": null
   },
   "transcript": {
-    "agent": "Great, so the next step is just to confirm your email and then...",
-    "caller": "mhm"
+    "caller": "soft spaced backchannels (mhm / right / okay), later backchannel",
+    "note": "caller wording from the operator's call script and session notes, not an STT transcript; the agent side is the assistant's spoken answer"
   },
-  "reference_render": {
-    "agent_segments_sec": [[0.20, 2.30]],
-    "caller_segments_sec": [[2.20, 2.45]],
-    "agent_pitch": "low",
-    "caller_pitch": "high"
+  "related_signals": [
+    "did_yield",
+    "seconds_to_yield",
+    "talk_over_sec"
+  ],
+  "license": "MIT",
+  "provenance": {
+    "source": "operator-recorded probe call against a Vapi assistant on DEFAULT interruption settings",
+    "assistant": "hotato-probe",
+    "assistant_id": "37995a11-3b7e-41e7-87b5-198f08b6161a",
+    "model": "openai/gpt-4o",
+    "voice": "vapi/Elliot",
+    "recorded": "2026-07-06",
+    "interruption_settings": "Vapi defaults (stopSpeakingPlan and startSpeakingPlan unset)",
+    "call_id": "019f390f-d0de-7991-a56c-e25d62d86b71",
+    "source_file": "04-backchannel-repeated.wav",
+    "source_sha256": "9b1c5d39d33deef692ca0316adefeb2787a3a235d5f0ca520b854467beb624d7",
+    "window_source_sec": [
+      34.49,
+      42.49
+    ],
+    "onset_derivation": "second caller-active run during agent speech: 36.49 s (0.32 s, peak -16.9 dBFS); the agent halts 0.34 s later at 36.83 s and never speaks again (operator hung up during the dead air at 61.4 s)",
+    "field_note": "agent halted at 'This include,' and went silent; operator hung up",
+    "agreement_with_field_note": "matches: measured false yield 0.34 s after the backchannel; the agent's response_gap is null because it never spoke again",
+    "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
-  "why_it_matters": "DELIBERATE BAD-AGENT RENDER, and the bad twin of bc-03. The caller only says 'mhm' but the agent stops mid-sentence and hands over the floor: did_yield is true where it must be false, so this should-hold event FAILS. This is the false-barge-in-on-a-backchannel axis. The scenario id contains no 'echo', so it is a genuine discrimination failure, not an audio-routing artifact, which is exactly the both-axes signal the fix map treats as an engagement-control problem.",
-  "related_signals": ["did_yield"]
+  "attestation": {
+    "contributor": "operator-recorded probe calls (build_vapi_defaults.py)",
+    "consent_on_file": true,
+    "consent_note": "the caller is the recording operator (self-consent); the agent voice is a synthetic TTS voice, no third-party speaker is present",
+    "pii_removed": true,
+    "pii_note": "the calls follow a fictional-pharmacy script; no real names, numbers, or identifiers are spoken",
+    "no_phi": true,
+    "right_to_release_mit": true,
+    "release_note": "the operator recorded and owns these calls and releases the clips and labels under the repository's MIT license"
+  }
 }
