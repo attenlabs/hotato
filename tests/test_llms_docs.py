@@ -65,10 +65,11 @@ def test_llms_full_txt_has_a_file_boundary_header_per_source_file():
     assert "METHODOLOGY.md" in headers
     assert "docs/MCP.md" in headers
     assert "src/hotato/schema/envelope.v1.json" in headers
-    # Every docs/*.md on disk is represented (the build globs docs/*.md, so
-    # nothing added to docs/ later can be silently dropped).
-    docs_dir = os.path.join(ROOT, "docs")
-    on_disk = {f"docs/{f}" for f in os.listdir(docs_dir) if f.endswith(".md")}
+    # Every doc the build script itself resolves via `_tracked_docs_md()` is
+    # represented. Reuse that helper (git ls-files in a checkout, filesystem
+    # glob in a git-less extracted sdist tree) rather than reimplementing its
+    # environment detection here.
+    on_disk = set(build_llms_full._tracked_docs_md())
     assert on_disk.issubset(set(headers))
     # schema file is last, README is first.
     assert headers[0] == "README.md"

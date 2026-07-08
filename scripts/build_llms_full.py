@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -40,9 +41,36 @@ HEADER_RULE = "=" * 80
 _DOC_REF_RE = re.compile(r"\b(README\.md|METHODOLOGY\.md|docs/[A-Za-z0-9_.\-]+\.md)\b")
 
 
+def _tracked_docs_md() -> list[str]:
+    """docs/*.md that are actually part of the shipped repo, sorted.
+
+    Inside a git checkout: `git ls-files`, NOT a raw filesystem glob. A
+    checkout can carry local-only files (gitignored internal artifacts, e.g.
+    docs/SAA-BEHAVIOR-CARD.md) that exist on one machine and not another;
+    globbing the filesystem would bake a machine-specific file list into
+    llms-full.txt and make the build non-reproducible across checkouts.
+
+    Outside a git checkout (an extracted sdist tree has no .git at all, e.g.
+    CI's sdist-guard job): fall back to a plain filesystem glob. There is no
+    gitignore concept to consult there, and the directory already reflects
+    exactly what MANIFEST.in decided to ship from a clean checkout, so the
+    glob is safe.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "docs/*.md"],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        )
+        return sorted(line for line in out.stdout.splitlines() if line)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return sorted(
+            f"docs/{p.name}" for p in (REPO_ROOT / "docs").glob("*.md")
+        )
+
+
 def _ordered_doc_paths() -> list[Path]:
     """The file list, in order: llms.txt's Links-section order first, then any
-    remaining docs/*.md on disk not named there, alphabetically."""
+    remaining TRACKED docs/*.md not named there, alphabetically."""
     links_text = LLMS_TXT.read_text(encoding="utf-8")
     # Only look at the Links section onward, so a stray path mentioned earlier
     # in the file (inside a code block, say) cannot change the order.
@@ -56,10 +84,7 @@ def _ordered_doc_paths() -> list[Path]:
         if rel not in seen:
             seen.append(rel)
 
-    all_docs_md = sorted(
-        f"docs/{p.name}" for p in (REPO_ROOT / "docs").glob("*.md")
-    )
-    for rel in all_docs_md:
+    for rel in _tracked_docs_md():
         if rel not in seen:
             seen.append(rel)
 

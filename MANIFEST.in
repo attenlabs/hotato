@@ -1,4 +1,4 @@
-include README.md LICENSE SECURITY.md CHANGELOG.md CONTRIBUTING.md METHODOLOGY.md llms.txt sync_engine.py
+include README.md LICENSE SECURITY.md CHANGELOG.md CONTRIBUTING.md METHODOLOGY.md llms.txt llms-full.txt sync_engine.py server.json CITATION.cff
 recursive-include docs *
 prune docs/assets
 recursive-include adapters *
