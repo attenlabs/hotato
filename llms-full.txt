@@ -3068,7 +3068,7 @@ Run top to bottom for every release. Each item is a gate: green means proceed.
 - [ ] `python3 -m pytest -q` fully green on a clean checkout.
 - [ ] `python3 sync_engine.py --check` passes: the vendored `_engine` is byte-identical to upstream.
 - [ ] CI is green on the release commit (`.github/workflows/tests.yml`).
-- [ ] Version bumped in `pyproject.toml`; `CHANGELOG.md` has a dated entry for it.
+- [ ] Version bumped in EVERY lockstep site: `pyproject.toml`, `src/hotato/__init__.py` (`__version__` -- this is what `hotato --version`, `hotato describe`, and stackbench provenance self-report), `server.json` (both `version` fields), `CITATION.cff` (`version` + `date-released`), the `llms.txt` version line; `CHANGELOG.md` has a dated entry for it. `tests/test_version_lockstep.py` gates the ones tests can see.
 
 ## README and assets
 

@@ -29,6 +29,14 @@ from .neural import build_silero_backend as _build_silero_backend
 # fallback to energy that could change a published number).
 _register_neural_backend(_build_silero_backend)
 
-__version__ = "0.3.1"
+# Version lockstep: this literal MUST match pyproject.toml's `version` (and
+# server.json, CITATION.cff, llms.txt, CHANGELOG.md -- see
+# docs/RELEASE-CHECKLIST.md). It is deliberately a literal, not derived from
+# importlib.metadata: the suite runs from uninstalled source trees (conftest
+# prepends src/ to sys.path; CI runs an extracted sdist), where dist-info is
+# absent or can describe a DIFFERENT installed copy than the code executing.
+# tests/test_version_lockstep.py enforces the match; 0.4.0 shipped
+# self-reporting 0.3.1 because nothing did.
+__version__ = "0.4.0"
 
 __all__ = ["run_single", "run_suite", "LIMITS", "SUITE_ID", "__version__"]
