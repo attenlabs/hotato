@@ -218,6 +218,7 @@ def classify_event(
     tags: Optional[list] = None,
     category: Optional[str] = None,
     scenario_id: Optional[str] = None,
+    echo_suspected: bool = False,
 ) -> Optional[dict]:
     """Return a fix dict for a failing event, or None if the event passed.
 
@@ -234,7 +235,17 @@ def classify_event(
 
     tags = tags or []
     joined = " ".join(reasons).lower()
-    is_echo = "echo" in (scenario_id or "").lower() or "echo" in tags or "aec" in tags
+    # The MEASURED cross-channel echo signal is authoritative and comes first: on
+    # the flagship `hotato run --stereo` / `hotato capture` paths there is no
+    # scenario_id and no tags, so without this a 100%-certain measured self-echo
+    # was always mis-routed to the engagement-control pointer. Curator id/tag
+    # substrings remain a fallback for label-only scenarios that carry no audio.
+    is_echo = (
+        bool(echo_suspected)
+        or "echo" in (scenario_id or "").lower()
+        or "echo" in tags
+        or "aec" in tags
+    )
 
     # Case A: the agent should have kept the floor but yielded.
     if not expected_yield and did_yield:
@@ -295,6 +306,20 @@ def classify_event(
     )
 
 
+def event_is_echo(event: dict) -> bool:
+    """Whether an event is a self-echo / phantom self-interruption rather than a
+    genuine backchannel false-barge. The MEASURED cross-channel coherence signal
+    (``signals.echo.echo_suspected``) is authoritative; a curator ``scenario_id``
+    substring is only a fallback for label-only scenarios with no audio. Keeping
+    the two axes on the same rule is what stops the both-axes funnel from firing
+    on a proven self-echo (which is an audio-routing bug, not a discrimination
+    problem)."""
+    echo = (event.get("signals") or {}).get("echo") or {}
+    if echo.get("echo_suspected"):
+        return True
+    return "echo" in (event.get("scenario_id") or "").lower()
+
+
 def systemic_pointer(events: list) -> Optional[dict]:
     """Battery-level funnel signal.
 
@@ -314,7 +339,7 @@ def systemic_pointer(events: list) -> Optional[dict]:
         (not e["verdict"]["passed"])
         and (not e["expected_yield"])
         and e["verdict"]["did_yield"]
-        and "echo" not in (e.get("scenario_id") or "").lower()
+        and not event_is_echo(e)
         for e in events
     )
     if missed_real and false_barge:

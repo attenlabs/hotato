@@ -43,12 +43,20 @@ them). Field-name and endpoint basis, verified 2026-07-06:
 from __future__ import annotations
 
 import json
+import re
+import shlex
 from typing import Optional
 
 from . import fixmap as _fixmap
 
 SCHEMA_ID = "hotato.patch.v1"
 _PLAN_SCHEMA_ID = "hotato.fixplan.v1"
+
+# A platform assistant/agent id substituted into a REST URL must be a plain
+# identifier. Anything else (shell metacharacters, whitespace, a URL of its own)
+# is refused rather than interpolated -- a tampered/hand-edited fixplan must never
+# smuggle a second shell command or a redirected host into the paste-ready curl.
+_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 # The honest banner attached to every artifact: producing a diff is not applying
 # it. Stated in the machine output AND the text render.
@@ -120,6 +128,32 @@ def _validate_plan(plan: dict) -> dict:
             "not a hotato fix plan (schema hotato.fixplan.v1). Write one first: "
             "hotato plan result.json --out fixplan.json"
         )
+    # Structurally validate BEFORE any indexing, so a schema-tagged but
+    # incomplete/truncated/hand-edited plan is a clean usage error (exit 2)
+    # rather than a raw KeyError traceback. A plan is meant to be reviewed and
+    # sometimes edited by a human, so partial plans are plausible.
+    target = plan.get("target")
+    if not isinstance(target, dict):
+        raise ValueError(
+            "fixplan is missing its 'target' object (target.stack / target ids). "
+            "Regenerate it with: hotato plan result.json --out fixplan.json"
+        )
+    if plan.get("decision") == "propose_one_step":
+        changes = plan.get("changes")
+        if not isinstance(changes, list) or not changes:
+            raise ValueError(
+                "fixplan decision is 'propose_one_step' but 'changes' is missing "
+                "or empty. Regenerate the plan with hotato plan."
+            )
+        first = changes[0]
+        if not isinstance(first, dict):
+            raise ValueError("fixplan changes[0] is not an object.")
+        for required in ("field", "direction"):
+            if required not in first:
+                raise ValueError(
+                    f"fixplan changes[0] is missing required key {required!r}. "
+                    "Regenerate the plan with hotato plan."
+                )
     return plan
 
 
@@ -136,17 +170,33 @@ def _nest(keys: list, value) -> dict:
 
 def _curl(endpoint: dict, url: str, body: dict) -> str:
     payload = json.dumps(body, sort_keys=True)
+    # Shell-quote every interpolated value. The URL and the JSON body are
+    # derived from a fixplan.json that may be shared, copied, or hand-edited, so
+    # a raw f-string here would let a crafted value break out of the quoting and
+    # run a second shell command in whoever pastes the line. shlex.quote makes
+    # each a single safe shell token. (The two -H header lines are constant text
+    # from _REST_ENDPOINTS; the ``$..._API_KEY`` in the auth header is a
+    # deliberate, un-quoted shell-variable expansion the user wants preserved.)
     return (
-        f"curl -X {endpoint['method']} {url} \\\n"
+        f"curl -X {endpoint['method']} {shlex.quote(url)} \\\n"
         f"  -H \"Authorization: {endpoint['auth']}\" \\\n"
         "  -H \"Content-Type: application/json\" \\\n"
-        f"  -d '{payload}'"
+        f"  -d {shlex.quote(payload)}"
     )
 
 
 def _rest_artifact(stack: str, change: dict, target: dict) -> dict:
     endpoint = _REST_ENDPOINTS[stack]
-    ident = (target or {}).get(endpoint["id_key"]) or endpoint["id_placeholder"]
+    resolved = (target or {}).get(endpoint["id_key"])
+    if resolved is not None and not _ID_RE.match(str(resolved)):
+        # A resolved id that is not a plain identifier (letters, digits, dot,
+        # dash, underscore) must never be interpolated into a shell-facing URL.
+        raise ValueError(
+            f"fixplan target {endpoint['id_key']} {resolved!r} is not a valid "
+            "platform id (allowed: letters, digits, '.', '-', '_'); refusing to "
+            "build a patch URL from it."
+        )
+    ident = resolved or endpoint["id_placeholder"]
     url = endpoint["url_template"].format(id=ident)
     to = change.get("to")
     field = change["field"]

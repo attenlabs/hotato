@@ -2708,7 +2708,10 @@ def main(argv=None) -> int:
         return 0
     try:
         return args.func(args)
-    except (ValueError, FileNotFoundError, BackendUnavailable) as exc:
+    except _errors.HANDLED as exc:
+        # The SHARED handled-error contract (errors.HANDLED): ValueError, the
+        # OSError family (missing / unreadable / directory / already-exists file
+        # inputs), and BackendUnavailable.
         # BackendUnavailable = --backend neural requested without the [neural] extra
         # (or without cached weights): a clean, explicit config error, never a silent
         # fallback to the energy reference.

@@ -339,6 +339,29 @@ def _download(url: str, dest: str, headers: Optional[dict] = None, timeout: int 
     return dest
 
 
+def _same_host(url: str, base_url: str) -> bool:
+    """True only if ``url`` and ``base_url`` resolve to the same host."""
+    from urllib.parse import urlparse
+
+    u = urlparse(url).hostname
+    b = urlparse(base_url).hostname
+    return bool(u) and bool(b) and u.lower() == b.lower()
+
+
+def _auth_headers_for(url: str, base_url: str, headers: Optional[dict]) -> Optional[dict]:
+    """Return ``headers`` (the credential) ONLY when ``url`` is on the vendor's
+    own host (``base_url``). A ``recording_url`` comes from the vendor's JSON
+    RESPONSE, not from something the operator typed, so if it points off-domain
+    (a compromised account, tampered metadata, a redirect, or a mis-set
+    ``--base-url``) attaching the API key would exfiltrate the credential to that
+    host. Vendor download URLs are pre-signed and need no auth, so dropping the
+    header when the host does not match keeps the download working while never
+    sending the secret anywhere but the vendor's own API host."""
+    if headers and _same_host(url, base_url):
+        return headers
+    return None
+
+
 def _out_wav(out_path: Optional[str], prefix: str) -> str:
     if out_path:
         return out_path
@@ -1363,7 +1386,8 @@ def capture_bland(*, call_id, api_key, out_path=None,
             "call was created with record=true, after it ends)."
         )
     dest = _out_wav(out_path, "hotato-bland-")
-    return _download(url, dest, headers={"authorization": api_key},
+    return _download(url, dest,
+                     headers=_auth_headers_for(url, base_url, {"authorization": api_key}),
                      timeout=max(timeout, 120))
 
 
@@ -1420,7 +1444,8 @@ def capture_millis(*, session_id, api_key, out_path=None,
             "(recording is only present when enable_recording was set)."
         )
     dest = _out_wav(out_path, "hotato-millis-")
-    return _download(url, dest, headers={"authorization": api_key},
+    return _download(url, dest,
+                     headers=_auth_headers_for(url, base_url, {"authorization": api_key}),
                      timeout=max(timeout, 120))
 
 
