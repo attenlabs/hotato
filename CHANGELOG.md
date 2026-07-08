@@ -9,6 +9,21 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-08
+
+### Fixed
+- **`hotato describe` and `hotato --version` self-reported "0.3.1" in the
+  0.4.0 wheel**: the 0.4.0 release bump missed the `__version__` literal in
+  `src/hotato/__init__.py`, so every runtime self-report -- the `--version`
+  banner, the `describe` manifest's `version` field (json and text), and
+  stackbench's `provenance.hotato_version` -- carried the previous release's
+  number. Scores and envelopes were unaffected; only the reported version
+  string was wrong. Now gated by `tests/test_version_lockstep.py`, which
+  anchors `hotato.__version__`, the `describe` manifest, and installed dist
+  metadata against `pyproject.toml` (the previous describe test compared the
+  manifest to `__version__` itself, which agreed even when both were wrong),
+  and the release checklist enumerates every version lockstep site.
+
 ## [0.4.0] - 2026-07-08
 
 ### Fixed
@@ -559,7 +574,8 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
-[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/attenlabs/hotato/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/attenlabs/hotato/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/attenlabs/hotato/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/attenlabs/hotato/compare/v0.2.3...v0.3.0
