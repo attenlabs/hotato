@@ -13,6 +13,8 @@
 <p align="center">Offline regression tests from your own call recordings. MIT.</p>
 
 <p align="center">
+  <a href="https://pypi.org/project/hotato/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/hotato.svg"></a>
+  <a href="https://pypi.org/project/hotato/"><img alt="PyPI monthly downloads" src="https://img.shields.io/pypi/dm/hotato.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Python 3.9 to 3.13" src="https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg">
   <img alt="offline: yes" src="https://img.shields.io/badge/offline-yes-blue.svg">
@@ -21,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo.gif" alt="hotato scan finding a talk-over moment in a recorded call, hotato run scoring it to a FAIL, then hotato fixture create promoting it into a permanent regression test" width="760">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo.gif" alt="Terminal recording of hotato scan, run, and fixture create on a recorded call" width="760">
 </p>
 
 One command finds every moment your agent talks over the caller:
@@ -37,7 +39,7 @@ Hotato catches the three talk-over failures callers feel: the agent talking over
 Try it with no audio of your own:
 
 ```bash
-uvx hotato demo   # scores a deliberately bad agent on synthetic audio, so you see the FAILs, timelines, and fix cards
+uvx hotato demo   # scores two real recorded calls a provider's default agent failed, so you see the FAILs, timelines, and fix cards
 ```
 
 ## MCP
