@@ -18,6 +18,43 @@ design. See `docs/BENCHMARK.md`.
   `docs/WHY.md`, now "show up again and again."
 
 ### Added
+- **`hotato connect` / `pull` / `sweep`, the connect-once bulk pull-and-analyze
+  flow**: `hotato connect <stack>` captures a stack's credentials once, runs a
+  lightweight live auth check, and stores them at `~/.hotato/connections.json`
+  with file mode 0600 (directory 0700) -- local only, never sent anywhere but
+  the vendor's own API, never logged. After connecting, `--stack` and the key
+  are optional for `pull`/`sweep` when exactly one stack is connected (they also
+  fall back to the stack's environment variable). `hotato pull [--stack X]
+  [--since 7d] [--limit 50] [--out DIR] [--allow-mono]` bulk-fetches recent
+  recordings by looping the existing single-call `capture` fetch over each
+  platform's list endpoint into a local folder; a recording that cannot be
+  fetched is a clean per-file skip with its reason, never a crash. `hotato sweep`
+  runs `pull` then the same zero-config `analyze` over the pulled folder = the
+  flagship "connect once, see every turn-taking problem across all your real
+  calls" flow, writing one self-contained offline dashboard. Every list/fetch
+  endpoint is used exactly as verified verbatim in the integration spec: Vapi
+  `GET /call`, Twilio `GET .../Recordings.json`, Bland `GET /v1/calls`,
+  ElevenLabs `GET /v1/convai/conversations`, Synthflow `GET /v2/calls`, Millis
+  `GET /call-logs`, Cartesia `GET /agents/calls`. Where the spec marks a
+  list-calls endpoint unconfirmed (Retell) or a platform capture-in-your-infra
+  (LiveKit, Pipecat), no endpoint is fabricated -- Retell pulls from explicit
+  `--call-id` values and the limitation is documented honestly. Platform
+  payloads are treated strictly as untrusted data (a malformed payload is a
+  clean error, never an action from the payload).
+- **`--allow-mono` capture/pull adapters for Bland AI, ElevenLabs Conversational
+  AI, Synthflow, Millis AI, and Cartesia (Line)**: each with the exact
+  spec-verified list + fetch endpoint and the honest mono caveat. These
+  platforms produce a single combined recording with no documented per-party
+  channel, so scoring is degraded and gated behind `--allow-mono` /
+  `HOTATO_ALLOW_MONO=1`, labelled indicative only. `capture --stack` now accepts
+  these stacks in addition to the original five.
+- **`docs/CONNECT.md`** (the connect/pull/sweep recipe with per-stack
+  credentials) and a comprehensive, honest rewrite of **`docs/ADAPTER-STATUS.md`**
+  from the integration spec: build-now dual-channel (Vapi, Retell, Twilio,
+  LiveKit, Pipecat), mono-only `--allow-mono` (Bland, ElevenLabs, Synthflow,
+  Millis, Cartesia), not integrable (Deepgram Voice Agent, PlayAI), and
+  unconfirmed (Regal, Thoughtly, Sindarin, Grok, and channel-layout edge cases),
+  each with the exact verified endpoint and honest notes.
 - **`hotato analyze <folder>`, the zero-config drop-a-folder flagship**: point
   it at a folder of real dual-channel call recordings and it walks EVERY
   recording label-free with the existing whole-call scanner (`hotato scan`),

@@ -108,6 +108,24 @@ _EXIT_CODES: dict = {
     "setup": (
         (0, "the recording scaffold was printed"),
     ),
+    "connect": (
+        (0, "credentials stored (0600); a live auth check ran when the stack "
+            "supports it"),
+        (2, "usage error, missing credentials, or a failed auth check (nothing "
+            "stored)"),
+    ),
+    "pull": (
+        (0, "listed and fetched recent recordings; per-call fetch failures are "
+            "reported as skips, never a crash"),
+        (2, "usage error, missing credentials, --allow-mono required, or a stack "
+            "with no list endpoint and no explicit ids"),
+    ),
+    "sweep": (
+        (0, "pulled recent recordings then analyzed them (candidate moments "
+            "listed, possibly zero; never a pass/fail and never a verdict)"),
+        (2, "usage error, missing credentials, --allow-mono required, or a stack "
+            "with no list endpoint and no explicit ids"),
+    ),
     "report": (
         (0, "report written, every scorable event passed"),
         (1, "a scorable event failed"),
@@ -197,6 +215,31 @@ def _exit_codes_epilog(key: str) -> str:
     describe`'s manifest can never say something different."""
     parts = ", ".join(f"{code} = {desc}" for code, desc in _EXIT_CODES[key])
     return f"Exit codes: {parts}."
+
+
+def _add_cred_args(parser) -> None:
+    """The shared credential flags for connect/pull/sweep. Each falls back to
+    ~/.hotato/connections.json then the stack's environment variable, so after
+    `hotato connect` they are optional."""
+    parser.add_argument("--api-key", default=None,
+                        help="vendor API key (vapi/retell/bland/elevenlabs/"
+                             "synthflow/millis/cartesia); else the connection or "
+                             "the stack's env var")
+    parser.add_argument("--account-sid", default=None,
+                        help="[twilio] Account SID (else the connection or "
+                             "TWILIO_ACCOUNT_SID)")
+    parser.add_argument("--auth-token", default=None,
+                        help="[twilio] Auth Token (else the connection or "
+                             "TWILIO_AUTH_TOKEN)")
+    parser.add_argument("--model-id", default=None,
+                        help="[synthflow] model id required by its list endpoint "
+                             "(else the connection or SYNTHFLOW_MODEL_ID)")
+    parser.add_argument("--agent-id", default=None,
+                        help="[cartesia] agent id required by its list endpoint "
+                             "(else the connection or CARTESIA_AGENT_ID)")
+    parser.add_argument("--base-url", default=None,
+                        help="[millis] regional API base (else the connection or "
+                             "the US default)")
 
 
 def _emit(env: dict, fmt: str) -> None:
@@ -364,6 +407,65 @@ def _cmd_capture(args) -> int:
 
 def _cmd_setup(args) -> int:
     return _capture.run_setup(args.stack)
+
+
+def _cmd_connect(args) -> int:
+    return _capture.run_connect(
+        args.stack,
+        api_key=args.api_key,
+        account_sid=args.account_sid,
+        auth_token=args.auth_token,
+        model_id=args.model_id,
+        agent_id=args.agent_id,
+        base_url=args.base_url,
+        no_verify=args.no_verify,
+        fmt=args.format,
+    )
+
+
+def _cmd_pull(args) -> int:
+    return _capture.run_pull(
+        args.stack,
+        ids=args.call_id or None,
+        since=args.since,
+        limit=args.limit,
+        out=args.out,
+        allow_mono=args.allow_mono,
+        api_key=args.api_key,
+        account_sid=args.account_sid,
+        auth_token=args.auth_token,
+        model_id=args.model_id,
+        agent_id=args.agent_id,
+        base_url=args.base_url,
+        fmt=args.format,
+    )
+
+
+def _cmd_sweep(args) -> int:
+    return _capture.run_sweep(
+        args.stack,
+        ids=args.call_id or None,
+        since=args.since,
+        limit=args.limit,
+        dir=args.dir,
+        out=args.out,
+        allow_mono=args.allow_mono,
+        top=args.top,
+        audio_top=args.audio_top,
+        pre=args.pre,
+        post=args.post,
+        min_gap=args.min_gap,
+        no_open=args.no_open,
+        api_key=args.api_key,
+        account_sid=args.account_sid,
+        auth_token=args.auth_token,
+        model_id=args.model_id,
+        agent_id=args.agent_id,
+        base_url=args.base_url,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+        fmt=args.format,
+    )
 
 
 def _load_base_envelope(path: str) -> dict:
@@ -1332,8 +1434,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    c.add_argument("--stack", required=True, choices=list(_capture.STACKS),
-                   help="voice stack the call came from")
+    c.add_argument("--stack", required=True, choices=list(_capture.CAPTURE_STACKS),
+                   help="voice stack the call came from (the mono stacks bland/"
+                        "elevenlabs/synthflow/millis/cartesia need --allow-mono)")
     c.add_argument("--demo", action="store_true",
                    help="prove the capture -> score loop on a bundled two-channel reference (offline, zero deps, no API)")
     # already-captured input (works for every stack, incl. livekit/pipecat/retell)
@@ -1375,6 +1478,159 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--stack", required=True, choices=list(_capture.STACKS),
                    help="voice stack to scaffold")
     s.set_defaults(func=_cmd_setup)
+
+    # --- connect: one-time credential capture for pull/sweep --------------
+    cn = sub.add_parser(
+        "connect",
+        help="store a stack's credentials once (0600, local only) so pull/sweep "
+             "need no keys",
+        description=(
+            "Capture a voice stack's API credentials ONCE, run a lightweight live "
+            "auth check (list one recent call, unless --no-verify), and store them "
+            "in ~/.hotato/connections.json with file mode 0600. The credentials "
+            "stay on this machine and are sent only to the vendor's own API, never "
+            "to Hotato. After connecting, `hotato pull` / `hotato sweep` need no "
+            "--api-key, and --stack is optional when exactly one stack is "
+            "connected. Connectable stacks are the vendor-hosted-recording ones "
+            "(vapi, retell, twilio, bland, elevenlabs, synthflow, millis, "
+            "cartesia); LiveKit/Pipecat are capture-in-your-infra (use `hotato "
+            "setup`)."
+        ),
+        epilog=(
+            _exit_codes_epilog("connect") + "\n\n"
+            "Examples:\n"
+            "  hotato connect vapi --api-key <key>\n"
+            "  VAPI_API_KEY=<key> hotato connect vapi        # reads the env var\n"
+            "  hotato connect twilio --account-sid AC... --auth-token ...\n"
+            "  hotato connect synthflow --api-key <key> --model-id <id>"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cn.add_argument("stack", choices=list(_capture.CONNECT_STACKS),
+                    help="voice stack to connect")
+    _add_cred_args(cn)
+    cn.add_argument("--no-verify", action="store_true",
+                    help="skip the live auth check; just store the credentials")
+    cn.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text)")
+    cn.set_defaults(func=_cmd_connect)
+
+    # --- pull: bulk-fetch recent recordings into a local directory --------
+    pu = sub.add_parser(
+        "pull",
+        help="bulk-fetch recent recordings from a connected stack into a local "
+             "folder",
+        description=(
+            "List a stack's recent recordings via its verified list endpoint and "
+            "download each one by looping the same single-call fetch `hotato "
+            "capture` uses, into a local directory. Dual-channel stacks (vapi, "
+            "twilio, retell) fetch a separated 2-channel file; mono/mixed stacks "
+            "(bland, elevenlabs, synthflow, millis, cartesia) require --allow-mono "
+            "and are indicative only. A recording that cannot be fetched is "
+            "reported as a clean skip with its reason and the pull continues -- "
+            "one bad call never crashes the run. Retell has no verified list "
+            "endpoint, so pull it from explicit --call-id values. Everything scores "
+            "OFFLINE later; the only network here is the direct recording download."
+        ),
+        epilog=(
+            _exit_codes_epilog("pull") + "\n\n"
+            "Examples:\n"
+            "  hotato pull --stack vapi --since 7d --limit 50\n"
+            "  hotato pull                                   # only-connected stack\n"
+            "  hotato pull --stack retell --call-id c1 --call-id c2\n"
+            "  hotato pull --stack bland --allow-mono --limit 20"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pu.add_argument("--stack", default=None, choices=list(_capture.PULL_STACKS),
+                    help="stack to pull from (optional if exactly one is connected)")
+    pu.add_argument("--since", default=None, metavar="WINDOW",
+                    help="only recordings newer than this window, e.g. 7d, 12h, "
+                         "30m, 2w (applied server-side where the vendor confirms "
+                         "a date filter, else client-side)")
+    pu.add_argument("--limit", type=int, default=50,
+                    help="max recordings to fetch (default 50)")
+    pu.add_argument("--call-id", action="append", metavar="ID",
+                    help="fetch an explicit recording id (repeatable); required "
+                         "for stacks without a list endpoint (retell). For twilio "
+                         "pass Recording SIDs (RE...)")
+    pu.add_argument("--allow-mono", action="store_true",
+                    help="allow pulling mono/mixed stacks (degraded; separated "
+                         "talk-over cannot be attributed on mono)")
+    _add_cred_args(pu)
+    pu.add_argument("--out", default=None, metavar="DIR",
+                    help="download directory (default hotato-pull-<stack>)")
+    pu.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text)")
+    pu.set_defaults(func=_cmd_pull)
+
+    # --- sweep: pull recent recordings then analyze them in one flow ------
+    sw = sub.add_parser(
+        "sweep",
+        help="connect once, then pull + analyze every recent real call in one "
+             "command",
+        description=(
+            "The flagship 'connect once, see every turn-taking problem across all "
+            "your real calls' flow: pull a stack's recent recordings (see `hotato "
+            "pull`), then run the exact same zero-config analyze as `hotato "
+            "analyze` over the pulled folder. Writes ONE self-contained, offline "
+            "HTML dashboard of the ranked candidate turn-taking moments across "
+            "every call, with the hear-the-bug audio player on the top moments. "
+            "Dual-channel stacks give separated scoring; mono/mixed stacks require "
+            "--allow-mono and cannot be attributed per party (they surface as "
+            "skipped in the dashboard). Candidates are MEASURED timing moments you "
+            "review and label, never verdicts and never intent. Offline; no "
+            "accuracy percentage anywhere."
+        ),
+        epilog=(
+            _exit_codes_epilog("sweep") + "\n\n"
+            "Examples:\n"
+            "  hotato sweep --stack vapi --since 7d           # pull + dashboard\n"
+            "  hotato sweep                                   # only-connected stack\n"
+            "  hotato sweep --stack twilio --limit 100 --out calls.html\n"
+            "  hotato sweep --stack retell --call-id c1 --call-id c2\n\n"
+            + _LABEL_NOTE
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sw.add_argument("--stack", default=None, choices=list(_capture.PULL_STACKS),
+                    help="stack to sweep (optional if exactly one is connected)")
+    sw.add_argument("--since", default=None, metavar="WINDOW",
+                    help="only recordings newer than this window, e.g. 7d, 12h, 2w")
+    sw.add_argument("--limit", type=int, default=50,
+                    help="max recordings to pull before analyzing (default 50)")
+    sw.add_argument("--call-id", action="append", metavar="ID",
+                    help="sweep explicit recording ids (repeatable); required for "
+                         "stacks without a list endpoint (retell)")
+    sw.add_argument("--allow-mono", action="store_true",
+                    help="allow sweeping mono/mixed stacks (degraded; they cannot "
+                         "be scored per party and surface as skipped)")
+    _add_cred_args(sw)
+    sw.add_argument("--dir", default=None, metavar="DIR",
+                    help="download directory for the pulled recordings "
+                         "(default hotato-sweep-<stack>)")
+    sw.add_argument("--caller-channel", type=int, default=0)
+    sw.add_argument("--agent-channel", type=int, default=1)
+    sw.add_argument("--top", type=int, default=25,
+                    help="cap the ranked moments shown (0 shows all; default 25)")
+    sw.add_argument("--audio-top", type=int, default=8,
+                    help="embed the hear-the-bug player for the top N moments "
+                         "(default 8)")
+    sw.add_argument("--pre", type=float, default=2.0,
+                    help="seconds kept BEFORE each moment (default 2.0)")
+    sw.add_argument("--post", type=float, default=4.0,
+                    help="seconds kept AFTER each moment (default 4.0)")
+    sw.add_argument("--min-gap", type=float, default=2.0,
+                    help="minimum response gap in seconds to surface (default 2.0)")
+    sw.add_argument("--format", default="html", choices=["html", "json"],
+                    help="output: 'html' dashboard (default) or 'json' ranked "
+                         "candidates + a pull summary")
+    sw.add_argument("--out", default=None, metavar="PATH",
+                    help="where to write the dashboard (default "
+                         "hotato-sweep-<stack>.html)")
+    sw.add_argument("--no-open", action="store_true",
+                    help="do not launch a browser for the HTML dashboard")
+    sw.set_defaults(func=_cmd_sweep)
 
     # --- report: one self-contained, offline HTML page with per-event timelines
     rp = sub.add_parser(

@@ -44,6 +44,14 @@ from .core import process_exit_code, run_single
 
 __all__ = [
     "STACKS",
+    "MONO_STACKS",
+    "CAPTURE_STACKS",
+    "DUAL_PULL_STACKS",
+    "PULL_STACKS",
+    "CONNECT_STACKS",
+    "LIST_STACKS",
+    "STACK_CHANNELS",
+    "CONNECT_SPECS",
     "score",
     "score_two_channel",
     "report",
@@ -52,12 +60,87 @@ __all__ = [
     "capture_vapi",
     "capture_twilio",
     "capture_retell",
+    "capture_bland",
+    "capture_elevenlabs",
+    "capture_synthflow",
+    "capture_millis",
+    "capture_cartesia",
+    "fetch_one",
+    "list_calls",
+    "pull",
+    "resolve_stack",
+    "resolve_creds",
+    "auth_check",
     "setup_text",
     "run_capture",
     "run_setup",
+    "run_connect",
+    "run_pull",
+    "run_sweep",
 ]
 
+# The original five capture/setup stacks (unchanged: existing tests + `setup`
+# scaffolds are keyed on exactly this tuple).
 STACKS = ("vapi", "twilio", "livekit", "pipecat", "retell")
+
+# Mono/mixed-only stacks, all verified verbatim in
+# hotato-launch/INTEGRATION-SPEC-2026-07-07.md as producing a single combined
+# recording with no per-party channel separation. Every one is scored ONLY
+# behind an explicit --allow-mono / HOTATO_ALLOW_MONO=1 opt-in, labelled
+# indicative only.
+MONO_STACKS = ("bland", "elevenlabs", "synthflow", "millis", "cartesia")
+
+# `hotato capture --stack` accepts the original five plus the mono adapters.
+CAPTURE_STACKS = STACKS + MONO_STACKS
+
+# Auto-pull, dual-channel: Hotato fetches a separated (2-channel) recording.
+DUAL_PULL_STACKS = ("vapi", "twilio", "retell")
+
+# `connect` / `pull` / `sweep` operate on the vendor-hosted-recording stacks.
+# LiveKit and Pipecat are capture-in-your-infra (no vendor list/fetch), so they
+# are deliberately NOT here; Regal is webhook-push only (no list, no REST fetch).
+PULL_STACKS = DUAL_PULL_STACKS + MONO_STACKS
+CONNECT_STACKS = PULL_STACKS
+
+# Channel mode per stack (drives the --allow-mono gate on pull/capture).
+STACK_CHANNELS = {
+    "vapi": "dual", "twilio": "dual", "retell": "dual",
+    "bland": "mono", "elevenlabs": "mono", "synthflow": "mono",
+    "millis": "mono", "cartesia": "mono",
+}
+
+# Stacks whose list-recent-calls endpoint the spec confirms VERBATIM. Retell is
+# excluded on purpose: the spec marks its list-calls endpoint unconfirmed/none,
+# so Hotato never fabricates one -- pull Retell from an explicit --call-id list.
+LIST_STACKS = ("vapi", "twilio", "bland", "elevenlabs", "synthflow",
+               "millis", "cartesia")
+
+# Per-stack credential contract for connect/pull/sweep. ``fields`` are required;
+# ``optional`` are only needed for the list endpoint (e.g. Synthflow's model_id,
+# Cartesia's agent_id) and are surfaced with an honest error at list time if
+# missing. ``env`` maps each field to the environment variable it falls back to.
+CONNECT_SPECS = {
+    "vapi": {"fields": ["api_key"], "optional": [],
+             "env": {"api_key": "VAPI_API_KEY"}},
+    "retell": {"fields": ["api_key"], "optional": [],
+               "env": {"api_key": "RETELL_API_KEY"}},
+    "twilio": {"fields": ["account_sid", "auth_token"], "optional": [],
+               "env": {"account_sid": "TWILIO_ACCOUNT_SID",
+                       "auth_token": "TWILIO_AUTH_TOKEN"}},
+    "bland": {"fields": ["api_key"], "optional": [],
+              "env": {"api_key": "BLAND_API_KEY"}},
+    "elevenlabs": {"fields": ["api_key"], "optional": [],
+                   "env": {"api_key": "ELEVENLABS_API_KEY"}},
+    "synthflow": {"fields": ["api_key"], "optional": ["model_id"],
+                  "env": {"api_key": "SYNTHFLOW_API_KEY",
+                          "model_id": "SYNTHFLOW_MODEL_ID"}},
+    "millis": {"fields": ["api_key"], "optional": ["base_url"],
+               "env": {"api_key": "MILLIS_API_KEY",
+                       "base_url": "MILLIS_BASE_URL"}},
+    "cartesia": {"fields": ["api_key"], "optional": ["agent_id"],
+                 "env": {"api_key": "CARTESIA_API_KEY",
+                         "agent_id": "CARTESIA_AGENT_ID"}},
+}
 
 # Each stack's --demo uses a bundled two-channel reference so the loop runs with
 # zero deps and zero network. All bundled fixtures PASS, so every demo exits 0.
@@ -754,8 +837,10 @@ def run_capture(
     on retell/twilio when no 2-channel media exists; default is a clean rejection.
     """
     stack = (stack or "").strip().lower()
-    if stack not in STACKS:
-        raise ValueError(f"unknown stack {stack!r}; choose one of {', '.join(STACKS)}")
+    if stack not in CAPTURE_STACKS:
+        raise ValueError(
+            f"unknown stack {stack!r}; choose one of {', '.join(CAPTURE_STACKS)}"
+        )
 
     if demo:
         return _demo(stack, fmt)
@@ -845,6 +930,36 @@ def run_capture(
         )
         return report(env, fmt)
 
+    if stack in MONO_STACKS:
+        ident = call_id or recording_sid
+        if not ident:
+            raise ValueError(
+                f"{stack} capture needs --call-id (the recording id from "
+                f"`hotato pull --stack {stack}` or your {stack} dashboard), plus "
+                f"--api-key or {CONNECT_SPECS[stack]['env']['api_key']}. {stack} "
+                "recordings are mono/mixed, so scoring is degraded and needs "
+                "--allow-mono."
+            )
+        key = api_key or os.environ.get(CONNECT_SPECS[stack]["env"]["api_key"])
+        if not key:
+            raise ValueError(
+                f"{stack} capture needs your API key: pass --api-key or set "
+                f"{CONNECT_SPECS[stack]['env']['api_key']}."
+            )
+        if not allow_mono:
+            raise ValueError(
+                f"{stack} exposes only a mono/mixed recording; {_MONO_WHY}. To "
+                "score it anyway (degraded, indicative only) pass --allow-mono "
+                "or set HOTATO_ALLOW_MONO=1."
+            )
+        path = fetch_one(stack, ident, {"api_key": key}, out, allow_mono=True)
+        sys.stderr.write(f"[{stack}] downloaded recording -> {path}\n")
+        env = _score_capture(
+            stack, path, onset=onset, expect=expect,
+            caller_channel=caller_channel, agent_channel=agent_channel,
+        )
+        return report(env, fmt)
+
     # livekit / pipecat: no direct fetch -- point at setup + the file path.
     hint = {
         "livekit": (
@@ -890,3 +1005,769 @@ def _score_capture(
 
 # internal alias so run_capture(demo=True) doesn't shadow the public demo()
 _demo = demo
+
+
+# ==========================================================================
+# connect -> pull -> sweep: list recent calls, bulk-fetch, then analyze.
+#
+# Every list/fetch endpoint below is used EXACTLY as verified verbatim in
+# hotato-launch/INTEGRATION-SPEC-2026-07-07.md. Where the spec marks a
+# list-calls endpoint unconfirmed/none (Retell) or a platform as
+# capture-in-your-infra (LiveKit, Pipecat) or webhook-push-only (Regal), no
+# endpoint is fabricated -- the honest fallback + limitation is documented in
+# docs/ADAPTER-STATUS.md and surfaced as a clean error here.
+#
+# Platform payloads are DATA, never instructions: parsing only reads documented
+# id / URL / timestamp fields and downloads the vendor's own recording URL. A
+# malformed payload raises a clean ValueError (CLI exit 2); nothing in a payload
+# is ever executed or acted on beyond fetching the recording it points to.
+# ==========================================================================
+
+def _iso(epoch: float) -> str:
+    """UTC epoch seconds -> an ISO8601 'Z' timestamp (Vapi createdAtGt)."""
+    import datetime
+
+    return datetime.datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _ymd(epoch: float) -> str:
+    """UTC epoch seconds -> YYYY-MM-DD (Twilio DateCreated filter)."""
+    import datetime
+
+    return datetime.datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%d")
+
+
+def since_epoch(spec: Optional[str]) -> Optional[float]:
+    """Parse a ``--since`` window (e.g. ``7d``, ``12h``, ``30m``, ``2w``) into an
+    absolute UTC epoch-seconds cutoff, or ``None`` when unset. Raises a clean
+    ValueError on a malformed value."""
+    if not spec:
+        return None
+    import re
+    import time
+
+    m = re.fullmatch(r"\s*(\d+)\s*([smhdw])\s*", spec.lower())
+    if not m:
+        raise ValueError(
+            f"--since {spec!r} is not a duration; use e.g. 7d, 12h, 30m, 2w "
+            "(s=seconds, m=minutes, h=hours, d=days, w=weeks)."
+        )
+    n = int(m.group(1))
+    mult = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[m.group(2)]
+    return time.time() - n * mult
+
+
+def _as_epoch(value) -> Optional[float]:
+    """Best-effort parse of a vendor timestamp (unix seconds, unix millis, or an
+    ISO8601 string) into epoch seconds; ``None`` when it cannot be read. Used
+    only to sort/filter listings, so an unreadable value degrades to 'unknown'
+    rather than failing the whole pull."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        v = float(value)
+        return v / 1000.0 if v > 1e12 else v
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return float(s) / (1000.0 if float(s) > 1e12 else 1.0)
+        except ValueError:
+            pass
+        try:
+            import datetime
+
+            return datetime.datetime.fromisoformat(
+                s.replace("Z", "+00:00")
+            ).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _safe_id(ident: str) -> str:
+    """A filesystem-safe token for a call id, so the pull filename is stable and
+    never escapes the output directory."""
+    keep = "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in str(ident))
+    return keep[:120] or "call"
+
+
+def _bad_payload(stack: str, what: str) -> "ValueError":
+    return ValueError(
+        f"{stack} list response did not contain the documented {what}; the "
+        "payload shape does not match the verified API. Nothing was fetched."
+    )
+
+
+# --- per-platform LIST-RECENT-CALLS (verified endpoints only) --------------
+
+def _list_vapi(creds, since, limit):
+    # GET https://api.vapi.ai/call  (params: limit, createdAtGt) -> JSON array
+    # of Call objects, each with `id` and `createdAt`. (spec: Vapi list_calls)
+    from urllib.parse import urlencode
+
+    params = {"limit": str(limit)}
+    if since is not None:
+        params["createdAtGt"] = _iso(since)
+    arr = _http_get_json(
+        f"https://api.vapi.ai/call?{urlencode(params)}",
+        headers={"Authorization": f"Bearer {creds['api_key']}",
+                 "Accept": "application/json"},
+    )
+    if not isinstance(arr, list):
+        raise _bad_payload("vapi", "JSON array of Call objects")
+    out = []
+    for c in arr:
+        if isinstance(c, dict) and c.get("id"):
+            out.append({"id": str(c["id"]), "created": _as_epoch(c.get("createdAt"))})
+    return out
+
+
+def _list_twilio(creds, since, limit):
+    # GET .../Accounts/{Sid}/Recordings.json  (PageSize, DateCreatedAfter) ->
+    # {"recordings": [{"sid": "RE...", "date_created": ...}]}. (spec: Twilio list)
+    from urllib.parse import urlencode
+
+    token = base64.b64encode(
+        f"{creds['account_sid']}:{creds['auth_token']}".encode()
+    ).decode()
+    params = {"PageSize": str(limit)}
+    if since is not None:
+        params["DateCreatedAfter"] = _ymd(since)
+    url = (
+        f"https://api.twilio.com/2010-04-01/Accounts/{creds['account_sid']}"
+        f"/Recordings.json?{urlencode(params)}"
+    )
+    data = _http_get_json(url, headers={"Authorization": f"Basic {token}"})
+    recs = data.get("recordings") if isinstance(data, dict) else None
+    if not isinstance(recs, list):
+        raise _bad_payload("twilio", "recordings[] array")
+    out = []
+    for r in recs:
+        if isinstance(r, dict) and r.get("sid"):
+            out.append({"id": str(r["sid"]), "created": _as_epoch(r.get("date_created"))})
+    return out
+
+
+def _list_bland(creds, since, limit):
+    # GET https://api.bland.ai/v1/calls -> {"calls": [{call_id, ...}]}.
+    # (spec: Bland list_calls; no documented date filter, so cap + client-filter.)
+    data = _http_get_json(
+        "https://api.bland.ai/v1/calls",
+        headers={"authorization": creds["api_key"]},
+    )
+    calls = data.get("calls") if isinstance(data, dict) else None
+    if not isinstance(calls, list):
+        raise _bad_payload("bland", "calls[] array")
+    out = []
+    for c in calls:
+        if not isinstance(c, dict):
+            continue
+        cid = c.get("call_id") or c.get("c_id")
+        if cid:
+            out.append({
+                "id": str(cid),
+                "created": _as_epoch(c.get("created_at") or c.get("started_at")),
+            })
+    return out
+
+
+def _list_elevenlabs(creds, since, limit):
+    # GET https://api.elevenlabs.io/v1/convai/conversations
+    # (page_size, call_start_after_unix) -> {"conversations": [{conversation_id,
+    # start_time_unix_secs}], has_more, next_cursor}. (spec: ElevenLabs list)
+    from urllib.parse import urlencode
+
+    params = {"page_size": str(min(limit, 100))}
+    if since is not None:
+        params["call_start_after_unix"] = str(int(since))
+    data = _http_get_json(
+        f"https://api.elevenlabs.io/v1/convai/conversations?{urlencode(params)}",
+        headers={"xi-api-key": creds["api_key"]},
+    )
+    convs = data.get("conversations") if isinstance(data, dict) else None
+    if not isinstance(convs, list):
+        raise _bad_payload("elevenlabs", "conversations[] array")
+    out = []
+    for c in convs:
+        if isinstance(c, dict) and c.get("conversation_id"):
+            out.append({
+                "id": str(c["conversation_id"]),
+                "created": _as_epoch(c.get("start_time_unix_secs")),
+            })
+    return out
+
+
+def _synthflow_body(data):
+    """Navigate Synthflow's ``response.response`` envelope (the spec's verbatim
+    field prefix), tolerating one or two ``response`` nestings."""
+    body = data
+    for _ in range(2):
+        if isinstance(body, dict) and isinstance(body.get("response"), dict):
+            body = body["response"]
+    return body if isinstance(body, dict) else {}
+
+
+def _list_synthflow(creds, since, limit):
+    # GET https://api.synthflow.ai/v2/calls?model_id=&limit=&from_date= ->
+    # response.response.calls[].call_id. (spec: Synthflow list_calls;
+    # from_date is epoch millis; model_id is required.)
+    from urllib.parse import urlencode
+
+    model_id = creds.get("model_id")
+    if not model_id:
+        raise ValueError(
+            "synthflow list needs a model_id (the verified list endpoint "
+            "GET /v2/calls requires model_id): pass --model-id or set "
+            "SYNTHFLOW_MODEL_ID, or pull explicit --call-id values."
+        )
+    params = {"model_id": model_id, "limit": str(limit)}
+    if since is not None:
+        params["from_date"] = str(int(since * 1000))
+    data = _http_get_json(
+        f"https://api.synthflow.ai/v2/calls?{urlencode(params)}",
+        headers={"Authorization": f"Bearer {creds['api_key']}"},
+    )
+    calls = _synthflow_body(data).get("calls")
+    if not isinstance(calls, list):
+        raise _bad_payload("synthflow", "response.response.calls[] array")
+    out = []
+    for c in calls:
+        if isinstance(c, dict) and c.get("call_id"):
+            out.append({"id": str(c["call_id"]), "created": _as_epoch(c.get("start_time"))})
+    return out
+
+
+def _list_millis(creds, since, limit):
+    # GET {base}/call-logs?limit= -> {"histories": [CallHistory], next_cursor}.
+    # (spec: Millis list_calls; base default US region api-west.)
+    from urllib.parse import urlencode
+
+    base = creds.get("base_url") or "https://api-west.millis.ai"
+    data = _http_get_json(
+        f"{base.rstrip('/')}/call-logs?{urlencode({'limit': str(limit)})}",
+        headers={"authorization": creds["api_key"]},
+    )
+    hist = data.get("histories") if isinstance(data, dict) else None
+    if not isinstance(hist, list):
+        raise _bad_payload("millis", "histories[] array")
+    out = []
+    for h in hist:
+        if not isinstance(h, dict):
+            continue
+        sid = h.get("session_id") or h.get("call_id")
+        if sid:
+            out.append({"id": str(sid), "created": _as_epoch(h.get("ts"))})
+    return out
+
+
+def _list_cartesia(creds, since, limit):
+    # GET https://api.cartesia.ai/agents/calls?agent_id=&limit= ->
+    # {"data": [{id, start_time}], has_more, next_page}. (spec: Cartesia list;
+    # agent_id required; requires the Cartesia-Version header.)
+    from urllib.parse import urlencode
+
+    agent_id = creds.get("agent_id")
+    if not agent_id:
+        raise ValueError(
+            "cartesia list needs an agent_id (the verified list endpoint "
+            "GET /agents/calls requires agent_id): pass --agent-id or set "
+            "CARTESIA_AGENT_ID, or pull explicit --call-id values."
+        )
+    params = {"agent_id": agent_id, "limit": str(min(limit, 100))}
+    data = _http_get_json(
+        f"https://api.cartesia.ai/agents/calls?{urlencode(params)}",
+        headers={"Authorization": f"Bearer {creds['api_key']}",
+                 "Cartesia-Version": "2026-03-01"},
+    )
+    rows = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        raise _bad_payload("cartesia", "data[] array")
+    out = []
+    for r in rows:
+        if isinstance(r, dict) and r.get("id"):
+            out.append({"id": str(r["id"]), "created": _as_epoch(r.get("start_time"))})
+    return out
+
+
+_LIST_FUNCS = {
+    "vapi": _list_vapi,
+    "twilio": _list_twilio,
+    "bland": _list_bland,
+    "elevenlabs": _list_elevenlabs,
+    "synthflow": _list_synthflow,
+    "millis": _list_millis,
+    "cartesia": _list_cartesia,
+}
+
+
+def list_calls(stack, creds, *, since=None, limit=50):
+    """List up to ``limit`` recent recordings for ``stack`` using ONLY the
+    spec-verified list endpoint. ``since`` is an epoch-seconds cutoff (see
+    :func:`since_epoch`). Returns ``[{"id": str, "created": float|None}, ...]``
+    most-recent first.
+
+    Raises a clean ValueError for stacks the spec gives no list endpoint for
+    (Retell) or that are capture-in-your-infra (LiveKit, Pipecat) -- those must
+    be pulled from an explicit id list, never a fabricated endpoint."""
+    stack = (stack or "").strip().lower()
+    fn = _LIST_FUNCS.get(stack)
+    if fn is None:
+        if stack == "retell":
+            raise ValueError(
+                "Retell has no verified list-calls endpoint (the integration "
+                "spec marks it unconfirmed), so Hotato will not guess one. Pull "
+                "explicit ids instead: hotato pull --stack retell --call-id <id> "
+                "[--call-id <id> ...]."
+            )
+        if stack in ("livekit", "pipecat"):
+            raise ValueError(
+                f"{stack} is capture-in-your-infra: there is no vendor recording "
+                "list to pull. Record with `hotato setup --stack "
+                f"{stack}` and score the file your deployment writes."
+            )
+        raise ValueError(
+            f"{stack!r} has no list-recent-calls support; connectable stacks "
+            f"with a verified list endpoint are: {', '.join(LIST_STACKS)}."
+        )
+    items = fn(creds, since, max(1, int(limit)))
+    # Newest first when the created time is known; unknown-time items keep their
+    # server order but sort after timed ones. Then apply the since cutoff for
+    # platforms where the server-side filter was not spec-confirmed.
+    if since is not None:
+        items = [it for it in items if it["created"] is None or it["created"] >= since]
+    items.sort(key=lambda it: (it["created"] is not None, it["created"] or 0.0),
+               reverse=True)
+    return items[:limit]
+
+
+# --- mono/mixed single-fetch adapters (spec-verified, --allow-mono only) ----
+
+def capture_bland(*, call_id, api_key, out_path=None,
+                  base_url="https://api.bland.ai", timeout=60):
+    """Download a Bland call's MONO recording. (spec: GET /v1/calls/{id} ->
+    recording_url; Bland audio has no documented per-party channel, so it is
+    mono/mixed and only scorable behind --allow-mono.)"""
+    call = _http_get_json(
+        f"{base_url.rstrip('/')}/v1/calls/{call_id}",
+        headers={"authorization": api_key, "Accept": "application/json"},
+        timeout=timeout,
+    )
+    url = call.get("recording_url") if isinstance(call, dict) else None
+    if not url:
+        raise ValueError(
+            f"no recording_url on Bland call {call_id!r} (only present when the "
+            "call was created with record=true, after it ends)."
+        )
+    dest = _out_wav(out_path, "hotato-bland-")
+    return _download(url, dest, headers={"authorization": api_key},
+                     timeout=max(timeout, 120))
+
+
+def capture_elevenlabs(*, conversation_id, api_key, out_path=None,
+                       base_url="https://api.elevenlabs.io", timeout=60):
+    """Download an ElevenLabs conversation's MONO audio. (spec: GET
+    /v1/convai/conversations/{id}/audio returns the combined full-conversation
+    audio with no separate caller/agent channels -> --allow-mono only.)"""
+    dest = _out_wav(out_path, "hotato-elevenlabs-")
+    return _download(
+        f"{base_url.rstrip('/')}/v1/convai/conversations/{conversation_id}/audio",
+        dest, headers={"xi-api-key": api_key}, timeout=max(timeout, 120),
+    )
+
+
+def capture_synthflow(*, call_id, api_key, out_path=None,
+                      base_url="https://api.synthflow.ai", timeout=60):
+    """Download a Synthflow call's MONO recording. (spec: GET /v2/calls/{id} ->
+    response.response.calls[0].recording_url, a Twilio Recordings URL; Synthflow
+    documents no dual-channel option -> --allow-mono only.)"""
+    data = _http_get_json(
+        f"{base_url.rstrip('/')}/v2/calls/{call_id}",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        timeout=timeout,
+    )
+    calls = _synthflow_body(data).get("calls")
+    url = None
+    if isinstance(calls, list) and calls and isinstance(calls[0], dict):
+        url = calls[0].get("recording_url")
+    if not url:
+        raise ValueError(
+            f"no recording_url on Synthflow call {call_id!r} "
+            "(response.response.calls[0].recording_url was empty)."
+        )
+    dest = _out_wav(out_path, "hotato-synthflow-")
+    return _download(url, dest, timeout=max(timeout, 120))
+
+
+def capture_millis(*, session_id, api_key, out_path=None,
+                   base_url="https://api-west.millis.ai", timeout=60):
+    """Download a Millis call's MONO recording. (spec: GET /call-logs/{id} ->
+    recording.recording_url; Millis documents no channel-mode option -> mono,
+    --allow-mono only.)"""
+    call = _http_get_json(
+        f"{base_url.rstrip('/')}/call-logs/{session_id}",
+        headers={"authorization": api_key, "Accept": "application/json"},
+        timeout=timeout,
+    )
+    rec = call.get("recording") if isinstance(call, dict) else None
+    url = rec.get("recording_url") if isinstance(rec, dict) else None
+    if not url:
+        raise ValueError(
+            f"no recording.recording_url on Millis session {session_id!r} "
+            "(recording is only present when enable_recording was set)."
+        )
+    dest = _out_wav(out_path, "hotato-millis-")
+    return _download(url, dest, headers={"authorization": api_key},
+                     timeout=max(timeout, 120))
+
+
+def capture_cartesia(*, call_id, api_key, out_path=None,
+                     base_url="https://api.cartesia.ai", timeout=60,
+                     version="2026-03-01"):
+    """Download a Cartesia call's audio. (spec: GET /agents/calls/{id}/audio
+    returns audio/wav; the spec could NOT confirm whether it is dual-channel or
+    mono/mixed, so Hotato treats it as mono and requires --allow-mono until a
+    live channel-count check proves otherwise.)"""
+    dest = _out_wav(out_path, "hotato-cartesia-")
+    return _download(
+        f"{base_url.rstrip('/')}/agents/calls/{call_id}/audio",
+        dest,
+        headers={"Authorization": f"Bearer {api_key}", "Cartesia-Version": version},
+        timeout=max(timeout, 120),
+    )
+
+
+def fetch_one(stack, ident, creds, out_path=None, *, allow_mono=False):
+    """Fetch ONE recording for ``stack`` by id/sid into ``out_path`` (or a temp
+    file) and return the local WAV path. Reuses the existing single-call
+    adapters; dual stacks validate 2 channels, mono stacks download the combined
+    file for degraded scoring."""
+    stack = (stack or "").strip().lower()
+    if stack == "vapi":
+        return capture_vapi(call_id=ident, api_key=creds["api_key"], out_path=out_path)
+    if stack == "retell":
+        return capture_retell(call_id=ident, api_key=creds["api_key"],
+                              out_path=out_path, allow_mono=allow_mono)
+    if stack == "twilio":
+        return capture_twilio(recording_sid=ident, account_sid=creds["account_sid"],
+                             auth_token=creds["auth_token"], out_path=out_path,
+                             allow_mono=allow_mono)
+    if stack == "bland":
+        return capture_bland(call_id=ident, api_key=creds["api_key"], out_path=out_path)
+    if stack == "elevenlabs":
+        return capture_elevenlabs(conversation_id=ident, api_key=creds["api_key"],
+                                 out_path=out_path)
+    if stack == "synthflow":
+        return capture_synthflow(call_id=ident, api_key=creds["api_key"], out_path=out_path)
+    if stack == "millis":
+        return capture_millis(session_id=ident, api_key=creds["api_key"],
+                             out_path=out_path,
+                             base_url=creds.get("base_url") or "https://api-west.millis.ai")
+    if stack == "cartesia":
+        return capture_cartesia(call_id=ident, api_key=creds["api_key"], out_path=out_path)
+    raise ValueError(f"{stack!r} has no direct fetch adapter.")
+
+
+# --- credential + stack resolution (flag > connections.json > env) ----------
+
+def resolve_stack(stack: Optional[str]) -> str:
+    """Resolve the stack for pull/sweep. Explicit ``--stack`` wins; otherwise, if
+    exactly one stack is connected, use it; if several, ask which; if none, point
+    at connect."""
+    if stack:
+        return stack.strip().lower()
+    from . import connections
+
+    conn = [s for s in connections.connected_stacks() if s in PULL_STACKS]
+    if len(conn) == 1:
+        return conn[0]
+    if not conn:
+        raise ValueError(
+            "no --stack given and no stack is connected. Run `hotato connect "
+            f"<stack>` first (one of: {', '.join(PULL_STACKS)}), or pass --stack."
+        )
+    raise ValueError(
+        f"several stacks are connected ({', '.join(conn)}); pass --stack to pick "
+        "one."
+    )
+
+
+def resolve_creds(stack: str, overrides: Optional[dict] = None) -> dict:
+    """Resolve credentials for ``stack`` in order: explicit override (a CLI flag)
+    > ~/.hotato/connections.json > environment variable. Raises a clean
+    ValueError listing what is missing. Never logs any value."""
+    from . import connections
+
+    stack = stack.strip().lower()
+    spec = CONNECT_SPECS.get(stack)
+    if spec is None:
+        raise ValueError(
+            f"{stack!r} is not a connectable stack; connectable: "
+            f"{', '.join(CONNECT_STACKS)}."
+        )
+    overrides = overrides or {}
+    stored = connections.get(stack) or {}
+    creds: dict = {}
+    for field in list(spec["fields"]) + list(spec.get("optional", [])):
+        val = (
+            overrides.get(field)
+            or stored.get(field)
+            or os.environ.get(spec["env"].get(field, ""), None)
+        )
+        if val:
+            creds[field] = val
+    missing = [f for f in spec["fields"] if not creds.get(f)]
+    if missing:
+        hints = ", ".join(
+            f"--{f.replace('_', '-')} / {spec['env'].get(f, '')}" for f in missing
+        )
+        raise ValueError(
+            f"{stack} is missing credentials ({', '.join(missing)}). Provide "
+            f"them ({hints}) or run `hotato connect {stack}`."
+        )
+    return creds
+
+
+def auth_check(stack: str, creds: dict) -> None:
+    """A lightweight credential probe: list one recent call. Raises the vendor's
+    HTTP error (an _HTTPStatusError carrying .code) on an auth failure, or a
+    ValueError when the stack has no cheap probe (e.g. Retell has no list
+    endpoint; Synthflow/Cartesia need model_id/agent_id to list)."""
+    stack = stack.strip().lower()
+    if stack not in _LIST_FUNCS:
+        raise ValueError(
+            f"{stack} has no list endpoint to verify against; credentials will "
+            "be validated on the first pull."
+        )
+    _LIST_FUNCS[stack](creds, None, 1)
+
+
+# --- pull: bulk-fetch recent recordings into a local directory --------------
+
+def pull(stack, creds, *, out_dir, ids=None, since=None, limit=50,
+         allow_mono=False, log=None):
+    """Bulk-fetch recent recordings for ``stack`` into ``out_dir`` by looping the
+    existing single-call fetch over the list results (or an explicit ``ids``
+    list). Returns a summary dict ``{stack, out_dir, listed, pulled[], skipped[]}``.
+
+    Honest per-file behaviour: a recording that cannot be fetched (missing URL,
+    HTTP error, wrong channel count) is recorded in ``skipped`` with its reason
+    and the loop continues -- one bad call never aborts the pull or crashes.
+
+    Mono/mixed stacks require ``allow_mono=True``; dual stacks fetch stereo and
+    validate 2 channels."""
+    stack = (stack or "").strip().lower()
+    if stack not in PULL_STACKS:
+        if stack in ("livekit", "pipecat"):
+            raise ValueError(
+                f"{stack} is capture-in-your-infra (no vendor recording list to "
+                f"pull). Run `hotato setup --stack {stack}` and score the file "
+                "your deployment writes."
+            )
+        raise ValueError(
+            f"{stack!r} does not support pull. Pullable stacks: "
+            f"{', '.join(PULL_STACKS)}."
+        )
+    mode = STACK_CHANNELS.get(stack)
+    if mode == "mono" and not allow_mono:
+        raise ValueError(
+            f"{stack} exposes only a mono/mixed recording; {_MONO_WHY}. Separated "
+            "turn-taking analysis is not possible from mono. Pass --allow-mono to "
+            "pull it anyway (degraded, indicative only)."
+        )
+    limit = max(1, int(limit))
+    os.makedirs(out_dir, exist_ok=True)
+
+    if ids:
+        items = [{"id": str(i), "created": None} for i in ids][:limit]
+    else:
+        cutoff = since_epoch(since) if isinstance(since, str) else since
+        items = list_calls(stack, creds, since=cutoff, limit=limit)
+
+    pulled, skipped = [], []
+    for it in items:
+        ident = it["id"]
+        dest = os.path.join(out_dir, f"{stack}__{_safe_id(ident)}.wav")
+        try:
+            path = fetch_one(stack, ident, creds, dest, allow_mono=allow_mono)
+            pulled.append({"id": ident, "path": path})
+            if log:
+                log(f"[{stack}] pulled {ident} -> {path}")
+        except (ValueError, OSError) as exc:
+            # _HTTPStatusError is a ValueError subclass, so HTTP failures land
+            # here too. One unscorable/failed call is skipped honestly.
+            skipped.append({"id": ident, "reason": str(exc)})
+            if log:
+                log(f"[{stack}] skipped {ident}: {exc}")
+    return {
+        "stack": stack,
+        "out_dir": out_dir,
+        "listed": len(items),
+        "pulled": pulled,
+        "skipped": skipped,
+    }
+
+
+# --- CLI orchestration: connect / pull / sweep ------------------------------
+
+def _overrides_from(api_key=None, account_sid=None, auth_token=None,
+                    model_id=None, agent_id=None, base_url=None) -> dict:
+    return {k: v for k, v in {
+        "api_key": api_key, "account_sid": account_sid, "auth_token": auth_token,
+        "model_id": model_id, "agent_id": agent_id, "base_url": base_url,
+    }.items() if v}
+
+
+def run_connect(stack, *, api_key=None, account_sid=None, auth_token=None,
+                model_id=None, agent_id=None, base_url=None, no_verify=False,
+                fmt="text") -> int:
+    """`hotato connect <stack>`: capture credentials once, do a lightweight live
+    auth-check (unless --no-verify), and store them in ~/.hotato/connections.json
+    (mode 0600). The credentials are never printed and never sent anywhere but
+    the vendor's own API."""
+    from . import connections
+
+    stack = (stack or "").strip().lower()
+    if stack not in CONNECT_STACKS:
+        raise ValueError(
+            f"{stack!r} is not a connectable stack. Connectable (vendor-hosted "
+            f"recordings): {', '.join(CONNECT_STACKS)}. LiveKit/Pipecat are "
+            "capture-in-your-infra (use `hotato setup`)."
+        )
+    overrides = _overrides_from(api_key, account_sid, auth_token, model_id,
+                                agent_id, base_url)
+    creds = resolve_creds(stack, overrides)
+
+    verified = None
+    note = ""
+    if not no_verify:
+        try:
+            auth_check(stack, creds)
+            verified = True
+        except _HTTPStatusError as exc:
+            if exc.code in (401, 403):
+                raise ValueError(
+                    f"authentication failed for {stack} (HTTP {exc.code}); the "
+                    "credentials were NOT stored. Check the key and try again."
+                ) from exc
+            verified = False
+            note = f"auth check inconclusive (HTTP {exc.code}); stored anyway"
+        except ValueError as exc:
+            # No cheap probe (Retell, or Synthflow/Cartesia without model/agent
+            # id): store and validate on first pull. Not a failure.
+            verified = None
+            note = str(exc)
+
+    path = connections.save(stack, creds)
+    fields = ", ".join(sorted(creds.keys()))
+    if fmt == "json":
+        print(json.dumps({
+            "tool": "hotato", "kind": "connect", "stack": stack,
+            "stored_fields": sorted(creds.keys()), "path": path,
+            "verified": verified, "note": note,
+        }, indent=2))
+        return 0
+    print(f"connected {stack}: stored {fields} in {path} (mode 0600).")
+    print("  credentials stay on this machine; they are sent only to "
+          f"{stack}'s own API, never to Hotato.")
+    if verified is True:
+        print("  auth check: OK (listed one recent call).")
+    elif note:
+        print(f"  auth check: {note}")
+    print(f"  next: hotato pull --stack {stack}   (or omit --stack if this is "
+          "your only connection)")
+    return 0
+
+
+def _resolve_for_pull(stack, overrides):
+    stack = resolve_stack(stack)
+    creds = resolve_creds(stack, overrides)
+    return stack, creds
+
+
+def run_pull(stack=None, *, ids=None, since=None, limit=50, out=None,
+             allow_mono=False, api_key=None, account_sid=None, auth_token=None,
+             model_id=None, agent_id=None, base_url=None, fmt="text") -> int:
+    """`hotato pull`: bulk-fetch recent recordings into a local directory."""
+    overrides = _overrides_from(api_key, account_sid, auth_token, model_id,
+                                agent_id, base_url)
+    stack, creds = _resolve_for_pull(stack, overrides)
+    out_dir = out or f"hotato-pull-{stack}"
+    res = pull(stack, creds, out_dir=out_dir, ids=ids, since=since, limit=limit,
+               allow_mono=allow_mono, log=lambda m: sys.stderr.write(m + "\n"))
+    if fmt == "json":
+        print(json.dumps(res, indent=2))
+    else:
+        print(f"hotato pull: {stack} -> {res['out_dir']}")
+        print(f"  listed {res['listed']}, pulled {len(res['pulled'])}, "
+              f"skipped {len(res['skipped'])}")
+        for s in res["skipped"]:
+            print(f"  [skip] {s['id']}: {s['reason']}")
+        if res["pulled"]:
+            print(f"  next: hotato analyze {res['out_dir']}  "
+                  f"(or use `hotato sweep --stack {stack}` to pull + analyze in one)")
+    return 0
+
+
+def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
+              allow_mono=False, top=25, audio_top=8, pre=2.0, post=4.0,
+              min_gap=2.0, no_open=False, api_key=None, account_sid=None,
+              auth_token=None, model_id=None, agent_id=None, base_url=None,
+              caller_channel=0, agent_channel=1, fmt="html") -> int:
+    """`hotato sweep`: pull recent recordings, then run the P1 analyze over them
+    -- the 'connect once, see every turn-taking problem across your real calls'
+    flow. The analyze step is reused wholesale."""
+    from . import analyze as _analyze
+
+    overrides = _overrides_from(api_key, account_sid, auth_token, model_id,
+                                agent_id, base_url)
+    stack, creds = _resolve_for_pull(stack, overrides)
+    pull_dir = dir or f"hotato-sweep-{stack}"
+    res = pull(stack, creds, out_dir=pull_dir, ids=ids, since=since, limit=limit,
+               allow_mono=allow_mono, log=lambda m: sys.stderr.write(m + "\n"))
+    sys.stderr.write(
+        f"[sweep] {stack}: pulled {len(res['pulled'])} of {res['listed']} listed "
+        f"({len(res['skipped'])} skipped) into {res['out_dir']}\n"
+    )
+
+    aggregate, per_file = _analyze.analyze_folder(
+        pull_dir, caller_channel=caller_channel, agent_channel=agent_channel,
+        min_gap_sec=min_gap, pre_sec=pre, post_sec=post,
+    )
+    if fmt == "json":
+        capped = dict(aggregate)
+        if top > 0:
+            capped["candidates"] = aggregate["candidates"][:top]
+        capped["shown"] = len(capped["candidates"])
+        capped["pull"] = {
+            "stack": stack, "listed": res["listed"],
+            "pulled": len(res["pulled"]), "skipped": len(res["skipped"]),
+        }
+        print(json.dumps(capped, indent=2))
+        return 0
+
+    out_file = out or f"hotato-sweep-{stack}.html"
+    html_str = _analyze.build_dashboard_html(
+        aggregate, per_file, top=top, audio_top=audio_top,
+    )
+    with open(out_file, "w", encoding="utf-8") as fh:
+        fh.write(html_str)
+    size = os.path.getsize(out_file)
+    print(
+        f"hotato sweep: {stack} -> {out_file}  "
+        f"[pulled {len(res['pulled'])}, {aggregate['calls_scanned']} scanned, "
+        f"{aggregate['calls_skipped']} skipped, "
+        f"{aggregate['total_candidates']} candidate moments, {size / 1048576.0:.1f} MB]",
+        file=sys.stderr,
+    )
+    if not no_open:
+        try:
+            from .cli import _try_open
+
+            _try_open(out_file)
+        except Exception:  # pragma: no cover - opening is a nicety only
+            pass
+    return 0

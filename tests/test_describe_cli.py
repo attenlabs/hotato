@@ -24,10 +24,10 @@ from hotato import cli
 # (top-level, plus the two nested ones). Kept explicit so a test failure
 # names exactly what went missing, rather than just a count mismatch.
 _ALL_SUBCOMMANDS = [
-    "run", "capture", "setup", "report", "team", "export", "benchmark",
-    "benchmark compare", "doctor", "demo", "diagnose", "inspect", "plan",
-    "fixture", "fixture create", "compare", "scan", "ingest", "analyze",
-    "describe",
+    "run", "capture", "setup", "connect", "pull", "sweep", "report", "team",
+    "export", "benchmark", "benchmark compare", "doctor", "demo", "diagnose",
+    "inspect", "plan", "fixture", "fixture create", "compare", "scan", "ingest",
+    "analyze", "describe",
 ]
 
 
