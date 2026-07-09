@@ -25,7 +25,8 @@ from hotato import cli
 # names exactly what went missing, rather than just a count mismatch.
 _ALL_SUBCOMMANDS = [
     "run", "capture", "setup", "connect", "pull", "sweep", "report", "team",
-    "export", "benchmark", "benchmark compare", "doctor", "demo", "diagnose",
+    "export", "benchmark", "benchmark compare", "doctor", "demo", "start",
+    "card", "diagnose",
     "inspect", "plan", "patch", "apply", "fixture", "fixture create",
     "fixture promote", "compare", "scan", "trust",
     "ingest", "analyze", "verify", "loop", "describe",
