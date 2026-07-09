@@ -9,6 +9,8 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-09
+
 ### Added
 - **`hotato trust --stereo call.wav`, the input-health "trust doctor" you run
   BEFORE scoring a call**: it inspects one recording and reports whether the
@@ -819,7 +821,8 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
-[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/attenlabs/hotato/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/attenlabs/hotato/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/attenlabs/hotato/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/attenlabs/hotato/compare/v0.3.0...v0.3.1
