@@ -228,6 +228,13 @@ _EXIT_CODES: dict = {
         (0, "scanned (with or without candidates; the count is reported)"),
         (2, "usage error or unreadable input"),
     ),
+    "trust": (
+        (0, "the recording is safe to scan (the input-health report is printed; "
+            "never a turn-taking verdict)"),
+        (2, "NOT SCORABLE (mono, identical channels, or a silent required "
+            "channel -- the report names the reason and the next step), a usage "
+            "error, or unreadable input"),
+    ),
     "ingest": (
         (0, "ran (candidates reported, possibly zero; never a pass/fail)"),
         (2, "parse / fetch / IO error, or not-scorable input"),
@@ -1359,6 +1366,23 @@ def _cmd_scan(args) -> int:
     else:
         print(_scan.render_text(result, top=args.top))
     return 0
+
+
+def _cmd_trust(args) -> int:
+    from . import trust as _trust
+
+    report = _trust.trust_report(
+        args.stereo,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(report, indent=2))
+    else:
+        print(_trust.render_text(report))
+    # 0 when safe to scan, 2 when not scorable (the report's own exit_code, which
+    # matches the CLI's unusable-input convention).
+    return int(report["exit_code"])
 
 
 def _cmd_analyze(args) -> int:
@@ -2806,6 +2830,42 @@ def build_parser() -> argparse.ArgumentParser:
                     help="write EVERY candidate as JSON here (--top caps only "
                          "the stdout listing)")
     sc.set_defaults(func=_cmd_scan)
+
+    # --- trust: input-health check (is this recording even scorable?) --------
+    tr = sub.add_parser(
+        "trust",
+        help="check whether a recording is scorable before you scan it "
+             "(input health only; never a turn-taking verdict)",
+        description=(
+            "The input-health check, or 'trust doctor': inspect ONE recording "
+            "and report whether the audio is good enough to score, so a bad "
+            "export is caught before it produces a confident but meaningless "
+            "verdict. Reports per-channel activity (caller expected on channel "
+            "0, agent on channel 1), a possible channel-swap flag, sample rate, "
+            "duration, clipping, leading silence, crosstalk risk, and the three "
+            "scorability checks (separated tracks, enough caller activity, "
+            "enough agent activity), then recommends 'safe to scan' or 'NOT "
+            "SCORABLE' with the specific reason AND the next step. It NEVER "
+            "labels intent and NEVER emits a yield/hold or pass/fail verdict: "
+            "that is what `hotato scan` / `hotato run` are for. Offline; no "
+            "accuracy percentage anywhere."
+        ),
+        epilog=(
+            _exit_codes_epilog("trust") + "\n\n"
+            "Examples:\n"
+            "  hotato trust --stereo call.wav\n"
+            "  hotato trust --stereo call.wav --format json\n"
+            "  hotato trust --stereo call.wav && hotato scan --stereo call.wav"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tr.add_argument("--stereo", required=True, metavar="WAV",
+                    help="two-channel WAV (caller on one channel, agent on the other)")
+    tr.add_argument("--caller-channel", type=int, default=0)
+    tr.add_argument("--agent-channel", type=int, default=1)
+    tr.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text; json for agents)")
+    tr.set_defaults(func=_cmd_trust)
 
     # --- ingest: the composable passive on-ramp (webhook -> candidates) ------
     ig = sub.add_parser(

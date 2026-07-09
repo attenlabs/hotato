@@ -263,6 +263,10 @@ measures whether the timing matched that label.
   staging assistant instead).
 - docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
   dashboard with the hear-the-bug audio playhead.
+- docs/TRUST.md: `hotato trust`, the input-health "trust doctor" pre-scan check
+  (per-channel activity, channel-swap flag, clipping, leading silence, crosstalk
+  risk, scorability) that says "safe to scan" or "NOT SCORABLE" with the reason
+  and the next step. Never a turn-taking verdict.
 - docs/CONNECT.md: `hotato connect` / `pull` / `sweep`, the connect-once bulk
   pull-and-analyze recipe across your real calls, with per-stack credentials.
 - docs/ADAPTER-STATUS.md: the honest per-stack map -- auto-pull dual-channel,
