@@ -247,10 +247,11 @@ _EXIT_CODES: dict = {
     "verify": (
         (0, "verified: the before/after rollup was produced (a low-n claim is "
             "refused honestly but still exits 0; the per-fixture facts hold)"),
-        (1, "with --fail-on-regression, at least one fixture regressed or got "
-            "worse"),
-        (2, "usage error, unreadable input, or no fixtures pair between the two "
-            "sides"),
+        (1, "a gate you opted into failed: with --fail-on-regression a fixture "
+            "regressed or got worse, or with --policy a guardrail was violated "
+            "or a target.improve criterion was not met"),
+        (2, "usage error, unreadable input, an invalid --policy file, or no "
+            "fixtures pair between the two sides"),
     ),
     "loop": (
         (0, "advanced the loop and persisted state (or re-reported where it "
@@ -1076,14 +1077,37 @@ def _cmd_verify(args) -> int:
     from . import verify as _verify
 
     result = _verify.verify_sides(args.before, args.after, min_n=args.min_n)
+    # Optional hotato.verify.yaml policy: gate the run on declared success
+    # criteria (target.improve) AND hard guardrails (max_new_false_yields /
+    # max_not_scorable / require_hold|yield_fixture). Loaded and evaluated here,
+    # then attached so the text/JSON/HTML surfaces all render the same result.
+    policy_result = None
+    if getattr(args, "policy", None):
+        policy = _verify.load_policy(args.policy)
+        policy_result = _verify.evaluate_policy(result, policy)
+        result["policy"] = policy_result
     if args.out:
-        _atomic_write_json(args.out, result)
-        print(f"wrote verify proof to {args.out}", file=sys.stderr)
+        # Dispatch on the requested file's extension: a .html/.htm path writes the
+        # self-contained offline proof page, anything else keeps the long-standing
+        # behaviour of writing the full proof JSON.
+        if args.out.lower().endswith((".html", ".htm")):
+            _atomic_write_text(args.out, _verify.render_html(result))
+            print(f"wrote verify report to {args.out}", file=sys.stderr)
+        else:
+            _atomic_write_json(args.out, result)
+            print(f"wrote verify proof to {args.out}", file=sys.stderr)
     if args.format == "json":
         print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_verify.render_text(result))
-    # 0 = rollup produced; 1 = a regression, only when the user opts to gate on it.
+    # Exit non-zero when the run failed a gate the user opted into:
+    #  * --policy: any guardrail violated or any target unmet (the anti-bandaid
+    #    gate -- you cannot pass by moving one axis while regressing the other);
+    #  * --fail-on-regression: any fixture regressed or got worse.
+    # Absent both, verify measures and exits 0 (a low-n claim is refused, not
+    # failed).
+    if policy_result is not None and not policy_result["passed"]:
+        return 1
     if args.fail_on_regression and result["regressions"]:
         return 1
     return 0
@@ -2909,7 +2933,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio-new \\\n"
             "      --format json > after.json       # (after applying the patch + re-capturing)\n"
             "  hotato verify --before before.json --after after.json\n"
-            "  hotato verify --before before/ --after after/ --min-n 5 --fail-on-regression"
+            "  hotato verify --before before/ --after after/ --min-n 5 --fail-on-regression\n"
+            "  hotato verify --before before.json --after after.json --out verify.html\n"
+            "  hotato verify --before before.json --after after.json --policy hotato.verify.yaml"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -2926,10 +2952,22 @@ def build_parser() -> argparse.ArgumentParser:
     vf.add_argument("--fail-on-regression", action="store_true",
                     help="exit 1 if any fixture regressed or got worse (default: "
                          "exit 0; verify measures, it does not gate)")
+    vf.add_argument("--policy", default=None, metavar="hotato.verify.yaml",
+                    help="gate the run against a hotato.verify.yaml policy: "
+                         "target.improve success criteria (e.g. talk_over_sec_p95 "
+                         "-0.5, failed_count decrease) AND hard guardrails "
+                         "(max_new_false_yields, max_not_scorable, "
+                         "require_hold_fixture, require_yield_fixture). verify "
+                         "exits 1 unless every guardrail holds and every target "
+                         "is met, so a one-axis bandaid cannot pass")
     vf.add_argument("--format", default="text", choices=["json", "text"],
                     help="output format (default text)")
     vf.add_argument("--out", default=None, metavar="PATH",
-                    help="also write the full proof JSON here")
+                    help="also write the proof here: a .html/.htm path writes a "
+                         "self-contained offline before/after report (headline "
+                         "PASSED/FAILED, target talk-over shift, opposite-risk "
+                         "false-yield check); any other path writes the full "
+                         "proof JSON")
     vf.set_defaults(func=_cmd_verify)
 
     # --- loop: one-command orchestration of the closed loop, with memory ----

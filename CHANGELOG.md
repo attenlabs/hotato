@@ -10,6 +10,54 @@ design. See `docs/BENCHMARK.md`.
 ## [Unreleased]
 
 ### Added
+- **`hotato verify --policy hotato.verify.yaml`, the anti-bandaid gate that
+  fails a fix which moves one axis while regressing (or never testing) the
+  other**: a policy file declares two things and BOTH must hold for verify to
+  pass. `target.improve` is the success criteria (the failure the fix set out to
+  move) -- a signed number is a required delta, so `talk_over_sec_p95: -0.5`
+  means the pooled talk-over p95 must drop by at least 0.5s, and a keyword
+  (`decrease`, `increase`, `no_worse`, `no_better`, `unchanged`) states
+  direction, so `failed_count: decrease` means fewer fixtures may fail.
+  `guardrails` are HARD fail conditions: `max_new_false_yields` and
+  `max_not_scorable` cap what a threshold bandaid would silently trade in, and
+  `require_hold_fixture` / `require_yield_fixture` refuse to certify a battery
+  that does not even test the opposite axis. verify exits 1 unless EVERY
+  guardrail holds AND EVERY target is met, so a patch that cuts talk-over by
+  making the agent yield to everything meets the talk-over target but trips
+  `max_new_false_yields` on the hold fixtures and the whole check fails. The
+  guardrails and targets are shown in the `verify.html` proof (a `Policy check:
+  PASSED`/`FAILED` headline plus an ok/violated and met/unmet table) and in the
+  text and JSON output, reading ONLY the numbers `verify_sides` already measured
+  -- nothing is re-scored. The report still states COINCIDENCE, never causation.
+  The policy is parsed with the standard library alone (Hotato's core carries no
+  third-party runtime dependency, PyYAML included), over the small documented
+  subset the shipped `examples/verify-policy/hotato.verify.yaml` uses; an
+  unknown key, a wrong-typed value, an empty policy, a tab indent, or a list is
+  a clean exit-2 usage error, never a silent misread. Supported target metrics:
+  `talk_over_sec_p95`, `seconds_to_yield_p95`, `failed_count`,
+  `false_yield_count`. New: `verify.load_policy`, `verify.evaluate_policy`.
+- **`hotato verify --out verify.html`, the flagship fix-verification proof as
+  one self-contained offline HTML report**: a `.html`/`.htm` path passed to
+  `hotato verify --out` now writes a single, zero-external-asset page (any other
+  extension keeps writing the proof JSON, unchanged). The page reuses the
+  report/analyze house style and reads ONLY the numbers `verify_sides` already
+  measured; it re-scores nothing. Its headline is `Fix verification:
+  PASSED`/`FAILED`, tied to the SAME honesty bar the text/JSON claim enforces (a
+  battery-scale claim needs `--min-n` previously-failing fixtures AND at least
+  one now passing AND no regression, so a low-n or regressed battery never earns
+  a PASSED stamp). A TARGET section shows the failure it set out to move
+  (pooled talk-over p95 and the failing-fixture count, before to after) and an
+  OPPOSITE-RISK section shows what a naive threshold bandaid would silently
+  break (hold/backchannel fixtures and the false-yield count, before to after,
+  with the new-false-yield and not-scorable guardrails flagged ok/violated), so
+  a "fix" that just makes the agent yield to everything is caught. Every paired
+  fixture is listed with its machine-stable compare word, and unpaired fixtures
+  are reported, never dropped. The conclusion states COINCIDENCE, never
+  causation ("Hotato reports coincidence, not causation."), names what the
+  artifact does not prove (timing only; no controlled experiment, no cause, no
+  semantic-correctness judgement), and the whole page carries no em or en
+  dashes. The verdict/target/opposite-risk numbers are derived by a pure
+  `verify.verdict_model(v)` and the page by `verify.render_html(v)`.
 - **`hotato pr create --fixtures DIR --repo OWNER/REPO --title T [--yes]`, a
   directory of promoted fixtures turned into a pull request that adds them as
   regression tests**: reads a hotato fixtures directory (the `--out DIR` that

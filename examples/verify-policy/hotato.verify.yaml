@@ -1,0 +1,25 @@
+# hotato.verify.yaml -- the policy that gates `hotato verify`.
+#
+#   hotato verify --before before.json --after after.json --policy hotato.verify.yaml
+#
+# The check passes only if EVERY guardrail holds AND EVERY target is met, so a
+# fix cannot pass by improving one axis while regressing (or never testing) the
+# other. Exit 1 on any violation, so it drops straight into CI.
+
+# target.improve -- the success criteria the fix set out to move. A signed
+# number is a REQUIRED delta (after minus before), so -0.5 means "must improve
+# by at least half a second". A keyword (decrease / increase / no_worse /
+# no_better / unchanged) states the direction only.
+target:
+  improve:
+    talk_over_sec_p95: -0.5   # pooled talk-over p95 must drop by >= 0.5s
+    failed_count: decrease    # fewer fixtures may fail than before
+
+# guardrails -- HARD fail conditions. The max_* rules cap what a naive threshold
+# bandaid would silently trade in; the require_* rules refuse to certify a
+# battery that does not even test the opposite axis.
+guardrails:
+  max_new_false_yields: 0     # no hold fixture that passed before may newly yield
+  max_not_scorable: 0         # every paired fixture must be judgeable
+  require_hold_fixture: true  # the battery must contain a hold fixture
+  require_yield_fixture: true # ...and a yield fixture

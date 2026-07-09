@@ -30,7 +30,7 @@ exclude tests/test_saa_card.py
 # regenerated deterministically by tests/conftest.py (seed = sha256(id)) when
 # absent; tests that need genuinely-absent heavy real audio skip cleanly.
 recursive-include corpus *.json *.py *.md *.txt *.html
-recursive-include examples *.json *.py *.md *.sh
+recursive-include examples *.json *.py *.md *.sh *.yaml
 # the schema example's small stereo wav is the validator's PASS fixture, not
 # heavy audio (~0.4 MB); ship it so test_corpus_validate has its example.
 include corpus/examples/sample-contribution.example.wav
