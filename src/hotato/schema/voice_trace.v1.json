@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/voice_trace.v1.json",
+  "title": "hotato voice trace, schema hotato.voice_trace.v1",
+  "description": "An observability bridge: a timeline of discrete voice-pipeline events (audio activity, TTS cancel/stop, ASR partials, tool calls, ...) attached alongside a failure contract's frame-level timing evidence. Built by `hotato trace ingest --otel` from an OTel-flavored source and written as JSONL (one meta line then one line per span; see docs/TRACE.md). Additive-only: new span types and new fields may appear without a version bump; a consumer must ignore unknown fields and unknown span types. A voice trace is supporting evidence, not a verdict: Hotato does not prove root cause from a trace, only that a pattern of events coincided with the measured timing.",
+  "type": "object",
+  "required": ["schema", "created_at", "created_by", "call_id", "deployment", "spans", "source"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "hotato.voice_trace.v1" },
+    "created_at": { "type": "string" },
+    "created_by": { "type": "string" },
+    "call_id": {
+      "type": ["string", "null"],
+      "description": "Redacted (null) by default. Pass --include-identifiers at ingest time to keep it."
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "stack": { "type": ["string", "null"] },
+        "agent_id": {
+          "type": ["string", "null"],
+          "description": "Redacted (null) by default. Pass --include-identifiers at ingest time to keep it."
+        },
+        "git_sha": { "type": ["string", "null"] },
+        "config_hash": { "type": ["string", "null"] }
+      }
+    },
+    "spans": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/span" }
+    },
+    "source": {
+      "type": "object",
+      "required": ["format"],
+      "additionalProperties": true,
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "How the spans below were parsed from the ingested file: 'otel-json' (a standard OTel resourceSpans export, best-effort span/event flattening) or 'otel-jsonl-bridge' (hotato's own documented per-line span shape; see docs/OTEL.md). Never claims full OTel wire-protocol coverage."
+        },
+        "input_span_count": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "definitions": {
+    "span": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": true,
+      "description": "One discrete voice-pipeline event. type is an open string set; common values: caller_audio_active, agent_audio_active, tts_cancel_requested, tts_audio_stopped, asr_partial (carries text_redacted, and text only when --include-text was passed), tool_call (carries name, latency_ms), llm_first_token, handoff. Exactly one time shape applies: an interval span carries start_sec/end_sec, a point event carries time_sec.",
+      "properties": {
+        "type": { "type": "string" },
+        "start_sec": { "type": ["number", "null"] },
+        "end_sec": { "type": ["number", "null"] },
+        "time_sec": { "type": ["number", "null"] },
+        "text_redacted": { "type": "boolean" },
+        "text": { "type": "string" },
+        "name": { "type": ["string", "null"] },
+        "latency_ms": { "type": ["number", "null"] },
+        "attributes": { "type": "object", "additionalProperties": true }
+      }
+    }
+  }
+}
