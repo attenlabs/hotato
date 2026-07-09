@@ -162,6 +162,17 @@
   --format otel --out FILE` writes it back out (round-trips through ingest).
   Redacted by default (call id, agent id, ASR transcript text). Detail:
   `docs/TRACE.md`, `docs/OTEL.md`.
+- `hotato init starter --stack {vapi,retell,twilio,livekit,pipecat} --out DIR`
+  -- one-command starter kit for an EXISTING voice-agent repo (`--out .`): a
+  GitHub Actions workflow that verifies `contracts/` and `fixtures/` on push,
+  pull request, and weekly (a no-op until you have added a first one); a
+  `hotato.yaml` tuned for the stack (auto-pull credential env vars for
+  vapi/retell/twilio, or a plain no-credentials-needed note for the
+  capture-in-your-infra livekit/pipecat); `fixtures/`, `contracts/`,
+  `reports/` with README stubs; `.gitignore` entries that exclude local/
+  pulled recordings while keeping pinned fixture/contract clips committed.
+  Refused (never partial, never silent) if a destination already exists,
+  unless `--force`. Detail: `docs/STARTER.md`.
 - `hotato describe [--format json]` -- generated capability manifest of the
   whole CLI: every subcommand's name, purpose, argument list, and documented
   exit codes, plus the tool version and the schema URLs. Pure and
@@ -284,6 +295,9 @@ measures whether the timing matched that label.
 - docs/ADAPTER-STATUS.md: the honest per-stack map -- auto-pull dual-channel,
   mono-only (`--allow-mono`), capture-in-your-infra, not integrable, and
   unconfirmed -- each with the exact verified endpoint.
+- docs/STARTER.md: `hotato init starter`, the one-command CI gate +
+  `hotato.yaml` + `fixtures/`/`contracts/`/`reports/` scaffold for an
+  existing voice-agent repo.
 - docs/TRACE.md: `hotato trace ingest/attach/export`, the voice-trace
   observability bridge attached to a failure contract's evidence.
 - docs/OTEL.md: the two `trace ingest --otel` source shapes (a standard OTel

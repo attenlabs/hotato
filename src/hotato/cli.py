@@ -351,12 +351,19 @@ _EXIT_CODES: dict = {
         (2, "usage error: no mode given, or --dir is not a directory"),
     ),
     "init": (
-        (2, "no subcommand given (see hotato init webhook --help)"),
+        (2, "no subcommand given (see hotato init webhook --help / hotato "
+            "init starter --help)"),
     ),
     "init webhook": (
         (0, "scaffolded the webhook worker project to --out"),
         (2, "usage error (unknown --stack / --target), or a destination file "
             "already exists without --force"),
+    ),
+    "init starter": (
+        (0, "scaffolded the starter kit (CI gate, hotato.yaml, fixtures/, "
+            "contracts/, reports/) to --out"),
+        (2, "usage error (unknown --stack), or a destination file already "
+            "exists without --force"),
     ),
     "issue": (
         (2, "no subcommand given (see hotato issue create --help)"),
@@ -1659,6 +1666,17 @@ def _cmd_init_webhook(args) -> int:
         print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_initcmd.render_text(result), end="")
+    return 0
+
+
+def _cmd_init_starter(args) -> int:
+    from . import initcmd as _initcmd
+
+    result = _initcmd.scaffold_starter(args.stack, args.out, force=args.force)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_initcmd.starter_result_json(result), indent=2))
+    else:
+        print(_initcmd.render_starter_text(result), end="")
     return 0
 
 
@@ -3994,15 +4012,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     it = sub.add_parser(
         "init",
-        help="scaffold a self-hostable hotato integration (hotato init webhook)",
+        help="scaffold a hotato integration or a whole-repo starter kit "
+             "(hotato init webhook | hotato init starter)",
         description=(
-            "Scaffolding for the passive monitor. Today it generates a webhook "
-            "worker (see hotato init webhook --help)."
+            "Scaffolding for adding hotato to a voice-agent repository: a "
+            "passive webhook worker (see hotato init webhook --help) or a "
+            "whole-repo starter kit -- CI gate, hotato.yaml, fixtures/, "
+            "contracts/, reports/ (see hotato init starter --help)."
         ),
         epilog=_exit_codes_epilog("init"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    itsub = it.add_subparsers(dest="init_command", required=True, metavar="webhook")
+    itsub = it.add_subparsers(dest="init_command", required=True,
+                              metavar="webhook|starter")
     iw = itsub.add_parser(
         "webhook",
         help="generate a ready-to-deploy webhook worker that verifies the "
@@ -4049,6 +4071,56 @@ def build_parser() -> argparse.ArgumentParser:
     iw.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     iw.set_defaults(func=_cmd_init_webhook)
+
+    ist = itsub.add_parser(
+        "starter",
+        help="generate a whole-repo starter kit: CI gate, hotato.yaml, "
+             "fixtures/, contracts/, reports/",
+        description=(
+            "Generate a whole-repo starter kit for adding hotato to an "
+            "EXISTING voice-agent repository (pass --out .): a GitHub "
+            "Actions workflow that verifies contracts/ and fixtures/ on "
+            "push, pull request, and weekly (a no-op, never a failure, "
+            "until you have added a first one); a hotato.yaml config "
+            "skeleton tuned for the stack (credential env var names for an "
+            "auto-pull stack, or a plain no-credentials-needed note for a "
+            "capture-in-your-infra stack); fixtures/, contracts/, and "
+            "reports/ directories with README stubs; and .gitignore entries "
+            "that exclude local/pulled recordings while keeping pinned "
+            "fixture and contract audio clips committed. Generated files "
+            "are deliberately namespaced (HOTATO.md, not README.md; "
+            "hotato-contracts.yml, not hotato.yml) so a first run does not "
+            "collide with files a real repo almost always already has. "
+            "Offline scaffolding: no network, no credentials needed to "
+            "generate. Every stack referenced here ships a real hotato "
+            "connector today (see docs/ADAPTER-STATUS.md); vapi/retell/"
+            "twilio auto-pull the recording, livekit/pipecat are capture-"
+            "in-your-infra."
+        ),
+        epilog=(
+            _exit_codes_epilog("init starter") + "\n\n"
+            "Examples:\n"
+            "  hotato init starter --stack vapi    --out .\n"
+            "  hotato init starter --stack livekit --out ./my-agent-repo\n"
+            "  hotato init starter --stack pipecat --out . --force\n\n"
+            "Then:\n"
+            "  cat HOTATO.md                                # what was added, next steps\n"
+            "  hotato contract create --stereo call.wav --onset 42.18 \\\n"
+            "      --expect yield --id refund-cutoff-001 --out contracts\n"
+            "  hotato contract verify contracts --junit hotato.xml   # the CI gate, locally"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ist.add_argument("--stack", required=True, choices=list(_initcmd.STARTER_STACKS),
+                     help="voice stack this repo runs on")
+    ist.add_argument("--out", required=True, metavar="DIR",
+                     help="directory to scaffold the starter kit into "
+                          "(often . -- your existing repo root)")
+    ist.add_argument("--force", action="store_true",
+                     help="overwrite existing files in --out")
+    ist.add_argument("--format", default="text", choices=["text", "json"],
+                     help="output format (default text)")
+    ist.set_defaults(func=_cmd_init_starter)
 
     # --- issue: file a sweep's candidates as a GitHub issue -----------------
     iss = sub.add_parser(
