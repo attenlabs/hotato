@@ -29,6 +29,13 @@ production audio path.
 
 ## Recipe: add Hotato to a voice-agent repo
 
+Fast path: `hotato init starter --stack {vapi,retell,twilio,livekit,pipecat}
+--out .` scaffolds step 2's directories and step 5's CI gate in one offline
+command (a stack-tuned `hotato.yaml`, `fixtures/`, `contracts/`, `reports/`,
+and `.github/workflows/hotato-contracts.yml`). Read the generated `HOTATO.md`
+for the exact next commands; full detail: [`docs/STARTER.md`](docs/STARTER.md).
+The steps below are the same recipe done by hand.
+
 Do these in order. Every step is offline and reversible.
 
 1. **Prove it runs, with no credentials.** `uvx hotato sweep --demo --out
@@ -90,6 +97,7 @@ Do these in order. Every step is offline and reversible.
 
 ## Read more
 
+- The one-command starter kit: [`docs/STARTER.md`](docs/STARTER.md)
 - The loop, end to end: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) ·
   [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md)
 - What it measures: [`METHODOLOGY.md`](METHODOLOGY.md) · API [`docs/API.md`](docs/API.md)

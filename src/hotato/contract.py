@@ -1,0 +1,1366 @@
+"""``hotato contract create/verify/inspect/pack/unpack``: the portable failure
+contract.
+
+A contract turns ONE real call moment -- a recording you already have, the
+onset the caller took or attempted the floor, and YOUR label for what the
+agent should have done -- into a self-contained bundle directory
+(``<id>.hotato/``) that carries the audio, the frame-level timing evidence, an
+input-health (trust) report, a shareable SVG card, a CI pass/fail policy, and
+the exact commands to replay and re-verify it. See ``docs/CONTRACTS.md`` for
+the full bundle layout.
+
+Hotato does not infer intent and does not prove authorization, identity,
+compliance, or policy safety. A contract's ``label.expected_behavior`` is
+always a human call (``label_source`` is frozen to ``"human"``); Hotato
+measures whether the recorded timing matched that label, and ``contract
+verify`` re-measures the SAME recording later (after an engine upgrade, a
+config change, or a re-capture) and reports pass/fail for CI.
+
+This module deliberately WRAPS the existing primitives instead of
+reimplementing them:
+
+* :func:`hotato.fixture.create_fixture` / candidate resolution
+  (:func:`hotato.fixture.parse_candidate_ref` and friends) do the input
+  parsing, onset clipping, and the round-trip scorability validation -- a
+  contract creation refuses a not-scorable moment with the SAME honest reason
+  fixture creation does, before any bundle file is written;
+* :func:`hotato.trust.trust_report` is the input-health check written to
+  ``evidence/trust.json``;
+* :func:`hotato.core.dump_frames_for_input` is the frame-level evidence
+  written to ``evidence/frames.jsonl``;
+* :mod:`hotato.report`'s timeline model and SVG renderer draw
+  ``evidence/timeline.html`` and ``reports/initial.html``;
+* :mod:`hotato.card` renders ``evidence/card.svg``.
+
+A single-channel (mono) recording is rejected by default, exactly like
+``fixture create``: caller and agent cannot be told apart on one channel. The
+opt-in ``--mono --diarize`` path (mirroring ``hotato run --mono --diarize``)
+scores a diarized-mono recording through the SAME quality-gated diarizer
+front-end and NEVER silently upgrades an indicative-only verdict to a
+confident one: ``measurement.indicative_only`` is carried into the contract
+and every renderer, and frame-level evidence (which the diarized-mono path
+does not produce) is honestly reported as unavailable rather than fabricated.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import tempfile
+import zipfile
+from datetime import datetime, timezone
+from typing import Optional
+
+from ._engine.score import ScoreConfig
+from . import card as _card
+from . import fixture as _fixture
+from . import report as _report
+from . import trust as _trust
+from .core import dump_frames_for_input, run_single
+
+__all__ = [
+    "SCHEMA",
+    "BUNDLE_SUFFIX",
+    "create_contract",
+    "render_create_text",
+    "create_result_json",
+    "discover_bundles",
+    "verify_contracts",
+    "render_verify_text",
+    "render_verify_html",
+    "render_verify_junit",
+    "verify_result_json",
+    "inspect_contract",
+    "render_inspect_text",
+    "pack_contract",
+    "render_pack_text",
+    "pack_result_json",
+    "unpack_contract",
+    "render_unpack_text",
+    "unpack_result_json",
+]
+
+SCHEMA = "hotato.contract.v1"
+CREATED_BY = "hotato contract create"
+BUNDLE_SUFFIX = ".hotato"
+MANIFEST_NAME = "MANIFEST.sha256.json"
+
+# Same slug rule fixture ids and the corpus label schema use.
+_SLUG_RE = _fixture._SLUG_RE
+
+# Relative paths every bundle carries (contract.json["bundle"]["paths"] is
+# built from this constant so the schema and the writer can never drift).
+_REL = {
+    "contract": "contract.json",
+    "audio": "audio/event.wav",
+    "evidence": {
+        "frames": "evidence/frames.jsonl",
+        "timeline": "evidence/timeline.html",
+        "trust": "evidence/trust.json",
+        "card": "evidence/card.svg",
+    },
+    "traces_dir": "traces",
+    "source": {
+        "call_metadata": "source/call_metadata.json",
+        "stack_config_snapshot": "source/stack_config_snapshot.json",
+    },
+    "policy": "policy/verify.yaml",
+    "reports": {
+        "initial": "reports/initial.html",
+        "after": "reports/after.html",
+    },
+    "provenance": "provenance.json",
+    "ci": {
+        "github_action": "ci/github-action.yml",
+        "junit": "ci/junit.xml",
+    },
+}
+
+_NOT_PROVED = (
+    "Hotato does not prove authorization, identity, compliance, or policy "
+    "safety. Hotato proves timing behavior against this explicit contract."
+)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _sha256_two_files(a: str, b: str) -> str:
+    """A deterministic combined hash for a caller+agent mono pair: order-
+    stable (caller then agent), so re-running on the same two files always
+    reproduces the same source hash."""
+    h = hashlib.sha256()
+    for p in (a, b):
+        h.update(_sha256_file(p).encode("ascii"))
+    return h.hexdigest()
+
+
+def _mkparents(path: str) -> None:
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+
+
+def _write_text(path: str, text: str) -> None:
+    _mkparents(path)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def _write_json(path: str, obj) -> None:
+    _write_text(path, json.dumps(obj, indent=2, sort_keys=True) + "\n")
+
+
+# --- create ------------------------------------------------------------
+
+def create_contract(
+    *,
+    from_candidate: Optional[str] = None,
+    stereo: Optional[str] = None,
+    caller: Optional[str] = None,
+    agent: Optional[str] = None,
+    mono: Optional[str] = None,
+    diarize: bool = False,
+    diarizer: str = "pyannote",
+    caller_speaker: Optional[str] = None,
+    agent_speaker: Optional[str] = None,
+    egress_opt_in: bool = False,
+    contract_id: str,
+    expect: str,
+    out_dir: str,
+    onset_sec: Optional[float] = None,
+    folder: Optional[str] = None,
+    stack: Optional[str] = None,
+    max_talk_over_sec: Optional[float] = None,
+    max_time_to_yield_sec: Optional[float] = None,
+    rationale: Optional[str] = None,
+    pre_sec: float = 2.0,
+    post_sec: float = 6.0,
+    no_clip: bool = False,
+    force: bool = False,
+    caller_channel: int = 0,
+    agent_channel: int = 1,
+    include_identifiers: bool = False,
+) -> dict:
+    """Create one ``<id>.hotato`` failure-contract bundle under ``out_dir``.
+
+    Exactly ONE input is required: ``from_candidate`` (a ``FILE#N`` /
+    ``FILE#CALL:N`` sweep/analyze candidate ref), ``stereo`` (a two-channel
+    WAV, with ``onset_sec``), ``caller``+``agent`` (two mono WAVs, with
+    ``onset_sec``), or ``mono`` (with ``diarize=True``, the opt-in
+    diarized-mono path). A single channel passed as ``stereo`` (or a bare
+    ``mono`` without ``diarize``) is refused, never silently scored.
+
+    The moment is validated by scoring it immediately, through the SAME
+    round-trip guarantee ``fixture create`` gives: a not-scorable input is
+    refused with the honest reason (raises ``ValueError``, CLI exit 2) and no
+    bundle is written. The bundle is built in a temp directory next to
+    ``out_dir`` and moved into place with one atomic rename, so a crash or
+    kill mid-write never leaves a half-written bundle at the final path.
+
+    Returns a result dict: ``{"id", "dir", "contract", "paths", "next"}``.
+    """
+    if not _SLUG_RE.match(contract_id or ""):
+        raise ValueError(
+            f"--id {contract_id!r} is not a valid contract id; use a "
+            "lowercase slug like refund-cutoff-001 (letters, digits, hyphens)"
+        )
+    if str(expect).strip().lower() not in ("yield", "hold"):
+        raise ValueError(f"--expect must be 'yield' or 'hold', got {expect!r}")
+    want_yield = str(expect).strip().lower() == "yield"
+
+    modes = {
+        "from_candidate": bool(from_candidate),
+        "stereo": bool(stereo),
+        "caller_agent": bool(caller or agent),
+        "mono": bool(mono),
+    }
+    chosen = [k for k, v in modes.items() if v]
+    if len(chosen) != 1:
+        raise ValueError(
+            "provide exactly ONE input: --from-candidate FILE#N, --stereo "
+            "FILE, --caller FILE + --agent FILE, or --mono FILE (with "
+            "--diarize); got " + (", ".join(chosen) or "none")
+        )
+    if not out_dir:
+        raise ValueError("--out DIR is required (e.g. --out contracts)")
+
+    bundle_dir = os.path.join(out_dir, contract_id + BUNDLE_SUFFIX)
+    if os.path.exists(bundle_dir) and not force:
+        raise ValueError(
+            f"contract {contract_id!r} already exists ({bundle_dir}); pass "
+            "--force to overwrite it, or pick a new --id"
+        )
+
+    os.makedirs(out_dir, exist_ok=True)
+    tmp_dir = tempfile.mkdtemp(prefix=f".{contract_id}.hotato.tmp-", dir=out_dir)
+    try:
+        if mono:
+            contract = _create_diarized_mono(
+                tmp_dir,
+                mono=mono, diarize=diarize, diarizer=diarizer,
+                caller_speaker=caller_speaker, agent_speaker=agent_speaker,
+                egress_opt_in=egress_opt_in,
+                contract_id=contract_id, want_yield=want_yield, expect=expect,
+                onset_sec=onset_sec, stack=stack,
+                max_talk_over_sec=max_talk_over_sec,
+                max_time_to_yield_sec=max_time_to_yield_sec,
+                rationale=rationale, include_identifiers=include_identifiers,
+            )
+        else:
+            contract = _create_from_fixture_path(
+                tmp_dir,
+                from_candidate=from_candidate, stereo=stereo,
+                caller=caller, agent=agent, folder=folder,
+                contract_id=contract_id, want_yield=want_yield, expect=expect,
+                onset_sec=onset_sec, stack=stack,
+                max_talk_over_sec=max_talk_over_sec,
+                max_time_to_yield_sec=max_time_to_yield_sec,
+                rationale=rationale, pre_sec=pre_sec, post_sec=post_sec,
+                no_clip=no_clip, caller_channel=caller_channel,
+                agent_channel=agent_channel,
+                include_identifiers=include_identifiers,
+            )
+    except BaseException:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+
+    if os.path.exists(bundle_dir):
+        shutil.rmtree(bundle_dir)
+    os.replace(tmp_dir, bundle_dir)
+
+    paths = {k: os.path.join(bundle_dir, v) if isinstance(v, str) else
+             {kk: os.path.join(bundle_dir, vv) for kk, vv in v.items()}
+             for k, v in _REL.items()}
+    return {
+        "id": contract_id,
+        "dir": bundle_dir,
+        "contract": contract,
+        "paths": paths,
+        "next": f"hotato contract verify {out_dir}",
+    }
+
+
+def _base_policy(want_yield: bool, max_talk_over_sec, max_time_to_yield_sec) -> dict:
+    pass_conditions = {"yield": want_yield}
+    if want_yield:
+        pass_conditions["max_talk_over_sec"] = max_talk_over_sec
+        pass_conditions["max_time_to_yield_sec"] = max_time_to_yield_sec
+    else:
+        pass_conditions["max_talk_over_sec"] = None
+        pass_conditions["max_time_to_yield_sec"] = None
+    return {
+        "pass_conditions": pass_conditions,
+        # The opposite axis is not tested by ONE contract; a battery of
+        # contracts (some yield, some hold) is what exercises it. Recorded
+        # here so a downstream verify --policy battery can require it.
+        "opposite_risk_required": want_yield,
+    }
+
+
+def _measurement_from_event(event: dict, *, indicative_only: bool = False,
+                            diarization=None) -> dict:
+    scorable = event.get("scorable") is not False
+    v = event.get("verdict") or {}
+    return {
+        "scorable": scorable,
+        "not_scorable_reason": event.get("not_scorable_reason"),
+        "did_yield": v.get("did_yield") if scorable else None,
+        "seconds_to_yield": v.get("seconds_to_yield") if scorable else None,
+        "talk_over_sec": v.get("talk_over_sec") if scorable else None,
+        "passed": v.get("passed") if scorable else None,
+        "indicative_only": bool(indicative_only),
+        "diarization": diarization,
+    }
+
+
+def _trust_block(trust_rep: dict) -> dict:
+    channels = trust_rep.get("channels")
+    return {
+        "status": trust_rep.get("recommendation"),
+        "scorable": bool(trust_rep.get("scorable")),
+        "warnings": list(trust_rep.get("warnings") or []),
+        "possible_swap": (channels or {}).get("possible_swap"),
+    }
+
+
+def _policy_yaml_text(contract_id: str, want_yield: bool) -> str:
+    guard = "require_yield_fixture" if want_yield else "require_hold_fixture"
+    return (
+        f"# hotato contract policy for {contract_id}\n"
+        "# Generated by `hotato contract create`. This is the SAME subset\n"
+        "# `hotato verify --policy` reads (see docs/CONTRACTS.md and\n"
+        "# docs/FIX-LOOP.md): wire it into a before/after battery once you\n"
+        "# have re-captured this moment after a fix. Edit by hand.\n"
+        "target:\n"
+        "  improve:\n"
+        "    failed_count: decrease\n"
+        "guardrails:\n"
+        "  max_new_false_yields: 0\n"
+        "  max_not_scorable: 0\n"
+        f"  {guard}: true\n"
+    )
+
+
+def _github_action_yaml(contracts_dir: str = "contracts") -> str:
+    return (
+        "name: hotato contracts\n"
+        "on:\n"
+        "  push:\n"
+        "  pull_request:\n"
+        "  schedule:\n"
+        "    - cron: \"0 6 * * 1\"\n"
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@v4\n"
+        "      - uses: actions/setup-python@v5\n"
+        "        with:\n"
+        "          python-version: \"3.12\"\n"
+        "      - name: verify hotato contracts\n"
+        "        run: >-\n"
+        f"          uvx hotato contract verify {contracts_dir}/\n"
+        "          --junit contracts-junit.xml --format json > contracts-verify.json\n"
+        "      - name: publish JUnit\n"
+        "        if: always()\n"
+        "        uses: actions/upload-artifact@v4\n"
+        "        with:\n"
+        "          name: hotato-contracts-junit\n"
+        "          path: contracts-junit.xml\n"
+    )
+
+
+def _after_report_placeholder(contract_id: str) -> str:
+    return (
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        f"<title>hotato contract {contract_id}: after (pending)</title></head>"
+        "<body style=\"font:15px system-ui;background:#1b1714;color:#f1e8d7;"
+        "padding:32px\">"
+        f"<h1>{contract_id}: no fix verified yet</h1>"
+        "<p>This contract has not been re-verified after a fix. Re-capture "
+        "the failing moment, then run <code>hotato verify --before "
+        "reports/initial.html-equivalent-run.json --after after-run.json</code> "
+        "or <code>hotato contract verify</code> once the recording is "
+        "replaced, and overwrite this file with the result.</p>"
+        f"<p>{_NOT_PROVED}</p></body></html>\n"
+    )
+
+
+def _call_metadata(*, stack, expect, category, recording_type, channels,
+                    duration_sec, candidate_ref, candidate_kind, source_name,
+                    include_identifiers: bool) -> dict:
+    out = {
+        "stack": stack or "generic",
+        "expect": expect,
+        "category": category,
+        "recording_type": recording_type,
+        "channels": channels,
+        "duration_sec": duration_sec,
+        "candidate_ref": candidate_ref if include_identifiers else None,
+        "candidate_kind": candidate_kind,
+        "note": (
+            "redacted by default: a call id, a filesystem path, and a vendor "
+            "recording name are not stored here unless --include-identifiers "
+            "was passed at creation time."
+        ),
+    }
+    if include_identifiers and source_name:
+        out["source_name"] = source_name
+    return out
+
+
+def _stack_config_snapshot(stack: Optional[str]) -> dict:
+    return {
+        "stack": stack or "generic",
+        "config": {},
+        "note": (
+            "no live stack connection at contract-creation time, so this is "
+            "a placeholder, not a fabricated snapshot. Populate it by hand "
+            "(or from `hotato inspect --stack ... --format json`) before "
+            "relying on it for a config diff."
+        ),
+    }
+
+
+def _provenance(*, contract_id, created_by, candidate_ref, source_sha256,
+               rationale) -> dict:
+    return {
+        "tool": "hotato",
+        "schema": "hotato.contract-provenance.v1",
+        "id": contract_id,
+        "created_at": _now_iso(),
+        "created_by": created_by,
+        "candidate_ref": candidate_ref,
+        "source_audio_sha256": source_sha256,
+        "rationale": rationale,
+    }
+
+
+# --- evidence rendering (reuses report.py's model + SVG, never redraws) ----
+
+_TIMELINE_CSS = """
+body{margin:0;background:#1b1714;color:#f1e8d7;
+ font:15px/1.5 -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:28px 20px}
+h1{font-size:19px;margin:0 0 4px}
+.sub{color:#b7ab97;font-size:13px;margin:0 0 18px}
+.tl{background:#241f1a;border:1px solid #3a3128;border-radius:10px;
+ padding:14px 16px;margin-bottom:16px}
+.stats{display:flex;flex-wrap:wrap;gap:14px 26px}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat .k{color:#b7ab97;font-size:11.5px;text-transform:uppercase;
+ letter-spacing:.04em}
+.stat .v{font:600 15px/1 'SFMono-Regular',Menlo,Consolas,monospace}
+.note{color:#b7ab97;font-size:12.5px;margin-top:18px}
+"""
+
+
+def _render_timeline_html(model: dict, *, contract_id: str, expect: str) -> str:
+    """A compact, self-contained evidence page: just the to-scale SVG
+    timeline plus the measured stat chips, drawn from the SAME event model
+    and ``_svg_timeline`` renderer ``hotato report`` uses. This is
+    deliberately smaller than ``reports/initial.html`` (no analytics, no
+    thresholds, no frame inspector), so the two evidence artifacts are not a
+    duplicate of each other."""
+    esc = _report._esc
+    s = _report._s
+    svg = (_report._svg_timeline(model) if model["has_frames"] else
+          '<div class="note">no frame data for this event.</div>')
+    stats = [
+        ("caller onset", s(model["onset"])),
+        ("time to yield", s(model["seconds_to_yield"])),
+        ("talk-over", s(model["talk_over_sec"])),
+        ("response gap", s(model["response_gap_sec"])),
+    ]
+    stat_html = "".join(
+        f'<div class="stat"><span class="k">{esc(k)}</span>'
+        f'<span class="v">{esc(v)}</span></div>' for k, v in stats
+    )
+    return (
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        f"<title>hotato contract {esc(contract_id)}: timeline evidence</title>"
+        f"<style>{_TIMELINE_CSS}</style></head><body><div class=\"wrap\">"
+        f"<h1>{esc(contract_id)}: timeline evidence</h1>"
+        f'<p class="sub">expect {esc(expect)} &middot; frame-level evidence '
+        "from the same scorer hotato run/verify use.</p>"
+        f'<div class="tl">{svg}</div>'
+        f'<div class="stats">{stat_html}</div>'
+        f'<p class="note">{esc(_NOT_PROVED)}</p>'
+        "</div></body></html>\n"
+    )
+
+
+def _render_mono_timeline_placeholder(contract_id: str, trust_rep: dict) -> str:
+    esc = _report._esc
+    tier = ((trust_rep.get("diarization") or {}).get("confidence_tier")
+            or trust_rep.get("confidence_tier") or "unknown")
+    return (
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+        f"<title>hotato contract {esc(contract_id)}: timeline evidence "
+        "(unavailable)</title>"
+        f"<style>{_TIMELINE_CSS}</style></head><body><div class=\"wrap\">"
+        f"<h1>{esc(contract_id)}: frame-level timeline not available</h1>"
+        '<p class="sub">this contract was created from a diarized-mono '
+        "recording.</p>"
+        "<p>Frame-level timing evidence (the caller/agent activity tracks "
+        "drawn to scale) is produced by the dual-channel frame dump, which "
+        "the diarized-mono path does not run in this release. See "
+        f"<code>evidence/trust.json</code> for the separation confidence "
+        f"tier this contract was scored at (<b>{esc(tier)}</b>) instead of a "
+        "fabricated timeline."
+        f"</p><p class=\"note\">{esc(_NOT_PROVED)}</p>"
+        "</div></body></html>\n"
+    )
+
+
+def _frame_lines(dump: dict) -> str:
+    meta = {
+        "_meta": True,
+        "source": dump.get("source"),
+        "sample_rate": dump.get("sample_rate"),
+        "hop_sec": dump.get("hop_sec"),
+        "caller_onset_sec": dump.get("caller_onset_sec"),
+        "config": dump.get("config"),
+    }
+    lines = [json.dumps(meta, sort_keys=True)]
+    for f in dump.get("frames") or []:
+        lines.append(json.dumps(f, sort_keys=True))
+    return "\n".join(lines) + "\n"
+
+
+def _mono_frame_lines(reason: str) -> str:
+    return json.dumps({
+        "_meta": True,
+        "available": False,
+        "reason": reason,
+    }, sort_keys=True) + "\n"
+
+
+# --- create: stereo / caller+agent / from-candidate (wraps fixture.py) ----
+
+def _resolve_raw_input(*, from_candidate, stereo, caller, agent, folder,
+                       onset_sec):
+    """Resolve the non-mono input modes to ``(fixture_kwargs, onset_sec,
+    recording_type, candidate_ref, candidate_kind)``. Reuses the EXACT
+    candidate-ref resolution ``fixture promote`` uses, so a contract and a
+    fixture agree on which recording and onset a ref names."""
+    if from_candidate:
+        path, call, number = _fixture.parse_candidate_ref(from_candidate)
+        doc = _fixture._load_result(path)
+        cand = _fixture._resolve_candidate(doc, path=path, call=call, number=number)
+        audio = _fixture._resolve_source_audio(doc, cand, ref_path=path, folder=folder)
+        return (
+            {"stereo": audio},
+            float(cand["t_sec"]),
+            "stereo",
+            from_candidate,
+            cand.get("kind"),
+        )
+    if stereo:
+        if onset_sec is None:
+            raise ValueError("--onset is required with --stereo")
+        return {"stereo": stereo}, onset_sec, "stereo", None, None
+    # caller + agent (fixture.create_fixture itself refuses an incomplete pair)
+    if onset_sec is None:
+        raise ValueError("--onset is required with --caller/--agent")
+    return {"caller": caller, "agent": agent}, onset_sec, "caller+agent", None, None
+
+
+def _create_from_fixture_path(
+    tmp_dir, *, from_candidate, stereo, caller, agent, folder,
+    contract_id, want_yield, expect, onset_sec, stack, max_talk_over_sec,
+    max_time_to_yield_sec, rationale, pre_sec, post_sec, no_clip,
+    caller_channel, agent_channel, include_identifiers,
+) -> dict:
+    fx_kwargs, resolved_onset, recording_type, candidate_ref, candidate_kind = (
+        _resolve_raw_input(from_candidate=from_candidate, stereo=stereo,
+                           caller=caller, agent=agent, folder=folder,
+                           onset_sec=onset_sec)
+    )
+    source_audio = (fx_kwargs.get("stereo")
+                    or fx_kwargs.get("caller"))  # for the pre-clip sha256
+    if recording_type == "caller+agent":
+        source_sha = _sha256_two_files(fx_kwargs["caller"], fx_kwargs["agent"])
+        source_name = (os.path.basename(fx_kwargs["caller"]) + "+"
+                       + os.path.basename(fx_kwargs["agent"]))
+    else:
+        source_sha = _sha256_file(fx_kwargs["stereo"])
+        source_name = os.path.basename(fx_kwargs["stereo"])
+
+    with tempfile.TemporaryDirectory(prefix="hotato-contract-fx-") as fx_root:
+        fx_result = _fixture.create_fixture(
+            stereo=fx_kwargs.get("stereo"),
+            caller=fx_kwargs.get("caller"),
+            agent=fx_kwargs.get("agent"),
+            fixture_id=contract_id,
+            title=None,
+            onset_sec=resolved_onset,
+            expect=expect,
+            out_dir=fx_root,
+            stack=stack,
+            max_talk_over_sec=max_talk_over_sec,
+            max_time_to_yield_sec=max_time_to_yield_sec,
+            pre_sec=pre_sec,
+            post_sec=post_sec,
+            no_clip=no_clip,
+            force=True,
+            caller_channel=caller_channel,
+            agent_channel=agent_channel,
+            created_by=CREATED_BY,
+        )
+        # A ValueError above (not-scorable) propagates as-is: no bundle files
+        # are written before this point, matching fixture create's own
+        # honest, nothing-partial-left-behind refusal.
+        clipped_audio = fx_result["paths"]["audio"]
+        scenario = fx_result["scenario"]
+        validation = fx_result["validation"]
+        event = next(e for e in validation["events"]
+                     if e["event_id"] == contract_id)
+
+        # fixture.create_fixture ALWAYS writes the clip as caller on channel 0,
+        # agent on channel 1 -- regardless of the ORIGINAL --caller-channel /
+        # --agent-channel the raw input used -- so every read of the clipped
+        # bundle audio below uses the fixed 0/1 mapping, never the caller's
+        # original (possibly different) channel indices.
+        cfg = ScoreConfig()
+        trust_rep = _trust.trust_report(
+            clipped_audio, caller_channel=0, agent_channel=1, cfg=cfg,
+        )
+        dump = dump_frames_for_input(
+            stereo=clipped_audio, caller_channel=0, agent_channel=1,
+            onset_sec=None, cfg=cfg,
+        )
+        model = _report._event_model(event, dump["frames"], dump["hop_sec"], cfg)
+
+        audio_dest = os.path.join(tmp_dir, _REL["audio"])
+        _mkparents(audio_dest)
+        shutil.copyfile(clipped_audio, audio_dest)
+
+        _write_text(os.path.join(tmp_dir, _REL["evidence"]["frames"]),
+                   _frame_lines(dump))
+        _write_text(os.path.join(tmp_dir, _REL["evidence"]["timeline"]),
+                   _render_timeline_html(model, contract_id=contract_id,
+                                          expect=expect))
+        _write_json(os.path.join(tmp_dir, _REL["evidence"]["trust"]), trust_rep)
+
+        initial_report_path = os.path.join(tmp_dir, _REL["reports"]["initial"])
+        _mkparents(initial_report_path)
+        _report.write_report(
+            initial_report_path, fmt="html",
+            stereo=clipped_audio, onset_sec=scenario["caller_onset_sec"],
+            expect=expect, stack=stack, max_talk_over_sec=max_talk_over_sec,
+            max_time_to_yield_sec=max_time_to_yield_sec, cfg=cfg,
+        )
+
+    duration_sec = scenario.get("duration_sec")
+    measurement = _measurement_from_event(event)
+    trust_block = _trust_block(trust_rep)
+    policy = _base_policy(want_yield, max_talk_over_sec, max_time_to_yield_sec)
+
+    contract = {
+        "schema": SCHEMA,
+        "id": contract_id,
+        "created_at": _now_iso(),
+        "created_by": CREATED_BY,
+        "kind": "voice-turn-taking-contract",
+        "label": {
+            "expected_behavior": "yield" if want_yield else "hold",
+            "label_source": "human",
+            "rationale": rationale,
+        },
+        "source": {
+            "stack": stack or "generic",
+            "recording_type": recording_type,
+            "channels": 2,
+            "source_audio_sha256": source_sha,
+            "candidate_ref": candidate_ref if include_identifiers else
+                            (candidate_ref and "(redacted; --include-identifiers to show)"),
+            "candidate_kind": candidate_kind,
+        },
+        "event": {
+            "onset_sec": scenario["caller_onset_sec"],
+            "source_onset_sec": resolved_onset,
+            "pre_sec": None if no_clip else pre_sec,
+            "post_sec": None if no_clip else post_sec,
+            "clipped": not no_clip,
+        },
+        "measurement": measurement,
+        "trust": trust_block,
+        "policy": policy,
+        "fix": event.get("fix"),
+        "replay": {
+            "command": (
+                f"hotato run --stereo {_REL['audio']} --expect {expect}"
+                + (f" --stack {stack}" if stack else "")
+            ),
+            "ci_command": "hotato contract verify . --junit junit.xml",
+        },
+        "bundle": {"paths": _bundle_paths_rel()},
+    }
+    _finish_bundle(
+        tmp_dir, contract, want_yield=want_yield, expect=expect,
+        stack=stack, category=scenario.get("category"),
+        candidate_ref=candidate_ref, candidate_kind=candidate_kind,
+        source_name=source_name, duration_sec=duration_sec,
+        source_sha=source_sha, rationale=rationale,
+        include_identifiers=include_identifiers,
+    )
+    return contract
+
+
+def _create_diarized_mono(
+    tmp_dir, *, mono, diarize, diarizer, caller_speaker, agent_speaker,
+    egress_opt_in, contract_id, want_yield, expect, onset_sec, stack,
+    max_talk_over_sec, max_time_to_yield_sec, rationale, include_identifiers,
+) -> dict:
+    # ``run_single`` itself raises the clean, actionable ValueError when
+    # ``--mono`` is given without ``--diarize`` (mirroring ``hotato run``);
+    # no separate mono-rejection needed here.
+    env = run_single(
+        mono=mono, diarize=diarize, diarizer=diarizer,
+        onset_sec=onset_sec, expect=expect, stack=stack,
+        max_talk_over_sec=max_talk_over_sec,
+        max_time_to_yield_sec=max_time_to_yield_sec,
+        caller_speaker=caller_speaker, agent_speaker=agent_speaker,
+        egress_opt_in=egress_opt_in,
+    )
+    event = env["events"][0]
+    if event.get("scorable") is False:
+        raise ValueError(
+            "the recording is not scorable, so no contract was created. "
+            f"Reason: {event.get('not_scorable_reason')}"
+        )
+    trust_rep = _trust.trust_report(mono, diarize=True, diarizer=diarizer,
+                                    egress_opt_in=egress_opt_in)
+
+    audio_dest = os.path.join(tmp_dir, _REL["audio"])
+    _mkparents(audio_dest)
+    shutil.copyfile(mono, audio_dest)
+
+    reason = (
+        "frame-level evidence is not produced for the diarized-mono path in "
+        "this release; see evidence/trust.json for the separation confidence "
+        "tier instead"
+    )
+    _write_text(os.path.join(tmp_dir, _REL["evidence"]["frames"]),
+               _mono_frame_lines(reason))
+    _write_text(os.path.join(tmp_dir, _REL["evidence"]["timeline"]),
+               _render_mono_timeline_placeholder(contract_id, trust_rep))
+    _write_json(os.path.join(tmp_dir, _REL["evidence"]["trust"]), trust_rep)
+    _write_text(
+        os.path.join(tmp_dir, _REL["reports"]["initial"]),
+        _render_mono_timeline_placeholder(contract_id, trust_rep),
+    )
+
+    source_sha = _sha256_file(mono)
+    source_name = os.path.basename(mono)
+    diarization = event.get("diarization")
+    indicative_only = bool(event.get("indicative_only"))
+    measurement = _measurement_from_event(
+        event, indicative_only=indicative_only, diarization=diarization,
+    )
+    trust_block = _trust_block(trust_rep)
+    policy = _base_policy(want_yield, max_talk_over_sec, max_time_to_yield_sec)
+    m = event.get("measurements") or {}
+
+    contract = {
+        "schema": SCHEMA,
+        "id": contract_id,
+        "created_at": _now_iso(),
+        "created_by": CREATED_BY,
+        "kind": "voice-turn-taking-contract",
+        "label": {
+            "expected_behavior": "yield" if want_yield else "hold",
+            "label_source": "human",
+            "rationale": rationale,
+        },
+        "source": {
+            "stack": stack or "generic",
+            "recording_type": "diarized-mono",
+            "channels": 1,
+            "source_audio_sha256": source_sha,
+            "candidate_ref": None,
+            "candidate_kind": None,
+        },
+        "event": {
+            "onset_sec": m.get("caller_onset_sec", onset_sec),
+            "source_onset_sec": onset_sec,
+            "pre_sec": None,
+            "post_sec": None,
+            "clipped": False,
+        },
+        "measurement": measurement,
+        "trust": trust_block,
+        "policy": policy,
+        "fix": event.get("fix"),
+        "replay": {
+            "command": (
+                f"hotato run --mono {_REL['audio']} --diarize "
+                f"--diarizer {diarizer} --expect {expect}"
+                + (f" --stack {stack}" if stack else "")
+            ),
+            "ci_command": "hotato contract verify . --junit junit.xml",
+        },
+        "bundle": {"paths": _bundle_paths_rel()},
+    }
+    _finish_bundle(
+        tmp_dir, contract, want_yield=want_yield, expect=expect,
+        stack=stack, category=("should_yield" if want_yield else "should_not_yield"),
+        candidate_ref=None, candidate_kind=None, source_name=source_name,
+        duration_sec=None, source_sha=source_sha, rationale=rationale,
+        include_identifiers=include_identifiers,
+    )
+    return contract
+
+
+def _bundle_paths_rel() -> dict:
+    return json.loads(json.dumps(_REL))  # deep copy
+
+
+def _finish_bundle(tmp_dir, contract, *, want_yield, expect, stack, category,
+                   candidate_ref, candidate_kind, source_name, duration_sec,
+                   source_sha, rationale, include_identifiers) -> None:
+    """Write the remaining bundle files that do not depend on which input
+    path produced the contract: policy, source metadata, provenance, CI
+    scaffold, and the shareable card (rendered from the contract dict itself,
+    so the card and the contract can never disagree)."""
+    contract_id = contract["id"]
+
+    _write_text(os.path.join(tmp_dir, _REL["policy"]),
+               _policy_yaml_text(contract_id, want_yield))
+
+    call_meta = _call_metadata(
+        stack=stack, expect=expect, category=category,
+        recording_type=contract["source"]["recording_type"],
+        channels=contract["source"]["channels"], duration_sec=duration_sec,
+        candidate_ref=candidate_ref, candidate_kind=candidate_kind,
+        source_name=source_name, include_identifiers=include_identifiers,
+    )
+    _write_json(os.path.join(tmp_dir, _REL["source"]["call_metadata"]), call_meta)
+    _write_json(os.path.join(tmp_dir, _REL["source"]["stack_config_snapshot"]),
+               _stack_config_snapshot(stack))
+
+    prov = _provenance(
+        contract_id=contract_id, created_by=contract["created_by"],
+        candidate_ref=candidate_ref if include_identifiers else None,
+        source_sha256=source_sha, rationale=rationale,
+    )
+    _write_json(os.path.join(tmp_dir, _REL["provenance"]), prov)
+
+    _write_text(os.path.join(tmp_dir, _REL["ci"]["github_action"]),
+               _github_action_yaml())
+
+    result = {
+        "id": contract_id, "dir": os.path.dirname(tmp_dir) or ".",
+        "passed": bool(contract["measurement"].get("passed")),
+        "scorable": bool(contract["measurement"].get("scorable")),
+        "not_scorable_reason": contract["measurement"].get("not_scorable_reason"),
+    }
+    _write_text(os.path.join(tmp_dir, _REL["ci"]["junit"]),
+               render_verify_junit({"results": [result]}, suite_name="hotato contract create"))
+
+    os.makedirs(os.path.join(tmp_dir, _REL["traces_dir"]), exist_ok=True)
+    _write_text(
+        os.path.join(tmp_dir, _REL["traces_dir"], ".gitkeep"),
+        "# populated by `hotato trace attach` (see docs/TRACE.md). Empty "
+        "until a voice trace is attached.\n",
+    )
+
+    _write_text(os.path.join(tmp_dir, _REL["reports"]["after"]),
+               _after_report_placeholder(contract_id))
+
+    card_svg = _card._render_contract(contract, include_identifiers=include_identifiers)
+    _write_text(os.path.join(tmp_dir, _REL["evidence"]["card"]), card_svg)
+
+    _write_json(os.path.join(tmp_dir, _REL["contract"]), contract)
+
+
+def render_create_text(result: dict) -> str:
+    c = result["contract"]
+    m = c["measurement"]
+    lines = [
+        f"created hotato contract: {result['id']}",
+        f"  dir:      {result['dir']}",
+        f"  expect:   {c['label']['expected_behavior']}",
+        f"  scorable: {'yes' if m['scorable'] else 'NOT SCORABLE'}",
+    ]
+    if m["scorable"]:
+        lines.append(f"  passed:   {m['passed']}")
+        lines.append(
+            f"  measured: did_yield={m['did_yield']} "
+            f"seconds_to_yield={m['seconds_to_yield']} "
+            f"talk_over={m['talk_over_sec']}"
+        )
+        if m["indicative_only"]:
+            lines.append("  note:     indicative only (diarized-mono, below "
+                         "the confidence bar) -- never treated as a "
+                         "confident dual-channel measurement")
+    else:
+        lines.append(f"  reason:   {m['not_scorable_reason']}")
+    lines.append("next:")
+    lines.append(f"  {result['next']}")
+    return "\n".join(lines)
+
+
+def create_result_json(result: dict) -> dict:
+    return {
+        "tool": "hotato",
+        "kind": "contract",
+        "schema_version": "1",
+        "id": result["id"],
+        "dir": result["dir"],
+        "contract": result["contract"],
+        "next": result["next"],
+    }
+
+
+# --- verify --------------------------------------------------------------
+
+def discover_bundles(path: str) -> list:
+    """Every ``<id>.hotato`` bundle under ``path``: ``path`` itself if it IS a
+    bundle (has ``contract.json``), else every immediate ``*.hotato``
+    subdirectory, sorted."""
+    if not os.path.isdir(path):
+        raise ValueError(f"{path!r} is not a directory")
+    if os.path.isfile(os.path.join(path, "contract.json")):
+        return [path]
+    out = []
+    for name in sorted(os.listdir(path)):
+        p = os.path.join(path, name)
+        if os.path.isdir(p) and os.path.isfile(os.path.join(p, "contract.json")):
+            out.append(p)
+    return out
+
+
+def _load_contract(bundle_dir: str) -> dict:
+    cpath = os.path.join(bundle_dir, "contract.json")
+    try:
+        with open(cpath, encoding="utf-8") as fh:
+            contract = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{cpath!r} is not a readable hotato contract: {exc}") from exc
+    if contract.get("schema") != SCHEMA:
+        raise ValueError(
+            f"{cpath!r} is not a {SCHEMA} contract (schema="
+            f"{contract.get('schema')!r})"
+        )
+    return contract
+
+
+def _verify_one(bundle_dir: str) -> dict:
+    contract = _load_contract(bundle_dir)
+    audio_rel = contract["bundle"]["paths"]["audio"]
+    audio_path = os.path.join(bundle_dir, audio_rel)
+    if not os.path.isfile(audio_path):
+        raise ValueError(
+            f"{bundle_dir!r}: contract.json points at missing audio "
+            f"{audio_rel!r}"
+        )
+    rec_type = contract["source"]["recording_type"]
+    expect = contract["label"]["expected_behavior"]
+    pol = contract["policy"]["pass_conditions"]
+    stack = contract["source"].get("stack")
+    onset_sec = contract["event"].get("onset_sec")
+
+    if rec_type == "diarized-mono":
+        dz = contract["measurement"].get("diarization") or {}
+        speaker_map = dz.get("speaker_map") or {}
+        env = run_single(
+            mono=audio_path, diarize=True, diarizer=dz.get("backend", "pyannote"),
+            caller_speaker=speaker_map.get("caller"),
+            agent_speaker=speaker_map.get("agent"),
+            onset_sec=onset_sec, expect=expect, stack=stack,
+            max_talk_over_sec=pol.get("max_talk_over_sec"),
+            max_time_to_yield_sec=pol.get("max_time_to_yield_sec"),
+        )
+    else:
+        # A caller+agent-originated contract's bundle audio is ALWAYS one
+        # two-channel WAV (fixture.create_fixture writes it that way), so
+        # both stereo-derived and caller+agent-derived contracts re-score
+        # the same bundle file the same way here.
+        env = run_single(
+            stereo=audio_path, onset_sec=onset_sec, expect=expect, stack=stack,
+            max_talk_over_sec=pol.get("max_talk_over_sec"),
+            max_time_to_yield_sec=pol.get("max_time_to_yield_sec"),
+        )
+    event = env["events"][0]
+    scorable = event.get("scorable") is not False
+    v = event.get("verdict") or {}
+    passed = scorable and bool(v.get("passed"))
+    return {
+        "id": contract.get("id") or os.path.basename(bundle_dir),
+        "dir": bundle_dir,
+        "expect": expect,
+        "passed": passed,
+        "scorable": scorable,
+        "not_scorable_reason": event.get("not_scorable_reason"),
+        "measurement": {
+            "did_yield": v.get("did_yield") if scorable else None,
+            "seconds_to_yield": v.get("seconds_to_yield") if scorable else None,
+            "talk_over_sec": v.get("talk_over_sec") if scorable else None,
+        },
+    }
+
+
+def verify_contracts(path: str) -> dict:
+    """Re-score every contract's bundled audio against its recorded policy
+    and return the batch proof dict. ``path`` is a single bundle dir or a
+    parent directory of ``*.hotato`` bundles. Raises ``ValueError`` (CLI exit
+    2) for a missing/corrupt contract or a directory with no contracts;
+    otherwise always returns (a regression is a per-contract ``passed:
+    false``, never an exception)."""
+    bundle_dirs = discover_bundles(path)
+    if not bundle_dirs:
+        raise ValueError(
+            f"{path!r} has no hotato contracts (looked for contract.json "
+            "directly, or *.hotato/contract.json inside it)"
+        )
+    results = [_verify_one(bd) for bd in bundle_dirs]
+    failed = [r for r in results if not r["passed"]]
+    return {
+        "tool": "hotato",
+        "kind": "contract-verify",
+        "schema_version": "1",
+        "offline": True,
+        "dir": path,
+        "count": len(results),
+        "results": results,
+        "summary": {"passed": len(results) - len(failed), "failed": len(failed)},
+        "exit_code": 1 if failed else 0,
+    }
+
+
+def render_verify_text(v: dict) -> str:
+    lines = [
+        f"hotato contract verify: {v['dir']} ({v['count']} contract"
+        f"{'' if v['count'] == 1 else 's'})",
+    ]
+    for r in v["results"]:
+        if not r["scorable"]:
+            lines.append(f"  [NOT SCORABLE] {r['id']}: {r['not_scorable_reason']}")
+            continue
+        mark = "PASS" if r["passed"] else "FAIL"
+        m = r["measurement"]
+        lines.append(
+            f"  [{mark}] {r['id']} (expect {r['expect']}): "
+            f"did_yield={m['did_yield']} "
+            f"seconds_to_yield={m['seconds_to_yield']} "
+            f"talk_over={m['talk_over_sec']}"
+        )
+    s = v["summary"]
+    lines.append(f"  {s['passed']}/{v['count']} contracts pass; exit_code={v['exit_code']}")
+    return "\n".join(lines)
+
+
+def verify_result_json(v: dict) -> dict:
+    return v
+
+
+_JUNIT_ESCAPE = str.maketrans({"&": "&amp;", "<": "&lt;", ">": "&gt;",
+                               '"': "&quot;"})
+
+
+def _jesc(s) -> str:
+    return str(s if s is not None else "").translate(_JUNIT_ESCAPE)
+
+
+def render_verify_junit(v: dict, *, suite_name: str = "hotato contracts") -> str:
+    """JUnit XML for CI: one ``<testcase>`` per contract, a ``<failure>``
+    child for a regressed or not-scorable one. Consumed by any JUnit-reading
+    CI dashboard (the shipped ``ci/github-action.yml`` publishes it as an
+    artifact)."""
+    results = v["results"]
+    failures = sum(1 for r in results if not r["passed"])
+    cases = []
+    for r in results:
+        case = f'  <testcase classname="hotato.contract" name="{_jesc(r["id"])}">'
+        if not r["passed"]:
+            reason = (r.get("not_scorable_reason") or
+                      "the contract's measured timing no longer meets its "
+                      "policy pass_conditions")
+            case += (f'\n    <failure message="{_jesc(reason)}">'
+                    f'{_jesc(json.dumps(r.get("measurement"), sort_keys=True))}'
+                    "</failure>\n  ")
+        case += "</testcase>"
+        cases.append(case)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<testsuite name="{_jesc(suite_name)}" tests="{len(results)}" '
+        f'failures="{failures}">\n' + "\n".join(cases) + "\n</testsuite>\n"
+    )
+
+
+def render_verify_html(v: dict) -> str:
+    """A minimal, self-contained HTML rollup, reusing report.py's escape
+    helper and warm-charcoal palette so it reads as the same family as every
+    other hotato report."""
+    esc = _report._esc
+    rows = []
+    for r in v["results"]:
+        if not r["scorable"]:
+            mark, color, detail = "NOT SCORABLE", "#b7ab97", r["not_scorable_reason"]
+        else:
+            m = r["measurement"]
+            mark = "PASS" if r["passed"] else "FAIL"
+            color = "#74c98a" if r["passed"] else "#e0664f"
+            detail = (f"did_yield={m['did_yield']} "
+                     f"seconds_to_yield={m['seconds_to_yield']} "
+                     f"talk_over={m['talk_over_sec']}")
+        rows.append(
+            f'<tr><td class="mono">{esc(r["id"])}</td>'
+            f'<td>{esc(r["expect"])}</td>'
+            f'<td style="color:{color};font-weight:700">{mark}</td>'
+            f'<td class="mono">{esc(detail)}</td></tr>'
+        )
+    s = v["summary"]
+    verdict = "PASSED" if v["exit_code"] == 0 else "FAILED"
+    vcolor = "#74c98a" if v["exit_code"] == 0 else "#e0664f"
+    return (
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+        f"<title>hotato contract verify: {verdict}</title>"
+        "<style>body{margin:0;background:#1b1714;color:#f1e8d7;"
+        "font:15px system-ui,sans-serif}"
+        ".wrap{max-width:900px;margin:0 auto;padding:28px 20px}"
+        "table{width:100%;border-collapse:collapse;margin-top:14px}"
+        "th,td{text-align:left;padding:7px 10px;border-bottom:"
+        "1px solid #3a3128;font-size:13.5px}"
+        ".mono{font-family:'SFMono-Regular',Menlo,Consolas,monospace}"
+        "</style></head><body><div class=\"wrap\">"
+        f'<h1>hotato contract verify <span style="color:{vcolor}">'
+        f'{verdict}</span></h1>'
+        f'<p>{esc(v["dir"])}: {s["passed"]}/{v["count"]} contracts pass.</p>'
+        '<table><thead><tr><th>id</th><th>expect</th><th>result</th>'
+        '<th>measured</th></tr></thead><tbody>' + "".join(rows)
+        + "</tbody></table>"
+        f'<p style="color:#b7ab97;font-size:12.5px;margin-top:18px">'
+        f"{esc(_NOT_PROVED)} Hotato reports coincidence, not causation."
+        "</p></div></body></html>\n"
+    )
+
+
+# --- inspect ---------------------------------------------------------------
+
+def inspect_contract(path: str) -> dict:
+    """Load and return one contract's ``contract.json``. ``path`` is a bundle
+    dir or a ``contract.json`` file directly."""
+    if os.path.isdir(path):
+        bundle_dir = path
+    else:
+        bundle_dir = os.path.dirname(os.path.abspath(path)) or "."
+    return _load_contract(bundle_dir)
+
+
+def render_inspect_text(contract: dict) -> str:
+    lines = [
+        f"hotato contract: {contract['id']}",
+        f"  expect:    {contract['label']['expected_behavior']}",
+        f"  stack:     {contract['source']['stack']}",
+        f"  recording: {contract['source']['recording_type']} "
+        f"({contract['source']['channels']} channel"
+        f"{'s' if contract['source']['channels'] != 1 else ''})",
+        f"  trust:     {contract['trust']['status']}",
+    ]
+    m = contract["measurement"]
+    if m["scorable"]:
+        lines.append(
+            f"  measured:  did_yield={m['did_yield']} "
+            f"seconds_to_yield={m['seconds_to_yield']} "
+            f"talk_over={m['talk_over_sec']} passed={m['passed']}"
+        )
+        if m["indicative_only"]:
+            lines.append("  note:      indicative only (diarized-mono)")
+    else:
+        lines.append(f"  measured:  NOT SCORABLE ({m['not_scorable_reason']})")
+    lines.append(f"  replay:    {contract['replay']['command']}")
+    lines.append(f"  ci:        {contract['replay']['ci_command']}")
+    return "\n".join(lines)
+
+
+# --- pack / unpack -----------------------------------------------------
+
+def _iter_bundle_files(bundle_dir: str):
+    out = []
+    for root, dirs, files in os.walk(bundle_dir):
+        dirs.sort()
+        for fn in sorted(files):
+            fp = os.path.join(root, fn)
+            rel = os.path.relpath(fp, bundle_dir).replace(os.sep, "/")
+            out.append((rel, fp))
+    out.sort(key=lambda e: e[0])
+    return out
+
+
+def pack_contract(bundle_dir: str, *, out_path: Optional[str] = None,
+                  force: bool = False) -> dict:
+    """Pack a ``<id>.hotato`` bundle directory into a single deterministic
+    ``.hotato`` archive file, with a sha256 manifest of every member so
+    :func:`unpack_contract` can verify the round trip byte for byte."""
+    if not os.path.isdir(bundle_dir):
+        raise ValueError(f"{bundle_dir!r} is not a directory")
+    cpath = os.path.join(bundle_dir, "contract.json")
+    if not os.path.isfile(cpath):
+        raise ValueError(
+            f"{bundle_dir!r} has no contract.json; it is not a hotato "
+            "contract bundle"
+        )
+    norm = os.path.normpath(bundle_dir)
+    if out_path is None:
+        # NOT bare "<id>.hotato": that is the SAME path as the bundle
+        # directory being packed (a file and a directory cannot share one
+        # path), so the default archive name is "<id>.hotato.pack" instead.
+        base = os.path.basename(norm)
+        if not base.endswith(BUNDLE_SUFFIX):
+            base += BUNDLE_SUFFIX
+        out_path = os.path.join(os.path.dirname(norm) or ".", base + ".pack")
+    if os.path.exists(out_path) and not force:
+        raise ValueError(f"{out_path!r} already exists; pass --force to overwrite")
+
+    entries = _iter_bundle_files(bundle_dir)
+    if not entries:
+        raise ValueError(f"{bundle_dir!r} is empty; nothing to pack")
+    manifest = {rel: _sha256_file(fp) for rel, fp in entries}
+    manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+    tmp_out = out_path + ".part"
+    try:
+        with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED,
+                             compresslevel=6) as zf:
+            zi = zipfile.ZipInfo(MANIFEST_NAME, date_time=(1980, 1, 1, 0, 0, 0))
+            zi.external_attr = 0o644 << 16
+            zf.writestr(zi, manifest_bytes)
+            for rel, fp in entries:
+                zi = zipfile.ZipInfo(rel, date_time=(1980, 1, 1, 0, 0, 0))
+                zi.external_attr = 0o644 << 16
+                with open(fp, "rb") as fh:
+                    zf.writestr(zi, fh.read())
+        os.replace(tmp_out, out_path)
+    except BaseException:
+        try:
+            os.remove(tmp_out)
+        except OSError:
+            pass
+        raise
+    return {
+        "path": out_path, "bundle_dir": bundle_dir, "files": len(entries),
+        "manifest": manifest,
+    }
+
+
+def render_pack_text(result: dict) -> str:
+    return (
+        f"packed {result['bundle_dir']} -> {result['path']} "
+        f"({result['files']} files, sha256-manifested)"
+    )
+
+
+def pack_result_json(result: dict) -> dict:
+    return {
+        "tool": "hotato", "kind": "contract-pack", "schema_version": "1",
+        "path": result["path"], "bundle_dir": result["bundle_dir"],
+        "files": result["files"],
+    }
+
+
+def unpack_contract(archive_path: str, out_dir: str, *,
+                    force: bool = False) -> dict:
+    """Unpack a ``.hotato`` archive to ``out_dir``, verifying every member
+    against the sha256 manifest packed alongside it. Raises ``ValueError`` on
+    any mismatch (a corrupt or tampered archive); the partial extraction is
+    removed, never left half-written."""
+    # No pre-check: zipfile.ZipFile(archive_path) below raises the SAME
+    # FileNotFoundError a plain open() would (with .filename set), which
+    # errors.classify() already turns into a clean file_not_found error --
+    # no need to duplicate that check here.
+    if os.path.exists(out_dir):
+        if not force:
+            raise ValueError(
+                f"{out_dir!r} already exists; pass --force to overwrite it, "
+                "or choose a new --out"
+            )
+        shutil.rmtree(out_dir)
+
+    parent = os.path.dirname(os.path.normpath(out_dir)) or "."
+    os.makedirs(parent, exist_ok=True)
+    tmp_out = tempfile.mkdtemp(prefix=".hotato-unpack-tmp-", dir=parent)
+    try:
+        try:
+            zf_ctx = zipfile.ZipFile(archive_path)
+        except zipfile.BadZipFile as exc:
+            # Not a valid zip at all (truncated / corrupt / wrong file):
+            # reraise as ValueError so it hits the SAME handled-error / exit-2
+            # contract as every other usage error, instead of an uncaught
+            # zipfile.BadZipFile (which is not a ValueError/OSError subclass).
+            raise ValueError(f"{archive_path!r} is not a valid .hotato archive: {exc}") from exc
+        try:
+            with zf_ctx as zf:
+                names = set(zf.namelist())
+                if MANIFEST_NAME not in names:
+                    raise ValueError(
+                        f"{archive_path!r} is not a hotato .hotato pack (no "
+                        f"{MANIFEST_NAME})"
+                    )
+                manifest = json.loads(zf.read(MANIFEST_NAME).decode("utf-8"))
+                for rel in sorted(manifest):
+                    parts = rel.split("/")
+                    if rel.startswith("/") or ".." in parts or "" in parts:
+                        raise ValueError(f"unsafe path in manifest: {rel!r}")
+                    if rel not in names:
+                        raise ValueError(
+                            f"{archive_path!r} is missing {rel!r}, which the "
+                            "manifest lists; the archive is corrupt"
+                        )
+                    dest = os.path.join(tmp_out, *parts)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with zf.open(rel) as src, open(dest, "wb") as out_f:
+                        shutil.copyfileobj(src, out_f)
+                    got = _sha256_file(dest)
+                    want = manifest[rel]
+                    if got != want:
+                        raise ValueError(
+                            f"{rel!r} failed sha256 verification after "
+                            f"unpack (expected {want}, got {got}); the "
+                            "archive is corrupt"
+                        )
+        except zipfile.BadZipFile as exc:
+            # A member's own CRC-32 check (zipfile's built-in integrity
+            # check, independent of hotato's sha256 manifest) caught the
+            # corruption first. Same clean exit-2 treatment as every other
+            # corrupt-archive case above.
+            raise ValueError(
+                f"{archive_path!r} is corrupt (bad CRC-32 while reading a "
+                f"member): {exc}"
+            ) from exc
+        os.replace(tmp_out, out_dir)
+    except BaseException:
+        shutil.rmtree(tmp_out, ignore_errors=True)
+        raise
+    return {"path": out_dir, "archive": archive_path, "files": len(manifest),
+           "manifest": manifest}
+
+
+def render_unpack_text(result: dict) -> str:
+    return (
+        f"unpacked {result['archive']} -> {result['path']} "
+        f"({result['files']} files, sha256-verified)"
+    )
+
+
+def unpack_result_json(result: dict) -> dict:
+    return {
+        "tool": "hotato", "kind": "contract-unpack", "schema_version": "1",
+        "path": result["path"], "archive": result["archive"],
+        "files": result["files"],
+    }

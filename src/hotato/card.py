@@ -276,6 +276,48 @@ def _render_verify(v: dict) -> str:
     return _frame(body)
 
 
+# --- card E: a failure contract (hotato contract create) ------------------
+
+def _render_contract(contract: dict, *, include_identifiers: bool = False) -> str:
+    label = contract.get("label") or {}
+    measurement = contract.get("measurement") or {}
+    expect = label.get("expected_behavior", "yield")
+    scorable = bool(measurement.get("scorable"))
+    passed = measurement.get("passed")
+
+    if not scorable:
+        num_text, sub = "N/A", "NOT SCORABLE"
+    elif expect == "yield":
+        num_text = _fmt_sec(measurement.get("seconds_to_yield"))
+        sub = "measured time to yield"
+    else:
+        num_text = _fmt_sec(measurement.get("talk_over_sec"))
+        sub = "measured talk-over while the agent held the floor"
+
+    status_word = ("NOT SCORABLE" if not scorable
+                   else "PASSED" if passed else "FAILED")
+    status_color = (_C["muted"] if not scorable
+                    else _C["green"] if passed else _C["ember"])
+
+    body = [_kind_tag("FAILURE CONTRACT")]
+    body += _headline(_wrap(f"CONTRACT: EXPECT {expect.upper()}", 24), top=200)
+    body.append(_text(_M, 360, num_text, size=96, fill=_C["ember"], weight="800",
+                      family=_MONO))
+    body.append(_text(_M, 404, sub, size=23, fill=_C["muted"], weight="500"))
+    body.append(_text(_M, 470, f"id: {contract.get('id', '')}", size=25,
+                      fill=_C["cream"], weight="600", family=_MONO))
+    body.append(_text(_W - _M, 470, status_word, size=28, fill=status_color,
+                      weight="800", anchor="end", spacing=2))
+    if include_identifiers:
+        sha = (contract.get("source") or {}).get("source_audio_sha256", "")
+        if sha:
+            body.append(_text(_W - _M, 506, f"sha256 {sha[:16]}...", size=18,
+                              fill=_C["muted"], weight="500", anchor="end",
+                              family=_MONO))
+    body.append(_footer("A human labeled this contract; Hotato measured the timing."))
+    return _frame(body)
+
+
 # --- dispatch -------------------------------------------------------------
 
 _ANALYZE_HINT = (
@@ -327,10 +369,13 @@ def make_card(input_arg: str, *, include_identifiers: bool = False) -> str:
         return render_plan_card(doc)
     if kind == "verify":
         return _render_verify(doc)
+    if kind == "voice-turn-taking-contract":
+        return _render_contract(doc, include_identifiers=include_identifiers)
     if kind == "analyze":
         raise ValueError(_ANALYZE_HINT.format(p=input_arg))
     raise ValueError(
         f"{input_arg!r} is not a card input (kind={kind!r}); pass a hotato fix "
-        "plan (kind 'fix-plan'), a verify result (kind 'verify'), or a "
-        "sweep/analyze candidate ref (FILE#N)"
+        "plan (kind 'fix-plan'), a verify result (kind 'verify'), a failure "
+        "contract (kind 'voice-turn-taking-contract'), or a sweep/analyze "
+        "candidate ref (FILE#N)"
     )

@@ -10,6 +10,51 @@ design. See `docs/BENCHMARK.md`.
 ## [Unreleased]
 
 ### Added
+- **`hotato contract create/verify/inspect/pack/unpack`, the portable failure
+  contract**: turns one real call moment into a self-contained `<id>.hotato/`
+  bundle -- `contract.json` (schema `hotato.contract.v1`), the (clipped) audio,
+  frame-level timing evidence, an input-health (trust) report, a shareable SVG
+  card, a CI policy, and the exact replay/CI commands. `create` wraps the SAME
+  round-trip scorability guarantee `fixture create` gives (via
+  `--from-candidate FILE#N`, `--stereo`, `--caller`+`--agent`, or the opt-in
+  `--mono --diarize` path): a not-scorable moment or a mono recording is
+  refused with the honest reason (exit 2) and no bundle is written; the
+  diarized-mono path never silently upgrades an indicative-only verdict, and
+  honestly reports frame-level evidence as unavailable rather than fabricating
+  it. `verify` re-scores a contracts directory (or one bundle) against each
+  contract's own recorded policy and is the CI gate: exit 0 every contract
+  passes, 1 a regression, 2 a usage error; emits text/JSON/HTML/JUnit.
+  `inspect` prints one contract. `pack`/`unpack` round-trip a bundle through
+  one deterministic single-file `.hotato.pack` archive with a sha256 manifest
+  checked on unpack (a corrupted or tampered archive is refused, exit 2,
+  nothing partial left behind). `hotato card` also renders a contract
+  directly (kind `voice-turn-taking-contract`). Redacted by default (a
+  candidate ref / source recording name is hidden unless
+  `--include-identifiers`); no call ids, paths, or transcript text in any
+  artifact. New module `hotato.contract`, new schema
+  `schema/contract.v1.json`, docs `docs/CONTRACTS.md`.
+- **`hotato trace ingest/attach/export`, the voice-trace observability
+  bridge**: `ingest --otel FILE --out voice_trace.jsonl` parses either a
+  standard OTel JSON export (`resourceSpans`, best-effort span/event
+  flattening) or hotato's own documented OTel bridge JSONL into schema
+  `hotato.voice_trace.v1` (caller/agent audio activity, TTS cancel/stop, ASR
+  partials, tool calls, ...). `attach BUNDLE --trace voice_trace.jsonl`
+  writes the trace into `<bundle>/traces/voice_trace.jsonl` and re-renders
+  `evidence/timeline.html` with the trace's events drawn as a scale-aligned
+  row, reading the bundle's OWN `evidence/frames.jsonl` and `contract.json`
+  back in -- it never re-runs the VAD or diarizer, so it works on a
+  diarized-mono bundle (no frame-level evidence) without the diarization
+  extra installed, honestly noting the missing base timeline instead of
+  fabricating one. `export BUNDLE --format otel --out FILE` writes the
+  attached trace back out as the same bridge JSONL `ingest` reads, so
+  `ingest -> attach -> export -> ingest` round-trips the identical spans.
+  The evidence page states findings plainly -- "Evidence suggests TTS
+  cancellation delay: cancel requested at 2.60s, audio stopped at 2.90s
+  (delta 0.30s)." -- always followed by "Hotato does not prove root cause."
+  and an explicit "Unknowns: no client-side playout trace was attached."
+  line. Redacted by default (call id, agent id, ASR transcript text). New
+  module `hotato.trace`, new schema `schema/voice_trace.v1.json`, docs
+  `docs/TRACE.md` and `docs/OTEL.md`.
 - **`hotato run --mono call.wav --diarize`, the opt-in, quality-gated
   mono-scorability front-end**: a single-channel (mixed) recording -- until now
   the hard coverage wall, rejected as not scorable -- becomes scorable by running

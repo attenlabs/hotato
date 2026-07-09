@@ -54,6 +54,8 @@ Prefer a single self-contained dashboard and nothing else? `uvx hotato sweep --d
 | See it work with zero setup | `uvx hotato start --demo` |
 | Scan one call recording you already have | `uvx hotato scan --stereo call.wav` |
 | Monitor a production stack (Vapi, Twilio, Retell, LiveKit, Pipecat) | `hotato connect vapi` then `hotato sweep --stack vapi --since 7d` |
+| Add Hotato to an existing repo, CI gate included | `hotato init starter --stack vapi --out .` ([`docs/STARTER.md`](docs/STARTER.md)) |
+| Turn a confirmed bug into a portable, CI-enforced contract | `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield --id refund-cutoff-001 --out contracts` ([`docs/CONTRACTS.md`](docs/CONTRACTS.md)) |
 | Turn a confirmed bug into a CI test | `hotato fixture promote hotato-sweep.json#1 --expect yield --out tests/hotato` |
 | Prove a fix held across the battery | `hotato verify --before before.json --after after.json` |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |
@@ -1982,6 +1984,385 @@ recording download.
 
 
 ================================================================================
+FILE: docs/STARTER.md
+================================================================================
+
+# The starter kit: `hotato init starter`
+
+The fastest way to add hotato to an existing voice-agent repository. It
+scaffolds the CI gate, a stack-tuned config file, and the three directories
+the rest of the docs assume already exist, so you can go straight to turning
+your first bad call into a contract instead of wiring plumbing by hand.
+
+```bash
+hotato init starter --stack vapi --out .
+```
+
+`--stack` is one of `vapi`, `retell`, `twilio`, `livekit`, `pipecat` -- every
+stack hotato has a real, shipped connector for today (see
+[`ADAPTER-STATUS.md`](ADAPTER-STATUS.md)). `--out` is usually `.`, the root of
+the repo you are adding hotato to. Offline: no network, no credentials needed
+to generate.
+
+## What it writes
+
+```
+HOTATO.md                                # what was added, next steps (read this first)
+hotato.yaml                              # config skeleton, tuned for --stack
+.gitignore                               # excludes local/pulled recordings;
+                                          #   keeps pinned fixture/contract clips committed
+.github/workflows/hotato-contracts.yml   # the CI gate
+fixtures/
+  README.md
+  scenarios/.gitkeep                     # -> hotato fixture create --out fixtures
+  audio/.gitkeep
+contracts/
+  README.md
+  .gitkeep                               # -> hotato contract create --out contracts
+reports/
+  README.md
+  .gitkeep                               # local/CI scratch: doctor/report/sweep output
+```
+
+Every file is refused if it already exists, unless `--force` is passed --
+nothing is silently merged or overwritten, and nothing partial is left behind
+if the scaffold refuses. The generated file names are deliberately namespaced
+away from a real repo's own files (`HOTATO.md`, not `README.md`;
+`hotato-contracts.yml`, not `hotato.yml`) so a first run does not collide with
+files a voice-agent repo almost always already has.
+
+## Two input paths, chosen for you by `--stack`
+
+**Auto-pull** (`vapi`, `retell`, `twilio`): hotato fetches the recording
+itself once you connect a key. `hotato.yaml`'s `credentials.env` names the
+exact environment variable(s) (`VAPI_API_KEY`; `RETELL_API_KEY`;
+`TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN`) `hotato connect <stack>` also
+reads. `recording.access` is `auto-pull`.
+
+**Capture-in-your-infra** (`livekit`, `pipecat`): there is no vendor
+recording API to pull from, so no credentials are generated or needed.
+`hotato.yaml`'s `credentials.env` is `[]` and `recording.access` is
+`capture-in-your-infra`; `hotato setup --stack <stack>` prints the exact
+two-track capture scaffold, and you point `hotato contract create --stereo`
+at the WAV your own deployment writes.
+
+## The CI gate
+
+`.github/workflows/hotato-contracts.yml` runs on push, on pull request, and
+weekly. It is two guarded steps, both a **no-op, never a failure**, until you
+have added a first contract or fixture (a fresh scaffold's normal starting
+state):
+
+```bash
+hotato contract verify contracts --junit hotato.xml --format json > contracts-verify.json
+hotato run --scenarios fixtures/scenarios --audio fixtures/audio --format json > fixtures-run.json
+```
+
+The JUnit file is published as a build artifact on every run (`always()`),
+whether the gate passed, failed, or had nothing to check yet.
+
+For the three auto-pull stacks, the workflow also carries a `weekly-sweep`
+job: a passive, candidate-only sweep of recent calls
+(`hotato sweep --stack <stack>`), ranked by hotato's own salience -- never a
+verdict, never auto-labeled. It ships **disabled** (`if: false`): flip it to
+`true` once the stack's credential env var(s) are set as repo secrets
+(Settings -> Secrets and variables -> Actions). Hotato never runs a live pull
+against your account on its own initiative; enabling this job is an explicit
+human decision, made once, in your own CI config. `livekit`/`pipecat` carry
+no such job -- there is no vendor recording API to sweep.
+
+## Turn your first bad call into a contract
+
+```bash
+# auto-pull stacks
+hotato connect vapi --api-key <key>
+hotato sweep --stack vapi --out hotato-sweep.html
+# open hotato-sweep.html, pick a real candidate moment, then:
+hotato contract create --from-candidate hotato-sweep.json#1 \
+    --expect yield --id refund-cutoff-001 --out contracts
+
+# capture-in-your-infra stacks
+hotato setup --stack livekit
+# once your deployment writes a two-channel WAV:
+hotato contract create --stereo call.wav --onset 42.18 \
+    --expect yield --id refund-cutoff-001 --out contracts
+```
+
+Commit the resulting `contracts/refund-cutoff-001.hotato/` directory. The
+next push runs it through the CI gate above.
+
+## Read more
+
+- The bundle layout and the create/verify/inspect/pack/unpack commands:
+  [`CONTRACTS.md`](CONTRACTS.md)
+- The underlying fixture primitive, one bad call to a CI gate in five steps:
+  [`BAD-CALL-TO-CI.md`](BAD-CALL-TO-CI.md)
+- Per-stack connector support, verified against the vendor's live docs:
+  [`ADAPTER-STATUS.md`](ADAPTER-STATUS.md)
+- The connect-once bulk pull-and-analyze recipe: [`CONNECT.md`](CONNECT.md)
+- An agent adding hotato to a repo end to end: [`../AGENTS.md`](../AGENTS.md)
+
+
+================================================================================
+FILE: docs/TRACE.md
+================================================================================
+
+# Voice traces
+
+A voice trace is a timeline of discrete voice-pipeline events (caller/agent
+audio activity, TTS cancel/stop, ASR partials, tool calls, ...) that
+supplements a failure contract's frame-level timing evidence with the WHY
+layer a caller/agent audio track alone cannot show: "the agent talked over
+the caller" becomes "evidence suggests TTS cancellation lagged: cancel
+requested at 42.40s, audio stopped at 43.60s".
+
+Hotato does not prove root cause from a trace. It reports coincidence: a
+pattern of events that lined up with the measured timing. See
+[`docs/OTEL.md`](OTEL.md) for the ingest source formats.
+
+Three commands:
+
+```bash
+hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl
+hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl
+hotato trace export contracts/refund-cutoff-001.hotato --format otel --out otel.jsonl
+```
+
+## Schema
+
+`voice_trace.jsonl` is JSONL (one meta line, then one line per span -- the
+same convention `evidence/frames.jsonl` uses), validating against
+`hotato.voice_trace.v1` (`src/hotato/schema/voice_trace.v1.json`) once
+reassembled by `hotato.trace.load_voice_trace_jsonl`:
+
+```json
+{
+  "schema": "hotato.voice_trace.v1",
+  "call_id": null,
+  "deployment": {"stack": "vapi", "agent_id": null, "git_sha": "deadbeef", "config_hash": "sha256:..."},
+  "spans": [
+    {"type": "agent_audio_active", "start_sec": 0.0, "end_sec": 2.9},
+    {"type": "tts_cancel_requested", "time_sec": 2.6},
+    {"type": "tts_audio_stopped", "time_sec": 2.9},
+    {"type": "asr_partial", "start_sec": 2.4, "end_sec": 2.95, "text_redacted": true},
+    {"type": "tool_call", "start_sec": 1.1, "end_sec": 1.42, "name": "lookup_order", "latency_ms": 320}
+  ],
+  "source": {"format": "otel-jsonl-bridge", "input_span_count": 6}
+}
+```
+
+A span carries an open `type` string; the common ones are
+`caller_audio_active`, `agent_audio_active`, `tts_cancel_requested`,
+`tts_audio_stopped`, `asr_partial`, `tool_call`, `llm_first_token`,
+`handoff`. An unrecognized type is passed through unchanged, never dropped
+(additive, forward-compatible with a pipeline that emits a span type this
+release does not name). Exactly one time shape applies per span: an
+interval span carries `start_sec`/`end_sec`, a point event carries
+`time_sec`.
+
+## Redaction by default
+
+`call_id` and `deployment.agent_id` are dropped (`null`) unless
+`--include-identifiers` is passed at ingest time. An `asr_partial` span's
+transcript text is dropped (`text_redacted: true`, no `text` key) unless
+`--include-text` is passed. `deployment.stack` / `git_sha` / `config_hash`
+are not treated as identifiers and are kept by default.
+
+## Ingest
+
+```bash
+hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl
+hotato trace ingest --otel export.json --out voice_trace.jsonl \
+    --stack vapi --include-identifiers --include-text
+```
+
+`--otel FILE` accepts either a standard OTel JSON export (a document with a
+top-level `resourceSpans` array) or hotato's own documented OTel bridge
+JSONL (see [`docs/OTEL.md`](OTEL.md)). `--stack` / `--call-id` /
+`--agent-id` / `--git-sha` / `--config-hash` override or fill in whatever
+the source's own resource attributes carried. Refused (exit 2, nothing
+written) for an unreadable file, an empty file, or a source with zero
+spans.
+
+## Attach
+
+```bash
+hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl
+```
+
+Copies the trace into `<bundle>/traces/voice_trace.jsonl` and re-renders
+`evidence/timeline.html` with the trace's events drawn as an additional row,
+aligned to the SAME [0, duration] scale as the existing caller/agent
+timeline. This reads the bundle's OWN `evidence/frames.jsonl` and
+`contract.json` back in -- it never re-runs the VAD or the diarizer, so
+attaching a trace never needs the diarization extra installed and never
+re-scores the audio. On a diarized-mono bundle (no frame-level evidence),
+the base timeline honestly states that instead of fabricating one, and the
+trace row still renders on its own scale.
+
+`contract.json` records the attachment (additive, schema-safe: `trace:
+{attached, path, span_count, attached_at, source_format}`). Refused (exit 2)
+for a missing bundle, a trace file that does not validate as a
+`hotato.voice_trace.v1` JSONL, or an already-attached trace without
+`--force`.
+
+### Report wording
+
+When a `tts_cancel_requested` / `tts_audio_stopped` pair is present, the
+timeline states the measured delta plainly:
+
+> Evidence suggests TTS cancellation delay: cancel requested at 2.60s, audio
+> stopped at 2.90s (delta 0.30s).
+> Hotato does not prove root cause.
+> Unknowns: no client-side playout trace was attached.
+
+The last line is always present in this release: a client-side audio
+playout trace (the point where the CALLER'S device actually stopped
+rendering audio, as opposed to when the server issued the stop) is not a
+span type this release collects, so the honest gap is always named rather
+than silently omitted.
+
+## Export
+
+```bash
+hotato trace export contracts/refund-cutoff-001.hotato --format otel --out otel.jsonl
+```
+
+Writes the bundle's attached trace back out as hotato's OTel bridge JSONL --
+the exact shape `trace ingest` reads, so `ingest -> attach -> export ->
+ingest` round-trips the identical spans. `--format` is claimed by the export
+format on this subcommand (only `otel` is supported today); pass `--json`
+for the machine result summary instead of the default text line. Refused
+(exit 2) when the bundle has no attached trace, or `--out` exists without
+`--force`.
+
+## What a voice trace does not prove
+
+Hotato does not prove authorization, identity, compliance, or policy
+safety. A voice trace adds timing correlation to a failure contract's
+existing timing measurement; it never adds intent, never a root-cause
+verdict, and never a claim that a client-side playout event happened at a
+particular moment unless one was actually attached.
+
+## Read more
+
+- Source formats and the OTel bridge JSONL shape:
+  [`docs/OTEL.md`](OTEL.md)
+- Failure contracts a trace attaches to: [`docs/CONTRACTS.md`](CONTRACTS.md)
+
+
+================================================================================
+FILE: docs/OTEL.md
+================================================================================
+
+# OTel ingest: two source shapes
+
+`hotato trace ingest --otel FILE` recognizes two input shapes. Both convert
+into the same `hotato.voice_trace.v1` spans; which one it used is recorded
+in `source.format` (`"otel-json"` or `"otel-jsonl-bridge"`).
+
+This is a bridge, not an OTel collector: it reads a file you already have
+(an exported trace, or a small script's own event log), offline, once. It
+is not a running OTel receiver, does not speak the OTLP wire protocol, and
+does not claim full OpenTelemetry semantic-convention coverage -- only
+`name`, `startTimeUnixNano`/`endTimeUnixNano`, `attributes`, and span
+`events` are read from a standard export.
+
+## 1. Standard OTel JSON export (`otel-json`)
+
+A single JSON document with a top-level `resourceSpans` array (the shape a
+real OTel exporter/collector writes):
+
+```json
+{
+  "resourceSpans": [{
+    "resource": {"attributes": [
+      {"key": "service.name", "value": {"stringValue": "vapi"}},
+      {"key": "git_sha", "value": {"stringValue": "cafebabe"}}
+    ]},
+    "scopeSpans": [{"spans": [
+      {
+        "name": "agent_audio_active",
+        "startTimeUnixNano": "1000000000",
+        "endTimeUnixNano": "4400000000"
+      },
+      {
+        "name": "tts.cancel_requested",
+        "startTimeUnixNano": "2600000000",
+        "events": []
+      }
+    ]}]
+  }]
+}
+```
+
+- Resource attributes are flattened into a plain dict; `service.name`
+  (or a custom `stack` attribute) becomes `deployment.stack`, `git_sha` /
+  `config_hash` attributes (if present) fill the matching deployment
+  fields. Only the FIRST `resourceSpans` entry's resource is used for
+  deployment metadata; every entry's spans are still walked.
+- Timestamps convert to seconds relative to the EARLIEST timestamp anywhere
+  in the file (matching the audio-relative-seconds convention every other
+  hotato timestamp uses) -- not wall-clock time.
+- A span's own `name` maps to a hotato span `type` via a small documented
+  table (`caller_audio_active`, `agent_audio_active`,
+  `tts.cancel_requested` -> `tts_cancel_requested`,
+  `tts.audio_stopped` -> `tts_audio_stopped`, `asr.partial` -> `asr_partial`,
+  `llm.first_token` -> `llm_first_token`); an unmapped name passes through
+  unchanged.
+- Span `events` (OTel's own point-in-time markers nested inside a span --
+  the natural place a real pipeline would put a `tts.cancel_requested`
+  marker inside a broader `tts_playback` span) are flattened into their own
+  point events the same way top-level spans are.
+- A `tool_call`-mapped span's `tool.name` / `gen_ai.tool.name` attribute
+  becomes the span's `name` field; a `latency_ms` attribute is used if
+  present, otherwise computed from the span's own start/end.
+- An `asr_partial`-mapped span's `text` / `asr.transcript.partial` attribute
+  is captured but immediately redacted (dropped, `text_redacted: true`)
+  unless `--include-text` was passed.
+
+## 2. Hotato's OTel bridge JSONL (`otel-jsonl-bridge`)
+
+The simpler, documented shape for a script or test fixture that does not
+have a real OTel exporter: one JSON object per line (or one bare JSON array
+of the same objects). Each line is either a span or a meta/resource line.
+
+A span line uses `type` directly (never `name` -- `name` on a span line is
+reserved for `tool_call`'s own tool name, not the span kind):
+
+```
+{"type": "caller_audio_active", "start_sec": 2.40, "end_sec": 4.10}
+{"type": "agent_audio_active", "start_sec": 0.00, "end_sec": 2.90}
+{"type": "tts_cancel_requested", "time_sec": 2.60}
+{"type": "tts_audio_stopped", "time_sec": 2.90}
+{"type": "asr_partial", "start_sec": 2.40, "end_sec": 2.95, "text": "wait, I need a refund"}
+{"type": "tool_call", "start_sec": 1.10, "end_sec": 1.42, "name": "lookup_order", "latency_ms": 320}
+```
+
+An optional meta/resource line (no `type` key) attaches deployment
+metadata and a call id:
+
+```
+{"call_id": "demo-call-001", "deployment": {"stack": "vapi", "agent_id": "agent-demo-1", "git_sha": "deadbeefcafe", "config_hash": "sha256:0f1e2d3c"}}
+```
+
+`--call-id` / `--stack` / `--agent-id` / `--git-sha` / `--config-hash` on
+`trace ingest` override whatever a meta line (or a standard export's
+resource) provided. `hotato trace export` writes exactly this bridge
+shape, so `ingest -> attach -> export -> ingest` round-trips the same
+spans; the shipped test fixture (`tests/data/otel/demo-trace.otel.jsonl`)
+uses this shape.
+
+## Which one to use
+
+If you already run an OTel collector or SDK and can dump a trace export,
+point `--otel` at that file directly -- the standard-export path is
+best-effort but reads it. If you are wiring a quick script (a webhook
+handler, a log-line scraper) that does not go through OTel at all, write the
+bridge JSONL directly; it is the same information with none of the nesting.
+
+
+================================================================================
 FILE: docs/REPORTS.md
 ================================================================================
 
@@ -3610,6 +3991,191 @@ They compose; none of them replaces the others.
 
 
 ================================================================================
+FILE: docs/CONTRACTS.md
+================================================================================
+
+# Failure contracts
+
+A failure contract turns ONE real call moment into a portable, private,
+vendor-neutral bundle: the audio, frame-level timing evidence, an
+input-health report, a shareable card, a CI pass/fail policy, and the exact
+commands to replay and re-verify it. It is the CI object: `hotato contract
+verify` re-scores a directory of contracts and exits non-zero when one
+regresses.
+
+Hotato does not infer intent. A contract's label is always a human call
+(`label_source` is frozen to `"human"`); Hotato measures whether the recorded
+timing matched that label, and `contract verify` re-measures the SAME
+recording later and reports pass/fail.
+
+Hotato does not prove authorization, identity, compliance, or policy safety.
+Hotato proves timing behavior against this explicit contract.
+
+## The bundle
+
+`hotato contract create` writes one self-contained directory,
+`<id>.hotato/`:
+
+```
+refund-cutoff-001.hotato/
+  contract.json                      # the contract itself (schema hotato.contract.v1)
+  audio/event.wav                    # the (clipped) two-channel recording, or the mono file
+  evidence/
+    frames.jsonl                     # per-frame timing evidence behind every measurement
+    timeline.html                    # the to-scale caller/agent timeline, self-contained
+    trust.json                       # the input-health (trust doctor) report
+    card.svg                         # a shareable 1200x630 SVG card (redacted by default)
+  traces/                            # empty until `hotato trace attach` (see docs/TRACE.md)
+  source/
+    call_metadata.json               # redacted-by-default: stack, category, expect
+    stack_config_snapshot.json       # placeholder until populated by hand
+  policy/verify.yaml                 # the SAME subset `hotato verify --policy` reads
+  reports/
+    initial.html                     # the full scored report at creation time
+    after.html                       # placeholder until a fix is re-captured and verified
+  provenance.json                    # who/when/how this contract was created
+  ci/
+    github-action.yml                # a weekly + on-push CI scaffold
+    junit.xml                        # this ONE contract's JUnit result at creation time
+```
+
+Every path above is also recorded, machine-readable, in
+`contract.json["bundle"]["paths"]`.
+
+## Create
+
+From a candidate a sweep or scan already surfaced:
+
+```bash
+hotato sweep --demo --format json > hotato-sweep.json
+hotato contract create --from-candidate hotato-sweep.json#1 \
+    --expect yield --id refund-cutoff-001 --out contracts
+```
+
+From a raw two-channel recording you already have:
+
+```bash
+hotato contract create --stereo bad-call.wav --onset 42.18 \
+    --expect yield --id refund-cutoff-001 --out contracts \
+    --max-talk-over 0.6 --max-time-to-yield 1.0
+```
+
+Both forms wrap the SAME round-trip guarantee `hotato fixture create` gives:
+the moment is scored immediately, and a not-scorable input (the agent silent
+at the onset, an unreadable file, a bad channel map) is refused with the
+honest reason and exit code 2 -- no bundle is written. A single-channel
+(mono) recording passed as `--stereo` is rejected the same way `fixture
+create` rejects it: caller and agent cannot be told apart on one channel.
+
+`--caller FILE --agent FILE` (two mono WAVs) is a third input form, scored
+and clipped identically.
+
+### Redaction
+
+By default the bundle and the card hide a candidate ref and a source
+recording's basename. Pass `--include-identifiers` to show them (in
+`source/call_metadata.json`, `contract.json`, and `evidence/card.svg`).
+
+### The opt-in diarized-mono path
+
+A single-channel recording can still become a contract through the SAME
+quality-gated diarizer front-end `hotato run --mono --diarize` uses:
+
+```bash
+hotato contract create --mono call.wav --diarize \
+    --expect yield --id refund-cutoff-002 --out contracts
+```
+
+This NEVER silently upgrades an indicative-only verdict: a `low`-confidence
+separation tier carries `measurement.indicative_only: true` all the way into
+`contract.json` and every renderer, and a `refuse` tier (not two clean
+parties, extreme overlap, unstable segmentation, voices too similar) is
+refused exactly like a plain mono file, with the specific reason. Frame-level
+evidence (`evidence/frames.jsonl`, the to-scale timeline) is not produced for
+this path in this release; `evidence/timeline.html` says so plainly instead
+of fabricating one, and points at `evidence/trust.json`'s separation
+confidence tier.
+
+## Verify
+
+```bash
+hotato contract verify contracts/
+hotato contract verify contracts/ --format json --junit contracts-junit.xml
+hotato contract verify contracts/refund-cutoff-001.hotato --html verify.html
+```
+
+`DIR` is a contracts directory (every `*.hotato` subdirectory that carries a
+`contract.json`) or one bundle directly. For each contract, `verify`
+re-scores the SAME bundled audio against the SAME policy recorded in its own
+`contract.json` -- this is what changes after an engine upgrade, a threshold
+change, or a re-captured recording swapped into `audio/event.wav` -- and
+reports pass/fail per contract and overall.
+
+Exit codes are the CI contract: `0` every contract passes, `1` at least one
+regressed (or is no longer scorable), `2` a usage error, an empty directory,
+or a corrupt `contract.json`. `--junit` writes one `<testcase>` per contract
+for a CI dashboard; the shipped `ci/github-action.yml` scaffold runs this on
+push, on PR, and weekly, and publishes the JUnit file as an artifact.
+
+## Inspect
+
+```bash
+hotato contract inspect contracts/refund-cutoff-001.hotato
+hotato contract inspect contracts/refund-cutoff-001.hotato/contract.json --format json
+```
+
+## Pack / unpack
+
+A bundle directory travels as one file:
+
+```bash
+hotato contract pack contracts/refund-cutoff-001.hotato
+# -> contracts/refund-cutoff-001.hotato.pack (deterministic; a MANIFEST.sha256.json
+#    of every member travels inside it)
+
+hotato contract unpack contracts/refund-cutoff-001.hotato.pack --out contracts/refund-cutoff-001.hotato
+# every member is verified against the packed sha256 manifest; any mismatch
+# (a corrupt or tampered archive) is refused (exit 2) and nothing partial is
+# left behind
+```
+
+Packing the SAME bundle directory twice produces byte-identical archives
+(sorted member order, fixed timestamps): a contract's pack is a pure function
+of its bundle contents.
+
+## CI
+
+The shipped `ci/github-action.yml` is the minimal wiring:
+
+```bash
+uvx hotato contract verify contracts/ --junit contracts-junit.xml --format json > contracts-verify.json
+```
+
+Gate a pull request or a scheduled job on the process exit code; do not parse
+stdout to decide pass or fail.
+
+## What a contract does not prove
+
+Hotato does not prove authorization, identity, compliance, or policy safety.
+Hotato proves timing behavior against this explicit contract. `verify`
+reports coincidence, not causation: a passing re-verify after a config change
+coincides with the change; it is not a controlled experiment. See
+`docs/VALIDATION.md` and `docs/THREAT-MODEL.md`.
+
+## Read more
+
+- The underlying regression-fixture primitive `contract create` wraps:
+  [`docs/BAD-CALL-TO-CI.md`](BAD-CALL-TO-CI.md)
+- Battery-scale before/after proof: [`docs/FIX-LOOP.md`](FIX-LOOP.md)
+- Input-health (trust doctor): [`docs/TRUST.md`](TRUST.md) ·
+  [`docs/TRUST-MATRIX.md`](TRUST-MATRIX.md)
+- Diarized-mono scoring: [`docs/DIARIZE.md`](DIARIZE.md)
+- Shareable cards: [`docs/CARDS.md`](CARDS.md)
+- Attaching a voice trace (observability bridge): [`docs/TRACE.md`](TRACE.md) ·
+  [`docs/OTEL.md`](OTEL.md)
+
+
+================================================================================
 FILE: docs/DIARIZE.md
 ================================================================================
 
@@ -4028,8 +4594,9 @@ FILE: docs/START.md
 
 `hotato start --demo` is the zero-setup first run. One command, no account, no
 network, no credentials. It sweeps the two bundled real demo calls (the same
-recordings `hotato demo` scores), writes everything you need to see the flow, and
-then prints the exact next commands.
+recordings `hotato demo` scores), creates and verifies one real failure
+contract from them, writes everything you need to see the flow, and then
+prints the exact next commands.
 
 ```bash
 hotato start --demo
@@ -4047,9 +4614,41 @@ Into the current directory (or `--dir DIR`):
 - `hotato-no-single-threshold.svg` -- the threshold-funnel card: the demo battery
   misses a real interruption **and** false-stops on a backchannel, so no single
   dial fixes both. See `docs/CARDS.md`.
+- `contracts/demo-missed-interruption.hotato/` -- one real failure contract,
+  created from the sweep's missed-interruption candidate with `--expect
+  yield` and verified immediately. See `docs/CONTRACTS.md`.
 
 Everything is offline by construction: the demo pulls from packaged audio, and
-the analyze and card steps touch no network and read no credential.
+the analyze/card/contract steps touch no network and read no credential.
+
+## The demo failure contract
+
+`start --demo` does not stop at a ranked list of candidates. It runs the whole
+loop once, on a real recording:
+
+```bash
+hotato contract create --from-candidate hotato-sweep.json#2 --expect yield \
+    --id demo-missed-interruption --out contracts
+hotato contract verify contracts/
+```
+
+Candidate #2 in the bundled sweep is the real missed-interruption call: the
+agent talked over the caller instead of yielding. Scored against `--expect
+yield`, it genuinely fails -- so `start --demo` prints:
+
+```
+verified contract: FAIL as expected -- the demo call really did miss the
+interruption; this is the exact failure a CI regression gate would catch
+```
+
+This is not a contrived pass. `hotato contract verify contracts/` re-scores
+the SAME bundled audio and reports the SAME regression (exit code `1`),
+exactly like a CI job would after a change reintroduces this failure. Run it
+yourself:
+
+```bash
+hotato contract verify contracts/
+```
 
 ## What it prints
 
@@ -4075,6 +4674,13 @@ The exact next commands, ready to copy:
    hotato card hotato-sweep.json#1 --out candidate.svg
    ```
 
+4. **Re-verify the demo failure contract in CI** (or create your own from any
+   candidate with `hotato contract create`):
+
+   ```bash
+   hotato contract verify contracts/
+   ```
+
 ## Other modes
 
 `--stack`, `--folder`, and `--stereo` are placeholders in this build. They print
@@ -4087,11 +4693,15 @@ the shipped command that does the job today rather than pretend:
 
 ## Output and exit codes
 
-`--format json` emits a machine object (the files written and the next commands)
-for an agent to drive.
+`--format json` emits a machine object (the files written, the next commands,
+and a `contract` block with the demo contract's id, expect, scorable, passed,
+and `verified_fail_as_expected`) for an agent to drive.
 
 - **0**: the guided first run completed (or a stubbed mode printed the shipped
-  command to use instead).
+  command to use instead). This is true even though the demo contract itself
+  FAILS its policy -- `start --demo` finishing is not the same claim as the
+  demo contract passing; `hotato contract verify contracts/` is the command
+  that reports that (exit `1`, by design).
 - **2**: usage error: no mode given, or `--dir` is not a directory.
 
 
