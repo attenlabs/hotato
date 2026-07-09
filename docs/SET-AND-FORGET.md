@@ -67,7 +67,7 @@ See [`examples/set-and-forget/`](../examples/set-and-forget/README.md) for a
 runnable version of this, plus the CI half of the loop.
 
 No stack connected yet? Everything above works with `--demo` instead of
-`--stack ... --since ...`, credential-less, against two bundled real calls:
+`--stack ... --since ...`, credential-less, against two bundled recorded calls:
 
 ```bash
 hotato sweep --demo --format json > hotato-sweep.json
@@ -81,7 +81,7 @@ every candidate moment across every swept call, ranked by salience, with the
 hear-the-bug audio player embedded for the top `--audio-top` (default 8) so
 you can listen before deciding anything. Calls that could not be scored
 (mono/mixed stacks without `--allow-mono`, an unreadable file) list under
-Skipped with the reason, an honest skip, not a silent drop.
+Skipped with the reason, a logged skip, not a silent drop.
 
 The JSON (`--format json`) is the same candidate list as structured data.
 Each entry carries the source recording, the timestamp (`t_sec`), the kind
@@ -150,7 +150,7 @@ hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
 ```
 
 That last `run` prints the fix card too (fix class, the config knob, the
-direction to move it), because the fixture that just failed is a real,
+direction to move it), because the fixture that just failed is a
 labelled bad-agent moment from the bundled demo battery, not a placeholder.
 
 ## What this does not do

@@ -38,7 +38,7 @@ a yield marker where the scanner measured the agent going silent).
 
 ### 2. The hear-the-bug player
 
-For the top `--audio-top` moments (default 8) the REAL audio around the moment
+For the top `--audio-top` moments (default 8) the audio around the moment
 is embedded inline as a base64 WAV data URI. Nothing is uploaded, the page has
 zero external requests. Press play and a **playhead** sweeps that moment's
 timeline in lockstep with `audio.currentTime` (via `requestAnimationFrame`), so
@@ -61,7 +61,7 @@ prints the ranked candidates plus their metadata (source file, timestamp, kind,
 salience, measured durations, and the audio/timeline window) to stdout, capped
 by `--top`. Pass `--out FILE` to also write the full ranked JSON.
 
-## Honest framing
+## Framing
 
 These are **measured candidate timing moments**, not verdicts and not intent.
 Energy is not intent: the scanner cannot know whether a caller sound was "mhm"

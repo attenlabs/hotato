@@ -38,7 +38,7 @@ block) or the value a contributor labelled by hand:
 Errors are reported as a distribution: median, mean, worst case, best case, and n.
 A signal is scored where a rendered or true reference exists and the scorer
 produced a value; a missing reference yields a `-`. (The echo-of-agent fixture has
-no independent caller speech, so it has no onset or yield error: an honest gap.)
+no independent caller speech, so it has no onset or yield error: a gap.)
 
 Onset is measured in **detect mode** (the scorer gets no onset hint), so it is a
 real test of the onset detector. Yield, talk-over, response gap, and `did_yield`
@@ -132,7 +132,7 @@ PYTHONPATH=src python3 -m hotato.benchmark \
 When `--scenarios` is given, only that set is scored, so you get a clean report for
 your corpus alone.
 
-The honest path to a real-model number is manual and consented: bring your own
+The path to a real-model number is manual and consented: bring your own
 labelled audio. Contributing real audio is governed by `docs/CORPUS-GOVERNANCE.md`
 (consent, PII, data-handling) and the pipeline in `corpus/` (a labelling schema and
 a validator). Synthetic fixtures keep their synthetic label.

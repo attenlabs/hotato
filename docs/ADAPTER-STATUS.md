@@ -2,7 +2,7 @@
 
 What each capture adapter is built against, verified verbatim against the
 vendor's live documentation on the date shown (integration research:
-`hotato-launch/INTEGRATION-SPEC-2026-07-07.md`). This file is the honest map of
+`hotato-launch/INTEGRATION-SPEC-2026-07-07.md`). This file is the map of
 what Hotato can and cannot pull, and why.
 
 Terms:
@@ -19,7 +19,7 @@ Terms:
 
 Honesty rule (enforced): an adapter ships only with endpoints verified verbatim
 in the spec. Where the spec marks a list-calls endpoint or a channel layout
-**unconfirmed / none**, Hotato does not invent one; it supports the honest
+**unconfirmed / none**, Hotato does not invent one; it supports the
 fallback (explicit ids) and documents the gap here rather than guessing.
 
 ## Build now: real dual-channel (auto-pull, separated scoring)
@@ -60,7 +60,7 @@ the EU region. Single-call `capture`/`pull` by explicit id needs none of these.
 ## Unconfirmed: needs credentials or a live probe before shipping
 
 Documented weakly or behind a login/SPA; the spec could not verify a recording
-field-path or a channel layout. Not shipped as adapters. Listed here honestly so
+field-path or a channel layout. Not shipped as adapters. Listed here so
 nobody assumes support that was never confirmed.
 
 - **Regal.ai**: no list-calls and no REST fetch-recording endpoint. The
@@ -90,7 +90,7 @@ Other enterprise/partial platforms researched but not shipped (login-gated,
 SPA-only docs, or transcript-only APIs): Daily, Ultravox, Hume EVI, Telnyx,
 Infobip, OpenAI Realtime, Amazon Connect, Parloa, Sierra, Decagon, PolyAI,
 Voiceflow, Cognigy, Dialogflow CX, Genesys Cloud, NICE CXone. See the
-integration spec for the per-platform verified facts and honest gaps.
+integration spec for the per-platform verified facts and gaps.
 
 ## Invariants
 

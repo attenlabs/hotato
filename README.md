@@ -39,7 +39,7 @@ hotato sweep --stack vapi --since 7d --out hotato-sweep.html
 
 That opens one offline dashboard ranking every candidate moment across your last 7 days of calls. Run `sweep` on a schedule (cron, CI, wherever) and it becomes a passive monitor; promote a confirmed bug into a permanent fixture with `hotato fixture promote`, then gate CI so it never comes back. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) · runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md).
 
-No stack connected yet? `hotato sweep --demo` runs the identical flow over two bundled real calls: no credentials, no network.
+No stack connected yet? `hotato sweep --demo` runs the identical flow over two bundled recorded calls: no credentials, no network.
 
 Have one call recording and nothing else? One command surfaces its candidate moments:
 
@@ -54,7 +54,7 @@ Hotato catches the three talk-over failures callers feel: the agent talking over
 Try it with no audio of your own:
 
 ```bash
-uvx hotato demo   # scores two real recorded calls a provider's default agent failed, so you see the FAILs, timelines, and fix cards
+uvx hotato demo   # scores two recorded calls a provider's default agent failed, so you see the FAILs, timelines, and fix cards
 ```
 
 ## MCP
@@ -84,9 +84,21 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **Pull a call from your stack** (Vapi, Twilio, Retell, LiveKit, Pipecat): [`adapters/README.md`](adapters/README.md) · status [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
 - **CI gates**: GitHub Action [`docs/CI.md`](docs/CI.md) · pytest plugin [`docs/PYTEST.md`](docs/PYTEST.md)
 - **Reports and analytics**: [`docs/REPORTS.md`](docs/REPORTS.md) · Suites [`docs/SUITES.md`](docs/SUITES.md) · Stack benchmarks [`docs/BENCHMARK-STACKS.md`](docs/BENCHMARK-STACKS.md)
-- **Real battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
+- **Recorded-call battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
 - **For agents**: [`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt) · MCP server [`docs/MCP.md`](docs/MCP.md) · Security [`SECURITY.md`](SECURITY.md)
 - **Contributing**: the highest-value PR is a real, labelled call fixture: [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
+
+## Evidence, not adoption claims
+
+Hotato is early, and this README makes no broad-adoption claim. What it offers instead is evidence you can run and inspect today, on your own machine:
+
+- **Two bundled failure calls**, scored in one command: `uvx hotato demo` rescores two recorded calls a provider-default agent failed, offline, and prints the FAILs, timelines, and fix cards.
+- **The recorded-call battery** in [`corpus/vapi-defaults/`](corpus/vapi-defaults/README.md): 12 scripted calls against a live voice agent on its provider's default settings, each with its label, its measured timing, and its consent basis.
+- **Deterministic report output**: every verdict is a timing that re-runs identically on any machine, quoted with the command that produced it, with no accuracy percentage anywhere.
+- **Not-scorable examples**: a mono file or a bad export is marked NOT SCORABLE instead of being turned into a confident but meaningless verdict.
+- **Before and after `verify`**: a proposed fix is measured across the whole battery, reporting coincidence, not causation.
+
+Bring your own recordings and measure. Nothing here asks you to take a number on faith.
 
 Why "hotato": good turn-taking is a game of hot potato. Speak, then pass the turn the moment the caller wants it. MIT licensed ([`LICENSE`](LICENSE)); the open core stays open.
 

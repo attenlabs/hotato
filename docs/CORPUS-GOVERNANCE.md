@@ -10,7 +10,7 @@ what the numbers in a report mean, read the "Validity metrics" section at the en
 
 ## Why real recordings matter
 
-The synthetic fixtures in `src/hotato/data/` are a deliberately honest floor. They
+The synthetic fixtures in `src/hotato/data/` are a deliberately conservative floor. They
 are rendered from known segment timings, so the ground truth is exact and the eval
 is runnable by anyone, offline, in seconds. That makes them ideal for regression
 tests and for demonstrating that the scorer behaves as specified.
@@ -130,7 +130,7 @@ Redaction guidance:
 
 ## Validity metrics: what we publish
 
-The corpus exists to quantify measurement quality honestly. That shapes how results
+The corpus exists to quantify measurement quality. That shapes how results
 are reported.
 
 We publish:

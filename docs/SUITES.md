@@ -1,4 +1,4 @@
-# Corpus suites: tiered, deterministic, honest about what they prove
+# Corpus suites: tiered, deterministic, explicit about what they prove
 
 `corpus/suites/` ships four labelled scenario suites, 112 scenarios total,
 every one synthetic shaped noise rendered deterministically from its own
