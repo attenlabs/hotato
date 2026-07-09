@@ -1462,7 +1462,7 @@ that just makes the agent yield to everything is caught. See `docs/FIX-LOOP.md`.
 FILE: docs/ANALYZE.md
 ================================================================================
 
-# `hotato analyze <folder>` — drop a folder, hear the bug
+# `hotato analyze <folder>`: drop a folder, hear the bug
 
 Zero-config discovery over a whole folder of real dual-channel call recordings.
 No scenarios, no labels, no onset, no flags required: point it at the folder and
@@ -1473,8 +1473,8 @@ hotato analyze ./recordings
 ```
 
 That writes one self-contained, offline HTML dashboard (`hotato-analyze.html` by
-default) and opens it. `hotato ./recordings` — a bare folder as the first
-argument — routes to the same command.
+default) and opens it. `hotato ./recordings`, a bare folder as the first
+argument, routes to the same command.
 
 ## What it does
 
@@ -1482,9 +1482,9 @@ For every `.wav` under the folder (walked recursively, in sorted order):
 
 1. runs the same whole-call scanner as [`hotato scan`](../src/hotato/scan.py):
    it walks the caller and agent VAD activity tracks across the ENTIRE call,
-   label-free, and emits candidate timing moments —
-   `overlap_while_agent_talking`, `agent_start_during_caller`,
-   `long_response_gap`, `agent_stop_no_caller`, `echo_correlated_activity` —
+   label-free, and emits candidate timing moments
+   (`overlap_while_agent_talking`, `agent_start_during_caller`,
+   `long_response_gap`, `agent_stop_no_caller`, `echo_correlated_activity`),
    each with a timestamp and a measured number;
 2. aggregates the candidates across ALL calls and ranks them by the scanner's
    own salience (overlap seconds / gap seconds / echo coherence) so the worst
@@ -1497,13 +1497,13 @@ Then it emits three things.
 One card per top moment, in the [`hotato report`](REPORTS.md) house style: the
 call file, the timestamp, the candidate kind, the measured number, and a
 to-scale caller/agent timeline of that exact moment (the same SVG renderer the
-report uses — activity spans, the shaded talk-over band, the onset marker, and
+report uses: activity spans, the shaded talk-over band, the onset marker, and
 a yield marker where the scanner measured the agent going silent).
 
 ### 2. The hear-the-bug player
 
 For the top `--audio-top` moments (default 8) the REAL audio around the moment
-is embedded inline as a base64 WAV data URI — nothing is uploaded, the page has
+is embedded inline as a base64 WAV data URI. Nothing is uploaded, the page has
 zero external requests. Press play and a **playhead** sweeps that moment's
 timeline in lockstep with `audio.currentTime` (via `requestAnimationFrame`), so
 you HEAR the agent talk over the caller, or the dead-air gap, land exactly where
@@ -1558,9 +1558,9 @@ talk-over); a bad file never crashes the run.
 
 ## Exit codes
 
-- **0** — ran (candidate moments listed across the folder, possibly zero; never
+- **0**: ran (candidate moments listed across the folder, possibly zero; never
   a pass/fail and never a verdict).
-- **2** — usage error (the path is not a folder) or an IO error reading it.
+- **2**: usage error (the path is not a folder) or an IO error reading it.
 
 Everything runs offline; no audio leaves the machine.
 
@@ -1705,9 +1705,9 @@ FILE: docs/CONNECT.md
 `hotato sweep` is the "connect once, see every turn-taking problem across all
 your real calls" flow. It has three steps you can also run on their own:
 
-1. **`hotato connect <stack>`** — store a stack's credentials once, locally.
-2. **`hotato pull`** — bulk-fetch your recent recordings into a folder.
-3. **`hotato sweep`** — pull, then run the zero-config `analyze` over them and
+1. **`hotato connect <stack>`**: store a stack's credentials once, locally.
+2. **`hotato pull`**: bulk-fetch your recent recordings into a folder.
+3. **`hotato sweep`**: pull, then run the zero-config `analyze` over them and
    write one offline dashboard of the ranked turn-taking moments.
 
 Everything scores offline. The only network is the direct recording download
@@ -1745,7 +1745,7 @@ Per-stack credentials:
 
 Retell has no list endpoint to verify against, so `connect retell` stores the
 key and validates it on the first pull. Use `--no-verify` to skip the live check
-for any stack. LiveKit and Pipecat are capture-in-your-infra — there is no
+for any stack. LiveKit and Pipecat are capture-in-your-infra. There is no
 vendor recording to pull, so they are not connectable; use `hotato setup
 --stack livekit|pipecat` instead.
 
@@ -1764,7 +1764,7 @@ downloads each one by looping the same single-call fetch `hotato capture` uses,
 into `hotato-pull-<stack>/` (override with `--out DIR`). `--since` accepts `7d`,
 `12h`, `30m`, `2w`. A recording that cannot be fetched (missing URL, HTTP error,
 wrong channel count) is reported as a clean skip with its reason and the pull
-continues — one bad call never crashes the run.
+continues. One bad call never crashes the run.
 
 **Retell has no verified list endpoint.** Pull it from explicit ids instead
 (Hotato never fabricates an endpoint):
@@ -1799,7 +1799,7 @@ ranked candidates plus a pull summary instead.
 
 Dual-channel stacks give separated scoring. Mono/mixed stacks can be swept with
 `--allow-mono`, but their calls cannot be attributed per party and surface in the
-dashboard's Skipped section — honestly, not faked.
+dashboard's Skipped section. Honestly, not faked.
 
 Candidates are MEASURED timing moments you review and label with `hotato fixture
 create`, never verdicts and never intent. There is no pass/fail, no failure
@@ -1809,7 +1809,7 @@ count, and no accuracy number anywhere.
 
 See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full, honest map:
 which stacks auto-pull dual-channel, which are mono-only behind `--allow-mono`,
-which are capture-in-your-infra, and which are not integrable — each with the
+which are capture-in-your-infra, and which are not integrable, each with the
 exact verified endpoint and the honest gaps.
 
 
@@ -1826,32 +1826,32 @@ what Hotato can and cannot pull, and why.
 
 Terms:
 
-- **auto-pull** — Hotato fetches the recording itself with your API key
+- **auto-pull**: Hotato fetches the recording itself with your API key
   (`hotato capture` / `hotato pull` / `hotato sweep`).
-- **capture-in-your-infra** — there is no vendor recording API; Hotato prints
+- **capture-in-your-infra**: there is no vendor recording API; Hotato prints
   the recording config (`hotato setup`) and scores the file your deployment
   writes.
-- **mono / mixed** — a single combined channel. Overlap cannot be attributed to
+- **mono / mixed**: a single combined channel. Overlap cannot be attributed to
   the caller or the agent, so Hotato scores it only behind an explicit
   `--allow-mono` / `HOTATO_ALLOW_MONO=1` opt-in and labels the result indicative
   only. Separated turn-taking analysis is not possible from mono.
 
 Honesty rule (enforced): an adapter ships only with endpoints verified verbatim
 in the spec. Where the spec marks a list-calls endpoint or a channel layout
-**unconfirmed / none**, Hotato does not invent one — it supports the honest
+**unconfirmed / none**, Hotato does not invent one; it supports the honest
 fallback (explicit ids) and documents the gap here rather than guessing.
 
-## Build now — real dual-channel (auto-pull, separated scoring)
+## Build now: real dual-channel (auto-pull, separated scoring)
 
 | Stack | List recent calls | Fetch recording | Channel basis | Last verified |
 | --- | --- | --- | --- | --- |
 | Vapi | `GET https://api.vapi.ai/call` (params `limit`, `createdAtGt/Lt`) → JSON array of Call objects (`id`, `createdAt`) | `GET /call/{id}` → `artifact.recording.stereoUrl` (current); deprecated fallbacks `artifact.stereoRecordingUrl`, `call.stereoRecordingUrl` | `stereoUrl` is a distinct 2-channel file (customer ch0, assistant ch1) | 2026-07-07 |
 | Twilio | `GET .../Accounts/{Sid}/Recordings.json` (params `PageSize`, `DateCreatedAfter/Before`, `callSid`) → `recordings[].sid` | `GET .../Recordings/{RE...}.wav?RequestedChannels=2` (HTTP Basic) | dual-channel only if the recording was created `RecordingChannels=dual`; 400 → clean stop or `--allow-mono` → `RequestedChannels=1`. Two-party order: ch0 = caller, ch1 = agent; conference: ch0 = first participant | 2026-07-07 |
-| Retell | **none confirmed** — the spec marks list-calls unconfirmed; do not fabricate one. Pull from explicit `--call-id` | `GET https://api.retellai.com/v2/get-call/{id}` (Bearer) → `scrubbed_recording_multi_channel_url` preferred, then `recording_multi_channel_url`; plain mono `recording_url` rejected unless `--allow-mono` | per-party channels on the `*_multi_channel_url` fields | 2026-07-07 |
-| LiveKit | **capture-in-your-infra** — `ListEgress` is an RPC method name only; no REST list. `hotato setup --stack livekit` | Two audio-only Track egresses (one per party); recording location in `egress_info.file_results[].location` | separated by running one Track egress per participant | 2026-07-07 |
-| Pipecat | **capture-in-your-infra** — Pipecat Cloud session-list has no recording field; OSS has no list at all | `AudioBufferProcessor(num_channels=2)` in-pipeline (user left, bot right); you write the WAV | 2-channel in-pipeline | 2026-07-07 |
+| Retell | **none confirmed**: the spec marks list-calls unconfirmed; do not fabricate one. Pull from explicit `--call-id` | `GET https://api.retellai.com/v2/get-call/{id}` (Bearer) → `scrubbed_recording_multi_channel_url` preferred, then `recording_multi_channel_url`; plain mono `recording_url` rejected unless `--allow-mono` | per-party channels on the `*_multi_channel_url` fields | 2026-07-07 |
+| LiveKit | **capture-in-your-infra**: `ListEgress` is an RPC method name only; no REST list. `hotato setup --stack livekit` | Two audio-only Track egresses (one per party); recording location in `egress_info.file_results[].location` | separated by running one Track egress per participant | 2026-07-07 |
+| Pipecat | **capture-in-your-infra**: Pipecat Cloud session-list has no recording field; OSS has no list at all | `AudioBufferProcessor(num_channels=2)` in-pipeline (user left, bot right); you write the WAV | 2-channel in-pipeline | 2026-07-07 |
 
-## Build now — mono / mixed only (auto-pull, `--allow-mono`, indicative only)
+## Build now: mono / mixed only (auto-pull, `--allow-mono`, indicative only)
 
 Each of these has a verified list + fetch, but the vendor produces a single
 combined recording with **no documented per-party channel**, so scoring is
@@ -1860,7 +1860,7 @@ degraded and gated behind `--allow-mono`.
 | Stack | List recent calls | Fetch recording | Mono basis (verbatim) | Last verified |
 | --- | --- | --- | --- | --- |
 | Bland AI | `GET https://api.bland.ai/v1/calls` → `calls[].call_id` | `GET /v1/calls/{id}` → `recording_url` | no stereo/channel field in the recording or call-details schema | 2026-07-07 |
-| ElevenLabs Conversational AI | `GET https://api.elevenlabs.io/v1/convai/conversations` (params `page_size`, `call_start_after_unix`) → `conversations[].conversation_id` | `GET /v1/convai/conversations/{id}/audio` → combined audio | docs state the audio "does not include separate caller/agent channels — only a combined full conversation MP3" | 2026-07-07 |
+| ElevenLabs Conversational AI | `GET https://api.elevenlabs.io/v1/convai/conversations` (params `page_size`, `call_start_after_unix`) → `conversations[].conversation_id` | `GET /v1/convai/conversations/{id}/audio` → combined audio | docs state the audio "does not include separate caller/agent channels, only a combined full conversation MP3" | 2026-07-07 |
 | Synthflow | `GET https://api.synthflow.ai/v2/calls?model_id=…` (params `limit`, `from_date` epoch-ms) → `response.response.calls[].call_id` | `GET /v2/calls/{id}` → `response.response.calls[0].recording_url` (a Twilio Recordings URL) | Synthflow documents no dual-channel option; `recording_url` is a bare Twilio URL | 2026-07-07 |
 | Millis AI | `GET {base}/call-logs` (US `api-west`, EU `api-eu-west`; param `limit`) → `histories[].session_id` | `GET /call-logs/{session_id}` → `recording.recording_url` | schema exposes only `recording_url`; `CallSettings` has only a boolean `enable_recording` | 2026-07-07 |
 | Cartesia (Line) | `GET https://api.cartesia.ai/agents/calls?agent_id=…` (param `limit`; needs `Cartesia-Version` header) → `data[].id` | `GET /agents/calls/{id}/audio` → `audio/wav` | dual-vs-mono **unconfirmed** in the docs; treated as mono until a live channel-count check proves otherwise | 2026-07-07 |
@@ -1873,34 +1873,34 @@ the EU region. Single-call `capture`/`pull` by explicit id needs none of these.
 
 | Stack | Why | Basis |
 | --- | --- | --- |
-| Deepgram Voice Agent API | Real-time WebSocket (`wss://agent.deepgram.com/v1/agent/converse`) with no REST list-calls, no fetch-recording endpoint, and no recording-ready webhook — Deepgram does not store the call. If you want a recording, capture it in your own infra (LiveKit/Pipecat pattern) | 2026-07-07, confirmed absent |
+| Deepgram Voice Agent API | Real-time WebSocket (`wss://agent.deepgram.com/v1/agent/converse`) with no REST list-calls, no fetch-recording endpoint, and no recording-ready webhook. Deepgram does not store the call. If you want a recording, capture it in your own infra (LiveKit/Pipecat pattern) | 2026-07-07, confirmed absent |
 | PlayAI (formerly Play.ht) | The conversational-agent product is dead: `play.ai` DNS does not resolve and `docs.play.ai` returns `DEPLOYMENT_NOT_FOUND`. The only live domain, `docs.play.ht`, is TTS-only with no calls/recordings API | 2026-07-07, dead endpoints verified |
 
-## Unconfirmed — needs credentials or a live probe before shipping
+## Unconfirmed: needs credentials or a live probe before shipping
 
 Documented weakly or behind a login/SPA; the spec could not verify a recording
 field-path or a channel layout. Not shipped as adapters. Listed here honestly so
 nobody assumes support that was never confirmed.
 
-- **Regal.ai** — no list-calls and no REST fetch-recording endpoint. The
+- **Regal.ai**: no list-calls and no REST fetch-recording endpoint. The
   recording arrives only via the `call.recording.available` webhook's
   `properties.recording_link`, which is a literal Twilio Recordings URL. Feed
   that URL through Hotato's existing Twilio path; Hotato does not fabricate a
   Regal pull.
-- **Thoughtly** — OpenAPI types responses as an untyped `GenericResponse.data`
+- **Thoughtly**: OpenAPI types responses as an untyped `GenericResponse.data`
   blob; no recording-URL field path could be confirmed live.
-- **Sindarin** — no Sindarin-hosted recording endpoint found; `record` is
+- **Sindarin**: no Sindarin-hosted recording endpoint found; `record` is
   submitted with the caller's own Twilio creds, implying the recording lands in
   the customer's own Twilio account (use the Twilio path).
-- **xAI Grok Voice Agent Builder** — OpenAI-Realtime-compatible; no documented
+- **xAI Grok Voice Agent Builder**: OpenAI-Realtime-compatible; no documented
   list-calls or fetch-recording endpoint (marketing mentions in-product
   recording, but no API contract was confirmable).
-- **Cartesia dual-channel** — the `/agents/calls/{id}/audio` WAV's channel count
+- **Cartesia dual-channel**: the `/agents/calls/{id}/audio` WAV's channel count
   was not confirmable in docs; treated as mono here pending a live check.
-- **Twilio dual-channel edge behaviour** — the exact 400-on-unavailable and
+- **Twilio dual-channel edge behaviour**: the exact 400-on-unavailable and
   conference channel-ordering guarantees were carried forward from prior notes,
   not re-verified verbatim this pass.
-- **Synthflow / Regal Twilio-URL dual-channel trick** — because their
+- **Synthflow / Regal Twilio-URL dual-channel trick**: because their
   `recording_url` is a Twilio URL, `?RequestedChannels=2` *might* yield stereo,
   but neither vendor documents or guarantees it; unconfirmed until tested against
   a live account.
@@ -1919,7 +1919,7 @@ are scored degraded only behind `--allow-mono`. All live fetch/list paths are
 stdlib-only (`urllib`); stack SDKs import lazily and only inside your own infra.
 Credentials captured by `hotato connect` are stored locally at
 `~/.hotato/connections.json` (mode 0600) and are sent only to the vendor's own
-API — never to Hotato. Scoring is always offline; the only network is the direct
+API, never to Hotato. Scoring is always offline; the only network is the direct
 recording download.
 
 
