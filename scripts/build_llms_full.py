@@ -61,11 +61,14 @@ def _tracked_docs_md() -> list[str]:
             ["git", "ls-files", "docs/*.md"],
             cwd=REPO_ROOT, capture_output=True, text=True, check=True,
         )
-        return sorted(line for line in out.stdout.splitlines() if line)
+        tracked = [line for line in out.stdout.splitlines() if line]
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return sorted(
-            f"docs/{p.name}" for p in (REPO_ROOT / "docs").glob("*.md")
-        )
+        tracked = [f"docs/{p.name}" for p in (REPO_ROOT / "docs").glob("*.md")]
+    # Top-level docs/*.md only. Nested docs (e.g. docs/releases/ release notes)
+    # are changelog-ish meta that would accumulate in the agent corpus forever;
+    # excluding them also keeps the git path and the non-recursive glob fallback
+    # identical, so llms-full.txt stays reproducible across checkout and sdist.
+    return sorted(f for f in tracked if f.count("/") == 1)
 
 
 def _ordered_doc_paths() -> list[Path]:
