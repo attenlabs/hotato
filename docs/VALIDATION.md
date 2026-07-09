@@ -130,8 +130,9 @@ Read this as a hard boundary, not a disclaimer.
   caller sound meant "stop" or "mhm, go on." You supply that as a label.
 - **No root-cause certainty.** A slow yield can be TTS buffering, transport, or
   VAD. `diagnose` names a likely layer and stays `unknown_root_cause` when one
-  recording cannot separate them. A voice trace narrows the candidates; it does
-  not convert a candidate into a proof.
+  recording cannot separate them. A voice trace (once the trace layer ships)
+  will narrow the candidates further; it will not convert a candidate into a
+  proof.
 - **No task success.** Whether the call booked the appointment, resolved the
   ticket, or satisfied the caller is out of scope. Use a QA platform for that
   (see [COMPARE.md](COMPARE.md)).
