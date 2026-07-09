@@ -3913,49 +3913,77 @@ PYTHONPATH=src python3 scripts/render_card_assets.py
 
 
 ================================================================================
-FILE: docs/COMPARE-WITH-QA-PLATFORMS.md
+FILE: docs/COMPARE.md
 ================================================================================
 
-# Where Hotato fits alongside your QA platform
+# Compare: Hotato vs broad QA platforms
 
-Hotato is one layer of voice-agent quality, not a replacement for your eval
-platform. It does a single job: **private, deterministic, post-call timing
-regression from your own recordings.** For most teams it sits next to a broader
-QA tool and a runtime interruption layer, and each does what it is best at.
+Hotato is not your full QA platform.
 
-This page is a routing guide. If another tool is a better fit for what you need,
-that is what you should use, and this page says so plainly.
+**Use Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell for:** broad
+session QA, synthetic simulation, task success, transcript rubrics, compliance
+workflows, production dashboards, load testing.
+
+**Use Hotato for:** portable failure contracts from real calls, local/private
+timing evidence, CI-enforced regression tests, trace-backed turn-taking proof,
+refusing unsafe threshold bandaids.
+
+**Hotato answers:** "Did this exact production timing failure come back?"
+**Hotato does not answer:** "Was the whole call successful?"
+
+These are complementary layers, not competing ones. A team running one of the
+platforms above for broad conversation QA or as the agent runtime itself still
+needs an answer to a narrower question: the specific talk-over or false-stop
+moment a real caller hit last week, is it still fixed after today's prompt
+change? That is the layer Hotato owns, and it is deliberately the only layer
+Hotato owns.
+
+## What each named platform is built for
+
+Capability descriptions only, drawn from each platform's own public launch and
+product material, not from running Hotato against them. No performance claims,
+no ranking.
+
+| Platform | What it is built for |
+|---|---|
+| **Hamming** | Automated voice-agent testing: prompt-to-test generation, simulated call batteries, a multi-layer QA framework, and production-replay CI/CD regression across a broad test suite. |
+| **Cekura** | AI voice/chat agent QA: production-conversation ingestion, test-case extraction from real calls, simulated scenario testing, and monitoring across fleets of agents, including regulated verticals. |
+| **Coval** | Voice and chat agent simulation and evaluation, with published comparisons of testing approaches across the category. |
+| **Bluejay** | Synthetic stress-testing for voice agents at scale. |
+| **Roark** | Production-call replay for QA that preserves what the caller said, how, and when, for building regression scenarios. |
+| **Vapi** | A voice agent orchestration platform: the runtime stack a team builds and deploys its agent on. |
+| **Retell** | A voice agent orchestration platform for building and deploying voice agents. |
 
 ## The honest job, and the better fit
 
 | What you need | Best fit | Why |
 |---|---|---|
-| Broad conversation QA: did the call succeed, was the transcript right, did it follow the rubric, simulate hundreds of scenarios, dashboards for the team | **Vapi, Retell, Hamming** (and similar QA / simulation platforms) | These grade the whole conversation, task success, and content. They run large simulated batteries and give you a hosted dashboard. Hotato does not do content, task success, or simulation. |
-| Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Krisp, Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato never runs at runtime and never touches a live call. |
-| Prove a specific timing bug is fixed and **stays** fixed, from real recorded calls, without sending audio anywhere | **Hotato** | Deterministic post-call scoring, offline, that turns a confirmed bug into a permanent CI fixture. |
+| Broad conversation QA: did the call succeed, was the transcript right, did it follow the rubric, simulate hundreds of scenarios, dashboards for the team | **Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell** | These grade the whole conversation, task success, and content, or they are the agent platform itself. Hotato does not do content, task success, or simulation. |
+| Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato never runs at runtime and never touches a live call. |
+| Prove a specific timing bug is fixed and **stays** fixed, from a real recorded call, portably, without sending audio anywhere | **Hotato** | A private, deterministic fixture: audio, a human label, and an explicit policy, scored the same way everywhere with `hotato verify`. Ships as a single portable contract bundle -- audio, timing evidence, trace evidence, label, policy, CI command -- in the release that adds the contract layer. |
 
-If your open question is "is my agent good?", start with a QA platform. If it is
-"is my agent interrupting well right now?", start with a runtime layer. If it is
-"did the talk-over bug we fixed last month come back in this release?", that is
-Hotato.
+If your open question is "is my agent good?", start with a QA platform. If it
+is "is my agent interrupting well right now?", start with a runtime layer. If
+it is "did the talk-over bug we fixed last month come back in this release?",
+that is Hotato.
 
 ## Runtime layer vs regression layer
 
 These two are often confused, so it is worth being exact.
 
-- A **runtime layer** (Krisp, Pipecat, LiveKit turn detection) makes a decision
+- A **runtime layer** (Pipecat, LiveKit turn detection) makes a decision
   *during* the call: should the agent stop talking now? It optimizes the live
   experience. It does not keep a durable, re-runnable record of whether a
   specific past moment is handled correctly.
 - A **regression layer** (Hotato) makes a decision *after* the call, from the
-  recording: given this exact audio and this label, did the timing match, yes or
-  no, byte-stable on every run? It exists to catch the day a fixed bug silently
-  returns.
+  recording: given this exact audio and this label, did the timing match, yes
+  or no, byte-stable on every run? It exists to catch the day a fixed bug
+  silently returns, and to hand that proof to CI as a portable artifact.
 
 You want both. A runtime layer improves the median call. A regression layer
 stops a good fix from quietly rotting three releases later. Hotato takes the
-moment a runtime layer got wrong, freezes it as a fixture, and fails CI if it
-regresses.
+moment a runtime layer got wrong, freezes it as a fixture with `hotato
+fixture promote`, and fails CI if it regresses.
 
 ## What Hotato is for, precisely
 
@@ -3965,9 +3993,11 @@ regresses.
   [THREAT-MODEL.md](THREAT-MODEL.md).
 - **Deterministic.** No learned score, no sampling. The same recording produces
   the same timing numbers every run, so a red build means the audio changed.
-- **Regression-shaped.** A confirmed bug becomes a fixture
-  (`hotato fixture promote`) that gates CI. `verify` proves a fix across the
-  whole battery and reports coincidence, not causation.
+- **Portable.** A confirmed failure becomes a labelled fixture (audio, human
+  label, explicit policy) that travels with the repository and verifies the
+  same way on any machine with `hotato verify`. It ships as a self-contained
+  contract bundle -- adding timing evidence, trace evidence, and a CI command
+  in one artifact -- in the release that adds the contract layer.
 - **Narrow on purpose.** Three timing signals: talking over the caller,
   false-stopping on a backchannel, yielding too slowly. It does not grade
   content, intent, or outcomes.
@@ -3977,17 +4007,19 @@ regresses.
 When a Hotato example shows a call failing on a named stack, it is labelled a
 **provider-default** run: one assistant, one configuration, one date, one
 scripted caller, on that provider's out-of-the-box interruption settings. It
-demonstrates the threshold funnel (how a default config can miss an interruption
-and false-stop on a backchannel in the same battery). It is **not** a vendor
-benchmark and **not** a ranking of one platform against another. Any stack,
-tuned, can pass the same fixtures. Hotato never publishes a scoreboard.
+demonstrates the threshold funnel (how a default config can miss an
+interruption and false-stop on a backchannel in the same battery). It is
+**not** a vendor benchmark and **not** a ranking of one platform against
+another. Any stack, tuned, can pass the same fixtures. Hotato never publishes a
+scoreboard, of its own results or anyone else's.
 
 ## The short version
 
-Use a QA platform for broad quality. Use a runtime layer for live interruption
-handling. Use Hotato when you need to prove, privately and deterministically,
-that a specific timing bug from a real call is fixed and does not come back.
-They compose; none of them replaces the others.
+Use a QA platform for broad quality, or one of the named orchestration
+platforms as your agent's runtime. Use a runtime layer for live interruption
+handling. Use Hotato when you need to prove, privately and portably, that a
+specific timing bug from a real call is fixed and does not come back. They
+compose; none of them replaces the others.
 
 
 ================================================================================
@@ -4371,6 +4403,126 @@ Branch on `diarization.confidence_tier`; treat any event carrying
 `indicative_only: true` as indicative and never as a confident dual-channel
 verdict. A refused file is `scorable: false` with `not_scorable_reason` and exit
 `2`.
+
+
+================================================================================
+FILE: docs/EVIDENCE-PACK.md
+================================================================================
+
+# The evidence pack
+
+Hotato ships proof as reproducible commands, recorded audio, and deterministic,
+byte-stable verdicts you can rerun on your own machine, not adoption metrics or
+narrative claims.
+
+The standard every artifact in this pack is held to, and why it is ranked the
+way it is, lives in [evidence/README.md](evidence/README.md). Read that first
+if you are deciding how much to trust any single piece below.
+
+## What's in the pack
+
+| Artifact | What it shows | Where |
+|---|---|---|
+| Bundled demo | Two recorded calls a provider-default agent fails, scored offline in under a minute, no account | `hotato demo` · [START.md](START.md) |
+| Real provider-default battery | 12 scripted calls against a live voice agent on its default settings; a missed interruption and a false stop fail in the same run | [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md) |
+| Determinism check | Same recording, same numbers, every run, every machine | [VALIDATION.md](VALIDATION.md) Job 1 |
+| Not-scorable gallery | Eight input conditions and the exact verdict each produces, including three hard refusals | [GALLERY.md](GALLERY.md) · [TRUST-GALLERY.md](TRUST-GALLERY.md) |
+| Trust contract | The input-condition table the gallery demonstrates | [TRUST-MATRIX.md](TRUST-MATRIX.md) |
+| What is and is not validated | The three jobs Hotato is measured on, and the explicit does-not-claim list | [VALIDATION.md](VALIDATION.md) |
+| Where Hotato fits next to a QA platform | Named-vendor routing guide | [COMPARE.md](COMPARE.md) |
+| Case studies | Real-audio write-ups, each with a repro command and a mandatory "what Hotato did not prove" section | [`case-studies/`](case-studies/README.md) |
+| Shareable cards | Self-contained SVGs of a candidate, a threshold-funnel finding, or a verify result | [CARDS.md](CARDS.md) · [`assets/cards/`](assets/cards/) |
+| Launch-bar status | The checklist of what is done and what is still an honest gap | [evidence/validation-plan.md](evidence/validation-plan.md) |
+
+## How to check it yourself
+
+Every artifact above is re-derivable from a command, not asserted from memory:
+
+```bash
+hotato demo --no-open --format text          # the two bundled failures
+hotato run --stereo FILE.wav --expect yield  # diff two runs, get nothing
+hotato trust --stereo FILE.wav               # the refusal contract, live
+```
+
+Nothing in this pack requires an account, a network call, or trusting a claim
+you cannot reproduce on your own machine.
+
+## What this pack does not contain
+
+Adoption numbers, stars, install counts, or logos. Those measure attention, not
+whether the tool measures what it says. See
+[evidence/README.md](evidence/README.md) for why that distinction is the whole
+point of this pack.
+
+
+================================================================================
+FILE: docs/GALLERY.md
+================================================================================
+
+# Gallery
+
+Every image and worked example Hotato ships, in one place. Nothing here is
+generated for this page; every card and every CLI block is reproducible with
+the command shown next to it.
+
+## Cards: shareable findings
+
+Three self-contained SVGs, offline, no font/image/script/CDN reference, byte-stable
+from the same input. Full spec: [CARDS.md](CARDS.md).
+
+| Card | What it shows | Regenerate |
+|---|---|---|
+| ![threshold funnel](assets/cards/no-single-threshold-card.svg) | **The hero.** A battery where a missed interruption and a false stop fail together, so no single sensitivity dial can fix both. Hotato refuses to name one threshold. | `hotato card fix-plan.json --out card.svg` |
+| ![talk-over candidate](assets/cards/talk-over-card.svg) | A measured talk-over moment: the agent kept the floor while the caller was speaking. | `hotato card hotato-sweep.json#N --out card.svg` |
+| ![false-stop candidate](assets/cards/false-stop-card.svg) | A measured false-stop moment: the agent went quiet with no caller nearby to explain it. | `hotato card hotato-sweep.json#N --out card.svg` |
+
+## The bundled demo, rendered
+
+The self-contained dashboard `hotato demo` writes, with embedded audio and a
+hear-the-bug playhead, and the terminal output next to it:
+
+- Report: [`assets/hotato-demo-report.png`](assets/hotato-demo-report.png) ·
+  [`assets/hotato-demo-report.html`](assets/hotato-demo-report.html)
+- Terminal walkthrough: [`assets/hotato-demo.gif`](assets/hotato-demo.gif)
+
+## Trust gallery: eight input conditions, eight verdicts
+
+The full worked set, with verbatim CLI output for every row of the
+[trust matrix](TRUST-MATRIX.md), lives in [TRUST-GALLERY.md](TRUST-GALLERY.md).
+Summary:
+
+| # | Condition | Verdict |
+|---|---|---|
+| 1 | Clean dual-channel | Scores, full confidence |
+| 2 | Silent caller channel | `NOT SCORABLE`, exit 2 |
+| 3 | Silent agent channel | `NOT SCORABLE`, exit 2 |
+| 4 | Swapped channels | Scores, with a swap warning |
+| 5 | Crosstalk / echo bleed | Scores, at lower confidence |
+| 6 | Mono (mixed channel) | `NOT SCORABLE` by default, exit 2; two opt-in escapes, both indicative only |
+| 7 | Backchannel candidate | Surfaced as a candidate; you label it |
+| 8 | Noisy false-positive candidate | Surfaced, with the reason it is likely spurious |
+
+Open [TRUST-GALLERY.md](TRUST-GALLERY.md) for the exact command and output
+behind each row.
+
+## Case studies
+
+Real-audio write-ups, each following
+[case-study-TEMPLATE.md](evidence/case-study-TEMPLATE.md) and each carrying a
+mandatory "what Hotato did not prove" section:
+
+- [`case-studies/vapi-01-hard-interruption.md`](case-studies/vapi-01-hard-interruption.md)
+
+The full index and the launch target (3 external or semi-external studies, 5
+consented fixtures, 1 before/after, 1 public PR) is in
+[`case-studies/README.md`](case-studies/README.md), tracked against the gap in
+[evidence/validation-plan.md](evidence/validation-plan.md).
+
+## Where this fits
+
+This page is the visual survey. For the standard behind what counts as evidence
+and how it is ranked, see [EVIDENCE-PACK.md](EVIDENCE-PACK.md) and
+[evidence/README.md](evidence/README.md).
 
 
 ================================================================================
@@ -5039,15 +5191,15 @@ Worked examples with real CLI output for every row are in
 
 | Input condition | `trust` behavior | Exit | Scoring downstream |
 |---|---|---|---|
-| **Clean dual-channel (stereo)** | `safe to scan` | 0 | Full score. `scan`, `run`, `compare`, `verify` all run normally. |
-| **Silent caller channel** | `NOT SCORABLE: caller channel has no detected speech` | 2 | Refused. There is no caller to measure a yield against. |
-| **Silent agent channel** | `NOT SCORABLE: agent channel has no detected speech` | 2 | Refused. There is no agent floor to interrupt. |
-| **Swapped channels** | `safe to scan` **plus** `possible channel swap` warning | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
-| **Crosstalk / echo bleed** | `safe to scan` **plus** high `crosstalk: coherence` warning | 0 | Scores at **lower confidence**. `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
-| **Mono (single channel)** | `NOT SCORABLE: single channel, caller and agent cannot be told apart` | 2 | Refused by default. Export dual-channel, or take one of the two opt-in escapes (below). |
+| **Clean dual-channel (stereo)** | `safe to scan` | 0 | **Full scoring.** `scan`, `run`, `compare`, `verify` all run normally. |
+| **Silent caller channel** | `NOT SCORABLE: caller channel has no detected speech` | 2 | **Refused.** There is no caller to measure a yield against. |
+| **Silent agent channel** | `NOT SCORABLE: agent channel has no detected speech` | 2 | **Refused.** There is no agent floor to interrupt. |
+| **Channel swap risk** | `safe to scan` **plus** `possible channel swap` **warning** | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
+| **High crosstalk / echo bleed** | `safe to scan` **plus** high `crosstalk: coherence` **warning** | 0 | Scores at **lower confidence.** `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
+| **Mixed mono (single channel)** | `NOT SCORABLE: single channel, caller and agent cannot be told apart` | 2 | **Refused by default.** Export dual-channel, or take one of the two opt-in escapes (below). |
 | **Mono, opt-in `--allow-mono`** | accepted in **degraded mode**, results **indicative only** | 0 | On `capture` / `pull` / `sweep` for a mono-only stack. Talk-over cannot be attributed, so no SLA gate fires. Never equivalent to dual-channel. |
 | **Mono, opt-in `--diarize`** | separability **tier**: `high` / `low` / `refuse` | 0 (high/low), 2 (refuse) | The separation front-end. `hotato run --mono call.wav --diarize` scores it; at `low` the verdict is stamped `indicative_only`. Never equivalent to dual-channel. |
-| **Backchannel overlap** | (not a trust concern) `scan` lists it as a **candidate** | 0 | Candidate only. `trust`/`scan` never decide `yield` vs `hold`; you label the intent. |
+| **Short backchannel ("mhm") overlap** | (not a trust concern) `scan` lists it as a **candidate** | 0 | **Candidate only, human labels.** `trust`/`scan` never decide `yield` vs `hold`; you label the intent. |
 | **Noisy / false-positive candidate** | `trust` warns (clipping, crosstalk, hot capture); `scan` still lists the candidate | 0 | Surfaced **with** the warning. A candidate you inspect and label `hold`, not a bug Hotato asserts. |
 
 **Reading the two axes.** `trust` answers one question: is this audio good enough
@@ -5191,11 +5343,20 @@ a quiet region is guaranteed clean. Scan widens the net; you make the call.
 
 ---
 
-## Job 3: fixture pass-fail agreement
+## Job 3: contract verification
 
 **The question:** once you have labelled a moment's expected behavior
 (`yield` = stop for the caller, `hold` = keep the floor through a backchannel),
-does Hotato's PASS/FAIL verdict agree with that label on the audio?
+does Hotato's PASS/FAIL verdict agree with that label on the audio, against an
+explicit, portable, CI-enforced policy?
+
+Today this job runs on a fixture (`hotato fixture create` / `hotato run`): a
+labelled recording plus an explicit threshold policy, scored the same way on
+every machine. The portable contract bundle (`hotato contract create` /
+`hotato contract verify`, audio plus timing evidence plus trace evidence plus
+label plus policy plus a CI command in one artifact) carries this exact job
+forward into a single self-contained object once it ships; the verdict this
+job validates does not change shape, only the artifact it travels in.
 
 **What is reported.** Per fixture: the verdict (`PASS`/`FAIL`), the measured
 signals behind it, and the named fix class when the failure maps cleanly to a
@@ -5232,16 +5393,18 @@ Read this as a hard boundary, not a disclaimer.
 
 - **No semantic intent.** Hotato measures timing. It does not know whether a
   caller sound meant "stop" or "mhm, go on." You supply that as a label.
+- **No root-cause certainty.** A slow yield can be TTS buffering, transport, or
+  VAD. `diagnose` names a likely layer and stays `unknown_root_cause` when one
+  recording cannot separate them. A voice trace (once the trace layer ships)
+  will narrow the candidates further; it will not convert a candidate into a
+  proof.
 - **No task success.** Whether the call booked the appointment, resolved the
   ticket, or satisfied the caller is out of scope. Use a QA platform for that
-  (see [COMPARE-WITH-QA-PLATFORMS.md](COMPARE-WITH-QA-PLATFORMS.md)).
-- **No satisfaction or sentiment.** Hotato has no opinion on tone or CSAT.
-- **No root cause.** A slow yield can be TTS buffering, transport, or VAD.
-  `diagnose` names a likely layer and stays `unknown_root_cause` when one
-  recording cannot separate them.
+  (see [COMPARE.md](COMPARE.md)).
 - **No vendor ranking.** Hotato never scores one platform against another. A
   provider-default example demonstrates the threshold funnel on one assistant,
   one config, one date, one scripted caller. It is not a benchmark of the vendor.
+- **No human satisfaction or sentiment.** Hotato has no opinion on tone or CSAT.
 - **No single accuracy score.** There is no headline percentage anywhere in
   Hotato, on purpose. The three jobs above are the whole claim.
 
