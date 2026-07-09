@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<rect x="0" y="0" width="1200" height="630" fill="#1b1714"/>
+<rect x="20" y="20" width="1160" height="590" rx="18" fill="none" stroke="#3a3128" stroke-width="1.5"/>
+<text x="76" y="108" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="32" font-weight="700" fill="#f0663a" letter-spacing="9" text-anchor="start">HOTATO</text>
+<text x="1124" y="108" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="22" font-weight="600" fill="#b7ab97" letter-spacing="3" text-anchor="end">THRESHOLD FUNNEL</text>
+<text x="76" y="196" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="56" font-weight="800" fill="#f1e8d7" text-anchor="start">NO SINGLE THRESHOLD CAN</text>
+<text x="76" y="262" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="56" font-weight="800" fill="#f1e8d7" text-anchor="start">FIX THIS</text>
+<circle cx="84" cy="327" r="7" fill="#f0663a"/>
+<text x="108" y="336" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="31" font-weight="600" fill="#f1e8d7" text-anchor="start">missed a real interruption</text>
+<circle cx="84" cy="373" r="7" fill="#f0663a"/>
+<text x="108" y="382" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="31" font-weight="600" fill="#f1e8d7" text-anchor="start">false-stopped on a backchannel</text>
+<text x="76" y="448" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="27" font-weight="500" fill="#b7ab97" text-anchor="start">One sensitivity dial cannot satisfy both axes at once.</text>
+<text x="76" y="506" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="27" font-weight="700" fill="#f1e8d7" text-anchor="start">Hotato refused threshold tuning.</text>
+<text x="1124" y="506" font-family="'SFMono-Regular',Menlo,Consolas,monospace" font-size="25" font-weight="700" fill="#f0663a" text-anchor="end">fix class: engagement-control</text>
+<rect x="76" y="534" width="1048" height="1.2" fill="#3a3128"/>
+<text x="76" y="576" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="23" font-weight="500" fill="#b7ab97" text-anchor="start">Reproducible timing verdicts from the open scorer. No accuracy score.</text>
+</svg>

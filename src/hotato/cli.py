@@ -285,6 +285,16 @@ _EXIT_CODES: dict = {
     "describe": (
         (0, "manifest printed"),
     ),
+    "card": (
+        (0, "the SVG card was rendered (written to --out, or to stdout)"),
+        (2, "usage error, unreadable input, a bad candidate ref, or an input "
+            "that is not a fix plan / verify result / sweep candidate"),
+    ),
+    "start": (
+        (0, "the guided first run completed (or a stubbed mode printed the "
+            "shipped command to use instead)"),
+        (2, "usage error: no mode given, or --dir is not a directory"),
+    ),
     "init": (
         (2, "no subcommand given (see hotato init webhook --help)"),
     ),
@@ -1806,6 +1816,28 @@ def _cmd_describe(args) -> int:
     return 0
 
 
+def _cmd_card(args) -> int:
+    from . import card as _card
+
+    svg = _card.make_card(args.input,
+                          include_identifiers=args.include_identifiers)
+    if args.out:
+        _atomic_write_text(args.out, svg)
+        print(f"wrote card to {args.out}", file=sys.stderr)
+    else:
+        sys.stdout.write(svg)
+    return 0
+
+
+def _cmd_start(args) -> int:
+    from . import start as _start
+
+    return _start.run_start(
+        demo=args.demo, stack=args.stack, folder=args.folder,
+        stereo=args.stereo, out_dir=args.dir, fmt=args.format,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hotato",
@@ -2453,6 +2485,88 @@ def build_parser() -> argparse.ArgumentParser:
                     help="exit with the real regression code (1: this battery "
                          "fails by design) instead of the default 0")
     dm.set_defaults(func=_cmd_demo)
+
+    st = sub.add_parser(
+        "start",
+        help="guided, credential-less first run: sweep the bundled demo "
+             "calls, write the result + dashboard + funnel card, and print "
+             "the exact next commands",
+        description=(
+            "The zero-setup first run. `hotato start --demo` sweeps the two "
+            "bundled real demo calls (no account, no network, no "
+            "credentials), writes the sweep result (hotato-sweep.json), a "
+            "self-contained HTML dashboard (hotato-sweep.html), and the "
+            "threshold-funnel card (hotato-no-single-threshold.svg), then "
+            "prints the exact next commands: promote a candidate into a "
+            "permanent fixture, run those fixtures in CI, and render a card. "
+            "The --stack/--folder/--stereo modes are placeholders in this "
+            "build and route you to hotato sweep / analyze / run."
+        ),
+        epilog=(
+            _exit_codes_epilog("start") + "\n\n"
+            "Examples:\n"
+            "  hotato start --demo\n"
+            "  hotato start --demo --dir ./firstrun --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    st.add_argument("--demo", action="store_true",
+                    help="run the guided demo first run (the only fully-wired "
+                         "mode in this build)")
+    st.add_argument("--stack", default=None,
+                    help="[not yet in this build] route to hotato sweep "
+                         "--stack")
+    st.add_argument("--folder", default=None,
+                    help="[not yet in this build] route to hotato analyze")
+    st.add_argument("--stereo", default=None,
+                    help="[not yet in this build] route to hotato run --stereo")
+    st.add_argument("--dir", default=None, metavar="DIR",
+                    help="directory to write the outputs into (default: the "
+                         "current directory)")
+    st.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    st.set_defaults(func=_cmd_start)
+
+    cd = sub.add_parser(
+        "card",
+        help="render a shareable SVG card (1200x630, offline, no external "
+             "assets) from a sweep candidate (FILE#N), a fix plan, or a "
+             "verify result",
+        description=(
+            "Turn a hotato result into a self-contained SVG card you can drop "
+            "into a PR, an issue, or a slide. Four kinds are auto-detected: a "
+            "talk-over candidate and a false-stop candidate (from a "
+            "sweep/analyze candidate ref FILE#N), the threshold-funnel fix "
+            "plan (the hero card), and a supported verify rollup. The SVG is "
+            "DETERMINISTIC (a pure function of the input JSON: no timestamps, "
+            "no version, no randomness) and references no font, image, "
+            "stylesheet, or link; all color is inline. It names the MEASURED "
+            "timing moment and never a verdict about intent, and carries no "
+            "accuracy number. Redacted by default: a call id, a path (only a "
+            "basename is ever shown), and a vendor recording name are hidden "
+            "unless --include-identifiers."
+        ),
+        epilog=(
+            _exit_codes_epilog("card") + "\n\n"
+            "Examples:\n"
+            "  hotato sweep --demo --format json > hotato-sweep.json\n"
+            "  hotato card hotato-sweep.json#1 --out talk-over.svg\n\n"
+            "  hotato demo --format json > demo.json\n"
+            "  hotato plan demo.json --out fix-plan.json\n"
+            "  hotato card fix-plan.json --out no-single-threshold.svg"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cd.add_argument("input", metavar="INPUT[#REF]",
+                    help="a fix-plan or verify JSON file, or a sweep/analyze "
+                         "candidate ref FILE#N (the #N rank the report shows)")
+    cd.add_argument("--out", default=None, metavar="FILE.svg",
+                    help="write the SVG here (atomic); without it the SVG is "
+                         "written to stdout")
+    cd.add_argument("--include-identifiers", action="store_true",
+                    help="show the source recording's basename on a candidate "
+                         "card; hidden by default (a card is shareable)")
+    cd.set_defaults(func=_cmd_card)
 
     # --- diagnose: Level 0 of the guarded fix ladder (read-only) ------------
     dg = sub.add_parser(

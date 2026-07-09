@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<rect x="0" y="0" width="1200" height="630" fill="#1b1714"/>
+<rect x="20" y="20" width="1160" height="590" rx="18" fill="none" stroke="#3a3128" stroke-width="1.5"/>
+<text x="76" y="108" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="32" font-weight="700" fill="#f0663a" letter-spacing="9" text-anchor="start">HOTATO</text>
+<text x="1124" y="108" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="22" font-weight="600" fill="#b7ab97" letter-spacing="3" text-anchor="end">FALSE-STOP CANDIDATE</text>
+<text x="76" y="214" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="56" font-weight="800" fill="#f1e8d7" text-anchor="start">HOTATO FOUND A CANDIDATE</text>
+<text x="76" y="280" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="56" font-weight="800" fill="#f1e8d7" text-anchor="start">FALSE-STOP</text>
+<text x="76" y="388" font-family="'SFMono-Regular',Menlo,Consolas,monospace" font-size="104" font-weight="800" fill="#f0663a" text-anchor="start">0.46s</text>
+<text x="76" y="440" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="27" font-weight="500" fill="#f1e8d7" text-anchor="start">of silence after the agent stopped, no</text>
+<text x="76" y="474" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="27" font-weight="500" fill="#f1e8d7" text-anchor="start">caller nearby</text>
+<text x="76" y="520" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="23" font-weight="500" fill="#b7ab97" text-anchor="start">at t=1.28s in the recording</text>
+<rect x="76" y="534" width="1048" height="1.2" fill="#3a3128"/>
+<text x="76" y="576" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="23" font-weight="500" fill="#b7ab97" text-anchor="start">Hotato reports timing candidates, not intent.</text>
+</svg>
