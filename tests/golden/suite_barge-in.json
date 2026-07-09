@@ -337,11 +337,10 @@
   "funnel": null,
   "limits": {
     "accuracy_claim": null,
-    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels. Mono is accepted but the caller/agent separation is then only as good as the VAD, which lowers the ceiling further.",
+    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels is the gold reference. A single-channel (mono) recording is scorable via the opt-in, quality-gated [diarize] front-end (hotato run --mono call.wav --diarize); below the confidence bar its verdict is labeled indicative-only, and it is never equivalent to a true dual-channel measurement.",
     "ceiling": "Automated sub-second scoring on a single channel using neural or energy VAD has a real ceiling. Treat these as reproducible timing measurements, not ground-truth judgements of a detector's internal quality.",
     "does_not_do": [
-      "no speaker identification",
-      "no diarization",
+      "no speaker identification (a diarizer assigns anonymous SPEAKER_00/01; it never says who a person is)",
       "no speech-to-text / transcription",
       "no emotion or intent detection",
       "no claim about any specific vendor's internal accuracy"

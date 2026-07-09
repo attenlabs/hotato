@@ -29,6 +29,25 @@ from .neural import build_silero_backend as _build_silero_backend
 # fallback to energy that could change a published number).
 _register_neural_backend(_build_silero_backend)
 
+# Register the OPTIONAL, non-reference diarizer backends (the mono-scorability
+# front-end). Same discipline as the neural seam: this only stores the factory
+# references by name -- each model and its extra ([diarize] / [diarize-sortformer]
+# / [diarize-hosted]) is imported lazily, and only if a diarized run
+# (hotato run --mono call.wav --diarize [--diarizer ...]) is actually requested.
+# Importing hotato stays zero-dependency and the dual-channel reference is
+# untouched. With the extra absent, a diarized request raises a clean
+# BackendUnavailable (never a silent fallback that scores raw mono).
+from .diarize import (  # noqa: E402
+    build_pyannote_backend as _build_pyannote_backend,
+    build_pyannoteai_backend as _build_pyannoteai_backend,
+    build_sortformer_backend as _build_sortformer_backend,
+    register_diarizer_backend as _register_diarizer_backend,
+)
+
+_register_diarizer_backend("pyannote", _build_pyannote_backend)
+_register_diarizer_backend("sortformer", _build_sortformer_backend)
+_register_diarizer_backend("pyannoteai", _build_pyannoteai_backend)
+
 # Version lockstep: this literal MUST match pyproject.toml's `version` (and
 # server.json, CITATION.cff, llms.txt, CHANGELOG.md -- see
 # docs/RELEASE-CHECKLIST.md). It is deliberately a literal, not derived from

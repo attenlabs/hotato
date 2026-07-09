@@ -188,6 +188,9 @@ def trust_report(
     caller_channel: int = 0,
     agent_channel: int = 1,
     cfg: Optional[ScoreConfig] = None,
+    diarize: bool = False,
+    diarizer: str = "pyannote",
+    egress_opt_in: bool = False,
 ) -> dict:
     """Inspect one recording and return the input-health report.
 
@@ -224,9 +227,17 @@ def trust_report(
         },
     }
 
-    # A single-channel recording cannot separate caller from agent at all: report
-    # it as not scorable rather than accessing a channel that does not exist.
+    # A single-channel recording cannot separate caller from agent on its own.
+    # DEFAULT (no --diarize): report it as not scorable, byte-identical to before.
+    # With --diarize: run the opt-in diarizer and report whether the mono is
+    # confidently SEPARABLE (a tier), still WITHOUT emitting any turn-taking
+    # verdict -- trust only answers "is this scorable?", now including "is this
+    # mono file confidently separable?" and hands the tier to run/scan.
     if signal.num_channels < 2:
+        if diarize:
+            return _diarize_trust(
+                base, signal, diarizer=diarizer, egress_opt_in=egress_opt_in, cfg=cfg
+            )
         return _finalize(
             base,
             channels=None,
@@ -426,6 +437,55 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
     return base
 
 
+def _diarize_trust(base: dict, signal, *, diarizer: str, egress_opt_in: bool,
+                   cfg: ScoreConfig) -> dict:
+    """The --diarize path for a mono file: run the opt-in diarizer and report the
+    separation confidence tier, WITHOUT scoring. A refused (non-separable) file is
+    not scorable (exit 2); high/low tiers are scorable-via-diarized-mono with the
+    tier and ``indicative_only`` carried, so the caller knows a below-bar verdict
+    is only indicative. A missing extra/token/model raises BackendUnavailable (the
+    CLI's clean exit-2), never a raw-mono guess. Still never a turn-taking verdict."""
+    from .diarize import prepare_diarized_mono
+
+    dm = prepare_diarized_mono(
+        signal.get(0), signal.sample_rate,
+        backend=diarizer, num_speakers=2, egress_opt_in=egress_opt_in, cfg=cfg,
+    )
+    sep = dm.separation
+    tier = dm.tier
+    base["scorability"] = {"separation": sep}
+    base["diarization"] = {
+        "backend": diarizer,
+        "speaker_map": dm.speaker_map,
+        "confidence_tier": tier,
+        "separation_confidence": sep["separation_confidence"],
+    }
+    base["warnings"] = []
+    base["confidence_tier"] = tier
+    base["indicative_only"] = dm.indicative_only
+    if tier == "refuse":
+        base["scorable"] = False
+        base["recommendation"] = f"NOT SCORABLE: {dm.not_scorable_reason}"
+        base["not_scorable_reason"] = dm.not_scorable_reason
+        base["next_step"] = (
+            "record a dual-channel call (caller and agent on separate channels) "
+            "for a confident verdict"
+        )
+        base["exit_code"] = 2
+    else:
+        label = ("high confidence" if tier == "high"
+                 else "indicative only, below the confidence bar")
+        base["scorable"] = True
+        base["recommendation"] = (
+            f"SCORABLE via diarized-mono ({label}); score with: "
+            "hotato run --mono <file> --diarize"
+        )
+        base["not_scorable_reason"] = None
+        base["next_step"] = None
+        base["exit_code"] = 0
+    return base
+
+
 def render_text(report: dict) -> str:
     """A compact human summary of the input-health report."""
     rec = report["recording"]
@@ -458,11 +518,30 @@ def render_text(report: dict) -> str:
         if ch["possible_swap"]:
             lines.append(f"  possible channel swap: {ch['swap_reason']}")
     sc = report["scorability"]
-    lines.append(
-        f"  scorability: separated tracks {_yn(sc['separated_tracks'])}, "
-        f"caller activity {_yn(sc['enough_caller_activity'])}, "
-        f"agent activity {_yn(sc['enough_agent_activity'])}"
-    )
+    if "separation" in sc:
+        # The --diarize (mono-scorability) path: report the separation tier, not
+        # the two-channel separated/activity checks.
+        sep = sc["separation"]
+        sg = sep.get("signals", {})
+        lines.append(
+            f"  separation: tier {sep['confidence_tier']} "
+            f"(confidence {sep['separation_confidence']}, backend {sep['backend']}); "
+            f"{sg.get('speaker_count', '?')} speakers, overlap "
+            f"{sg.get('overlap_ratio', '?')}"
+        )
+        dz = report.get("diarization", {})
+        sm = dz.get("speaker_map", {})
+        if sm:
+            lines.append(
+                f"  speaker map: caller={sm.get('caller')} agent={sm.get('agent')} "
+                f"(basis {sm.get('basis')})"
+            )
+    else:
+        lines.append(
+            f"  scorability: separated tracks {_yn(sc['separated_tracks'])}, "
+            f"caller activity {_yn(sc['enough_caller_activity'])}, "
+            f"agent activity {_yn(sc['enough_agent_activity'])}"
+        )
     if report["scorable"]:
         lines.append(f"  => {report['recommendation']}")
     else:

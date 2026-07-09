@@ -51,8 +51,25 @@ pipecat = ["pipecat-ai"]
 # on torch for its segmentation utilities, so this extra installs torch. Absent
 # this extra, `--backend neural` errors cleanly, never falling back to energy.
 neural = ["silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
+# OPTIONAL, NON-REFERENCE mono-scorability front-end (speaker diarization).
+# Strictly opt-in via `hotato run --mono call.wav --diarize`; the zero-dependency
+# energy core AND the dual-channel path stay the gold reference and are never
+# affected by these extras. Diarization models are GATED (pyannote on Hugging
+# Face / Sortformer on NGC) and need a one-time token + conditions/license
+# acceptance; after download inference runs offline. Absent the selected extra,
+# `--diarize` errors cleanly and NEVER falls back to scoring raw mono. The
+# [diarize] path raises the effective Python floor to >=3.10 (pyannote 4.x); the
+# stdlib core stays >=3.9 -- this only constrains the optional path, like [neural].
+# Licenses (log per FTO note; see docs/DIARIZE.md): pyannote-audio MIT (code),
+# speaker-diarization-community-1 weights CC-BY-4.0 (attribution), segmentation-3.0
+# MIT, wespeaker embedding CC-BY-4.0, torch BSD-3-Clause, torchaudio BSD-2-Clause,
+# nemo-toolkit Apache-2.0, Sortformer STREAMING v2 CC-BY-4.0 (v1 offline is
+# CC-BY-NC -> never ship it), pyannoteAI hosted terms (verify before egress).
+diarize = ["pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "numpy>=1.21"]  # default (needs system ffmpeg)
+diarize-sortformer = ["nemo-toolkit[asr]>=2.7", "torch>=2.8", "numpy>=1.21"]        # best self-hostable on phone, GPU
+diarize-hosted = ["pyannoteai-sdk>=0.3"]                                            # hosted, egress opt-in
 # Everything a contributor might want to exercise the live capture paths locally.
-all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
+all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8"]
 
 [project.scripts]
 hotato = "hotato.cli:main"

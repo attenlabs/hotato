@@ -96,10 +96,14 @@ at once) proven on real recorded calls, not synthetic fixtures
 
 ## What it does not do
 
-No transcription. No speaker identification or diarization. No emotion or
-intent detection. Hotato measures energy over time on two channels; the method
-and its ceiling are stated in [METHODOLOGY.md](../METHODOLOGY.md) and in the
-`limits` block of every result.
+No transcription. No speaker identification (a diarizer assigns anonymous
+SPEAKER_00/01; it never says who a person is). No emotion or intent detection.
+Hotato measures energy over time on two channels; a single-channel (mono)
+recording is scorable via the opt-in, quality-gated `[diarize]` front-end
+(`hotato run --mono call.wav --diarize`), labeled indicative below the
+confidence bar and never equivalent to a true dual-channel measurement. The
+method and its ceiling are stated in [METHODOLOGY.md](../METHODOLOGY.md) and in
+the `limits` block of every result.
 
 ## Why no accuracy score?
 

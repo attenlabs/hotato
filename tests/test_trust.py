@@ -23,7 +23,9 @@ import wave
 
 import pytest
 
+import hotato  # noqa: F401  -- registers the real diarizer factories
 from hotato import cli
+from hotato import diarize as _diarize
 from hotato import trust as trust_mod
 from hotato.trust import (
     MIN_ACTIVITY_SEC,
@@ -300,6 +302,89 @@ def test_bad_channel_flag_is_a_usage_error(tmp_path):
 
 def test_missing_file_is_a_usage_error(tmp_path):
     assert cli.main(["trust", "--stereo", str(tmp_path / "nope.wav")]) == 2
+
+
+# --- the --diarize path: a mono file's SEPARABILITY tier (still never a verdict)
+
+def _timeline(segments, *, n_frames=600, hop=0.01):
+    return [any(s <= k * hop < e for s, e in segments) for k in range(n_frames)]
+
+
+@pytest.fixture
+def stub_diarizer():
+    """Register a stub diarizer for the test, restore the real factories after."""
+    saved_f = dict(_diarize._DIARIZER_FACTORIES)
+    saved_c = dict(_diarize._DIARIZER_CACHE)
+
+    def _register(name, timelines=None, **kw):
+        _diarize.register_diarizer_backend(
+            name, _diarize.build_stub_backend(timelines, **kw)
+        )
+
+    try:
+        yield _register
+    finally:
+        _diarize._DIARIZER_FACTORIES.clear()
+        _diarize._DIARIZER_FACTORIES.update(saved_f)
+        _diarize._DIARIZER_CACHE.clear()
+        _diarize._DIARIZER_CACHE.update(saved_c)
+
+
+def test_mono_diarize_reports_high_tier_and_is_scorable(tmp_path, stub_diarizer):
+    p = _write_mono(tmp_path / "mono.wav", segments=[(0.2, 5.8)])
+    stub_diarizer("pyannote", {
+        _diarize.SPEAKER_A: _timeline([(0.5, 2.0)]),
+        _diarize.SPEAKER_B: _timeline([(2.5, 5.5)]),
+    }, embedding_margin=0.6)
+    r = trust_report(p, diarize=True)
+    assert r["scorable"] is True
+    assert r["exit_code"] == 0
+    assert "separation" in r["scorability"]
+    assert r["scorability"]["separation"]["confidence_tier"] == "high"
+    assert r["confidence_tier"] == "high"
+    assert r["indicative_only"] is False
+    assert "diarized-mono" in r["recommendation"]
+    # Still input-health only: NEVER a turn-taking verdict word anywhere.
+    text = trust_mod.render_text(r).lower()
+    for banned in ("did_yield", "yielded", "talk_over", "seconds_to_yield",
+                   "pass ", "[pass]", "[fail]"):
+        assert banned not in text
+
+
+def test_mono_diarize_refuse_is_not_scorable_exit_two(tmp_path, stub_diarizer):
+    p = _write_mono(tmp_path / "mono.wav", segments=[(0.2, 5.8)])
+    # Only one speaker detected -> not two clean parties -> refuse.
+    stub_diarizer("pyannote", {_diarize.SPEAKER_A: _timeline([(0.5, 5.5)])})
+    r = trust_report(p, diarize=True)
+    assert r["scorable"] is False
+    assert r["exit_code"] == 2
+    assert r["scorability"]["separation"]["confidence_tier"] == "refuse"
+    assert r["not_scorable_reason"]
+    assert r["next_step"]
+
+
+def test_trust_default_mono_path_is_unaffected_by_diarize_support(tmp_path):
+    """Without --diarize, a mono file is not scorable exactly as before -- the new
+    support changes nothing on the default path (no 'separation' sub-block)."""
+    p = _write_mono(tmp_path / "mono.wav", segments=[(0.2, 5.8)])
+    r = trust_report(p)  # diarize defaults to False
+    assert r["scorable"] is False
+    assert "single channel" in r["not_scorable_reason"]
+    assert "separation" not in r["scorability"]
+
+
+def test_mono_diarize_cli_json_shape(tmp_path, capsys, stub_diarizer):
+    p = _write_mono(tmp_path / "mono.wav", segments=[(0.2, 5.8)])
+    stub_diarizer("pyannote", {
+        _diarize.SPEAKER_A: _timeline([(0.5, 2.0)]),
+        _diarize.SPEAKER_B: _timeline([(2.5, 5.5)]),
+    }, embedding_margin=0.6)
+    code = cli.main(["trust", "--stereo", p, "--diarize", "--format", "json"])
+    assert code == 0
+    d = json.loads(capsys.readouterr().out)
+    assert d["scorability"]["separation"]["confidence_tier"] == "high"
+    assert d["diarization"]["speaker_map"]["caller"]
+    assert d["exit_code"] == 0
 
 
 # --- real dual-channel corpus (when checked out) ----------------------------

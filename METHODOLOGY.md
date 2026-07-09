@@ -31,16 +31,22 @@ The limits come first because they bound everything below.
  hangover that keeps an utterance whole (default 150 ms) smears every trailing
  edge by up to that much, and on one mixed channel deciding *whose* energy
  crossed the threshold is not always possible.
-- **Two channels is the required input.** Hotato's main scorer requires
- separated caller and agent tracks: either one two-channel WAV or two aligned
- mono WAVs. A single mixed mono call is not enough to attribute talk-over
- reliably: with both voices summed into one waveform, the scorer cannot
- attribute energy to a speaker. With physically separate channels, overlap is
- a fact of the recording: both tracks are active at once, by construction.
-- **Out of scope, permanently:** no speaker identification, no diarization, no
- speech-to-text, no emotion or intent detection, and no claim about any
- vendor's internal accuracy. Word-level semantics are not measured; only the
- timing of the yield is.
+- **Two channels is the gold reference; mono is scorable, quality-gated.** The
+ reference input is separated caller and agent tracks: one two-channel WAV or
+ two aligned mono WAVs, where each channel is one party and overlap is a fact of
+ the recording (both tracks active at once, by construction). A single mixed
+ mono call is scorable via the opt-in `[diarize]` front-end (`hotato run --mono
+ call.wav --diarize`): a diarizer separates the mix into caller/agent activity,
+ which is reconstructed and scored through the same path. It is quality-gated --
+ above the confidence bar the verdict is labeled `diarized-mono`; below it, the
+ verdict is labeled indicative only and no SLA gate fires; a non-separable file
+ is refused. Diarized mono never equals a true dual-channel recording for
+ sub-second talk-over attribution, and the gate is what keeps that honest per
+ file.
+- **Out of scope, permanently:** no speaker identification (a diarizer assigns
+ anonymous SPEAKER_00/01; it never says who a person is), no speech-to-text, no
+ emotion or intent detection, and no claim about any vendor's internal accuracy.
+ Word-level semantics are not measured; only the timing of the yield is.
 
 These same limits are emitted inline in the `limits` block of every JSON result
 (`core.py`) and in the MCP tool description, so a consuming agent sees them.

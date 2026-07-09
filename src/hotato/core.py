@@ -85,10 +85,9 @@ LIMITS = {
         "VAD has a real ceiling. Treat these as reproducible timing measurements, "
         "not ground-truth judgements of a detector's internal quality."
     ),
-    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels. Mono is accepted but the caller/agent separation is then only as good as the VAD, which lowers the ceiling further.",
+    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels is the gold reference. A single-channel (mono) recording is scorable via the opt-in, quality-gated [diarize] front-end (hotato run --mono call.wav --diarize); below the confidence bar its verdict is labeled indicative-only, and it is never equivalent to a true dual-channel measurement.",
     "does_not_do": [
-        "no speaker identification",
-        "no diarization",
+        "no speaker identification (a diarizer assigns anonymous SPEAKER_00/01; it never says who a person is)",
         "no speech-to-text / transcription",
         "no emotion or intent detection",
         "no claim about any specific vendor's internal accuracy",
@@ -592,6 +591,178 @@ def _check_onset_within_duration(onset_sec: Optional[float], duration_sec: float
         )
 
 
+# --- opt-in, quality-gated single-channel (diarized-mono) path -------------
+#
+# A mono recording is the coverage wall today (it is rejected as not scorable).
+# This path diarizes the mono into caller/agent activity, reconstructs two masked
+# tracks, and feeds the EXISTING two-mono `score_channels`, inheriting the
+# envelope/fixmap/exit-code machinery unchanged (spec 5). It NEVER touches the
+# default path: run_single only reaches here when `mono`/`diarize` is set.
+
+def _diarized_not_scorable_event(*, source: str, dm, expected_yield: bool) -> dict:
+    """The not-scorable event for a mono file the confidence gate REFUSED (spec 7
+    refuse tier): a non-separable input, reported exactly like every other
+    not-scorable input problem (scorable:false + reason -> excluded from
+    passed/failed, the funnel, fix_map, and the exit code; a single run maps to
+    process exit 2). Carries the diarization provenance + separation sub-block so
+    the caller sees which signal failed and the next step."""
+    from .diarize import echo_na_block
+
+    reason = dm.not_scorable_reason
+    return {
+        "event_id": source,
+        "scenario_id": None,
+        "title": f"single recording ({source})",
+        "category": "should_yield" if expected_yield else "should_not_yield",
+        "expected_yield": expected_yield,
+        "scorable": False,
+        "not_scorable_reason": reason,
+        "next_step": "record a dual-channel call (caller and agent on separate channels) for a confident verdict",
+        "diarization": dm.provenance,
+        "scorability": {"separation": dm.separation},
+        "indicative_only": True,
+        "verdict": {
+            "passed": False,
+            "did_yield": None,
+            "seconds_to_yield": None,
+            "talk_over_sec": None,
+            "reasons": [reason],
+        },
+        "measurements": {},
+        "signals": {
+            "barge_in": {
+                "did_yield": None,
+                "time_to_yield_sec": None,
+                "talk_over_sec": None,
+            },
+            "latency": {
+                "response_gap_sec": None,
+                "premature_start_sec": None,
+            },
+            "echo": echo_na_block(),
+        },
+    }
+
+
+def _run_diarized_mono(
+    *,
+    mono: Optional[str],
+    diarize: bool,
+    diarizer: str,
+    onset_sec: Optional[float],
+    expect: str,
+    stack: Optional[str],
+    max_talk_over_sec: Optional[float],
+    max_time_to_yield_sec: Optional[float],
+    caller_speaker: Optional[str],
+    agent_speaker: Optional[str],
+    egress_opt_in: bool,
+    cfg: ScoreConfig,
+) -> dict:
+    from .diarize import echo_na_block, prepare_diarized_mono
+
+    if not mono:
+        raise ValueError(
+            "--diarize scores a single-channel (mono) recording; pass --mono FILE. "
+            "For a two-channel recording use --stereo (the gold reference)."
+        )
+    if not diarize:
+        # No silent fallback: scoring a mixed mono requires an explicit diarizer.
+        raise ValueError(
+            "scoring a single-channel (mono) recording requires --diarize (it must "
+            "be separated into caller/agent first). Add --diarize [--diarizer "
+            "pyannote|sortformer|pyannoteai], or pass a two-channel --stereo file."
+        )
+
+    signal = _read_wav(mono)
+    if signal.num_channels != 1:
+        raise ValueError(
+            f"--mono expects a single-channel recording; {mono!r} has "
+            f"{signal.num_channels} channels. Use --stereo for a two-channel "
+            "recording (the gold reference), or export a real mono file."
+        )
+    samples = signal.get(0)
+    sample_rate = signal.sample_rate
+    n = signal.num_samples
+    _check_onset_within_duration(onset_sec, n / sample_rate)
+    source = os.path.basename(mono)
+
+    want_yield = str(expect).strip().lower() not in ("hold", "no", "false", "hold-floor")
+
+    # Diarize -> assign -> gate -> reconstruct. A missing extra/token/model raises
+    # BackendUnavailable here (surfaced as a clean exit-2), never a raw-mono guess.
+    dm = prepare_diarized_mono(
+        samples,
+        sample_rate,
+        backend=diarizer,
+        num_speakers=2,
+        caller_speaker=caller_speaker,
+        agent_speaker=agent_speaker,
+        egress_opt_in=egress_opt_in,
+        cfg=cfg,
+    )
+
+    if dm.not_scorable_reason is not None:
+        event = _diarized_not_scorable_event(
+            source=source, dm=dm, expected_yield=want_yield
+        )
+        env = _envelope(mode="single", stack=stack, events=[event])
+        env["diarization"] = dm.provenance
+        return env
+
+    result = score_channels(
+        dm.caller_track, dm.agent_track, sample_rate,
+        caller_onset_sec=onset_sec, cfg=cfg,
+    )
+    # Echo/crosstalk is definitionally N/A on a single physical mic (spec 5.4):
+    # attach the N/A marker and force the echo gate off -- it cannot fire here.
+    echo = echo_na_block()
+    resume = _resume_block(dm.agent_track, sample_rate, result, cfg)
+
+    expected = {"yield": want_yield}
+    # On the low (indicative) tier, no pass/fail SLA gate may fire (spec 7): drop
+    # the max-talk-over / max-time-to-yield bounds so an indicative verdict is
+    # never presented as a confident SLA failure.
+    if not dm.indicative_only:
+        if max_talk_over_sec is not None:
+            expected["max_talk_over_sec"] = max_talk_over_sec
+        if max_time_to_yield_sec is not None:
+            expected["max_time_to_yield_sec"] = max_time_to_yield_sec
+
+    event = _event_from_result(
+        event_id=source,
+        result=result,
+        expected=expected,
+        stack=stack,
+        category="should_yield" if want_yield else "should_not_yield",
+        title=f"single recording ({source}, diarized-mono)",
+        onset_provided=onset_sec is not None,
+        echo=echo,
+        echo_gate=False,
+        resume=resume,
+    )
+    # Diarized-mono provenance + confidence stamp. `indicative_only` marks a
+    # non-high tier so every renderer shows it prominently and never presents this
+    # as a confident dual-channel verdict.
+    event["diarization"] = dm.provenance
+    event["scorability"] = {"separation": dm.separation}
+    if dm.indicative_only:
+        event["indicative_only"] = True
+        note = dm.separation.get("reason") or (
+            "indicative only -- reconstructed from single-channel diarization; not "
+            "a dual-channel measurement"
+        )
+        if event.get("scorable") is not False:
+            event["verdict"]["reasons"] = list(event["verdict"].get("reasons", [])) + [
+                f"indicative only (separation confidence "
+                f"{dm.separation['separation_confidence']}): {note}"
+            ]
+
+    env = _envelope(mode="single", stack=stack, events=[event])
+    env["diarization"] = dm.provenance
+    return env
+
+
 # --- single recording -----------------------------------------------------
 
 def run_single(
@@ -599,6 +770,7 @@ def run_single(
     stereo: Optional[str] = None,
     caller: Optional[str] = None,
     agent: Optional[str] = None,
+    mono: Optional[str] = None,
     caller_channel: int = 0,
     agent_channel: int = 1,
     onset_sec: Optional[float] = None,
@@ -608,6 +780,11 @@ def run_single(
     max_time_to_yield_sec: Optional[float] = None,
     cfg: Optional[ScoreConfig] = None,
     echo_gate: bool = False,
+    diarize: bool = False,
+    diarizer: str = "pyannote",
+    caller_speaker: Optional[str] = None,
+    agent_speaker: Optional[str] = None,
+    egress_opt_in: bool = False,
 ) -> dict:
     """Score ONE recording and return the standard envelope.
 
@@ -619,10 +796,35 @@ def run_single(
     ``echo_gate`` (opt-in, default off) holds a yield out of the verdict when it
     coincides with high cross-channel echo coherence; the additive
     ``signals.echo`` block is always attached regardless.
+
+    ``mono`` + ``diarize`` (both required together) is the OPT-IN, quality-gated
+    single-channel path: a mono WAV is diarized (``diarizer`` selects the
+    backend) into caller/agent tracks and scored through the SAME two-mono path
+    as ``caller``+``agent``. The verdict is stamped ``diarized-mono`` and, below
+    the confidence bar, ``indicative_only`` (no SLA gate fires); a non-separable
+    file is not scorable (exit 2). Default (no ``mono``/``diarize``) is
+    byte-identical -- this path is never reached, and a mono file passed as
+    ``stereo`` stays rejected exactly as before.
     """
     if cfg is None:
         cfg = ScoreConfig()
     _check_onset(onset_sec)
+
+    if mono or diarize:
+        return _run_diarized_mono(
+            mono=mono,
+            diarize=diarize,
+            diarizer=diarizer,
+            onset_sec=onset_sec,
+            expect=expect,
+            stack=stack,
+            max_talk_over_sec=max_talk_over_sec,
+            max_time_to_yield_sec=max_time_to_yield_sec,
+            caller_speaker=caller_speaker,
+            agent_speaker=agent_speaker,
+            egress_opt_in=egress_opt_in,
+            cfg=cfg,
+        )
 
     if stereo:
         signal = _read_wav(stereo)

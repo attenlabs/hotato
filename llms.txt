@@ -229,11 +229,14 @@ measures whether the timing matched that label.
   measurement against a documented, overridable parameter, with an explicit
   ceiling; every frame is inspectable via `--dump-frames`.
 - The detector reads audio energy over time, nothing else: it cannot tell who
-  spoke or what was said. No speaker identification, diarization,
-  transcription, or emotion detection.
-- Two separate channels make overlap a fact of the recording. On a mono mix
-  the scorer needs a caller-onset label and marks its overlap numbers as
-  estimates.
+  spoke or what was said. No speaker identification (a diarizer assigns
+  anonymous SPEAKER_00/01; it never says who a person is), no transcription,
+  no emotion detection.
+- Two separate channels are the gold reference and make overlap a fact of the
+  recording. A single-channel (mono) mix is scorable via the opt-in,
+  quality-gated `[diarize]` front-end (`hotato run --mono call.wav --diarize`),
+  labeled indicative below the confidence bar and never equal to a true
+  dual-channel measurement.
 - The bundled barge-in SUITE fixtures are synthetic: a deterministic floor and
   a regression guard. The `hotato demo` battery, by contrast, is two real
   operator-recorded calls (MIT-licensed). Real validity comes from your own
