@@ -10,6 +10,36 @@ design. See `docs/BENCHMARK.md`.
 ## [Unreleased]
 
 ### Added
+- **`hotato apply PATCH_JSON --clone --name NAME`, the guarded, clone-only
+  staged apply -- the one command that can mutate external platform state, and
+  the most conservative in the codebase**: it reads a `hotato patch` artifact and
+  either PRINTS the fresh staging clone it would create (the default, fully
+  offline dry run) or, only with `--yes` and credentials, creates a NEW staging
+  assistant that is the source config with the patch applied. Five rules hold by
+  construction. (1) CLONE-ONLY: there is no production-apply path; a non-`--clone`
+  invocation is a clean usage error (`production apply is not supported; use
+  --clone to apply to a fresh staging assistant`), and nothing ever `PUT`/`PATCH`es
+  the source (the one writing call is a `POST` that creates a NEW assistant).
+  (2) REFUSAL-FIRST: a both-axes threshold-funnel patch
+  (`do_not_tune_single_threshold`) is REFUSED before anything, printing the exact
+  vendor-neutral recommendation (`No config patch will be applied` / `Reason: both
+  missed real interruption and false stop on backchannel, one threshold cannot
+  safely fix both` / `Recommended: enable or add engagement-control /
+  backchannel-aware turn detection`) and exiting a distinct, documented code (`3`)
+  so a script can tell "refused by design" apart from a usage error -- the refusal
+  is the feature. (3) OPPOSITE-RISK REQUIRED: apply refuses unless `--battery`
+  carries BOTH a yield and a hold fixture, so a fix is never applied blind.
+  (4) GATED SIDE EFFECT: the default dry run prints exactly the clone it would
+  create and the patch it would apply, touching no network; only `--yes` with
+  credentials reaches the platform, and the create is the only networked function
+  (`apply.create_clone`) -- it reads the source (`GET`), applies the patch to a
+  copy, and creates a NEW assistant (`POST`), never mutating the source. (5) NAME
+  REQUIRED. Clone-appliable stacks are vapi (`POST /assistant`) and retell (`POST
+  /create-agent`); LiveKit/Pipecat keep config in source, so apply points at the
+  source edit from `hotato patch`. New module `hotato.apply` (`build_apply`,
+  `apply_patch_to_config`, `build_clone_config`, `create_clone`,
+  `battery_classes`); docs/APPLY.md; the `apply` subcommand and its `Exit codes:`
+  epilog + `hotato describe` manifest entry.
 - **`hotato verify --policy hotato.verify.yaml`, the anti-bandaid gate that
   fails a fix which moves one axis while regressing (or never testing) the
   other**: a policy file declares two things and BOTH must hold for verify to
