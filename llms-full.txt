@@ -12,9 +12,9 @@ FILE: README.md
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/mascot.svg" alt="" width="26" align="top"> hotato
 </h1>
 
-<p align="center"><b>Find where your voice agent talks over callers, and keep it from coming back.</b></p>
+<p align="center"><b>The open-source flight recorder for production voice agents.</b></p>
 
-<p align="center">Offline turn-taking regression tests from your own call recordings. MIT.</p>
+<p align="center">Find where your voice agent talks over callers, and keep it from coming back: turn a failed call into a portable contract with audio, timing, traces, trust checks, human labels, CI gates, and verified fix trials. MIT.</p>
 
 <p align="center">
   <a href="https://pypi.org/project/hotato/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/hotato.svg"></a>
@@ -32,11 +32,12 @@ FILE: README.md
 uvx hotato start --demo
 ```
 
-That sweeps two bundled recorded calls a provider's default agent failed and writes three files, offline:
+That sweeps two bundled recorded calls a provider's default agent failed, writes the dashboard, and turns one real missed-interruption candidate into a demo failure contract it immediately verifies:
 
 ```
 [start] demo: swept 2 bundled calls, 5 candidate moments;
         wrote hotato-sweep.json, hotato-sweep.html, hotato-no-single-threshold.svg
+        wrote contracts/demo-missed-interruption.hotato; verified contract: FAIL as expected
 ```
 
 Open `hotato-sweep.html` for the ranked candidate moments with a hear-the-bug playhead. One of them is the failure below: the agent missed a real interruption in one call and false-stopped on a backchannel in another, so no single sensitivity dial fixes both. That is the card `start --demo` renders for you:
@@ -45,23 +46,23 @@ Open `hotato-sweep.html` for the ranked candidate moments with a hear-the-bug pl
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/no-single-threshold-card.svg" alt="Hotato threshold-funnel card: no single threshold can fix this. Missed a real interruption; false-stopped on a backchannel. One sensitivity dial cannot satisfy both axes at once." width="760">
 </p>
 
-Prefer a single self-contained dashboard and nothing else? `uvx hotato sweep --demo --out hotato-sweep.html`.
+A real failure became a candidate, became a portable `.hotato` contract, and `contract verify` catches it. Hotato prints the exact next commands to promote it into a permanent fixture, run it in CI, and re-verify.
 
 ## Choose your path
 
 | You want to | Run this |
 | --- | --- |
-| See it work with zero setup | `uvx hotato start --demo` |
-| Scan one call recording you already have | `uvx hotato scan --stereo call.wav` |
-| Monitor a production stack (Vapi, Twilio, Retell, LiveKit, Pipecat) | `hotato connect vapi` then `hotato sweep --stack vapi --since 7d` |
+| Try the full loop, no credentials | `uvx hotato start --demo` |
+| Sweep the bundled demo calls | `uvx hotato sweep --demo` |
+| Sweep recent calls from a real stack | `hotato connect vapi` then `hotato sweep --stack vapi --since 7d` |
 | Add Hotato to an existing repo, CI gate included | `hotato init starter --stack vapi --out .` ([`docs/STARTER.md`](docs/STARTER.md)) |
-| Turn a confirmed bug into a portable, CI-enforced contract | `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield --id refund-cutoff-001 --out contracts` ([`docs/CONTRACTS.md`](docs/CONTRACTS.md)) |
-| Turn a confirmed bug into a CI test | `hotato fixture promote hotato-sweep.json#1 --expect yield --out tests/hotato` |
-| Prove a fix held across the battery | `hotato verify --before before.json --after after.json` |
+| Turn a confirmed failure into a portable contract | `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield --id refund-cutoff-001 --out contracts` ([`docs/CONTRACTS.md`](docs/CONTRACTS.md)) |
+| Verify contracts in CI | `hotato contract verify contracts/ --junit contracts-junit.xml` |
+| Attach observability traces to a contract | `hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl` ([`docs/TRACE.md`](docs/TRACE.md)) |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |
 | Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` (one tool, `voice_eval_run`; configs in [`docs/MCP.md`](docs/MCP.md)) |
 
-`scan` takes a two-channel WAV (caller on channel 0, agent on channel 1). A mono file or a bad export is marked NOT SCORABLE, never turned into a confident but meaningless verdict.
+Every command above takes a two-channel recording (caller on one channel, agent on the other). A mono file or a bad export is marked NOT SCORABLE, never turned into a confident but meaningless verdict.
 
 ## The loop
 
@@ -86,11 +87,15 @@ Run `sweep` on a timer and it becomes a passive monitor. Your audio stays on you
 
 ## What Hotato is not
 
-- **Not a live guardrail.** It scores recordings after the call, offline. It never sits in your production audio path.
-- **Not an intent reader.** It measures timing; you label the expected behavior. It surfaces candidate moments, not verdicts about what the agent meant.
-- **Not a scorecard.** There is no accuracy percentage anywhere. Every verdict is a timing that re-runs identically on any machine, quoted with the command that produced it.
-- **Not mono-first.** It needs the caller and agent on separate channels. A single mixed track is marked NOT SCORABLE.
-- **Not an uploader.** Nothing leaves your machine unless you pull it from your own stack.
+- **Not a full QA platform.** It does not grade the whole conversation, task
+  success, or content. See [`docs/COMPARE.md`](docs/COMPARE.md) for where
+  Hamming, Cekura, Coval, Bluejay, Roark, Vapi, and Retell fit instead.
+- **Not transcript scoring.** It measures audio timing, not what was said.
+- **Not speaker ID.** Channels are anonymous; nothing identifies who a person is.
+- **Not semantic intent detection.** It produces candidate timing evidence.
+  Humans label intent. CI enforces confirmed contracts.
+- **Not a hand on production config.** It never sits in the live audio path
+  and never changes a running agent.
 
 ## Install
 
@@ -113,6 +118,8 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **Pull a call from your stack** (Vapi, Twilio, Retell, LiveKit, Pipecat): [`adapters/README.md`](adapters/README.md) · status [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
 - **CI gates**: GitHub Action [`docs/CI.md`](docs/CI.md) · pytest plugin [`docs/PYTEST.md`](docs/PYTEST.md)
 - **Recorded-call battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
+- **Failure contracts and traces**: turn a labelled candidate into a portable, CI-verified bundle and attach observability evidence: [`docs/CONTRACTS.md`](docs/CONTRACTS.md) · [`docs/TRACE.md`](docs/TRACE.md) · [`docs/OTEL.md`](docs/OTEL.md)
+- **Evidence**: what Hotato validates, the input-condition trust matrix, every card and CLI block reproducible, and where Hotato does and doesn't fit next to Hamming/Cekura/Coval/Bluejay/Roark/Vapi/Retell: [`docs/VALIDATION.md`](docs/VALIDATION.md) · [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) · [`docs/GALLERY.md`](docs/GALLERY.md) · [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) · [`docs/COMPARE.md`](docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](AGENTS.md) · [`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt) · MCP server [`docs/MCP.md`](docs/MCP.md) · Security [`SECURITY.md`](SECURITY.md)
 - **Contributing**: the highest-value PR is a labelled call fixture: [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
 

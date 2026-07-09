@@ -119,11 +119,51 @@ design. See `docs/BENCHMARK.md`.
   no account, no network. It sweeps the two bundled real demo calls, writes the
   sweep result (`hotato-sweep.json`), a self-contained HTML dashboard
   (`hotato-sweep.html`), and the threshold-funnel card
-  (`hotato-no-single-threshold.svg`), then prints the exact next commands:
-  promote a candidate into a permanent fixture, run those fixtures in CI, and
-  render a card. The `--stack`/`--folder`/`--stereo` modes are placeholders in
-  this build and route to `hotato sweep`/`analyze`/`run`. Exit 0 done / 2 usage.
-  New module `hotato.start`; documented in `docs/START.md`.
+  (`hotato-no-single-threshold.svg`), then turns one real missed-interruption
+  candidate into a demo failure contract (`contracts/demo-missed-interruption.hotato`,
+  `--expect yield`) and verifies it immediately -- it genuinely fails, so the
+  loop is visible end to end in one command: a real failure becomes a
+  candidate, becomes a portable contract, and `contract verify` catches it.
+  It then prints the exact next commands: promote a candidate into a
+  permanent fixture, run those fixtures in CI, re-verify the demo contract,
+  and render a card. The `--stack`/`--folder`/`--stereo` modes are
+  placeholders in this build and route to `hotato sweep`/`analyze`/`run`.
+  Exit 0 done / 2 usage. New module `hotato.start`; documented in
+  `docs/START.md`.
+
+### Fixed
+- **`hotato.diarize` pyannote 4.x compatibility**: `Pipeline.from_pretrained`
+  now tries the `token=` kwarg first and falls back to the removed
+  `use_auth_token=` name on `TypeError`, and a new `_unpack_pipeline_output`
+  branches on the `DiarizeOutput` object pyannote.audio >=4.0 returns from a
+  pipeline call (previously unpacked as a 3.x `(Annotation, embeddings)`
+  tuple, raising `TypeError`/`AttributeError` against a 4.x install) so both
+  pyannote 3.x and 4.x load and score cleanly. `_embedding_margin` no longer
+  divides by a zero norm and fabricates `cos = 0` (read by the confidence
+  gate as adequate separation) for a degenerate (zero-norm / non-finite)
+  speaker centroid; it now returns `None` -- "no margin available" -- the
+  same honest no-signal result a missing embeddings array already gave.
+- **New yield-boundary confidence gate signal (`signals.yield_boundary`)**:
+  benchmarked against a real pyannote community-1 backend over the AMI
+  corpus (in-repo harness: `tools/bench_diarize/`, dev-only, never shipped),
+  the existing six diarization-quality signals measured clean, well-separated,
+  stable speakers but were anti-correlated with verdict correctness -- the
+  `high` confidence tier reproduced the dual-channel `did_yield` verdict
+  LESS often than `low`, concentrated in short-yield, backchannel, and
+  sub-second talk-over cases, and present even at DER 0.000, because the
+  verdict turns on a sub-250 ms agent-quiet gap that DER's collar and the
+  quality signals forgive. The new 7th signal replays the engine's yield
+  logic directly over the diarization timelines (no model calls, no
+  reconstruction), perturbs the speaker boundaries by +/- 0.25s, and checks
+  the verdict survives; a yield resting on a briefer-than-0.5s caller run
+  (backchannel-grade) or that flips under the boundary nudge is barred from
+  the `high` tier (drops to `low`, indicative-only) even when the other six
+  signals look clean. Honest `high` coverage on real material shrinks as a
+  result -- that is the point: `high` now requires a boundary-robust
+  verdict, not just clean diarization. The embedding-margin signal itself
+  measured uninformative on the AMI benchmark (clustered ~0.43-0.52
+  regardless of verdict correctness); left as measured, redesign deferred to
+  a future gate-recalibration stage rather than tuned blind here.
 
 ## [0.5.0] - 2026-07-09
 
