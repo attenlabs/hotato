@@ -1,5 +1,5 @@
-"""``hotato fixture create``: turn one bad call moment into a permanent
-regression fixture.
+"""``hotato fixture create`` / ``hotato fixture promote``: turn one bad call
+moment into a permanent regression fixture.
 
 The input is a recording you already have (one two-channel WAV, or two aligned
 mono WAVs), the moment the caller took or attempted the floor (``--onset``),
@@ -41,9 +41,18 @@ from .core import (
     run_suite,
 )
 
-__all__ = ["create_fixture", "CREATED_BY"]
+__all__ = [
+    "create_fixture",
+    "parse_candidate_ref",
+    "promote_candidate",
+    "render_promote_text",
+    "promote_result_json",
+    "CREATED_BY",
+    "PROMOTED_BY",
+]
 
 CREATED_BY = "hotato fixture create"
+PROMOTED_BY = "hotato fixture promote"
 
 # Same slug rule as the corpus label schema (corpus/label.schema.json).
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -132,6 +141,8 @@ def create_fixture(
     force: bool = False,
     caller_channel: int = 0,
     agent_channel: int = 1,
+    created_by: str = CREATED_BY,
+    provenance_extra: Optional[dict] = None,
 ) -> dict:
     """Create one regression fixture and validate it. Returns a result dict:
     ``{"id", "paths", "scenario", "validation", "onset", "next"}``.
@@ -226,9 +237,14 @@ def create_fixture(
             "source_onset_sec": round(onset_sec, 3),
             "clip_start_sec": clip_start_sec,
             "clip_end_sec": clip_end_sec,
-            "created_by": CREATED_BY,
+            "created_by": created_by,
         },
     }
+    if provenance_extra:
+        # Additive only (promote records its candidate ref here); the core
+        # provenance keys above stay authoritative.
+        for key, value in provenance_extra.items():
+            scenario["provenance"].setdefault(key, value)
 
     scenarios_dir = os.path.join(out_dir, "scenarios")
     audio_dir = os.path.join(out_dir, "audio")
@@ -313,3 +329,233 @@ def result_json(result: dict) -> dict:
         "validation": result["validation"],
         "next": result["next"],
     }
+
+
+# --- ``hotato fixture promote``: one sweep/analyze candidate -> a fixture ---
+#
+# ``sweep`` / ``analyze`` surface candidate moments; ``promote`` is the step
+# that says "this suspicious moment is real, save it forever." The ref names
+# the result file and the candidate; the candidate carries the recording, the
+# onset, and the kind, so the only thing you add is the label. Everything
+# after resolution is the exact ``create_fixture`` path above, including the
+# immediate scorability validation and its honest refusal.
+
+_REF_FORMS = (
+    "FILE#N (the Nth candidate in FILE, matching the #N rank in the report) "
+    "or FILE#CALL:N (the Nth candidate from call CALL), e.g. "
+    "hotato-sweep.json#3 or analyze.json#call_abc123:2"
+)
+
+_NUM_RE = re.compile(r"^[0-9]+$")
+
+
+def parse_candidate_ref(ref: str):
+    """Split a candidate ref into ``(path, call, number)``; ``call`` is None
+    for the ``FILE#N`` form. Numbers are 1-based in the file's ranked
+    candidate order -- the same ``#N`` rank the HTML report shows. A
+    malformed ref raises ValueError (exit 2)."""
+    path, sep, rest = (ref or "").rpartition("#")
+    if not sep or not path or not rest:
+        raise ValueError(f"{ref!r} is not a candidate ref; use {_REF_FORMS}")
+    call = None
+    num = rest
+    if not _NUM_RE.match(rest):
+        call, sep2, num = rest.rpartition(":")
+        if not sep2 or not call or not _NUM_RE.match(num):
+            raise ValueError(
+                f"{ref!r} is not a candidate ref; use {_REF_FORMS}"
+            )
+    number = int(num)
+    if number < 1:
+        raise ValueError(
+            f"candidate numbers start at 1 (got {ref!r}); #1 is the "
+            "top-ranked candidate, the same rank the report shows"
+        )
+    return path, call, number
+
+
+def _load_result(path: str) -> dict:
+    """Read a ``hotato sweep/analyze --format json`` result file. A missing
+    file raises FileNotFoundError (exit 2, file_not_found); a file that is
+    not an analyze-kind envelope with a candidates list raises ValueError
+    with the honest reason."""
+    with open(path, encoding="utf-8") as fh:
+        try:
+            doc = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{path!r} is not JSON ({exc}); pass the file written by "
+                "hotato sweep --format json or hotato analyze --format json"
+            ) from exc
+    if (not isinstance(doc, dict) or doc.get("kind") != "analyze"
+            or not isinstance(doc.get("candidates"), list)):
+        raise ValueError(
+            f"{path!r} is not a hotato sweep/analyze result (expected kind "
+            "'analyze' with a candidates list); write one with hotato sweep "
+            "--format json or hotato analyze --format json"
+        )
+    return doc
+
+
+def _call_names(source: str) -> set:
+    """Every name a candidate's source recording answers to in a
+    ``FILE#CALL:N`` ref: the source path as written, its basename, the
+    basename with one or all extensions stripped (``x.example.wav`` answers
+    to ``x.example`` and ``x``), and -- for a pulled recording named
+    ``STACK__ID.wav`` -- the bare call id."""
+    base = os.path.basename(source)
+    stem = os.path.splitext(base)[0]
+    names = {source, base, stem, stem.split(".", 1)[0]}
+    if "__" in stem:
+        names.add(stem.split("__", 1)[1])
+    return names
+
+
+def _resolve_candidate(doc: dict, *, path: str, call, number: int) -> dict:
+    cands = doc["candidates"]
+    if not cands:
+        raise ValueError(
+            f"{path} has no candidates to promote (total_candidates is 0)"
+        )
+    if call is None:
+        pool = cands
+        scope = f"{path} has {len(pool)}"
+    else:
+        pool = [c for c in cands
+                if call in _call_names(str(c.get("source", "")))]
+        if not pool:
+            known = sorted({
+                os.path.splitext(os.path.basename(str(c.get("source", ""))))[0]
+                for c in cands
+            })
+            raise ValueError(
+                f"no candidate in {path} comes from call {call!r}; calls in "
+                f"this file: {', '.join(known)}"
+            )
+        scope = f"call {call!r} in {path} has {len(pool)}"
+    if number > len(pool):
+        raise ValueError(
+            f"candidate {number} is out of range: {scope} candidate"
+            f"{'' if len(pool) == 1 else 's'}, numbered 1..{len(pool)} in "
+            "rank order (the #N rank the report shows)"
+        )
+    return pool[number - 1]
+
+
+def _resolve_source_audio(doc: dict, cand: dict, *, ref_path: str,
+                          folder: Optional[str] = None) -> str:
+    """Find the candidate's source recording on disk. An explicit ``folder``
+    is authoritative (no silent fallback past it); otherwise the folder the
+    result file recorded is tried (absolute ``folder_path`` first, then the
+    ``folder`` name relative to the working directory and to the result
+    file), then the source path itself. The error names every path tried."""
+    source = str(cand["source"])
+    if folder:
+        p = os.path.join(folder, source)
+        if os.path.isfile(p):
+            return p
+        raise ValueError(
+            f"the source recording {source!r} was not found under --folder "
+            f"{folder!r} (tried {p!r})"
+        )
+    ref_dir = os.path.dirname(os.path.abspath(ref_path))
+    roots = [doc.get("folder_path")]
+    fname = doc.get("folder")
+    if fname:
+        roots += [fname, os.path.join(ref_dir, fname)]
+    tried = []
+    for p in ([os.path.join(r, source) for r in roots if r]
+              + [source, os.path.join(ref_dir, source)]):
+        if p not in tried:
+            tried.append(p)
+    for p in tried:
+        if os.path.isfile(p):
+            return p
+    raise ValueError(
+        f"the source recording {source!r} was not found (tried: "
+        + ", ".join(repr(p) for p in tried)
+        + "); pass --folder DIR pointing at the folder that was "
+        "swept/analyzed"
+    )
+
+
+def promote_candidate(
+    ref: str,
+    *,
+    expect: str,
+    fixture_id: str,
+    out_dir: str,
+    folder: Optional[str] = None,
+    title: Optional[str] = None,
+    stack: Optional[str] = None,
+    max_talk_over_sec: Optional[float] = None,
+    max_time_to_yield_sec: Optional[float] = None,
+    tags: Optional[str] = None,
+    pre_sec: float = 2.0,
+    post_sec: float = 6.0,
+    no_clip: bool = False,
+    force: bool = False,
+    caller_channel: int = 0,
+    agent_channel: int = 1,
+) -> dict:
+    """Promote one sweep/analyze candidate into a permanent regression
+    fixture. Resolves the ref to its candidate (source recording, onset,
+    kind), then runs the exact :func:`create_fixture` path on that recording
+    at that onset. Returns the ``create_fixture`` result dict plus a
+    ``candidate`` block. Raises ValueError (CLI exit 2) for a bad ref, a
+    file that is not a sweep/analyze result, a source recording that does
+    not resolve, or a candidate whose fixture is not scorable."""
+    path, call, number = parse_candidate_ref(ref)
+    doc = _load_result(path)
+    cand = _resolve_candidate(doc, path=path, call=call, number=number)
+    audio = _resolve_source_audio(doc, cand, ref_path=path, folder=folder)
+    result = create_fixture(
+        stereo=audio,
+        fixture_id=fixture_id,
+        title=title,
+        onset_sec=float(cand["t_sec"]),
+        expect=expect,
+        out_dir=out_dir,
+        stack=stack,
+        max_talk_over_sec=max_talk_over_sec,
+        max_time_to_yield_sec=max_time_to_yield_sec,
+        tags=tags,
+        pre_sec=pre_sec,
+        post_sec=post_sec,
+        no_clip=no_clip,
+        force=force,
+        caller_channel=caller_channel,
+        agent_channel=agent_channel,
+        created_by=PROMOTED_BY,
+        provenance_extra={
+            "candidate_ref": ref,
+            "candidate_kind": cand.get("kind"),
+            "result_file": os.path.basename(path),
+        },
+    )
+    result["candidate"] = {
+        "ref": ref,
+        "source": cand.get("source"),
+        "t_sec": cand.get("t_sec"),
+        "kind": cand.get("kind"),
+        "salience": cand.get("salience"),
+    }
+    return result
+
+
+def render_promote_text(result: dict) -> str:
+    """The promote text output: one line naming what was promoted, then the
+    same created-fixture block ``fixture create`` prints (paths, onset,
+    label, scorability check, and the exact next command)."""
+    c = result["candidate"]
+    head = (f"promoted {c['ref']}: {c['kind']} at t={c['t_sec']:.2f}s in "
+            f"{c['source']}")
+    return head + "\n" + render_text(result)
+
+
+def promote_result_json(result: dict) -> dict:
+    """The machine shape for ``fixture promote --format json``: the
+    ``fixture create`` envelope plus the resolved candidate block."""
+    out = result_json(result)
+    out["candidate"] = result["candidate"]
+    return out

@@ -2041,12 +2041,16 @@ def _atomic_write_text(path: str, text: str) -> None:
 
 def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
               allow_mono=False, top=25, audio_top=8, pre=2.0, post=4.0,
-              min_gap=2.0, no_open=False, api_key=None, account_sid=None,
-              auth_token=None, model_id=None, agent_id=None, base_url=None,
-              caller_channel=0, agent_channel=1, fmt="html") -> int:
+              min_gap=2.0, no_open=False, demo=False, api_key=None,
+              account_sid=None, auth_token=None, model_id=None, agent_id=None,
+              base_url=None, caller_channel=0, agent_channel=1,
+              fmt="html") -> int:
     """`hotato sweep`: pull recent recordings, then run the P1 analyze over them
     -- the 'connect once, see every turn-taking problem across your real calls'
-    flow. The analyze step is reused wholesale."""
+    flow. The analyze step is reused wholesale. With ``demo=True`` the pull is
+    replaced by the two bundled real demo calls (the same recordings `hotato
+    demo` scores), so the first sweep works with no account, no credentials and
+    no network; everything from analyze onward is the identical code path."""
     from . import analyze as _analyze
 
     # Validate the global scan flags BEFORE the (slow, network) pull, so a typo'd
@@ -2059,14 +2063,51 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
 
     overrides = _overrides_from(api_key, account_sid, auth_token, model_id,
                                 agent_id, base_url)
-    stack, creds = _resolve_for_pull(stack, overrides)
-    pull_dir = dir or f"hotato-sweep-{stack}"
-    res = pull(stack, creds, out_dir=pull_dir, ids=ids, since=since, limit=limit,
-               allow_mono=allow_mono, log=lambda m: sys.stderr.write(m + "\n"))
-    sys.stderr.write(
-        f"[sweep] {stack}: pulled {len(res['pulled'])} of {res['listed']} listed "
-        f"({len(res['skipped'])} skipped) into {res['out_dir']}\n"
-    )
+    if demo:
+        # --demo is a source of calls, not a different sweep: it must not be
+        # combined with the flags that describe a real stack. Naming the exact
+        # flags to remove keeps this a one-edit fix.
+        conflicts = [flag for flag, val in (
+            ("--stack", stack), ("--call-id", ids), ("--since", since),
+            ("--allow-mono", allow_mono), ("--dir", dir),
+        ) if val]
+        conflicts += sorted("--" + k.replace("_", "-") for k in overrides)
+        if conflicts:
+            raise ValueError(
+                "--demo sweeps the two bundled demo calls on this machine and "
+                "takes no stack, credential, or pull flags. Remove "
+                + ", ".join(conflicts) + ", or remove --demo to sweep a real "
+                "stack."
+            )
+        from importlib import resources
+
+        stack = "demo"
+        pull_dir = str(resources.files("hotato").joinpath(
+            "data", "demo", "failing", "audio"))
+        wavs = sorted(n for n in os.listdir(pull_dir)
+                      if n.lower().endswith(".wav"))
+        # The same result shape pull() returns, so the summary lines and the
+        # JSON envelope's pull block are identical to a real sweep's.
+        res = {
+            "stack": stack, "out_dir": pull_dir, "listed": len(wavs),
+            "pulled": [{"id": os.path.splitext(n)[0],
+                        "path": os.path.join(pull_dir, n)} for n in wavs],
+            "skipped": [],
+        }
+        sys.stderr.write(
+            f"[sweep] demo: {len(wavs)} bundled real calls, analyzed in "
+            "place; no credentials, no network\n"
+        )
+    else:
+        stack, creds = _resolve_for_pull(stack, overrides)
+        pull_dir = dir or f"hotato-sweep-{stack}"
+        res = pull(stack, creds, out_dir=pull_dir, ids=ids, since=since,
+                   limit=limit, allow_mono=allow_mono,
+                   log=lambda m: sys.stderr.write(m + "\n"))
+        sys.stderr.write(
+            f"[sweep] {stack}: pulled {len(res['pulled'])} of {res['listed']} "
+            f"listed ({len(res['skipped'])} skipped) into {res['out_dir']}\n"
+        )
 
     aggregate, per_file = _analyze.analyze_folder(
         pull_dir, caller_channel=caller_channel, agent_channel=agent_channel,
@@ -2085,8 +2126,13 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
         return 0
 
     out_file = out or f"hotato-sweep-{stack}.html"
+    # The promote buttons name this sweep's DEFAULT json result file (the one
+    # `hotato sweep ... --format json > hotato-sweep-STACK.json` writes), never
+    # the --out path, so the dashboard bytes stay identical whatever the page
+    # was saved as.
     html_str = _analyze.build_dashboard_html(
         aggregate, per_file, top=top, audio_top=audio_top,
+        report_json=f"hotato-sweep-{stack}.json",
     )
     # Atomic write, like every other --out writer: a kill / disk-full mid-write
     # must not destroy a previously-good report at this path (sweep can run long

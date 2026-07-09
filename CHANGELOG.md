@@ -9,6 +9,59 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+### Added
+- **Promote actions on every analyze/sweep dashboard card**: each ranked
+  candidate card now carries three actions. "Promote as yield fixture" and
+  "Promote as hold fixture" copy the exact `hotato fixture promote
+  REPORT_JSON#RANK --expect yield|hold --id SUGGESTED_ID --out tests/hotato`
+  command to the clipboard (`navigator.clipboard`, with a hidden-textarea
+  `execCommand` fallback for `file://` pages); "Ignore" hides the card on
+  the page only, client side, no state, pausing its embedded player first.
+  The ref number is the card's own #N rank chip; the suggested id is call id
+  + kind + rank, kebab-cased to the same slug rule `fixture create --id`
+  enforces; the report-json name is the producing command's DEFAULT json
+  result name (`hotato-analyze.json`, `hotato-sweep-STACK.json`), never the
+  --out path, so the dashboard stays byte-identical whatever the page was
+  saved as, and a caption names that file and how to write it. You pick the
+  label; the page never does. No animation anywhere, so reduced-motion needs
+  no gating: feedback is an instant text swap. Gated by
+  `tests/test_analyze_promote_buttons.py`, which parses the DOM attributes
+  (never substring-matches), pins the exact copied payloads, rank refs, and
+  slug ids, and runs one copied command verbatim against the json it names.
+- **`hotato fixture promote CANDIDATE_REF`, the confirm step of the monitor
+  loop**: promote one candidate moment from a `hotato sweep --format json` or
+  `hotato analyze --format json` result straight into a permanent regression
+  fixture. The ref names the result file and the candidate --
+  `hotato-sweep.json#3` (the Nth candidate, 1-based in rank order, the same
+  #N the report shows) or `analyze.json#call_abc123:2` (the Nth candidate
+  from one call, matched by source path, file name, extension-stripped stem,
+  or pulled call id). The candidate carries the recording, the onset, and the
+  kind, so no `--stereo` and no `--onset` is retyped; you add the
+  `--expect yield|hold` label and promote reuses the exact `fixture create`
+  path: the clipped two-channel `DIR/audio/ID.example.wav` plus
+  `DIR/scenarios/ID.json`, scored immediately, with a not-scorable candidate
+  refused with the honest reason (exit 2) and partial outputs removed. The
+  scenario provenance records `created_by: hotato fixture promote`, the
+  candidate ref, and the candidate kind. To make refs resolvable from
+  anywhere, sweep/analyze envelopes now also record `folder_path` (the
+  analyzed folder's absolute path); a moved result still resolves via
+  `--folder DIR`, and an unresolvable recording names every path tried.
+  Gated by `tests/test_fixture_promote.py`: both ref forms, end-to-end
+  promotes from a real `sweep --demo` result and a real `analyze` result, the
+  1-based rank contract, resolution fallbacks, and every refusal path.
+- **`hotato sweep --demo`, the zero-setup first sweep**: runs the full
+  pull -> analyze sweep pipeline over the two bundled real demo calls (the
+  same recordings `hotato demo` scores), with no vendor account, no
+  credentials, and no network. The output is a real sweep's output: the same
+  HTML dashboard (default `hotato-sweep-demo.html`) and the same
+  `--format json` envelope, pull summary block included, produced by the
+  identical analyze code path. `--demo` names a source of calls, so combining
+  it with `--stack`, `--call-id`, `--since`, `--allow-mono`, `--dir`, or any
+  credential flag is a clean exit-2 usage error that names each offending
+  flag. Gated by `tests/test_sweep_demo.py`, which runs every test under a
+  network guard (`urllib.request.urlopen` plus raw socket connects) and
+  asserts the demo envelope's key set equals a real sweep's.
+
 ## [0.4.1] - 2026-07-08
 
 ### Fixed
