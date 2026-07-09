@@ -2673,18 +2673,25 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser(
         "start",
         help="guided, credential-less first run: sweep the bundled demo "
-             "calls, write the result + dashboard + funnel card, and print "
-             "the exact next commands",
+             "calls, create+verify one demo failure contract, write the "
+             "result + dashboard + funnel card, and print the exact next "
+             "commands",
         description=(
             "The zero-setup first run. `hotato start --demo` sweeps the two "
             "bundled real demo calls (no account, no network, no "
             "credentials), writes the sweep result (hotato-sweep.json), a "
             "self-contained HTML dashboard (hotato-sweep.html), and the "
-            "threshold-funnel card (hotato-no-single-threshold.svg), then "
-            "prints the exact next commands: promote a candidate into a "
-            "permanent fixture, run those fixtures in CI, and render a card. "
-            "The --stack/--folder/--stereo modes are placeholders in this "
-            "build and route you to hotato sweep / analyze / run."
+            "threshold-funnel card (hotato-no-single-threshold.svg); creates "
+            "one demo failure contract (contracts/demo-missed-interruption."
+            "hotato) from a real missed-interruption candidate with --expect "
+            "yield and verifies it immediately (it genuinely fails -- this "
+            "is the loop: a real failure becomes a candidate, becomes a "
+            "portable contract, and contract verify catches it); then prints "
+            "the exact next commands: promote a candidate into a permanent "
+            "fixture, run those fixtures in CI, re-verify the demo contract, "
+            "and render a card. The --stack/--folder/--stereo modes are "
+            "placeholders in this build and route you to hotato sweep / "
+            "analyze / run."
         ),
         epilog=(
             _exit_codes_epilog("start") + "\n\n"
