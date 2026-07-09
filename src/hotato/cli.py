@@ -269,6 +269,29 @@ _EXIT_CODES: dict = {
         (2, "usage error (unknown --stack / --target), or a destination file "
             "already exists without --force"),
     ),
+    "issue": (
+        (2, "no subcommand given (see hotato issue create --help)"),
+    ),
+    "issue create": (
+        (0, "rendered the issue (a dry run by default: prints the body and the "
+            "exact gh command, creating nothing; with --yes it created the "
+            "issue through gh)"),
+        (2, "usage error: no --repo, a file that is not a sweep/analyze "
+            "result, no candidate moments to file, or gh failed or was not "
+            "found"),
+    ),
+    "pr": (
+        (2, "no subcommand given (see hotato pr create --help)"),
+    ),
+    "pr create": (
+        (0, "rendered the pull request (a dry run by default: prints the body "
+            "and the exact git and gh commands, changing nothing; with --yes it "
+            "cut a feature branch, committed the fixtures, pushed, and opened "
+            "the PR through gh)"),
+        (2, "usage error: no --repo, no --fixtures, no --title, a fixtures "
+            "directory with no scenarios to add, or git/gh failed or was not "
+            "found"),
+    ),
 }
 
 
@@ -1304,6 +1327,148 @@ def _cmd_init_webhook(args) -> int:
         print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_initcmd.render_text(result), end="")
+    return 0
+
+
+def _cmd_issue_create(args) -> int:
+    from . import issuecmd as _issue
+
+    # An explicit --repo is required for BOTH the dry run (it names the repo in
+    # the rendered command) and the create. Missing it is a clean usage error
+    # (exit 2), never a guessed target.
+    if not args.repo:
+        raise ValueError(
+            "--repo OWNER/REPO is required: hotato issue create sweep.json "
+            "--repo owner/repo"
+        )
+    # The SAME parser hotato fixture promote uses (a missing file, a non-JSON
+    # file, or a foreign JSON is refused with the honest reason). The promote
+    # refs read this file by name, so the ref in the issue resolves exactly
+    # like a ref on the command line.
+    doc = _issue.load_sweep_result(args.sweep_json)
+    report_ref = os.path.basename(args.sweep_json)
+    env = _issue.build_issue(
+        doc, report_ref=report_ref, repo=args.repo, top=args.top,
+        labels=args.label or [],
+    )
+
+    if not args.yes:
+        # DEFAULT = dry run: print the rendered body and the exact command,
+        # create nothing. gh is never invoked on this path.
+        if args.format == "json":
+            payload = dict(env)
+            payload["dry_run"] = True
+            payload["created"] = False
+            print(_errors.safe_json_dumps(payload, indent=2))
+        else:
+            print(env["body"])
+            print()
+            print("Dry run: nothing was created. Re-run with --yes to create "
+                  "the issue with this exact command:")
+            print(f"  {env['gh_command_display']}")
+        return 0
+
+    # --yes + --repo: the one place this shells out. A missing gh binary raises
+    # FileNotFoundError -> the standard exit-2 structured error; a non-zero gh
+    # exit is surfaced as a clean usage error with gh's own message.
+    rc, out, err = _issue.create_via_gh(env["gh_command"], env["body"])
+    if rc != 0:
+        detail = (err or out).strip()
+        raise ValueError(
+            f"gh issue create failed (exit {rc})"
+            + (f": {detail}" if detail else ".")
+        )
+    url = out.strip()
+    if args.format == "json":
+        payload = dict(env)
+        payload["dry_run"] = False
+        payload["created"] = True
+        payload["issue_url"] = url
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(env["body"])
+        print()
+        print(f"created issue: {url}" if url else "created the issue.")
+    return 0
+
+
+def _cmd_pr_create(args) -> int:
+    from . import prcmd as _pr
+
+    # An explicit --repo, --fixtures, and --title are required for BOTH the dry
+    # run (they name the repo, the files, and the PR title in the rendered
+    # commands) and the create. A missing one is a clean usage error (exit 2),
+    # never a guessed value.
+    if not args.repo:
+        raise ValueError(
+            "--repo OWNER/REPO is required: hotato pr create --fixtures "
+            "tests/hotato --repo owner/repo --title 'Add turn-taking fixtures'"
+        )
+    if not args.fixtures:
+        raise ValueError(
+            "--fixtures DIR is required: point it at the fixtures directory "
+            "hotato fixture promote wrote (with scenarios/ and audio/), e.g. "
+            "--fixtures tests/hotato"
+        )
+    if not args.title:
+        raise ValueError(
+            "--title is required: a short pull request title, e.g. --title "
+            "'Add turn-taking regression fixtures'"
+        )
+    # Filesystem read only (the scenarios off disk); the rendering below is a
+    # pure, offline function. A directory that is not a fixtures directory, or a
+    # scenario whose audio is missing, is refused with the honest reason.
+    fixtures = _pr.load_fixtures(args.fixtures)
+    env = _pr.build_pr(
+        fixtures, fixtures_dir=args.fixtures, repo=args.repo, title=args.title,
+        branch=args.branch, base=args.base,
+    )
+
+    if not args.yes:
+        # DEFAULT = dry run: print the rendered body and the exact commands,
+        # change nothing. Neither git nor gh is invoked on this path.
+        if args.format == "json":
+            payload = dict(env)
+            payload["dry_run"] = True
+            payload["created"] = False
+            print(_errors.safe_json_dumps(payload, indent=2))
+        else:
+            print(env["body"])
+            print()
+            print("Dry run: nothing was created. Re-run with --yes to cut the "
+                  "feature branch, commit the fixtures, push, and open the PR "
+                  "with these exact commands:")
+            for disp in env["git_commands_display"]:
+                print(f"  {disp}")
+            print(f"  {env['gh_command_display']}")
+        return 0
+
+    # --yes + --repo: the one place this shells out. A missing git/gh binary
+    # raises FileNotFoundError -> the standard exit-2 structured error; a
+    # non-zero git or gh exit is surfaced as a clean usage error with the
+    # command's own message. The change lands on a NEW feature branch (never the
+    # default branch directly) and the push is never a force-push.
+    outcome = _pr.create_via_git_gh(
+        env["git_commands"], env["gh_command"], env["body"],
+    )
+    if not outcome["ok"]:
+        detail = (outcome["stderr"] or outcome["stdout"]).strip()
+        raise ValueError(
+            f"{outcome['failed_command']} failed (exit {outcome['returncode']})"
+            + (f": {detail}" if detail else ".")
+        )
+    url = outcome["pr_url"]
+    if args.format == "json":
+        payload = dict(env)
+        payload["dry_run"] = False
+        payload["created"] = True
+        payload["pr_url"] = url
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(env["body"])
+        print()
+        print(f"created pull request: {url}" if url
+              else "created the pull request.")
     return 0
 
 
@@ -2851,6 +3016,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- init: scaffold a self-hostable integration (webhook worker) ---------
     from . import initcmd as _initcmd
+    from . import issuecmd as _issuecmd
 
     it = sub.add_parser(
         "init",
@@ -2909,6 +3075,145 @@ def build_parser() -> argparse.ArgumentParser:
     iw.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     iw.set_defaults(func=_cmd_init_webhook)
+
+    # --- issue: file a sweep's candidates as a GitHub issue -----------------
+    iss = sub.add_parser(
+        "issue",
+        help="file a sweep's candidate moments as a GitHub issue "
+             "(hotato issue create)",
+        description=(
+            "Turn a sweep result into a GitHub issue that asks a human to "
+            "confirm or ignore each candidate (see hotato issue create "
+            "--help)."
+        ),
+        epilog=_exit_codes_epilog("issue"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    isssub = iss.add_subparsers(dest="issue_command", required=True,
+                                metavar="create")
+    ic = isssub.add_parser(
+        "create",
+        help="render a GitHub issue from a sweep/analyze result: a worst-"
+             "candidate block and a confirm-or-ignore promote command per "
+             "top candidate (dry run by default; --yes creates it via gh)",
+        description=(
+            "Render a GitHub issue from a `hotato sweep --format json` (or "
+            "`hotato analyze --format json`) result. The body carries a "
+            "worst-candidate block (call id, time, kind, the measured number, "
+            "the report it came from) and, for each of the top --top "
+            "candidates, a confirm-or-ignore section with the exact `hotato "
+            "fixture promote FILE#N` command for BOTH a yield and a hold label "
+            "and a close-it line for when the moment is not a turn-taking "
+            "failure. These are MEASURED CANDIDATE moments, never verdicts and "
+            "never intent. The DEFAULT is a dry run: it prints the body and "
+            "the exact `gh issue create` command and creates nothing. Only "
+            "`--yes` with an explicit `--repo` actually opens the issue "
+            "(through `gh`), mirroring the project default that Hotato never "
+            "files an issue on your behalf unless you ask. Offline rendering; "
+            "no audio and no network on the dry-run path."
+        ),
+        epilog=(
+            _exit_codes_epilog("issue create") + "\n\n"
+            "Examples:\n"
+            "  hotato sweep --demo --format json > hotato-sweep.json\n"
+            "  hotato issue create hotato-sweep.json --repo owner/repo --top 3\n"
+            "  hotato issue create hotato-sweep.json --repo owner/repo \\\n"
+            "      --label turn-taking --label regression --yes\n\n"
+            "Requires the GitHub CLI (`gh`) authenticated only for --yes."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ic.add_argument("sweep_json", metavar="SWEEP_JSON",
+                    help="a hotato sweep/analyze result written with "
+                         "--format json")
+    ic.add_argument("--repo", default=None, metavar="OWNER/REPO",
+                    help="the GitHub repository to file the issue in "
+                         "(required)")
+    ic.add_argument("--top", type=int, default=_issuecmd.DEFAULT_TOP,
+                    metavar="N",
+                    help="how many top-ranked candidates to include "
+                         f"(default {_issuecmd.DEFAULT_TOP}; 0 for all)")
+    ic.add_argument("--label", action="append", default=None, metavar="LABEL",
+                    help="a GitHub label to apply (repeat for several)")
+    ic.add_argument("--yes", action="store_true",
+                    help="actually create the issue through gh; without it "
+                         "this is a dry run that prints the body and the "
+                         "command and creates nothing")
+    ic.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    ic.set_defaults(func=_cmd_issue_create)
+
+    # --- pr: open a pull request that adds promoted fixtures ----------------
+    prp = sub.add_parser(
+        "pr",
+        help="open a pull request that adds promoted fixtures "
+             "(hotato pr create)",
+        description=(
+            "Turn a directory of promoted fixtures into a GitHub pull request "
+            "that adds them as regression tests (see hotato pr create --help)."
+        ),
+        epilog=_exit_codes_epilog("pr"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    prsub = prp.add_subparsers(dest="pr_command", required=True,
+                               metavar="create")
+    pc = prsub.add_parser(
+        "create",
+        help="render a pull request that adds a hotato fixtures directory: a "
+             "line per fixture and the run command to score them (dry run by "
+             "default; --yes cuts a branch, commits, pushes, and opens the PR "
+             "via git and gh)",
+        description=(
+            "Render a GitHub pull request that adds a hotato fixtures "
+            "directory (the --out DIR that `hotato fixture promote` wrote, with "
+            "scenarios/ and audio/). The body lists each fixture (its id, the "
+            "yield/hold label a maintainer chose, the call it was promoted "
+            "from, and the onset) and carries the exact `hotato run` command "
+            "that scores every added fixture. These are MEASURED CANDIDATE "
+            "moments saved as tests, never verdicts and never intent. The "
+            "DEFAULT is a dry run: it prints the body and the exact git and "
+            "`gh pr create` commands and changes nothing. Only `--yes` with an "
+            "explicit `--repo` actually cuts the branch, commits the fixtures, "
+            "pushes, and opens the PR. Two invariants hold even under --yes: "
+            "the change lands on a NEW feature branch (never the default branch "
+            "directly) and the push is never a force-push. Offline rendering; "
+            "no audio and no network on the dry-run path."
+        ),
+        epilog=(
+            _exit_codes_epilog("pr create") + "\n\n"
+            "Examples:\n"
+            "  hotato pr create --fixtures tests/hotato --repo owner/repo \\\n"
+            "      --title 'Add turn-taking regression fixtures'\n"
+            "  hotato pr create --fixtures tests/hotato --repo owner/repo \\\n"
+            "      --title 'Add turn-taking regression fixtures' \\\n"
+            "      --branch hotato/turn-taking-fixtures --base main --yes\n\n"
+            "Requires git and the GitHub CLI (`gh`) authenticated only for "
+            "--yes."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pc.add_argument("--fixtures", default=None, metavar="DIR",
+                    help="the hotato fixtures directory to add (scenarios/ and "
+                         "audio/), e.g. tests/hotato (required)")
+    pc.add_argument("--repo", default=None, metavar="OWNER/REPO",
+                    help="the GitHub repository to open the pull request in "
+                         "(required)")
+    pc.add_argument("--title", default=None, metavar="TITLE",
+                    help="the pull request title (required)")
+    pc.add_argument("--branch", default=None, metavar="NAME",
+                    help="the feature branch to cut and push (default "
+                         "hotato/<title slug>); never the default branch")
+    pc.add_argument("--base", default=None, metavar="BRANCH",
+                    help="the base branch the PR targets (default: the repo "
+                         "default gh picks)")
+    pc.add_argument("--yes", action="store_true",
+                    help="actually cut the branch, commit the fixtures, push, "
+                         "and open the PR through git and gh; without it this "
+                         "is a dry run that prints the body and the exact "
+                         "commands and changes nothing")
+    pc.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    pc.set_defaults(func=_cmd_pr_create)
 
     return p
 
