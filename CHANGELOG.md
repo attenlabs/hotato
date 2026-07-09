@@ -10,6 +10,55 @@ design. See `docs/BENCHMARK.md`.
 ## [Unreleased]
 
 ### Added
+- **`hotato pr create --fixtures DIR --repo OWNER/REPO --title T [--yes]`, a
+  directory of promoted fixtures turned into a pull request that adds them as
+  regression tests**: reads a hotato fixtures directory (the `--out DIR` that
+  `hotato fixture promote` wrote, with `scenarios/` and `audio/`) and renders a
+  plain markdown PR body: a title from the caller, a line per fixture (its id,
+  the `yield`/`hold` label a maintainer chose, the call it was promoted from,
+  and the clip onset), and the exact `hotato run --scenarios DIR/scenarios
+  --audio DIR/audio` command that scores every added fixture. The fixtures are
+  described as MEASURED CANDIDATE moments saved as tests, never verdicts and
+  never intent. Two boundaries are structural, not prose: the body renderer
+  (`prcmd.build_pr`) is a pure, offline function -- it emits the body and the
+  exact `git` and `gh` argv it *would* run and touches no network and no
+  subprocess (the one filesystem read, loading the scenarios, is isolated in
+  `prcmd.load_fixtures` exactly as `issuecmd` isolates its sweep read); and the
+  actual side effect runs only from `pr create` AND only under `--yes` with an
+  explicit `--repo`. The default is a dry run that prints the body and the exact
+  commands (cut a feature branch, stage the fixture files, commit, push, `gh pr
+  create`) and changes nothing. Two safety invariants hold even under `--yes`:
+  the change lands on a NEW feature branch (`hotato/<title slug>` by default,
+  never the default branch directly, refused if it is a protected/default branch
+  or equals `--base`) and the push is never a force-push. It reuses the same
+  fixture schema `hotato fixture create`/`promote` writes, so the PR that lands
+  the fixtures and the command that scores them read the same files. `git` and
+  `gh` are required only for `--yes`; a missing binary or a non-zero exit
+  surfaces as the standard exit-2 structured error, and a failing git step never
+  proceeds to `gh`.
+- **`hotato issue create SWEEP_JSON --repo OWNER/REPO --top N --label L [--yes]`,
+  a sweep result turned into a confirm-or-ignore GitHub issue**: renders a
+  `hotato sweep --format json` (or `hotato analyze --format json`) result into a
+  plain markdown issue body with a title from the run, a worst-candidate block
+  (call id, time, kind, the measured overlap/gap number, the report it came
+  from), and, for each of the top `--top` candidates, a confirm-or-ignore
+  section carrying the exact `hotato fixture promote FILE#N` command for BOTH a
+  `--expect yield` and a `--expect hold` label plus a close-it line for when the
+  moment is not a turn-taking failure at all. The moments are described as
+  MEASURED CANDIDATES, never verdicts and never intent. Two boundaries are
+  structural, not prose: the renderer (`issuecmd.build_issue`) is a pure,
+  offline function -- it emits the body and the exact `gh` argv it *would* run
+  and touches no network and no subprocess; and the actual side effect runs only
+  from `issue create` AND only under `--yes` with an explicit `--repo`. The
+  default is a dry run that prints the body and the exact `gh issue create`
+  command and creates nothing, mirroring the project default
+  `github_issue_on_candidate = false`: Hotato never opens an issue on your behalf
+  unless you ask for it in that exact call. The candidate parsing reuses the
+  SAME parser `hotato fixture promote` uses, and the per-candidate promote
+  commands and the measured-number headline reuse the SAME renderers the
+  sweep/analyze dashboard draws, so a ref in the issue resolves byte-for-byte to
+  the ref on the page. `gh` is required only for `--yes`; a missing binary or a
+  non-zero `gh` exit surfaces as the standard exit-2 structured error.
 - **`hotato init webhook --stack vapi|retell|twilio --target fastapi --out DIR`,
   a generated set-and-forget webhook worker**: scaffolds a small, self-hostable
   FastAPI worker that turns a voice platform's call-ended webhook into a passive

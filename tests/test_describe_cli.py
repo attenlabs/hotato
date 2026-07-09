@@ -30,6 +30,8 @@ _ALL_SUBCOMMANDS = [
     "fixture promote", "compare", "scan",
     "ingest", "analyze", "verify", "loop", "describe",
     "init", "init webhook",
+    "issue", "issue create",
+    "pr", "pr create",
 ]
 
 
