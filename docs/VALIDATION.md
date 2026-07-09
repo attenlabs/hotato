@@ -78,11 +78,20 @@ a quiet region is guaranteed clean. Scan widens the net; you make the call.
 
 ---
 
-## Job 3: fixture pass-fail agreement
+## Job 3: contract verification
 
 **The question:** once you have labelled a moment's expected behavior
 (`yield` = stop for the caller, `hold` = keep the floor through a backchannel),
-does Hotato's PASS/FAIL verdict agree with that label on the audio?
+does Hotato's PASS/FAIL verdict agree with that label on the audio, against an
+explicit, portable, CI-enforced policy?
+
+Today this job runs on a fixture (`hotato fixture create` / `hotato run`): a
+labelled recording plus an explicit threshold policy, scored the same way on
+every machine. The portable contract bundle (`hotato contract create` /
+`hotato contract verify`, audio plus timing evidence plus trace evidence plus
+label plus policy plus a CI command in one artifact) carries this exact job
+forward into a single self-contained object once it ships; the verdict this
+job validates does not change shape, only the artifact it travels in.
 
 **What is reported.** Per fixture: the verdict (`PASS`/`FAIL`), the measured
 signals behind it, and the named fix class when the failure maps cleanly to a
@@ -119,16 +128,17 @@ Read this as a hard boundary, not a disclaimer.
 
 - **No semantic intent.** Hotato measures timing. It does not know whether a
   caller sound meant "stop" or "mhm, go on." You supply that as a label.
+- **No root-cause certainty.** A slow yield can be TTS buffering, transport, or
+  VAD. `diagnose` names a likely layer and stays `unknown_root_cause` when one
+  recording cannot separate them. A voice trace narrows the candidates; it does
+  not convert a candidate into a proof.
 - **No task success.** Whether the call booked the appointment, resolved the
   ticket, or satisfied the caller is out of scope. Use a QA platform for that
-  (see [COMPARE-WITH-QA-PLATFORMS.md](COMPARE-WITH-QA-PLATFORMS.md)).
-- **No satisfaction or sentiment.** Hotato has no opinion on tone or CSAT.
-- **No root cause.** A slow yield can be TTS buffering, transport, or VAD.
-  `diagnose` names a likely layer and stays `unknown_root_cause` when one
-  recording cannot separate them.
+  (see [COMPARE.md](COMPARE.md)).
 - **No vendor ranking.** Hotato never scores one platform against another. A
   provider-default example demonstrates the threshold funnel on one assistant,
   one config, one date, one scripted caller. It is not a benchmark of the vendor.
+- **No human satisfaction or sentiment.** Hotato has no opinion on tone or CSAT.
 - **No single accuracy score.** There is no headline percentage anywhere in
   Hotato, on purpose. The three jobs above are the whole claim.
 
