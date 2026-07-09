@@ -1,9 +1,8 @@
 # The evidence pack
 
-This is the front door into everything Hotato ships as proof: what to run, what
-to read, and where each artifact lives. It is an index, not a restatement; each
-section below points at the page that carries the full standard so nothing here
-duplicates it.
+Hotato ships proof as reproducible commands, recorded audio, and deterministic,
+byte-stable verdicts you can rerun on your own machine, not adoption metrics or
+narrative claims.
 
 The standard every artifact in this pack is held to, and why it is ranked the
 way it is, lives in [evidence/README.md](evidence/README.md). Read that first
