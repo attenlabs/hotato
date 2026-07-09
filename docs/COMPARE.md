@@ -43,7 +43,7 @@ no ranking.
 | What you need | Best fit | Why |
 |---|---|---|
 | Broad conversation QA: did the call succeed, was the transcript right, did it follow the rubric, simulate hundreds of scenarios, dashboards for the team | **Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell** | These grade the whole conversation, task success, and content, or they are the agent platform itself. Hotato does not do content, task success, or simulation. |
-| Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Krisp, Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato never runs at runtime and never touches a live call. |
+| Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato never runs at runtime and never touches a live call. |
 | Prove a specific timing bug is fixed and **stays** fixed, from a real recorded call, portably, without sending audio anywhere | **Hotato** | A private, deterministic fixture: audio, a human label, and an explicit policy, scored the same way everywhere with `hotato verify`. Ships as a single portable contract bundle -- audio, timing evidence, trace evidence, label, policy, CI command -- in the release that adds the contract layer. |
 
 If your open question is "is my agent good?", start with a QA platform. If it
@@ -55,7 +55,7 @@ that is Hotato.
 
 These two are often confused, so it is worth being exact.
 
-- A **runtime layer** (Krisp, Pipecat, LiveKit turn detection) makes a decision
+- A **runtime layer** (Pipecat, LiveKit turn detection) makes a decision
   *during* the call: should the agent stop talking now? It optimizes the live
   experience. It does not keep a durable, re-runnable record of whether a
   specific past moment is handled correctly.
