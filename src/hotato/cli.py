@@ -422,11 +422,11 @@ def _cmd_run(args) -> int:
     # silently ignoring a single recording passed alongside it would mislead.
     # Reject the combination up front (clean usage error -> exit 2) rather than
     # quietly dropping the user's file.
-    if suite_mode and (args.stereo or args.caller or args.agent):
+    if suite_mode and (args.stereo or args.caller or args.agent or getattr(args, "mono", None)):
         raise ValueError(
             "--suite (or --scenarios/--audio together) runs a labelled battery "
             "and cannot be combined with a single recording (--stereo / --caller "
-            "/ --agent). Run one or the other."
+            "/ --agent / --mono). Run one or the other."
         )
     if args.dump_frames:
         if suite_mode:
@@ -481,6 +481,7 @@ def _cmd_run(args) -> int:
             stereo=args.stereo,
             caller=args.caller,
             agent=args.agent,
+            mono=getattr(args, "mono", None),
             caller_channel=args.caller_channel,
             agent_channel=args.agent_channel,
             onset_sec=args.onset,
@@ -490,6 +491,11 @@ def _cmd_run(args) -> int:
             max_time_to_yield_sec=args.max_time_to_yield,
             cfg=cfg,
             echo_gate=getattr(args, "echo_gate", False),
+            diarize=getattr(args, "diarize", False),
+            diarizer=getattr(args, "diarizer", "pyannote"),
+            caller_speaker=getattr(args, "caller_speaker", None),
+            agent_speaker=getattr(args, "agent_speaker", None),
+            egress_opt_in=getattr(args, "egress_opt_in", False),
         )
     _emit(env, args.format)
     if args.no_fail:
@@ -1375,6 +1381,9 @@ def _cmd_trust(args) -> int:
         args.stereo,
         caller_channel=args.caller_channel,
         agent_channel=args.agent_channel,
+        diarize=getattr(args, "diarize", False),
+        diarizer=getattr(args, "diarizer", "pyannote"),
+        egress_opt_in=getattr(args, "egress_opt_in", False),
     )
     if args.format == "json":
         print(_errors.safe_json_dumps(report, indent=2))
@@ -1601,8 +1610,8 @@ def _cmd_pr_create(args) -> int:
     return 0
 
 
-_DEMO_HEADER = "hotato demo: real recorded calls a provider's default agent fails"
-_DEMO_NOTE = ("these are two real recorded calls on a provider's default "
+_DEMO_HEADER = "hotato demo: recorded calls a provider's default agent fails"
+_DEMO_NOTE = ("these are two recorded calls on a provider's default "
               "settings; run it to see what Hotato catches.")
 
 
@@ -1856,6 +1865,33 @@ def build_parser() -> argparse.ArgumentParser:
                         "cough still reads as speech energy, and no accuracy is claimed). "
                         "The --suite self-test always uses the energy reference. Without "
                         "the [neural] extra installed, --backend neural errors cleanly.")
+    # single-channel (mono) scoring via the opt-in, quality-gated [diarize] front-end
+    r.add_argument("--mono", default=None, metavar="WAV",
+                   help="single-channel WAV to score by first separating it into "
+                        "caller/agent via speaker diarization (requires --diarize). "
+                        "The dual-channel --stereo path stays the gold reference.")
+    r.add_argument("--diarize", action="store_true",
+                   help="separate a --mono recording into caller/agent via speaker "
+                        "diarization, then score it. Quality-gated: below the "
+                        "confidence bar the verdict is labeled indicative only (no "
+                        "SLA gate fires) and a non-separable file is not scorable "
+                        "(exit 2). Opt-in [diarize] extra; absent it errors cleanly "
+                        "and NEVER scores raw mono.")
+    r.add_argument("--diarizer", default="pyannote",
+                   choices=["pyannote", "sortformer", "pyannoteai"],
+                   help="diarizer backend for --mono: 'pyannote' (local, offline, "
+                        "CPU-viable, default), 'sortformer' (local, GPU, best "
+                        "self-hostable on phone), 'pyannoteai' (HOSTED, best "
+                        "absolute, needs --egress-opt-in)")
+    r.add_argument("--caller-speaker", default=None, metavar="LABEL",
+                   help="override the caller<-speaker mapping (e.g. SPEAKER_00) "
+                        "instead of the floor-dominance proposal")
+    r.add_argument("--agent-speaker", default=None, metavar="LABEL",
+                   help="override the agent<-speaker mapping (e.g. SPEAKER_01)")
+    r.add_argument("--egress-opt-in", action="store_true",
+                   help="permit the HOSTED --diarizer pyannoteai to upload your "
+                        "audio off this machine (audio leaves this machine); local "
+                        "backends never need this")
     r.add_argument("--caller-channel", type=int, default=0)
     r.add_argument("--agent-channel", type=int, default=1)
     r.add_argument("--format", default="text", choices=["json", "text"],
@@ -2860,7 +2896,21 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     tr.add_argument("--stereo", required=True, metavar="WAV",
-                    help="two-channel WAV (caller on one channel, agent on the other)")
+                    help="two-channel WAV (caller on one channel, agent on the "
+                         "other); with --diarize, a single-channel (mono) WAV whose "
+                         "separability is reported instead")
+    tr.add_argument("--diarize", action="store_true",
+                    help="for a MONO file: report whether it is confidently "
+                         "SEPARABLE into caller/agent (a high/low/refuse tier) via "
+                         "the opt-in [diarize] front-end, so you know before "
+                         "scoring whether a diarized-mono verdict would be confident "
+                         "or only indicative. Still never a turn-taking verdict.")
+    tr.add_argument("--diarizer", default="pyannote",
+                    choices=["pyannote", "sortformer", "pyannoteai"],
+                    help="diarizer backend for --diarize (default pyannote, local)")
+    tr.add_argument("--egress-opt-in", action="store_true",
+                    help="permit the HOSTED --diarizer pyannoteai to upload audio "
+                         "off this machine")
     tr.add_argument("--caller-channel", type=int, default=0)
     tr.add_argument("--agent-channel", type=int, default=1)
     tr.add_argument("--format", default="text", choices=["text", "json"],

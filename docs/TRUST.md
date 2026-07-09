@@ -64,9 +64,9 @@ what [`hotato scan`](../src/hotato/scan.py) and `hotato run` are for.
 Three input defects make a recording unscorable. Each is reported with `scorable:
 false`, a plain reason, and the next step, and exits `2`:
 
-- **mono**: a single channel cannot separate the caller from the agent. Next
-  step: export a dual-channel recording with the caller on one channel and the
-  agent on the other.
+- **mono**: a single channel cannot separate the caller from the agent on its
+  own. Next step: export a dual-channel recording (the gold reference), OR score
+  it via the opt-in diarization front-end (see "Mono via `--diarize`" below).
 - **identical channels**: a mono recording duplicated into two channels: two
   channels, but not separated. Same fix as mono.
 - **a silent required channel**: for example `caller channel has no detected
@@ -75,6 +75,32 @@ false`, a plain reason, and the next step, and exits `2`:
 Clipping, high leading silence, crosstalk risk, and a possible channel swap are
 **warnings**: they are surfaced but do not, by themselves, make a recording
 unscorable.
+
+## Mono via `--diarize`: is this mono file confidently separable?
+
+By default a mono file is not scorable (above). With the opt-in `[diarize]`
+front-end, `hotato trust --stereo call.wav --diarize` reports whether the mono is
+confidently SEPARABLE into caller/agent -- still WITHOUT emitting any turn-taking
+verdict. It runs the selected diarizer (`--diarizer pyannote|sortformer|pyannoteai`,
+default local `pyannote`), then reports a `scorability.separation` sub-block and a
+confidence **tier**:
+
+- **high**: confidently separable -- score it with `hotato run --mono call.wav
+  --diarize` for a real (diarized-mono) verdict. Exit `0`.
+- **low**: separable but only indicative -- e.g. voices close, overlap elevated,
+  or the caller/agent mapping balanced. `hotato run --mono ... --diarize` will
+  still score it, but the verdict is stamped `indicative_only` and no SLA gate
+  fires. Exit `0`.
+- **refuse**: not confidently separable (not two clean parties, a near-silent
+  speaker, extreme overlap, voices too similar). Not scorable, exit `2`; next
+  step: record a dual-channel call.
+
+The six signals behind the tier (speaker count, per-speaker activity, mean
+segmentation posterior, embedding cluster-separation margin, overlap ratio,
+segment churn) are in the `separation.signals` block. A missing extra / token /
+model raises a clean error (exit 2), never a raw-mono guess. The dual-channel
+path stays the gold reference; a diarized-mono verdict is never equivalent to it.
+See `docs/DIARIZE.md` for the full front-end.
 
 ## JSON for agents
 

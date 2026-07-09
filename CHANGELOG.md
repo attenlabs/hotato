@@ -9,6 +9,52 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+### Added
+- **`hotato run --mono call.wav --diarize`, the opt-in, quality-gated
+  mono-scorability front-end**: a single-channel (mixed) recording -- until now
+  the hard coverage wall, rejected as not scorable -- becomes scorable by running
+  an off-the-shelf speaker diarizer over the mono to recover who was active when,
+  reconstructing two caller/agent tracks, and feeding the EXISTING dual-channel
+  scorer (zero engine edit). The two-channel path stays the gold reference; this
+  widens coverage, honestly labeled. A pluggable **diarizer-backend seam**
+  (mirroring the neural-VAD seam) ships three backends behind `--diarizer`:
+  `pyannote` (local, offline, CPU-viable, default; `[diarize]`), `sortformer`
+  (NVIDIA NeMo, local/GPU, best self-hostable on telephone;
+  `[diarize-sortformer]`), and `pyannoteai` (HOSTED, best absolute, requires
+  `--egress-opt-in`; `[diarize-hosted]`). A **real per-file confidence gate**
+  (extending `trust.py`'s scorability model) reads six signals -- speaker count,
+  per-speaker activity, mean segmentation posterior, embedding cluster-separation
+  margin, overlap ratio, segment churn -- into a `separation_confidence` and a
+  tier: `high` scores normally (labeled `diarized-mono`), `low` scores but stamps
+  `indicative_only` and fires NO SLA gate, `refuse` is not scorable (exit 2).
+  Caller/agent assignment reuses the floor-dominance heuristic to PROPOSE a
+  mapping stated as an assumption, overridable with `--caller-speaker` /
+  `--agent-speaker`; a balanced mapping downgrades to indicative. On this path
+  `signals.echo` / crosstalk is definitionally N/A (two slices of one microphone)
+  and the echo gate never fires. `hotato trust --stereo mono.wav --diarize`
+  reports the separability tier (high/low/refuse) WITHOUT scoring. No silent
+  fallback anywhere: a missing extra / token / model raises a clean
+  `BackendUnavailable` (exit 2) and NEVER scores raw mono. Honesty invariants:
+  the default path (no `--mono`/`--diarize`) stays byte-identical (a mono file is
+  still rejected as today), and a diarized-mono verdict is never presented as
+  equivalent to a true dual-channel measurement. New module `hotato.diarize`
+  (`DiarizationResult`, the backend registry, `reconstruct_tracks`,
+  `separation_confidence`, `assign_speakers`, `prepare_diarized_mono`, the
+  pyannote/sortformer/pyannoteai adapters, and a hermetic stub backend); new
+  `--mono`/`--diarize`/`--diarizer`/`--caller-speaker`/`--agent-speaker`/
+  `--egress-opt-in` flags on `hotato run` and `--diarize`/`--diarizer` on `hotato
+  trust`; documented in `docs/DIARIZE.md`. The `LIMITS.does_not_do` /
+  `METHODOLOGY.md` "no diarization" framing is superseded: two channels is the
+  gold reference; mono is scorable via the opt-in, quality-gated front-end,
+  labeled indicative below the bar. Speaker IDENTIFICATION is still out of scope
+  (a diarizer assigns anonymous SPEAKER_00/01; it never says who a person is).
+- New optional extras `[diarize]`, `[diarize-sortformer]`, `[diarize-hosted]`
+  (the `[diarize]` path raises the effective Python floor to >=3.10; the stdlib
+  core stays >=3.9). Dependency licenses are logged in `docs/DIARIZE.md` and
+  carried in the envelope's `diarization.licenses` block (pyannote-audio MIT;
+  community-1 weights CC-BY-4.0; Sortformer streaming v2 CC-BY-4.0 -- the offline
+  v1 is CC-BY-NC and is never shipped).
+
 ## [0.5.0] - 2026-07-09
 
 ### Added

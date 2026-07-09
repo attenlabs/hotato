@@ -48,14 +48,14 @@ def test_demo_exits_0_and_prints_failures_and_both_fix_classes(tmp_path, capsys)
     # Failures are intentional, so the default exit never breaks a script.
     assert code == 0
     text = capsys.readouterr().out
-    assert "hotato demo: real recorded calls a provider's default agent fails" in text
+    assert "hotato demo: recorded calls a provider's default agent fails" in text
     assert "0/2 events pass  (failed=2)" in text
     assert "[FAIL]" in text
     assert "fd-01-missed-interruption" in text
     assert "fd-02-backchannel-yielded" in text
     assert "fix[config]" in text
     assert "fix[engagement-control]" in text
-    assert "real recorded calls" in text
+    assert "recorded calls" in text
     assert f"report: {out}" in text
     html = out.read_text(encoding="utf-8")
     assert "fd-01-missed-interruption" in html

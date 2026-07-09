@@ -63,8 +63,11 @@ HONEST SCOPE AND LIMITS (read before trusting a number):
     timing measurements with every threshold exposed and every frame inspectable.
   * Ceiling: {LIMITS['ceiling']}
   * Best input: {LIMITS['best_input']}
-  * It does NOT do: speaker identification, diarization, transcription, or emotion
-    detection, and it makes no claim about any vendor's internal accuracy.
+  * It does NOT do: speaker identification (a diarizer assigns anonymous
+    SPEAKER_00/01; it never says who a person is), transcription, or emotion
+    detection, and it makes no claim about any vendor's internal accuracy. A
+    single-channel (mono) recording is scorable via the opt-in, quality-gated
+    diarization front-end, labeled indicative below the confidence bar.
   * Offline: runs locally; no audio egress.
 
 SCHEMA: the returned envelope's shape is documented at https://hotato.dev/schema/envelope.v1.json (schema_version "1", additive-only).

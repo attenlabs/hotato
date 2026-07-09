@@ -43,7 +43,7 @@ hotato sweep --stack vapi --since 7d --out hotato-sweep.html
 
 That opens one offline dashboard ranking every candidate moment across your last 7 days of calls. Run `sweep` on a schedule (cron, CI, wherever) and it becomes a passive monitor; promote a confirmed bug into a permanent fixture with `hotato fixture promote`, then gate CI so it never comes back. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) · runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md).
 
-No stack connected yet? `hotato sweep --demo` runs the identical flow over two bundled real calls: no credentials, no network.
+No stack connected yet? `hotato sweep --demo` runs the identical flow over two bundled recorded calls: no credentials, no network.
 
 Have one call recording and nothing else? One command surfaces its candidate moments:
 
@@ -58,7 +58,7 @@ Hotato catches the three talk-over failures callers feel: the agent talking over
 Try it with no audio of your own:
 
 ```bash
-uvx hotato demo   # scores two real recorded calls a provider's default agent failed, so you see the FAILs, timelines, and fix cards
+uvx hotato demo   # scores two recorded calls a provider's default agent failed, so you see the FAILs, timelines, and fix cards
 ```
 
 ## MCP
@@ -88,9 +88,21 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **Pull a call from your stack** (Vapi, Twilio, Retell, LiveKit, Pipecat): [`adapters/README.md`](adapters/README.md) · status [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
 - **CI gates**: GitHub Action [`docs/CI.md`](docs/CI.md) · pytest plugin [`docs/PYTEST.md`](docs/PYTEST.md)
 - **Reports and analytics**: [`docs/REPORTS.md`](docs/REPORTS.md) · Suites [`docs/SUITES.md`](docs/SUITES.md) · Stack benchmarks [`docs/BENCHMARK-STACKS.md`](docs/BENCHMARK-STACKS.md)
-- **Real battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
+- **Recorded-call battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
 - **For agents**: [`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt) · MCP server [`docs/MCP.md`](docs/MCP.md) · Security [`SECURITY.md`](SECURITY.md)
 - **Contributing**: the highest-value PR is a real, labelled call fixture: [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
+
+## Evidence, not adoption claims
+
+Hotato is early, and this README makes no broad-adoption claim. What it offers instead is evidence you can run and inspect today, on your own machine:
+
+- **Two bundled failure calls**, scored in one command: `uvx hotato demo` rescores two recorded calls a provider-default agent failed, offline, and prints the FAILs, timelines, and fix cards.
+- **The recorded-call battery** in [`corpus/vapi-defaults/`](corpus/vapi-defaults/README.md): 12 scripted calls against a live voice agent on its provider's default settings, each with its label, its measured timing, and its consent basis.
+- **Deterministic report output**: every verdict is a timing that re-runs identically on any machine, quoted with the command that produced it, with no accuracy percentage anywhere.
+- **Not-scorable examples**: a mono file or a bad export is marked NOT SCORABLE instead of being turned into a confident but meaningless verdict.
+- **Before and after `verify`**: a proposed fix is measured across the whole battery, reporting coincidence, not causation.
+
+Bring your own recordings and measure. Nothing here asks you to take a number on faith.
 
 Why "hotato": good turn-taking is a game of hot potato. Speak, then pass the turn the moment the caller wants it. MIT licensed ([`LICENSE`](LICENSE)); the open core stays open.
 
@@ -199,10 +211,14 @@ at once) proven on real recorded calls, not synthetic fixtures
 
 ## What it does not do
 
-No transcription. No speaker identification or diarization. No emotion or
-intent detection. Hotato measures energy over time on two channels; the method
-and its ceiling are stated in [METHODOLOGY.md](../METHODOLOGY.md) and in the
-`limits` block of every result.
+No transcription. No speaker identification (a diarizer assigns anonymous
+SPEAKER_00/01; it never says who a person is). No emotion or intent detection.
+Hotato measures energy over time on two channels; a single-channel (mono)
+recording is scorable via the opt-in, quality-gated `[diarize]` front-end
+(`hotato run --mono call.wav --diarize`), labeled indicative below the
+confidence bar and never equivalent to a true dual-channel measurement. The
+method and its ceiling are stated in [METHODOLOGY.md](../METHODOLOGY.md) and in
+the `limits` block of every result.
 
 ## Why no accuracy score?
 
@@ -259,16 +275,22 @@ The limits come first because they bound everything below.
  hangover that keeps an utterance whole (default 150 ms) smears every trailing
  edge by up to that much, and on one mixed channel deciding *whose* energy
  crossed the threshold is not always possible.
-- **Two channels is the required input.** Hotato's main scorer requires
- separated caller and agent tracks: either one two-channel WAV or two aligned
- mono WAVs. A single mixed mono call is not enough to attribute talk-over
- reliably: with both voices summed into one waveform, the scorer cannot
- attribute energy to a speaker. With physically separate channels, overlap is
- a fact of the recording: both tracks are active at once, by construction.
-- **Out of scope, permanently:** no speaker identification, no diarization, no
- speech-to-text, no emotion or intent detection, and no claim about any
- vendor's internal accuracy. Word-level semantics are not measured; only the
- timing of the yield is.
+- **Two channels is the gold reference; mono is scorable, quality-gated.** The
+ reference input is separated caller and agent tracks: one two-channel WAV or
+ two aligned mono WAVs, where each channel is one party and overlap is a fact of
+ the recording (both tracks active at once, by construction). A single mixed
+ mono call is scorable via the opt-in `[diarize]` front-end (`hotato run --mono
+ call.wav --diarize`): a diarizer separates the mix into caller/agent activity,
+ which is reconstructed and scored through the same path. It is quality-gated --
+ above the confidence bar the verdict is labeled `diarized-mono`; below it, the
+ verdict is labeled indicative only and no SLA gate fires; a non-separable file
+ is refused. Diarized mono never equals a true dual-channel recording for
+ sub-second talk-over attribution, and the gate is what keeps that honest per
+ file.
+- **Out of scope, permanently:** no speaker identification (a diarizer assigns
+ anonymous SPEAKER_00/01; it never says who a person is), no speech-to-text, no
+ emotion or intent detection, and no claim about any vendor's internal accuracy.
+ Word-level semantics are not measured; only the timing of the yield is.
 
 These same limits are emitted inline in the `limits` block of every JSON result
 (`core.py`) and in the MCP tool description, so a consuming agent sees them.
@@ -955,7 +977,7 @@ command mutates any platform config, and no apply command exists.
 
 | Level | Command | What it does | Writes to your stack |
 |---|---|---|---|
-| 0 | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the honest advisory and the tradeoff stated | never |
+| 0 | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the advisory and the tradeoff stated | never |
 | 1 | `hotato inspect --stack ...` | Reads the CURRENT turn-taking config (GET or static parse) and normalizes it | never |
 | 2 | `hotato plan result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | never |
 | 3 | apply / verify | NEXT PHASE, not shipped | see below |
@@ -1213,13 +1235,13 @@ vendor-neutral, numbers-free **engagement-control pointer** instead: it names th
 problem class (discriminating a real bid for the floor from a backchannel) and
 the KIND of fix it needs, names no product, and carries no digits. It is not an
 upsell, and it fires ONLY on this case -- never on an ambiguous slow yield or a
-coverage gap, which get their honest "no patch, here's why" instead.
+coverage gap, which get a "no patch, here's why" instead.
 
 Every other non-propose decision (diagnostic checklist, insufficient coverage,
 already at a documented bound, no change) likewise emits no patch, with the
 reason pointing back at the plan.
 
-**Honesty:** patch makes no network call and pins `applies_change` to false.
+**Guardrail:** patch makes no network call and pins `applies_change` to false.
 `--format json` emits the full artifact; `--out PATH` also writes it.
 
 ## `hotato verify --before <old> --after <new>` -- the proof
@@ -1247,7 +1269,7 @@ shift. The rollup is the two axes that matter:
 - **hold axis**: how many hold-labeled guard fixtures still pass (they must not
   regress).
 
-**Honesty:**
+**Guardrail:**
 
 - verify reports **coincidence, never causation**: it says the improvement
   *coincides with* your change, never that it *caused* it. Hotato measures
@@ -1502,7 +1524,7 @@ a yield marker where the scanner measured the agent going silent).
 
 ### 2. The hear-the-bug player
 
-For the top `--audio-top` moments (default 8) the REAL audio around the moment
+For the top `--audio-top` moments (default 8) the audio around the moment
 is embedded inline as a base64 WAV data URI. Nothing is uploaded, the page has
 zero external requests. Press play and a **playhead** sweeps that moment's
 timeline in lockstep with `audio.currentTime` (via `requestAnimationFrame`), so
@@ -1525,7 +1547,7 @@ prints the ranked candidates plus their metadata (source file, timestamp, kind,
 salience, measured durations, and the audio/timeline window) to stdout, capped
 by `--top`. Pass `--out FILE` to also write the full ranked JSON.
 
-## Honest framing
+## Framing
 
 These are **measured candidate timing moments**, not verdicts and not intent.
 Energy is not intent: the scanner cannot know whether a caller sound was "mhm"
@@ -1635,9 +1657,9 @@ what [`hotato scan`](../src/hotato/scan.py) and `hotato run` are for.
 Three input defects make a recording unscorable. Each is reported with `scorable:
 false`, a plain reason, and the next step, and exits `2`:
 
-- **mono**: a single channel cannot separate the caller from the agent. Next
-  step: export a dual-channel recording with the caller on one channel and the
-  agent on the other.
+- **mono**: a single channel cannot separate the caller from the agent on its
+  own. Next step: export a dual-channel recording (the gold reference), OR score
+  it via the opt-in diarization front-end (see "Mono via `--diarize`" below).
 - **identical channels**: a mono recording duplicated into two channels: two
   channels, but not separated. Same fix as mono.
 - **a silent required channel**: for example `caller channel has no detected
@@ -1646,6 +1668,32 @@ false`, a plain reason, and the next step, and exits `2`:
 Clipping, high leading silence, crosstalk risk, and a possible channel swap are
 **warnings**: they are surfaced but do not, by themselves, make a recording
 unscorable.
+
+## Mono via `--diarize`: is this mono file confidently separable?
+
+By default a mono file is not scorable (above). With the opt-in `[diarize]`
+front-end, `hotato trust --stereo call.wav --diarize` reports whether the mono is
+confidently SEPARABLE into caller/agent -- still WITHOUT emitting any turn-taking
+verdict. It runs the selected diarizer (`--diarizer pyannote|sortformer|pyannoteai`,
+default local `pyannote`), then reports a `scorability.separation` sub-block and a
+confidence **tier**:
+
+- **high**: confidently separable -- score it with `hotato run --mono call.wav
+  --diarize` for a real (diarized-mono) verdict. Exit `0`.
+- **low**: separable but only indicative -- e.g. voices close, overlap elevated,
+  or the caller/agent mapping balanced. `hotato run --mono ... --diarize` will
+  still score it, but the verdict is stamped `indicative_only` and no SLA gate
+  fires. Exit `0`.
+- **refuse**: not confidently separable (not two clean parties, a near-silent
+  speaker, extreme overlap, voices too similar). Not scorable, exit `2`; next
+  step: record a dual-channel call.
+
+The six signals behind the tier (speaker count, per-speaker activity, mean
+segmentation posterior, embedding cluster-separation margin, overlap ratio,
+segment churn) are in the `separation.signals` block. A missing extra / token /
+model raises a clean error (exit 2), never a raw-mono guess. The dual-channel
+path stays the gold reference; a diarized-mono verdict is never equivalent to it.
+See `docs/DIARIZE.md` for the full front-end.
 
 ## JSON for agents
 
@@ -1799,7 +1847,7 @@ ranked candidates plus a pull summary instead.
 
 Dual-channel stacks give separated scoring. Mono/mixed stacks can be swept with
 `--allow-mono`, but their calls cannot be attributed per party and surface in the
-dashboard's Skipped section. Honestly, not faked.
+dashboard's Skipped section.
 
 Candidates are MEASURED timing moments you review and label with `hotato fixture
 create`, never verdicts and never intent. There is no pass/fail, no failure
@@ -1807,10 +1855,10 @@ count, and no accuracy number anywhere.
 
 ## What is and isn't pullable
 
-See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full, honest map:
+See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full map:
 which stacks auto-pull dual-channel, which are mono-only behind `--allow-mono`,
 which are capture-in-your-infra, and which are not integrable, each with the
-exact verified endpoint and the honest gaps.
+exact verified endpoint and the gaps.
 
 
 ================================================================================
@@ -1821,7 +1869,7 @@ FILE: docs/ADAPTER-STATUS.md
 
 What each capture adapter is built against, verified verbatim against the
 vendor's live documentation on the date shown (integration research:
-`hotato-launch/INTEGRATION-SPEC-2026-07-07.md`). This file is the honest map of
+`hotato-launch/INTEGRATION-SPEC-2026-07-07.md`). This file is the map of
 what Hotato can and cannot pull, and why.
 
 Terms:
@@ -1838,7 +1886,7 @@ Terms:
 
 Honesty rule (enforced): an adapter ships only with endpoints verified verbatim
 in the spec. Where the spec marks a list-calls endpoint or a channel layout
-**unconfirmed / none**, Hotato does not invent one; it supports the honest
+**unconfirmed / none**, Hotato does not invent one; it supports the
 fallback (explicit ids) and documents the gap here rather than guessing.
 
 ## Build now: real dual-channel (auto-pull, separated scoring)
@@ -1879,7 +1927,7 @@ the EU region. Single-call `capture`/`pull` by explicit id needs none of these.
 ## Unconfirmed: needs credentials or a live probe before shipping
 
 Documented weakly or behind a login/SPA; the spec could not verify a recording
-field-path or a channel layout. Not shipped as adapters. Listed here honestly so
+field-path or a channel layout. Not shipped as adapters. Listed here so
 nobody assumes support that was never confirmed.
 
 - **Regal.ai**: no list-calls and no REST fetch-recording endpoint. The
@@ -1909,7 +1957,7 @@ Other enterprise/partial platforms researched but not shipped (login-gated,
 SPA-only docs, or transcript-only APIs): Daily, Ultravox, Hume EVI, Telnyx,
 Infobip, OpenAI Realtime, Amazon Connect, Parloa, Sierra, Decagon, PolyAI,
 Voiceflow, Cognigy, Dialogflow CX, Genesys Cloud, NICE CXone. See the
-integration spec for the per-platform verified facts and honest gaps.
+integration spec for the per-platform verified facts and gaps.
 
 ## Invariants
 
@@ -1929,7 +1977,7 @@ FILE: docs/REPORTS.md
 
 # Reports: doctor, report, team, export
 
-Four surfaces over the same scorer. Every number in every one of them is a real
+Four surfaces over the same scorer. Every number in every one of them is a
 measurement from the envelope; nothing is recomputed, restyled into a
 percentage, or fabricated. There is no accuracy percentage anywhere.
 
@@ -1963,7 +2011,7 @@ uvx hotato report --suite barge-in --out selftest.html
 uvx hotato report --stereo call.wav --format md --out report.md
 ```
 
-Per event it draws a to-scale caller/agent activity timeline from the real
+Per event it draws a to-scale caller/agent activity timeline from the
 frame data: the overlap shaded, the caller-onset and yield markers, the
 measured talk-over seconds, expected vs actual, a PASS or FAIL chip, and the
 exact `ScoreConfig` thresholds used.
@@ -1973,7 +2021,7 @@ measurements:
 
 - a **time-to-yield distribution** strip, one dot per measured yield, with
   mean, median, and p90 (definitions in `METHODOLOGY.md`);
-- a **talk-over histogram**, real per-event seconds bucketed on a fixed grid;
+- a **talk-over histogram**, per-event seconds bucketed on a fixed grid;
 - **failure clustering by fix class**, so a batch of failures reads as "these
   five share one config setting" instead of five separate mysteries.
 
@@ -2001,7 +2049,7 @@ collapse into a clean paper layout, so print-to-PDF is the PDF export.
 
 ## `hotato team`: the trend view
 
-Aggregates a directory of run envelopes into one honest trend.
+Aggregates a directory of run envelopes into one trend.
 
 ```bash
 hotato run --suite barge-in --format json > runs/001.json
@@ -2128,7 +2176,7 @@ building labelled fixtures from real recordings).
 FILE: docs/SUITES.md
 ================================================================================
 
-# Corpus suites: tiered, deterministic, honest about what they prove
+# Corpus suites: tiered, deterministic, explicit about what they prove
 
 `corpus/suites/` ships four labelled scenario suites, 112 scenarios total,
 every one synthetic shaped noise rendered deterministically from its own
@@ -2418,7 +2466,7 @@ surfaces.
 ## More
 
 - Python API and the shared error contract: [`API.md`](API.md)
-- What the envelope measures and the honest scope/ceiling: the top-level
+- What the envelope measures and the scope/ceiling: the top-level
   [`README.md`](../README.md) and [`METHODOLOGY.md`](../METHODOLOGY.md)
 - Machine-readable index of every command (CLI and MCP): [`llms.txt`](../llms.txt)
 
@@ -2458,7 +2506,7 @@ All scoring functions take keyword arguments only.
   "stack": "generic",            # normalized stack label
   "offline": True,
   "engine": {"name", "version", "upstream"},
-  "limits": {...},               # honest scope and ceiling, hotato.core.LIMITS
+  "limits": {...},               # scope and ceiling, hotato.core.LIMITS
   "summary": {"events", "passed", "failed", "regression"},
                                  # plus additive "not_scorable" (count) when
                                  # at least one event could not be judged
@@ -2597,7 +2645,7 @@ Every reported signal is re-derivable by hand from this dump.
 
 ### LIMITS and SUITE_ID
 
-`hotato.core.LIMITS` is the honest scope dict embedded in every envelope
+`hotato.core.LIMITS` is the scope dict embedded in every envelope
 (method, ceiling, best input, what it does not do). `SUITE_ID` is `"barge-in"`.
 
 ### ScoreConfig
@@ -2659,7 +2707,7 @@ env = write_report("report.html", suite="barge-in", stack="livekit")
 
 ## hotato.aggregate
 
-Team mode: many run envelopes, one honest trend view.
+Team mode: many run envelopes, one trend view.
 
 ```python
 load_run_dir(dirpath: str, order: str = "mtime") -> dict
@@ -2959,7 +3007,7 @@ what the numbers in a report mean, read the "Validity metrics" section at the en
 
 ## Why real recordings matter
 
-The synthetic fixtures in `src/hotato/data/` are a deliberately honest floor. They
+The synthetic fixtures in `src/hotato/data/` are a deliberately conservative floor. They
 are rendered from known segment timings, so the ground truth is exact and the eval
 is runnable by anyone, offline, in seconds. That makes them ideal for regression
 tests and for demonstrating that the scorer behaves as specified.
@@ -3079,7 +3127,7 @@ Redaction guidance:
 
 ## Validity metrics: what we publish
 
-The corpus exists to quantify measurement quality honestly. That shapes how results
+The corpus exists to quantify measurement quality. That shapes how results
 are reported.
 
 We publish:
@@ -3255,7 +3303,7 @@ block) or the value a contributor labelled by hand:
 Errors are reported as a distribution: median, mean, worst case, best case, and n.
 A signal is scored where a rendered or true reference exists and the scorer
 produced a value; a missing reference yields a `-`. (The echo-of-agent fixture has
-no independent caller speech, so it has no onset or yield error: an honest gap.)
+no independent caller speech, so it has no onset or yield error: a gap.)
 
 Onset is measured in **detect mode** (the scorer gets no onset hint), so it is a
 real test of the onset detector. Yield, talk-over, response gap, and `did_yield`
@@ -3349,10 +3397,286 @@ PYTHONPATH=src python3 -m hotato.benchmark \
 When `--scenarios` is given, only that set is scored, so you get a clean report for
 your corpus alone.
 
-The honest path to a real-model number is manual and consented: bring your own
+The path to a real-model number is manual and consented: bring your own
 labelled audio. Contributing real audio is governed by `docs/CORPUS-GOVERNANCE.md`
 (consent, PII, data-handling) and the pipeline in `corpus/` (a labelling schema and
 a validator). Synthetic fixtures keep their synthetic label.
+
+
+================================================================================
+FILE: docs/COMPARE-WITH-QA-PLATFORMS.md
+================================================================================
+
+# Where Hotato fits alongside your QA platform
+
+Hotato is one layer of voice-agent quality, not a replacement for your eval
+platform. It does a single job: **private, deterministic, post-call timing
+regression from your own recordings.** For most teams it sits next to a broader
+QA tool and a runtime interruption layer, and each does what it is best at.
+
+This page is a routing guide. If another tool is a better fit for what you need,
+that is what you should use, and this page says so plainly.
+
+## The honest job, and the better fit
+
+| What you need | Best fit | Why |
+|---|---|---|
+| Broad conversation QA: did the call succeed, was the transcript right, did it follow the rubric, simulate hundreds of scenarios, dashboards for the team | **Vapi, Retell, Hamming** (and similar QA / simulation platforms) | These grade the whole conversation, task success, and content. They run large simulated batteries and give you a hosted dashboard. Hotato does not do content, task success, or simulation. |
+| Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Krisp, Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato never runs at runtime and never touches a live call. |
+| Prove a specific timing bug is fixed and **stays** fixed, from real recorded calls, without sending audio anywhere | **Hotato** | Deterministic post-call scoring, offline, that turns a confirmed bug into a permanent CI fixture. |
+
+If your open question is "is my agent good?", start with a QA platform. If it is
+"is my agent interrupting well right now?", start with a runtime layer. If it is
+"did the talk-over bug we fixed last month come back in this release?", that is
+Hotato.
+
+## Runtime layer vs regression layer
+
+These two are often confused, so it is worth being exact.
+
+- A **runtime layer** (Krisp, Pipecat, LiveKit turn detection) makes a decision
+  *during* the call: should the agent stop talking now? It optimizes the live
+  experience. It does not keep a durable, re-runnable record of whether a
+  specific past moment is handled correctly.
+- A **regression layer** (Hotato) makes a decision *after* the call, from the
+  recording: given this exact audio and this label, did the timing match, yes or
+  no, byte-stable on every run? It exists to catch the day a fixed bug silently
+  returns.
+
+You want both. A runtime layer improves the median call. A regression layer
+stops a good fix from quietly rotting three releases later. Hotato takes the
+moment a runtime layer got wrong, freezes it as a fixture, and fails CI if it
+regresses.
+
+## What Hotato is for, precisely
+
+- **Private.** Scoring, scanning, reports, fixtures, and verification run
+  offline. Audio stays on your machine unless you explicitly pull it from your
+  own stack. Nothing is uploaded to Attention Labs. See
+  [THREAT-MODEL.md](THREAT-MODEL.md).
+- **Deterministic.** No learned score, no sampling. The same recording produces
+  the same timing numbers every run, so a red build means the audio changed.
+- **Regression-shaped.** A confirmed bug becomes a fixture
+  (`hotato fixture promote`) that gates CI. `verify` proves a fix across the
+  whole battery and reports coincidence, not causation.
+- **Narrow on purpose.** Three timing signals: talking over the caller,
+  false-stopping on a backchannel, yielding too slowly. It does not grade
+  content, intent, or outcomes.
+
+## On provider-default examples
+
+When a Hotato example shows a call failing on a named stack, it is labelled a
+**provider-default** run: one assistant, one configuration, one date, one
+scripted caller, on that provider's out-of-the-box interruption settings. It
+demonstrates the threshold funnel (how a default config can miss an interruption
+and false-stop on a backchannel in the same battery). It is **not** a vendor
+benchmark and **not** a ranking of one platform against another. Any stack,
+tuned, can pass the same fixtures. Hotato never publishes a scoreboard.
+
+## The short version
+
+Use a QA platform for broad quality. Use a runtime layer for live interruption
+handling. Use Hotato when you need to prove, privately and deterministically,
+that a specific timing bug from a real call is fixed and does not come back.
+They compose; none of them replaces the others.
+
+
+================================================================================
+FILE: docs/DIARIZE.md
+================================================================================
+
+# `hotato run --mono call.wav --diarize`: score a single-channel recording
+
+Hotato's gold reference is a **two-channel** recording -- the caller on one
+channel, the agent on the other, each channel one party, no separation needed.
+That path, and every published/golden number, is unchanged. A **mono** (single,
+mixed channel) recording is the coverage wall: by default it is rejected as not
+scorable, because with both voices summed into one waveform the scorer cannot
+attribute energy to a speaker.
+
+The opt-in `[diarize]` front-end widens that coverage. It runs an off-the-shelf
+**speaker diarizer** over the mono to recover *who was active when*, reconstructs
+two caller/agent tracks, and feeds the **existing** scorer -- so a mono call
+becomes scorable. It is **quality-gated** and honestly labeled: above the
+confidence bar the verdict is a real `diarized-mono` verdict; below it, the
+verdict is labeled indicative only and no SLA gate fires; a non-separable file is
+refused. A diarized-mono verdict is **never** equivalent to a true dual-channel
+measurement for sub-second talk-over, and the gate is what keeps that honest per
+file.
+
+Diarization, not source separation: Hotato scores *timing* (who was active when,
+and overlap), which a diarizer's turn timestamps reconstruct directly. It does
+**not** reconstruct isolated waveforms, and does **not** do speaker
+IDENTIFICATION -- a diarizer assigns anonymous `SPEAKER_00` / `SPEAKER_01`; it
+never says who a person is.
+
+## Quickstart
+
+```bash
+# Install the default (local, offline) diarizer extra, plus a Hugging Face token
+# with the gated model conditions accepted (one-time download, then offline):
+pip install 'hotato[diarize]'
+export HUGGINGFACE_TOKEN=hf_...            # accept the model card conditions first
+
+# Check first whether the mono is confidently separable (no scoring):
+hotato trust --stereo call.wav --diarize            # -> high / low / refuse tier
+
+# Score the mono:
+hotato run --mono call.wav --diarize --format json  # diarized-mono verdict
+```
+
+With the extra (or the token/model) absent, `--diarize` errors cleanly and exits
+`2`; it **never** falls back to scoring raw mono.
+
+## Backends and extras
+
+A pluggable backend seam (mirroring the neural-VAD seam). Pick with
+`--diarizer`; install only the extra you select. The default backend is chosen by
+the downstream benchmark, not pre-assumed -- `pyannote` is the accessible local
+default but is **not** best on telephone, so a user who needs best-in-class picks
+`sortformer` (local) or `pyannoteai` (hosted).
+
+| `--diarizer` | extra | where it runs | notes |
+|---|---|---|---|
+| `pyannote` (default) | `[diarize]` | local, CPU-viable, offline | richest confidence signals (posterior + embedding margin); gated HF weights |
+| `sortformer` | `[diarize-sortformer]` | local, GPU-leaning | best self-hostable on 2-speaker telephone; EEND (no embedding margin) |
+| `pyannoteai` | `[diarize-hosted]` | HOSTED (audio leaves the machine) | best absolute accuracy; requires `--egress-opt-in` |
+
+```toml
+diarize            = ["pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "numpy>=1.21"]  # default; needs system ffmpeg
+diarize-sortformer = ["nemo-toolkit[asr]>=2.7", "torch>=2.8", "numpy>=1.21"]                   # best self-hostable, GPU
+diarize-hosted     = ["pyannoteai-sdk>=0.3"]                                                   # hosted, egress opt-in
+```
+
+The `[diarize]` path raises the effective Python floor to **>=3.10** (pyannote
+4.x); the stdlib core stays >=3.9 -- this only constrains the optional path.
+
+### Model licenses (log per FTO note)
+
+Using off-the-shelf diarizers is integration, orthogonal to any Hotato IP claim,
+but the dependency licenses are logged here and carried in the score envelope's
+`diarization.licenses` block:
+
+- `pyannote-audio` -- **MIT** (code)
+- `speaker-diarization-community-1` weights -- **CC-BY-4.0** (attribution required)
+- `segmentation-3.0` weights -- **MIT**; `wespeaker` embedding -- **CC-BY-4.0**
+- `torch` -- **BSD-3-Clause**; `torchaudio` -- **BSD-2-Clause**
+- `nemo-toolkit` -- **Apache-2.0**
+- Sortformer **streaming v2** -- **CC-BY-4.0** (the offline v1 is **CC-BY-NC** ->
+  non-commercial, and is never shipped)
+- pyannoteAI hosted -- proprietary terms (verify before enabling egress)
+
+If your licensing posture wants a permissive weights license, prefer
+`speaker-diarization-3.1` (MIT weights) over community-1 (CC-BY-4.0) via
+`HOTATO_DIARIZE_MODEL`.
+
+## The confidence gate (the honesty core)
+
+Aggregate diarization error is a corpus statistic; the gate is **per file, at
+runtime, with no ground truth**. Six signals feed a `separation_confidence` in
+`[0, 1]` and one of three tiers:
+
+| signal | flags low quality when |
+|---|---|
+| speaker count == 2 | != 2: not two clean parties (1 = couldn't separate; 3+ = extra voices / mis-cluster) -> refuse |
+| both speakers >= 0.30s activity | a near-silent "speaker" is a spurious split of one party -> refuse |
+| mean segmentation posterior | near-chance: the model is unsure who is speaking (uncalibrated; a relative signal) |
+| embedding cluster margin (pyannote only) | small: two voices too similar to attribute confidently |
+| overlap ratio in a sane band | extreme: heavy crosstalk / collapsed turns -> talk-over unreliable |
+| segment churn (short turns/sec) | high: a jittery, unstable timeline -> noisy timing |
+
+**Tiers:**
+
+- **high** -- score normally; the verdict is real but always tagged
+  `source: "diarized-mono"` and `confidence_tier: "high"` (never presented as
+  dual-channel).
+- **low** -- score, but the envelope carries `indicative_only: true`: the verdict
+  is "indicative only, reconstructed from single-channel diarization." **No
+  pass/fail SLA gate** (`--max-talk-over` / `--max-time-to-yield`) fires on a low
+  tier.
+- **refuse** -- `scorable: false`, a reason naming the failed signal, exit `2`
+  (exactly like today's mono rejection).
+
+The thresholds are provisional and **uncalibrated** -- they are pinned by the
+downstream verdict-agreement benchmark, not asserted as accuracy -- and are
+exposed as constants in `hotato/diarize.py`.
+
+## Caller vs agent assignment (never a silent guess)
+
+A diarizer returns anonymous `SPEAKER_00` / `SPEAKER_01`; Hotato needs
+caller/agent. The mapping is proposed, stated as an assumption, and overridable:
+
+- **default proposal** -- reuse the floor-dominance heuristic (`trust`'s
+  possible-swap band): an agent usually holds the floor longer, so the
+  higher-talk-time speaker is proposed as the agent. Ambiguous (balanced floor
+  time) mappings are broken by who-speaks-first and flagged `balanced: true`,
+  which downgrades the verdict to indicative rather than a coin-flip.
+- **override** -- `--caller-speaker SPEAKER_00 --agent-speaker SPEAKER_01`; when
+  both are given no heuristic runs.
+
+The chosen mapping and its basis are emitted in
+`diarization.speaker_map: {caller, agent, basis, balanced, confidence}`.
+
+## Echo / crosstalk is N/A on this path
+
+The two reconstructed tracks are slices of **one physical microphone**, so
+`signals.echo` / crosstalk coherence carries no echo information (it is trivially
+high in overlap). On the diarized-mono path the echo block is marked
+`applicable: false` and the `--echo-gate` can never fire -- it is meaningful only
+for two physically separate channels.
+
+## Honest limits (what stays indicative or refused)
+
+- **very similar voices** (same gender/pitch, or one person on both ends) -> low
+  embedding margin -> low/refuse.
+- **heavy crosstalk / echo bleed** -> overlap balloons -> low/refuse.
+- **>2 speakers** (a supervisor, hold music with vocals) -> refuse.
+- **deep sustained overlap** and **sub-second boundary precision** are inherently
+  weaker than dual-channel and are stamped, never hidden.
+- **balanced speaker map** -> mapping uncertain -> indicative until confirmed.
+
+A de-risk spike (with a *perfect* diarizer) confirmed the masked-reconstruction
+path systematically inflates sub-second talk-over by ~0.1-0.36s and can bridge a
+short backchannel gap -- an error intrinsic to single-channel masking that no
+diarizer quality removes. That is precisely why elevated-overlap and short-yield
+cases land in the fragile `low` zone (indicative, no SLA gate). Direct
+diarization-timeline injection (skipping the reconstruction re-VAD) is the
+recommended follow-up; under either approach the honest error budget is governed
+by the gate above.
+
+## JSON shape (agents)
+
+A scored diarized-mono envelope is the SAME envelope as any single run, plus a
+`diarization` provenance block and, when the tier is not high, `indicative_only:
+true` on the event:
+
+```json
+{
+  "mode": "single",
+  "diarization": {
+    "source": "diarized-mono",
+    "backend": "pyannote",
+    "model": "pyannote/speaker-diarization-community-1",
+    "num_speakers": 2,
+    "speaker_map": {"caller": "SPEAKER_00", "agent": "SPEAKER_01", "basis": "floor-dominance", "balanced": false},
+    "separation_confidence": 0.86,
+    "confidence_tier": "high",
+    "overlap_ratio": 0.14,
+    "licenses": {"pyannote-audio": "MIT (code)", "...": "..."}
+  },
+  "events": [{
+    "verdict": {"did_yield": true, "seconds_to_yield": 0.5, "talk_over_sec": 0.5, "reasons": []},
+    "diarization": { "...": "same block" },
+    "scorability": {"separation": {"confidence_tier": "high", "separation_confidence": 0.86, "signals": {"...": "..."}}},
+    "signals": {"echo": {"applicable": false, "reason": "single physical channel ..."}}
+  }]
+}
+```
+
+Branch on `diarization.confidence_tier`; treat any event carrying
+`indicative_only: true` as indicative and never as a confident dual-channel
+verdict. A refused file is `scorable: false` with `not_scorable_reason` and exit
+`2`.
 
 
 ================================================================================
@@ -3469,7 +3793,7 @@ See [`examples/set-and-forget/`](../examples/set-and-forget/README.md) for a
 runnable version of this, plus the CI half of the loop.
 
 No stack connected yet? Everything above works with `--demo` instead of
-`--stack ... --since ...`, credential-less, against two bundled real calls:
+`--stack ... --since ...`, credential-less, against two bundled recorded calls:
 
 ```bash
 hotato sweep --demo --format json > hotato-sweep.json
@@ -3483,7 +3807,7 @@ every candidate moment across every swept call, ranked by salience, with the
 hear-the-bug audio player embedded for the top `--audio-top` (default 8) so
 you can listen before deciding anything. Calls that could not be scored
 (mono/mixed stacks without `--allow-mono`, an unreadable file) list under
-Skipped with the reason, an honest skip, not a silent drop.
+Skipped with the reason, a logged skip, not a silent drop.
 
 The JSON (`--format json`) is the same candidate list as structured data.
 Each entry carries the source recording, the timestamp (`t_sec`), the kind
@@ -3552,7 +3876,7 @@ hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
 ```
 
 That last `run` prints the fix card too (fix class, the config knob, the
-direction to move it), because the fixture that just failed is a real,
+direction to move it), because the fixture that just failed is a
 labelled bad-agent moment from the bundled demo battery, not a placeholder.
 
 ## What this does not do
@@ -3566,6 +3890,551 @@ labelled bad-agent moment from the bundled demo battery, not a placeholder.
 - There is no daemon and no hosted service. Cron, CI, and a webhook handler
   are all just processes that shell out to the same CLI; the schedule is
   yours to own.
+
+
+================================================================================
+FILE: docs/THREAT-MODEL.md
+================================================================================
+
+# Threat model
+
+Hotato is built so that the sensitive thing (your call recordings) stays on your
+machine, and every network action is one you named. This page is the precise
+split: which commands are offline-only, which reach the network and only when you
+ask, and what Hotato guarantees it will never do.
+
+## Three guarantees
+
+1. **Hotato never mutates production by default.** No command changes a live
+   stack's configuration on its own. `plan` and `patch` produce a proposal;
+   `apply` operates on a fresh staging clone and dry-runs by default. There is no
+   command that pushes a config to production.
+2. **Hotato never uploads your recordings to Attention Labs.** There is no
+   hosted backend, no telemetry, and no "phone home." Audio moves only from your
+   own stack to your own disk, and only when you run a pull/capture/sweep. The
+   one exception is explicit and opt-in: the hosted `--diarizer pyannoteai`
+   backend, which requires `--egress-opt-in` before any audio leaves the machine.
+3. **Hotato never treats a webhook payload as instructions.** The `ingest`
+   webhook worker reads a completed-call notification as **data**: it extracts a
+   recording reference and scans it. Payload fields are never executed, shelled
+   out, or used to choose what code runs.
+
+## Core: offline, no network, ever
+
+These commands read the local files you point them at and write local files. They
+open no sockets. This is the whole scoring, analysis, and fixture surface.
+
+| Command | What it touches |
+|---|---|
+| `run` | Score a local WAV (or the bundled self-test battery). |
+| `scan` | List candidate moments in a local recording. |
+| `trust` | Input-health check on a local recording. |
+| `report` | Render a self-contained HTML report from local run data. |
+| `fixture` | Create / promote a local moment into a regression fixture. |
+| `compare` | Score a before/after pair of local takes. |
+| `verify` | Roll up before/after run envelopes on disk. |
+| `diagnose` | Explain a finished local run envelope (read-only). |
+| `plan` | Combine a diagnosis + config into a proposed fix plan JSON. |
+| `patch` | Render a fix plan into a paste-ready patch. Never applies it. |
+| `demo` | Run the packaged two-call battery. Zero extra files. |
+| `team`, `export`, `benchmark` | Aggregate / export local run data. |
+| `setup`, `describe`, `init` | Print recording config, emit the CLI manifest, scaffold local integration files. |
+
+Default retention is local-only: reports, envelopes, and exports are written
+where you point them and nowhere else.
+
+## Network: only when you explicitly request it
+
+These commands reach outside the machine, and only because reaching out is their
+job. Each requires you to name a stack, a repository, or a webhook you configured.
+
+| Command | Network surface | Notes |
+|---|---|---|
+| `connect` | none at connect time | Stores a stack's credentials locally at `0600`. Setup for the pull path; no audio moves. |
+| `pull` | your voice stack's API | Bulk-fetch recent recordings from a stack **you** connected, into a local folder. |
+| `capture` | your voice stack's API | Fetch and score one real call from your stack. |
+| `sweep` | your voice stack's API | `pull` + analyze in one command. |
+| `inspect` | your voice stack's API | Read (never write) the current turn-taking config. Read-only. |
+| `ingest` | a webhook endpoint you host | Worker that scans each completed call. Payloads are data, not instructions (guarantee 3). |
+| `issue` | GitHub, via your local `gh` | File a sweep's candidates as an issue. Uses your existing `gh` auth. |
+| `pr` | GitHub, via your local `gh` | Open a PR adding promoted fixtures. Uses your existing `gh` auth. |
+| `apply` | a git clone you point it at | Applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel. |
+| `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
+
+Notify surfaces (Slack, GitHub) are used only through credentials you configured
+(`gh`, a Slack token) and only for actions you invoked. Hotato ships no default
+integrations that fire on their own.
+
+## What an attacker cannot do through Hotato
+
+- **Cannot exfiltrate recordings by default.** With no `pull`/`capture`/`sweep`
+  run and no `--egress-opt-in`, no audio leaves the machine. The default
+  diarizer is local.
+- **Cannot inject commands via a call webhook.** `ingest` parses a payload for a
+  recording reference. It does not evaluate payload fields, and a malicious
+  webhook body cannot make Hotato run arbitrary code (guarantee 3).
+- **Cannot silently change production.** No command writes to a live stack's
+  config. The furthest Hotato goes is a proposed patch you apply to a staging
+  clone yourself.
+
+## Verifying the posture
+
+You can confirm the posture directly, without trusting this page:
+
+- **No telemetry.** There is no analytics or "phone home" code path and no
+  hosted backend. `pip install hotato` pulls zero runtime dependencies, so there
+  is nothing to audit but the standard library.
+- **Credentials at `0600`.** `connect` writes stack credentials locally with
+  owner-only permissions; check them with `ls -l` on your credentials path.
+- **Local-only retention.** Reports, envelopes, and exports exist only where you
+  wrote them.
+- **Egress is opt-in.** The only off-box audio path is `--diarizer pyannoteai`
+  guarded by `--egress-opt-in`; without that flag, no audio leaves the machine.
+
+Security policy and reporting: [SECURITY.md](../SECURITY.md).
+
+
+================================================================================
+FILE: docs/TRUST-GALLERY.md
+================================================================================
+
+# Trust gallery: eight recordings, eight verdicts
+
+Eight named input conditions, each with the `hotato` output it produces.
+Every block below is verbatim CLI output from hotato 0.5.0, offline. The rows
+correspond to the [trust matrix](TRUST-MATRIX.md).
+
+The clean case starts from the bundled example `01-hard-interruption.example.wav`
+(shipped in `src/hotato/data/audio/`). The four defect cases (silent caller,
+silent agent, swap, mono) are that same file with a channel silenced, the
+channels reversed, or the two channels downmixed to one, so you can reproduce
+every verdict from one known-good recording. The backchannel and echo cases use
+the bundled `02-backchannel-mhm.example.wav` and `07-echo-bleed.example.wav`.
+
+---
+
+## 1. Safe stereo: the good case
+
+Clean two-channel export, caller on ch0, agent on ch1. `trust` clears it.
+
+```text
+$ hotato trust --stereo 01-hard-interruption.example.wav
+hotato trust: 01-hard-interruption.example.wav
+  recording: 6.0s, 16000 Hz, 2 channels
+  caller (ch0): 2.46s speech, first at 2.39s, peak -4.4 dBFS
+  agent  (ch1): 2.71s speech, first at 0.19s, peak -4.4 dBFS
+  leading silence: 0.19s
+  crosstalk: coherence 0.306 (low) at 0.5s lag
+  scorability: separated tracks yes, caller activity yes, agent activity yes
+  => safe to scan
+```
+
+**Verdict:** `safe to scan`, exit 0. Score it. This is the only condition where
+a full turn-taking verdict is trustworthy without a caveat.
+
+---
+
+## 2. Silent caller: nothing to measure against
+
+The caller channel carries no speech (a dead leg, a wrong export, a muted line).
+
+```text
+$ hotato trust --stereo silent-caller.wav
+hotato trust: silent-caller.wav
+  recording: 6.0s, 16000 Hz, 2 channels
+  caller (ch0): 0.00s speech, -, peak -120.0 dBFS
+  agent  (ch1): 2.71s speech, first at 0.19s, peak -4.4 dBFS
+  leading silence: 0.19s
+  scorability: separated tracks yes, caller activity no, agent activity yes
+  => NOT SCORABLE: caller channel has no detected speech
+     next step: verify channel mapping or export dual-channel again
+```
+
+**Verdict:** `NOT SCORABLE`, exit 2. A yield is a response to a caller; with no
+caller there is nothing to be late to. Hotato refuses rather than print a hollow
+pass.
+
+---
+
+## 3. Silent agent: no floor to interrupt
+
+The agent channel is empty. There is no floor for the caller to barge into.
+
+```text
+$ hotato trust --stereo silent-agent.wav
+hotato trust: silent-agent.wav
+  recording: 6.0s, 16000 Hz, 2 channels
+  caller (ch0): 2.46s speech, first at 2.39s, peak -4.4 dBFS
+  agent  (ch1): 0.00s speech, -, peak -120.0 dBFS
+  leading silence: 2.39s
+  possible channel swap: channel 0 (mapped as caller) holds the floor 2.46s vs 0.0s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
+  scorability: separated tracks yes, caller activity yes, agent activity no
+  => NOT SCORABLE: agent channel has no detected speech
+     next step: verify channel mapping or export dual-channel again
+```
+
+**Verdict:** `NOT SCORABLE`, exit 2. Note that Hotato also flags a possible
+channel swap, because a caller-only recording looks like a mis-mapped agent. Two
+independent checks point at the same fix: re-check the export.
+
+---
+
+## 4. Swapped channels: still scorable, but confirm first
+
+Both channels carry speech, but the long floor-holder is on the channel mapped
+as the caller. `trust` clears it to scan **and** warns.
+
+```text
+$ hotato trust --stereo swapped-warn.wav
+hotato trust: swapped-warn.wav
+  recording: 6.0s, 16000 Hz, 2 channels
+  caller (ch0): 2.71s speech, first at 0.19s, peak -4.4 dBFS
+  agent  (ch1): 1.05s speech, first at 0.00s, peak -5.2 dBFS
+  leading silence: 0.00s
+  possible channel swap: channel 0 (mapped as caller) holds the floor 2.71s vs 1.05s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
+  scorability: separated tracks yes, caller activity yes, agent activity yes
+  => safe to scan
+```
+
+**Verdict:** `safe to scan`, exit 0, with a swap warning. This is the most
+dangerous condition, because scoring proceeds. A swap silently inverts every
+yield into a hold. Confirm the mapping (or set `--caller-channel` /
+`--agent-channel`) before you trust the verdict.
+
+---
+
+## 5. Crosstalk / echo bleed: score at lower confidence
+
+The caller channel carries a delayed copy of the agent's own audio. Coherence
+pegs at 1.0.
+
+```text
+$ hotato trust --stereo 07-echo-bleed.example.wav
+hotato trust: 07-echo-bleed.example.wav
+  recording: 6.0s, 16000 Hz, 2 channels
+  caller (ch0): 5.69s speech, first at 0.31s, peak -13.5 dBFS
+  agent  (ch1): 5.81s speech, first at 0.19s, peak -4.4 dBFS
+  leading silence: 0.19s
+  crosstalk: coherence 1.0 (HIGH) at 0.12s lag
+  scorability: separated tracks yes, caller activity yes, agent activity yes
+  => safe to scan
+```
+
+**Verdict:** `safe to scan`, exit 0, with a **HIGH crosstalk** warning. Scoring
+proceeds, but the "caller" activity may be leaked TTS, so every candidate here is
+lower confidence. The scan step (example 8) names the specific moment.
+
+---
+
+## 6. Mono: refused by default, tiered under `--diarize`
+
+A single channel. The caller and the agent are mixed into one track.
+
+```text
+$ hotato trust --stereo mono-mixed.wav
+hotato trust: mono-mixed.wav
+  recording: 6.0s, 16000 Hz, 1 channel
+  scorability: separated tracks no, caller activity no, agent activity no
+  => NOT SCORABLE: the recording has a single channel, so the caller and the agent cannot be told apart
+     next step: export a dual-channel recording with the caller on one channel and the agent on the other
+```
+
+**Verdict:** `NOT SCORABLE`, exit 2. This is the gold-standard refusal. There are
+two opt-in escapes, both marked indicative only: `--allow-mono` on
+`capture` / `pull` / `sweep` accepts a mono-only stack in degraded mode (talk-over
+unattributable, no SLA gate), and the `--diarize` separation front-end reports a
+`high` / `low` / `refuse` tier, with `hotato run --mono call.wav --diarize`
+stamping the verdict `indicative_only` at the `low` tier. Neither is equivalent to
+dual-channel. See [TRUST-MATRIX.md](TRUST-MATRIX.md) and [DIARIZE.md](DIARIZE.md).
+
+---
+
+## 7. Backchannel candidate: surfaced, never labelled
+
+A scan of a call where the caller says "mhm" over the agent. `scan` lists the
+overlaps as candidates and hands the intent decision to you.
+
+```text
+$ hotato scan --stereo 02-backchannel-mhm.example.wav --top 5
+hotato scan: 02-backchannel-mhm.example.wav  (6.0s, 3 candidate moments)
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
+  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.58s  agent did not go silent within 3.0s
+  [ 2] t=3.19s  overlap_while_agent_talking  overlap=1.07s  agent did not go silent within 3.0s
+  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.56s  agent did not go silent within 3.0s
+```
+
+**Verdict:** three candidates, exit 0. Whether "agent did not go silent" is
+correct (it held the floor through a backchannel, good) or a bug (it talked over
+a real interruption) is **your** call. `scan` reports the timing; you label
+`hold` or `yield`. Hotato never guesses the intent behind a caller sound.
+
+---
+
+## 8. Noisy false positive: a candidate that is really the agent
+
+A scan of the echo-bleed call. One candidate is a genuine overlap fact; the
+second is Hotato flagging that the "caller" activity is leaked TTS.
+
+```text
+$ hotato scan --stereo 07-echo-bleed.example.wav --top 5
+hotato scan: 07-echo-bleed.example.wav  (6.0s, 2 candidate moments)
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
+  [ 1] t=0.31s  overlap_while_agent_talking  overlap=3.00s  agent did not go silent within 3.0s
+  [ 2] t=0.31s  echo_correlated_activity     WARNING likely agent echo: coherence=1.00 at lag 0.12s  (caller channel looks like leaked TTS; a yield here may be the agent hearing itself)
+```
+
+**Verdict:** two candidates, exit 0. Candidate 1 looks like a bad talk-over.
+Candidate 2 is Hotato telling you the overlap is probably the agent hearing its
+own audio, not a real interruption. This is the honest failure mode of
+candidate discovery: the net is wide, and Hotato labels the reason a wide-net
+candidate is likely spurious instead of hiding it. You label it `hold` (or fix
+the echo capture) and it never becomes a fixture.
+
+---
+
+## How to read the gallery
+
+The eight cases fall into three buckets:
+
+- **Score it** (1): clean stereo, full confidence.
+- **Score it, but with a caveat** (4, 5, 8): swap, crosstalk, and echo-driven
+  candidates all proceed, each with a specific warning you must act on.
+- **Refuse** (2, 3, 6): silent caller, silent agent, and mono are not scorable;
+  Hotato names the reason and the next step and exits 2.
+
+Case 7 is the everyday case: a real candidate with no defect, waiting for your
+label. The whole design goal is that a Hotato verdict you act on has already
+survived this gauntlet.
+
+
+================================================================================
+FILE: docs/TRUST-MATRIX.md
+================================================================================
+
+# Trust matrix: what Hotato does for each input condition
+
+Before Hotato scores a recording, `hotato trust` inspects the audio and decides
+whether a score would be meaningful. The point is that a bad export must never
+turn into a confident-looking but hollow verdict. This page is the exact
+contract: input condition on the left, Hotato's behavior on the right. Nothing
+here is a turn-taking verdict; `trust` reports input health only.
+
+Worked examples with real CLI output for every row are in
+[TRUST-GALLERY.md](TRUST-GALLERY.md).
+
+## The contract
+
+| Input condition | `trust` behavior | Exit | Scoring downstream |
+|---|---|---|---|
+| **Clean dual-channel (stereo)** | `safe to scan` | 0 | Full score. `scan`, `run`, `compare`, `verify` all run normally. |
+| **Silent caller channel** | `NOT SCORABLE: caller channel has no detected speech` | 2 | Refused. There is no caller to measure a yield against. |
+| **Silent agent channel** | `NOT SCORABLE: agent channel has no detected speech` | 2 | Refused. There is no agent floor to interrupt. |
+| **Swapped channels** | `safe to scan` **plus** `possible channel swap` warning | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
+| **Crosstalk / echo bleed** | `safe to scan` **plus** high `crosstalk: coherence` warning | 0 | Scores at **lower confidence**. `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
+| **Mono (single channel)** | `NOT SCORABLE: single channel, caller and agent cannot be told apart` | 2 | Refused by default. Export dual-channel, or take one of the two opt-in escapes (below). |
+| **Mono, opt-in `--allow-mono`** | accepted in **degraded mode**, results **indicative only** | 0 | On `capture` / `pull` / `sweep` for a mono-only stack. Talk-over cannot be attributed, so no SLA gate fires. Never equivalent to dual-channel. |
+| **Mono, opt-in `--diarize`** | separability **tier**: `high` / `low` / `refuse` | 0 (high/low), 2 (refuse) | The separation front-end. `hotato run --mono call.wav --diarize` scores it; at `low` the verdict is stamped `indicative_only`. Never equivalent to dual-channel. |
+| **Backchannel overlap** | (not a trust concern) `scan` lists it as a **candidate** | 0 | Candidate only. `trust`/`scan` never decide `yield` vs `hold`; you label the intent. |
+| **Noisy / false-positive candidate** | `trust` warns (clipping, crosstalk, hot capture); `scan` still lists the candidate | 0 | Surfaced **with** the warning. A candidate you inspect and label `hold`, not a bug Hotato asserts. |
+
+**Reading the two axes.** `trust` answers one question: is this audio good enough
+to score? The exit code is the machine contract, `0` = safe to scan (possibly
+with warnings), `2` = not scorable (with the reason and the next step). Warnings
+(swap, crosstalk, clipping, leading silence) do **not** by themselves make a
+recording unscorable; the three hard refusals do (mono, identical channels, a
+silent required channel).
+
+## Why refuse instead of guessing
+
+Every refusal above is a place where a lesser tool would still print a number.
+A mono file "scored" by guessing which speaker is which produces a verdict that
+looks identical to a real one and is worthless. A swapped-channel file scored
+without the warning inverts caller and agent, so every "the agent yielded"
+becomes "the caller yielded" with no visible sign. Hotato treats these as input
+defects, reports them, and stops, so a green or red build always means something.
+
+## Two ways past a mono refusal
+
+Mono is refused by default because one channel cannot separate the two parties.
+There are two opt-in escapes, and both produce results marked indicative only,
+never equal to dual-channel.
+
+**1. `--allow-mono` (degraded mode).** On `capture`, `pull`, and `sweep`, the
+`--allow-mono` flag (or `HOTATO_ALLOW_MONO=1`) accepts a mono-only recording from
+a mono stack. Nothing is separated: talk-over cannot be attributed to caller or
+agent, so the result is explicitly indicative and no SLA gate fires. Use this when
+a stack only exports a mono mix and you want a rough signal anyway.
+
+**2. `--diarize` (separation front-end).** The opt-in `[diarize]` extra
+(`pip install 'hotato[diarize]'`) runs a local diarizer and reports a confidence
+tier before you score:
+
+- **high**: confidently separable. `hotato run --mono call.wav --diarize` gives a
+  diarized-mono verdict. Exit 0.
+- **low**: separable but only indicative (voices close, overlap elevated). The
+  verdict is stamped `indicative_only`; no SLA gate fires. Exit 0.
+- **refuse**: not confidently two clean parties. Not scorable, exit 2; record
+  dual-channel.
+
+The dual-channel path stays the gold reference. Neither a degraded-mono nor a
+diarized-mono verdict is promoted to equivalence with it. Full front-end:
+[DIARIZE.md](DIARIZE.md).
+
+## Composing the gate
+
+Because `trust` exits `2` on any unscorable input, it drops straight into a shell
+gate ahead of a scan or a scheduled sweep:
+
+```bash
+hotato trust --stereo call.wav && hotato scan --stereo call.wav
+```
+
+For agents, `hotato trust --stereo call.wav --format json` emits one
+machine-parseable report; branch on `scorable`, and on a defect read
+`not_scorable_reason` and `next_step`. Details: [TRUST.md](TRUST.md).
+
+
+================================================================================
+FILE: docs/VALIDATION.md
+================================================================================
+
+# What Hotato validates
+
+Hotato does not report a single accuracy percentage, and it never will. A turn
+handoff is not one number. Instead, Hotato is validated on **three separate
+jobs**, each measured on its own terms, each with an explicit reported output.
+If you are judging whether to trust Hotato, judge these three jobs one at a time.
+
+Everything below runs offline against recordings you control. Every threshold is
+exposed and every frame is inspectable (`hotato run --dump-frames`).
+
+---
+
+## Job 1: timing reproducibility
+
+**The question:** given the same recording and the same reference config, does
+Hotato produce the same timing measurements every run, on any machine?
+
+**What is reported.** Per scored event: `did_yield` (true/false),
+`seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used
+(`max_talk_over`, `max_time_to_yield`) and the frame grid behind them. No
+learned weights, no sampling, no RNG: the energy VAD and the reference framing
+are deterministic, so the numbers are byte-stable.
+
+**How to check it.** Score the same file twice and diff the output.
+
+```text
+$ hotato run --stereo 01-hard-interruption.example.wav --expect yield
+hotato [single] stack=generic offline=True
+  1/1 events pass  (failed=0)
+  [PASS] 01-hard-interruption.example.wav: did_yield=True seconds_to_yield=0.51s talk_over=0.51s
+  exit_code=0
+
+$ hotato run --stereo 01-hard-interruption.example.wav --expect yield
+  [PASS] 01-hard-interruption.example.wav: did_yield=True seconds_to_yield=0.51s talk_over=0.51s
+```
+
+`seconds_to_yield=0.51s` and `talk_over=0.51s` are identical across runs. This
+is the property a regression test needs: a red build means the audio changed,
+not that the scorer drifted.
+
+**What this job does NOT establish.** That 0.51s is the "true" yield latency in
+some absolute sense, or that the reference thresholds are right for your product.
+It establishes only that the measurement is stable and re-derivable by hand from
+[`METHODOLOGY.md`](../METHODOLOGY.md).
+
+---
+
+## Job 2: candidate-discovery usefulness
+
+**The question:** when Hotato scans a whole recording, does it surface the
+moments a human reviewer would actually want to look at, ranked by salience?
+
+**What is reported.** A ranked list of candidate turn-taking moments as **timing
+facts only**: overlap onsets (caller became active while the agent was talking,
+with the overlap length and whether the agent went silent), agent starts during
+caller activity, and long response gaps. Each candidate is a timestamp and a
+measurement. It is **not** a verdict, and it does not label intent.
+
+```text
+$ hotato scan --stereo 02-backchannel-mhm.example.wav --top 5
+hotato scan: 02-backchannel-mhm.example.wav  (6.0s, 3 candidate moments)
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
+  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.58s  agent did not go silent within 3.0s
+  [ 2] t=3.19s  overlap_while_agent_talking  overlap=1.07s  agent did not go silent within 3.0s
+  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.56s  agent did not go silent within 3.0s
+```
+
+The usefulness bar is **recall of human-notable moments at a workable candidate
+count**, not precision against a ground-truth intent label (there is no such
+label at scan time, by design). A candidate that turns out to be a harmless
+backchannel is not a Hotato error: it is a candidate you label `hold` and move
+on. The validation artifact is the [trust gallery](TRUST-GALLERY.md), which
+includes a deliberate false positive so you can see what an unhelpful candidate
+looks like and why Hotato still surfaces it.
+
+**What this job does NOT establish.** That every candidate is a real bug, or that
+a quiet region is guaranteed clean. Scan widens the net; you make the call.
+
+---
+
+## Job 3: fixture pass-fail agreement
+
+**The question:** once you have labelled a moment's expected behavior
+(`yield` = stop for the caller, `hold` = keep the floor through a backchannel),
+does Hotato's PASS/FAIL verdict agree with that label on the audio?
+
+**What is reported.** Per fixture: the verdict (`PASS`/`FAIL`), the measured
+signals behind it, and the named fix class when the failure maps cleanly to a
+config family. Agreement is checked against **your** label, not against an
+opaque key.
+
+```text
+$ hotato demo --no-open --format text
+hotato demo: recorded calls a provider's default agent fails
+hotato [suite] stack=generic offline=True
+  0/2 events pass  (failed=2)
+  [FAIL] fd-01-missed-interruption: did_yield=False seconds_to_yield=- talk_over=0.25s
+         fix[config]: Missed interruption: the agent kept talking over the caller
+  [FAIL] fd-02-backchannel-yielded: did_yield=True seconds_to_yield=0.34s talk_over=0.32s
+         fix[engagement-control]: False barge-in: a backchannel was treated as a bid for the floor
+  note: no single sensitivity threshold satisfies this battery
+  exit_code=1
+```
+
+Both labelled failures are caught, and the battery-level note refuses to name one
+threshold when a missed interruption and a false stop fail in the same run. That
+refusal is part of the validated behavior: Hotato reports the disagreement
+instead of inventing a fix.
+
+**What this job does NOT establish.** That the label was correct (you own the
+label), or that a passing fixture means the agent is good in general. It
+establishes that the verdict follows the audio and the label consistently.
+
+---
+
+## What we do not claim
+
+Read this as a hard boundary, not a disclaimer.
+
+- **No semantic intent.** Hotato measures timing. It does not know whether a
+  caller sound meant "stop" or "mhm, go on." You supply that as a label.
+- **No task success.** Whether the call booked the appointment, resolved the
+  ticket, or satisfied the caller is out of scope. Use a QA platform for that
+  (see [COMPARE-WITH-QA-PLATFORMS.md](COMPARE-WITH-QA-PLATFORMS.md)).
+- **No satisfaction or sentiment.** Hotato has no opinion on tone or CSAT.
+- **No root cause.** A slow yield can be TTS buffering, transport, or VAD.
+  `diagnose` names a likely layer and stays `unknown_root_cause` when one
+  recording cannot separate them.
+- **No vendor ranking.** Hotato never scores one platform against another. A
+  provider-default example demonstrates the threshold funnel on one assistant,
+  one config, one date, one scripted caller. It is not a benchmark of the vendor.
+- **No single accuracy score.** There is no headline percentage anywhere in
+  Hotato, on purpose. The three jobs above are the whole claim.
+
+The validation plan for the launch battery (external testers, consented
+fixtures, before/after) lives in
+[docs/evidence/validation-plan.md](evidence/validation-plan.md).
 
 
 ================================================================================
