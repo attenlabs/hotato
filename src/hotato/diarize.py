@@ -417,9 +417,39 @@ OVERLAP_RATIO_HIGH_MAX = 0.30       # more overlap than this -> only indicative
 OVERLAP_RATIO_REFUSE = 0.60         # extreme overlap -> not separable -> refuse
 EMBED_MARGIN_REFUSE = 0.20          # centroids this close -> voices too similar
 EMBED_MARGIN_HIGH = 0.45            # at/above this the two voices are well apart
+# NOTE (DIARIZE-BENCHMARK-2026-07-09): measured against a real pyannote
+# community-1 backend over the AMI corpus, embedding margin clustered tightly
+# (~0.43-0.52) regardless of downstream verdict correctness -- uninformative
+# on that set, not a demonstrated computation defect. Thresholds are left as
+# measured here; recalibration is deferred to the gate-recalibration stage.
 CHURN_HIGH_MAX = 2.0                # speaker flips/sec above this -> only indicative
 CHURN_REFUSE = 6.0                  # jitter this high -> unreliable -> refuse
 SHORT_TURN_SEC = 0.30               # a turn shorter than this counts toward churn
+
+# --- signal 7: yield-boundary confidence (DIARIZE-BENCHMARK-2026-07-09) -------
+# The six signals above measure DIARIZATION quality (two clean, well-separated,
+# stable speakers?). The real-backend benchmark showed that is necessary but NOT
+# sufficient: on a pyannote community-1 run over AMI summed to mono, the gate was
+# ANTI-correlated with verdict correctness -- the `high` tier reproduced the
+# dual-channel did_yield verdict LESS often (38%) than `low` (75%). Every
+# disagreement was a MISSED yield (never a phantom), concentrated in short-yield /
+# backchannel / sub-second talk-over cases, and present even at DER 0.000: the
+# verdict turns on a sub-250 ms agent-quiet gap that DER's 0.25 s collar and all
+# six quality signals forgive. Diarization can be pristine while the verdict is
+# wrong. This 7th signal measures the quantity that actually decides the verdict:
+# how much did_yield depends on sub-second boundary placement. It replays the
+# engine's yield logic straight over the diarization timelines (no model calls, no
+# reconstruction), perturbs the speaker boundaries by +/- a quarter second, and
+# asks whether the verdict survives. A yield whose triggering agent-quiet gap only
+# barely clears the hangover, or that rests on a backchannel-length caller run, or
+# that flips under a 250 ms boundary nudge, is in the exact fragile zone the
+# benchmark identified: it can NEVER be `high` (it drops to `low`, indicative).
+# `high` now REQUIRES a boundary-robust verdict, so honest `high` coverage shrinks
+# a lot on real material -- that is the point.
+YIELD_BOUNDARY_PERTURB_SEC = 0.25   # the +/- boundary nudge the verdict must survive
+YIELD_MIN_CALLER_FLOOR_SEC = 0.50   # a yield resting on a briefer caller run is
+                                    # backchannel-grade -> fragile, never high
+YIELD_NEAR_WINDOW_SEC = 0.50        # +/- window around the yield for local overlap (reported)
 
 
 def _clamp01(x: float) -> float:
@@ -493,18 +523,254 @@ def _mean_posterior(result: DiarizationResult) -> Optional[float]:
     return sum(vals) / len(vals)
 
 
+# --------------------------------------------------------------------------- #
+# Signal 7 helpers: replay the yield decision on the timelines, then perturb it.
+# --------------------------------------------------------------------------- #
+
+def _perturb_timeline(active: List[bool], k: int) -> List[bool]:
+    """Dilate (``k`` > 0) or erode (``k`` < 0) a boolean timeline by ``|k|`` frames
+    on EACH side -- a deterministic model of the diarizer having placed every
+    speech boundary up to ``|k|`` frames off.
+
+    Dilation grows each active run outward (activity spreads, gaps shrink);
+    erosion trims each active run inward (gaps grow) and drops runs shorter than
+    ``2|k|+1``. Erosion never manufactures an interior hole in a SOLID run -- it
+    only widens gaps that already exist -- so a hold whose floor-holder is
+    continuously active stays a hold, while a hold with a sub-threshold agent
+    blip near the caller's floor can flip (it should: that blip may be a real
+    yield the mono path bridged). O(n*|k|), no allocation beyond the output."""
+    n = len(active)
+    if k == 0 or n == 0:
+        return [bool(x) for x in active]
+    out = [False] * n
+    if k > 0:
+        for i in range(n):
+            if active[i]:
+                lo = i - k if i - k > 0 else 0
+                hi = i + k + 1 if i + k + 1 < n else n
+                for d in range(lo, hi):
+                    out[d] = True
+    else:
+        r = -k
+        for i in range(n):
+            if i - r < 0 or i + r >= n:
+                continue  # window runs off the edge -> cannot confirm -> False
+            if all(active[d] for d in range(i - r, i + r + 1)):
+                out[i] = True
+    return out
+
+
+def _run_len_intersecting(active: List[bool], lo: int, hi: int) -> int:
+    """Length (frames) of the longest contiguous active run intersecting the
+    half-open window ``[lo, hi)`` -- used to size the caller's floor supporting a
+    yield (a backchannel is a very short such run)."""
+    n = len(active)
+    best = 0
+    i = 0
+    while i < n:
+        if active[i]:
+            j = i
+            while j < n and active[j]:
+                j += 1
+            if i < hi and j > lo:
+                best = max(best, j - i)
+            i = j
+        else:
+            i += 1
+    return best
+
+
+def _timeline_yield(caller_active, agent_active, hop: float, cfg: ScoreConfig) -> dict:
+    """Replay the engine's did_yield decision (``_engine.score.score_channels``
+    step 2) directly over two boolean activity timelines -- the diarizer's own
+    output -- with NO re-VAD and NO model call.
+
+    Faithful to the engine: caller onset via ``first_active_sec``; a yield is the
+    first agent-quiet run of at least ``yield_hangover_sec`` at/after onset within
+    ``max_search_sec``, with the caller holding the floor within
+    ``caller_proximity_sec``. Returns ``did_yield`` plus the decision internals the
+    gate needs: ``yield_idx``, the FULL triggering agent-quiet ``gap_frames``, the
+    ``yield_frames`` threshold, and the search ``grace`` window."""
+    n = min(len(caller_active), len(agent_active))
+    yield_frames = max(1, int(round(cfg.yield_hangover_sec / hop)))
+    grace = max(1, int(round(cfg.caller_proximity_sec / hop)))
+    out = {
+        "did_yield": False,
+        "yield_idx": None,
+        "onset_idx": 0,
+        "gap_frames": 0,
+        "yield_frames": yield_frames,
+        "grace": grace,
+    }
+    if n == 0:
+        return out
+
+    onset = first_active_sec(caller_active, hop, min_run_sec=cfg.onset_min_run_sec)
+    onset_idx = int(round(onset / hop)) if onset >= 0 else 0
+    onset_idx = max(0, min(onset_idx, n - 1))
+    out["onset_idx"] = onset_idx
+
+    search_end = min(n, onset_idx + int(round(cfg.max_search_sec / hop)))
+    i = onset_idx
+    while i < search_end:
+        if not agent_active[i]:
+            run = 0
+            j = i
+            while j < n and not agent_active[j]:
+                run += 1
+                if run >= yield_frames:
+                    break
+                j += 1
+            if run >= yield_frames:
+                lo = max(0, i - grace)
+                hi = min(len(caller_active), i + grace)
+                if any(caller_active[k] for k in range(lo, hi)):
+                    # Extend past the hangover break to the full agent-quiet gap so
+                    # the gate can size the decision's margin.
+                    full = i
+                    while full < n and not agent_active[full]:
+                        full += 1
+                    out["did_yield"] = True
+                    out["yield_idx"] = i
+                    out["gap_frames"] = full - i
+                    return out
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
+def _yield_boundary_confidence(result: DiarizationResult, speaker_map: dict,
+                               cfg: ScoreConfig) -> dict:
+    """The 7th signal: how much the did_yield verdict depends on sub-second
+    boundary placement, computed straight off the diarization timelines.
+
+    Reads the caller/agent timelines the ``speaker_map`` names, replays the engine
+    yield decision on them, then re-runs that decision on the four sign-corners of
+    a +/- ``YIELD_BOUNDARY_PERTURB_SEC`` boundary perturbation of BOTH speakers
+    (dilate/erode). The verdict is FRAGILE when any corner flips ``did_yield``
+    (``boundary_perturb_flip``) or when the yield rests on a caller run shorter
+    than ``YIELD_MIN_CALLER_FLOOR_SEC`` (``backchannel_yield``). A fragile verdict
+    can never be ``high``. ``robust`` is the high-tier gate; ``score`` in [0, 1]
+    folds into ``separation_confidence`` (1.0 for a boundary-robust verdict,
+    graded down by the yield's gap margin, capped low when fragile)."""
+    caller = result.speaker_active.get(speaker_map.get("caller"), [])
+    agent = result.speaker_active.get(speaker_map.get("agent"), [])
+    hop = result.hop_sec or 0.01
+    P = max(1, int(round(YIELD_BOUNDARY_PERTURB_SEC / hop)))
+
+    base = _timeline_yield(caller, agent, hop, cfg)
+    did_yield = base["did_yield"]
+
+    # Perturb both boundaries by +/- P and see whether the verdict survives. The
+    # agent gap drives a yield->hold flip (dilating the agent closes the gap, the
+    # benchmark's exact missed-yield direction); eroding it opens a sub-threshold
+    # gap into a hold->yield flip. Sampling the four sign-corners covers both.
+    perturb_flip = False
+    for ka, kc in ((P, P), (P, -P), (-P, P), (-P, -P)):
+        pa = _perturb_timeline(agent, ka)
+        pc = _perturb_timeline(caller, kc)
+        if _timeline_yield(pc, pa, hop, cfg)["did_yield"] != did_yield:
+            perturb_flip = True
+            break
+
+    gap_frames = base["gap_frames"]
+    yield_frames = base["yield_frames"]
+    grace = base["grace"]
+    yidx = base["yield_idx"]
+
+    trigger_gap_sec = round(gap_frames * hop, 3) if did_yield else None
+    gap_margin_sec = round((gap_frames - yield_frames) * hop, 3) if did_yield else None
+
+    caller_floor_sec = None
+    backchannel = False
+    yield_overlap_frac = 0.0
+    if did_yield and yidx is not None:
+        floor_frames = _run_len_intersecting(caller, yidx - grace, yidx + grace)
+        caller_floor_sec = round(floor_frames * hop, 3)
+        backchannel = floor_frames * hop < YIELD_MIN_CALLER_FLOOR_SEC
+        # local overlap in a window around the yield point (reported, not gating:
+        # pre-yield barge-in overlap is expected on a clean yield).
+        w = max(1, int(round(YIELD_NEAR_WINDOW_SEC / hop)))
+        n = min(len(caller), len(agent))
+        lo = max(0, yidx - w)
+        hi = min(n, yidx + w)
+        both = sum(1 for k in range(lo, hi) if caller[k] and agent[k])
+        yield_overlap_frac = round(both / (hi - lo), 3) if hi > lo else 0.0
+
+    robust = (not perturb_flip) and (not backchannel)
+
+    # Confidence contribution: a boundary-robust hold is neutral (1.0); a yield is
+    # graded by how far its gap clears the hangover (full credit at >= P margin);
+    # any fragility caps it low so `low`-tier fragile verdicts read as such.
+    if did_yield:
+        score = _clamp01((gap_frames - yield_frames) / P)
+    else:
+        score = 1.0
+    if perturb_flip or backchannel:
+        score = min(score, 0.25)
+
+    return {
+        "did_yield": did_yield,
+        "trigger_gap_sec": trigger_gap_sec,
+        "gap_margin_sec": gap_margin_sec,
+        "caller_floor_sec": caller_floor_sec,
+        "backchannel_yield": backchannel,
+        "boundary_perturb_flip": perturb_flip,
+        "yield_overlap_frac": yield_overlap_frac,
+        "robust": robust,
+        "score": round(score, 3),
+    }
+
+
+def _yield_low_reason(yb: dict, cfg: ScoreConfig) -> Optional[str]:
+    """Plain-language reason a fragile-yield clip is `low`, guarding against the
+    None fields of a hold-side flip."""
+    ms = int(round(YIELD_BOUNDARY_PERTURB_SEC * 1000))
+    if yb.get("backchannel_yield"):
+        floor = yb.get("caller_floor_sec")
+        return (
+            "the yield rests on a backchannel-length caller interjection"
+            + (f" ({floor:.2f}s)" if floor is not None else "")
+            + "; a short yield reconstructed from one channel is only indicative"
+        )
+    if yb.get("boundary_perturb_flip"):
+        if yb.get("did_yield"):
+            gap = yb.get("trigger_gap_sec")
+            return (
+                "the did_yield verdict flips under a "
+                f"+/-{ms}ms boundary shift"
+                + (f" (agent-quiet gap only {gap:.2f}s vs a "
+                   f"{cfg.yield_hangover_sec:.2f}s threshold)" if gap is not None else "")
+                + "; sub-second timing from one channel is only indicative here"
+            )
+        return (
+            f"a +/-{ms}ms boundary shift would turn this hold into a yield; the "
+            "verdict sits on a sub-second agent-quiet gap that one channel cannot "
+            "resolve, so it is only indicative"
+        )
+    return None
+
+
 def separation_confidence(
     result: DiarizationResult,
     speaker_map: dict,
     *,
     backend: str = "pyannote",
+    cfg: Optional[ScoreConfig] = None,
 ) -> dict:
     """Score one diarized-mono file's separability and assign a tier (spec 7).
 
-    Signals -> ``separation_confidence`` in [0, 1] -> one of three tiers:
+    Seven signals -> ``separation_confidence`` in [0, 1] -> one of three tiers.
+    Six measure DIARIZATION quality (speaker count, both-active, posterior,
+    embedding margin, overlap, churn); the 7th (yield-boundary confidence,
+    ``_yield_boundary_confidence``) measures how much the did_yield VERDICT depends
+    on sub-second boundary placement -- the quantity the benchmark showed the other
+    six are blind to. A boundary-fragile / backchannel / short-yield verdict can
+    never be ``high``.
       * ``high``   -- score normally, labeled diarized-mono, ``indicative_only``
                       false. A real verdict, always tagged reconstructed-from-mono
-                      (never presented as dual-channel).
+                      (never presented as dual-channel), AND boundary-robust.
       * ``low``    -- score, but ``indicative_only`` true: the verdict is
                       "indicative only"; no pass/fail SLA gate fires on it.
       * ``refuse`` -- ``scorable`` false, a reason naming the failed signal, exit
@@ -512,6 +778,8 @@ def separation_confidence(
 
     Never a confident verdict on low-confidence separation. Returns the
     ``scorability.separation`` sub-block."""
+    if cfg is None:
+        cfg = ScoreConfig()
     labels = result.labels
     caller_label = speaker_map.get("caller")
     agent_label = speaker_map.get("agent")
@@ -601,7 +869,25 @@ def separation_confidence(
         / (OVERLAP_RATIO_REFUSE - OVERLAP_RATIO_HIGH_MAX)
     )
     churn_score = _clamp01((CHURN_REFUSE - churn) / (CHURN_REFUSE - CHURN_HIGH_MAX))
-    confidence = post_score * margin_score * overlap_score * churn_score
+
+    # Signal 7: yield-boundary confidence. Computed here (after the structural
+    # refuse gates so the caller/agent timelines are two real speakers) straight
+    # off the diarization timelines -- no model call, no reconstruction.
+    yb = _yield_boundary_confidence(result, speaker_map, cfg)
+    signals["yield_boundary"] = {
+        "did_yield": yb["did_yield"],
+        "trigger_gap_sec": yb["trigger_gap_sec"],
+        "gap_margin_sec": yb["gap_margin_sec"],
+        "caller_floor_sec": yb["caller_floor_sec"],
+        "backchannel_yield": yb["backchannel_yield"],
+        "boundary_perturb_flip": yb["boundary_perturb_flip"],
+        "yield_overlap_frac": yb["yield_overlap_frac"],
+        "robust": yb["robust"],
+    }
+
+    confidence = (
+        post_score * margin_score * overlap_score * churn_score * yb["score"]
+    )
 
     all_green = (
         (mean_post is None or mean_post >= POSTERIOR_HIGH)
@@ -609,12 +895,18 @@ def separation_confidence(
         and churn <= CHURN_HIGH_MAX
         and (margin is None or margin >= EMBED_MARGIN_HIGH)
         and not speaker_map.get("balanced", False)
+        and yb["robust"]  # the did_yield verdict must survive a +/-250ms boundary nudge
     )
     tier = "high" if all_green else "low"
 
     low_reason = None
     if tier == "low":
-        if speaker_map.get("balanced", False):
+        # The yield-boundary fragility is surfaced FIRST: it is the benchmark's
+        # decisive failure (every disagreement was a missed sub-second yield).
+        yr = _yield_low_reason(yb, cfg)
+        if yr is not None:
+            low_reason = yr
+        elif speaker_map.get("balanced", False):
             low_reason = (
                 "caller/agent mapping is ambiguous (balanced floor time); confirm "
                 "which speaker is the agent with --caller-speaker/--agent-speaker"
@@ -731,7 +1023,7 @@ def prepare_diarized_mono(
     result = fn(mono_samples, sample_rate, _hop_samples(sample_rate, cfg) / sample_rate, num_speakers)
 
     speaker_map = assign_speakers(result, caller_speaker, agent_speaker)
-    sep = separation_confidence(result, speaker_map, backend=backend)
+    sep = separation_confidence(result, speaker_map, backend=backend, cfg=cfg)
     tier = sep["confidence_tier"]
 
     provenance = {
@@ -939,7 +1231,15 @@ def build_pyannote_backend() -> BackendFn:
         "HOTATO_DIARIZE_MODEL", "pyannote/speaker-diarization-community-1"
     )
     try:
-        pipeline = Pipeline.from_pretrained(model_id, use_auth_token=token)
+        try:
+            pipeline = Pipeline.from_pretrained(model_id, token=token)
+        except TypeError:
+            # pyannote.audio 4.0.7's Pipeline.from_pretrained renamed the
+            # kwarg from `use_auth_token` to `token` and DROPPED the old name
+            # outright (a hard TypeError, not a deprecation warning) -- try
+            # both so either release loads cleanly, same pattern as the
+            # return_embeddings= fallback below.
+            pipeline = Pipeline.from_pretrained(model_id, use_auth_token=token)
     except Exception as exc:
         raise BackendUnavailable(
             "the '[diarize]' extra is installed but the pyannote pipeline "
@@ -958,10 +1258,10 @@ def build_pyannote_backend() -> BackendFn:
         tensor = {"waveform": _as_2d(wav), "sample_rate": int(sample_rate)}
         try:
             output = pipeline(tensor, num_speakers=num_speakers, return_embeddings=True)
-            annotation, embeddings = output
         except TypeError:
-            annotation = pipeline(tensor, num_speakers=num_speakers)
-            embeddings = None
+            # A pyannote build that rejects return_embeddings= outright.
+            output = pipeline(tensor, num_speakers=num_speakers)
+        annotation, embeddings = _unpack_pipeline_output(output)
 
         labels = list(annotation.labels())
         active = {l: [False] * n_frames for l in labels}
@@ -1009,10 +1309,46 @@ def _as_2d(wav):
         return arr
 
 
+def _unpack_pipeline_output(output):
+    """Unpack a pyannote ``pipeline(...)`` call across the 3.x/4.x return-shape
+    split into ``(annotation, embeddings)``.
+
+    pyannote.audio 3.x returns a bare ``Annotation`` (or, with
+    ``return_embeddings=True``, a ``(Annotation, embeddings)`` tuple). 4.x
+    (>=4.0) instead returns one ``DiarizeOutput`` object -- not a tuple, not
+    iterable, no ``.labels()`` -- carrying the same information as
+    ``.speaker_diarization`` / ``.speaker_embeddings``. Unpacking that object
+    as a 3.x tuple raises ``TypeError``, and calling ``.labels()`` on it
+    directly raises ``AttributeError``; branch on the attribute rather than a
+    version check so both shapes land on the same pair."""
+    if hasattr(output, "speaker_diarization"):
+        # pyannote.audio 4.x DiarizeOutput.
+        return output.speaker_diarization, getattr(output, "speaker_embeddings", None)
+    if isinstance(output, tuple):
+        # pyannote.audio 3.x with return_embeddings=True.
+        return output
+    # pyannote.audio 3.x plain Annotation (no embeddings returned).
+    return output, None
+
+
 def _embedding_margin(embeddings) -> Optional[float]:
     """Cosine separation (in [0, 1]) between the two speaker centroids, derived
-    from pyannote's ``return_embeddings`` output. ``None`` when unavailable or
-    when there are not exactly two centroids."""
+    from pyannote's ``return_embeddings`` output. ``None`` when unavailable,
+    when there are not exactly two centroids, or when a centroid is a
+    degenerate (zero-norm / non-finite) vector -- pyannote returns one when it
+    could not reliably estimate a speaker's embedding (near-silent split,
+    extraction failure). Dividing by a zero norm used to fall back to a
+    fabricated ``cos = 0`` (margin 0.5, read by the gate as adequate
+    separation) instead of signalling "no margin available", the same way a
+    missing embeddings array already does; a degenerate centroid now returns
+    ``None`` too.
+
+    Benchmarked (DIARIZE-BENCHMARK-2026-07-09): even past that fix, margin
+    measured on a real pyannote community-1 run over the AMI corpus clustered
+    tightly (~0.43-0.52) regardless of downstream verdict correctness and did
+    not reliably separate correct from incorrect gate tiers -- uninformative
+    on that set, not demonstrably defective. Redesign is deferred to the
+    gate-recalibration stage, not tuned here."""
     if embeddings is None:
         return None
     try:
@@ -1022,8 +1358,11 @@ def _embedding_margin(embeddings) -> Optional[float]:
         if arr.ndim != 2 or arr.shape[0] < 2:
             return None
         a, b = arr[0], arr[1]
-        denom = (np.linalg.norm(a) * np.linalg.norm(b)) or 1.0
-        cos = float(np.dot(a, b) / denom)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if not (np.isfinite(norm_a) and np.isfinite(norm_b)) or norm_a == 0 or norm_b == 0:
+            return None  # degenerate centroid: no reliable margin, not cos=0
+        cos = float(np.dot(a, b) / (norm_a * norm_b))
         # cosine distance normalized to [0, 1]
         return max(0.0, min(1.0, (1.0 - cos) / 2.0))
     except Exception:  # pragma: no cover

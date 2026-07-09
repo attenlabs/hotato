@@ -471,3 +471,211 @@ def test_ami_summed_to_mono_scores_with_perfect_diarizer(tmp_path, stub_diarizer
     assert env["diarization"]["source"] == "diarized-mono"
     # A verdict is produced (its exact value is not the invariant here).
     assert env["events"][0]["verdict"]["did_yield"] in (True, False)
+
+
+# --- 9. pyannote 3.x/4.x output shape + embedding-margin edge cases ---------
+
+def test_unpack_pipeline_output_handles_4x_diarize_output_and_3x_shapes():
+    """4.x's ``pipeline(...)`` call returns a ``DiarizeOutput`` object (not
+    iterable, no ``.labels()``) exposing ``.speaker_diarization`` /
+    ``.speaker_embeddings``; 3.x returns a bare ``(annotation, embeddings)``
+    tuple, or a bare annotation with no embeddings. All three must unpack to
+    the same ``(annotation, embeddings)`` shape, without importing pyannote."""
+
+    class _FakeDiarizeOutput:  # a 4.x-style DiarizeOutput stand-in
+        def __init__(self, diarization, embeddings):
+            self.speaker_diarization = diarization
+            self.speaker_embeddings = embeddings
+
+    annotation_4x, embeddings_4x = object(), object()
+    a, e = D._unpack_pipeline_output(_FakeDiarizeOutput(annotation_4x, embeddings_4x))
+    assert a is annotation_4x and e is embeddings_4x
+
+    annotation_3x, embeddings_3x = object(), object()
+    a, e = D._unpack_pipeline_output((annotation_3x, embeddings_3x))
+    assert a is annotation_3x and e is embeddings_3x
+
+    annotation_plain = object()
+    a, e = D._unpack_pipeline_output(annotation_plain)
+    assert a is annotation_plain and e is None
+
+
+def test_embedding_margin_zero_vector_is_no_signal_not_fabricated_neutral():
+    """A degenerate (zero-norm) centroid -- pyannote returns one when it could
+    not reliably estimate a speaker's embedding -- must read as "no margin
+    available" (None), the same as a missing embeddings array, not a
+    fabricated cos=0 (margin 0.5) that the gate would read as good
+    separation."""
+    zero = [0.0] * 8
+    real = [1.0] + [0.0] * 7
+    assert D._embedding_margin([zero, real]) is None
+    assert D._embedding_margin([real, zero]) is None
+    assert D._embedding_margin(None) is None
+
+
+def test_embedding_margin_direction_and_scale():
+    """Sanity on the formula itself: orthogonal centroids read as maximally
+    ambiguous (0.5), identical centroids read as not separated at all (0.0),
+    opposite centroids read as maximally separated (1.0)."""
+    m = D._embedding_margin([[1.0, 0.0], [0.0, 1.0]])
+    assert m == pytest.approx(0.5)
+    m = D._embedding_margin([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]])
+    assert m == pytest.approx(0.0)
+    m = D._embedding_margin([[1.0, 0.0], [-1.0, 0.0]])
+    assert m == pytest.approx(1.0)
+
+
+# --- 10. yield-boundary confidence (signal 7; DIARIZE-BENCHMARK-2026-07-09) --
+#
+# The benchmark showed the six diarization-quality signals are anti-correlated
+# with verdict correctness: `high` reproduced the dual-channel did_yield verdict
+# LESS often than `low`, because every disagreement was a MISSED sub-second yield
+# the quality signals cannot see. Signal 7 measures how much the yield verdict
+# depends on sub-second boundary placement and BARS the fragile zone from `high`.
+
+_YB_N = 600
+_YB_HOP = 0.01
+
+
+def _band(lo, hi, n=_YB_N):
+    return [lo <= i < hi for i in range(n)]
+
+
+def _union(*bands):
+    return [any(b[i] for b in bands) for i in range(len(bands[0]))]
+
+
+def _yb_result(caller, agent, *, margin=0.6, posterior=1.0):
+    """A DiarizationResult from two crafted per-frame timelines (caller=A,
+    agent=B), with the OTHER six signals held green so any demotion is signal 7."""
+    active = {D.SPEAKER_A: caller, D.SPEAKER_B: agent}
+    labels = sorted(active)
+    over = [sum(1 for l in labels if active[l][i]) >= 2 for i in range(_YB_N)]
+    return D.DiarizationResult(
+        speaker_active=active, hop_sec=_YB_HOP,
+        posterior=[posterior] * _YB_N, overlap=over,
+        label_duration={l: round(sum(v) * _YB_HOP, 6) for l, v in active.items()},
+        embedding_margin=margin, model="stub", model_version="0",
+    )
+
+
+_YB_SMAP = {"caller": D.SPEAKER_A, "agent": D.SPEAKER_B, "balanced": False}
+
+
+def test_perturb_timeline_dilate_and_erode():
+    """The perturbation primitive, tested directly: dilation grows each active run
+    by k frames per side (gaps shrink); erosion trims it (gaps grow) and drops runs
+    shorter than 2k+1, never manufacturing an interior hole in a solid run."""
+    tl = [False, False, True, True, True, False, False]
+    assert D._perturb_timeline(tl, 1) == [False, True, True, True, True, True, False]
+    assert D._perturb_timeline(tl, -1) == [False, False, False, True, False, False, False]
+    assert D._perturb_timeline(tl, 0) == tl
+    # a solid block only trims at its ends under erosion -- no interior gap created
+    solid = [True] * 10
+    assert D._perturb_timeline(solid, -2) == [False, False] + [True] * 6 + [False, False]
+
+
+def test_yield_boundary_flips_on_short_gap_not_on_wide_gap():
+    """The signal's core: a yield triggered by a barely-above-threshold agent-quiet
+    gap flips did_yield under a +/-250ms boundary nudge (fragile); the same yield
+    with a wide gap does not (robust). Perturbation logic exercised end to end."""
+    cfg = ScoreConfig()
+    # short gap: agent quiet for 22 frames (0.22s), just over the 0.20s hangover
+    short = D._yield_boundary_confidence(
+        _yb_result(_band(280, 360), _union(_band(0, 300), _band(322, 600))),
+        _YB_SMAP, cfg)
+    assert short["did_yield"] is True
+    assert short["boundary_perturb_flip"] is True
+    assert short["robust"] is False
+    # wide gap: agent quiet for 180 frames (1.8s) -> survives the nudge
+    wide = D._yield_boundary_confidence(
+        _yb_result(_band(280, 470), _union(_band(0, 300), _band(480, 600))),
+        _YB_SMAP, cfg)
+    assert wide["did_yield"] is True
+    assert wide["boundary_perturb_flip"] is False
+    assert wide["robust"] is True
+
+
+def test_fragile_short_yield_forced_out_of_high():
+    """A short-yield clip whose six quality signals are ALL green (2 speakers,
+    both active, high posterior, wide embedding margin, low overlap, no churn) is
+    still demoted out of `high` purely by the boundary-fragility of its verdict."""
+    sep = D.separation_confidence(
+        _yb_result(_band(280, 360), _union(_band(0, 300), _band(322, 600))),
+        _YB_SMAP)
+    sg = sep["signals"]
+    # every OTHER signal is green -> without signal 7 this would be `high`
+    assert sg["speaker_count_ok"] is True and sg["both_speakers_active"] is True
+    assert sg["embedding_margin"] >= D.EMBED_MARGIN_HIGH
+    assert sg["overlap_ratio"] <= D.OVERLAP_RATIO_HIGH_MAX
+    assert sg["mean_posterior"] >= D.POSTERIOR_HIGH
+    # signal 7 catches the sub-second yield and forces low
+    assert sg["yield_boundary"]["boundary_perturb_flip"] is True
+    assert sg["yield_boundary"]["robust"] is False
+    assert sep["confidence_tier"] == "low"
+    assert sep["indicative_only"] is True
+    assert "boundary" in sep["reason"]
+
+
+def test_backchannel_yield_forced_out_of_high():
+    """A yield resting on a backchannel-length caller interjection (0.3s) cannot be
+    high even when the agent-quiet gap itself is wide -- a short yield reconstructed
+    from one channel is only indicative."""
+    sep = D.separation_confidence(
+        _yb_result(_band(300, 330), _union(_band(0, 300), _band(500, 600))),
+        _YB_SMAP)
+    yb = sep["signals"]["yield_boundary"]
+    assert yb["did_yield"] is True
+    assert yb["backchannel_yield"] is True
+    assert yb["caller_floor_sec"] < D.YIELD_MIN_CALLER_FLOOR_SEC
+    assert sep["confidence_tier"] == "low"
+    assert "backchannel" in sep["reason"]
+
+
+def test_robust_wide_margin_yield_stays_high():
+    """The point of shrinking `high`, not eliminating it: a genuinely robust yield
+    -- a wide agent-quiet gap, a caller floor well above backchannel length, no
+    boundary flip, all six quality signals green -- earns and keeps `high`."""
+    sep = D.separation_confidence(
+        _yb_result(_band(280, 470), _union(_band(0, 300), _band(480, 600))),
+        _YB_SMAP)
+    yb = sep["signals"]["yield_boundary"]
+    assert yb["did_yield"] is True
+    assert yb["robust"] is True
+    assert yb["boundary_perturb_flip"] is False
+    assert yb["backchannel_yield"] is False
+    assert sep["confidence_tier"] == "high"
+    assert sep["indicative_only"] is False
+
+
+def test_robust_hold_is_not_penalized_by_signal_7():
+    """A clean HOLD (the agent never goes quiet during the caller's floor) is
+    boundary-robust and stays high: signal 7 only bites the fragile yield zone,
+    it does not punish a confident hold."""
+    sep = D.separation_confidence(
+        _yb_result(_band(300, 370), _band(20, 580)), _YB_SMAP)  # agent solid throughout
+    yb = sep["signals"]["yield_boundary"]
+    assert yb["did_yield"] is False
+    assert yb["boundary_perturb_flip"] is False
+    assert yb["robust"] is True
+    assert sep["confidence_tier"] == "high"
+
+
+def test_timeline_yield_replica_matches_engine_did_yield():
+    """The signal replays the engine's did_yield over the diarization timelines
+    rather than re-scoring; that replica must agree with the real
+    ``score_channels`` did_yield on the same activity, for both a hold and a
+    clean yield -- otherwise the fragility measure is about the wrong decision."""
+    cfg = ScoreConfig()
+    # A clean yield and a clean hold as synthetic channels, then compare the
+    # engine's verdict on the channels to the replica on their VAD timelines.
+    for segs, label in (
+        (([(3.0, 4.2)], [(0.2, 3.5)]), "yield"),   # agent yields at 3.5
+        (([(3.0, 3.7)], [(0.2, 5.8)]), "hold"),    # agent holds throughout
+    ):
+        c, a = _channels(caller_segments=segs[0], agent_segments=segs[1])
+        engine = score_channels(c, a, SR, cfg=cfg).did_yield
+        tl = _truth_timelines(c, a, cfg=cfg)
+        replica = D._timeline_yield(tl[D.SPEAKER_A], tl[D.SPEAKER_B],
+                                    cfg.hop_ms / 1000.0, cfg)["did_yield"]
+        assert replica == engine, f"{label}: replica {replica} != engine {engine}"
