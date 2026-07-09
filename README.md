@@ -50,6 +50,8 @@ Prefer a single self-contained dashboard and nothing else? `uvx hotato sweep --d
 | See it work with zero setup | `uvx hotato start --demo` |
 | Scan one call recording you already have | `uvx hotato scan --stereo call.wav` |
 | Monitor a production stack (Vapi, Twilio, Retell, LiveKit, Pipecat) | `hotato connect vapi` then `hotato sweep --stack vapi --since 7d` |
+| Add Hotato to an existing repo, CI gate included | `hotato init starter --stack vapi --out .` ([`docs/STARTER.md`](docs/STARTER.md)) |
+| Turn a confirmed bug into a portable, CI-enforced contract | `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield --id refund-cutoff-001 --out contracts` ([`docs/CONTRACTS.md`](docs/CONTRACTS.md)) |
 | Turn a confirmed bug into a CI test | `hotato fixture promote hotato-sweep.json#1 --expect yield --out tests/hotato` |
 | Prove a fix held across the battery | `hotato verify --before before.json --after after.json` |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |

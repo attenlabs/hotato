@@ -33,7 +33,7 @@ _ALL_SUBCOMMANDS = [
     "trace", "trace ingest", "trace attach", "trace export",
     "compare", "scan", "trust",
     "ingest", "analyze", "verify", "loop", "describe",
-    "init", "init webhook",
+    "init", "init webhook", "init starter",
     "issue", "issue create",
     "pr", "pr create",
 ]
