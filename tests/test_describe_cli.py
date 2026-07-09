@@ -26,7 +26,8 @@ from hotato import cli
 _ALL_SUBCOMMANDS = [
     "run", "capture", "setup", "connect", "pull", "sweep", "report", "team",
     "export", "benchmark", "benchmark compare", "doctor", "demo", "diagnose",
-    "inspect", "plan", "patch", "fixture", "fixture create", "compare", "scan",
+    "inspect", "plan", "patch", "fixture", "fixture create",
+    "fixture promote", "compare", "scan",
     "ingest", "analyze", "verify", "loop", "describe",
 ]
 
@@ -130,7 +131,8 @@ def test_describe_json_nested_subcommands_are_walked(capsys):
     benchmark = next(c for c in manifest["subcommands"] if c["name"] == "benchmark")
     assert {s["name"] for s in benchmark["subcommands"]} == {"benchmark compare"}
     fixture = next(c for c in manifest["subcommands"] if c["name"] == "fixture")
-    assert {s["name"] for s in fixture["subcommands"]} == {"fixture create"}
+    assert {s["name"] for s in fixture["subcommands"]} == {"fixture create",
+                                                           "fixture promote"}
 
 
 def test_describe_json_exit_codes_present_for_every_command_that_has_them(capsys):

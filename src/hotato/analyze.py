@@ -11,8 +11,11 @@ Three outputs, all offline and self-contained:
 
   1. a ranked HTML DASHBOARD reusing the ``report.py`` house style and its
      timeline SVG renderer: one card per top moment with the call file, the
-     timestamp, the candidate kind, the measured number, and a to-scale
-     caller/agent timeline of that exact moment;
+     timestamp, the candidate kind, the measured number, a to-scale
+     caller/agent timeline of that exact moment, and three actions: two
+     copy buttons carrying the exact ``hotato fixture promote`` command for
+     a yield or hold label (you pick the label; the page never does), and
+     Ignore, which hides the card on the page only, client side, no state;
   2. the HEAR-THE-BUG player: for the top-ranked moments the REAL audio around
      the moment is embedded inline (base64 WAV data URI, nothing uploaded) with
      a PLAYHEAD that sweeps the moment's timeline in sync with ``audio``
@@ -38,6 +41,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 import wave
 from typing import List, Optional, Tuple
 
@@ -48,11 +52,13 @@ from .scan import SCAN_NOTE, activity_tracks, scan_recording
 __all__ = [
     "analyze_folder",
     "build_dashboard_html",
+    "suggest_fixture_id",
     "validate_scan_args",
     "DEFAULT_TOP",
     "DEFAULT_AUDIO_TOP",
     "DEFAULT_PRE_SEC",
     "DEFAULT_POST_SEC",
+    "DEFAULT_REPORT_JSON",
 ]
 
 
@@ -151,6 +157,42 @@ def _headline(c: dict) -> str:
         coh = (c.get("agent_reaction") or {}).get("coherence", 0.0)
         return f"coherence {coh:.2f}"
     return ""
+
+
+# --- promote copy commands (the actions on each candidate card) -------------
+
+# The result-file name the copied promote command reads. Deliberately the
+# COMMAND'S default json name, never derived from the --out path: the
+# dashboard bytes stay identical whatever the page was saved as, and the
+# page tells the reader how to write this exact file.
+DEFAULT_REPORT_JSON = "hotato-analyze.json"
+
+_KEBAB_RE = re.compile(r"[^a-z0-9]+")
+
+
+def suggest_fixture_id(source: str, kind: str, rank: int) -> str:
+    """A ready-to-run fixture id for one ranked candidate: call id, kind, and
+    rank, kebab-cased to the same slug rule ``fixture create --id`` enforces.
+    The call id is the recording's stem with extensions dropped; a pulled
+    recording named ``STACK__ID.wav`` contributes its bare call id, the same
+    name a ``FILE#CALL:N`` ref answers to."""
+    stem = os.path.splitext(os.path.basename(source))[0]
+    if "__" in stem:
+        stem = stem.split("__", 1)[1]
+    else:
+        stem = stem.split(".", 1)[0]
+    slug = _KEBAB_RE.sub("-", f"{stem}-{kind}-{rank}".lower()).strip("-")
+    return slug or f"candidate-{rank}"
+
+
+def _promote_command(report_json: str, rank: int, cand: dict,
+                     expect: str) -> str:
+    """The exact ``hotato fixture promote`` command one copy button carries.
+    The ref is ``REPORT_JSON#RANK``: the same 1-based rank the card's #N chip
+    shows, which is the order ``parse_candidate_ref`` resolves."""
+    sid = suggest_fixture_id(cand["source"], cand["kind"], rank)
+    return (f"hotato fixture promote {report_json}#{rank} "
+            f"--expect {expect} --id {sid} --out tests/hotato")
 
 
 # --- discover WAVs deterministically ---------------------------------------
@@ -285,6 +327,12 @@ def analyze_folder(
         "kind": "analyze",
         "schema_version": "1",
         "folder": os.path.basename(os.path.normpath(folder)) or folder,
+        # The absolute folder path, so `hotato fixture promote FILE#N` can
+        # resolve a candidate's source recording from the result file alone
+        # (the JSON often lands far from the analyzed folder, e.g. a sweep's
+        # stdout redirect). Machine-local by construction, like every path in
+        # a result envelope.
+        "folder_path": os.path.abspath(folder),
         "note": SCAN_NOTE,
         "config": {
             "min_gap_sec": min_gap_sec,
@@ -415,6 +463,63 @@ _PLAYER_JS = """
 })();
 """
 
+# The card actions: the two promote buttons copy their exact command from the
+# data-cmd attribute (navigator.clipboard first, a hidden-textarea execCommand
+# fallback for file:// pages where the async API is unavailable); Ignore hides
+# the card on this page only, client side, no state, and pauses its player if
+# one is embedded. No animation anywhere, so reduced-motion needs no gating:
+# feedback is an instant text swap that reverts after a moment.
+_ACTIONS_JS = """
+(function(){
+  function flash(btn,msg){
+    var old=btn.getAttribute('data-label')||btn.textContent;
+    btn.textContent=msg;
+    btn.setAttribute('disabled','');
+    window.setTimeout(function(){
+      btn.textContent=old;
+      btn.removeAttribute('disabled');
+    },1400);
+  }
+  function fallbackCopy(text){
+    var ta=document.createElement('textarea');
+    ta.value=text;
+    ta.setAttribute('readonly','');
+    ta.style.position='fixed';
+    ta.style.left='-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok=false;
+    try{ok=document.execCommand('copy');}catch(e){ok=false;}
+    document.body.removeChild(ta);
+    return ok;
+  }
+  Array.prototype.forEach.call(
+      document.querySelectorAll('button.copycmd'),function(btn){
+    btn.setAttribute('data-label',btn.textContent);
+    btn.addEventListener('click',function(){
+      var cmd=btn.getAttribute('data-cmd')||'';
+      function done(ok){flash(btn,ok?'copied':'copy blocked');}
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(cmd).then(function(){done(true);},
+          function(){done(fallbackCopy(cmd));});
+      }else{
+        done(fallbackCopy(cmd));
+      }
+    });
+  });
+  Array.prototype.forEach.call(
+      document.querySelectorAll('button.dismiss'),function(btn){
+    btn.addEventListener('click',function(){
+      var card=btn.closest('.moment');
+      if(!card)return;
+      var audio=card.querySelector('audio');
+      if(audio){try{audio.pause();}catch(e){}}
+      card.setAttribute('hidden','');
+    });
+  });
+})();
+"""
+
 _EXTRA_CSS = """
 .moment .mhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 .rank{font-weight:800;font-size:12.5px;color:#15110d;background:%(caller)s;
@@ -435,11 +540,20 @@ _EXTRA_CSS = """
 .callf{min-width:260px;color:%(cream)s;font-size:12.5px;
  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .calln{color:%(muted)s;font-size:12.5px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px}
+.actions button{background:%(card2)s;border:1px solid %(line)s;
+ color:%(cream)s;border-radius:8px;padding:5px 12px;font-size:12.5px;
+ font-weight:600;font-family:inherit;cursor:pointer}
+.actions button:hover{border-color:%(muted)s}
+.actions button[disabled]{cursor:default;color:%(muted)s}
+.actions .dismiss{color:%(muted)s;font-weight:500}
+.moment[hidden]{display:none}
 """
 
 
 def _moment_card(pf: dict, cand: dict, rank: int, *, embed: bool,
-                 clip_b64: Optional[str], clip_name: str) -> str:
+                 clip_b64: Optional[str], clip_name: str,
+                 report_json: str) -> str:
     from . import report as _report
 
     esc = _report._esc
@@ -487,6 +601,18 @@ def _moment_card(pf: dict, cand: dict, rank: int, *, embed: bool,
             'this moment (over the page budget or the clip window was empty)'
             '</span></div>'
         )
+    yield_cmd = _promote_command(report_json, rank, cand, "yield")
+    hold_cmd = _promote_command(report_json, rank, cand, "hold")
+    parts.append(
+        '<div class="actions">'
+        f'<button type="button" class="copycmd" data-cmd="{esc(yield_cmd)}" '
+        f'title="copies: {esc(yield_cmd)}">Promote as yield fixture</button>'
+        f'<button type="button" class="copycmd" data-cmd="{esc(hold_cmd)}" '
+        f'title="copies: {esc(hold_cmd)}">Promote as hold fixture</button>'
+        '<button type="button" class="dismiss" title="hides this card on '
+        'this page only; nothing is saved">Ignore</button>'
+        '</div>'
+    )
     parts.append('</section>')
     return "".join(parts)
 
@@ -537,16 +663,25 @@ def build_dashboard_html(
     top: int = DEFAULT_TOP,
     audio_top: int = DEFAULT_AUDIO_TOP,
     embed_budget_bytes: int = _EMBED_BUDGET_BYTES,
+    report_json: Optional[str] = None,
 ) -> str:
     """Render the ranked candidate moments as ONE self-contained, offline HTML
     dashboard, reusing the ``report.py`` house style + timeline SVG renderer.
     The top ``audio_top`` moments carry the hear-the-bug player (embedded audio
     + a playhead synced to it); the rest show the timeline only. Every clip is
     embedded as a base64 WAV data URI, so the page has zero external requests.
+
+    Every card also carries the promote actions: two copy buttons with the
+    exact ``hotato fixture promote REPORT_JSON#RANK`` command for a yield or a
+    hold label, and Ignore, which hides the card client side only.
+    ``report_json`` is the result-file name those commands read -- the
+    producing command's DEFAULT json name (sweep passes its own), never the
+    --out path, so the page's bytes stay identical whatever it was saved as.
     """
     from . import report as _report
 
     esc = _report._esc
+    report_json = report_json or DEFAULT_REPORT_JSON
     ranked = aggregate["candidates"]
     shown = ranked if top <= 0 else ranked[:top]
     total = aggregate["total_candidates"]
@@ -599,6 +734,14 @@ def build_dashboard_html(
             'measured overlap or gap. These are timing candidates you review and '
             'label, never a decided outcome.</div>'
         )
+        body.append(
+            '<div class="hearcap">The promote buttons copy a '
+            '<span class="mono">hotato fixture promote</span> command that '
+            f'reads <span class="mono">{esc(report_json)}</span>; write that '
+            'file with the same run and <span class="mono">--format json'
+            '</span>. You pick the label. Ignore hides the card on this page '
+            'only; nothing is saved.</div>'
+        )
         spent = 0
         for i, cand in enumerate(shown, 1):
             pf = per_file.get(cand["source"])
@@ -618,6 +761,7 @@ def build_dashboard_html(
             body.append(_moment_card(
                 pf, cand, i, embed=want_audio,
                 clip_b64=clip_b64, clip_name=clip_name,
+                report_json=report_json,
             ))
 
     # Skipped inputs (clean, never a crash and never a failure count).
@@ -671,5 +815,6 @@ def build_dashboard_html(
         f"<meta name=\"description\" content=\"{esc(desc)}\">"
         f"<style>{css}</style></head><body>"
         + "".join(body)
-        + f"<script>{_PLAYER_JS}</script></body></html>\n"
+        + f"<script>{_PLAYER_JS}</script><script>{_ACTIONS_JS}</script>"
+        "</body></html>\n"
     )

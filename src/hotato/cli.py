@@ -207,11 +207,17 @@ _EXIT_CODES: dict = {
         (2, "unusable input or missing credentials"),
     ),
     "fixture": (
-        (2, "no subcommand given (see hotato fixture create --help)"),
+        (2, "no subcommand given (see hotato fixture create/promote --help)"),
     ),
     "fixture create": (
         (0, "fixture written (scored immediately)"),
         (2, "refused: unusable input or a not-scorable moment"),
+    ),
+    "fixture promote": (
+        (0, "fixture written (scored immediately)"),
+        (2, "refused: a bad candidate ref, a file that is not a sweep/analyze "
+            "result, a source recording that does not resolve, or a "
+            "not-scorable candidate"),
     ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
@@ -503,6 +509,7 @@ def _cmd_sweep(args) -> int:
         dir=args.dir,
         out=args.out,
         allow_mono=args.allow_mono,
+        demo=args.demo,
         top=args.top,
         audio_top=args.audio_top,
         pre=args.pre,
@@ -1103,6 +1110,35 @@ def _cmd_fixture_create(args) -> int:
     return 0
 
 
+def _cmd_fixture_promote(args) -> int:
+    from . import fixture as _fixture
+
+    result = _fixture.promote_candidate(
+        args.ref,
+        expect=args.expect,
+        fixture_id=args.id,
+        out_dir=args.out,
+        folder=args.folder,
+        title=args.title,
+        stack=args.stack,
+        max_talk_over_sec=args.max_talk_over,
+        max_time_to_yield_sec=args.max_time_to_yield,
+        tags=args.tags,
+        pre_sec=args.pre,
+        post_sec=args.post,
+        no_clip=args.no_clip,
+        force=args.force,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(
+            _fixture.promote_result_json(result), indent=2))
+    else:
+        print(_fixture.render_promote_text(result))
+    return 0
+
+
 def _cmd_compare(args) -> int:
     from . import compare as _compare
     from . import report as _report
@@ -1693,11 +1729,14 @@ def build_parser() -> argparse.ArgumentParser:
             "--allow-mono and cannot be attributed per party (they surface as "
             "skipped in the dashboard). Candidates are MEASURED timing moments you "
             "review and label, never verdicts and never intent. Offline; no "
-            "accuracy percentage anywhere."
+            "accuracy percentage anywhere. `--demo` runs the same flow over the "
+            "two bundled real demo calls with no stack, no credentials and no "
+            "network, so the first sweep works before anything is connected."
         ),
         epilog=(
             _exit_codes_epilog("sweep") + "\n\n"
             "Examples:\n"
+            "  hotato sweep --demo                            # bundled real calls, zero setup\n"
             "  hotato sweep --stack vapi --since 7d           # pull + dashboard\n"
             "  hotato sweep                                   # only-connected stack\n"
             "  hotato sweep --stack twilio --limit 100 --out calls.html\n"
@@ -1718,6 +1757,10 @@ def build_parser() -> argparse.ArgumentParser:
     sw.add_argument("--allow-mono", action="store_true",
                     help="allow sweeping mono/mixed stacks (degraded; they cannot "
                          "be scored per party and surface as skipped)")
+    sw.add_argument("--demo", action="store_true",
+                    help="sweep the two bundled real demo calls instead of a "
+                         "stack: no credentials, no network, zero setup. Takes "
+                         "no stack, credential, or pull flags")
     _add_cred_args(sw)
     sw.add_argument("--dir", default=None, metavar="DIR",
                     help="download directory for the pulled recordings "
@@ -2199,7 +2242,7 @@ def build_parser() -> argparse.ArgumentParser:
     fx = sub.add_parser(
         "fixture",
         help="turn a bad call moment into a permanent regression fixture "
-             "(hotato fixture create)",
+             "(hotato fixture create / promote)",
         description=(
             "Fixture tooling for the regression loop (see "
             "docs/BAD-CALL-TO-CI.md)."
@@ -2208,7 +2251,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     fxsub = fx.add_subparsers(dest="fixture_command", required=True,
-                              metavar="create")
+                              metavar="create|promote")
     fc = fxsub.add_parser(
         "create",
         help="write scenarios/<id>.json + audio/<id>.example.wav from one "
@@ -2281,6 +2324,83 @@ def build_parser() -> argparse.ArgumentParser:
     fc.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     fc.set_defaults(func=_cmd_fixture_create)
+
+    # --- fixture promote: sweep/analyze candidate -> regression fixture -----
+    fp = fxsub.add_parser(
+        "promote",
+        help="promote one sweep/analyze candidate (FILE#N or FILE#CALL:N) "
+             "into a permanent regression fixture",
+        description=(
+            "Promote a candidate moment from a `hotato sweep --format json` "
+            "or `hotato analyze --format json` result into a fixture that "
+            "`hotato run --scenarios DIR --audio DIR` scores forever. The "
+            "ref names the result file and the candidate: FILE#N is the Nth "
+            "candidate in the file (1-based, rank order -- the same #N rank "
+            "the report shows); FILE#CALL:N is the Nth candidate from one "
+            "call (its source file name, with or without the extension, or "
+            "the pulled call id). The candidate carries the recording, the "
+            "onset, and the kind, so unlike `fixture create` no --stereo "
+            "and no --onset is needed; you add the label. The created "
+            "fixture is scored immediately; a candidate that cannot be "
+            "judged is refused with the honest reason (exit 2), never "
+            "written as a fixture that would report a meaningless verdict. "
+            "Offline; no accuracy percentage anywhere."
+        ),
+        epilog=(
+            _exit_codes_epilog("fixture promote") + "\n\n" + _LABEL_NOTE
+            + "\n\n"
+            "Examples:\n"
+            "  hotato sweep --demo --format json > hotato-sweep.json\n"
+            "  hotato fixture promote hotato-sweep.json#3 --expect yield \\\n"
+            "      --id refund-cutoff-001 --out tests/hotato\n"
+            "  hotato fixture promote analyze.json#call_abc123:2 --expect hold \\\n"
+            "      --id ack-hold-002 --out tests/hotato\n"
+            "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    fp.add_argument("ref", metavar="CANDIDATE_REF",
+                    help="which candidate: FILE#N or FILE#CALL:N, e.g. "
+                         "hotato-sweep.json#3 or analyze.json#call_abc123:2")
+    fp.add_argument("--expect", required=True, choices=["yield", "hold"],
+                    help="YOUR label for the event: 'yield' (the agent should "
+                         "stop for the caller) or 'hold' (the agent should "
+                         "keep speaking)")
+    fp.add_argument("--id", required=True,
+                    help="fixture id slug, e.g. refund-interruption-001")
+    fp.add_argument("--out", required=True, metavar="DIR",
+                    help="fixture root; writes DIR/scenarios/<id>.json and "
+                         "DIR/audio/<id>.example.wav")
+    fp.add_argument("--folder", default=None, metavar="DIR",
+                    help="folder holding the swept/analyzed recordings, for "
+                         "when the folder recorded in the result file does "
+                         "not resolve from here")
+    fp.add_argument("--title", default=None,
+                    help="human title (default: the id with spaces)")
+    fp.add_argument("--stack", default="generic",
+                    choices=["generic", "vapi", "twilio", "livekit",
+                             "pipecat", "retell"],
+                    help="voice stack the recording came from (labels the "
+                         "validation fix knob only)")
+    fp.add_argument("--max-talk-over", type=float, default=None,
+                    help="[yield] fail the fixture if talk-over exceeds this many seconds")
+    fp.add_argument("--max-time-to-yield", type=float, default=None,
+                    help="[yield] fail the fixture if the yield is slower than this many seconds")
+    fp.add_argument("--tags", default=None,
+                    help="comma-separated tags for the scenario JSON")
+    fp.add_argument("--pre", type=float, default=2.0,
+                    help="seconds of audio kept BEFORE the onset when clipping (default 2.0)")
+    fp.add_argument("--post", type=float, default=6.0,
+                    help="seconds of audio kept AFTER the onset when clipping (default 6.0)")
+    fp.add_argument("--no-clip", action="store_true",
+                    help="keep the full recording and the original onset instead of clipping")
+    fp.add_argument("--force", action="store_true",
+                    help="overwrite an existing fixture with the same id")
+    fp.add_argument("--caller-channel", type=int, default=0)
+    fp.add_argument("--agent-channel", type=int, default=1)
+    fp.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    fp.set_defaults(func=_cmd_fixture_promote)
 
     # --- compare: the shareable before/after on one fixed moment ------------
     cp = sub.add_parser(
