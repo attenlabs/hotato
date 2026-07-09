@@ -320,3 +320,235 @@ def test_dist_summary_skips_non_numeric():
     from hotato._stats import dist_summary
     assert dist_summary(["oops", None, [1], {"x": 1}]) is None
     assert dist_summary([1.0, "oops", 3.0])["n"] == 2
+
+
+# --- hotato.verify.yaml policy gate -----------------------------------------
+#
+# verify --policy turns the measured rollup into a PASS/FAIL gate: target.improve
+# success criteria AND hard guardrails. The anti-bandaid law: it passes only when
+# every guardrail holds AND every target is met, so a one-axis fix that regresses
+# (or never tests) the other axis cannot pass.
+
+_FULL_POLICY = """\
+target:
+  improve:
+    talk_over_sec_p95: -0.5   # must drop by at least half a second
+    failed_count: decrease
+guardrails:
+  max_new_false_yields: 0
+  max_not_scorable: 0
+  require_hold_fixture: true
+  require_yield_fixture: true
+"""
+
+
+def _policy(tmp_path, text, name="hotato.verify.yaml"):
+    p = tmp_path / name
+    p.write_text(text, encoding="utf-8")
+    return str(p)
+
+
+def _good_before(tmp_path):
+    return _write(tmp_path, "b.json", [
+        _ev("f1", True, False, 1.2), _ev("f2", True, False, 1.3),
+        _ev("f3", True, False, 1.5), _ev("f4", True, False, 1.1),
+        _ev("h1", False, True, 0.0),
+    ])
+
+
+def test_policy_parses_the_documented_subset(tmp_path):
+    """The stdlib parser coerces the exact scalar types the canon schema uses
+    (signed float, keyword string, int cap, bool), with comments stripped."""
+    raw = _verify._parse_verify_policy(_FULL_POLICY)
+    assert raw["target"]["improve"]["talk_over_sec_p95"] == -0.5
+    assert raw["target"]["improve"]["failed_count"] == "decrease"
+    assert raw["guardrails"]["max_new_false_yields"] == 0
+    assert raw["guardrails"]["require_hold_fixture"] is True
+    pol = _verify.load_policy(_policy(tmp_path, _FULL_POLICY))
+    assert pol["source"].endswith("hotato.verify.yaml")
+    assert pol["target"]["improve"]["talk_over_sec_p95"] == -0.5
+    assert set(pol["guardrails"]) == {
+        "max_new_false_yields", "max_not_scorable",
+        "require_hold_fixture", "require_yield_fixture"}
+
+
+def test_policy_all_pass_exits_0_and_reports_targets(tmp_path):
+    before = _good_before(tmp_path)
+    after = _write(tmp_path, "a.json", [
+        _ev("f1", True, True, 0.3, 0.4), _ev("f2", True, True, 0.2, 0.5),
+        _ev("f3", True, True, 0.4, 0.6), _ev("f4", True, True, 0.3, 0.4),
+        _ev("h1", False, True, 0.0),
+    ])
+    pol = _policy(tmp_path, _FULL_POLICY)
+    v = _verify.verify_sides(before, after, min_n=3)
+    ev = _verify.evaluate_policy(v, _verify.load_policy(pol))
+    assert ev["passed"] is True
+    assert ev["targets_met"] is True and ev["guardrails_ok"] is True
+    # target.improve is reported: both metrics present with met=True
+    metrics = {t["metric"]: t for t in ev["targets"]}
+    assert metrics["talk_over_sec_p95"]["met"] is True
+    assert metrics["failed_count"]["met"] is True
+    assert cli.main(["verify", "--before", before, "--after", after,
+                     "--policy", pol]) == 0
+
+
+def test_policy_guardrail_max_new_false_yields_fires(tmp_path):
+    """Anti-bandaid: a fix that clears talk-over but makes a hold guard newly
+    yield trips max_new_false_yields -> verify FAILS exit 1, even though the
+    talk-over and failing-count TARGETS are met."""
+    before = _good_before(tmp_path)
+    after = _write(tmp_path, "a.json", [
+        _ev("f1", True, True, 0.3, 0.4), _ev("f2", True, True, 0.2, 0.5),
+        _ev("f3", True, True, 0.4, 0.6), _ev("f4", True, True, 0.3, 0.4),
+        _ev("h1", False, False, 0.0),  # hold guard now false-yields
+    ])
+    pol = _policy(tmp_path, _FULL_POLICY)
+    v = _verify.verify_sides(before, after, min_n=3)
+    ev = _verify.evaluate_policy(v, _verify.load_policy(pol))
+    # the whole point: targets met, but a guardrail is violated -> not passed
+    assert ev["targets_met"] is True
+    assert ev["guardrails_ok"] is False
+    assert ev["passed"] is False
+    g = {x["name"]: x for x in ev["guardrails"]}
+    assert g["max_new_false_yields"]["observed"] == 1
+    assert g["max_new_false_yields"]["ok"] is False
+    assert cli.main(["verify", "--before", before, "--after", after,
+                     "--policy", pol]) == 1
+
+
+def test_policy_require_hold_fixture_fails_when_battery_lacks_one(tmp_path):
+    """A battery with no hold fixture cannot certify the opposite-risk axis, so
+    require_hold_fixture is a hard fail even though every yield fixture is
+    fixed. A threshold bandaid cannot pass by only testing one side."""
+    before = _write(tmp_path, "b.json", [
+        _ev("f1", True, False, 1.2), _ev("f2", True, False, 1.3),
+        _ev("f3", True, False, 1.4),
+    ])
+    after = _write(tmp_path, "a.json", [
+        _ev("f1", True, True, 0.3, 0.4), _ev("f2", True, True, 0.2, 0.5),
+        _ev("f3", True, True, 0.3, 0.4),
+    ])
+    pol = _policy(tmp_path, "guardrails:\n  require_hold_fixture: true\n")
+    ev = _verify.evaluate_policy(
+        _verify.verify_sides(before, after, min_n=3), _verify.load_policy(pol))
+    g = ev["guardrails"][0]
+    assert g["name"] == "require_hold_fixture"
+    assert g["observed"] == 0 and g["ok"] is False
+    assert ev["passed"] is False
+    assert cli.main(["verify", "--before", before, "--after", after,
+                     "--policy", pol]) == 1
+
+
+def test_policy_require_yield_fixture_fails_when_battery_lacks_one(tmp_path):
+    before = _write(tmp_path, "b.json",
+                    [_ev("h1", False, True, 0.0), _ev("h2", False, True, 0.0)])
+    after = _write(tmp_path, "a.json",
+                   [_ev("h1", False, True, 0.0), _ev("h2", False, True, 0.0)])
+    pol = _policy(tmp_path, "guardrails:\n  require_yield_fixture: true\n")
+    ev = _verify.evaluate_policy(
+        _verify.verify_sides(before, after, min_n=1), _verify.load_policy(pol))
+    assert ev["guardrails"][0]["name"] == "require_yield_fixture"
+    assert ev["guardrails"][0]["ok"] is False
+    assert ev["passed"] is False
+
+
+def test_policy_max_not_scorable_fires(tmp_path):
+    before = _write(tmp_path, "b.json", [_ev("f1", True, False, 1.2)])
+    after = _write(tmp_path, "a.json",
+                   [_ev("f1", True, True, 0.3, 0.4, scorable=False)])
+    pol = _policy(tmp_path, "guardrails:\n  max_not_scorable: 0\n")
+    ev = _verify.evaluate_policy(
+        _verify.verify_sides(before, after, min_n=1), _verify.load_policy(pol))
+    assert ev["guardrails"][0]["observed"] == 1
+    assert ev["passed"] is False
+
+
+def test_policy_target_not_met_fails_even_when_guardrails_hold(tmp_path):
+    """The other half of the anti-bandaid gate: guardrails all hold, but the
+    talk-over TARGET (-0.5s) is only improved by -0.2s, so verify fails."""
+    before = _write(tmp_path, "b.json", [
+        _ev("f1", True, False, 1.0), _ev("f2", True, False, 1.0),
+        _ev("f3", True, False, 1.0), _ev("h1", False, True, 0.0),
+    ])
+    after = _write(tmp_path, "a.json", [
+        _ev("f1", True, True, 0.8, 0.4), _ev("f2", True, True, 0.8, 0.5),
+        _ev("f3", True, True, 0.8, 0.4), _ev("h1", False, True, 0.0),
+    ])
+    pol = _policy(tmp_path, "target:\n  improve:\n    talk_over_sec_p95: -0.5\n"
+                            "guardrails:\n  max_new_false_yields: 0\n")
+    ev = _verify.evaluate_policy(
+        _verify.verify_sides(before, after, min_n=3), _verify.load_policy(pol))
+    assert ev["guardrails_ok"] is True
+    assert ev["targets_met"] is False
+    assert ev["passed"] is False
+    assert cli.main(["verify", "--before", before, "--after", after,
+                     "--policy", pol]) == 1
+
+
+def test_policy_html_renders_the_policy_section(tmp_path):
+    before = _good_before(tmp_path)
+    after = _write(tmp_path, "a.json", [
+        _ev("f1", True, True, 0.3, 0.4), _ev("f2", True, True, 0.2, 0.5),
+        _ev("f3", True, True, 0.4, 0.6), _ev("f4", True, True, 0.3, 0.4),
+        _ev("h1", False, False, 0.0),  # violates the guardrail
+    ])
+    v = _verify.verify_sides(before, after, min_n=3)
+    v["policy"] = _verify.evaluate_policy(v, _verify.load_policy(
+        _policy(tmp_path, _FULL_POLICY)))
+    html = _verify.render_html(v)
+    assert "Policy check: FAILED" in html
+    assert "max_new_false_yields" in html
+    assert "talk_over_sec_p95" in html
+    assert "violated" in html
+    # still honest by construction
+    assert "coincidence, not causation" in html.lower()
+
+
+def test_policy_invalid_keys_are_exit_2_usage_errors(tmp_path):
+    before = _write(tmp_path, "b.json", [_ev("f1", True, False, 1.2)])
+    after = _write(tmp_path, "a.json", [_ev("f1", True, True, 0.3, 0.4)])
+    bad = _policy(tmp_path, "target:\n  improve:\n    bogus_metric: -0.5\n",
+                  name="bad.yaml")
+    assert cli.main(["verify", "--before", before, "--after", after,
+                     "--policy", bad]) == 2
+    # an unknown guardrail is also rejected
+    with pytest.raises(ValueError):
+        _verify.load_policy(_policy(tmp_path,
+                                    "guardrails:\n  max_bogus: 1\n",
+                                    name="bad2.yaml"))
+    # an empty policy is a usage error, not a silent always-pass
+    with pytest.raises(ValueError):
+        _verify.load_policy(_policy(tmp_path, "# nothing here\n",
+                                    name="empty.yaml"))
+
+
+def test_policy_parser_rejects_tabs_and_lists(tmp_path):
+    with pytest.raises(ValueError):
+        _verify._parse_verify_policy("target:\n\timprove: 1\n")
+    with pytest.raises(ValueError):
+        _verify._parse_verify_policy("guardrails:\n  - max_not_scorable\n")
+
+
+def test_policy_wrong_typed_guardrail_is_rejected(tmp_path):
+    # max_* must be a non-negative int, require_* must be a bool
+    with pytest.raises(ValueError):
+        _verify.load_policy(_policy(tmp_path,
+                                    "guardrails:\n  max_not_scorable: -1\n"))
+    with pytest.raises(ValueError):
+        _verify.load_policy(_policy(tmp_path,
+                                    "guardrails:\n  require_hold_fixture: 3\n",
+                                    name="r.yaml"))
+
+
+def test_shipped_example_policy_loads_and_matches_canon():
+    """The example we ship is a real, valid policy carrying the canon schema."""
+    import os
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(here, "examples", "verify-policy", "hotato.verify.yaml")
+    pol = _verify.load_policy(path)
+    assert pol["target"]["improve"]["talk_over_sec_p95"] == -0.5
+    assert pol["target"]["improve"]["failed_count"] == "decrease"
+    assert pol["guardrails"]["max_new_false_yields"] == 0
+    assert pol["guardrails"]["max_not_scorable"] == 0
+    assert pol["guardrails"]["require_hold_fixture"] is True
+    assert pol["guardrails"]["require_yield_fixture"] is True

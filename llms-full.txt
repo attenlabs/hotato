@@ -1261,6 +1261,50 @@ shift. The rollup is the two axes that matter:
 By default verify measures and exits 0; `--fail-on-regression` exits 1 if any
 fixture regressed or got worse.
 
+### `--policy hotato.verify.yaml` -- the anti-bandaid gate
+
+`--policy` turns the measured rollup into a PASS/FAIL gate you can drop into CI.
+A policy declares two things, and **both** must hold for verify to pass:
+
+```yaml
+target:
+  improve:
+    talk_over_sec_p95: -0.5   # pooled talk-over p95 must drop by >= 0.5s
+    failed_count: decrease    # fewer fixtures may fail than before
+guardrails:
+  max_new_false_yields: 0     # no hold guard that passed before may newly yield
+  max_not_scorable: 0         # every paired fixture must be judgeable
+  require_hold_fixture: true  # the battery must contain a hold fixture...
+  require_yield_fixture: true # ...and a yield fixture
+```
+
+```
+hotato verify --before before.json --after after.json --policy hotato.verify.yaml
+```
+
+- **`target.improve`** is the success criteria. A signed number is a required
+  delta (`after - before`), so `-0.5` means "must improve by at least 0.5"; a
+  keyword (`decrease`, `increase`, `no_worse`, `no_better`, `unchanged`) states
+  direction only. Metrics: `talk_over_sec_p95`, `seconds_to_yield_p95`,
+  `failed_count`, `false_yield_count`.
+- **`guardrails`** are hard fail conditions. `max_new_false_yields` and
+  `max_not_scorable` cap what a naive threshold bandaid would silently trade in;
+  `require_hold_fixture` / `require_yield_fixture` refuse to certify a battery
+  that never even tests the opposite axis.
+
+verify exits `1` unless **every guardrail holds AND every target is met**, so a
+fix cannot pass by improving one axis while regressing (or never testing) the
+other. A patch that cuts talk-over by making the agent yield to everything meets
+the talk-over target but trips `max_new_false_yields` on the hold fixtures, and
+the whole check fails. The guardrails and targets are shown in the `--out
+verify.html` proof (a `Policy check: PASSED`/`FAILED` headline and an
+ok/violated, met/unmet table) and in the text and JSON output.
+
+The policy is parsed with the standard library only -- Hotato's core carries no
+third-party runtime dependency -- over the small subset the shipped
+`examples/verify-policy/hotato.verify.yaml` uses. An unknown key, a wrong-typed
+value, an empty policy, a tab indent, or a list is a clean exit-2 usage error.
+
 ## `hotato loop [FOLDER]` -- one command, with memory
 
 `hotato loop` drives the parts Hotato can drive and remembers where it left off
@@ -1299,8 +1343,10 @@ whether to apply the fix.
 - `hotato patch`: `0` a patch (config artifact or the engagement-control
   pointer) was produced; `2` the input is not a fix plan or is unreadable.
 - `hotato verify`: `0` the rollup was produced (a low-n claim is refused but
-  still exits 0); `1` with `--fail-on-regression`, a fixture regressed or got
-  worse; `2` usage error, unreadable input, or no fixtures pair.
+  still exits 0); `1` a gate you opted into failed -- with `--fail-on-regression`
+  a fixture regressed or got worse, or with `--policy` a guardrail was violated
+  or a `target.improve` criterion was not met; `2` usage error, unreadable
+  input, an invalid `--policy` file, or no fixtures pair.
 - `hotato loop`: `0` advanced or re-reported state; `2` no folder on the first
   run, an unreadable state file, or a path that is not a folder.
 

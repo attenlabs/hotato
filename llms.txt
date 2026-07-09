@@ -135,8 +135,12 @@
   still pass". Reuses the `compare` taxonomy per fixture and aggregate's pooled
   distributions. Reports COINCIDENCE, never causation; refuses the claim under
   low n (`--min-n`); an unjudgeable side is `not_scorable`. `--fail-on-regression`
-  exits 1 on a regressed/worse fixture. Each side is a run envelope JSON or a
-  directory of them.
+  exits 1 on a regressed/worse fixture. `--policy hotato.verify.yaml` gates the
+  run on declared `target.improve` success criteria AND hard guardrails
+  (`max_new_false_yields`, `max_not_scorable`, `require_hold_fixture`,
+  `require_yield_fixture`), exiting 1 unless every guardrail holds and every
+  target is met, so a one-axis bandaid cannot pass. Each side is a run envelope
+  JSON or a directory of them.
 - `hotato loop [FOLDER]` -- one-command orchestration of the closed loop with
   memory: first run discovers candidate moments (`analyze` -> `scan` -> rank) and
   records them in `.hotato/loop-state.json`; a second run, once you have labeled
