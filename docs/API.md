@@ -29,7 +29,7 @@ All scoring functions take keyword arguments only.
   "stack": "generic",            # normalized stack label
   "offline": True,
   "engine": {"name", "version", "upstream"},
-  "limits": {...},               # honest scope and ceiling, hotato.core.LIMITS
+  "limits": {...},               # scope and ceiling, hotato.core.LIMITS
   "summary": {"events", "passed", "failed", "regression"},
                                  # plus additive "not_scorable" (count) when
                                  # at least one event could not be judged
@@ -168,7 +168,7 @@ Every reported signal is re-derivable by hand from this dump.
 
 ### LIMITS and SUITE_ID
 
-`hotato.core.LIMITS` is the honest scope dict embedded in every envelope
+`hotato.core.LIMITS` is the scope dict embedded in every envelope
 (method, ceiling, best input, what it does not do). `SUITE_ID` is `"barge-in"`.
 
 ### ScoreConfig
@@ -230,7 +230,7 @@ env = write_report("report.html", suite="barge-in", stack="livekit")
 
 ## hotato.aggregate
 
-Team mode: many run envelopes, one honest trend view.
+Team mode: many run envelopes, one trend view.
 
 ```python
 load_run_dir(dirpath: str, order: str = "mtime") -> dict

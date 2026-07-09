@@ -97,7 +97,7 @@ ranked candidates plus a pull summary instead.
 
 Dual-channel stacks give separated scoring. Mono/mixed stacks can be swept with
 `--allow-mono`, but their calls cannot be attributed per party and surface in the
-dashboard's Skipped section. Honestly, not faked.
+dashboard's Skipped section.
 
 Candidates are MEASURED timing moments you review and label with `hotato fixture
 create`, never verdicts and never intent. There is no pass/fail, no failure
@@ -105,7 +105,7 @@ count, and no accuracy number anywhere.
 
 ## What is and isn't pullable
 
-See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full, honest map:
+See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full map:
 which stacks auto-pull dual-channel, which are mono-only behind `--allow-mono`,
 which are capture-in-your-infra, and which are not integrable, each with the
-exact verified endpoint and the honest gaps.
+exact verified endpoint and the gaps.

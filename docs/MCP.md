@@ -108,6 +108,6 @@ surfaces.
 ## More
 
 - Python API and the shared error contract: [`API.md`](API.md)
-- What the envelope measures and the honest scope/ceiling: the top-level
+- What the envelope measures and the scope/ceiling: the top-level
   [`README.md`](../README.md) and [`METHODOLOGY.md`](../METHODOLOGY.md)
 - Machine-readable index of every command (CLI and MCP): [`llms.txt`](../llms.txt)

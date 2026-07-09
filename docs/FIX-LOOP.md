@@ -53,13 +53,13 @@ vendor-neutral, numbers-free **engagement-control pointer** instead: it names th
 problem class (discriminating a real bid for the floor from a backchannel) and
 the KIND of fix it needs, names no product, and carries no digits. It is not an
 upsell, and it fires ONLY on this case -- never on an ambiguous slow yield or a
-coverage gap, which get their honest "no patch, here's why" instead.
+coverage gap, which get a "no patch, here's why" instead.
 
 Every other non-propose decision (diagnostic checklist, insufficient coverage,
 already at a documented bound, no change) likewise emits no patch, with the
 reason pointing back at the plan.
 
-**Honesty:** patch makes no network call and pins `applies_change` to false.
+**Guardrail:** patch makes no network call and pins `applies_change` to false.
 `--format json` emits the full artifact; `--out PATH` also writes it.
 
 ## `hotato verify --before <old> --after <new>` -- the proof
@@ -87,7 +87,7 @@ shift. The rollup is the two axes that matter:
 - **hold axis**: how many hold-labeled guard fixtures still pass (they must not
   regress).
 
-**Honesty:**
+**Guardrail:**
 
 - verify reports **coincidence, never causation**: it says the improvement
   *coincides with* your change, never that it *caused* it. Hotato measures

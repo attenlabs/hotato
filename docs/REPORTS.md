@@ -1,6 +1,6 @@
 # Reports: doctor, report, team, export
 
-Four surfaces over the same scorer. Every number in every one of them is a real
+Four surfaces over the same scorer. Every number in every one of them is a
 measurement from the envelope; nothing is recomputed, restyled into a
 percentage, or fabricated. There is no accuracy percentage anywhere.
 
@@ -34,7 +34,7 @@ uvx hotato report --suite barge-in --out selftest.html
 uvx hotato report --stereo call.wav --format md --out report.md
 ```
 
-Per event it draws a to-scale caller/agent activity timeline from the real
+Per event it draws a to-scale caller/agent activity timeline from the
 frame data: the overlap shaded, the caller-onset and yield markers, the
 measured talk-over seconds, expected vs actual, a PASS or FAIL chip, and the
 exact `ScoreConfig` thresholds used.
@@ -44,7 +44,7 @@ measurements:
 
 - a **time-to-yield distribution** strip, one dot per measured yield, with
   mean, median, and p90 (definitions in `METHODOLOGY.md`);
-- a **talk-over histogram**, real per-event seconds bucketed on a fixed grid;
+- a **talk-over histogram**, per-event seconds bucketed on a fixed grid;
 - **failure clustering by fix class**, so a batch of failures reads as "these
   five share one config setting" instead of five separate mysteries.
 
@@ -72,7 +72,7 @@ collapse into a clean paper layout, so print-to-PDF is the PDF export.
 
 ## `hotato team`: the trend view
 
-Aggregates a directory of run envelopes into one honest trend.
+Aggregates a directory of run envelopes into one trend.
 
 ```bash
 hotato run --suite barge-in --format json > runs/001.json

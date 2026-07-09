@@ -8,7 +8,7 @@ command mutates any platform config, and no apply command exists.
 
 | Level | Command | What it does | Writes to your stack |
 |---|---|---|---|
-| 0 | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the honest advisory and the tradeoff stated | never |
+| 0 | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the advisory and the tradeoff stated | never |
 | 1 | `hotato inspect --stack ...` | Reads the CURRENT turn-taking config (GET or static parse) and normalizes it | never |
 | 2 | `hotato plan result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | never |
 | 3 | apply / verify | NEXT PHASE, not shipped | see below |
