@@ -1,0 +1,48 @@
+# hotato.yaml -- config for a generated `hotato init webhook` worker.
+#
+# This file documents what the worker does. Hotato is a passive turn-taking
+# regression monitor: it fetches call recordings read-only and surfaces
+# CANDIDATE moments. It never mutates your platform config and never labels
+# intent. The worker reads its runtime settings from environment variables
+# (see .env.example); this file is the human-readable contract and the target
+# of tests/test_webhook_contract.py.
+version: 1
+stack: {{STACK}}          # vapi | retell | twilio
+target: {{TARGET}}
+
+webhook:
+  event: {{EVENT_NAME}}   # the call-ended / recording-ready event this worker handles
+  verify:
+    method: {{VERIFY_METHOD}}     # shared-secret | hmac-sha256 | hmac-sha1
+    header: {{SECRET_HEADER}}
+    secret_env: {{SECRET_ENV}}
+  # A webhook payload is untrusted DATA. The worker verifies the secret above
+  # BEFORE any parse, fetch, or scan; a bad secret is rejected 401.
+
+recording:
+  access: read-only       # the recording is fetched read-only (GET) via `hotato ingest`
+  channels: dual          # separated turn-taking analysis needs one party per channel
+
+report:
+  dir: reports            # where the JSON + HTML candidate report is written
+  formats: [json, html]
+
+scan:
+  min_gap_sec: 2.0        # minimum response gap (seconds) surfaced as a candidate
+  top: 20                 # cap the listed candidates by salience
+
+notify:
+  slack:
+    enabled: false        # set true + SLACK_WEBHOOK_URL to post the candidate summary
+    webhook_url_env: SLACK_WEBHOOK_URL
+  github:
+    enabled: false        # OFF by default
+    create_issues: false  # explicit: the worker notifies only; it opens no issues unless you turn this on
+    repo: ""              # owner/name, used only when a notification is configured
+
+# Invariants this worker holds (enforced in app.py, asserted in
+# tests/test_webhook_contract.py):
+#   1. never calls a platform config-mutation endpoint
+#   2. never labels intent or emits a verdict -- discovery only (candidate moments)
+#   3. verifies the webhook secret before any processing
+#   4. fetches the recording read-only

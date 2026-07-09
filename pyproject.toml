@@ -80,4 +80,6 @@ hotato = [
     "data/demo/failing/scenarios/*.json",
     "data/demo/failing/audio/*.wav",
     "schema/*.json",
+    "templates/webhook/*.tmpl",
+    "templates/webhook/fragments/*.py",
 ]

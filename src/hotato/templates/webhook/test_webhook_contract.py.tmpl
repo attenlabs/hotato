@@ -1,0 +1,218 @@
+"""Contract test for the generated hotato webhook worker.
+
+This ships INSIDE the generated project and pins the FOUR honesty invariants of
+the worker. It scans ``app.py`` with the ``ast`` module (structural checks, never
+a substring match on prose) and validates ``hotato.yaml``. Run it with:
+
+    pytest -q tests/test_webhook_contract.py
+
+Invariants:
+  1. The worker never calls a voice-platform config-mutation endpoint.
+  2. It never labels intent or emits a verdict -- discovery only.
+  3. It verifies the webhook secret BEFORE any parse, fetch, or scan.
+  4. The recording fetch is read-only (delegated to `hotato ingest`).
+"""
+
+import ast
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+APP = ROOT / "app.py"
+CONFIG = ROOT / "hotato.yaml"
+
+STACK = "{{STACK}}"
+
+# Voice-platform API hosts the worker must never touch directly: every vendor
+# call is delegated to `hotato ingest`, which only READS the recording.
+VENDOR_API_HOSTS = ("api.vapi.ai", "api.retellai.com", "api.twilio.com")
+FORBIDDEN_HTTP_METHODS = ("PUT", "PATCH", "DELETE")
+# hotato subcommands that would label, verdict, tune, or apply -- the worker may
+# only ever call `hotato ingest`.
+FORBIDDEN_SUBCOMMANDS = (
+    "run", "verify", "compare", "plan", "patch", "apply", "fixture",
+    "promote", "create", "connect", "diagnose",
+)
+
+
+def _tree():
+    src = APP.read_text(encoding="utf-8")
+    compile(src, str(APP), "exec")  # syntax check
+    return ast.parse(src)
+
+
+def _string_constants(node):
+    return [
+        n.value
+        for n in ast.walk(node)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+    ]
+
+
+def _find_function(tree, name):
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node
+    return None
+
+
+def _first_call_line(fn, name):
+    """Lowest line number of a call to ``name`` (a bare name or a ``.name``
+    method) inside ``fn``; None if it is never called."""
+    lines = []
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Name) and f.id == name:
+                lines.append(node.lineno)
+            elif isinstance(f, ast.Attribute) and f.attr == name:
+                lines.append(node.lineno)
+    return min(lines) if lines else None
+
+
+def _calls_attr(fn, attr):
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr == attr:
+                return True
+    return False
+
+
+def _raises_httpexception(fn):
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Raise) and node.exc is not None:
+            exc = node.exc
+            f = exc.func if isinstance(exc, ast.Call) else exc
+            name = getattr(f, "id", None) or getattr(f, "attr", None)
+            if name == "HTTPException":
+                return True
+    return False
+
+
+def _subprocess_arg_lists(tree):
+    """Every string arg list passed to subprocess.run / Popen / call."""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if (
+            isinstance(f, ast.Attribute)
+            and f.attr in ("run", "Popen", "call", "check_output", "check_call")
+            and isinstance(f.value, ast.Name)
+            and f.value.id == "subprocess"
+            and node.args
+            and isinstance(node.args[0], (ast.List, ast.Tuple))
+        ):
+            out.append(
+                [
+                    e.value
+                    for e in node.args[0].elts
+                    if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                ]
+            )
+    return out
+
+
+def _hotato_calls(tree):
+    return [a for a in _subprocess_arg_lists(tree) if a and a[0] == "hotato"]
+
+
+# --- app.py exists and parses ----------------------------------------------
+
+def test_app_exists_and_parses():
+    assert APP.is_file(), "app.py is missing from the generated worker"
+    assert isinstance(_tree(), ast.Module)
+
+
+# --- invariant 1: no platform config mutation ------------------------------
+
+def test_invariant_1_no_platform_config_mutation():
+    tree = _tree()
+    consts = _string_constants(tree)
+    for host in VENDOR_API_HOSTS:
+        assert all(host not in c for c in consts), (
+            "app.py references the voice-platform API host " + host
+            + "; all vendor I/O must be delegated to `hotato ingest`"
+        )
+    for method in FORBIDDEN_HTTP_METHODS:
+        assert method not in consts, "app.py uses a mutating HTTP method: " + method
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            assert node.func.attr not in ("put", "patch", "delete"), (
+                "app.py makes a mutating HTTP call (." + node.func.attr + ")"
+            )
+
+
+# --- invariant 2: discovery only, no verdict, no intent labeling ------------
+
+def test_invariant_2_discovery_only_no_verdict_no_intent():
+    tree = _tree()
+    calls = _hotato_calls(tree)
+    assert calls, "the worker must shell out to `hotato ingest`"
+    for args in calls:
+        assert "ingest" in args, "the only hotato subcommand may be `ingest`"
+        for bad in FORBIDDEN_SUBCOMMANDS:
+            assert bad not in args, "the worker must never call `hotato " + bad + "`"
+        assert "--expect" not in args, "the worker must never label intent (--expect)"
+    assert "--expect" not in _string_constants(tree), (
+        "the worker must never label intent (--expect anywhere)"
+    )
+
+
+# --- invariant 3: secret verified before any processing ---------------------
+
+def test_invariant_3_secret_verified_before_processing():
+    tree = _tree()
+    handler = _find_function(tree, "handle_webhook")
+    assert handler is not None, "no handle_webhook endpoint found"
+    verify_line = _first_call_line(handler, "verify_webhook")
+    assert verify_line is not None, "the handler must call verify_webhook"
+    for later in ("parse_payload", "is_target_event", "run_hotato_ingest"):
+        line = _first_call_line(handler, later)
+        if line is not None:
+            assert verify_line < line, (
+                "verify_webhook must run before " + later
+            )
+    verify = _find_function(tree, "verify_webhook")
+    assert verify is not None, "verify_webhook is not defined"
+    assert _calls_attr(verify, "compare_digest"), (
+        "verify_webhook must use a constant-time compare (hmac.compare_digest)"
+    )
+    assert _raises_httpexception(verify), (
+        "verify_webhook must reject a bad secret (raise HTTPException)"
+    )
+
+
+# --- invariant 4: recording fetch is read-only ------------------------------
+
+def test_invariant_4_recording_fetch_is_read_only():
+    tree = _tree()
+    # The recording is fetched only by `hotato ingest`, which issues a GET.
+    assert _hotato_calls(tree), "the read-only fetch must be delegated to hotato ingest"
+    consts = _string_constants(tree)
+    for host in VENDOR_API_HOSTS:
+        assert all(host not in c for c in consts), (
+            "the worker fetches from " + host + " directly; the fetch must be the "
+            "read-only `hotato ingest` delegation"
+        )
+
+
+# --- hotato.yaml matches the worker schema ----------------------------------
+
+def test_hotato_yaml_matches_schema():
+    yaml = pytest.importorskip("yaml")
+    assert CONFIG.is_file(), "hotato.yaml is missing"
+    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    assert isinstance(cfg, dict)
+    assert cfg["version"] == 1
+    assert cfg["stack"] == STACK
+    assert cfg["recording"]["access"] == "read-only"
+    assert cfg["recording"]["channels"] == "dual"
+    assert set(cfg["report"]["formats"]) == {"json", "html"}
+    assert cfg["notify"]["slack"]["enabled"] is False
+    assert cfg["notify"]["github"]["enabled"] is False
+    assert cfg["notify"]["github"]["create_issues"] is False
+    assert "method" in cfg["webhook"]["verify"]
+    assert cfg["webhook"]["verify"]["secret_env"]

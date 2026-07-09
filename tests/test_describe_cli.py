@@ -29,6 +29,7 @@ _ALL_SUBCOMMANDS = [
     "inspect", "plan", "patch", "fixture", "fixture create",
     "fixture promote", "compare", "scan",
     "ingest", "analyze", "verify", "loop", "describe",
+    "init", "init webhook",
 ]
 
 

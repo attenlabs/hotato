@@ -1,0 +1,17 @@
+# Generated hotato webhook worker ({{STACK}}).
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app.py hotato.yaml ./
+
+# The recording fetch is the only network call, and it is read-only. Nothing in
+# a webhook payload is ever executed.
+ENV HOTATO_REPORT_DIR=/app/reports
+EXPOSE 8080
+
+# Bind to $PORT when the platform sets one (Cloud Run, Railway, ...), else 8080.
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]

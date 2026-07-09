@@ -261,6 +261,14 @@ _EXIT_CODES: dict = {
     "describe": (
         (0, "manifest printed"),
     ),
+    "init": (
+        (2, "no subcommand given (see hotato init webhook --help)"),
+    ),
+    "init webhook": (
+        (0, "scaffolded the webhook worker project to --out"),
+        (2, "usage error (unknown --stack / --target), or a destination file "
+            "already exists without --force"),
+    ),
 }
 
 
@@ -1284,6 +1292,19 @@ def _cmd_ingest(args) -> int:
         top=args.top,
         min_gap=args.min_gap,
     )
+
+
+def _cmd_init_webhook(args) -> int:
+    from . import initcmd as _initcmd
+
+    result = _initcmd.scaffold_webhook(
+        args.stack, args.target, args.out, force=args.force,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_initcmd.render_text(result), end="")
+    return 0
 
 
 _DEMO_HEADER = "hotato demo: real recorded calls a provider's default agent fails"
@@ -2827,6 +2848,67 @@ def build_parser() -> argparse.ArgumentParser:
                     help="output format (default text: a readable summary; "
                          "json for the machine manifest)")
     ds.set_defaults(func=_cmd_describe)
+
+    # --- init: scaffold a self-hostable integration (webhook worker) ---------
+    from . import initcmd as _initcmd
+
+    it = sub.add_parser(
+        "init",
+        help="scaffold a self-hostable hotato integration (hotato init webhook)",
+        description=(
+            "Scaffolding for the passive monitor. Today it generates a webhook "
+            "worker (see hotato init webhook --help)."
+        ),
+        epilog=_exit_codes_epilog("init"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    itsub = it.add_subparsers(dest="init_command", required=True, metavar="webhook")
+    iw = itsub.add_parser(
+        "webhook",
+        help="generate a ready-to-deploy webhook worker that verifies the "
+             "webhook, fetches the recording read-only, and scans for "
+             "candidate moments",
+        description=(
+            "Generate a small, self-hostable webhook worker that turns a voice "
+            "platform's call-ended webhook into a passive turn-taking "
+            "regression monitor. The worker verifies the webhook secret, then "
+            "hands the payload to `hotato ingest` -- the same composable "
+            "primitive -- which fetches the dual-channel recording READ-ONLY "
+            "and scans it for CANDIDATE moments; it adds no vendor call of its "
+            "own. It NEVER calls a platform config-mutation endpoint and NEVER "
+            "labels intent or emits a verdict: discovery only. It writes a "
+            "candidate report and, when configured, posts a Slack summary "
+            "and/or a GitHub notification (both off by default; it opens no "
+            "GitHub issue unless you explicitly turn that on). The scaffold "
+            "writes README.md, hotato.yaml, app.py, requirements.txt, "
+            "Dockerfile, .env.example, .github/workflows/deploy.yml, and "
+            "tests/test_webhook_contract.py -- a contract test that pins the "
+            "four invariants above. Offline scaffolding: no network, no "
+            "credentials needed to generate."
+        ),
+        epilog=(
+            _exit_codes_epilog("init webhook") + "\n\n"
+            "Examples:\n"
+            "  hotato init webhook --stack vapi   --target fastapi --out hotato-webhook\n"
+            "  hotato init webhook --stack retell --target fastapi --out ./worker\n"
+            "  hotato init webhook --stack twilio --target fastapi --out ./worker --force\n\n"
+            "Then, in the generated project:\n"
+            "  pytest -q tests/test_webhook_contract.py   # the four invariants\n"
+            "  uvicorn app:app --reload                   # POST /webhook"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    iw.add_argument("--stack", required=True, choices=list(_initcmd.WEBHOOK_STACKS),
+                    help="voice stack whose webhook the worker receives")
+    iw.add_argument("--target", default="fastapi", choices=list(_initcmd.TARGETS),
+                    help="worker framework to generate (default fastapi)")
+    iw.add_argument("--out", required=True, metavar="DIR",
+                    help="directory to scaffold the worker into")
+    iw.add_argument("--force", action="store_true",
+                    help="overwrite existing files in --out")
+    iw.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    iw.set_defaults(func=_cmd_init_webhook)
 
     return p
 
