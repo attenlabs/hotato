@@ -26,7 +26,22 @@
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo.gif" alt="Terminal recording of hotato scan, run, and fixture create on a recorded call" width="760">
 </p>
 
-One command finds every moment your agent talks over the caller:
+**Turn-taking regression monitoring for voice agents.**
+
+Connect your stack once. Hotato pulls recent recordings, scans for candidate talk-over and false-stop moments, and lets you turn confirmed bugs into CI tests.
+
+Your audio stays on your machine unless you explicitly pull it from your stack.
+
+```bash
+hotato connect vapi
+hotato sweep --stack vapi --since 7d --out hotato-sweep.html
+```
+
+That opens one offline dashboard ranking every candidate moment across your last 7 days of calls. Run `sweep` on a schedule (cron, CI, wherever) and it becomes a passive monitor; promote a confirmed bug into a permanent fixture with `hotato fixture promote`, then gate CI so it never comes back. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) · runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md).
+
+No stack connected yet? `hotato sweep --demo` runs the identical flow over two bundled real calls: no credentials, no network.
+
+Have one call recording and nothing else? One command surfaces its candidate moments:
 
 ```bash
 uvx hotato scan --stereo your-call.wav   # two-channel WAV: caller ch0, agent ch1
@@ -61,9 +76,10 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 
 ## Depth
 
+- **Set-and-forget monitoring** (connect once, sweep on a schedule, promote confirmed bugs into fixtures): [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) · runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md)
 - **Bad call to CI regression test**, step by step: [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md) · runnable [`examples/bad-call-to-ci/`](examples/bad-call-to-ci/README.md)
 - **What it measures** (the three timing signals, re-derivable by hand): [`METHODOLOGY.md`](METHODOLOGY.md) · Python API [`docs/API.md`](docs/API.md)
-- **The fix ladder** (each failure names the setting to move, in your stack's own terms): [`docs/FIX-PLANS.md`](docs/FIX-PLANS.md)
+- **The fix ladder** (each failure names a likely fix class; when the evidence maps cleanly to stack config, Hotato names the setting family and direction): [`docs/FIX-PLANS.md`](docs/FIX-PLANS.md)
 - **Rule out the non-turn-taking bugs first** (STT, buffering, verbosity, refusals, wrong-language): [`docs/WHY.md`](docs/WHY.md)
 - **Pull a call from your stack** (Vapi, Twilio, Retell, LiveKit, Pipecat): [`adapters/README.md`](adapters/README.md) · status [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
 - **CI gates**: GitHub Action [`docs/CI.md`](docs/CI.md) · pytest plugin [`docs/PYTEST.md`](docs/PYTEST.md)
