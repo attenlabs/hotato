@@ -30,6 +30,7 @@ _ALL_SUBCOMMANDS = [
     "inspect", "plan", "patch", "apply", "fixture", "fixture create",
     "fixture promote", "contract", "contract create", "contract verify",
     "contract inspect", "contract pack", "contract unpack",
+    "trace", "trace ingest", "trace attach", "trace export",
     "compare", "scan", "trust",
     "ingest", "analyze", "verify", "loop", "describe",
     "init", "init webhook",

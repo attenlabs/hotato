@@ -1,0 +1,7 @@
+{"call_id": "demo-call-001", "deployment": {"stack": "vapi", "agent_id": "agent-demo-1", "git_sha": "deadbeefcafe", "config_hash": "sha256:0f1e2d3c"}}
+{"type": "caller_audio_active", "start_sec": 2.40, "end_sec": 4.10}
+{"type": "agent_audio_active", "start_sec": 0.00, "end_sec": 2.90}
+{"type": "tts_cancel_requested", "time_sec": 2.60}
+{"type": "tts_audio_stopped", "time_sec": 2.90}
+{"type": "asr_partial", "start_sec": 2.40, "end_sec": 2.95, "text": "wait, I need a refund"}
+{"type": "tool_call", "start_sec": 1.10, "end_sec": 1.42, "name": "lookup_order", "latency_ms": 320}

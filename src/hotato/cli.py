@@ -251,6 +251,29 @@ _EXIT_CODES: dict = {
         (2, "usage error, a corrupt/tampered archive (sha256 mismatch), or "
             "an existing --out without --force"),
     ),
+    "trace": (
+        (2, "no subcommand given (see hotato trace ingest/attach/export "
+            "--help)"),
+    ),
+    "trace ingest": (
+        (0, "voice_trace.jsonl written"),
+        (2, "usage error, an unreadable input file, or a source with no "
+            "spans; --out is refused unopened without --force when it "
+            "already exists"),
+    ),
+    "trace attach": (
+        (0, "the trace was written into the bundle and evidence/"
+            "timeline.html was re-rendered"),
+        (2, "usage error, a missing/corrupt bundle, an unreadable or "
+            "schema-mismatched trace file, or an already-attached trace "
+            "without --force"),
+    ),
+    "trace export": (
+        (0, "the attached trace was written back out as OTel-flavored "
+            "bridge JSONL"),
+        (2, "usage error, no trace attached to the bundle, or an existing "
+            "--out without --force"),
+    ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
         (1, "with --fail-on-worse, the result is regressed or worse"),
@@ -1415,6 +1438,47 @@ def _cmd_contract_unpack(args) -> int:
         print(_errors.safe_json_dumps(_contract.unpack_result_json(result), indent=2))
     else:
         print(_contract.render_unpack_text(result))
+    return 0
+
+
+def _cmd_trace_ingest(args) -> int:
+    from . import trace as _trace
+
+    result = _trace.ingest_otel(
+        args.otel, out_path=args.out, call_id=args.call_id, stack=args.stack,
+        agent_id=args.agent_id, git_sha=args.git_sha,
+        config_hash=args.config_hash,
+        include_identifiers=args.include_identifiers,
+        include_text=args.include_text, force=args.force,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_trace.ingest_result_json(result), indent=2))
+    else:
+        print(_trace.render_ingest_text(result))
+    return 0
+
+
+def _cmd_trace_attach(args) -> int:
+    from . import trace as _trace
+
+    result = _trace.attach_trace(args.bundle, args.trace, force=args.force)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_trace.attach_result_json(result), indent=2))
+    else:
+        print(_trace.render_attach_text(result))
+    return 0
+
+
+def _cmd_trace_export(args) -> int:
+    from . import trace as _trace
+
+    result = _trace.export_trace(
+        args.bundle, out_path=args.out, fmt=args.format, force=args.force,
+    )
+    if args.json:
+        print(_errors.safe_json_dumps(_trace.export_result_json(result), indent=2))
+    else:
+        print(_trace.render_export_text(result))
     return 0
 
 
@@ -3211,6 +3275,146 @@ def build_parser() -> argparse.ArgumentParser:
     cu.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     cu.set_defaults(func=_cmd_contract_unpack)
+
+    # --- trace: the observability bridge (voice_trace.v1) --------------------
+    tr = sub.add_parser(
+        "trace",
+        help="attach an OTel-flavored voice trace to a failure contract "
+             "(hotato trace ingest/attach/export)",
+        description=(
+            "Bridge a voice-pipeline trace (audio activity, TTS cancel/"
+            "stop, ASR partials, tool calls, ...) into a failure contract's "
+            "evidence, so a talk-over is not just a measured span but "
+            "'evidence suggests TTS cancellation lagged: cancel requested "
+            "at 42.40s, audio stopped at 43.60s'. Stays open and local: "
+            "never a hosted trace store, never a network call. See "
+            "docs/TRACE.md and docs/OTEL.md."
+        ),
+        epilog=_exit_codes_epilog("trace"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    trsub = tr.add_subparsers(dest="trace_command", required=True,
+                              metavar="ingest|attach|export")
+
+    ti = trsub.add_parser(
+        "ingest",
+        help="parse an OTel-flavored source into hotato.voice_trace.v1 "
+             "JSONL",
+        description=(
+            "Parse --otel FILE (a standard OTel JSON export with a "
+            "top-level resourceSpans array, OR hotato's own documented "
+            "per-line bridge JSONL -- see docs/OTEL.md) into "
+            "hotato.voice_trace.v1 and write it as JSONL (one meta line, "
+            "then one line per span, same convention evidence/frames.jsonl "
+            "uses). NOT full OTel wire-protocol coverage: only span name, "
+            "start/end time, attributes, and span events are read; an "
+            "unrecognized span name is passed through unchanged rather "
+            "than dropped."
+        ),
+        epilog=(
+            _exit_codes_epilog("trace ingest") + "\n\n"
+            "Examples:\n"
+            "  hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl\n"
+            "  hotato trace ingest --otel export.json --out voice_trace.jsonl \\\n"
+            "      --stack vapi --include-identifiers --include-text"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ti.add_argument("--otel", required=True, metavar="FILE",
+                    help="an OTel JSON export (resourceSpans) or hotato's "
+                         "OTel bridge JSONL")
+    ti.add_argument("--out", required=True, metavar="PATH",
+                    help="voice_trace.jsonl path to write")
+    ti.add_argument("--call-id", default=None,
+                    help="override/attach a call id (redacted unless "
+                         "--include-identifiers)")
+    ti.add_argument("--stack", default=None,
+                    help="override/attach the deployment stack (default: "
+                         "read from the source's resource attributes)")
+    ti.add_argument("--agent-id", default=None,
+                    help="override/attach an agent id (redacted unless "
+                         "--include-identifiers)")
+    ti.add_argument("--git-sha", default=None,
+                    help="override/attach the deployment git SHA")
+    ti.add_argument("--config-hash", default=None,
+                    help="override/attach the deployment config hash")
+    ti.add_argument("--include-identifiers", action="store_true",
+                    help="keep call_id and deployment.agent_id instead of "
+                         "redacting them (default: redacted)")
+    ti.add_argument("--include-text", action="store_true",
+                    help="keep an asr_partial span's transcript text "
+                         "instead of redacting it (default: redacted; "
+                         "text_redacted stays true either way it is stated)")
+    ti.add_argument("--force", action="store_true",
+                    help="overwrite an existing --out file")
+    ti.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    ti.set_defaults(func=_cmd_trace_ingest)
+
+    ta = trsub.add_parser(
+        "attach",
+        help="write a voice trace into a contract bundle and re-render its "
+             "evidence timeline with the trace's events drawn as an "
+             "aligned row",
+        description=(
+            "Copy --trace (a hotato.voice_trace.v1 JSONL from `trace "
+            "ingest`) into <bundle>/traces/voice_trace.jsonl and re-render "
+            "evidence/timeline.html. Rebuilds the timeline from the "
+            "bundle's OWN evidence/frames.jsonl and contract.json -- never "
+            "re-runs the VAD or diarizer, so this never needs the "
+            "diarization extra installed and never re-scores the audio."
+        ),
+        epilog=(
+            _exit_codes_epilog("trace attach") + "\n\n"
+            "Examples:\n"
+            "  hotato trace attach contracts/refund-cutoff-001.hotato \\\n"
+            "      --trace voice_trace.jsonl"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ta.add_argument("bundle", metavar="BUNDLE_DIR",
+                    help="a <id>.hotato contract bundle directory")
+    ta.add_argument("--trace", required=True, metavar="PATH",
+                    help="a hotato.voice_trace.v1 JSONL file (from `hotato "
+                         "trace ingest`)")
+    ta.add_argument("--force", action="store_true",
+                    help="replace an already-attached trace")
+    ta.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    ta.set_defaults(func=_cmd_trace_attach)
+
+    te = trsub.add_parser(
+        "export",
+        help="write a bundle's attached trace back out as OTel-flavored "
+             "bridge JSONL",
+        description=(
+            "Write <bundle>/traces/voice_trace.jsonl back out as hotato's "
+            "OTel-flavored bridge JSONL -- the same shape `trace ingest` "
+            "reads, so ingest -> attach -> export -> ingest round-trips "
+            "the same spans."
+        ),
+        epilog=(
+            _exit_codes_epilog("trace export") + "\n\n"
+            "Examples:\n"
+            "  hotato trace export contracts/refund-cutoff-001.hotato \\\n"
+            "      --format otel --out otel.jsonl"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    te.add_argument("bundle", metavar="BUNDLE_DIR",
+                    help="a <id>.hotato contract bundle directory")
+    te.add_argument("--format", default="otel", choices=["otel"],
+                    help="export format (only 'otel' -- hotato's OTel "
+                         "bridge JSONL -- is supported today)")
+    te.add_argument("--out", required=True, metavar="PATH",
+                    help="path to write the exported JSONL")
+    te.add_argument("--force", action="store_true",
+                    help="overwrite an existing --out file")
+    te.add_argument("--json", action="store_true",
+                    help="print the machine result summary instead of text "
+                         "(--format is already claimed by the export "
+                         "format on this subcommand)")
+    te.set_defaults(func=_cmd_trace_export)
 
     # --- compare: the shareable before/after on one fixed moment ------------
     cp = sub.add_parser(

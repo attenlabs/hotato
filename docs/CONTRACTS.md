@@ -175,3 +175,5 @@ coincides with the change; it is not a controlled experiment. See
   [`docs/TRUST-MATRIX.md`](TRUST-MATRIX.md)
 - Diarized-mono scoring: [`docs/DIARIZE.md`](DIARIZE.md)
 - Shareable cards: [`docs/CARDS.md`](CARDS.md)
+- Attaching a voice trace (observability bridge): [`docs/TRACE.md`](TRACE.md) ·
+  [`docs/OTEL.md`](OTEL.md)
