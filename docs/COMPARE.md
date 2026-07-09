@@ -6,11 +6,9 @@ Hotato is not your full QA platform.
 session QA, synthetic simulation, task success, transcript rubrics, compliance
 workflows, production dashboards, load testing.
 
-**Use Hotato for:** local/private timing evidence from real calls,
-CI-enforced regression tests via labelled fixtures, turn-taking proof,
-refusing unsafe threshold bandaids. (A portable, trace-backed failure
-contract ships in the release that adds the contract layer; today the same
-job runs on a fixture and `hotato verify`, see [VALIDATION.md](VALIDATION.md).)
+**Use Hotato for:** portable failure contracts from real calls, local/private
+timing evidence, CI-enforced regression tests, trace-backed turn-taking proof,
+refusing unsafe threshold bandaids.
 
 **Hotato answers:** "Did this exact production timing failure come back?"
 **Hotato does not answer:** "Was the whole call successful?"
