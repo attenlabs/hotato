@@ -1352,21 +1352,21 @@ def _embedding_margin(embeddings) -> Optional[float]:
     if embeddings is None:
         return None
     try:
-        import numpy as np
-
-        arr = np.asarray(embeddings, dtype=np.float64)
-        if arr.ndim != 2 or arr.shape[0] < 2:
-            return None
-        a, b = arr[0], arr[1]
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
-        if not (np.isfinite(norm_a) and np.isfinite(norm_b)) or norm_a == 0 or norm_b == 0:
-            return None  # degenerate centroid: no reliable margin, not cos=0
-        cos = float(np.dot(a, b) / (norm_a * norm_b))
-        # cosine distance normalized to [0, 1]
-        return max(0.0, min(1.0, (1.0 - cos) / 2.0))
-    except Exception:  # pragma: no cover
+        rows = [[float(x) for x in row] for row in embeddings]
+    except (TypeError, ValueError):
         return None
+    if len(rows) < 2 or not rows[0] or len(rows[0]) != len(rows[1]):
+        return None
+    a, b = rows[0], rows[1]
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if not (math.isfinite(norm_a) and math.isfinite(norm_b)) or norm_a == 0.0 or norm_b == 0.0:
+        return None  # degenerate centroid: no reliable margin, not cos=0
+    cos = sum(x * y for x, y in zip(a, b)) / (norm_a * norm_b)
+    if not math.isfinite(cos):
+        return None
+    # cosine distance normalized to [0, 1]
+    return max(0.0, min(1.0, (1.0 - cos) / 2.0))
 
 
 def build_sortformer_backend() -> BackendFn:
