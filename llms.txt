@@ -153,6 +153,15 @@
   recording are listed as not-captured, never scored as failures.
   `hotato benchmark compare a.json b.json` renders a side-by-side table of two
   or more result files.
+- `hotato trace ingest --otel FILE --out voice_trace.jsonl` -- parse an OTel
+  JSON export or hotato's own OTel bridge JSONL into `hotato.voice_trace.v1`
+  (caller/agent audio activity, TTS cancel/stop, ASR partials, tool calls);
+  `hotato trace attach BUNDLE --trace voice_trace.jsonl` writes it into a
+  failure contract and re-renders the evidence timeline with an aligned
+  trace row, without re-scoring the audio; `hotato trace export BUNDLE
+  --format otel --out FILE` writes it back out (round-trips through ingest).
+  Redacted by default (call id, agent id, ASR transcript text). Detail:
+  `docs/TRACE.md`, `docs/OTEL.md`.
 - `hotato describe [--format json]` -- generated capability manifest of the
   whole CLI: every subcommand's name, purpose, argument list, and documented
   exit codes, plus the tool version and the schema URLs. Pure and
@@ -275,6 +284,10 @@ measures whether the timing matched that label.
 - docs/ADAPTER-STATUS.md: the honest per-stack map -- auto-pull dual-channel,
   mono-only (`--allow-mono`), capture-in-your-infra, not integrable, and
   unconfirmed -- each with the exact verified endpoint.
+- docs/TRACE.md: `hotato trace ingest/attach/export`, the voice-trace
+  observability bridge attached to a failure contract's evidence.
+- docs/OTEL.md: the two `trace ingest --otel` source shapes (a standard OTel
+  JSON export, and hotato's own documented bridge JSONL).
 - docs/REPORTS.md: doctor, report, team, and export in depth.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.

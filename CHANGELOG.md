@@ -33,6 +33,28 @@ design. See `docs/BENCHMARK.md`.
   `--include-identifiers`); no call ids, paths, or transcript text in any
   artifact. New module `hotato.contract`, new schema
   `schema/contract.v1.json`, docs `docs/CONTRACTS.md`.
+- **`hotato trace ingest/attach/export`, the voice-trace observability
+  bridge**: `ingest --otel FILE --out voice_trace.jsonl` parses either a
+  standard OTel JSON export (`resourceSpans`, best-effort span/event
+  flattening) or hotato's own documented OTel bridge JSONL into schema
+  `hotato.voice_trace.v1` (caller/agent audio activity, TTS cancel/stop, ASR
+  partials, tool calls, ...). `attach BUNDLE --trace voice_trace.jsonl`
+  writes the trace into `<bundle>/traces/voice_trace.jsonl` and re-renders
+  `evidence/timeline.html` with the trace's events drawn as a scale-aligned
+  row, reading the bundle's OWN `evidence/frames.jsonl` and `contract.json`
+  back in -- it never re-runs the VAD or diarizer, so it works on a
+  diarized-mono bundle (no frame-level evidence) without the diarization
+  extra installed, honestly noting the missing base timeline instead of
+  fabricating one. `export BUNDLE --format otel --out FILE` writes the
+  attached trace back out as the same bridge JSONL `ingest` reads, so
+  `ingest -> attach -> export -> ingest` round-trips the identical spans.
+  The evidence page states findings plainly -- "Evidence suggests TTS
+  cancellation delay: cancel requested at 2.60s, audio stopped at 2.90s
+  (delta 0.30s)." -- always followed by "Hotato does not prove root cause."
+  and an explicit "Unknowns: no client-side playout trace was attached."
+  line. Redacted by default (call id, agent id, ASR transcript text). New
+  module `hotato.trace`, new schema `schema/voice_trace.v1.json`, docs
+  `docs/TRACE.md` and `docs/OTEL.md`.
 - **`hotato run --mono call.wav --diarize`, the opt-in, quality-gated
   mono-scorability front-end**: a single-channel (mixed) recording -- until now
   the hard coverage wall, rejected as not scorable -- becomes scorable by running
