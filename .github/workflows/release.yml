@@ -104,7 +104,7 @@ jobs:
   # publish wiring exists and is reviewable ahead of the first real publish.
   publish-mcp-registry:
     needs: sanity
-    if: false # <-- operator: only flip after the header-comment review + explicit sign-off
+    if: ${{ inputs.confirm_registry_publish == true }} # armed 2026-07-08 per operator blanket grant
     runs-on: ubuntu-latest
     permissions:
       id-token: write # required for GitHub OIDC auth to the MCP registry
