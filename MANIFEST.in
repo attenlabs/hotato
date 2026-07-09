@@ -8,6 +8,10 @@ recursive-include ci *
 recursive-include .github *
 exclude .github/banner.png
 
+# The `hotato init webhook` templates ship in the wheel (package-data) and the
+# sdist (here); they are rendered per stack into a generated worker project.
+recursive-include src/hotato/templates *.tmpl *.py
+
 # Internal, gitignored demonstration artifacts (curated 2026-07-05 in
 # .gitignore): kept local, never published. MANIFEST.in reads the working
 # tree, not git, so without these excludes a locally-built sdist ships files

@@ -10,6 +10,45 @@ design. See `docs/BENCHMARK.md`.
 ## [Unreleased]
 
 ### Added
+- **`hotato init webhook --stack vapi|retell|twilio --target fastapi --out DIR`,
+  a generated set-and-forget webhook worker**: scaffolds a small, self-hostable
+  FastAPI worker that turns a voice platform's call-ended webhook into a passive
+  turn-taking regression monitor. The worker verifies the webhook secret, then
+  hands the payload to `hotato ingest` (the same composable primitive) which
+  fetches the dual-channel recording READ-ONLY and scans it for CANDIDATE
+  moments; it adds no vendor call of its own. It writes a candidate report and,
+  when configured, posts a Slack summary and/or a GitHub notification (both off
+  by default; it opens no GitHub issue unless you explicitly set
+  `HOTATO_GITHUB_CREATE_ISSUES=1` with a repo and token). The scaffold emits
+  eight files -- `README.md`, `hotato.yaml`, `app.py`, `requirements.txt`,
+  `Dockerfile`, `.env.example`, `.github/workflows/deploy.yml`, and
+  `tests/test_webhook_contract.py`. The contract test ships inside the generated
+  project and pins the FOUR honesty invariants with an AST scan of `app.py`
+  (never a substring match on prose): (1) it never calls a platform
+  config-mutation endpoint -- all vendor I/O is delegated to `hotato ingest`, so
+  the worker holds no vendor API host; (2) it never labels intent or emits a
+  verdict -- the only `hotato` subcommand it may call is `ingest`, never `run`,
+  `verify`, `fixture`, `--expect`, ...; (3) it verifies the webhook secret
+  before any parse, fetch, or scan (constant-time `hmac.compare_digest`, 401 on
+  mismatch, run first in the handler); (4) the recording fetch is read-only.
+  Per-stack signature verification and event detection ship as verified template
+  fragments under `hotato/templates/webhook/` and render into the worker; only
+  stacks with a verified webhook and a read-only fetch are offered. The three
+  offered stacks are Vapi (shared-secret `X-Vapi-Secret`; event
+  `end-of-call-report`), Retell (HMAC-SHA256 over the raw body in
+  `X-Retell-Signature`; event `call_ended`, webhook-driven only since Retell has
+  no list endpoint), and Twilio (HMAC-SHA1 over url + sorted params in
+  `X-Twilio-Signature`; the `recordingStatusCallback` `completed` status, with
+  dual-channel handled read-only by `hotato ingest`). Vapi is the reference
+  worker and Retell and Twilio reuse its skeleton, differing only where the
+  platform genuinely differs (verification, event name/shape, recording-fetch
+  channel handling). Scaffolding is offline: no network and no credentials are
+  needed to generate. Gated by `tests/test_init_webhook.py`, which asserts the
+  eight files land, `app.py` parses (syntax + AST), `hotato.yaml` matches the
+  worker schema, and the four invariants hold under an AST scan, for all three
+  stacks, and drives each stack's worker end-to-end (a bad secret is rejected
+  401 before anything runs, a non-terminal event is ignored, a call-ended event
+  invokes only `hotato ingest --stack STACK`).
 - **Promote actions on every analyze/sweep dashboard card**: each ranked
   candidate card now carries three actions. "Promote as yield fixture" and
   "Promote as hold fixture" copy the exact `hotato fixture promote
@@ -189,7 +228,7 @@ design. See `docs/BENCHMARK.md`.
   overlap or gap; reduced-motion safe (the playhead rides `timeupdate` instead
   of the animation loop). `--format json` emits the ranked candidates plus their
   metadata for an agent to drive. Framed honestly throughout as MEASURED
-  candidate timing moments you review and label with `hotato fixture create` —
+  candidate timing moments you review and label with `hotato fixture create`,
   never a pass/fail, a failure count, an intent claim, or an accuracy number.
   Non-dual-channel or unreadable files are reported cleanly as skipped with
   their reason, never a crash. A bare `hotato <folder>` (a directory as the
