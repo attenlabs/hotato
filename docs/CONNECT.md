@@ -3,9 +3,9 @@
 `hotato sweep` is the "connect once, see every turn-taking problem across all
 your real calls" flow. It has three steps you can also run on their own:
 
-1. **`hotato connect <stack>`** — store a stack's credentials once, locally.
-2. **`hotato pull`** — bulk-fetch your recent recordings into a folder.
-3. **`hotato sweep`** — pull, then run the zero-config `analyze` over them and
+1. **`hotato connect <stack>`**: store a stack's credentials once, locally.
+2. **`hotato pull`**: bulk-fetch your recent recordings into a folder.
+3. **`hotato sweep`**: pull, then run the zero-config `analyze` over them and
    write one offline dashboard of the ranked turn-taking moments.
 
 Everything scores offline. The only network is the direct recording download
@@ -43,7 +43,7 @@ Per-stack credentials:
 
 Retell has no list endpoint to verify against, so `connect retell` stores the
 key and validates it on the first pull. Use `--no-verify` to skip the live check
-for any stack. LiveKit and Pipecat are capture-in-your-infra — there is no
+for any stack. LiveKit and Pipecat are capture-in-your-infra. There is no
 vendor recording to pull, so they are not connectable; use `hotato setup
 --stack livekit|pipecat` instead.
 
@@ -62,7 +62,7 @@ downloads each one by looping the same single-call fetch `hotato capture` uses,
 into `hotato-pull-<stack>/` (override with `--out DIR`). `--since` accepts `7d`,
 `12h`, `30m`, `2w`. A recording that cannot be fetched (missing URL, HTTP error,
 wrong channel count) is reported as a clean skip with its reason and the pull
-continues — one bad call never crashes the run.
+continues. One bad call never crashes the run.
 
 **Retell has no verified list endpoint.** Pull it from explicit ids instead
 (Hotato never fabricates an endpoint):
@@ -97,7 +97,7 @@ ranked candidates plus a pull summary instead.
 
 Dual-channel stacks give separated scoring. Mono/mixed stacks can be swept with
 `--allow-mono`, but their calls cannot be attributed per party and surface in the
-dashboard's Skipped section — honestly, not faked.
+dashboard's Skipped section. Honestly, not faked.
 
 Candidates are MEASURED timing moments you review and label with `hotato fixture
 create`, never verdicts and never intent. There is no pass/fail, no failure
@@ -107,5 +107,5 @@ count, and no accuracy number anywhere.
 
 See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full, honest map:
 which stacks auto-pull dual-channel, which are mono-only behind `--allow-mono`,
-which are capture-in-your-infra, and which are not integrable — each with the
+which are capture-in-your-infra, and which are not integrable, each with the
 exact verified endpoint and the honest gaps.

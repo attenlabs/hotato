@@ -1,4 +1,4 @@
-# `hotato analyze <folder>` — drop a folder, hear the bug
+# `hotato analyze <folder>`: drop a folder, hear the bug
 
 Zero-config discovery over a whole folder of real dual-channel call recordings.
 No scenarios, no labels, no onset, no flags required: point it at the folder and
@@ -9,8 +9,8 @@ hotato analyze ./recordings
 ```
 
 That writes one self-contained, offline HTML dashboard (`hotato-analyze.html` by
-default) and opens it. `hotato ./recordings` — a bare folder as the first
-argument — routes to the same command.
+default) and opens it. `hotato ./recordings`, a bare folder as the first
+argument, routes to the same command.
 
 ## What it does
 
@@ -18,9 +18,9 @@ For every `.wav` under the folder (walked recursively, in sorted order):
 
 1. runs the same whole-call scanner as [`hotato scan`](../src/hotato/scan.py):
    it walks the caller and agent VAD activity tracks across the ENTIRE call,
-   label-free, and emits candidate timing moments —
-   `overlap_while_agent_talking`, `agent_start_during_caller`,
-   `long_response_gap`, `agent_stop_no_caller`, `echo_correlated_activity` —
+   label-free, and emits candidate timing moments
+   (`overlap_while_agent_talking`, `agent_start_during_caller`,
+   `long_response_gap`, `agent_stop_no_caller`, `echo_correlated_activity`),
    each with a timestamp and a measured number;
 2. aggregates the candidates across ALL calls and ranks them by the scanner's
    own salience (overlap seconds / gap seconds / echo coherence) so the worst
@@ -33,13 +33,13 @@ Then it emits three things.
 One card per top moment, in the [`hotato report`](REPORTS.md) house style: the
 call file, the timestamp, the candidate kind, the measured number, and a
 to-scale caller/agent timeline of that exact moment (the same SVG renderer the
-report uses — activity spans, the shaded talk-over band, the onset marker, and
+report uses: activity spans, the shaded talk-over band, the onset marker, and
 a yield marker where the scanner measured the agent going silent).
 
 ### 2. The hear-the-bug player
 
 For the top `--audio-top` moments (default 8) the REAL audio around the moment
-is embedded inline as a base64 WAV data URI — nothing is uploaded, the page has
+is embedded inline as a base64 WAV data URI. Nothing is uploaded, the page has
 zero external requests. Press play and a **playhead** sweeps that moment's
 timeline in lockstep with `audio.currentTime` (via `requestAnimationFrame`), so
 you HEAR the agent talk over the caller, or the dead-air gap, land exactly where
@@ -94,8 +94,8 @@ talk-over); a bad file never crashes the run.
 
 ## Exit codes
 
-- **0** — ran (candidate moments listed across the folder, possibly zero; never
+- **0**: ran (candidate moments listed across the folder, possibly zero; never
   a pass/fail and never a verdict).
-- **2** — usage error (the path is not a folder) or an IO error reading it.
+- **2**: usage error (the path is not a folder) or an IO error reading it.
 
 Everything runs offline; no audio leaves the machine.
