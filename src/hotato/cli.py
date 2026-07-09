@@ -253,6 +253,22 @@ _EXIT_CODES: dict = {
         (2, "usage error, unreadable input, an invalid --policy file, or no "
             "fixtures pair between the two sides"),
     ),
+    "apply": (
+        (0, "the staging clone was rendered (a dry run by default: prints the "
+            "clone it WOULD create and the patch it WOULD apply, creating "
+            "nothing and touching no network; with --yes and credentials it "
+            "created a NEW staging assistant and applied the patch to that "
+            "clone -- the source is never mutated)"),
+        (2, "usage error: no --clone (production apply is not supported), no "
+            "--name, no opposite-risk battery (both a yield and a hold "
+            "fixture), a stack with no assistant to clone, a patch that "
+            "produced no config change, or unreadable input"),
+        (3, "principled refusal: the plan is the both-axes threshold funnel, so "
+            "no single-threshold patch is applied by design (the exact "
+            "engagement-control recommendation is printed). The refusal is the "
+            "feature; this distinct code lets a script tell it apart from a "
+            "usage error"),
+    ),
     "loop": (
         (0, "advanced the loop and persisted state (or re-reported where it "
             "left off)"),
@@ -1070,6 +1086,71 @@ def _cmd_patch(args) -> int:
         print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_patch.render_text(result))
+    return 0
+
+
+def _cmd_apply(args) -> int:
+    from . import apply as _apply
+
+    # Load the patch artifact (a hotato patch JSON). A missing file
+    # (FileNotFoundError), malformed JSON (ValueError), or a non-patch document
+    # (ValueError from build_apply) all surface as the clean exit-2 usage error.
+    with open(args.patch_json, encoding="utf-8") as fh:
+        patch = json.load(fh)
+    # Best-effort read of the referenced plan (offline; the patch is
+    # self-describing, so a moved/absent plan is not an error).
+    plan = _apply.load_referenced_plan(patch, args.patch_json)
+
+    result = _apply.build_apply(
+        patch,
+        name=args.name,
+        clone=args.clone,
+        battery_dir=args.battery,
+        patch_source=args.patch_json,
+        plan=plan,
+    )
+
+    # REFUSAL-FIRST: the both-axes threshold funnel. Print the exact canon
+    # refusal and exit with the documented, distinct refusal code (the refusal
+    # is the feature). No network, no clone, nothing created.
+    if result.get("refused"):
+        if args.format == "json":
+            print(_errors.safe_json_dumps(result, indent=2))
+        else:
+            print(_apply.render_refusal_text(result))
+        return _apply.REFUSAL_EXIT_CODE
+
+    if not args.yes:
+        # DEFAULT = dry run: print exactly the clone it WOULD create and the
+        # patch it WOULD apply, creating nothing. No network on this path.
+        if args.format == "json":
+            print(_errors.safe_json_dumps(result, indent=2))
+        else:
+            print(_apply.render_text(result))
+        return 0
+
+    # --yes: the one place this reaches the network. create_clone is the ONLY
+    # networked function; it reads the source (GET), applies the patch to a
+    # COPY, and creates a NEW staging assistant (POST), never mutating the
+    # source. Credentials resolve flag > connections.json > env.
+    creds = _capture.resolve_creds(args.stack or result["stack"],
+                                   {"api_key": args.api_key})
+    clone = result["clone"]
+    outcome = _apply.create_clone(
+        stack=result["stack"],
+        source_id=clone["based_on_source_id"],
+        name=clone["name"],
+        merge_patch=clone["merge_patch"],
+        api_key=creds["api_key"],
+    )
+    result["created"] = True
+    result["dry_run"] = False
+    result["applies_change"] = True
+    result["clone_id"] = outcome["clone_id"]
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_apply.render_text(result))
     return 0
 
 
@@ -2901,6 +2982,81 @@ def build_parser() -> argparse.ArgumentParser:
     pt.add_argument("--out", default=None, metavar="PATH",
                     help="also write the patch artifact JSON here")
     pt.set_defaults(func=_cmd_patch)
+
+    # --- apply: the guarded, CLONE-ONLY staged apply ------------------------
+    ap = sub.add_parser(
+        "apply",
+        help="apply a patch to a fresh STAGING clone only (never the source); "
+             "dry run by default, refuses the both-axes threshold funnel",
+        description=(
+            "The most conservative rung of the fix ladder, and the only command "
+            "that can mutate external platform state. Read a hotato patch "
+            "artifact and either PRINT the fresh staging clone it WOULD create "
+            "(the default dry run, fully offline) or, only with --yes and "
+            "credentials, create a NEW staging assistant that is the source "
+            "config with the patch applied. Five hard rules hold by "
+            "construction: (1) CLONE-ONLY -- there is no production-apply path; "
+            "a non---clone invocation errors, and nothing here ever PUTs/PATCHes "
+            "the source (the one writing call is a POST that creates a NEW "
+            "assistant). (2) REFUSAL-FIRST -- a both-axes threshold-funnel patch "
+            "(do_not_tune_single_threshold) is REFUSED before anything, with the "
+            "exact vendor-neutral engagement-control recommendation, and a "
+            "distinct exit code; the refusal is the feature. (3) OPPOSITE-RISK "
+            "REQUIRED -- apply refuses unless --battery carries BOTH a yield and "
+            "a hold fixture, so a fix is never applied blind. (4) GATED SIDE "
+            "EFFECT -- the default dry run prints exactly the clone it would "
+            "create and touches no network; only --yes with credentials calls "
+            "the platform (create_clone is the only networked function: it reads "
+            "the source, applies the patch to a copy, and creates a NEW "
+            "assistant). (5) NAME REQUIRED -- the clone must be named explicitly. "
+            "Clone-appliable stacks: vapi, retell (their config is a REST "
+            "assistant); LiveKit/Pipecat keep config in source, so apply points "
+            "you at the source edit from hotato patch instead."
+        ),
+        epilog=(
+            _exit_codes_epilog("apply") + "\n\n"
+            "Examples:\n"
+            "  hotato patch fixplan.json --format json --out patch.json\n"
+            "  # dry run: prints the clone it WOULD create, creates nothing\n"
+            "  hotato apply patch.json --clone --name staging-refund-fix \\\n"
+            "      --battery tests/hotato\n"
+            "  # actually create the staging clone (needs credentials)\n"
+            "  hotato apply patch.json --clone --name staging-refund-fix \\\n"
+            "      --battery tests/hotato --yes\n\n"
+            "Then re-capture the battery through the CLONE and prove it:\n"
+            "  hotato verify --before before/ --after after/ --policy hotato.verify.yaml"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument("patch_json", metavar="PATCH_JSON",
+                    help="a hotato patch artifact written with "
+                         "hotato patch --format json --out patch.json")
+    ap.add_argument("--clone", action="store_true",
+                    help="REQUIRED: apply to a fresh staging clone. There is no "
+                         "production-apply path; without --clone this errors")
+    ap.add_argument("--name", default=None, metavar="NAME",
+                    help="name for the NEW staging assistant to create "
+                         "(required)")
+    ap.add_argument("--battery", default=None, metavar="DIR",
+                    help="an opposite-risk battery (a fixtures dir with "
+                         "scenarios/, or run-envelope/scenario JSONs) that "
+                         "carries BOTH a yield and a hold fixture; apply refuses "
+                         "without it so a fix is never applied blind")
+    ap.add_argument("--yes", action="store_true",
+                    help="actually create the staging clone through the "
+                         "platform API (needs credentials); without it this is "
+                         "a dry run that prints the clone it would create and "
+                         "touches no network")
+    ap.add_argument("--stack", default=None,
+                    choices=["vapi", "retell"],
+                    help="override the clone stack (default: the patch's stack); "
+                         "used to resolve credentials under --yes")
+    ap.add_argument("--api-key", default=None,
+                    help="platform API key for --yes (else the connection or the "
+                         "stack's env var, e.g. VAPI_API_KEY / RETELL_API_KEY)")
+    ap.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text)")
+    ap.set_defaults(func=_cmd_apply)
 
     # --- verify: battery-scale before/after proof a fix held ----------------
     vf = sub.add_parser(

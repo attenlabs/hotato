@@ -257,6 +257,10 @@ measures whether the timing matched that label.
 - docs/FIX-LOOP.md: the closed loop -- patch (a plan into a paste-ready
   merge-patch/curl or source edit), verify (a battery-scale before/after proof),
   and loop (one-command orchestration that remembers where it left off).
+- docs/APPLY.md: `hotato apply --clone`, the guarded clone-only staged apply --
+  the one command that mutates external state, dry-run by default, refuses the
+  both-axes threshold funnel, and never touches the source (creates a NEW
+  staging assistant instead).
 - docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
   dashboard with the hear-the-bug audio playhead.
 - docs/CONNECT.md: `hotato connect` / `pull` / `sweep`, the connect-once bulk

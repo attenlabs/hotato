@@ -26,7 +26,7 @@ from hotato import cli
 _ALL_SUBCOMMANDS = [
     "run", "capture", "setup", "connect", "pull", "sweep", "report", "team",
     "export", "benchmark", "benchmark compare", "doctor", "demo", "diagnose",
-    "inspect", "plan", "patch", "fixture", "fixture create",
+    "inspect", "plan", "patch", "apply", "fixture", "fixture create",
     "fixture promote", "compare", "scan",
     "ingest", "analyze", "verify", "loop", "describe",
     "init", "init webhook",
