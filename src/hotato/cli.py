@@ -219,6 +219,38 @@ _EXIT_CODES: dict = {
             "result, a source recording that does not resolve, or a "
             "not-scorable candidate"),
     ),
+    "contract": (
+        (2, "no subcommand given (see hotato contract create/verify/inspect/"
+            "pack/unpack --help)"),
+    ),
+    "contract create": (
+        (0, "contract bundle written (scored immediately)"),
+        (2, "refused: unusable input, a mono recording without --diarize, or "
+            "a not-scorable moment; no bundle is written"),
+    ),
+    "contract verify": (
+        (0, "verified: every contract's re-scored timing passes its policy"),
+        (1, "at least one contract regressed (its re-scored timing no longer "
+            "meets its policy pass_conditions) or is no longer scorable"),
+        (2, "usage error, a directory with no contracts, or a corrupt/"
+            "unreadable contract.json"),
+    ),
+    "contract inspect": (
+        (0, "contract printed"),
+        (2, "usage error or an unreadable/corrupt contract.json"),
+    ),
+    "contract pack": (
+        (0, "the bundle was packed into one deterministic .hotato archive "
+            "with a sha256 manifest"),
+        (2, "usage error, a bundle with no contract.json, or an existing "
+            "--out without --force"),
+    ),
+    "contract unpack": (
+        (0, "the archive was unpacked and every member verified against its "
+            "sha256 manifest"),
+        (2, "usage error, a corrupt/tampered archive (sha256 mismatch), or "
+            "an existing --out without --force"),
+    ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
         (1, "with --fail-on-worse, the result is regressed or worse"),
@@ -1295,6 +1327,94 @@ def _cmd_fixture_promote(args) -> int:
             _fixture.promote_result_json(result), indent=2))
     else:
         print(_fixture.render_promote_text(result))
+    return 0
+
+
+def _cmd_contract_create(args) -> int:
+    from . import contract as _contract
+
+    result = _contract.create_contract(
+        from_candidate=args.from_candidate,
+        stereo=args.stereo,
+        caller=args.caller,
+        agent=args.agent,
+        mono=args.mono,
+        diarize=args.diarize,
+        diarizer=args.diarizer,
+        caller_speaker=args.caller_speaker,
+        agent_speaker=args.agent_speaker,
+        egress_opt_in=args.egress_opt_in,
+        contract_id=args.id,
+        expect=args.expect,
+        out_dir=args.out,
+        onset_sec=args.onset,
+        folder=args.folder,
+        stack=args.stack,
+        max_talk_over_sec=args.max_talk_over,
+        max_time_to_yield_sec=args.max_time_to_yield,
+        rationale=args.rationale,
+        pre_sec=args.pre,
+        post_sec=args.post,
+        no_clip=args.no_clip,
+        force=args.force,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+        include_identifiers=args.include_identifiers,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_contract.create_result_json(result), indent=2))
+    else:
+        print(_contract.render_create_text(result))
+    return 0
+
+
+def _cmd_contract_verify(args) -> int:
+    from . import contract as _contract
+
+    v = _contract.verify_contracts(args.dir)
+    if args.html:
+        _atomic_write_text(args.html, _contract.render_verify_html(v))
+        print(f"wrote {args.html}", file=sys.stderr)
+    if args.junit:
+        _atomic_write_text(args.junit, _contract.render_verify_junit(v))
+        print(f"wrote {args.junit}", file=sys.stderr)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_contract.verify_result_json(v), indent=2))
+    else:
+        print(_contract.render_verify_text(v))
+    return v["exit_code"]
+
+
+def _cmd_contract_inspect(args) -> int:
+    from . import contract as _contract
+
+    contract = _contract.inspect_contract(args.path)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(contract, indent=2))
+    else:
+        print(_contract.render_inspect_text(contract))
+    return 0
+
+
+def _cmd_contract_pack(args) -> int:
+    from . import contract as _contract
+
+    result = _contract.pack_contract(args.bundle, out_path=args.out, force=args.force)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_contract.pack_result_json(result), indent=2))
+    else:
+        print(_contract.render_pack_text(result))
+    return 0
+
+
+def _cmd_contract_unpack(args) -> int:
+    from . import contract as _contract
+
+    result = _contract.unpack_contract(args.archive, args.out, force=args.force)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_contract.unpack_result_json(result), indent=2))
+    else:
+        print(_contract.render_unpack_text(result))
     return 0
 
 
@@ -2866,6 +2986,231 @@ def build_parser() -> argparse.ArgumentParser:
     fp.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     fp.set_defaults(func=_cmd_fixture_promote)
+
+    # --- contract: the portable failure contract -----------------------------
+    ct = sub.add_parser(
+        "contract",
+        help="turn a bad call moment into a portable, CI-enforced failure "
+             "contract (hotato contract create/verify/inspect/pack/unpack)",
+        description=(
+            "Failure-contract tooling: create a self-contained "
+            "<id>.hotato bundle from a real call moment (audio, frame "
+            "evidence, an input-health report, a shareable card, and a CI "
+            "policy), verify a directory of contracts for CI, inspect one, "
+            "and pack/unpack the bundle as a single portable archive. See "
+            "docs/CONTRACTS.md."
+        ),
+        epilog=_exit_codes_epilog("contract"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ctsub = ct.add_subparsers(dest="contract_command", required=True,
+                              metavar="create|verify|inspect|pack|unpack")
+
+    cc = ctsub.add_parser(
+        "create",
+        help="write a <id>.hotato bundle from one call moment, validated by "
+             "scoring it immediately",
+        description=(
+            "Turn ONE moment of a recording you already have into a "
+            "portable failure contract: contract.json, the (clipped) "
+            "audio, frame-level evidence, an input-health (trust) report, a "
+            "shareable SVG card, a CI policy, and the exact replay/CI "
+            "commands. Reuses the same round-trip scorability guarantee "
+            "`fixture create` gives: a not-scorable moment is refused with "
+            "the honest reason (exit 2) and no bundle is written. A mono "
+            "recording is rejected by default; pass --mono with --diarize "
+            "for the opt-in, quality-gated diarized-mono path (never "
+            "silently upgraded past indicative-only). Offline; no accuracy "
+            "percentage anywhere."
+        ),
+        epilog=(
+            _exit_codes_epilog("contract create") + "\n\n" + _LABEL_NOTE
+            + "\n\n"
+            "Examples:\n"
+            "  hotato sweep --demo --format json > hotato-sweep.json\n"
+            "  hotato contract create --from-candidate hotato-sweep.json#1 \\\n"
+            "      --expect yield --id refund-cutoff-001 --out contracts\n"
+            "  hotato contract create --stereo bad-call.wav --onset 42.18 \\\n"
+            "      --expect yield --id refund-cutoff-001 --out contracts\n"
+            "  hotato contract verify contracts/ --junit contracts-junit.xml"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cc.add_argument("--from-candidate", metavar="FILE#N",
+                    help="a hotato sweep/analyze --format json candidate ref "
+                         "(FILE#N or FILE#CALL:N); resolves the source "
+                         "recording and onset the same way `fixture promote` "
+                         "does")
+    cc.add_argument("--stereo", help="two-channel WAV (caller on one channel, "
+                                     "agent on the other)")
+    cc.add_argument("--caller", help="mono WAV of the caller channel (with --agent)")
+    cc.add_argument("--agent", help="mono WAV of the agent channel (with --caller)")
+    cc.add_argument("--mono", metavar="WAV",
+                    help="a SINGLE-channel recording; requires --diarize (the "
+                         "opt-in, quality-gated mono-scorability front-end). "
+                         "A mono file passed to --stereo is always rejected; "
+                         "this is the only supported mono path")
+    cc.add_argument("--diarize", action="store_true",
+                    help="[with --mono] diarize the mono recording into "
+                         "caller/agent tracks before scoring; refuses a "
+                         "non-separable file (exit 2), never a raw-mono guess")
+    cc.add_argument("--diarizer", default="pyannote",
+                    choices=["pyannote", "sortformer", "pyannoteai"],
+                    help="[--diarize] backend (default pyannote, local); "
+                         "pyannoteai is HOSTED and needs --egress-opt-in")
+    cc.add_argument("--caller-speaker", default=None, metavar="LABEL",
+                    help="[--diarize] override the proposed caller speaker "
+                         "label instead of the floor-dominance heuristic")
+    cc.add_argument("--agent-speaker", default=None, metavar="LABEL",
+                    help="[--diarize] override the proposed agent speaker label")
+    cc.add_argument("--egress-opt-in", action="store_true",
+                    help="[--diarizer pyannoteai] allow this one call's audio "
+                         "to leave the machine for the hosted backend")
+    cc.add_argument("--onset", type=float, default=None,
+                    help="the moment (seconds into the SOURCE recording) the "
+                         "caller took or attempted the floor; required with "
+                         "--stereo/--caller+--agent/--mono, resolved "
+                         "automatically with --from-candidate")
+    cc.add_argument("--expect", required=True, choices=["yield", "hold"],
+                    help="YOUR label for the event: 'yield' (the agent "
+                         "should stop for the caller) or 'hold' (the agent "
+                         "should keep speaking)")
+    cc.add_argument("--id", required=True,
+                    help="contract id slug, e.g. refund-cutoff-001")
+    cc.add_argument("--out", required=True, metavar="DIR",
+                    help="contract root; writes DIR/<id>.hotato/")
+    cc.add_argument("--folder", default=None, metavar="DIR",
+                    help="[--from-candidate] folder holding the swept/"
+                         "analyzed recordings, when the folder recorded in "
+                         "the result file does not resolve from here")
+    cc.add_argument("--stack", default="generic",
+                    choices=["generic", "vapi", "twilio", "livekit",
+                             "pipecat", "retell"],
+                    help="voice stack the recording came from")
+    cc.add_argument("--max-talk-over", type=float, default=None,
+                    help="[yield] the contract's policy fails if talk-over "
+                         "exceeds this many seconds")
+    cc.add_argument("--max-time-to-yield", type=float, default=None,
+                    help="[yield] the contract's policy fails if the yield is "
+                         "slower than this many seconds")
+    cc.add_argument("--rationale", default=None,
+                    help="optional free-text note on why you labeled the "
+                         "event this way")
+    cc.add_argument("--pre", type=float, default=2.0,
+                    help="seconds of audio kept BEFORE the onset when clipping "
+                         "(default 2.0; --stereo/--caller+--agent/--from-candidate only)")
+    cc.add_argument("--post", type=float, default=6.0,
+                    help="seconds of audio kept AFTER the onset when clipping "
+                         "(default 6.0)")
+    cc.add_argument("--no-clip", action="store_true",
+                    help="keep the full recording and the original onset "
+                         "instead of clipping")
+    cc.add_argument("--force", action="store_true",
+                    help="overwrite an existing contract with the same id")
+    cc.add_argument("--caller-channel", type=int, default=0)
+    cc.add_argument("--agent-channel", type=int, default=1)
+    cc.add_argument("--include-identifiers", action="store_true",
+                    help="show the source recording's basename / candidate "
+                         "ref in the bundle and the card instead of "
+                         "redacting them (default: redacted)")
+    cc.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    cc.set_defaults(func=_cmd_contract_create)
+
+    cv = ctsub.add_parser(
+        "verify",
+        help="batch-verify a directory of contracts for CI: re-score every "
+             "bundle's audio against its recorded policy",
+        description=(
+            "Re-score every contract's bundled audio against the policy "
+            "recorded in its own contract.json (this is what changes after "
+            "an engine upgrade, a threshold change, or a re-captured audio "
+            "file) and report pass/fail per contract and overall. DIR is a "
+            "single <id>.hotato bundle, or a parent directory of them."
+        ),
+        epilog=(
+            _exit_codes_epilog("contract verify") + "\n\n"
+            "Examples:\n"
+            "  hotato contract verify contracts/\n"
+            "  hotato contract verify contracts/ --format json --junit contracts-junit.xml\n"
+            "  hotato contract verify contracts/refund-cutoff-001.hotato --html verify.html"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cv.add_argument("dir", metavar="DIR",
+                    help="a contracts directory, or one <id>.hotato bundle")
+    cv.add_argument("--html", default=None, metavar="PATH",
+                    help="also write a self-contained HTML rollup")
+    cv.add_argument("--junit", default=None, metavar="PATH",
+                    help="also write a JUnit XML report (one testcase per "
+                         "contract) for a CI dashboard")
+    cv.add_argument("--format", default="text", choices=["text", "json"],
+                    help="stdout format (default text; json prints the full "
+                         "batch result)")
+    cv.set_defaults(func=_cmd_contract_verify)
+
+    ci_ = ctsub.add_parser(
+        "inspect",
+        help="print one contract's contract.json",
+        description="Load and print one <id>.hotato bundle's contract.json.",
+        epilog=_exit_codes_epilog("contract inspect"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ci_.add_argument("path", metavar="PATH",
+                     help="a <id>.hotato bundle directory, or its contract.json")
+    ci_.add_argument("--format", default="text", choices=["text", "json"],
+                     help="output format (default text)")
+    ci_.set_defaults(func=_cmd_contract_inspect)
+
+    cp = ctsub.add_parser(
+        "pack",
+        help="pack a <id>.hotato bundle directory into one deterministic "
+             ".hotato archive with a sha256 manifest",
+        description=(
+            "Pack a contract bundle directory into a single portable "
+            ".hotato file (a zip with a MANIFEST.sha256.json of every "
+            "member), so it can be sent, attached, or committed as one "
+            "file. `contract unpack` verifies every member's sha256 on the "
+            "way back out."
+        ),
+        epilog=_exit_codes_epilog("contract pack"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cp.add_argument("bundle", metavar="BUNDLE_DIR",
+                    help="a <id>.hotato bundle directory")
+    cp.add_argument("--out", default=None, metavar="PATH",
+                    help="archive path (default: BUNDLE_DIR.pack next to it, "
+                         "e.g. refund-cutoff-001.hotato.pack -- never the "
+                         "bundle directory's own name)")
+    cp.add_argument("--force", action="store_true",
+                    help="overwrite an existing archive at --out")
+    cp.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    cp.set_defaults(func=_cmd_contract_pack)
+
+    cu = ctsub.add_parser(
+        "unpack",
+        help="unpack a .hotato archive, verifying every member against its "
+             "sha256 manifest",
+        description=(
+            "Unpack a .hotato archive written by `contract pack` back into "
+            "a bundle directory, verifying every member's sha256 against "
+            "the packed manifest. Any mismatch (a corrupt or tampered "
+            "archive) is refused (exit 2) and nothing partial is left "
+            "behind."
+        ),
+        epilog=_exit_codes_epilog("contract unpack"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cu.add_argument("archive", metavar="ARCHIVE",
+                    help="a .hotato archive written by `contract pack`")
+    cu.add_argument("--out", required=True, metavar="DIR",
+                    help="directory to unpack the bundle into")
+    cu.add_argument("--force", action="store_true",
+                    help="overwrite an existing --out directory")
+    cu.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    cu.set_defaults(func=_cmd_contract_unpack)
 
     # --- compare: the shareable before/after on one fixed moment ------------
     cp = sub.add_parser(

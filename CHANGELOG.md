@@ -10,6 +10,29 @@ design. See `docs/BENCHMARK.md`.
 ## [Unreleased]
 
 ### Added
+- **`hotato contract create/verify/inspect/pack/unpack`, the portable failure
+  contract**: turns one real call moment into a self-contained `<id>.hotato/`
+  bundle -- `contract.json` (schema `hotato.contract.v1`), the (clipped) audio,
+  frame-level timing evidence, an input-health (trust) report, a shareable SVG
+  card, a CI policy, and the exact replay/CI commands. `create` wraps the SAME
+  round-trip scorability guarantee `fixture create` gives (via
+  `--from-candidate FILE#N`, `--stereo`, `--caller`+`--agent`, or the opt-in
+  `--mono --diarize` path): a not-scorable moment or a mono recording is
+  refused with the honest reason (exit 2) and no bundle is written; the
+  diarized-mono path never silently upgrades an indicative-only verdict, and
+  honestly reports frame-level evidence as unavailable rather than fabricating
+  it. `verify` re-scores a contracts directory (or one bundle) against each
+  contract's own recorded policy and is the CI gate: exit 0 every contract
+  passes, 1 a regression, 2 a usage error; emits text/JSON/HTML/JUnit.
+  `inspect` prints one contract. `pack`/`unpack` round-trip a bundle through
+  one deterministic single-file `.hotato.pack` archive with a sha256 manifest
+  checked on unpack (a corrupted or tampered archive is refused, exit 2,
+  nothing partial left behind). `hotato card` also renders a contract
+  directly (kind `voice-turn-taking-contract`). Redacted by default (a
+  candidate ref / source recording name is hidden unless
+  `--include-identifiers`); no call ids, paths, or transcript text in any
+  artifact. New module `hotato.contract`, new schema
+  `schema/contract.v1.json`, docs `docs/CONTRACTS.md`.
 - **`hotato run --mono call.wav --diarize`, the opt-in, quality-gated
   mono-scorability front-end**: a single-channel (mixed) recording -- until now
   the hard coverage wall, rejected as not scorable -- becomes scorable by running
