@@ -27,7 +27,7 @@ _ALL_SUBCOMMANDS = [
     "run", "capture", "setup", "connect", "pull", "sweep", "report", "team",
     "export", "benchmark", "benchmark compare", "doctor", "demo", "diagnose",
     "inspect", "plan", "patch", "apply", "fixture", "fixture create",
-    "fixture promote", "compare", "scan",
+    "fixture promote", "compare", "scan", "trust",
     "ingest", "analyze", "verify", "loop", "describe",
     "init", "init webhook",
     "issue", "issue create",

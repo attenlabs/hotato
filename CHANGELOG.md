@@ -10,6 +10,32 @@ design. See `docs/BENCHMARK.md`.
 ## [Unreleased]
 
 ### Added
+- **`hotato trust --stereo call.wav`, the input-health "trust doctor" you run
+  BEFORE scoring a call**: it inspects one recording and reports whether the
+  audio is even SCORABLE, so a bad export (a mono file, a silent channel, a
+  swapped channel map, a hot capture) is caught up front instead of producing a
+  confident-looking but meaningless turn-taking verdict downstream. The report
+  covers per-channel activity (caller expected on channel 0, agent on channel
+  1), a possible channel-swap flag (the channel mapped as the caller holding the
+  floor far longer than the one mapped as the agent, the reverse of the usual
+  pattern), sample rate, duration, clipping (per-channel peak dBFS and full-scale
+  fraction), leading silence, crosstalk risk (cross-channel echo coherence), and
+  the three scorability checks (separated tracks, enough caller activity, enough
+  agent activity), then recommends `safe to scan` or `NOT SCORABLE` with the
+  specific reason AND the next step (e.g. `caller channel has no detected speech`
+  -> `verify channel mapping or export dual-channel again`). Three input defects
+  are not scorable and exit `2` (mono, identical channels, a silent required
+  channel); clipping, long leading silence, crosstalk, and a possible swap are
+  non-blocking warnings. By construction it NEVER labels intent and NEVER emits a
+  turn-taking verdict (no yield/hold, no pass/fail): it answers exactly one
+  question -- is this audio good enough to score? Offline, stdlib-only, and
+  reuses the existing hardened WAV reader, reference framing, energy VAD, and
+  cross-channel echo coherence (no DSP is reimplemented). `--format json` emits
+  one agent-parseable report (`kind: "input-health"`; branch on `scorable`, read
+  `not_scorable_reason` / `next_step` on a defect). New module `hotato.trust`
+  (`trust_report`, `render_text`); new `trust` subcommand in `hotato.cli`;
+  documented in `docs/TRUST.md`. Exit codes: `0` safe to scan, `2` not scorable
+  or usage error.
 - **`hotato apply PATCH_JSON --clone --name NAME`, the guarded, clone-only
   staged apply -- the one command that can mutate external platform state, and
   the most conservative in the codebase**: it reads a `hotato patch` artifact and
