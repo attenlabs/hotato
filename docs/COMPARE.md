@@ -6,9 +6,11 @@ Hotato is not your full QA platform.
 session QA, synthetic simulation, task success, transcript rubrics, compliance
 workflows, production dashboards, load testing.
 
-**Use Hotato for:** portable failure contracts from real calls, local/private
-timing evidence, CI-enforced regression tests, trace-backed turn-taking proof,
-refusing unsafe threshold bandaids.
+**Use Hotato for:** local/private timing evidence from real calls,
+CI-enforced regression tests via labelled fixtures, turn-taking proof,
+refusing unsafe threshold bandaids. (A portable, trace-backed failure
+contract ships in the release that adds the contract layer; today the same
+job runs on a fixture and `hotato verify`, see [VALIDATION.md](VALIDATION.md).)
 
 **Hotato answers:** "Did this exact production timing failure come back?"
 **Hotato does not answer:** "Was the whole call successful?"
@@ -33,8 +35,8 @@ no ranking.
 | **Coval** | Voice and chat agent simulation and evaluation, with published comparisons of testing approaches across the category. |
 | **Bluejay** | Synthetic stress-testing for voice agents at scale. |
 | **Roark** | Production-call replay for QA that preserves what the caller said, how, and when, for building regression scenarios. |
-| **Vapi** | A voice agent orchestration platform: the runtime stack a team builds and deploys its agent on, with its own QA and monitoring tooling. |
-| **Retell** | A voice agent platform with built-in conversation QA and dashboards. |
+| **Vapi** | A voice agent orchestration platform: the runtime stack a team builds and deploys its agent on. |
+| **Retell** | A voice agent orchestration platform for building and deploying voice agents. |
 
 ## The honest job, and the better fit
 
@@ -42,7 +44,7 @@ no ranking.
 |---|---|---|
 | Broad conversation QA: did the call succeed, was the transcript right, did it follow the rubric, simulate hundreds of scenarios, dashboards for the team | **Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell** | These grade the whole conversation, task success, and content, or they are the agent platform itself. Hotato does not do content, task success, or simulation. |
 | Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Krisp, Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato never runs at runtime and never touches a live call. |
-| Prove a specific timing bug is fixed and **stays** fixed, from a real recorded call, portably, without sending audio anywhere | **Hotato** | A private, deterministic failure contract: audio, timing evidence, trace evidence, a human label, and a CI-enforced verify command, all in one artifact. |
+| Prove a specific timing bug is fixed and **stays** fixed, from a real recorded call, portably, without sending audio anywhere | **Hotato** | A private, deterministic fixture: audio, a human label, and an explicit policy, scored the same way everywhere with `hotato verify`. Ships as a single portable contract bundle -- audio, timing evidence, trace evidence, label, policy, CI command -- in the release that adds the contract layer. |
 
 If your open question is "is my agent good?", start with a QA platform. If it
 is "is my agent interrupting well right now?", start with a runtime layer. If
@@ -64,20 +66,22 @@ These two are often confused, so it is worth being exact.
 
 You want both. A runtime layer improves the median call. A regression layer
 stops a good fix from quietly rotting three releases later. Hotato takes the
-moment a runtime layer got wrong, freezes it as a contract, and fails CI if it
-regresses.
+moment a runtime layer got wrong, freezes it as a fixture with `hotato
+fixture promote`, and fails CI if it regresses.
 
 ## What Hotato is for, precisely
 
-- **Private.** Scoring, scanning, reports, contracts, and verification run
+- **Private.** Scoring, scanning, reports, fixtures, and verification run
   offline. Audio stays on your machine unless you explicitly pull it from your
   own stack. Nothing is uploaded to Attention Labs. See
   [THREAT-MODEL.md](THREAT-MODEL.md).
 - **Deterministic.** No learned score, no sampling. The same recording produces
   the same timing numbers every run, so a red build means the audio changed.
-- **Portable.** A confirmed failure becomes a self-contained contract bundle
-  (audio, timing evidence, trace evidence, human label, policy, CI command)
-  that travels with the repository and verifies the same way on any machine.
+- **Portable.** A confirmed failure becomes a labelled fixture (audio, human
+  label, explicit policy) that travels with the repository and verifies the
+  same way on any machine with `hotato verify`. It ships as a self-contained
+  contract bundle -- adding timing evidence, trace evidence, and a CI command
+  in one artifact -- in the release that adds the contract layer.
 - **Narrow on purpose.** Three timing signals: talking over the caller,
   false-stopping on a backchannel, yielding too slowly. It does not grade
   content, intent, or outcomes.
