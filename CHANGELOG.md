@@ -7,7 +7,7 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
-## [Unreleased]
+## [0.6.0] - 2026-07-09
 
 ### Added
 - **`hotato contract create/verify/inspect/pack/unpack`, the portable failure
@@ -977,7 +977,7 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
-[Unreleased]: https://github.com/attenlabs/hotato/compare/v0.5.0...HEAD
+[0.6.0]: https://github.com/attenlabs/hotato/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/attenlabs/hotato/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/attenlabs/hotato/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/attenlabs/hotato/compare/v0.3.1...v0.4.0
