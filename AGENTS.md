@@ -30,7 +30,7 @@ production audio path.
 ## Recipe: add Hotato to a voice-agent repo
 
 Fast path: `hotato init starter --stack {vapi,retell,twilio,livekit,pipecat}
---out .` scaffolds step 2's directories and step 5's CI gate in one offline
+--out .` scaffolds step 2's directories and step 6's CI gate in one offline
 command (a stack-tuned `hotato.yaml`, `fixtures/`, `contracts/`, `reports/`,
 and `.github/workflows/hotato-contracts.yml`). Read the generated `HOTATO.md`
 for the exact next commands; full detail: [`docs/STARTER.md`](docs/STARTER.md).
@@ -60,13 +60,22 @@ Do these in order. Every step is offline and reversible.
    `hotato fixture promote hotato-sweep.json#1 --expect yield --out tests/hotato`.
    You may draft the command and the diff; you must not invent the label.
 
-5. **Wire a weekly CI gate.** Add a scheduled GitHub Action (weekly `cron`) that
-   runs the committed fixtures:
-   `hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio`.
-   The job fails (exit `1`) when a fixture's timing regresses. Pattern and pytest
-   plugin: [`docs/CI.md`](docs/CI.md) · [`docs/PYTEST.md`](docs/PYTEST.md).
+5. **Turn a confirmed candidate into a portable, CI-enforced contract.**
+   `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield
+   --id refund-cutoff-001 --out contracts` writes a self-contained `.hotato`
+   bundle (audio, frame evidence, a trust report, a card, and a CI policy) and
+   scores it immediately. Re-score the whole directory the same way CI will:
+   `hotato contract verify contracts/ --junit contracts-junit.xml`. Docs:
+   [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
 
-6. **Prove a fix before closing it.** When someone changes turn-taking config, run
+6. **Wire a weekly CI gate.** Add a scheduled GitHub Action (weekly `cron`) that
+   runs the committed fixtures and contracts:
+   `hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio`
+   and `hotato contract verify contracts --junit hotato.xml`. The job fails
+   (exit `1`) when a fixture's or a contract's timing regresses. Pattern and
+   pytest plugin: [`docs/CI.md`](docs/CI.md) · [`docs/PYTEST.md`](docs/PYTEST.md).
+
+7. **Prove a fix before closing it.** When someone changes turn-taking config, run
    the battery before and after and compare:
    `hotato verify --before before.json --after after.json`. It reports what moved
    across the whole battery (coincidence, not causation); it does not certify a
