@@ -48,3 +48,25 @@ def test_rollback_uses_adapter_and_emits_receipt(tmp_path):
     assert r["restored_revision"] == 3
     assert len(r["receipt_digest"]) == 64
     assert r["adapter_result"]["restored_revision"] == 3
+
+
+def test_full_canary_cycle_gate_plan_observe_rollback(tmp_path):
+    """Approve gate -> plan (no traffic) -> observe with an injected regression
+    -> rollback through the adapter with a receipt. End-to-end, no real traffic."""
+    p = _policy()
+    gate = canary.evaluate_gate(p, trial_verdict="improved", evidence_tier=3,
+                                full_battery_ran=True, high_stakes_all_pass=True,
+                                input_health_degraded=False,
+                                parameter_family="interrupt_sensitivity", within_bounds=True)
+    assert gate["eligible"]
+    plan = canary.canary_plan(p, variant_id="v1")
+    assert plan["routes_traffic"] is False and plan["requires_operator_approval_token"]
+    # simulate the canary observation surfacing a high-stakes regression
+    obs = canary.observe([{"high_stakes_regression": False}] * 49
+                         + [{"high_stakes_regression": True}])
+    assert obs["rollback_recommended"]
+    # auto-rollback on the predeclared trigger, with a durable receipt
+    adapter = adapters.get_adapter("mock", work_dir=str(tmp_path))
+    receipt = canary.rollback(adapter, ref="v1-clone", revision=7,
+                              reason=plan["auto_rollback_trigger"], actor="policy", at=1.0)
+    assert receipt["restored_revision"] == 7 and len(receipt["receipt_digest"]) == 64
