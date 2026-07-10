@@ -312,6 +312,19 @@ def _event_from_result(
             "agent_talking_at_onset": result.agent_talking_at_onset,
             "hop_sec": result.hop_sec,
             "notes": result.notes,
+            # Additive boundary-sensitivity block (schema_version stays "1"). These
+            # expose the onset the caller requested, the quantized onset/yield frame
+            # the scorer actually landed on, and how far the result sits from the
+            # binding pass/fail threshold. A result one hop from flipping carries
+            # boundary_sensitive: true. All default to null/false when not
+            # derivable; none of the pre-existing keys above are touched.
+            "onset_requested_sec": result.onset_requested_sec,
+            "onset_frame_index": result.onset_frame_index,
+            "onset_effective_sec": result.onset_effective_sec,
+            "yield_frame_index": result.yield_frame_index,
+            "decision_margin_sec": verdict.decision_margin_sec,
+            "decision_margin_hops": verdict.decision_margin_hops,
+            "boundary_sensitive": verdict.boundary_sensitive,
         },
         "signals": signals,
         "fix": None,
@@ -757,7 +770,17 @@ def _diarized_not_scorable_event(*, source: str, dm, expected_yield: bool) -> di
             "talk_over_sec": None,
             "reasons": [reason],
         },
-        "measurements": {},
+        "measurements": {
+            # Additive boundary-sensitivity keys defaulted to null/false: this is a
+            # not-scorable placeholder with nothing measured to be near a threshold.
+            "onset_requested_sec": None,
+            "onset_frame_index": None,
+            "onset_effective_sec": None,
+            "yield_frame_index": None,
+            "decision_margin_sec": None,
+            "decision_margin_hops": None,
+            "boundary_sensitive": False,
+        },
         "signals": {
             "barge_in": {
                 "did_yield": None,
@@ -1232,7 +1255,18 @@ def run_suite(
                         "talk_over_sec": None,
                         "reasons": [reason],
                     },
-                    "measurements": {},
+                    "measurements": {
+                        # Additive boundary-sensitivity keys defaulted to
+                        # null/false: no recording was scored, so nothing here can
+                        # sit near a threshold.
+                        "onset_requested_sec": None,
+                        "onset_frame_index": None,
+                        "onset_effective_sec": None,
+                        "yield_frame_index": None,
+                        "decision_margin_sec": None,
+                        "decision_margin_hops": None,
+                        "boundary_sensitive": False,
+                    },
                     "signals": {
                         "barge_in": {
                             "did_yield": None,
