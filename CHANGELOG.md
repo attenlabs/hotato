@@ -7,6 +7,16 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [0.7.2] - 2026-07-10
+
+### Fixed
+- `hotato contract pack` refuses a bundle containing any symlink (file or
+  directory) instead of silently following it. A planted link could
+  previously ship bytes from OUTSIDE the bundle inside the archive (for
+  example a linked secret file). A packed bundle is now self-contained by
+  construction; copy real files into the bundle instead of linking them.
+  Found by external diligence probing the published packages.
+
 ## [0.7.1] - 2026-07-10
 
 ### Fixed
@@ -1028,6 +1038,7 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
+[0.7.2]: https://github.com/attenlabs/hotato/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/attenlabs/hotato/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/attenlabs/hotato/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/attenlabs/hotato/compare/v0.5.0...v0.6.0
