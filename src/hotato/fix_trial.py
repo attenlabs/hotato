@@ -281,8 +281,8 @@ def _trust_preflight(before_arg: str, after_arg: str, before_env: dict,
     after_base = (after_arg if os.path.isdir(after_arg)
                   else os.path.dirname(after_arg)) or "."
 
-    healths, mappings, saw_any = [], [], False
-    for base, env in ((before_base, before_env), (after_base, after_env)):
+    def _side_reports(base, env):
+        out = []
         for ev in env.get("events", []):
             if not isinstance(ev, dict) or ev.get("scorable") is False:
                 continue
@@ -292,25 +292,48 @@ def _trust_preflight(before_arg: str, after_arg: str, before_env: dict,
                 if role != "stereo" or not os.path.isfile(fp):
                     continue
                 try:
-                    r = _trust.trust_report(fp)
+                    out.append(_trust.trust_report(fp))
                 except Exception:  # noqa: BLE001 - a bad file contributes nothing
                     continue
-                saw_any = True
-                ih = r.get("input_health")
-                if ih not in _TRUST_HEALTH_ORDER:
-                    if not r.get("scorable", False):
-                        ih = "not_scorable"
-                    elif r.get("recommendation") == safe:
-                        ih = "clean"
-                    else:
-                        ih = "caution"
-                healths.append(ih)
-                ch = r.get("channels") or {}
-                mappings.append("suspect" if ch.get("possible_swap") else "confirmed")
-    if not saw_any:
+        return out
+
+    def _health_of(r, *, mapping_confirmed):
+        ih = r.get("input_health")
+        if ih not in _TRUST_HEALTH_ORDER:
+            if not r.get("scorable", False):
+                ih = "not_scorable"
+            elif r.get("recommendation") == safe:
+                ih = "clean"
+            else:
+                ih = "caution"
+        # A caution driven ONLY by the possible-swap heuristic is not a
+        # signal-quality problem: a working barge-in fix makes the caller hold
+        # the floor longer, which trips "the agent usually holds longer" even
+        # though the channel mapping (established by the before side) is
+        # unchanged. When the mapping is confirmed and the sole warning is the
+        # swap heuristic, the input is clean for the trial.
+        if ih == "caution" and mapping_confirmed:
+            warnings = r.get("warnings") or []
+            swap = bool((r.get("channels") or {}).get("possible_swap"))
+            non_swap = [w for w in warnings if "revers" not in w.lower()]
+            if swap and not non_swap:
+                ih = "clean"
+        return ih
+
+    before_reports = _side_reports(before_base, before_env)
+    after_reports = _side_reports(after_base, after_env)
+    if not before_reports and not after_reports:
         return None, None
-    input_health = min(healths, key=lambda h: _TRUST_HEALTH_ORDER.get(h, 0))
-    channel_mapping = "suspect" if "suspect" in mappings else "confirmed"
+
+    # Channel mapping is a property of the capture setup, established by the
+    # BEFORE (baseline) side; the after side reuses the same channel indices.
+    before_swap = any((r.get("channels") or {}).get("possible_swap") for r in before_reports)
+    channel_mapping = "suspect" if before_swap else "confirmed"
+    mapping_confirmed = channel_mapping == "confirmed"
+
+    healths = [_health_of(r, mapping_confirmed=mapping_confirmed)
+               for r in (before_reports + after_reports)]
+    input_health = min(healths, key=lambda h: _TRUST_HEALTH_ORDER.get(h, 0)) if healths else None
     return input_health, channel_mapping
 
 
