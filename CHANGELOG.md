@@ -7,7 +7,7 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
-## [Unreleased]
+## [0.9.0] - 2026-07-10
 
 ### Added
 - **`hotato trust` now measures cross-channel leakage and low signal level, two
@@ -136,7 +136,7 @@ design. See `docs/BENCHMARK.md`.
   establish conversational freshness, authenticate envelope contents, pin
   scoring policy, or detect a transformed export of the same call -- a
   header-only edit or trailing-byte append still produced a distinct raw
-  digest at this stage and could pass. (Closed in `[Unreleased]` below by
+  digest at this stage and could pass. (Closed in `[0.9.0]` below by
   comparing decoded PCM, not raw bytes.) See
   `docs/FIX-TRIAL.md#fresh-capture-provenance-guard-a-re-score-is-never-a-fix`
   and `docs/RECAPTURE.md#how-hotato-tells-a-recapture-from-a-re-score`.
@@ -1187,6 +1187,7 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
+[0.9.0]: https://github.com/attenlabs/hotato/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/attenlabs/hotato/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/attenlabs/hotato/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/attenlabs/hotato/compare/v0.7.0...v0.7.1
