@@ -1564,10 +1564,10 @@ hotato fix trial patch.json --name staging-refund-fix \
 
 | Verdict | When | Exit |
 | --- | --- | --- |
-| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, and `--policy` (if given) passed | `0` |
+| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, `--policy` (if given) passed, AND every fixture the claim rests on carries distinct, known before/after audio identity (the fresh-capture provenance guard, below) | `0` |
 | `regressed` | any fixture regressed, a contract regressed, or the policy failed | `1` |
-| `inconclusive` | too few previously-failing fixtures to characterize, or nothing that used to fail now passes | `1` |
-| `refused` | the patch is the both-axes threshold funnel; apply's own refusal-first gate fires before any before/after evidence is even read | `3` |
+| `inconclusive` | too few previously-failing fixtures to characterize, nothing that used to fail now passes, OR audio identity is unknown on either side for a fixture the claim rests on | `1` |
+| `refused` | EITHER the patch is the both-axes threshold funnel (apply's refusal-first gate fires before any before/after evidence is even read), OR every other bar clears but a fixture the claim rests on has byte-identical before/after audio (the after run re-scored the SAME recording, not a fresh capture) | `3` |
 
 **`inconclusive` is fail-closed, not a pass.** A low-n battery or a
 zero-improvement battery exits the SAME non-zero code as a real regression,
@@ -1591,6 +1591,60 @@ No config patch will be applied
 Reason: both missed real interruption and false stop on backchannel, one threshold cannot safely fix both
 Recommended: enable or add engagement-control / backchannel-aware turn detection
 ```
+
+## Fresh-capture provenance guard: a re-score is never a fix
+
+`hotato apply`'s clone-only gate and `hotato verify`'s battery-scale rollup
+answer "did the numbers move." Neither one asks whether the AFTER evidence
+was actually RE-CAPTURED, or is just the SAME recording the BEFORE run
+scored, re-scored under a looser threshold. That gap is exploitable: run the
+same fixture twice with different `--max-time-to-yield` / `--max-talk-over`
+bounds, and you get a genuine-looking "improved" verdict with no code,
+config, or model change behind it at all.
+
+Every run envelope now records an `audio_provenance` block per event: a
+streamed sha256 of the exact audio bytes that were scored (plus sample rate
+and frame count), computed at capture time by `hotato run` / `hotato
+capture`. `hotato fix trial` compares this identity, before vs. after, for
+every fixture the `improved` claim rests on (previously failing, now
+passing -- exactly the fixtures composing verify's "N of M" headline):
+
+| Provenance | Meaning | Effect on verdict |
+| --- | --- | --- |
+| Distinct, known digests on every target fixture | a real recapture happened | none -- proceeds exactly as before |
+| Identical digest on any target fixture | the after run re-scored the SAME recording as the before run | downgraded to `refused` (exit `3`), never a soft pass |
+| A digest missing on either side of any target fixture | an older envelope, or one hand-built without `audio_provenance` -- identity is UNKNOWN | downgraded to `inconclusive` (exit `1`), never assumed fresh |
+
+A same-audio refusal is NOT the apply-gate refusal: it fires AFTER
+`verify` / `contract verify` / `explain` have already run, so (unlike the
+both-axes refusal, which reads no evidence at all) the full report --
+verify's proof, the contract rollup, the provenance digests, the
+attribution -- still renders below the refusal banner. Both refusal paths
+exit the SAME code `3`; `refusal_kind` in the JSON output
+(`"threshold_funnel"` vs. `"same_audio_recapture"`) tells them apart for a
+script that wants to.
+
+```
+No fix will be certified from re-scored audio
+Reason: 1 fixture(s) this claim rests on (f1) have byte-identical before/after audio (same sha256): the after run re-scored the SAME recording the before run scored, just against a different threshold or scorer config
+Recommended: recapture the fixture(s) through the applied clone (hotato apply --clone --yes) and re-run hotato fix trial against the new after evidence
+```
+
+Every rendered report (text, `--format json`, `--html`) surfaces the short
+digest for every target fixture, before and after, and whether they match --
+so a reader never has to take "fresh capture" on faith. The report's own
+conclusion states plainly what a passing digest check proves: that the fresh
+take passed the same human-labeled contract, not that the change caused it
+(hotato reports coincidence, never causation, throughout).
+
+The text and HTML renders of this section also print, verbatim, wherever it
+appears (an `improved` verdict, or a `refused`/`inconclusive` one the guard
+itself downgraded): *"Provenance caution: this proves the specific fresh
+capture scored above, at the revision it was captured from. It does not
+certify a later deploy or every future call, and it does not re-run itself;
+recapture again after the next change."* See
+[`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-honestly-say)
+for the fuller claim-language table this line is drawn from.
 
 ## Flags
 
@@ -2855,7 +2909,9 @@ python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte
 `--check` regenerating byte-identical output is the reproducibility guarantee:
 the audio on disk is exactly what the labelled timings say it is, deterministic
 for a fixed hotato version (byte-identical re-runs verified in CI on Linux
-x86_64, Python 3.10, 3.11, and 3.12). CI can run it as a drift gate.
+x86_64, Python 3.10, 3.11, and 3.12; also now checked, not yet green, on macOS
+and Windows -- see `.github/workflows/tests.yml`, jobs `portability` and
+`determinism`). CI can run it as a drift gate.
 
 ## Additive scenario classes
 
@@ -3969,7 +4025,8 @@ decisions.
 ```bash
 # render the synthetic fixtures deterministically (sha256-seeded; byte-identical
 # for a fixed hotato version -- verified in CI on Linux x86_64, Python 3.10,
-# 3.11, and 3.12), then run the harness over them
+# 3.11, and 3.12; also now checked, not yet green, on macOS and Windows -- see
+# .github/workflows/tests.yml), then run the harness over them
 python3 examples/render_examples.py
 PYTHONPATH=src python3 -m hotato.benchmark
 ```
@@ -4228,7 +4285,9 @@ to prove the live agent still holds.
 - **Deterministic.** No learned score, no sampling. The same recording produces
   the same timing numbers every run, so a red build means the audio changed.
   Deterministic for a fixed hotato version; byte-identical re-runs are
-  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12.
+  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12. The same check
+  now also runs in CI on macOS and Windows, not yet green -- see
+  [VALIDATION.md](VALIDATION.md) Job 1.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the
   same way with `hotato verify`, deterministic for a fixed hotato version
@@ -4288,7 +4347,11 @@ Hotato proves timing behavior against this explicit contract.
 > a private repository or controlled artifact storage instead.
 > `--include-identifiers` additionally writes a source basename and
 > candidate ref into `contract.json` and the card; leave it off by default
-> for the same reason.
+> for the same reason. That redaction hides metadata, not spoken content --
+> the full audio-handling rules (what raw audio may contain, why redaction
+> does not remove it, and the audio-free evidence summary to prefer when
+> you need to share proof without the recording) are in
+> [`SECURITY.md`](../SECURITY.md#audio-handling).
 
 ## Two lanes: what `verify` proves depends on which recording you feed it
 
@@ -4415,6 +4478,13 @@ or a corrupt `contract.json`. `--junit` writes one `<testcase>` per contract
 for a CI dashboard; the shipped `ci/github-action.yml` scaffold runs this on
 push, on PR, and weekly, and publishes the JUnit file as an artifact.
 
+Every text and HTML render of `verify` also prints, verbatim: *"This result
+re-measures stored evidence. It does not test the current agent."* -- a
+green CI run here means the evidence, policy, and scorer are still intact,
+not that today's deployed agent was re-checked. See
+[`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-honestly-say)
+for what each kind of evidence does and does not let you claim.
+
 ## Inspect
 
 ```bash
@@ -4442,7 +4512,8 @@ Packing the SAME bundle directory twice produces byte-identical archives
 each member's ZipInfo, including its `create_system` byte): a contract's
 pack is a pure function of its bundle contents, deterministic for a fixed
 hotato version. Byte-identical re-runs are verified in CI on Linux x86_64,
-Python 3.10, 3.11, and 3.12.
+Python 3.10, 3.11, and 3.12; the same suite now also runs on macOS and
+Windows in CI, not yet green -- see [VALIDATION.md](VALIDATION.md) Job 1.
 
 ### Security: unpack treats an archive as hostile input
 
@@ -4502,6 +4573,8 @@ coincides with the change; it is not a controlled experiment. See
 - Shareable cards: [`docs/CARDS.md`](CARDS.md)
 - Attaching a voice trace (observability bridge): [`docs/TRACE.md`](TRACE.md) ·
   [`docs/OTEL.md`](OTEL.md)
+- Audio-handling rules (what raw audio may contain, redaction limits,
+  distribution): [`SECURITY.md`](../SECURITY.md#audio-handling)
 
 
 ================================================================================
@@ -4794,7 +4867,7 @@ if you are deciding how much to trust any single piece below.
 |---|---|---|
 | Bundled demo | Two recorded calls a provider-default agent fails, scored offline in under a minute, no account | `hotato demo` · [START.md](START.md) |
 | Real provider-default battery | 12 scripted calls against a live voice agent on its default settings; a missed interruption and a false stop fail in the same run | [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md) |
-| Determinism check | Same recording, same numbers, every run, every machine | [VALIDATION.md](VALIDATION.md) Job 1 |
+| Determinism check | Same recording, same numbers, every run, on every OS CI verifies (Linux proven; macOS/Windows now checked, pending a first green run) | [VALIDATION.md](VALIDATION.md) Job 1 |
 | Not-scorable gallery | Eight input conditions and the exact verdict each produces, including three hard refusals | [GALLERY.md](GALLERY.md) · [TRUST-GALLERY.md](TRUST-GALLERY.md) |
 | Trust contract | The input-condition table the gallery demonstrates | [TRUST-MATRIX.md](TRUST-MATRIX.md) |
 | What is and is not validated | The three jobs Hotato is measured on, and the explicit does-not-claim list | [VALIDATION.md](VALIDATION.md) |
@@ -5146,6 +5219,56 @@ labelled policy. Keep both contracts -- the original (the historical record
 of the bug) and the recapture (today's evidence) -- they answer different
 questions and neither substitutes for the other.
 
+## How Hotato tells a recapture from a re-score
+
+Every run envelope Step 3's capture produces (and every `hotato contract
+create`) carries an `audio_provenance` block per event: a streamed sha256 of
+the exact audio bytes that were scored, plus sample rate and frame count.
+This is the mechanical proof that Step 2/3 actually happened -- a NEW
+recording, not the old one replayed through a looser threshold.
+
+`hotato fix trial` enforces this automatically: it refuses to certify
+`improved` when a fixture the claim rests on has byte-identical before/after
+audio (verdict `refused`), and refuses to certify it when either side's
+identity is unknown (verdict `inconclusive`, for example an envelope from
+before this field existed). See
+[`docs/FIX-TRIAL.md`](FIX-TRIAL.md#fresh-capture-provenance-guard-a-re-score-is-never-a-fix)
+for the full guard.
+
+`hotato contract verify` on a frozen bundle does NOT run this guard -- by
+design, per the two-lane table above, it re-scores the SAME recording on
+purpose (a CI regression gate on labelled evidence, not a fix claim), so
+identical audio identity there is expected, not a red flag. The guard exists
+specifically where a "fix" is being claimed: `fix trial`'s before/after.
+
+## Claim language: what each kind of evidence lets you honestly say
+
+The same word ("verified", "fixed", "passed") means something different
+depending on which of these five you are holding. Match what you say to what
+you actually have:
+
+| Evidence you have | How you get it | Accurate to say | Inaccurate (common overclaim) |
+| --- | --- | --- | --- |
+| **Historical contract only** | `hotato contract create` ran once; you are reading `contract.json` / `hotato contract inspect`, no `verify` run since | "On \[created_at], a human labeled this call and hotato measured \[timing] against that label; this is the frozen record of that one measurement." | "This proves our agent behaves correctly" -- nothing has been re-checked since capture; it speaks to that one recorded moment, not to now. |
+| **Contract plus unchanged historical audio** | `hotato contract verify` re-scored the SAME `audio/event.wav` the contract was created from | "`hotato contract verify` re-measured stored evidence and it still meets its policy." (This is the literal caveat `contract verify` now prints -- see below.) | "The deployed agent no longer has this bug." Per the two-lane table in [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it), a pass here can only fail if the evidence, policy, or scorer changed, never because the deployed agent changed. |
+| **Separately captured current-agent take** | Steps 1 to 5 above: a fresh recording of the same stimulus, a new contract created from it, verified once, standalone (no paired before/after) | "The CURRENT agent, on a fresh recording of the same stimulus captured \[date], still meets the labeled policy. One data point." | "This proves the fix caused the improvement" (coincidence, not causation) or "this guarantees the next call passes too" (one recapture is one data point, not a rate -- see Limits below). |
+| **Fresh take plus opposite-risk cases** | `hotato fix trial` `improved`: paired before/after with distinct `audio_provenance` on every target fixture (the fresh-capture provenance guard held) AND the hold/opposite-risk fixture still passed | "This proves the specific fresh capture scored above, at the revision it was captured from, including that a paired hold/opposite-risk case did not flip." (The literal caution `fix trial` prints -- see below.) | "This fix is now permanently verified" or "it will keep holding after future deploys." A later deploy is a new revision this report says nothing about, and nothing here re-runs itself. |
+| **Production rerun after deploy** | You (there is no automatic trigger) recaptured again against the LIVE deployed agent post-deploy, per this page, on your own schedule | "As of \[date], a fresh production capture reverified the same labeled stimulus against the live agent." Still one data point per run. | "The fix is confirmed working in production, no further checks needed." This does not run in CI by itself (see Limits below); each rerun is one more independent data point, not a standing guarantee that survives the NEXT deploy. |
+
+Two of these statements are not just guidance in this doc -- they are wired
+into the actual command output, so a reader never has to take the caution on
+faith:
+
+- **`hotato contract verify`** (the stored-evidence row above) prints, in
+  every text, HTML, and rollup render: *"This result re-measures stored
+  evidence. It does not test the current agent."*
+- **`hotato fix trial`**, wherever its audio-provenance section renders (an
+  `improved` verdict, or a `refused`/`inconclusive` one the guard downgraded)
+  prints: *"Provenance caution: this proves the specific fresh capture
+  scored above, at the revision it was captured from. It does not certify a
+  later deploy or every future call, and it does not re-run itself; recapture
+  again after the next change."*
+
 ## Limits, stated plainly
 
 - **This is not a controlled experiment.** A pass after a change coincides
@@ -5209,10 +5332,50 @@ Run top to bottom for every release. Each item is a gate: green means proceed.
 ## Package
 
 - [ ] Build sdist and wheel from a clean tree; install the wheel in a fresh venv and run `hotato run --suite barge-in`.
-- [ ] Publish to PyPI.
+- [ ] Publish to PyPI. **Current mechanism: manual upload with an API token** (`twine upload dist/*` using a token scoped to the `hotato` project). This is the only working path today.
 - [ ] Verify `uvx hotato demo` works from the published package (fresh machine or cleared uv cache): it renders and opens the failing demo report.
 - [ ] Verify `uvx hotato doctor` (self-test path) works from the published package.
 - [ ] Tag the release commit and push the tag; GitHub release notes point at the CHANGELOG entry.
+
+### PyPI Trusted Publishing (OIDC) -- exists, not yet active
+
+`.github/workflows/publish-pypi-oidc.yml` is a `workflow_dispatch`-only workflow
+that builds, runs the full test suite, `twine check`s the artifacts, and
+publishes via [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
+(short-lived GitHub OIDC token, no stored API token). It requires a `version`
+input matching `pyproject.toml` and a `confirm` input equal to `PUBLISH`, and
+the publish step runs under the `pypi` GitHub Environment with `id-token:
+write` granted only on that job.
+
+It cannot publish anything yet: PyPI rejects the OIDC token until an operator
+registers this exact repo + workflow + environment as a trusted publisher for
+the `hotato` project. **hotato is already on PyPI**, so this is the existing-project
+flow (not the pending-publisher flow for unpublished names). One-time operator
+setup:
+
+1. Sign in to PyPI as an owner/maintainer of the `hotato` project and open
+   `https://pypi.org/manage/project/hotato/settings/publishing/`.
+2. Under "Add a new publisher", choose GitHub and fill in:
+   - Owner: `attenlabs`
+   - Repository name: `hotato`
+   - Workflow filename: `publish-pypi-oidc.yml`
+   - Environment name: `pypi`
+3. Save. No token or secret is created or stored anywhere for this; PyPI will
+   only accept OIDC tokens minted by that exact repo/workflow/environment
+   combination.
+4. In the GitHub repo, create the `pypi` environment (Settings > Environments
+   > New environment, name `pypi`) if it does not already exist. Optionally
+   add required reviewers there for a human-approval gate in addition to the
+   `confirm`/`version` input checks already in the workflow.
+5. To cut a release this way: dispatch `publish-pypi-oidc.yml` with
+   `version` set to the release's `pyproject.toml` version and `confirm` set
+   to `PUBLISH`.
+
+Until step 3 is done, dispatching the workflow will build and test cleanly
+and then fail at the publish step with an OIDC trust error -- expected and
+safe, since there is no credential to leak and nothing gets uploaded. The
+manual token-based step above remains the release path until an operator
+completes this setup and chooses to switch.
 
 ## After release
 
@@ -5942,7 +6105,12 @@ exposed and every frame is inspectable (`hotato run --dump-frames`).
 **The question:** given the same recording and the same reference config, does
 Hotato produce the same timing measurements every run? (Deterministic for a
 fixed hotato version; byte-identical re-runs are verified in CI on Linux
-x86_64, Python 3.10, 3.11, and 3.12.)
+x86_64, Python 3.10, 3.11, and 3.12 -- `.github/workflows/tests.yml`, job
+`pytest`. The same double-run check now also runs in CI on macOS and Windows,
+with the digest additionally compared ACROSS those OSes -- jobs `portability`
+and `determinism` in the same file. Cross-OS agreement is measured and
+reported there, not asserted: it has not yet run green, so it is not part of
+this claim.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used
@@ -6016,7 +6184,9 @@ explicit, portable, CI-enforced policy?
 
 Today this job runs on a fixture (`hotato fixture create` / `hotato run`): a
 labelled recording plus an explicit threshold policy, scored the same way on
-every machine. The portable contract bundle (`hotato contract create` /
+every machine covered by CI (Linux, proven; macOS and Windows now run the same
+scoring code path too, pending a first green determinism run -- see Job 1
+above). The portable contract bundle (`hotato contract create` /
 `hotato contract verify`, audio plus timing evidence plus trace evidence plus
 label plus policy plus a CI command in one artifact) carries this exact job
 forward into a single self-contained object once it ships; the verdict this
@@ -6217,6 +6387,33 @@ FILE: src/hotato/schema/envelope.v1.json
         },
         "fix": {
           "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/fix" } ]
+        },
+        "audio_provenance": { "$ref": "#/definitions/audio_provenance" }
+      }
+    },
+    "audio_provenance": {
+      "type": "object",
+      "description": "Additive: identity of the exact audio bytes this event was scored from (a streamed sha256 of the raw file, never a full in-memory decode) plus the sample rate and frame count read from the WAV header. Present on every event scored from a real audio file. Absent (never fabricated, never guessed) on an event with no file to hash -- for example a not-scorable / missing-audio placeholder, or an envelope from before this field existed. A reader (in particular hotato fix trial's before/after recapture guard) MUST treat absence as UNKNOWN provenance, never as proof that a fresh capture happened.",
+      "required": ["schema_version", "sha256", "sides"],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": { "type": "string" },
+        "sha256": { "type": "string", "description": "The event's combined audio identity: one file's own sha256 for a single-file input (stereo/mono), or an order-stable combination of both sides' sha256 for a caller+agent dual-mono input." },
+        "sides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "path", "sha256", "sample_rate", "num_samples"],
+            "additionalProperties": true,
+            "properties": {
+              "role": { "type": "string" },
+              "path": { "type": "string" },
+              "sha256": { "type": "string" },
+              "sample_rate": { "type": "integer" },
+              "num_samples": { "type": "integer" },
+              "duration_sec": { "type": ["number", "null"] }
+            }
+          }
         }
       }
     },

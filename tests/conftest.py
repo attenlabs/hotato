@@ -25,12 +25,12 @@ def pytest_sessionstart(session):
         missing = [d for d in _SUITES.iterdir()
                    if d.is_dir() and (d / "scenarios").is_dir() and not (d / "audio").is_dir()]
         if missing:
-            subprocess.run(["python3", str(_SUITES / "build_suites.py")], check=True, cwd=_ROOT)
+            subprocess.run([sys.executable, str(_SUITES / "build_suites.py")], check=True, cwd=_ROOT)
     if _CLASSES.is_dir():
         missing = [d for d in _CLASSES.iterdir()
                    if d.is_dir() and (d / "scenarios").is_dir() and not (d / "audio").is_dir()]
         if missing:
-            subprocess.run(["python3", str(_CLASSES / "build_classes.py")], check=True, cwd=_ROOT)
+            subprocess.run([sys.executable, str(_CLASSES / "build_classes.py")], check=True, cwd=_ROOT)
     # examples/audio and examples/funnel-demo/audio, rendered in place by the
     # canonical generator when either is missing.
     if _RENDER.is_file():
@@ -40,4 +40,4 @@ def pytest_sessionstart(session):
         ]
         if any(s.is_dir() and not (s.parent / "audio").is_dir()
                for s in example_scen_dirs):
-            subprocess.run(["python3", str(_RENDER)], check=True, cwd=_ROOT)
+            subprocess.run([sys.executable, str(_RENDER)], check=True, cwd=_ROOT)

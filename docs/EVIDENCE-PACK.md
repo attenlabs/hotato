@@ -14,7 +14,7 @@ if you are deciding how much to trust any single piece below.
 |---|---|---|
 | Bundled demo | Two recorded calls a provider-default agent fails, scored offline in under a minute, no account | `hotato demo` · [START.md](START.md) |
 | Real provider-default battery | 12 scripted calls against a live voice agent on its default settings; a missed interruption and a false stop fail in the same run | [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md) |
-| Determinism check | Same recording, same numbers, every run, every machine | [VALIDATION.md](VALIDATION.md) Job 1 |
+| Determinism check | Same recording, same numbers, every run, on every OS CI verifies (Linux proven; macOS/Windows now checked, pending a first green run) | [VALIDATION.md](VALIDATION.md) Job 1 |
 | Not-scorable gallery | Eight input conditions and the exact verdict each produces, including three hard refusals | [GALLERY.md](GALLERY.md) · [TRUST-GALLERY.md](TRUST-GALLERY.md) |
 | Trust contract | The input-condition table the gallery demonstrates | [TRUST-MATRIX.md](TRUST-MATRIX.md) |
 | What is and is not validated | The three jobs Hotato is measured on, and the explicit does-not-claim list | [VALIDATION.md](VALIDATION.md) |

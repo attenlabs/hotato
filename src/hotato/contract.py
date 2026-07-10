@@ -147,6 +147,17 @@ _NOT_PROVED = (
     "safety. Hotato proves timing behavior against this explicit contract."
 )
 
+# Every `contract verify` run re-scores the bundled audio.wav that shipped
+# with each contract -- the SAME bytes every time, never a new recording. A
+# reader who has not internalized the two-lane table in docs/CONTRACTS.md can
+# easily mistake a green run here for "the deployed agent is fine today," so
+# every render of this report says the opposite outright. See
+# docs/RECAPTURE.md for the fresh-capture lane this report is NOT.
+_STORED_EVIDENCE_CAVEAT = (
+    "This result re-measures stored evidence. It does not test the current "
+    "agent."
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1086,6 +1097,7 @@ def render_verify_text(v: dict) -> str:
         )
     s = v["summary"]
     lines.append(f"  {s['passed']}/{v['count']} contracts pass; exit_code={v['exit_code']}")
+    lines.append(f"  {_STORED_EVIDENCE_CAVEAT}")
     return "\n".join(lines)
 
 
@@ -1166,6 +1178,7 @@ def render_verify_html(v: dict) -> str:
         f'<h1>hotato contract verify <span style="color:{vcolor}">'
         f'{verdict}</span></h1>'
         f'<p>{esc(v["dir"])}: {s["passed"]}/{v["count"]} contracts pass.</p>'
+        f'<p style="color:#e8c547;font-weight:600">{esc(_STORED_EVIDENCE_CAVEAT)}</p>'
         '<table><thead><tr><th>id</th><th>expect</th><th>result</th>'
         '<th>measured</th></tr></thead><tbody>' + "".join(rows)
         + "</tbody></table>"

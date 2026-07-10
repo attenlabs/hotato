@@ -134,6 +134,33 @@
         },
         "fix": {
           "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/fix" } ]
+        },
+        "audio_provenance": { "$ref": "#/definitions/audio_provenance" }
+      }
+    },
+    "audio_provenance": {
+      "type": "object",
+      "description": "Additive: identity of the exact audio bytes this event was scored from (a streamed sha256 of the raw file, never a full in-memory decode) plus the sample rate and frame count read from the WAV header. Present on every event scored from a real audio file. Absent (never fabricated, never guessed) on an event with no file to hash -- for example a not-scorable / missing-audio placeholder, or an envelope from before this field existed. A reader (in particular hotato fix trial's before/after recapture guard) MUST treat absence as UNKNOWN provenance, never as proof that a fresh capture happened.",
+      "required": ["schema_version", "sha256", "sides"],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": { "type": "string" },
+        "sha256": { "type": "string", "description": "The event's combined audio identity: one file's own sha256 for a single-file input (stereo/mono), or an order-stable combination of both sides' sha256 for a caller+agent dual-mono input." },
+        "sides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "path", "sha256", "sample_rate", "num_samples"],
+            "additionalProperties": true,
+            "properties": {
+              "role": { "type": "string" },
+              "path": { "type": "string" },
+              "sha256": { "type": "string" },
+              "sample_rate": { "type": "integer" },
+              "num_samples": { "type": "integer" },
+              "duration_sec": { "type": ["number", "null"] }
+            }
+          }
         }
       }
     },
