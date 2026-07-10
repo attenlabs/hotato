@@ -6,6 +6,7 @@ import io
 import json
 import os
 import stat
+import sys
 import urllib.error
 import urllib.request
 
@@ -72,10 +73,14 @@ def test_connect_stores_creds_0600_and_never_prints_the_secret(monkeypatch, caps
 
     path = connections.connections_path()
     assert os.path.exists(path)
-    mode = stat.S_IMODE(os.stat(path).st_mode)
-    assert mode == 0o600, oct(mode)
-    dmode = stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode)
-    assert dmode == 0o700, oct(dmode)
+    if sys.platform != "win32":
+        # os.chmod's 0o600/0o700 bits are a POSIX permission model; Windows
+        # has no equivalent octal mode (chmod there only toggles a read-only
+        # attribute), so the exact-mode assertion is meaningless there.
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        assert mode == 0o600, oct(mode)
+        dmode = stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode)
+        assert dmode == 0o700, oct(dmode)
     # but the file itself does hold the key (for reuse by pull/sweep)
     assert json.loads(open(path).read())["vapi"]["api_key"] == "super-secret-key"
 

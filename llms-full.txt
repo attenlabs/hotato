@@ -2900,7 +2900,9 @@ python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte
 `--check` regenerating byte-identical output is the reproducibility guarantee:
 the audio on disk is exactly what the labelled timings say it is, deterministic
 for a fixed hotato version (byte-identical re-runs verified in CI on Linux
-x86_64, Python 3.10, 3.11, and 3.12). CI can run it as a drift gate.
+x86_64, Python 3.10, 3.11, and 3.12; also now checked, not yet green, on macOS
+and Windows -- see `.github/workflows/tests.yml`, jobs `portability` and
+`determinism`). CI can run it as a drift gate.
 
 ## Additive scenario classes
 
@@ -4014,7 +4016,8 @@ decisions.
 ```bash
 # render the synthetic fixtures deterministically (sha256-seeded; byte-identical
 # for a fixed hotato version -- verified in CI on Linux x86_64, Python 3.10,
-# 3.11, and 3.12), then run the harness over them
+# 3.11, and 3.12; also now checked, not yet green, on macOS and Windows -- see
+# .github/workflows/tests.yml), then run the harness over them
 python3 examples/render_examples.py
 PYTHONPATH=src python3 -m hotato.benchmark
 ```
@@ -4273,7 +4276,9 @@ to prove the live agent still holds.
 - **Deterministic.** No learned score, no sampling. The same recording produces
   the same timing numbers every run, so a red build means the audio changed.
   Deterministic for a fixed hotato version; byte-identical re-runs are
-  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12.
+  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12. The same check
+  now also runs in CI on macOS and Windows, not yet green -- see
+  [VALIDATION.md](VALIDATION.md) Job 1.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the
   same way with `hotato verify`, deterministic for a fixed hotato version
@@ -4487,7 +4492,8 @@ Packing the SAME bundle directory twice produces byte-identical archives
 each member's ZipInfo, including its `create_system` byte): a contract's
 pack is a pure function of its bundle contents, deterministic for a fixed
 hotato version. Byte-identical re-runs are verified in CI on Linux x86_64,
-Python 3.10, 3.11, and 3.12.
+Python 3.10, 3.11, and 3.12; the same suite now also runs on macOS and
+Windows in CI, not yet green -- see [VALIDATION.md](VALIDATION.md) Job 1.
 
 ### Security: unpack treats an archive as hostile input
 
@@ -4839,7 +4845,7 @@ if you are deciding how much to trust any single piece below.
 |---|---|---|
 | Bundled demo | Two recorded calls a provider-default agent fails, scored offline in under a minute, no account | `hotato demo` · [START.md](START.md) |
 | Real provider-default battery | 12 scripted calls against a live voice agent on its default settings; a missed interruption and a false stop fail in the same run | [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md) |
-| Determinism check | Same recording, same numbers, every run, every machine | [VALIDATION.md](VALIDATION.md) Job 1 |
+| Determinism check | Same recording, same numbers, every run, on every OS CI verifies (Linux proven; macOS/Windows now checked, pending a first green run) | [VALIDATION.md](VALIDATION.md) Job 1 |
 | Not-scorable gallery | Eight input conditions and the exact verdict each produces, including three hard refusals | [GALLERY.md](GALLERY.md) · [TRUST-GALLERY.md](TRUST-GALLERY.md) |
 | Trust contract | The input-condition table the gallery demonstrates | [TRUST-MATRIX.md](TRUST-MATRIX.md) |
 | What is and is not validated | The three jobs Hotato is measured on, and the explicit does-not-claim list | [VALIDATION.md](VALIDATION.md) |
@@ -6049,7 +6055,12 @@ exposed and every frame is inspectable (`hotato run --dump-frames`).
 **The question:** given the same recording and the same reference config, does
 Hotato produce the same timing measurements every run? (Deterministic for a
 fixed hotato version; byte-identical re-runs are verified in CI on Linux
-x86_64, Python 3.10, 3.11, and 3.12.)
+x86_64, Python 3.10, 3.11, and 3.12 -- `.github/workflows/tests.yml`, job
+`pytest`. The same double-run check now also runs in CI on macOS and Windows,
+with the digest additionally compared ACROSS those OSes -- jobs `portability`
+and `determinism` in the same file. Cross-OS agreement is measured and
+reported there, not asserted: it has not yet run green, so it is not part of
+this claim.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used
@@ -6123,7 +6134,9 @@ explicit, portable, CI-enforced policy?
 
 Today this job runs on a fixture (`hotato fixture create` / `hotato run`): a
 labelled recording plus an explicit threshold policy, scored the same way on
-every machine. The portable contract bundle (`hotato contract create` /
+every machine covered by CI (Linux, proven; macOS and Windows now run the same
+scoring code path too, pending a first green determinism run -- see Job 1
+above). The portable contract bundle (`hotato contract create` /
 `hotato contract verify`, audio plus timing evidence plus trace evidence plus
 label plus policy plus a CI command in one artifact) carries this exact job
 forward into a single self-contained object once it ships; the verdict this

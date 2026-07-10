@@ -18,8 +18,10 @@ Ranked by how hard it is to fake:
    interruption and a false stop on a backchannel fail in the same run, so
    `diagnose` refuses to name one threshold. The refusal is the evidence.
 3. **Deterministic outputs.** The same recording produces the same timing numbers
-   on every run and every machine (see [VALIDATION.md](../VALIDATION.md), Job 1).
-   You can diff two runs and get nothing.
+   on every run, on every OS CI verifies (Linux proven; macOS and Windows now
+   checked in CI too, pending a first green run -- see
+   [VALIDATION.md](../VALIDATION.md), Job 1). You can diff two runs and get
+   nothing.
 4. **Not-scorable examples.** The [trust gallery](../TRUST-GALLERY.md) shows
    Hotato refusing to score mono, silent-channel, and swapped recordings, and
    flagging echo-driven false positives. A tool that knows when to say "not
