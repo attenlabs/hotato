@@ -22,7 +22,11 @@ Hotato proves timing behavior against this explicit contract.
 > a private repository or controlled artifact storage instead.
 > `--include-identifiers` additionally writes a source basename and
 > candidate ref into `contract.json` and the card; leave it off by default
-> for the same reason.
+> for the same reason. That redaction hides metadata, not spoken content --
+> the full audio-handling rules (what raw audio may contain, why redaction
+> does not remove it, and the audio-free evidence summary to prefer when
+> you need to share proof without the recording) are in
+> [`SECURITY.md`](../SECURITY.md#audio-handling).
 
 ## Two lanes: what `verify` proves depends on which recording you feed it
 
@@ -149,6 +153,13 @@ or a corrupt `contract.json`. `--junit` writes one `<testcase>` per contract
 for a CI dashboard; the shipped `ci/github-action.yml` scaffold runs this on
 push, on PR, and weekly, and publishes the JUnit file as an artifact.
 
+Every text and HTML render of `verify` also prints, verbatim: *"This result
+re-measures stored evidence. It does not test the current agent."* -- a
+green CI run here means the evidence, policy, and scorer are still intact,
+not that today's deployed agent was re-checked. See
+[`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-honestly-say)
+for what each kind of evidence does and does not let you claim.
+
 ## Inspect
 
 ```bash
@@ -176,7 +187,8 @@ Packing the SAME bundle directory twice produces byte-identical archives
 each member's ZipInfo, including its `create_system` byte): a contract's
 pack is a pure function of its bundle contents, deterministic for a fixed
 hotato version. Byte-identical re-runs are verified in CI on Linux x86_64,
-Python 3.10, 3.11, and 3.12.
+Python 3.10, 3.11, and 3.12; the same suite now also runs on macOS and
+Windows in CI, not yet green -- see [VALIDATION.md](VALIDATION.md) Job 1.
 
 ### Security: unpack treats an archive as hostile input
 
@@ -236,3 +248,5 @@ coincides with the change; it is not a controlled experiment. See
 - Shareable cards: [`docs/CARDS.md`](CARDS.md)
 - Attaching a voice trace (observability bridge): [`docs/TRACE.md`](TRACE.md) ·
   [`docs/OTEL.md`](OTEL.md)
+- Audio-handling rules (what raw audio may contain, redaction limits,
+  distribution): [`SECURITY.md`](../SECURITY.md#audio-handling)

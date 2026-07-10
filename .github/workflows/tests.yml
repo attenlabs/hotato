@@ -9,7 +9,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.12"]
+        # Docs (VALIDATION.md, COMPARE.md, CONTRACTS.md, SUITES.md, BENCHMARK.md)
+        # have long claimed "3.10, 3.11, and 3.12" for the determinism guarantee;
+        # 3.11 was missing here (only present in hotato.yml's lighter single-score
+        # PR gate, which does not run the determinism-asserting test suite).
+        # Added 2026-07-10 so the claim matches what actually runs.
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,6 +22,135 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: python -m pytest -q
+
+  # Cross-platform coverage, added 2026-07-10. The determinism claim in the
+  # docs was previously scoped to "Linux x86_64" only because that is all this
+  # matrix ran; this job extends the FULL suite to macOS and Windows so that
+  # scope can be widened once it is green, or narrowed with a named reason if
+  # it is not. One python version per OS (not a full cross product) -- this is
+  # about OS coverage, not another python-version sweep.
+  portability:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  # Determinism, measured per OS then compared ACROSS OS. Job 1 in
+  # docs/VALIDATION.md already asserts byte-identical re-runs; this job runs
+  # that exact property (two runs of the bundled synthetic self-test, hashed)
+  # on each OS, then a separate compare job reports whether the digest also
+  # matches ACROSS OS. Same-OS mismatch is a real regression (hard fail).
+  # Cross-OS mismatch is NOT hard-failed here: it would be a genuine, currently
+  # unmeasured finding (e.g. libm transcendental-function rounding in the
+  # synthetic-audio renderer), and the instruction governing this job is to
+  # measure and report it, not to assert a guarantee we have not proven yet.
+  determinism:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install .
+
+      # shell: python sidesteps bash-vs-powershell quoting differences across
+      # the three OSes entirely -- the script text is identical everywhere.
+      - name: Score the bundled self-test twice and hash each run
+        shell: python
+        run: |
+          import hashlib
+          import subprocess
+          import sys
+
+          def run_once():
+              out = subprocess.run(
+                  [sys.executable, "-m", "hotato", "run", "--suite", "barge-in",
+                   "--format", "json", "--no-fail"],
+                  capture_output=True, check=True, text=True,
+              ).stdout
+              return hashlib.sha256(out.encode("utf-8")).hexdigest()
+
+          d1 = run_once()
+          d2 = run_once()
+          assert d1 == d2, (
+              f"determinism regression on this OS/Python: two runs of the same "
+              f"self-test produced different output ({d1} != {d2})"
+          )
+          with open("digest.txt", "w", encoding="utf-8") as f:
+              f.write(d1 + "\n")
+          print(f"{sys.platform} digest: {d1}")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: determinism-digest-${{ matrix.os }}
+          path: digest.txt
+
+  # Reports (never silently hides) whether the per-OS digests from the
+  # `determinism` job above agree with each other. Always exits 0: a cross-OS
+  # mismatch is a finding to write up (see
+  # ~/Projects/hotato-launch/PORTABILITY-MATRIX-2026-07-10.md), not a reason to
+  # redden every PR on a claim this job is the first thing to actually test.
+  determinism-compare:
+    needs: determinism
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: determinism-digest-*
+          path: digests
+
+      - name: Compare digests across OS and write a summary
+        shell: python
+        run: |
+          import glob
+          import os
+
+          digests = {}
+          for path in sorted(glob.glob("digests/determinism-digest-*/digest.txt")):
+              os_name = path.split("determinism-digest-")[1].split(os.sep)[0]
+              digests[os_name] = open(path, encoding="utf-8").read().strip()
+
+          lines = ["# Cross-OS determinism", "", "| OS | digest |", "|---|---|"]
+          lines += [f"| {k} | `{v}` |" for k, v in sorted(digests.items())]
+          unique = set(digests.values())
+          if len(unique) <= 1:
+              lines += ["", f"MATCH: all {len(digests)} OS(es) produced the same digest."]
+          else:
+              lines += ["", f"DIFFER: {len(unique)} distinct digests across "
+                             f"{len(digests)} OS(es). This is a genuine finding, "
+                             f"not a flaked check -- see PORTABILITY-MATRIX.md."]
+              print("::warning::cross-OS determinism digests differ; see job summary")
+
+          summary = "\n".join(lines) + "\n"
+          print(summary)
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as f:
+                  f.write(summary)
 
   # Guard against a green wheel masking a broken sdist (shipped in 0.2.3 and
   # 0.3.0: MANIFEST.in omitted small non-audio test dependencies, so an

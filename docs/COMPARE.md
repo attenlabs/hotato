@@ -83,7 +83,9 @@ to prove the live agent still holds.
 - **Deterministic.** No learned score, no sampling. The same recording produces
   the same timing numbers every run, so a red build means the audio changed.
   Deterministic for a fixed hotato version; byte-identical re-runs are
-  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12.
+  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12. The same check
+  now also runs in CI on macOS and Windows, not yet green -- see
+  [VALIDATION.md](VALIDATION.md) Job 1.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the
   same way with `hotato verify`, deterministic for a fixed hotato version

@@ -16,6 +16,7 @@ throughout.
 import json
 import os
 import stat
+import sys
 
 import pytest
 
@@ -281,6 +282,12 @@ def test_dry_run_prints_body_and_commands_and_touches_nothing(
     assert not fake_scm.exists(), "the dry run must not call git or gh"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="fake_scm's git/gh shims are bash scripts with a POSIX shebang, "
+           "invoked by argv0 with no extension; Windows subprocess dispatch "
+           "cannot execute them the way a real git/gh would be found on PATH",
+)
 def test_yes_runs_git_then_gh_with_the_body_piped_and_no_force_push(
         promoted_fx, fake_scm, capsys):
     rc = cli.main([
@@ -324,6 +331,12 @@ def test_json_dry_run_shape(promoted_fx, capsys):
     assert len(payload["fixtures"]) == 1
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the fake git/gh here are bash scripts with a POSIX shebang, "
+           "invoked by argv0 with no extension; Windows subprocess dispatch "
+           "cannot execute them the way a real git/gh would be found on PATH",
+)
 def test_git_failure_is_a_clean_usage_error_and_gh_never_runs(
         promoted_fx, tmp_path, monkeypatch, capsys):
     # A fake git that exits non-zero on the branch cut: the create must surface

@@ -15,7 +15,12 @@ exposed and every frame is inspectable (`hotato run --dump-frames`).
 **The question:** given the same recording and the same reference config, does
 Hotato produce the same timing measurements every run? (Deterministic for a
 fixed hotato version; byte-identical re-runs are verified in CI on Linux
-x86_64, Python 3.10, 3.11, and 3.12.)
+x86_64, Python 3.10, 3.11, and 3.12 -- `.github/workflows/tests.yml`, job
+`pytest`. The same double-run check now also runs in CI on macOS and Windows,
+with the digest additionally compared ACROSS those OSes -- jobs `portability`
+and `determinism` in the same file. Cross-OS agreement is measured and
+reported there, not asserted: it has not yet run green, so it is not part of
+this claim.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used
@@ -89,7 +94,9 @@ explicit, portable, CI-enforced policy?
 
 Today this job runs on a fixture (`hotato fixture create` / `hotato run`): a
 labelled recording plus an explicit threshold policy, scored the same way on
-every machine. The portable contract bundle (`hotato contract create` /
+every machine covered by CI (Linux, proven; macOS and Windows now run the same
+scoring code path too, pending a first green determinism run -- see Job 1
+above). The portable contract bundle (`hotato contract create` /
 `hotato contract verify`, audio plus timing evidence plus trace evidence plus
 label plus policy plus a CI command in one artifact) carries this exact job
 forward into a single self-contained object once it ships; the verdict this

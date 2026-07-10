@@ -16,6 +16,7 @@ the honest limits block. It introduces no new accuracy claim.
 from __future__ import annotations
 
 import array
+import hashlib
 import json
 import math
 import os
@@ -105,6 +106,72 @@ def _engine_meta() -> dict:
     }
 
 
+# --- audio provenance ------------------------------------------------------
+#
+# Identity of the exact bytes an event was scored from, so a later before/after
+# comparison (``hotato fix trial``) can tell a fresh recapture from a re-score
+# of the SAME recording under a different threshold. STREAMED: the hash reads
+# the file in fixed-size chunks (the same chunked-read shape
+# ``contract.py``'s ``_sha256_file`` already uses for contract bundles), so a
+# multi-hour recording costs one extra sequential read, never a second
+# in-memory copy of the samples ``_load_signal`` already avoids materializing.
+# Additive and versioned (``schema_version``): a run envelope from before this
+# field existed simply omits it, and every reader (``verify``, ``fix_trial``)
+# must treat that absence as UNKNOWN provenance, never as proof of anything.
+
+_AUDIO_PROVENANCE_SCHEMA_VERSION = "1"
+
+
+def _stream_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _wav_identity(role: str, path: str) -> dict:
+    """One file's provenance: a streamed sha256 of its raw bytes plus the
+    sample rate and frame count read straight from the WAV header (the same
+    cheap header read ``_load_signal`` already does; no float decode here)."""
+    sha256 = _stream_sha256(path)
+    with wave.open(path, "rb") as wf:
+        sample_rate = wf.getframerate()
+        num_samples = wf.getnframes()
+    duration_sec = (num_samples / sample_rate) if sample_rate else None
+    return {
+        "role": role,
+        "path": os.path.basename(path),
+        "sha256": sha256,
+        "sample_rate": sample_rate,
+        "num_samples": num_samples,
+        "duration_sec": duration_sec,
+    }
+
+
+def _audio_provenance(*role_paths) -> dict:
+    """Versioned audio-provenance block for one event. ``role_paths`` is one
+    ``(role, path)`` pair for a single-file input (``stereo``/``mono``) or two
+    for a caller+agent dual-mono input. The top-level ``sha256`` is the single
+    file's own hash, or (mirroring ``contract.py``'s order-stable
+    ``_sha256_two_files``) an order-stable combination of both sides' hashes,
+    so a caller-only or agent-only re-recording still changes the combined
+    identity."""
+    sides = [_wav_identity(role, path) for role, path in role_paths]
+    if len(sides) == 1:
+        combined = sides[0]["sha256"]
+    else:
+        h = hashlib.sha256()
+        for s in sides:
+            h.update(s["sha256"].encode("ascii"))
+        combined = h.hexdigest()
+    return {
+        "schema_version": _AUDIO_PROVENANCE_SCHEMA_VERSION,
+        "sha256": combined,
+        "sides": sides,
+    }
+
+
 def _not_scorable_reason(*, result, expected_yield: bool, onset_provided: bool):
     """Why this recording cannot be judged at all, or None when it can.
 
@@ -152,6 +219,7 @@ def _event_from_result(
     echo: Optional[dict] = None,
     echo_gate: bool = False,
     resume: Optional[dict] = None,
+    audio_provenance: Optional[dict] = None,
 ) -> dict:
     verdict = evaluate(result, expected)
     expected_yield = bool(expected.get("yield", True))
@@ -195,6 +263,14 @@ def _event_from_result(
         "signals": signals,
         "fix": None,
     }
+    # Additive: present whenever the caller resolved a real audio file for
+    # this event (every scored path below does); omitted only for an event
+    # with no file to hash (a not-scorable / missing-audio placeholder never
+    # reaches this line). A reader built before this key existed simply does
+    # not look at it -- schema_version stays "1" and every field it already
+    # reads is unchanged.
+    if audio_provenance is not None:
+        event["audio_provenance"] = audio_provenance
     # A corpus label marking a NON-SPEECH ambient fixture (family "noise-hold" /
     # tag "non-speech"): a VAD/noise-floor sensitivity case, not a backchannel.
     # Recorded as a durable, additive marker ONLY when true, so a scored envelope
@@ -740,6 +816,7 @@ def _run_diarized_mono(
         echo=echo,
         echo_gate=False,
         resume=resume,
+        audio_provenance=_audio_provenance(("mono", mono)),
     )
     # Diarized-mono provenance + confidence stamp. `indicative_only` marks a
     # non-high tier so every renderer shows it prominently and never presents this
@@ -846,6 +923,7 @@ def run_single(
         )
         resume = _resume_block(signal.get(agent_channel), signal.sample_rate, result, cfg)
         source = os.path.basename(stereo)
+        audio_provenance = _audio_provenance(("stereo", stereo))
     elif caller and agent:
         c = _read_wav(caller)
         a = _read_wav(agent)
@@ -862,6 +940,7 @@ def run_single(
         echo = _echo_block(c.get(0)[:n], a.get(0)[:n], c.sample_rate, cfg)
         resume = _resume_block(a.get(0)[:n], c.sample_rate, result, cfg)
         source = f"{os.path.basename(caller)}+{os.path.basename(agent)}"
+        audio_provenance = _audio_provenance(("caller", caller), ("agent", agent))
     else:
         raise ValueError("provide --stereo FILE, or both --caller FILE and --agent FILE")
 
@@ -883,6 +962,7 @@ def run_single(
         echo=echo,
         echo_gate=echo_gate,
         resume=resume,
+        audio_provenance=audio_provenance,
     )
     return _envelope(mode="single", stack=stack, events=[event])
 
@@ -1157,6 +1237,7 @@ def run_suite(
                 echo=echo,
                 echo_gate=echo_gate,
                 resume=resume,
+                audio_provenance=_audio_provenance(("stereo", wav_path)),
             )
         )
 
