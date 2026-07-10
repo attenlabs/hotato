@@ -340,6 +340,30 @@ _EXIT_CODES: dict = {
             "feature; this distinct code lets a script tell it apart from a "
             "usage error"),
     ),
+    "fix": (
+        (2, "no subcommand given (see hotato fix trial --help)"),
+    ),
+    "fix trial": (
+        (0, "IMPROVED: the verify claim is supported, at least one "
+            "previously-failing fixture now passes, and nothing regressed "
+            "(no fixture, no contract, no --policy criterion)"),
+        (1, "fail-closed: REGRESSED (a fixture, a contract, or --policy "
+            "regressed) or INCONCLUSIVE (too few previously-failing "
+            "fixtures, or none now pass) -- inconclusive is not a pass and "
+            "exits the same non-zero code as a regression"),
+        (2, "usage error or unusable input: the same gates hotato apply "
+            "enforces (no --name, no opposite-risk battery, a stack with no "
+            "clone target, a patch with no concrete change) or hotato "
+            "verify/contract verify already enforce (no fixtures pair, an "
+            "invalid --policy, a --contracts dir with no contracts, "
+            "unreadable input)"),
+        (3, "principled refusal: the patch is the both-axes threshold "
+            "funnel, so no trial is run and no single-threshold patch is "
+            "endorsed by design (the exact engagement-control "
+            "recommendation is printed). The refusal is the feature; this "
+            "distinct code, shared with hotato apply, lets a script tell it "
+            "apart from a usage error"),
+    ),
     "loop": (
         (0, "advanced the loop and persisted state (or re-reported where it "
             "left off)"),
@@ -1302,6 +1326,45 @@ def _cmd_verify(args) -> int:
     if args.fail_on_regression and result["regressions"]:
         return 1
     return 0
+
+
+def _cmd_fix_trial(args) -> int:
+    from . import apply as _apply
+    from . import fix_trial as _fix_trial
+    from . import verify as _verify
+
+    # Load the patch artifact exactly like `hotato apply` does: a missing
+    # file, malformed JSON, or a non-patch document all surface as the clean
+    # exit-2 usage error via build_apply's own validation.
+    with open(args.patch_json, encoding="utf-8") as fh:
+        patch = json.load(fh)
+    plan = _apply.load_referenced_plan(patch, args.patch_json)
+
+    policy = _verify.load_policy(args.policy) if args.policy else None
+
+    result = _fix_trial.run_trial(
+        patch,
+        name=args.name,
+        before=args.before,
+        after=args.after,
+        battery=args.battery,
+        contracts=args.contracts,
+        policy=policy,
+        min_n=args.min_n,
+        patch_source=args.patch_json,
+        plan=plan,
+    )
+    if args.html:
+        _atomic_write_text(args.html, _fix_trial.render_html(result))
+        print(f"wrote {args.html}", file=sys.stderr)
+    if args.out:
+        _atomic_write_json(args.out, result)
+        print(f"wrote fix-trial proof to {args.out}", file=sys.stderr)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_fix_trial.render_text(result))
+    return result["exit_code"]
 
 
 def _cmd_loop(args) -> int:
@@ -4008,6 +4071,110 @@ def build_parser() -> argparse.ArgumentParser:
                          "false-yield check); any other path writes the full "
                          "proof JSON")
     vf.set_defaults(func=_cmd_verify)
+
+    # --- fix: compose apply's gate + verify + contract verify + explain -----
+    fxt = sub.add_parser(
+        "fix",
+        help="prove a candidate fix end to end, fail-closed (hotato fix "
+             "trial)",
+        description=(
+            "Compose the shipped, already-guarded primitives into ONE "
+            "before/after proof that a candidate change actually holds "
+            "(see hotato fix trial --help)."
+        ),
+        epilog=_exit_codes_epilog("fix"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    fxtsub = fxt.add_subparsers(dest="fix_command", required=True,
+                                metavar="trial")
+    ft = fxtsub.add_parser(
+        "trial",
+        help="S4: apply's offline gate + verify's battery-scale rollup + "
+             "contract verify + explain, one before/after report, "
+             "fail-closed",
+        description=(
+            "hotato fix trial evaluates a hotato patch artifact through the "
+            "EXACT SAME offline gate hotato apply --clone already enforces "
+            "(refusal-first on the both-axes threshold funnel, "
+            "opposite-risk-battery-required, clone-only -- it never creates "
+            "a clone itself and never touches the network, the same "
+            "guarantee apply's own dry run gives, by construction), then "
+            "scores the previously-failing BEFORE run against the AFTER run "
+            "you re-captured through the clone with hotato verify (every "
+            "paired fixture in the battery, not just the target one -- the "
+            "'neighbouring cases' check), re-verifies any --contracts "
+            "directory against its own recorded policy, and folds in "
+            "hotato explain's root-cause attribution for the ORIGINAL "
+            "failure as the report's attribution section. It adds no new "
+            "scoring engine: every number here is one apply/verify/contract "
+            "verify/explain already measures. The verdict is FAIL-CLOSED: "
+            "'improved' requires the verify claim to be supported (>= "
+            "--min-n previously-failing fixtures), at least one to now "
+            "pass, NO regression anywhere in the battery (including the "
+            "hold/opposite-risk axis), no contract regression, and no "
+            "--policy violation. A low-n or zero-improvement result is "
+            "'inconclusive', not a soft pass; any regression is "
+            "'regressed'. Both exit the same non-zero code, so CI never "
+            "treats 'we could not tell' as green."
+        ),
+        epilog=(
+            _exit_codes_epilog("fix trial") + "\n\n"
+            "Examples:\n"
+            "  hotato patch fixplan.json --format json --out patch.json\n"
+            "  hotato apply patch.json --clone --name staging-refund-fix \\\n"
+            "      --battery tests/hotato\n"
+            "  # ... re-capture the battery through the source (before/) and\n"
+            "  # the clone (after/) ...\n"
+            "  hotato fix trial patch.json --name staging-refund-fix \\\n"
+            "      --before before/ --after after/ --battery tests/hotato \\\n"
+            "      --policy hotato.verify.yaml --out fix-trial.json \\\n"
+            "      --html fix-trial.html\n"
+            "  hotato fix trial patch.json --name staging-refund-fix \\\n"
+            "      --before before/ --after after/ --contracts contracts/"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ft.add_argument("patch_json", metavar="PATCH_JSON",
+                    help="a hotato patch artifact from hotato patch "
+                         "--format json --out patch.json")
+    ft.add_argument("--name", default=None, metavar="NAME",
+                    help="name of the staging clone this trial is proving "
+                         "(required for a non-refused patch; same as hotato "
+                         "apply --name -- fix trial evaluates the SAME "
+                         "clone-only gate, it never creates a clone itself)")
+    ft.add_argument("--before", required=True, metavar="RUN.json|DIR",
+                    help="the OLD run envelope(s): the original failure "
+                         "evidence, captured through the SOURCE (also the "
+                         "default opposite-risk --battery, and the "
+                         "attribution source, when those are omitted)")
+    ft.add_argument("--after", required=True, metavar="RUN.json|DIR",
+                    help="the NEW run envelope(s), re-captured through the "
+                         "staging CLONE after the patch was applied there")
+    ft.add_argument("--battery", default=None, metavar="DIR",
+                    help="the opposite-risk battery apply's gate checks "
+                         "(BOTH a yield and a hold fixture); defaults to "
+                         "--before, which already carries the labels")
+    ft.add_argument("--contracts", default=None, metavar="DIR",
+                    help="also re-verify a directory of hotato contracts "
+                         "(the neighbouring-cases check); any contract "
+                         "regression fails the trial")
+    ft.add_argument("--policy", default=None, metavar="hotato.verify.yaml",
+                    help="gate verify's rollup against a hotato.verify.yaml "
+                         "policy (target.improve + guardrails); a violation "
+                         "fails the trial")
+    ft.add_argument("--min-n", type=int, default=3,
+                    help="minimum previously-failing fixtures needed to "
+                         "support the claim (default 3); below it the "
+                         "trial is inconclusive, not a pass")
+    ft.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text)")
+    ft.add_argument("--out", default=None, metavar="PATH",
+                    help="also write the full proof JSON here")
+    ft.add_argument("--html", default=None, metavar="PATH",
+                    help="also write a self-contained before/after HTML "
+                         "report (verdict, verify proof, contract check, "
+                         "and the attribution section)")
+    ft.set_defaults(func=_cmd_fix_trial)
 
     # --- loop: one-command orchestration of the closed loop, with memory ----
     lp = sub.add_parser(

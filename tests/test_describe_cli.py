@@ -32,7 +32,7 @@ _ALL_SUBCOMMANDS = [
     "contract inspect", "contract pack", "contract unpack",
     "trace", "trace ingest", "trace attach", "trace export",
     "compare", "scan", "trust",
-    "ingest", "analyze", "verify", "loop", "describe",
+    "ingest", "analyze", "verify", "fix", "fix trial", "loop", "describe",
     "init", "init webhook", "init starter",
     "issue", "issue create",
     "pr", "pr create",
