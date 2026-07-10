@@ -10,7 +10,7 @@
 
 <p align="center"><b>The open-source flight recorder for production voice agents.</b></p>
 
-<p align="center">Find where your voice agent talks over callers, and pin the fix to a portable contract with audio, timing, traces, trust checks, human labels, CI gates on every push, and verified fix trials. Recapture to prove your current agent still holds. MIT.</p>
+<p align="center">Find where your voice agent talks over callers, and pin the failure to a portable contract with audio, timing, traces, trust checks, human labels, and CI gates. Recapture the call against your changed agent and the same contract verifies whether the fix held without breaking the opposite behavior. MIT.</p>
 
 <p align="center">
   <a href="https://pypi.org/project/hotato/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/hotato.svg"></a>
