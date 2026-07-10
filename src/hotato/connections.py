@@ -120,7 +120,12 @@ def save(stack: str, creds: Dict[str, str]) -> str:
 
     fd, tmp = tempfile.mkstemp(prefix=".connections-", dir=d)
     try:
-        os.fchmod(fd, 0o600)
+        # os.fchmod is POSIX-only. mkstemp already creates the file 0o600, so
+        # on Windows (no fchmod, no POSIX mode bits) the credentials file is
+        # still owner-scoped by the OS default ACL, and this call is a no-op
+        # rather than an AttributeError crash on `hotato connect`.
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(store, fh, indent=2, sort_keys=True)
             fh.write("\n")
@@ -149,7 +154,12 @@ def remove(stack: str) -> bool:
     path = connections_path()
     fd, tmp = tempfile.mkstemp(prefix=".connections-", dir=d)
     try:
-        os.fchmod(fd, 0o600)
+        # os.fchmod is POSIX-only. mkstemp already creates the file 0o600, so
+        # on Windows (no fchmod, no POSIX mode bits) the credentials file is
+        # still owner-scoped by the OS default ACL, and this call is a no-op
+        # rather than an AttributeError crash on `hotato connect`.
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(store, fh, indent=2, sort_keys=True)
             fh.write("\n")

@@ -9,6 +9,14 @@ design. See `docs/BENCHMARK.md`.
 
 ## [0.8.0] - 2026-07-10
 
+### Fixed
+- `hotato connect` crashed on Windows with `AttributeError: module 'os' has
+  no attribute 'fchmod'` when storing credentials. `os.fchmod` is POSIX only;
+  `tempfile.mkstemp` already creates the file owner-scoped, so the call is
+  now guarded. Found the same hour by the new cross-OS CI matrix, on its
+  first run.
+
+
 ### Added
 - **Fresh-capture provenance guard for `hotato fix trial`**: every run
   envelope now records an `audio_provenance` block per event (a streamed
