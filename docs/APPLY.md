@@ -89,6 +89,11 @@ anti-bandaid gate: the fix passes only if every guardrail holds (including
 `max_new_false_yields` on the hold fixtures) AND every target is met, so a patch
 that just makes the agent yield to everything is caught. See `docs/FIX-LOOP.md`.
 
+Or run the whole thing (this gate + verify + an optional contracts re-verify +
+explain's attribution) as one fail-closed before/after report:
+`hotato fix trial patch.json --name staging-refund-fix --before before/ --after
+after/`. See [`docs/FIX-TRIAL.md`](FIX-TRIAL.md).
+
 ## Exit codes
 
 - `0` the staging clone was rendered (dry run by default; with `--yes` and
