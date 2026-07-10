@@ -19,6 +19,12 @@ What it reports, all of it INPUT health and nothing about the agent's behaviour:
   leading silence           dead air before the first speech on either channel
   crosstalk risk            cross-channel echo coherence: is the caller channel
                             carrying a delayed copy of the agent's own audio?
+  cross-channel leakage     the level of a consistent attenuated delayed COPY of
+                            one channel found on the other; loud leakage can be
+                            read as the other party's activity, which the
+                            whole-clip coherence above can miss
+  low signal level          a capture so quiet that turn timing can be
+                            under-measured downstream (a warning, never a gate)
   scorability               separated tracks? enough caller activity? enough agent
                             activity? -- the three things a real score needs
   recommendation            "safe to scan", or "NOT SCORABLE" with the specific
@@ -45,7 +51,7 @@ from typing import List, Optional, Tuple
 from ._engine.audio import frame_rms, to_dbfs
 from ._engine.score import ScoreConfig
 from ._engine.vad import energy_vad, first_active_sec
-from .echo import echo_signal
+from .echo import DEFAULT_COHERENCE_THRESHOLD, echo_signal
 from .errors import ChannelRangeError
 
 __all__ = [
@@ -98,6 +104,69 @@ LEADING_SILENCE_WARN_SEC = 3.0
 # (an assistant answering in paragraphs), so caller-dominance is the signal.
 SWAP_DOMINANCE_RATIO = 1.5
 SWAP_ABS_MARGIN_SEC = 1.0
+
+# --- cross-channel leakage (bleed) estimate --------------------------------
+# The whole-clip echo coherence (echo.echo_signal) is a single best-lag cosine
+# over the ENTIRE envelope, so unrelated activity elsewhere in the recording
+# dilutes it: symmetric bleed that demonstrably corrupts a downstream timing
+# verdict can sit well under the 0.7 coherence bar and never be flagged. This
+# estimate adds the missing signal by measuring the RESIDUAL level of one channel
+# that is an attenuated, delayed COPY of the other -- the physical signature of
+# leaked audio -- in a way that does NOT depend on the leak being quiet enough to
+# leave the other channel's VAD idle (a loud leak re-triggers it, which is exactly
+# the regime that breaks the verdict).
+#
+# A true leak is one source scaled by a single gain and delay, so its per-frame
+# level ratio resid/src is the SAME (a constant negative dB) on every frame it
+# appears; independent speech has no such fixed ratio. So we look, per candidate
+# lag, at the distribution of the per-frame resid/src ratio over frames where the
+# residual channel is active and the source was active `lag` frames earlier, and
+# a tight cluster (a consistent, attenuated ratio over enough frames) is a leak.
+LEAKAGE_MAX_LAG_SEC = 0.5
+# A frame's ratio counts toward the cluster's "consistency" when it is within this
+# many dB of the cluster median.
+LEAKAGE_TOL_DB = 3.0
+# At least this fraction of the qualifying frames must fall inside that band for
+# the ratios to read as one scaled copy rather than independent speech. Calibrated
+# so no clean dual-channel fixture in the corpus reaches it (their consistent
+# copies are the digital-silence floor, far below the warn level, or independent
+# speech whose consistency stays well under this).
+LEAKAGE_CONSISTENCY = 0.85
+# A leak is ATTENUATED: the copy must sit at least this far below the source, so
+# genuine equal-level double-talk (ratio ~0 dB) is never mistaken for a leak.
+LEAKAGE_ATTEN_MAX_DB = -6.0
+# Only report a leakage level at or above this; fainter consistent copies are the
+# framing floor of near-silent channels, not usable bleed, and stay null.
+LEAKAGE_REPORT_DB = -50.0
+# At or above this level the leaked audio is loud enough to be read as the other
+# party's activity and corrupt a downstream timing verdict, so it is flagged
+# (suspected + warning + the recommendation is downgraded off "safe to scan").
+# Calibrated to the level at which the red-team reproduced a verdict break under
+# symmetric bleed (~ -40 dB); every clean dual-channel corpus fixture stays well
+# below it (their loudest consistent copies sit at ~ -54 dB), so none are flagged.
+LEAKAGE_WARN_DB = -40.0
+# At least this many qualifying frames before a cluster is trusted at all.
+LEAKAGE_MIN_FRAMES = 12
+# The copy must COVER at least this fraction of the source channel's active time.
+# Real bleed shadows its source: the copy appears on the other channel EVERY time
+# the source speaks, so it spans nearly all of the source's active frames. A brief
+# genuine overlap (two independent speakers talking at once for a moment, whose
+# steady levels can momentarily hold a constant ratio) covers only that moment, so
+# this rejects it. This is the gate that separates a real leak from a coincidental
+# consistent ratio during a short overlap.
+LEAKAGE_MIN_COVERAGE = 0.5
+
+# --- low input level -------------------------------------------------------
+# When even the loudest channel peaks below this, the recording is quiet enough
+# that framing/threshold quantization can materially UNDER-estimate turn timing
+# downstream while every scorability gate still passes. Warned (never a
+# not-scorable condition on its own -- the not-scorable floor is lower and
+# unchanged). Calibrated above the level where timing measurably breaks in the
+# low-gain reproduction (~ -31 dBFS) and far below any normal capture (the corpus
+# loudest channels sit at -4 to -1 dBFS), so a normal recording never trips it.
+LOW_SIGNAL_WARN_DBFS = -30.0
+
+CAUTION_RECOMMENDATION = "scan with caution"
 
 
 def _peak_and_clip(samples, clip_lin: float) -> Tuple[float, float]:
@@ -179,6 +248,105 @@ def _channel_block(channel: int, active: List[bool], hop: float) -> dict:
         "first_speech_sec": round(first, 3) if has_speech else None,
         "has_speech": has_speech,
         "enough_activity": has_speech and active_sec >= MIN_ACTIVITY_SEC,
+    }
+
+
+def _median(values: List[float]) -> float:
+    s = sorted(values)
+    n = len(s)
+    return s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
+
+
+def _copy_leak_one_direction(resid, src, act_resid, act_src, hop):
+    """Estimate a delayed, attenuated COPY of ``src`` present on the ``resid``
+    channel (leakage), robust to the copy being loud enough to re-trigger the
+    residual channel's own VAD.
+
+    Over frames where the residual channel is active AND the source was active
+    ``lag`` frames earlier, the per-frame level ratio ``resid/src`` (in dB) of a
+    true leak clusters tightly at the (negative) bleed gain -- a leak is one
+    scaled delayed copy of a single source, so every leaked frame shares the same
+    ratio. Independent speech on the residual channel does not: its level relative
+    to the source varies frame to frame. The lag whose ratio cluster is tightest
+    is returned as ``(leak_db, consistency, coverage, lag_sec)``, where
+    ``consistency`` is the fraction of qualifying frames within ``LEAKAGE_TOL_DB``
+    of the cluster median and ``coverage`` is the fraction of the source channel's
+    active frames the copy spans (a real leak shadows its source and so spans
+    nearly all of them; a brief coincidental overlap spans few).
+
+    Returns ``(None, None, 0.0, None)`` when no lag has ``LEAKAGE_MIN_FRAMES``
+    qualifying frames -- an undefined estimate, never a fabricated leak."""
+    n = min(len(resid), len(src), len(act_resid), len(act_src))
+    if n == 0:
+        return None, None, 0.0, None
+    peak_src = max(src[:n], default=0.0)
+    peak_resid = max(resid[:n], default=0.0)
+    src_active = sum(1 for i in range(n) if act_src[i]) or 1
+    # Per-channel energy floors so the framing floor of a near-silent stretch does
+    # not enter the ratio (it would fabricate a spurious constant ratio).
+    floor_src = peak_src * (10 ** (-60.0 / 20.0))
+    floor_resid = peak_resid * (10 ** (-70.0 / 20.0))
+    max_lag = min(max(0, int(round(LEAKAGE_MAX_LAG_SEC / hop))), max(0, n - 1))
+    best = (None, None, 0.0, None)
+    best_key = (-1.0, -1)
+    for lag in range(0, max_lag + 1):
+        ratios = []
+        for i in range(lag, n):
+            if not act_resid[i]:
+                continue
+            s = src[i - lag]
+            if not act_src[i - lag] or s <= floor_src:
+                continue
+            r = resid[i]
+            if r <= floor_resid:
+                continue
+            ratios.append(20.0 * math.log10(r / s))
+        if len(ratios) < LEAKAGE_MIN_FRAMES:
+            continue
+        med = _median(ratios)
+        consistency = sum(1 for x in ratios if abs(x - med) <= LEAKAGE_TOL_DB) / len(ratios)
+        coverage = len(ratios) / src_active
+        key = (round(consistency, 4), len(ratios))
+        if key > best_key:
+            best_key = key
+            best = (round(med, 1), round(consistency, 3),
+                    round(coverage, 3), round(lag * hop, 3))
+    return best
+
+
+def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop) -> dict:
+    """Cross-channel leakage (bleed): the level of the loudest consistent,
+    attenuated delayed COPY of one channel found on the other, and whether it is
+    loud enough to be mistaken for the other party's activity downstream.
+
+    Both directions are measured -- an agent copy leaking onto the caller channel
+    (the dangerous direction: leaked agent audio read as caller activity) and the
+    reverse. The loudest consistent copy is reported. ``leakage_suspected`` is set
+    only when that copy is at or above ``LEAKAGE_WARN_DB``; a fainter copy is
+    reported (for transparency) but not flagged, and no consistent copy at all
+    reports ``leakage_db = None``."""
+    ac = _copy_leak_one_direction(rms_c, rms_a, caller_active, agent_active, hop)
+    ca = _copy_leak_one_direction(rms_a, rms_c, agent_active, caller_active, hop)
+    candidates = []
+    for (db, cons, coverage, lag), direction in (
+        (ac, "agent_into_caller"),
+        (ca, "caller_into_agent"),
+    ):
+        if (db is not None and cons is not None
+                and cons >= LEAKAGE_CONSISTENCY
+                and coverage >= LEAKAGE_MIN_COVERAGE
+                and LEAKAGE_REPORT_DB <= db <= LEAKAGE_ATTEN_MAX_DB):
+            candidates.append((db, cons, lag, direction))
+    if not candidates:
+        return {"leakage_db": None, "leakage_direction": None,
+                "leakage_lag_sec": None, "leakage_suspected": False}
+    # The loudest consistent copy (highest dB = most leaked energy) is the worst.
+    db, cons, lag, direction = max(candidates, key=lambda t: t[0])
+    return {
+        "leakage_db": db,
+        "leakage_direction": direction,
+        "leakage_lag_sec": lag,
+        "leakage_suspected": db >= LEAKAGE_WARN_DB,
     }
 
 
@@ -322,10 +490,18 @@ def trust_report(
     # Crosstalk risk: cross-channel echo coherence (caller carrying a delayed copy
     # of the agent's own audio). A warning, never a not-scorable condition.
     crosstalk = echo_signal(rms_c[:n], rms_a[:n], hop)
+    # Leakage (bleed) estimate: catches the symmetric bleed the whole-clip
+    # coherence dilutes away. Loud leakage is loud enough that leaked audio can be
+    # read as the other party's activity and corrupt a downstream timing verdict.
+    leakage = _leakage_estimate(rms_c[:n], rms_a[:n], caller_active, agent_active, hop)
     crosstalk_out = {
         "coherence": crosstalk["coherence"],
         "lag_sec": crosstalk["lag_sec"],
-        "suspected": crosstalk["echo_suspected"],
+        # suspected is set by EITHER the coherence bar OR a loud consistent leak;
+        # the whole-clip cosine and the copy-ratio cluster catch different regimes.
+        "suspected": crosstalk["echo_suspected"] or leakage["leakage_suspected"],
+        "leakage_db": leakage["leakage_db"],
+        "leakage_direction": leakage["leakage_direction"],
     }
 
     # Scorability: the three things a real score needs.
@@ -353,12 +529,37 @@ def trust_report(
             f"{leading_silence:.1f}s of leading silence before any speech; check "
             "the capture start / trigger"
         )
-    if crosstalk_out["suspected"]:
+    if crosstalk["echo_suspected"]:
         warnings.append(
             f"crosstalk risk: cross-channel coherence {crosstalk_out['coherence']} "
             f"at {crosstalk_out['lag_sec']}s lag; the caller channel may be "
             "carrying the agent's own audio (echo bleed), so a scan may see the "
             "agent hearing itself"
+        )
+    # Loud, consistent cross-channel leakage: the copy-ratio cluster the whole-clip
+    # coherence can miss. Downgrades the recommendation (below) off "safe to scan".
+    caution: Optional[str] = None
+    if leakage["leakage_suspected"]:
+        _dir = ("agent audio on the caller channel"
+                if leakage["leakage_direction"] == "agent_into_caller"
+                else "caller audio on the agent channel")
+        leak_msg = (
+            f"cross-channel leakage: {_dir} sits at {leakage['leakage_db']} dB, a "
+            f"consistent delayed copy (lag {leakage['leakage_lag_sec']}s); leaked "
+            "audio at this level can be counted as the other party's activity, so "
+            "a downstream timing measurement may be wrong even though the tracks "
+            "are separated"
+        )
+        warnings.append(leak_msg)
+        caution = f"{CAUTION_RECOMMENDATION}: {leak_msg}"
+    # Low input level: quiet enough that timing may be under-measured downstream
+    # while every scorability gate still passes. A warning only.
+    loudest_peak_dbfs = max(_peak_dbfs(c_peak), _peak_dbfs(a_peak))
+    if loudest_peak_dbfs < LOW_SIGNAL_WARN_DBFS:
+        warnings.append(
+            f"signal level very low (loudest channel peaks at "
+            f"{loudest_peak_dbfs:.1f} dBFS); timing may be underestimated -- "
+            "re-capture at a higher input level for an exact measurement"
         )
     if swap:
         warnings.append(channels["swap_reason"])
@@ -401,6 +602,7 @@ def trust_report(
         scorable=reason is None,
         reason=reason,
         next_step=next_step,
+        caution=caution,
     )
 
 
@@ -414,9 +616,14 @@ def _clip_block(peak: float, clipped_fraction: float) -> dict:
 
 
 def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
-              scorable: bool, reason, next_step) -> dict:
+              scorable: bool, reason, next_step, caution=None) -> dict:
     """Attach the channel/crosstalk/scorability blocks and the recommendation,
-    and set the process exit code (0 scorable, 2 not)."""
+    and set the process exit code (0 scorable, 2 not).
+
+    ``caution`` downgrades the recommendation of a still-scorable recording OFF
+    "safe to scan" (a loud cross-channel leak can corrupt a downstream timing
+    verdict) WITHOUT changing scorability or the exit code -- ``scorable`` and the
+    not-scorable gate are untouched, only the human-facing recommendation is."""
     if channels is not None:
         base["channels"] = channels
     if crosstalk is not None:
@@ -425,7 +632,7 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
     base["warnings"] = warnings
     base["scorable"] = scorable
     if scorable:
-        base["recommendation"] = SAFE_RECOMMENDATION
+        base["recommendation"] = caution if caution else SAFE_RECOMMENDATION
         base["not_scorable_reason"] = None
         base["next_step"] = None
         base["exit_code"] = 0
@@ -510,11 +717,21 @@ def render_text(report: dict) -> str:
             )
         lines.append(f"  leading silence: {rec['leading_silence_sec']:.2f}s")
         ct = report["crosstalk_risk"]
-        ct_tag = ("HIGH" if ct["suspected"] else "low")
+        # Tag coherence by its OWN bar, not the combined suspicion: a loud leak can
+        # set crosstalk_risk.suspected while the whole-clip coherence stays low.
+        coh_tag = ("HIGH" if ct["coherence"] >= DEFAULT_COHERENCE_THRESHOLD
+                   else "low")
         lines.append(
-            f"  crosstalk: coherence {ct['coherence']} ({ct_tag}) at "
+            f"  crosstalk: coherence {ct['coherence']} ({coh_tag}) at "
             f"{ct['lag_sec']}s lag"
         )
+        if ct.get("leakage_db") is not None:
+            direction = ("agent->caller" if ct.get("leakage_direction") == "agent_into_caller"
+                         else "caller->agent")
+            leak_tag = "HIGH" if ct["suspected"] else "low"
+            lines.append(
+                f"  leakage: {ct['leakage_db']} dB ({direction}, {leak_tag})"
+            )
         if ch["possible_swap"]:
             lines.append(f"  possible channel swap: {ch['swap_reason']}")
     sc = report["scorability"]
