@@ -51,6 +51,37 @@ design. See `docs/BENCHMARK.md`.
     offline tool a user fully controls; the guard makes the honest-but-motivated
     failure modes impossible or loud, recomputes what can be recomputed, and the
     report states exactly what was and was NOT verified.
+- **The apply receipt now renders beside the verdict, and a nested `CLAIM`
+  can no longer read as a pass under a red parent.** The same red-team found
+  two remaining honesty gaps in the rendered report itself, independent of
+  the provenance guard above:
+  - **Apply receipt**: `hotato fix trial` never calls `apply.create_clone`,
+    so `apply_dry_run` is always `True` and `apply_created` /
+    `apply_applies_change` are always `False`, on every verdict including
+    `improved` -- but the rendered report never said so; a green trial from
+    an unapplied patch looked identical to one where the change was known to
+    be live. `apply_dry_run` / `apply_created` / `apply_applies_change` /
+    `apply_receipt_note` are now top-level JSON fields (not just nested
+    inside `apply`), a text line right under the header, and pills plus a
+    header sentence in the HTML `<header>` block, on every run.
+  - **No positive claim under a failed parent**: `hotato verify`'s nested
+    `CLAIM` line inside a fix-trial report could read `CLAIM: ... This
+    improvement COINCIDES with your change` even when the outer fix-trial
+    verdict was `inconclusive` or `refused` (a provenance or completeness
+    issue downgraded the outer verdict, but the inner verify claim was
+    unaware of it) -- a cropped screenshot of just that block looked like a
+    clean pass. `verify.render_text` now takes an optional `superseded_by`
+    verdict; `hotato fix trial` passes its own verdict whenever it is not
+    `improved`, and a claim that would read "supported" is tagged `CLAIM
+    (SUPERSEDED BY {VERDICT})` with a one-line restatement, in both text and
+    HTML.
+  - **Docs**: `docs/FIX-TRIAL.md` and `docs/RECAPTURE.md` each gained a
+    "What this does not stop" section: fabricated-but-freshly-captured
+    stimuli, a repacked contract with a loosened policy (manifest integrity
+    is not authenticity), resample/codec/gain transforms of the same call
+    (a known PCM-identity residual), and that signatures are not
+    implemented. None of this is new attacker-proofing; it is stating
+    plainly what a green result does and does not establish.
 
 ## [0.8.0] - 2026-07-10
 

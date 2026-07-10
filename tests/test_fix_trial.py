@@ -954,3 +954,149 @@ def test_no_em_or_en_dashes_in_any_rendered_output(tmp_path, config_patch, capsy
     html = html_path.read_text(encoding="utf-8")
     assert "—" not in html
     assert "–" not in html
+
+
+# --- apply receipt: rendered beside the verdict, never buried ---------------
+#
+# fix trial only ever calls apply.build_apply (never apply.create_clone), so
+# the apply step it evaluates is ALWAYS a dry-run preview -- on every verdict,
+# including improved. A reader must see that next to the verdict itself, in
+# every surface, without opening the raw JSON.
+
+def test_apply_receipt_json_fields_present_on_improved(
+        tmp_path, config_patch, capsys):
+    before, after = _improving_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after, "--format", "json")
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["apply_dry_run"] is True
+    assert payload["apply_created"] is False
+    assert payload["apply_applies_change"] is False
+    assert "DRY-RUN patch proposal" in payload["apply_receipt_note"]
+    assert "does not attest that the change was applied" in \
+        payload["apply_receipt_note"]
+
+
+def test_apply_receipt_renders_in_text_next_to_the_verdict(
+        tmp_path, config_patch, capsys):
+    before, after = _improving_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after)
+    assert rc == 0
+    text_out = capsys.readouterr().out
+    verdict_idx = text_out.find("[IMPROVED]")
+    receipt_idx = text_out.find(
+        "dry_run=True created=False applies_change=False")
+    note_idx = text_out.find(
+        "does not attest that the change was applied to a clone or an agent")
+    verify_idx = text_out.find("-- verify:")
+    assert -1 not in (verdict_idx, receipt_idx, note_idx, verify_idx)
+    # the receipt sits right under the header, ahead of the rest of the
+    # report -- not appended at the end where it could be missed.
+    assert verdict_idx < receipt_idx < note_idx < verify_idx
+
+
+def test_apply_receipt_renders_in_html_header_block(
+        tmp_path, config_patch, capsys):
+    before, after = _improving_sides(tmp_path)
+    html_path = tmp_path / "fix-trial.html"
+    rc = _run(tmp_path, config_patch, before, after, "--html", str(html_path))
+    assert rc == 0
+    html = html_path.read_text(encoding="utf-8")
+    header = html[html.find("<header"):html.find("</header>") + len("</header>")]
+    assert "apply dry_run" in header
+    assert "apply created" in header
+    assert "apply applies_change" in header
+    assert ("does not attest that the change was applied to a clone or an "
+            "agent") in header
+
+
+def test_apply_receipt_present_even_on_apply_gate_refusal(
+        tmp_path, funnel_patch, capsys):
+    rc = cli.main([
+        "fix", "trial", str(funnel_patch), "--name", "staging-x",
+        "--before", str(tmp_path / "does-not-exist-before.json"),
+        "--after", str(tmp_path / "does-not-exist-after.json"),
+        "--format", "json",
+    ])
+    assert rc == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "refused"
+    assert payload["apply_dry_run"] is True
+    assert payload["apply_created"] is False
+    assert payload["apply_applies_change"] is False
+
+
+def test_apply_receipt_present_on_provenance_refusal(
+        tmp_path, config_patch, capsys):
+    before, after = _same_audio_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after)
+    assert rc == 3
+    text_out = capsys.readouterr().out
+    assert "dry_run=True created=False applies_change=False" in text_out
+    assert "does not attest that the change was applied" in text_out
+
+
+# --- no positive CLAIM under a failed parent ---------------------------------
+#
+# verify's nested "CLAIM" line is decided purely within verify_sides, entirely
+# independent of fix trial's later provenance/completeness/contract/policy
+# downgrades. Reusing the red-team's exact repro: enough evidence for the
+# nested claim to read "supported" on its own, but the PARENT verdict is not
+# improved -- the nested line must say so, in both text and HTML, and a
+# cropped view of just that section must not read as a clean pass.
+
+def test_claim_marked_superseded_when_provenance_downgrades_to_inconclusive(
+        tmp_path, config_patch, capsys):
+    before = _write_env(tmp_path, "before.json", [
+        _ev("f1", True, False, 1.2), _ev("f2", True, False, 0.9, 2.1),
+        _ev("f3", True, False, 1.5), _ev("h1", False, True, 0.0),
+    ])
+    after = _write_env(tmp_path, "after.json", [
+        _ev("f1", True, True, 0.3, 0.4), _ev("f2", True, True, 0.2, 0.5),
+        _ev("f3", True, True, 0.4, 0.6), _ev("h1", False, True, 0.0),
+    ])
+    rc = _run(tmp_path, config_patch, before, after)
+    assert rc == 1
+    text_out = capsys.readouterr().out
+    assert "[INCONCLUSIVE]" in text_out
+    assert "CLAIM (SUPERSEDED BY INCONCLUSIVE)" in text_out
+    assert "does not stand alone" in text_out
+    # a bare, unsuperseded "CLAIM:" line (which would read as a clean pass on
+    # its own) must not appear anywhere in this report.
+    assert "\n  CLAIM: " not in text_out
+
+    html_path = tmp_path / "fix-trial.html"
+    rc = _run(tmp_path, config_patch, before, after, "--html", str(html_path))
+    assert rc == 1
+    capsys.readouterr()
+    html = html_path.read_text(encoding="utf-8")
+    assert "SUPERSEDED BY INCONCLUSIVE" in html
+    assert "does not stand alone" in html
+    card_start = html.find(
+        '<div class="ctitle">Verify: battery-scale proof</div>')
+    card_end = html.find("</section>", card_start)
+    card = html[card_start:card_end]
+    assert ">supported<" not in card
+
+
+def test_claim_marked_superseded_on_provenance_refusal(
+        tmp_path, config_patch, capsys):
+    before, after = _same_audio_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after)
+    assert rc == 3
+    text_out = capsys.readouterr().out
+    assert "CLAIM (SUPERSEDED BY REFUSED)" in text_out
+    assert "does not stand alone" in text_out
+
+
+def test_claim_not_superseded_on_a_genuinely_improved_verdict(
+        tmp_path, config_patch, capsys):
+    # Regression guard: the annotation must not fire on the happy path, or
+    # every green report would carry a spurious caveat.
+    before, after = _improving_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after)
+    assert rc == 0
+    text_out = capsys.readouterr().out
+    assert "[IMPROVED]" in text_out
+    assert "  CLAIM: " in text_out
+    assert "SUPERSEDED" not in text_out

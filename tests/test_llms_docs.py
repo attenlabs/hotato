@@ -265,6 +265,55 @@ def test_release_workflow_registry_publish_job_is_hard_gated():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# fix trial honesty: "what this does not stop" is real doc content, not just
+# in-memory strings, and it survives into the single-fetch agent context dump.
+# ---------------------------------------------------------------------------
+
+FIX_TRIAL_HONEST_SENTENCE = (
+    "A green fix trial does not prove the audio was freshly captured for "
+    "the scenario claimed, that the same policy and labels were used "
+    "throughout, that any omitted fixture was safe to omit, that the named "
+    "revision or clone existed, that the patch was applied to it, or that "
+    "the deployed agent improved."
+)
+
+
+def _collapse_ws(text: str) -> str:
+    # Markdown source wraps prose across lines at ~80 columns like every
+    # other paragraph in these docs; a sentence checked for verbatim
+    # presence has to be compared whitespace-insensitively, not line-by-line.
+    return re.sub(r"\s+", " ", text)
+
+
+def test_fix_trial_honest_sentence_is_in_the_doc():
+    assert FIX_TRIAL_HONEST_SENTENCE in _collapse_ws(
+        _read("docs", "FIX-TRIAL.md"))
+
+
+def test_fix_trial_honest_sentence_survives_into_llms_full_txt():
+    # llms-full.txt is the single-fetch agent context dump (built by
+    # scripts/build_llms_full.py from README + docs/*.md); an agent that only
+    # ever reads that one file must still see the same honest boundary a
+    # human reading docs/FIX-TRIAL.md directly would see.
+    assert FIX_TRIAL_HONEST_SENTENCE in _collapse_ws(_read("llms-full.txt"))
+
+
+def test_fix_trial_and_recapture_docs_both_name_the_same_residual_limits():
+    # The three concrete residuals (fabricated-but-fresh stimulus, manifest
+    # integrity != authenticity, transcode-changes-PCM) and the
+    # signatures-not-implemented note must appear in both docs, not just one:
+    # a reader who only opens RECAPTURE.md (the manual path) must not miss
+    # the same boundaries a reader of FIX-TRIAL.md (the automated path) sees.
+    fix_trial = _read("docs", "FIX-TRIAL.md")
+    recapture = _read("docs", "RECAPTURE.md")
+    for doc in (fix_trial, recapture):
+        assert "What this does not stop" in doc
+        assert "integrity" in doc and "authenticity" in doc
+        assert "signature" in doc.lower()
+        assert "resample" in doc.lower() or "re-encode" in doc.lower()
+
+
 def test_citation_cff_is_valid_and_version_matches_pyproject():
     # Regex checks only (no PyYAML dependency; see the release.yml test above
     # for the same reasoning). CITATION.cff is a small flat mapping, so a

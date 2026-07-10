@@ -334,7 +334,17 @@ def verify_sides(
     }
 
 
-def render_text(v: dict) -> str:
+def render_text(v: dict, *, superseded_by: Optional[str] = None) -> str:
+    """``superseded_by``, when given (a verdict word like ``"inconclusive"``,
+    ``"refused"``, or ``"regressed"``), marks this verify proof as a NESTED
+    sub-section of a parent trial that did NOT itself pass -- e.g.
+    ``hotato fix trial``'s embedded verify block, when the provenance guard
+    or a completeness check downgraded the outer verdict even though this
+    inner claim, read alone, would be "supported". Without this, a cropped
+    view of just this block can read as a clean pass while the parent that
+    controls the actual outcome is red. The verdict this proof is nested
+    under is stated, and the claim tag is prefixed so it never reads as a
+    standalone positive result."""
     r = v["results"]
     ra = v["regression_axis"]
     ha = v["hold_axis"]
@@ -348,8 +358,17 @@ def render_text(v: dict) -> str:
     if v["regressions"]:
         lines.append("  REGRESSIONS: " + ", ".join(v["regressions"]))
     claim = v["claim"]
-    tag = "CLAIM" if claim["supported"] else "REFUSED (low n)"
-    lines.append(f"  {tag}: {claim['statement']}")
+    if superseded_by and claim["supported"]:
+        tag = f"CLAIM (SUPERSEDED BY {superseded_by.upper()})"
+        lines.append(f"  {tag}: {claim['statement']}")
+        lines.append(
+            "  this sub-claim does not stand alone: the fix-trial verdict "
+            f"is {superseded_by.upper()}, and the verdict controls, not "
+            "this line."
+        )
+    else:
+        tag = "CLAIM" if claim["supported"] else "REFUSED (low n)"
+        lines.append(f"  {tag}: {claim['statement']}")
     for name, side in (("before", v["distribution"]["before"]),
                        ("after", v["distribution"]["after"])):
         tov = side["talk_over_sec"]

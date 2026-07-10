@@ -157,6 +157,18 @@ _PROVENANCE_CAUTION = (
     "recapture again after the next change."
 )
 
+# fix trial calls apply.build_apply (never apply.create_clone), on every
+# path, every verdict: the "apply" step this trial evaluates is ALWAYS a
+# dry-run preview of the patch, never an execution against a real clone or
+# agent. A reader who sees only the verdict chip -- IMPROVED, in green --
+# must not be able to mistake that for "and it was applied": the receipt is
+# rendered next to the verdict in every surface (text, JSON, HTML), not left
+# to the buried "apply" sub-object.
+_APPLY_RECEIPT_NOTE = (
+    "this fix trial evaluated a DRY-RUN patch proposal; it does not attest "
+    "that the change was applied to a clone or an agent."
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -688,6 +700,17 @@ def run_trial(
         patch_source=patch_source, plan=plan,
     )
 
+    # The apply receipt: fix trial never calls apply.create_clone, so this
+    # dry_run/created/applies_change trio is ALWAYS dry_run=True /
+    # created=False / applies_change=False, on every path, every verdict --
+    # even improved. It is promoted out of the buried "apply" sub-object into
+    # top-level fields every render surfaces beside the verdict, because a
+    # reader must never have to open the raw JSON to learn the trial evaluated
+    # a preview, not a change actually applied to a clone or an agent.
+    apply_dry_run = apply_result.get("dry_run", True)
+    apply_created = bool(apply_result.get("created", False))
+    apply_applies_change = bool(apply_result.get("applies_change", False))
+
     base = {
         "tool": "hotato",
         "kind": "fix-trial",
@@ -707,6 +730,10 @@ def run_trial(
         # lowered floor is always visible: a caller cannot quietly drop the bar
         # to 1 and have it pass unremarked.
         "min_n": min_n,
+        "apply_dry_run": apply_dry_run,
+        "apply_created": apply_created,
+        "apply_applies_change": apply_applies_change,
+        "apply_receipt_note": _APPLY_RECEIPT_NOTE,
     }
 
     if apply_result.get("refused"):
@@ -868,10 +895,17 @@ def _conclusion(verdict, v, cv, policy_result, contract_regressed,
 # --- text rendering ------------------------------------------------------
 
 def render_text(t: dict) -> str:
+    # The apply receipt renders right beside the verdict, on EVERY path
+    # (including the apply-gate refusal, which returns early below): fix
+    # trial always evaluates a dry-run patch preview, never an applied
+    # change, so a reader must never have to open the raw JSON to learn that.
     lines = [
         f"hotato fix trial [{t['verdict'].upper()}] "
         f"patch={t.get('patch_source')!r} name={t.get('name')!r} "
         f"min-n={t.get('min_n')}",
+        f"  apply: dry_run={t['apply_dry_run']} created={t['apply_created']} "
+        f"applies_change={t['apply_applies_change']}",
+        f"  {t['apply_receipt_note']}",
         f"  {t['conclusion']}",
     ]
     # The apply-gate refusal fires BEFORE any before/after evidence is read
@@ -891,7 +925,13 @@ def render_text(t: dict) -> str:
 
     lines.append("")
     lines.append("-- verify: battery-scale before/after proof --")
-    lines.append(_verify.render_text(t["verify"]))
+    # A verify claim that reads "supported" on its own does not stand alone
+    # when the PARENT fix-trial verdict is not improved (a provenance,
+    # completeness, contract, or policy issue downgraded it): mark the nested
+    # CLAIM line with the verdict that actually controls, so a cropped view
+    # of just this block cannot read as a clean pass.
+    superseded = None if t["verdict"] == VERDICT_IMPROVED else t["verdict"]
+    lines.append(_verify.render_text(t["verify"], superseded_by=superseded))
     if t.get("contract_verify"):
         lines.append("")
         lines.append("-- contract verify (neighbouring cases) --")
@@ -1033,6 +1073,10 @@ def render_html(t: dict) -> str:
     verdict = t["verdict"]
     color = C[_VERDICT_COLOR[verdict]]
 
+    # The apply receipt renders in the HEADER, not buried in a later card:
+    # fix trial always evaluates a dry-run patch preview (it never calls
+    # apply.create_clone), so a green verdict must not read as "and it was
+    # applied" without this next to it.
     head = (
         '<header class="top"><div class="logo"></div><div>'
         '<h1 class="h1">hotato fix trial</h1>'
@@ -1040,10 +1084,18 @@ def render_html(t: dict) -> str:
         'holds, fail-closed.</div>'
         f'<div class="subtle">{esc(t.get("patch_source") or "")} &middot; '
         f'clone {esc(t.get("name") or "-")}</div>'
+        '<div class="subtle" style="margin-top:4px">'
+        f'<b>{esc(t.get("apply_receipt_note"))}</b></div>'
         '<div class="metarow">'
         '<span class="pill">offline <b>yes</b></span>'
         '<span class="pill">clone-only <b>yes</b></span>'
         f'<span class="pill">min-n <b>{esc(t.get("min_n"))}</b></span>'
+        f'<span class="pill">apply dry_run <b>{esc(t.get("apply_dry_run"))}'
+        '</b></span>'
+        f'<span class="pill">apply created <b>{esc(t.get("apply_created"))}'
+        '</b></span>'
+        '<span class="pill">apply applies_change '
+        f'<b>{esc(t.get("apply_applies_change"))}</b></span>'
         '</div></div></header>'
     )
     summary = (
@@ -1093,18 +1145,35 @@ def render_html(t: dict) -> str:
 
     v = t["verify"]
     ra, ha = v["regression_axis"], v["hold_axis"]
+    # A "supported" claim in this nested card does not stand alone when the
+    # PARENT verdict is not improved: mark it with the verdict that actually
+    # controls, so a cropped screenshot of just this card cannot read green
+    # while the whole trial is red.
+    claim_supported = v["claim"]["supported"]
+    superseded = None if verdict == VERDICT_IMPROVED else verdict
+    if superseded and claim_supported:
+        claim_display = f"SUPERSEDED BY {superseded.upper()} (verdict controls)"
+    else:
+        claim_display = "supported" if claim_supported else "refused (low n)"
     verify_rows = [
         ("previously-failing fixtures now passing",
          f"{ra['now_pass']} of {ra['used_to_fail']}"),
         ("hold fixtures still passing",
          f"{ha['still_pass']} of {ha['hold_guards']}"),
         ("regressions", str(len(v["regressions"]))),
-        ("claim", "supported" if v["claim"]["supported"] else "refused (low n)"),
+        ("claim", claim_display),
     ]
+    verify_note = ""
+    if superseded and claim_supported:
+        verify_note = (
+            '<div class="does">This claim does not stand alone: the '
+            f'fix-trial verdict is {esc(superseded.upper())}, and the '
+            'verdict controls, not this line.</div>'
+        )
     verify_section = (
         '<section class="card"><div class="ctitle">Verify: battery-scale '
         'proof</div><div class="cmpcap">'
-        + esc(v["claim"]["statement"]) + '</div>'
+        + esc(v["claim"]["statement"]) + '</div>' + verify_note
         + _kv_table(esc, verify_rows) + '</section>'
     )
 
