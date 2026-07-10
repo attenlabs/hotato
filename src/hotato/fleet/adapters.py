@@ -103,25 +103,46 @@ class _CredentialGatedAdapter(Adapter):
                 f"{self.stack} {cap} requires credentials (connect a stack and "
                 f"supply an API key); this build never mutates production silently")
 
+    # clone_agent + apply_variant delegate to the SAME clone-only HTTP primitive
+    # `hotato apply` uses (GET the source, apply a merge-patch, POST a NEW staging
+    # assistant). Production is never mutated; only a fresh clone is created. The
+    # apply happens at clone time (you cannot clone-empty-then-apply), so
+    # clone_agent stages the source+name and apply_variant performs the create.
+
     def inspect_config(self, ref):
         self._require("inspect_config"); self._need_key("inspect_config")
-        raise NotImplementedError(f"{self.stack} live inspect not wired in this build")
+        from .. import apply as _apply
+        endpoint = _apply._CLONE_ENDPOINTS[self.stack]
+        read_url = endpoint["read_url_template"].format(id=ref)
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        return _apply._http_json("GET", read_url, headers=headers)
 
     def clone_agent(self, ref, *, name):
         self._require("clone_agent"); self._need_key("clone_agent")
-        raise NotImplementedError(f"{self.stack} live clone not wired in this build")
+        # stage; the network create happens in apply_variant (clone-with-patch)
+        return {"stack": self.stack, "source_id": ref, "name": name,
+                "pending": True}
 
     def apply_variant(self, clone_ref, variant):
         self._require("apply_variant"); self._need_key("apply_variant")
-        raise NotImplementedError(f"{self.stack} live apply not wired in this build")
+        from .. import apply as _apply
+        source_id = clone_ref["source_id"] if isinstance(clone_ref, dict) else clone_ref
+        name = (clone_ref.get("name") if isinstance(clone_ref, dict) else None) or "hotato-staging"
+        merge_patch = variant.get("config_delta", variant) or {}
+        return _apply.create_clone(stack=self.stack, source_id=source_id, name=name,
+                                   merge_patch=merge_patch, api_key=self.api_key)
 
     def run_scenario(self, clone_ref, scenario):
         self._require("run_scenario"); self._need_key("run_scenario")
-        raise NotImplementedError(f"{self.stack} live scenario run not wired in this build")
+        raise NotImplementedError(
+            f"{self.stack} scripted scenario execution requires a connected capture "
+            "runner; use hotato capture against the clone, then hotato fix trial")
 
     def capture_result(self, clone_ref, scenario):
         self._require("capture_result"); self._need_key("capture_result")
-        raise NotImplementedError(f"{self.stack} live capture not wired in this build")
+        raise NotImplementedError(
+            f"{self.stack} result capture requires a connected capture runner; use "
+            "hotato pull / hotato capture against the clone")
 
 
 class VapiAdapter(_CredentialGatedAdapter):
