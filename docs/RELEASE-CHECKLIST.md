@@ -24,10 +24,50 @@ Run top to bottom for every release. Each item is a gate: green means proceed.
 ## Package
 
 - [ ] Build sdist and wheel from a clean tree; install the wheel in a fresh venv and run `hotato run --suite barge-in`.
-- [ ] Publish to PyPI.
+- [ ] Publish to PyPI. **Current mechanism: manual upload with an API token** (`twine upload dist/*` using a token scoped to the `hotato` project). This is the only working path today.
 - [ ] Verify `uvx hotato demo` works from the published package (fresh machine or cleared uv cache): it renders and opens the failing demo report.
 - [ ] Verify `uvx hotato doctor` (self-test path) works from the published package.
 - [ ] Tag the release commit and push the tag; GitHub release notes point at the CHANGELOG entry.
+
+### PyPI Trusted Publishing (OIDC) -- exists, not yet active
+
+`.github/workflows/publish-pypi-oidc.yml` is a `workflow_dispatch`-only workflow
+that builds, runs the full test suite, `twine check`s the artifacts, and
+publishes via [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
+(short-lived GitHub OIDC token, no stored API token). It requires a `version`
+input matching `pyproject.toml` and a `confirm` input equal to `PUBLISH`, and
+the publish step runs under the `pypi` GitHub Environment with `id-token:
+write` granted only on that job.
+
+It cannot publish anything yet: PyPI rejects the OIDC token until an operator
+registers this exact repo + workflow + environment as a trusted publisher for
+the `hotato` project. **hotato is already on PyPI**, so this is the existing-project
+flow (not the pending-publisher flow for unpublished names). One-time operator
+setup:
+
+1. Sign in to PyPI as an owner/maintainer of the `hotato` project and open
+   `https://pypi.org/manage/project/hotato/settings/publishing/`.
+2. Under "Add a new publisher", choose GitHub and fill in:
+   - Owner: `attenlabs`
+   - Repository name: `hotato`
+   - Workflow filename: `publish-pypi-oidc.yml`
+   - Environment name: `pypi`
+3. Save. No token or secret is created or stored anywhere for this; PyPI will
+   only accept OIDC tokens minted by that exact repo/workflow/environment
+   combination.
+4. In the GitHub repo, create the `pypi` environment (Settings > Environments
+   > New environment, name `pypi`) if it does not already exist. Optionally
+   add required reviewers there for a human-approval gate in addition to the
+   `confirm`/`version` input checks already in the workflow.
+5. To cut a release this way: dispatch `publish-pypi-oidc.yml` with
+   `version` set to the release's `pyproject.toml` version and `confirm` set
+   to `PUBLISH`.
+
+Until step 3 is done, dispatching the workflow will build and test cleanly
+and then fail at the publish step with an OIDC trust error -- expected and
+safe, since there is no credential to leak and nothing gets uploaded. The
+manual token-based step above remains the release path until an operator
+completes this setup and chooses to switch.
 
 ## After release
 
