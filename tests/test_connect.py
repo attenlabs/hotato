@@ -188,3 +188,20 @@ def test_pull_after_connect_needs_no_key(monkeypatch, tmp_path):
     rc = cli.main(["pull", "--out", str(tmp_path / "d")])  # no --stack, no --api-key
     assert rc == 0
     assert seen["key"] == "stored"
+
+
+def test_save_works_without_os_fchmod(tmp_path, monkeypatch):
+    """Windows has no os.fchmod. Credential save must not crash there.
+    Found by the cross-OS CI matrix (windows-latest), 2026-07-10."""
+    import os as _os
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delattr(_os, "fchmod", raising=False)
+    from hotato import connections
+    monkeypatch.setattr(connections, "connections_path",
+                        lambda: str(tmp_path / ".hotato" / "connections.json"))
+    monkeypatch.setattr(connections, "_ensure_home",
+                        lambda: str((tmp_path / ".hotato").resolve()) if (tmp_path / ".hotato").exists()
+                        or not (tmp_path / ".hotato").mkdir(parents=True) else str(tmp_path / ".hotato"))
+    connections.save("vapi", {"api_key": "k"})
+    assert connections.load_all()["vapi"]["api_key"] == "k"
