@@ -82,6 +82,38 @@ decisions.
 
 ---
 
+## Quantization: a reported time is not infinitely precise
+
+Every timing signal the scorer reports is quantized to the frame hop
+(`ScoreConfig.hop_ms`, default `10.0` ms) plus, for yield/talk-over, the VAD
+hangover (`caller_vad.hangover_sec` / `agent_vad.hangover_sec`, default `0.15`
+s): the measured value can land up to one hop off the true underlying event
+purely from where that event falls inside a 10 ms frame, before hangover is
+even counted. This is deterministic sub-frame-phase rounding, not noise, and
+it is the same one-hop collapse the section above already pins down (hangover
+zero -> every signal within one hop of ground truth).
+
+The consequence for a `--max-time-to-yield` (or any other) policy bound: a
+physically identical yield event, shifted by a few milliseconds of sub-frame
+phase with nothing else about the audio changed, can cross an exact bound
+purely from quantization. Reproduced case: a 250 ms yield event evaluated
+against a 400 ms bound flips PASS/FAIL as the event's sub-frame phase is swept
+through 3, 6, 12, and 16 ms offsets, with the underlying event unchanged --
+the measured value moves by exactly one hop (10 ms) at each transition, never
+more. A bound set within one hop of the true value is therefore not a
+categorical pass/fail on that recording; it can go either way depending on
+phase alone.
+
+**Read policy bounds accordingly: a margin of less than one hop (10 ms
+default) from the true value is inside the scorer's quantization noise, not a
+real pass/fail line.** This is a disclosure of an existing property, not a
+change: `hotato` does not move verdict margins to paper over it (see
+`docs/FIX-PLANS.md`'s no-single-threshold rule, which the same logic
+extends to quantization) -- the fix is to know the margin exists and set
+bounds at least one hop away from a value you need to hold.
+
+---
+
 ## Reproducing it
 
 ```bash

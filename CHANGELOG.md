@@ -9,6 +9,33 @@ design. See `docs/BENCHMARK.md`.
 
 ## [Unreleased]
 
+### Added
+- **`hotato trust` now measures cross-channel leakage and low signal level, two
+  input defects that previously passed silently as "safe to scan".** A red-team
+  found that symmetric echo bleed at roughly `-40 dB` flips a downstream timing
+  verdict (talk-over 400 ms to 1050 ms in the reproduced case) while `trust` still
+  reported `scorable: true`, `safe to scan`, and no warning, because crosstalk was
+  judged only by whole-clip echo coherence -- a single best-lag cosine that
+  unrelated activity elsewhere in the call dilutes below the bar.
+  - A new `crosstalk_risk.leakage_db` (with `leakage_direction`) reports the level
+    of a consistent, attenuated, delayed COPY of one channel found on the other.
+    It is measured from the per-frame level ratio of the copy, which a real leak
+    holds constant across every frame the source speaks, so it survives the leak
+    being loud enough to re-trigger the other channel's own detector -- exactly
+    the regime that breaks the verdict and the one coherence misses. At or above
+    `-40 dB` (calibrated to the reproduced break point) the copy is flagged
+    (`crosstalk_risk.suspected`), a warning is raised, and the recommendation is
+    downgraded to `scan with caution`. The threshold was benchmarked against every
+    clean dual-channel fixture in the corpus (12 real recordings and 7 synthetic):
+    none carries a consistent copy above `-50 dB`, so none is flagged, and all
+    still read `safe to scan`.
+  - A `signal level very low` warning is raised when even the loudest channel
+    peaks below `-30 dBFS`, the band where turn timing can be under-measured
+    downstream while every scorability gate still passes.
+  - Both are additive and DISCLOSURE-ONLY: `scorable`, the not-scorable reason
+    chain, and the exit code are unchanged. `trust` adds signals and states its
+    limits; it never silently changes what passes. `schema_version` stays `"1"`.
+    See `docs/TRUST.md`.
 ### Changed
 - **`hotato fix trial`'s provenance guard now verifies identity, it does not
   trust the envelope.** An external red-team of 0.8.0 showed the guard trusted
