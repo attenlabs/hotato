@@ -27,7 +27,7 @@ _ALL_SUBCOMMANDS = [
     "run", "capture", "setup", "connect", "pull", "sweep", "report", "team",
     "export", "benchmark", "benchmark compare", "doctor", "demo", "start",
     "card", "diagnose",
-    "inspect", "plan", "patch", "apply", "fixture", "fixture create",
+    "inspect", "plan", "explain", "patch", "apply", "fixture", "fixture create",
     "fixture promote", "contract", "contract create", "contract verify",
     "contract inspect", "contract pack", "contract unpack",
     "trace", "trace ingest", "trace attach", "trace export",
