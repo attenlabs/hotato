@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/capture_receipt.v1.json",
+  "title": "hotato capture receipt, schema_version 1",
+  "description": "Emitted by a capture runner to attest that a recording is a FRESH call, not a re-encode of an old one. A fresh-recapture claim needs more than distinct PCM. A manually supplied distinct WAV without a receipt is 'operator-asserted', never machine-verified fresh recapture.",
+  "type": "object",
+  "required": ["schema_version", "trial_id", "nonce", "recording", "runner"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "trial_id": { "type": "string" },
+    "nonce": { "type": "string" },
+    "agent_id": { "type": ["string", "null"] },
+    "deployment_id": { "type": ["string", "null"] },
+    "provider_call_id": { "type": ["string", "null"] },
+    "started_at": { "type": ["string", "null"] },
+    "completed_at": { "type": ["string", "null"] },
+    "config_snapshot_hash": { "type": ["string", "null"] },
+    "scenario_stimulus_hash": { "type": ["string", "null"] },
+    "recording": {
+      "type": "object",
+      "required": ["locator", "raw_sha256", "pcm_sha256"],
+      "additionalProperties": true,
+      "properties": {
+        "locator": { "type": "string" },
+        "raw_sha256": { "type": "string" },
+        "pcm_sha256": { "type": "string" },
+        "channel_layout": { "type": ["string", "null"] },
+        "transformations": { "type": "array", "items": { "type": "string" },
+          "description": "Any resample/gain/codec/trim/redaction/normalization applied. Empty = untouched." }
+      }
+    },
+    "adapter": { "type": ["string", "null"] },
+    "adapter_version": { "type": ["string", "null"] },
+    "runner": { "type": "string", "description": "Runner identity." },
+    "signature": { "type": ["object", "null"] }
+  }
+}
