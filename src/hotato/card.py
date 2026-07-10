@@ -33,6 +33,7 @@ import json
 import os
 from typing import List
 
+from . import evidence as _evidence
 from . import fixture as _fixture
 
 # --- warm charcoal / cream / ember theme (mirrors report.py so a card reads as
@@ -113,13 +114,24 @@ def _fmt_sec(v) -> str:
     return f"{s}s"
 
 
-def _frame(body: List[str]) -> str:
+def _frame(body: List[str], *, title: str, desc: str) -> str:
     """Assemble the shared canvas: background, a thin inner keyline, the HOTATO
     wordmark, and a divider under the header. ``body`` is the card-specific
-    content already laid out below the header."""
+    content already laid out below the header.
+
+    Accessibility: every card is an image with a text equivalent. The root
+    ``<svg>`` carries ``role="img"`` and ``aria-labelledby`` pointing at a
+    ``<title>`` (the status line) and a ``<desc>`` (the full text equivalent),
+    so a screen reader -- and any monochrome / no-color viewer -- gets the same
+    pass/refuse status the colors carry. The status is expressed in WORDS in
+    the title/desc, never in color alone. Ids are fixed, so the SVG stays a
+    pure, deterministic function of the input."""
     head = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{_W}" height="{_H}" '
-        f'viewBox="0 0 {_W} {_H}">',
+        f'viewBox="0 0 {_W} {_H}" role="img" '
+        f'aria-labelledby="card-title card-desc">',
+        f'<title id="card-title">{_esc(title)}</title>',
+        f'<desc id="card-desc">{_esc(desc)}</desc>',
         _rect(0, 0, _W, _H, fill=_C["bg"]),
         _rect(20, 20, _W - 40, _H - 40, stroke=_C["line"], sw=1.5, rx=18),
         _text(_M, 108, "HOTATO", size=32, fill=_C["ember"], weight="700",
@@ -207,7 +219,12 @@ def _render_candidate(cand: dict, *, include_identifiers: bool) -> str:
                           fill=_C["muted"], weight="500", anchor="end",
                           family=_MONO))
     body.append(_footer("Hotato reports timing candidates, not intent."))
-    return _frame(body)
+    a11y_title = f"Hotato found a {headword.lower()}"
+    at = (f" at t={_fmt_sec(t_sec)} in the recording"
+          if isinstance(t_sec, (int, float)) else "")
+    a11y_desc = (f"{_fmt_sec(measured)} {desc}{at}. Hotato reports timing "
+                 "candidates, not intent.")
+    return _frame(body, title=a11y_title, desc=a11y_desc)
 
 
 # --- card C: the threshold-funnel fix plan (the hero) ---------------------
@@ -234,7 +251,13 @@ def _render_funnel(plan: dict) -> str:
                       family=_MONO))
     body.append(_footer(
         "Reproducible timing verdicts from the open scorer. No accuracy score."))
-    return _frame(body)
+    a11y_desc = (
+        "No single threshold can fix this: one sensitivity dial cannot both "
+        "avoid missing a real interruption and avoid false-stopping on a "
+        f"backchannel. Hotato refused threshold tuning. Fix class: {fix_class}."
+    )
+    return _frame(body, title="No single threshold can fix this",
+                  desc=a11y_desc)
 
 
 # --- card D: a supported before/after comparison rollup -------------------
@@ -245,6 +268,15 @@ def _render_funnel(plan: dict) -> str:
 # paired improvement is "PAIRED EVIDENCE IMPROVED", not "verified fix" or
 # "fix verified". Hotato reports coincidence, never causation, and never
 # claims a hold guard was "protected" -- only that it did not regress.
+#
+# The green "PAIRED EVIDENCE IMPROVED" card is the strongest visual claim a
+# card can make, so it is gated on the EVIDENCE tier, not just on the
+# (hand-writable) claim/counts fields: it renders only when the result carries
+# an evidence classification that reaches the paired tier (a fix-trial recompute
+# from audio). A standalone verify (an envelope comparison, tier ASSERTED) or a
+# legacy input with no evidence block renders a MUTED, explicitly-unverified
+# card whose headline names the real tier ("ASSERTED (UNVERIFIED)" /
+# "MEASURED FROM AUDIO"), never the green pass.
 
 def _render_verify(v: dict) -> str:
     claim = v.get("claim") or {}
@@ -272,22 +304,65 @@ def _render_verify(v: dict) -> str:
             "be false. No card."
         )
 
-    body = [_kind_tag("PAIRED EVIDENCE")]
-    body += _headline(_wrap("PAIRED EVIDENCE IMPROVED", 26), top=200)
-    body.append(_text(_M, 250, "no submitted hold guard regressed", size=23,
-                      fill=_C["muted"], weight="500"))
+    # Evidence gate. A missing/weak block never renders the green pass: a
+    # legacy input with no evidence is treated as the envelope-only ASSERTED
+    # ceiling, exactly as a standalone verify is classified.
+    ev = v.get("evidence")
+    if not (isinstance(ev, dict) and isinstance(ev.get("tier"), int)):
+        ev = _evidence.classify({
+            "score_integrity": "envelope_only", "audio_identity": "missing",
+            "pairing_integrity": "id_only", "label_authority": "none",
+            "policy_integrity": "unsigned", "fixture_set_integrity": "unknown",
+            "capture_origin": "unknown", "input_health": None,
+            "channel_mapping": None,
+        })
+    tier = ev.get("tier", _evidence.TIER_ASSERTED)
+    ev_headline = ev.get("headline", _evidence.TIER_HEADLINE[tier])
+
+    text_equiv = (
+        f"{now} of {used} failing fixtures now pass; {still} of {guards} hold "
+        f"fixtures still pass; evidence tier: {ev_headline}"
+    )
+
+    if tier >= _evidence.TIER_PAIRED:
+        body = [_kind_tag("PAIRED EVIDENCE")]
+        body += _headline(_wrap("PAIRED EVIDENCE IMPROVED", 26), top=200)
+        body.append(_text(_M, 250, "no submitted hold guard regressed",
+                          size=23, fill=_C["muted"], weight="500"))
+        rows = [
+            (f"{now} of {used}", "failing fixtures now pass", _C["green"]),
+            (f"{still} of {guards}", "hold fixtures still pass", _C["cream"]),
+        ]
+        for i, (num, label, col) in enumerate(rows):
+            y = 400 + i * 70
+            body.append(_text(_M, y, num, size=52, fill=col, weight="800",
+                              family=_MONO))
+            body.append(_text(_M + 210, y, label, size=28, fill=_C["muted"],
+                              weight="500"))
+        body.append(_footer("Hotato reports coincidence, not causation."))
+        return _frame(body, title="Paired evidence improved", desc=text_equiv)
+
+    # tier < PAIRED: a muted, explicitly-unverified card. The WORDS carry the
+    # status (no green), so it reads the same in monochrome.
+    caveat = _evidence.one_sentence(ev)
+    body = [_kind_tag("ENVELOPE COMPARISON")]
+    body += _headline(_wrap(ev_headline, 26), top=196)
+    for i, ln in enumerate(_wrap(caveat, 62)):
+        body.append(_text(_M, 264 + i * 30, ln, size=21, fill=_C["muted"],
+                          weight="500"))
     rows = [
-        (f"{now} of {used}", "failing fixtures now pass", _C["green"]),
-        (f"{still} of {guards}", "hold fixtures still pass", _C["cream"]),
+        (f"{now} of {used}", "failing fixtures now pass", _C["cream"]),
+        (f"{still} of {guards}", "hold fixtures still pass", _C["muted"]),
     ]
     for i, (num, label, col) in enumerate(rows):
-        y = 400 + i * 70
-        body.append(_text(_M, y, num, size=52, fill=col, weight="800",
+        y = 432 + i * 66
+        body.append(_text(_M, y, num, size=46, fill=col, weight="800",
                           family=_MONO))
-        body.append(_text(_M + 210, y, label, size=28, fill=_C["muted"],
+        body.append(_text(_M + 210, y, label, size=26, fill=_C["muted"],
                           weight="500"))
-    body.append(_footer("Hotato reports coincidence, not causation."))
-    return _frame(body)
+    body.append(_footer(
+        "Envelope comparison only; not a fresh-recapture paired proof."))
+    return _frame(body, title=ev_headline, desc=text_equiv)
 
 
 # --- card E: a failure contract (hotato contract create) ------------------
@@ -329,7 +404,11 @@ def _render_contract(contract: dict, *, include_identifiers: bool = False) -> st
                               fill=_C["muted"], weight="500", anchor="end",
                               family=_MONO))
     body.append(_footer("A human labeled this contract; Hotato measured the timing."))
-    return _frame(body)
+    a11y_title = f"Failure contract expect {expect}: {status_word}"
+    a11y_desc = (f"Contract {contract.get('id', '')}, expected behavior "
+                 f"{expect}: {status_word}. {num_text} {sub}. A human labeled "
+                 "this contract; Hotato measured the timing.")
+    return _frame(body, title=a11y_title, desc=a11y_desc)
 
 
 # --- dispatch -------------------------------------------------------------

@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="card-title card-desc">
+<title id="card-title">No single threshold can fix this</title>
+<desc id="card-desc">No single threshold can fix this: one sensitivity dial cannot both avoid missing a real interruption and avoid false-stopping on a backchannel. Hotato refused threshold tuning. Fix class: engagement-control.</desc>
 <rect x="0" y="0" width="1200" height="630" fill="#1b1714"/>
 <rect x="20" y="20" width="1160" height="590" rx="18" fill="none" stroke="#3a3128" stroke-width="1.5"/>
 <text x="76" y="108" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="32" font-weight="700" fill="#f0663a" letter-spacing="9" text-anchor="start">HOTATO</text>
