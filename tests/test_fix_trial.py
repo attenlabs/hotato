@@ -647,6 +647,39 @@ def test_distinct_audio_reaches_improved_with_provenance_surfaced(
         assert f["before_short"] != f["after_short"]
 
 
+# --- report-facing provenance caution (fresh-capture report) ----------------
+
+def test_provenance_caution_appears_in_text_output(tmp_path, config_patch, capsys):
+    before, after = _improving_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after)
+    assert rc == 0
+    text_out = capsys.readouterr().out
+    assert _fix_trial._PROVENANCE_CAUTION in text_out
+
+
+def test_provenance_caution_appears_in_html_output(tmp_path, config_patch, capsys):
+    before, after = _improving_sides(tmp_path)
+    html_path = tmp_path / "fix-trial.html"
+    rc = _run(tmp_path, config_patch, before, after, "--html", str(html_path))
+    assert rc == 0
+    html = html_path.read_text(encoding="utf-8")
+    assert "Provenance caution" in html
+    assert "at the revision it was captured from" in html
+
+
+def test_provenance_caution_appears_even_on_same_audio_refusal(
+        tmp_path, config_patch, capsys):
+    # The provenance section (and its caution) renders below the refusal
+    # banner too: the guard fires AFTER verify already ran, so the full
+    # report -- including this caution -- is not withheld just because the
+    # verdict downgraded to refused.
+    before, after = _same_audio_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after)
+    assert rc == 3
+    text_out = capsys.readouterr().out
+    assert _fix_trial._PROVENANCE_CAUTION in text_out
+
+
 # --- no em or en dashes anywhere ---------------------------------------------
 
 def test_no_em_or_en_dashes_in_any_rendered_output(tmp_path, config_patch, capsys):

@@ -24,6 +24,21 @@ design. See `docs/BENCHMARK.md`.
   same recording is rescored with a looser threshold and passed off as a
   verified fix. See `docs/FIX-TRIAL.md#fresh-capture-provenance-guard-a-re-score-is-never-a-fix`
   and `docs/RECAPTURE.md#how-hotato-tells-a-recapture-from-a-re-score`.
+- **Report-facing claim-language cautions**: `hotato contract verify` now
+  prints, in every text and HTML render, "This result re-measures stored
+  evidence. It does not test the current agent." `hotato fix trial`'s
+  audio-provenance section now prints a matching provenance/revision
+  caution wherever that section renders (an `improved` verdict, or a
+  `refused`/`inconclusive` one the fresh-capture guard itself downgraded).
+  Both strings are drawn from a new claim-language table -- which evidence
+  you have, what it accurately lets you say, and the common overclaim it
+  does not support, for five levels of evidence from a historical contract
+  alone up to a production rerun after deploy -- and new audio-handling
+  rules covering what raw call audio may contain, why redaction does not
+  remove spoken content, and an audio-free evidence summary to prefer when
+  sharing proof without the recording. See
+  `docs/RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-honestly-say`
+  and `SECURITY.md#audio-handling`.
 
 ## [0.7.2] - 2026-07-10
 
