@@ -358,6 +358,28 @@ def test_verify_json_shape(tmp_path, capsys):
     assert v["results"][0]["id"] == "ct-created-001"
 
 
+def test_verify_text_shows_stored_evidence_caveat(tmp_path, capsys):
+    # contract verify re-scores the SAME bundled audio.wav every time; the
+    # report says so outright so a green run is never mistaken for proof the
+    # currently deployed agent is fine (that is the fresh-capture lane in
+    # docs/RECAPTURE.md, not this one).
+    assert _create(tmp_path) == 0
+    capsys.readouterr()
+    rc = cli.main(["contract", "verify", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert _contract._STORED_EVIDENCE_CAVEAT in out
+
+
+def test_verify_html_shows_stored_evidence_caveat(tmp_path, capsys):
+    assert _create(tmp_path) == 0
+    html_path = tmp_path / "verify.html"
+    rc = cli.main(["contract", "verify", str(tmp_path), "--html", str(html_path)])
+    assert rc == 0
+    html = html_path.read_text(encoding="utf-8")
+    assert _contract._STORED_EVIDENCE_CAVEAT in html
+
+
 def test_verify_writes_html_and_junit(tmp_path, capsys):
     assert _create(tmp_path) == 0
     html_path = tmp_path / "verify.html"

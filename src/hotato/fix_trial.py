@@ -121,6 +121,21 @@ _HONEST = (
     "already captured. hotato reports coincidence, not causation."
 )
 
+# The audio-provenance section proves a fresh capture happened (distinct
+# before/after digests), never that the capture stays valid forever. It
+# speaks to the AFTER run's revision at the moment it was captured; a later
+# deploy is a new revision this report says nothing about, and nothing here
+# re-runs itself on a schedule. Rendered wherever the provenance section
+# itself renders, independent of the final verdict, so a reader sees the
+# limit even on an improved run. See docs/RECAPTURE.md ("Limits, stated
+# plainly") for the same caution at length.
+_PROVENANCE_CAUTION = (
+    "Provenance caution: this proves the specific fresh capture scored "
+    "above, at the revision it was captured from. It does not certify a "
+    "later deploy or every future call, and it does not re-run itself; "
+    "recapture again after the next change."
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -504,6 +519,7 @@ def render_text(t: dict) -> str:
             "same human-labeled contract passed on new evidence, never that "
             "the change caused it."
         )
+        lines.append(f"  {_PROVENANCE_CAUTION}")
         for f in prov["target_fixtures"]:
             lines.append(
                 f"  {f['fixture']}: before={f['before_short'] or 'unknown'} "
@@ -592,6 +608,7 @@ def _provenance_html(esc, prov) -> str:
         'fresh take proves the same human-labeled contract passed on new '
         'evidence; identical digests mean the after run re-scored the same '
         'recording, not a fresh capture.</div>'
+        f'<div class="does">{esc(_PROVENANCE_CAUTION)}</div>'
         + _kv_table(esc, rows) + '</section>'
     )
 

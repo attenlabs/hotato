@@ -106,6 +106,15 @@ conclusion states plainly what a passing digest check proves: that the fresh
 take passed the same human-labeled contract, not that the change caused it
 (hotato reports coincidence, never causation, throughout).
 
+The text and HTML renders of this section also print, verbatim, wherever it
+appears (an `improved` verdict, or a `refused`/`inconclusive` one the guard
+itself downgraded): *"Provenance caution: this proves the specific fresh
+capture scored above, at the revision it was captured from. It does not
+certify a later deploy or every future call, and it does not re-run itself;
+recapture again after the next change."* See
+[`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-honestly-say)
+for the fuller claim-language table this line is drawn from.
+
 ## Flags
 
 | Flag | Meaning |
