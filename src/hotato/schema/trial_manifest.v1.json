@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/trial_manifest.v1.json",
+  "title": "hotato trial manifest, schema_version 1",
+  "description": "An immutable pin created BEFORE a before/after experiment. Before and after runs must reference the same manifest_hash; a changed policy, scorer, label, onset, or fixture universe refuses the comparison. fix trial ignores stored verdicts and recomputes both sides under this manifest.",
+  "type": "object",
+  "required": ["schema_version", "trial_id", "nonce", "scorer", "policy", "fixtures", "min_n", "manifest_hash"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "trial_id": { "type": "string" },
+    "nonce": { "type": "string", "description": "Random per-trial nonce (supplied by the caller; the kernel never invents randomness)." },
+    "created_by": { "type": ["string", "null"] },
+    "workspace_id": { "type": ["string", "null"] },
+    "agent_id": { "type": ["string", "null"] },
+    "deployment_id": { "type": ["string", "null"] },
+    "source_config_hash": { "type": ["string", "null"] },
+    "candidate_config_hash": { "type": ["string", "null"] },
+    "scorer": {
+      "type": "object",
+      "required": ["package_version", "config_hash"],
+      "additionalProperties": true,
+      "properties": {
+        "package_version": { "type": "string" },
+        "config_hash": { "type": "string", "description": "sha256 over the canonical ScoreConfig + VADParams." },
+        "config": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["policy_hash"],
+      "additionalProperties": true,
+      "properties": {
+        "policy_hash": { "type": "string" },
+        "max_talk_over_sec": { "type": ["number", "null"] },
+        "max_time_to_yield_sec": { "type": ["number", "null"] }
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "description": "The COMPLETE expected fixture universe. Before and after must each cover exactly this set; a missing or extra fixture refuses the comparison.",
+      "items": {
+        "type": "object",
+        "required": ["fixture_id", "expect"],
+        "additionalProperties": true,
+        "properties": {
+          "fixture_id": { "type": "string" },
+          "event_id": { "type": "string" },
+          "scenario_id": { "type": ["string", "null"] },
+          "expect": { "enum": ["yield", "hold"] },
+          "expected_yield": { "type": "boolean" },
+          "onset_sec": { "type": ["number", "null"] },
+          "stimulus_pcm_sha256": { "type": ["string", "null"],
+            "description": "Pinned caller-side (scripted stimulus) decoded-PCM hash from the battery; a fresh recapture that replays the same stimulus matches it. A mismatch with no capture receipt cannot certify machine-verified pairing." },
+          "label_id": { "type": ["string", "null"] },
+          "label_revision": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "min_n": { "type": "integer", "minimum": 1 },
+    "contract_set_hash": { "type": ["string", "null"] },
+    "permitted_transformations": { "type": "array", "items": { "type": "string" } },
+    "hard_refusal_rules": { "type": "array", "items": { "type": "string" } },
+    "manifest_hash": { "type": "string", "description": "sha256 over the canonical manifest body (all fields except manifest_hash and signature)." },
+    "signature": { "type": ["object", "null"] }
+  }
+}

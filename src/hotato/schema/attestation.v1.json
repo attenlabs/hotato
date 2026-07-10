@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/attestation.v1.json",
+  "title": "hotato detached attestation, schema_version 1",
+  "description": "A detached signature over a canonical subject digest. Makes an unsigned, internally-consistent bundle distinguishable from an authenticated one. Unsigned bundles remain usable but must be called 'unsigned, internally consistent evidence', never 'authenticated'.",
+  "type": "object",
+  "required": ["schema_version", "subject_digest", "statement", "signer", "algorithm", "signature"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "subject_digest": { "type": "string", "description": "sha256 over the canonical tuple (contract schema, label + revision, policy + pass conditions, audio + decoded-PCM hashes, frame-evidence hash, scorer package/version, creator identity, timestamp, optional repo commit)." },
+    "digest_fields": { "type": "array", "items": { "type": "string" } },
+    "statement": { "type": "string" },
+    "signer": { "type": "string" },
+    "algorithm": { "enum": ["hmac-sha256", "ed25519", "none"] },
+    "signature": { "type": "string" },
+    "created_at": { "type": ["string", "null"] },
+    "repo_commit": { "type": ["string", "null"] }
+  }
+}

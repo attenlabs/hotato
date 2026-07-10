@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/evidence_vector.v1.json",
+  "title": "hotato evidence vector, schema_version 1",
+  "description": "Machine-readable classification of how strong an artifact's evidence is. The public tier is the WEAKEST tier permitted by any required dimension (an evidence lattice / minimum rule); dimensions are never averaged into a confidence percentage. Additive: unknown dimensions are ignored; a missing dimension is its UNKNOWN state, never proof.",
+  "type": "object",
+  "required": ["schema_version", "vector", "tier", "tier_name"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "tier": { "type": "integer", "minimum": 0, "maximum": 4,
+      "description": "0 none, 1 asserted (unverified), 2 measured-from-audio, 3 paired fresh-recapture, 4 attested paired." },
+    "tier_name": { "type": "string" },
+    "headline": { "type": "string" },
+    "allows_positive_paired": { "type": "boolean" },
+    "allows_positive_measured": { "type": "boolean" },
+    "required": { "type": "array", "items": { "type": "string" } },
+    "limited_by": { "type": "array", "items": {
+      "type": "object",
+      "required": ["dimension", "cap"],
+      "properties": {
+        "dimension": { "type": "string" },
+        "state": { "type": ["string", "null"] },
+        "cap": { "type": "integer" }
+      },
+      "additionalProperties": true
+    }},
+    "vector": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "dimension -> state. Known dimensions and their states are enumerated in hotato/evidence.py (the single source of truth).",
+      "properties": {
+        "input_health": { "enum": ["clean", "caution", "not_scorable", null] },
+        "channel_mapping": { "enum": ["confirmed", "inferred", "suspect", "unknown", null] },
+        "label_authority": { "enum": ["human", "suggested", "none", null] },
+        "audio_identity": { "enum": ["recomputed", "asserted", "missing", "same_pcm", "mismatch", null] },
+        "capture_origin": { "enum": ["runner_attested", "operator_asserted", "unknown", null] },
+        "policy_integrity": { "enum": ["signed", "repo_pinned", "manifest_pinned", "unsigned", "changed", null] },
+        "fixture_set_integrity": { "enum": ["manifest_complete", "subset", "unknown", null] },
+        "score_integrity": { "enum": ["recomputed", "envelope_only", "mismatch", null] },
+        "pairing_integrity": { "enum": ["contract_bound", "id_only", "unpaired", null] },
+        "deployment_identity": { "enum": ["config_hash_bound", "operator_asserted", "unknown", null] },
+        "experiment_design": { "enum": ["paired", "canary", "observational", "none", null] },
+        "external_attestation": { "enum": ["independent", "self_reported", "none", null] }
+      }
+    }
+  }
+}
