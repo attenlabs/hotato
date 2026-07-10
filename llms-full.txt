@@ -6408,7 +6408,8 @@ FILE: src/hotato/schema/envelope.v1.json
             "properties": {
               "role": { "type": "string" },
               "path": { "type": "string" },
-              "sha256": { "type": "string" },
+              "sha256": { "type": "string", "description": "Streamed sha256 of this side's raw file bytes -- container identity. Changes on any byte anywhere in the file, including header-only metadata edits, a trailing-byte append, or a lossless repack/transcode that never touches a sample value." },
+              "pcm_sha256": { "type": "string", "description": "OPTIONAL, additive: streamed sha256 of this side's DECODED PCM sample bytes only (the WAV data chunk, read the same way the scorer decodes it -- fixed width, little-endian, channel-interleaved, bounded by the header's own frame count). Identity of the SAMPLES, not the container: a header-only edit or a trailing-byte append leaves this unchanged even though sha256 above differs; an edit to a sample value changes both. Absent on an envelope from before this field existed -- a reader MUST treat absence as UNKNOWN, never as proof either way." },
               "sample_rate": { "type": "integer" },
               "num_samples": { "type": "integer" },
               "duration_sec": { "type": ["number", "null"] }
