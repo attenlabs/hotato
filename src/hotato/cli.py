@@ -421,6 +421,72 @@ _EXIT_CODES: dict = {
             "directory with no scenarios to add, or git/gh failed or was not "
             "found"),
     ),
+    "fleet": (
+        (2, "no subcommand given (see hotato fleet <cmd> --help)"),
+    ),
+    "fleet init": (
+        (0, "the workspace was created/ensured under --home"),
+        (2, "usage error or an unwritable --home"),
+    ),
+    "fleet agent": (
+        (2, "no subcommand given (see hotato fleet agent add/list --help)"),
+    ),
+    "fleet agent add": (
+        (0, "the agent was registered in the workspace"),
+        (2, "usage error or an unwritable --home"),
+    ),
+    "fleet agent list": (
+        (0, "listed the registered agents (possibly none)"),
+        (2, "usage error or an unreadable --home"),
+    ),
+    "fleet ingest": (
+        (0, "the recording was registered (or deduped on a replayed pull)"),
+        (2, "usage error, unreadable audio, or an unwritable --home"),
+    ),
+    "fleet discover": (
+        (0, "scanned the recording (candidate moments listed, possibly zero; "
+            "never a verdict and never an auto-label)"),
+        (2, "not-scorable input (the honest trust recommendation is printed), a "
+            "usage error, or unreadable audio"),
+    ),
+    "fleet review": (
+        (0, "listed candidates awaiting a human label (possibly none)"),
+        (2, "usage error or an unreadable --home"),
+    ),
+    "fleet label": (
+        (0, "recorded the human label on the candidate"),
+        (2, "usage error, an invalid decision, or an unreadable --home"),
+    ),
+    "fleet status": (
+        (0, "printed the workspace counts and job-queue stats"),
+        (2, "usage error or an unreadable --home"),
+    ),
+    "fleet experiment": (
+        (2, "no subcommand given (see hotato fleet experiment run --help)"),
+    ),
+    "fleet experiment run": (
+        (0, "the before/after battery improved under the pinned manifest "
+            "(recommendation recorded; never auto-deployed)"),
+        (1, "inconclusive or refused: no green paired proof, so nothing is "
+            "recommended for deployment"),
+        (2, "usage error or unreadable battery/before/after/policy input"),
+    ),
+    "fleet canary": (
+        (2, "recommendation-only: live canary routing is not enabled in this "
+            "release"),
+    ),
+    "fleet canary start": (
+        (2, "recommendation-only: live canary routing is not enabled in this "
+            "release"),
+    ),
+    "fleet canary rollback": (
+        (2, "recommendation-only: live canary routing is not enabled in this "
+            "release"),
+    ),
+    "fleet export": (
+        (0, "wrote (or printed) the status + agents/trials manifest"),
+        (2, "usage error or an unwritable --out"),
+    ),
 }
 
 
@@ -1446,6 +1512,253 @@ def _cmd_fixture_promote(args) -> int:
     else:
         print(_fixture.render_promote_text(result))
     return 0
+
+
+# --- fleet: the local Guardian control plane over the evidence kernel ------
+#
+# `hotato fleet ...` exposes the already-built domain API (hotato.fleet.api.
+# FleetAPI) as an umbrella CLI, mirroring the `contract` group: a nested
+# subparser (dest="fleet_command") whose leaves each set `func=_cmd_fleet_*`.
+# Every leaf carries --home / --workspace|-w / --format via `_fleet_common`, and
+# every handler runs its work in try/finally with `api.close()` so the SQLite
+# connection is always released. Live routing (clone/canary) is NOT implemented
+# here: canary is recommendation-only and exits non-zero.
+
+_FLEET_CANARY_MSG = (
+    "not enabled in this release: canary routing requires a connected stack "
+    "with credentials and a tested rollback; this build recommends only."
+)
+
+
+def _fleet_open(args):
+    """Instantiate a FleetAPI at the resolved home (--home override, else the
+    real DEFAULT_HOME ~/.hotato/fleet)."""
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+
+    return FleetAPI(home=args.home or DEFAULT_HOME)
+
+
+def _fleet_emit(args, payload, text_lines):
+    """Shared json/text output idiom (mirrors the contract handlers): --format
+    json prints the raw dict/list, text prints the pre-rendered lines."""
+    if getattr(args, "format", "text") == "json":
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        for line in text_lines:
+            print(line)
+
+
+def _fleet_load_run_json(directory):
+    """A before/after trial arg is a DIRECTORY holding run.json (the suite
+    envelope) plus its wavs; load the envelope."""
+    with open(os.path.join(directory, "run.json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _cmd_fleet_init(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.init_workspace(args.workspace, name=args.name)
+        _fleet_emit(args, res, [
+            f"workspace: {res['workspace_id']}",
+            f"home:      {res['home']}",
+            f"mode:      {res['mode']}",
+        ])
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_agent_add(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.agent_add(
+            args.workspace, args.agent_id, stack=args.stack,
+            connection_id=args.connection, external_ref=args.external_ref,
+        )
+        _fleet_emit(args, res, [
+            f"registered agent {res['agent_id']} (stack {res['stack']}) "
+            f"in workspace {res['workspace_id']}",
+        ])
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_agent_list(args) -> int:
+    api = _fleet_open(args)
+    try:
+        agents = api.agent_list(args.workspace)
+        if args.format == "json":
+            print(_errors.safe_json_dumps(agents, indent=2))
+        elif not agents:
+            print("no agents registered")
+        else:
+            print(f"{'AGENT_ID':<28} {'STACK':<10} EXTERNAL_REF")
+            for a in agents:
+                print(f"{a['agent_id']:<28} {(a.get('stack') or ''):<10} "
+                      f"{a.get('external_ref') or '-'}")
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_ingest(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.ingest_recording(args.workspace, args.agent, args.call_wav,
+                                   call_id=args.call_id)
+        lines = [f"call_id:      {res['call_id']}",
+                 f"deduped:      {res['deduped']}"]
+        if not res.get("deduped"):
+            lines.append(f"recording_id: {res['recording_id']}")
+        _fleet_emit(args, res, lines)
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_discover(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.discover(args.workspace, args.agent, args.call_wav)
+        if not res.get("scorable"):
+            if args.format == "json":
+                print(_errors.safe_json_dumps(res, indent=2))
+            else:
+                print("not scorable")
+                print(res.get("recommendation") or "recording is not scorable")
+            return 2
+        lines = [f"scorable: yes ({res.get('input_health')})",
+                 f"candidates: {len(res['candidates'])}"]
+        for c in res["candidates"]:
+            lines.append(f"  {c['candidate_id']}  onset={c.get('onset_sec')}  "
+                         f"severity={c.get('severity')}")
+        _fleet_emit(args, res, lines)
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_review(args) -> int:
+    api = _fleet_open(args)
+    try:
+        q = api.review_queue(args.workspace, agent_id=args.agent, limit=args.limit)
+        if args.format == "json":
+            print(_errors.safe_json_dumps(q, indent=2))
+        elif not q:
+            print("review queue is empty")
+        else:
+            print(f"{len(q)} candidate(s) awaiting review:")
+            for c in q:
+                print(f"  {c['candidate_id']}  agent={c.get('agent_id')}  "
+                      f"onset={c.get('onset_sec')}  severity={c.get('severity')}  "
+                      f"cluster={c.get('cluster')}")
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_label(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.label(args.workspace, args.candidate_id, decision=args.decision,
+                        reviewer=args.reviewer, rationale=args.rationale)
+        _fleet_emit(args, res, [
+            f"labeled {res['candidate_id']} as {res['decision']} -> status "
+            f"{res['status']} (label {res['label_id']})",
+        ])
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_status(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.status(args.workspace)
+        counts = res.get("counts", {})
+        jobs = res.get("jobs", {})
+        lines = [f"workspace: {res['workspace_id']}  mode: {res['mode']}",
+                 f"home:      {res['home']}", "counts:"]
+        for k in sorted(counts):
+            lines.append(f"  {k:<12} {counts[k]}")
+        lines.append("jobs:")
+        if jobs:
+            for k in sorted(jobs):
+                lines.append(f"  {k:<12} {jobs[k]}")
+        else:
+            lines.append("  (none)")
+        _fleet_emit(args, res, lines)
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_experiment_run(args) -> int:
+    api = _fleet_open(args)
+    try:
+        with open(args.battery, encoding="utf-8") as fh:
+            battery_env = json.load(fh)
+        before_env = _fleet_load_run_json(args.before)
+        after_env = _fleet_load_run_json(args.after)
+        policy = None
+        if args.policy:
+            with open(args.policy, encoding="utf-8") as fh:
+                policy = json.load(fh)
+        res = api.experiment_run(
+            args.workspace, args.agent, trial_id=args.trial_id,
+            battery_env=battery_env, before_env=before_env, before_dir=args.before,
+            after_env=after_env, after_dir=args.after, policy=policy, min_n=args.min_n,
+        )
+        lines = [f"trial:          {res['trial_id']}",
+                 f"verdict:        {res['verdict']}",
+                 f"evidence_tier:  {res['evidence_tier']}",
+                 f"recommendation: {res['recommendation']}"]
+        if res.get("refusal"):
+            lines.append(f"refusal:        {res['refusal'].get('reason')}")
+        _fleet_emit(args, res, lines)
+        return 0 if res["verdict"] == "improved" else 1
+    finally:
+        api.close()
+
+
+def _cmd_fleet_canary(args) -> int:
+    # Deliberately does NOT touch a live stack: routing/rollback need connected
+    # credentials and a tested rollback path, absent in this release.
+    payload = {"enabled": False, "action": args.fleet_canary_command,
+               "message": _FLEET_CANARY_MSG}
+    if getattr(args, "format", "text") == "json":
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(_FLEET_CANARY_MSG)
+    return 2
+
+
+def _cmd_fleet_export(args) -> int:
+    api = _fleet_open(args)
+    try:
+        status = api.status(args.workspace)
+        agents = api.agent_list(args.workspace)
+        trials = api.registry._all(
+            "SELECT trial_id, agent_id, verdict, evidence_tier FROM trials "
+            "WHERE workspace_id=? ORDER BY created_at", (args.workspace,))
+        manifest = {"workspace_id": args.workspace, "home": api.home,
+                    "status": status, "agents": agents, "trials": trials}
+        if args.out:
+            os.makedirs(args.out, exist_ok=True)
+            path = os.path.join(args.out, "fleet-export.json")
+            _atomic_write_json(path, manifest)
+            if args.format == "json":
+                print(_errors.safe_json_dumps({"out": path, **manifest}, indent=2))
+            else:
+                print(f"wrote {path}")
+        else:
+            print(_errors.safe_json_dumps(manifest, indent=2))
+        return 0
+    finally:
+        api.close()
 
 
 def _cmd_contract_create(args) -> int:
@@ -4512,6 +4825,178 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     pc.set_defaults(func=_cmd_pr_create)
+
+    # --- fleet: the local, self-hosted Guardian control plane ----------------
+    def _fleet_common(sp):
+        """Add --home / --workspace|-w / --format to a fleet LEAF parser."""
+        sp.add_argument("--home", default=None, metavar="DIR",
+                        help="fleet control-plane home (default ~/.hotato/fleet)")
+        sp.add_argument("--workspace", "-w", default="default", metavar="ID",
+                        help="workspace id (default 'default')")
+        sp.add_argument("--format", default="text", choices=["text", "json"],
+                        help="output format (default text)")
+
+    def _fleet_parser(parent, name, dotted, help_text):
+        """Add a fleet subparser carrying the uniform ``Exit codes:`` epilog
+        (templated from the single ``_EXIT_CODES`` source of truth, like every
+        other subparser)."""
+        return parent.add_parser(
+            name, help=help_text,
+            epilog=_exit_codes_epilog(dotted),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+
+    fl = sub.add_parser(
+        "fleet",
+        help="the local Guardian control plane over the evidence kernel "
+             "(hotato fleet init/agent/ingest/discover/review/label/status/"
+             "experiment/canary/export)",
+        description=(
+            "A private, self-hosted control plane that registers voice "
+            "agents (no product-level cap), ingests completed calls, "
+            "discovers candidate turn-taking failures, holds a human review "
+            "queue, records human labels, and runs manifest-bound before/"
+            "after experiments -- always RECOMMENDING, never auto-labeling "
+            "and never auto-deploying in this release. Local mode is "
+            "zero-dependency (a SQLite registry + a content-addressed "
+            "artifact store under --home, default ~/.hotato/fleet). See "
+            "plan section 16."
+        ),
+        epilog=_exit_codes_epilog("fleet"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    flsub = fl.add_subparsers(
+        dest="fleet_command", required=True,
+        metavar="init|agent|ingest|discover|review|label|status|experiment|canary|export")
+
+    fi = _fleet_parser(flsub, "init", "fleet init",
+                       "create/ensure a workspace in the fleet home")
+    _fleet_common(fi)
+    fi.add_argument("--name", default=None, help="optional human name for the "
+                                                 "workspace")
+    fi.set_defaults(func=_cmd_fleet_init)
+
+    fa = _fleet_parser(flsub, "agent", "fleet agent",
+                       "register and list voice agents (hotato fleet agent "
+                       "add/list)")
+    fasub = fa.add_subparsers(dest="fleet_agent_command", required=True,
+                              metavar="add|list")
+    faa = _fleet_parser(fasub, "add", "fleet agent add",
+                        "register a voice agent in the workspace")
+    _fleet_common(faa)
+    faa.add_argument("--agent-id", "--name", dest="agent_id", required=True,
+                     metavar="ID", help="the agent id/name to register")
+    faa.add_argument("--stack", required=True,
+                     choices=["vapi", "retell", "livekit", "pipecat", "twilio"],
+                     help="the voice stack this agent runs on")
+    faa.add_argument("--connection", default=None, metavar="ID",
+                     help="optional stored connection id for this stack")
+    faa.add_argument("--external-ref", "--assistant-id", dest="external_ref",
+                     default=None, metavar="REF",
+                     help="the provider-side reference, e.g. a vapi assistant id")
+    faa.set_defaults(func=_cmd_fleet_agent_add)
+    fal = _fleet_parser(fasub, "list", "fleet agent list",
+                        "list registered agents (agent_id, stack, external_ref)")
+    _fleet_common(fal)
+    fal.set_defaults(func=_cmd_fleet_agent_list)
+
+    fin = _fleet_parser(flsub, "ingest", "fleet ingest",
+                        "register a completed call's recording (idempotent on "
+                        "call id)")
+    _fleet_common(fin)
+    fin.add_argument("--agent", required=True, metavar="ID",
+                     help="the agent id the call belongs to")
+    fin.add_argument("--call-id", default=None, metavar="ID",
+                     help="optional stable call id (default derived from the "
+                          "decoded PCM, so duplicate pulls dedupe)")
+    fin.add_argument("call_wav", metavar="CALL_WAV",
+                     help="two-channel recording (caller ch0, agent ch1)")
+    fin.set_defaults(func=_cmd_fleet_ingest)
+
+    fd = _fleet_parser(flsub, "discover", "fleet discover",
+                       "scan a recording for candidate turn-taking moments")
+    _fleet_common(fd)
+    fd.add_argument("--agent", required=True, metavar="ID",
+                    help="the agent id the recording belongs to")
+    fd.add_argument("call_wav", metavar="CALL_WAV",
+                    help="two-channel recording (caller ch0, agent ch1)")
+    fd.set_defaults(func=_cmd_fleet_discover)
+
+    fr = _fleet_parser(flsub, "review", "fleet review",
+                       "list candidates awaiting a human label")
+    _fleet_common(fr)
+    fr.add_argument("--agent", default=None, metavar="ID",
+                    help="only candidates for this agent")
+    fr.add_argument("--limit", type=int, default=5, metavar="N",
+                    help="max candidates to list (default 5)")
+    fr.set_defaults(func=_cmd_fleet_review)
+
+    flb = _fleet_parser(flsub, "label", "fleet label",
+                        "record a HUMAN label on a candidate")
+    _fleet_common(flb)
+    flb.add_argument("candidate_id", metavar="CANDIDATE_ID",
+                     help="the candidate to label")
+    flb.add_argument("--decision", required=True,
+                     choices=["yield", "hold", "not_a_useful_event", "bad_input"],
+                     help="your decision for the candidate")
+    flb.add_argument("--reviewer", required=True, metavar="NAME",
+                     help="who is applying the label")
+    flb.add_argument("--rationale", default=None,
+                     help="optional free-text note on the label")
+    flb.set_defaults(func=_cmd_fleet_label)
+
+    fst = _fleet_parser(flsub, "status", "fleet status",
+                        "workspace counts + job-queue stats")
+    _fleet_common(fst)
+    fst.set_defaults(func=_cmd_fleet_status)
+
+    fe = _fleet_parser(flsub, "experiment", "fleet experiment",
+                       "run a manifest-bound before/after trial (hotato fleet "
+                       "experiment run)")
+    fesub = fe.add_subparsers(dest="fleet_experiment_command", required=True,
+                              metavar="run")
+    fer = _fleet_parser(fesub, "run", "fleet experiment run",
+                        "recompute a before/after battery under an immutable "
+                        "manifest and record a recommendation (never deploys)")
+    _fleet_common(fer)
+    fer.add_argument("--agent", required=True, metavar="ID",
+                     help="the agent under test")
+    fer.add_argument("--trial-id", required=True, metavar="ID",
+                     help="a stable id for this trial")
+    fer.add_argument("--battery", required=True, metavar="BATTERY_RUN.json",
+                     help="the battery run.json envelope (a hotato suite result)")
+    fer.add_argument("--before", required=True, metavar="BEFORE_DIR",
+                     help="a directory holding the BEFORE run.json + its wavs")
+    fer.add_argument("--after", required=True, metavar="AFTER_DIR",
+                     help="a directory holding the AFTER run.json + its wavs")
+    fer.add_argument("--min-n", type=int, default=1, metavar="N",
+                     help="minimum paired fixtures required (default 1)")
+    fer.add_argument("--policy", default=None, metavar="POLICY.json",
+                     help="optional JSON policy "
+                          "{max_talk_over_sec, max_time_to_yield_sec}")
+    fer.set_defaults(func=_cmd_fleet_experiment_run)
+
+    fca = _fleet_parser(flsub, "canary", "fleet canary",
+                        "canary routing (recommendation-only in this release; "
+                        "hotato fleet canary start/rollback)")
+    fcasub = fca.add_subparsers(dest="fleet_canary_command", required=True,
+                                metavar="start|rollback")
+    fcas = _fleet_parser(fcasub, "start", "fleet canary start",
+                         "(disabled) start a canary rollout")
+    _fleet_common(fcas)
+    fcas.set_defaults(func=_cmd_fleet_canary)
+    fcar = _fleet_parser(fcasub, "rollback", "fleet canary rollback",
+                         "(disabled) roll a canary back")
+    _fleet_common(fcar)
+    fcar.set_defaults(func=_cmd_fleet_canary)
+
+    fx = _fleet_parser(flsub, "export", "fleet export",
+                       "dump status + a manifest of registered agents/trials")
+    _fleet_common(fx)
+    fx.add_argument("--out", default=None, metavar="DIR",
+                    help="write DIR/fleet-export.json (default: print json to "
+                         "stdout)")
+    fx.set_defaults(func=_cmd_fleet_export)
 
     return p
 
