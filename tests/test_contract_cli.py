@@ -31,7 +31,9 @@ import hashlib
 import json
 import math
 import os
+import pathlib
 import struct
+import tempfile
 import wave
 import xml.etree.ElementTree as ET
 import zipfile
@@ -580,6 +582,30 @@ def _assert_nothing_written(dest):
     assert leftovers == []
 
 
+def _symlink_creation_supported():
+    """Runtime probe, not a platform guess: some Windows accounts (no
+    Developer Mode, no elevation) cannot create a symlink at all, others can.
+    Try it for real in an isolated temp dir rather than assuming by OS."""
+    with tempfile.TemporaryDirectory() as d:
+        target = pathlib.Path(d) / "target.txt"
+        target.write_text("x")
+        link = pathlib.Path(d) / "link.txt"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+requires_symlinks = pytest.mark.skipif(
+    not _symlink_creation_supported(),
+    reason="this host/account cannot create filesystem symlinks (no "
+           "Developer Mode / elevation on Windows, or a restricted "
+           "container); the test itself plants a real symlink to prove the "
+           "pack step refuses it",
+)
+
+
 def test_unpack_refuses_a_path_traversal_member(tmp_path):
     archive = tmp_path / "hostile.hotato.pack"
     _hostile_zip(archive, [{"name": "../evil.txt", "data": b"pwned"}])
@@ -689,6 +715,7 @@ def test_force_unpack_of_a_hostile_archive_preserves_the_existing_out_dir(tmp_pa
     assert sentinel.read_text() == "keep-me"
 
 
+@requires_symlinks
 def test_pack_refuses_a_file_symlink_in_the_bundle(tmp_path):
     # v2 diligence (2026-07-10): a planted symlink must never ship outside
     # bytes; the bundle must be self-contained.
@@ -703,6 +730,7 @@ def test_pack_refuses_a_file_symlink_in_the_bundle(tmp_path):
     assert not out.exists()
 
 
+@requires_symlinks
 def test_pack_refuses_a_directory_symlink_in_the_bundle(tmp_path):
     outside_dir = tmp_path / "outside"
     outside_dir.mkdir()

@@ -15,6 +15,7 @@ language throughout.
 import json
 import os
 import stat
+import sys
 
 import pytest
 
@@ -203,6 +204,12 @@ def test_dry_run_prints_body_and_command_and_does_not_call_gh(
     assert not fake_gh.exists(), "the dry run must not call gh"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="fake_gh is a bash script with a POSIX shebang, invoked by argv0 "
+           "with no extension; Windows subprocess dispatch cannot execute it "
+           "the way a real gh would be found on PATH",
+)
 def test_yes_shells_out_to_gh_with_the_exact_argv_and_body(
         sweep_json, fake_gh, capsys):
     rc = cli.main([
@@ -222,6 +229,12 @@ def test_yes_shells_out_to_gh_with_the_exact_argv_and_body(
     assert "https://github.com/owner/repo/issues/123" in capsys.readouterr().out
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the fake gh here is a bash script with a POSIX shebang, invoked "
+           "by argv0 with no extension; Windows subprocess dispatch cannot "
+           "execute it the way a real gh would be found on PATH",
+)
 def test_gh_failure_is_a_clean_usage_error(sweep_json, tmp_path, monkeypatch,
                                            capsys):
     # A fake gh that exits non-zero: the create must surface a clean exit-2

@@ -24,6 +24,7 @@ import json
 import math
 import os
 import struct
+import sys
 import urllib.request
 import wave
 
@@ -145,7 +146,14 @@ def test_cli_run_on_directory_exits_2(tmp_path, capsys):
     assert "Traceback" not in capsys.readouterr().err
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root bypasses file permissions")
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod(0) does not block reads under Windows' ACL-based permission "
+           "model the way it does on POSIX; this pins POSIX unreadable-file "
+           "handling specifically",
+)
+@pytest.mark.skipif(sys.platform != "win32" and os.geteuid() == 0,
+                     reason="root bypasses file permissions")
 def test_cli_run_on_unreadable_file_exits_2(tmp_path, capsys):
     wav = _talking_stereo(tmp_path / "noperm.wav")
     os.chmod(wav, 0o000)
