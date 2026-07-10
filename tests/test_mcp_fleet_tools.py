@@ -60,3 +60,27 @@ def test_artifact_verify_flags_unsigned(tmp_path):
     assert res["ok"]
     assert res["authenticity"] == "unsigned"        # created without a signing key
     assert res["authenticated"] is False
+
+
+def test_experiment_run_action_is_offline_and_gates_deploy(tmp_path):
+    import json, os
+    from hotato import core
+    from hotato.fleet.api import FleetAPI
+    scen = tmp_path / "scen"; bdir = tmp_path / "before"; adir = tmp_path / "after"
+    for d in (scen, bdir, adir):
+        d.mkdir()
+    json.dump({"id": "f1-yield", "caller_onset_sec": 2.0,
+               "expected": {"yield": True, "max_time_to_yield_sec": 1.0, "max_talk_over_sec": 1.0}},
+              open(scen / "f1-yield.json", "w"))
+    ta.talkover_call(str(bdir / "f1-yield.example.wav"))
+    ta.yielding_call(str(adir / "f1-yield.example.wav"))
+    b = core.run_suite(scenarios_dir=str(scen), audio_dir=str(bdir), suffix=".example.wav")
+    a = core.run_suite(scenarios_dir=str(scen), audio_dir=str(adir), suffix=".example.wav")
+    json.dump(b, open(bdir / "run.json", "w")); json.dump(a, open(adir / "run.json", "w"))
+    home = str(tmp_path / "home")
+    api = FleetAPI(home=home); api.init_workspace("default"); api.agent_add("default", "bot", stack="mock"); api.close()
+    res = m.mcp_experiment_run(home, "default", "bot", "t1", str(bdir), str(bdir), str(adir), 1)
+    assert res["ok"] and res["verdict"] == "improved"
+    assert res["pending_irreversible_action"] is not None    # deploy stays human-gated
+    # cleanup targets only a staging clone
+    assert m.mcp_clone_cleanup("mock", "c1", home)["ok"]

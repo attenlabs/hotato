@@ -436,6 +436,60 @@ def mcp_experiment_propose(home: Optional[str] = None, workspace_id: str = "defa
                      "fresh recapture. Production deployment stays human-gated.")}
 
 
+def mcp_experiment_run(home: Optional[str] = None, workspace_id: str = "default",
+                      agent_id: str = "", trial_id: str = "",
+                      battery_path: str = "", before_path: str = "",
+                      after_path: str = "", min_n: int = 1) -> dict:
+    """Clone-scoped action: recompute a before/after trial (offline, no network,
+    no production mutation) and record a recommendation. Never deploys."""
+    import json as _json, os as _os
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+
+    def _load(path):
+        safe = _guard_input_path(path, "path")
+        if _os.path.isdir(safe):
+            safe = _os.path.join(safe, "run.json")
+        return _json.load(open(safe, encoding="utf-8"))
+
+    try:
+        before_env = _load(before_path)
+        after_env = _load(after_path)
+        battery_env = _load(battery_path) if battery_path else before_env
+    except Exception as exc:  # noqa: BLE001
+        return {"tool": "hotato", "kind": "experiment_run", "ok": False, "error": str(exc)}
+    before_dir = before_path if _os.path.isdir(before_path) else _os.path.dirname(before_path)
+    after_dir = after_path if _os.path.isdir(after_path) else _os.path.dirname(after_path)
+    api = FleetAPI(home=home or DEFAULT_HOME)
+    try:
+        res = api.experiment_run(workspace_id, agent_id, trial_id=trial_id,
+                                 battery_env=battery_env, before_env=before_env,
+                                 before_dir=before_dir, after_env=after_env,
+                                 after_dir=after_dir, min_n=min_n)
+    finally:
+        api.close()
+    return {"tool": "hotato", "kind": "experiment_run", "ok": True,
+            "verdict": res["verdict"], "evidence_tier": res["evidence_tier"],
+            "recommendation": res["recommendation"], "refusal": res["refusal"],
+            "pending_irreversible_action": (
+                "deployment approval (human-gated)" if res["verdict"] == "improved" else None)}
+
+
+def mcp_clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = ".") -> dict:
+    """Clone-scoped action: delete a STAGING clone. Never touches production
+    (delete_clone targets only a staging resource an experiment created)."""
+    from .fleet import adapters as _ad
+    adapter = _ad.get_adapter(stack, work_dir=work_dir)
+    if not adapter.supports("delete_clone"):
+        return {"tool": "hotato", "kind": "clone_cleanup", "ok": False,
+                "error": f"{stack} adapter does not support delete_clone"}
+    try:
+        result = adapter.delete_clone(clone_ref)
+    except Exception as exc:  # noqa: BLE001
+        return {"tool": "hotato", "kind": "clone_cleanup", "ok": False, "error": str(exc)}
+    return {"tool": "hotato", "kind": "clone_cleanup", "ok": True, "result": result}
+
+
 def build_server():
     """Construct the FastMCP server with the single tool registered."""
     try:
@@ -508,6 +562,17 @@ def build_server():
                            agent_id: str = "", contract_id: str = "",
                            parameter: str = "interrupt_sensitivity") -> dict:
         return mcp_experiment_propose(home, workspace_id, agent_id, contract_id, parameter)
+
+    @server.tool(name="experiment_run", description="Clone-scoped: recompute a before/after trial (offline, no network, no production mutation) and record a recommendation. Names any pending human-gated action.")
+    def experiment_run(home: Optional[str] = None, workspace_id: str = "default",
+                       agent_id: str = "", trial_id: str = "", battery_path: str = "",
+                       before_path: str = "", after_path: str = "", min_n: int = 1) -> dict:
+        return mcp_experiment_run(home, workspace_id, agent_id, trial_id, battery_path,
+                                  before_path, after_path, min_n)
+
+    @server.tool(name="clone_cleanup", description="Clone-scoped: delete a STAGING clone an experiment created. Never touches production.")
+    def clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = ".") -> dict:
+        return mcp_clone_cleanup(stack, clone_ref, work_dir)
 
     return server
 
