@@ -4179,8 +4179,35 @@ hotato contract unpack contracts/refund-cutoff-001.hotato.pack --out contracts/r
 ```
 
 Packing the SAME bundle directory twice produces byte-identical archives
-(sorted member order, fixed timestamps): a contract's pack is a pure function
-of its bundle contents.
+(sorted member order, fixed timestamps, and every other value written into
+each member's ZipInfo, including its `create_system` byte): a contract's
+pack is a pure function of its bundle contents, on any machine.
+
+### Security: unpack treats an archive as hostile input
+
+A `.hotato` archive is meant to be sent between teams, so `contract unpack`
+never trusts it. Before or during extraction it refuses (exit 2), with
+nothing written outside a scratch temp directory that is removed on any
+failure:
+
+* path traversal (`..`), absolute paths, and Windows-style backslash /
+  drive-letter paths (`C:\...`) in a member name;
+* symlink members and encrypted members;
+* duplicate member names;
+* any member the archive carries that its own `MANIFEST.sha256.json` does
+  not declare;
+* more members than a real bundle could plausibly need;
+* a declared or ACTUAL decompressed size past the cap (default 512 MiB, set
+  `HOTATO_CONTRACT_MAX_UNPACK_BYTES` or pass `--max-bytes` to raise it for a
+  trusted archive) -- checked against the real bytes streamed out during
+  extraction, not just the archive's own (untrusted) size metadata;
+* a single member whose compression ratio is far beyond anything a real
+  bundle member produces (a zip-bomb signal), even if it is well under the
+  total-bytes cap.
+
+The existing sha256-per-member check (above) still runs on top of all of
+this: a member can pass every hardening check above and still be refused for
+not matching the packed manifest.
 
 ## CI
 
