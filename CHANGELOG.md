@@ -7,6 +7,45 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [0.7.0] - 2026-07-09
+
+### Added
+- **`hotato explain`, root cause by layer without guessing**: reads the
+  evidence a run already produced (score results, fix plans, trust reports,
+  contract bundles, attached voice traces) and emits an attribution per
+  failure: the likely layer (turn-taking taxonomy: failure layer, type,
+  confidence, fixability, opposite risk), the evidence for and against it,
+  the explicit unknowns (for example, no client-side playout trace attached),
+  and one safe next action. When the evidence cannot support an attribution
+  (an unlabeled candidate, a not-scorable input, conflicting signals) it
+  REFUSES with the reason instead of guessing. Text, `--format json`
+  (schema `hotato.explain.v1`), and HTML report output. Explain reports
+  timing evidence; it does not prove root cause and does not infer intent.
+- **`hotato fix trial`, one command from candidate fix to before/after
+  proof**: composes the shipped primitives (`apply --clone`, the verify
+  battery, contract verification, and the opposite-risk guardrails) into a
+  single fail-closed trial: baseline on the recorded failure, apply the
+  candidate change in a clone (production config is never touched), re-run,
+  and check neighbouring and opposite-risk cases. Verdicts: improved
+  (exit 0), regressed (exit 1, forced by ANY fixture or opposite-risk
+  regression even when everything else improved), inconclusive (exit 3,
+  refused rather than softened). The report embeds the explain attribution
+  for the failure under trial.
+- Operator-grade capture depth for LiveKit and Pipecat in the starter
+  templates and docs: where turn-taking configuration lives in each stack
+  and how to capture per-party audio for scoring.
+
+### Fixed
+- `hotato contract unpack` now treats every archive as hostile input:
+  rejects path traversal (including backslash and drive-letter forms),
+  symlinked and encrypted members, duplicate member names, members not
+  declared in the manifest, oversized decompression (512 MiB default,
+  `--max-bytes` / `HOTATO_CONTRACT_MAX_UNPACK_BYTES` override, enforced
+  against actual streamed bytes, not just declared metadata), and
+  compression-ratio bombs. Extraction stays atomic: a refused archive
+  leaves nothing behind. `pack` cross-platform byte determinism is now
+  explicit rather than incidental.
+
 ## [0.6.0] - 2026-07-09
 
 ### Added
@@ -977,6 +1016,7 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
+[0.7.0]: https://github.com/attenlabs/hotato/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/attenlabs/hotato/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/attenlabs/hotato/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/attenlabs/hotato/compare/v0.4.0...v0.4.1
