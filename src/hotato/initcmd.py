@@ -602,6 +602,42 @@ def _starter_reports_readme() -> str:
     )
 
 
+# Extra per-stack guidance for the two capture-in-your-infra stacks: WHERE the
+# capture happens and WHERE turn-taking is actually configured, so the
+# starter kit's HOTATO.md is not just "run setup" for these two. Facts here
+# mirror the shipped scaffolds -- capture.py's _LIVEKIT_EGRESS_TEMPLATE /
+# _PIPECAT_PROCESSOR_TEMPLATE (both `hotato setup --stack <name>` prints
+# verbatim) and FIX-PLANS.md's Level 1 `hotato inspect` -- nothing new is
+# invented here, only surfaced earlier in the adoption path.
+_STARTER_CAPTURE_NOTES = {
+    "livekit": (
+        "LiveKit captures each participant's audio on its OWN track via "
+        "Egress -- RoomComposite mixes both parties into one channel and "
+        "cannot attribute overlap, so `hotato setup --stack livekit` prints "
+        "the two-Track-egress scaffold (Python `livekit-api`, "
+        "`TrackEgressRequest` + `DirectFileOutput`, one egress per party). "
+        "Turn-taking itself is configured on `AgentSession(turn_handling="
+        "TurnHandlingOptions(...))`: `turn_detection`, `endpointing`, and "
+        "`interruption`. Read what your agent is ACTUALLY running before "
+        "you touch any of it (static parse, never imported or executed):\n"
+        "\n"
+        "    hotato inspect --stack livekit --config agent.py\n"
+    ),
+    "pipecat": (
+        "Pipecat captures both parties in-pipeline with a 2-channel "
+        "`AudioBufferProcessor` (channel 0 = caller, channel 1 = agent) -- "
+        "`hotato setup --stack pipecat` prints the exact processor + "
+        "WAV-writer scaffold. Turn-taking itself lives on `PipelineTask`'s "
+        "user-turn start/stop strategies (`VADUserTurnStartStrategy`, "
+        "`MinWordsUserTurnStartStrategy`, `SpeechTimeoutUserTurnStopStrategy`,"
+        " ...). Read what your bot is ACTUALLY running before you touch any "
+        "of it (static parse, never imported or executed):\n"
+        "\n"
+        "    hotato inspect --stack pipecat --config bot.py\n"
+    ),
+}
+
+
 def _starter_hotato_md(stack: str) -> str:
     title = _STARTER_TITLES[stack]
     if stack in _STARTER_AUTO_PULL:
@@ -615,6 +651,7 @@ def _starter_hotato_md(stack: str) -> str:
             "hotato-sweep.json#1 \\\n"
             "        --expect yield --id <slug> --out contracts\n"
         )
+        capture_note = ""
     else:
         first_call = (
             f"    hotato setup --stack {stack}   # prints the exact "
@@ -623,6 +660,12 @@ def _starter_hotato_md(stack: str) -> str:
             "    hotato contract create --stereo call.wav --onset <sec> "
             "\\\n"
             "        --expect yield --id <slug> --out contracts\n"
+        )
+        capture_note = (
+            "\n"
+            f"## Where capture and turn-taking config live for {title}\n"
+            "\n"
+            f"{_STARTER_CAPTURE_NOTES[stack]}"
         )
     return (
         f"# hotato starter kit ({title})\n"
@@ -661,6 +704,7 @@ def _starter_hotato_md(stack: str) -> str:
         "## Get your first real call scored\n"
         "\n"
         f"{first_call}"
+        f"{capture_note}"
         "\n"
         "## Next steps\n"
         "\n"
@@ -762,6 +806,8 @@ def scaffold_starter(stack: str, out_dir: str, *, force: bool = False) -> dict:
             ] if auto_pull else [
                 f"cd {out_dir}" if out_dir != "." else None,
                 f"hotato setup --stack {stack}",
+                f"hotato inspect --stack {stack} --config <file>   "
+                "# where turn-taking config actually lives",
                 "hotato contract create --stereo call.wav --onset <sec> "
                 "--expect yield --id <slug> --out contracts",
             ]

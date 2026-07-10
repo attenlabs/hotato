@@ -240,8 +240,10 @@ was not talking when the caller started, carries `scorable: false` and a plain
 
 Hotato does not infer intent. You label the expected behavior for the event:
 yield means the agent should stop for the caller. hold means the agent should
-keep speaking through a backchannel/noise/acknowledgement. Hotato then
-measures whether the timing matched that label.
+keep speaking through a backchannel/noise/acknowledgement. Talk-through vs.
+stop is a policy call your team makes per moment, not a universal default;
+Hotato measures whether the agent's timing matched the policy label you gave
+it, never whether the policy itself was right.
 
 ## Scope and method (each limit is a property of how it works)
 
@@ -284,6 +286,11 @@ measures whether the timing matched that label.
   the one command that mutates external state, dry-run by default, refuses the
   both-axes threshold funnel, and never touches the source (creates a NEW
   staging assistant instead).
+- docs/FIX-TRIAL.md: `hotato fix trial`, composing apply's clone-only offline
+  gate + verify's battery-scale rollup + an optional contracts re-verify +
+  explain's attribution into ONE fail-closed before/after report (improved /
+  regressed / inconclusive; inconclusive is not a pass). Never creates a clone
+  or touches the network.
 - docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
   dashboard with the hear-the-bug audio playhead.
 - docs/TRUST.md: `hotato trust`, the input-health "trust doctor" pre-scan check

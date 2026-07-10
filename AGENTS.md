@@ -75,11 +75,33 @@ Do these in order. Every step is offline and reversible.
    (exit `1`) when a fixture's or a contract's timing regresses. Pattern and
    pytest plugin: [`docs/CI.md`](docs/CI.md) · [`docs/PYTEST.md`](docs/PYTEST.md).
 
-7. **Prove a fix before closing it.** When someone changes turn-taking config, run
+7. **When CI fails, explain before you tune.** `hotato explain result.json` (or a
+   `hotato-sweep.json#N` candidate ref, or a `.hotato` contract bundle) turns a
+   failing result into root-cause-by-layer evidence: likely layer, fixability
+   (`safe_to_patch` / `needs_human` / `insufficient_evidence` / `do_not_patch`),
+   the opposite-risk tradeoff, and a `safe_next_action`. It composes
+   `diagnose` and `plan`'s own policy gate; it adds no new scoring engine. When
+   the evidence cannot support one root cause, explain REFUSES with the reason
+   instead of guessing; treat a refusal as a correct answer, not a bug.
+   `--format json` for the machine shape, `--html` for a report. Docs:
+   [`docs/EXPLAIN.md`](docs/EXPLAIN.md).
+
+8. **Prove a fix before closing it.** When someone changes turn-taking config, run
    the battery before and after and compare:
    `hotato verify --before before.json --after after.json`. It reports what moved
    across the whole battery (coincidence, not causation); it does not certify a
    root cause.
+
+9. **Or run the composed proof in one command.** `hotato fix trial patch.json
+   --name staging-x --before before/ --after after/` runs `hotato apply`'s
+   clone-only offline gate, `hotato verify`'s battery-scale rollup, an
+   optional `--contracts` re-verify, and `hotato explain`'s attribution on
+   the original failure, then emits one fail-closed verdict: `improved`,
+   `regressed`, or `inconclusive` (inconclusive is NOT a pass; it exits the
+   same non-zero code as a regression). The both-axes threshold funnel
+   refuses before it reads any evidence, exit `3`, same as `apply`. It never
+   creates a clone and never touches the network. Docs:
+   [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md).
 
 ## Rules an agent must not break
 
@@ -91,8 +113,10 @@ Do these in order. Every step is offline and reversible.
   human decides `yield` vs `hold`. Do not write code, comments, or PR text that
   states what the agent "meant" or "tried to do."
 - **Never mutate production.** Hotato is read-only over recordings and never changes
-  a live agent's settings. There is no apply command. A fix plan is a proposal a
-  human reviews and applies by hand.
+  a live agent's settings. `hotato apply` (and `hotato fix trial`, which composes
+  it) is CLONE-ONLY: there is no production-apply path, ever. A fix plan and a
+  patch are proposals; only a human decides to apply the change in their own
+  stack, and only a NEW staging clone is ever created, never the source.
 - **No mono-first.** Scoring needs the caller and agent on separate channels. If
   only a mixed mono track exists, report NOT SCORABLE and ask for a dual-channel
   recording config (`hotato setup --stack <name>` prints it). Do not fabricate a
