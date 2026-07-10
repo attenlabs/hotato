@@ -86,7 +86,8 @@ decisions.
 
 ```bash
 # render the synthetic fixtures deterministically (sha256-seeded; byte-identical
-# on any machine), then run the harness over them
+# for a fixed hotato version -- verified in CI on Linux x86_64, Python 3.10,
+# 3.11, and 3.12), then run the harness over them
 python3 examples/render_examples.py
 PYTHONPATH=src python3 -m hotato.benchmark
 ```

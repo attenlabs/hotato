@@ -4,7 +4,7 @@ FILE: README.md
 
 <p align="center">
   <a href="https://hotato.dev">
-    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: find where your voice agent talks over callers, and keep it from coming back" width="840">
+    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: find where your voice agent talks over callers, and pin the fix to a CI-gated contract" width="840">
   </a>
 </p>
 
@@ -14,7 +14,7 @@ FILE: README.md
 
 <p align="center"><b>The open-source flight recorder for production voice agents.</b></p>
 
-<p align="center">Find where your voice agent talks over callers, and keep it from coming back: turn a failed call into a portable contract with audio, timing, traces, trust checks, human labels, CI gates, and verified fix trials. MIT.</p>
+<p align="center">Find where your voice agent talks over callers, and pin the fix to a portable contract with audio, timing, traces, trust checks, human labels, CI gates on every push, and verified fix trials. Recapture to prove your current agent still holds. MIT.</p>
 
 <p align="center">
   <a href="https://pypi.org/project/hotato/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/hotato.svg"></a>
@@ -65,13 +65,22 @@ A real failure became a candidate, became a portable `.hotato` contract, and `co
 
 Every command above takes a two-channel recording (caller on one channel, agent on the other). A mono file or a bad export is marked NOT SCORABLE, never turned into a confident but meaningless verdict.
 
+`contract verify` and a promoted fixture in CI are two different guarantees, depending on which recording goes in:
+
+| | On the frozen recording (every push) | On a fresh recapture (by hand, see [`docs/RECAPTURE.md`](docs/RECAPTURE.md)) |
+| --- | --- | --- |
+| Proves | The evidence, policy, and scorer are intact | The CURRENT agent's behavior still matches the label |
+| Does not prove | That the deployed agent hasn't changed | -- |
+
+A contract bundle contains call audio. Do not commit a raw customer contract to a public repository; use sanitized fixtures for anything public. See [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+
 ## The loop
 
-Catch it, confirm it, gate it, keep it gone:
+Catch it, confirm it, gate it, then prove it holds:
 
 1. **Sweep** surfaces candidate talk-over and false-stop moments across your recent calls, ranked by how far the timing missed.
 2. **You label** one (`yield` = stop for the caller, `hold` = keep talking through a backchannel) and `fixture promote` saves it as a permanent regression test.
-3. **CI runs** that fixture on every change and exits non-zero the moment the timing regresses, so the bug a caller already felt cannot come back unnoticed.
+3. **CI runs** that fixture on every change and exits non-zero if the recorded evidence stops matching your policy -- a change to the evidence, thresholds, or scorer is caught on every push. Catching the AGENT itself regressing needs a fresh recapture through the same fixture: see [`docs/RECAPTURE.md`](docs/RECAPTURE.md).
 
 Hotato measures whether the agent stopped talking when the caller started, how many seconds that took, and how many seconds both were talking at once. It reports what it measured, never a guess at intent.
 
@@ -120,6 +129,8 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **CI gates**: GitHub Action [`docs/CI.md`](docs/CI.md) · pytest plugin [`docs/PYTEST.md`](docs/PYTEST.md)
 - **Recorded-call battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
 - **Failure contracts and traces**: turn a labelled candidate into a portable, CI-verified bundle and attach observability evidence: [`docs/CONTRACTS.md`](docs/CONTRACTS.md) · [`docs/TRACE.md`](docs/TRACE.md) · [`docs/OTEL.md`](docs/OTEL.md)
+- **Proving the CURRENT agent, not just the frozen recording**: the recapture walkthrough: [`docs/RECAPTURE.md`](docs/RECAPTURE.md)
+- **Egress**: a per-command network table derived from the code -- what's local, what reaches your vendor, what optional extras add a hosted call: [`docs/EGRESS.md`](docs/EGRESS.md)
 - **Root cause and a proven fix**: `hotato explain` turns a failing result into root-cause-by-layer evidence, and `hotato fix trial` proves a candidate change before/after, fail-closed: [`docs/EXPLAIN.md`](docs/EXPLAIN.md) · [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md) · [`docs/APPLY.md`](docs/APPLY.md) · [`docs/FIX-LOOP.md`](docs/FIX-LOOP.md)
 - **Evidence**: what Hotato validates, the input-condition trust matrix, every card and CLI block reproducible, and where Hotato does and doesn't fit next to Hamming/Cekura/Coval/Bluejay/Roark/Vapi/Retell: [`docs/VALIDATION.md`](docs/VALIDATION.md) · [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) · [`docs/GALLERY.md`](docs/GALLERY.md) · [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) · [`docs/COMPARE.md`](docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](AGENTS.md) · [`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt) · MCP server [`docs/MCP.md`](docs/MCP.md) · Security [`SECURITY.md`](SECURITY.md)
@@ -2283,6 +2294,12 @@ hotato contract create --stereo call.wav --onset 42.18 \
 Commit the resulting `contracts/refund-cutoff-001.hotato/` directory. The
 next push runs it through the CI gate above.
 
+**A contract bundle contains call audio** (`audio/event.wav`). If this repo
+is or could become public, do not commit a raw customer contract into it --
+use a sanitized fixture (synthetic or consent-cleared) instead, and keep
+real-customer contracts in a private repository or controlled artifact
+storage. See [`CONTRACTS.md`](CONTRACTS.md).
+
 ## Read more
 
 - The bundle layout and the create/verify/inspect/pack/unpack commands:
@@ -2583,6 +2600,13 @@ recording that is not scorable. Not scorable means the recording cannot answer
 the question (the caller channel is silent, or the agent was not talking when
 the caller started), so no verdict is given.
 
+**A real recording gets its audio embedded in the report by default.**
+Scoring a call with `--stereo` / `--caller`+`--agent` writes the exact scored
+audio into the HTML file as a base64 data URI, so hearing the moment next to
+its timeline works offline. The bundled self-test fallback stays unembedded.
+If you plan to share, mail, or post the resulting `report.html`, treat it the
+same as sharing the raw recording -- because it contains the raw recording.
+
 ## `hotato report`: the visual report
 
 One self-contained file: inline CSS, inline SVG, zero external requests. It
@@ -2592,7 +2616,16 @@ opens offline by double-click and survives being mailed around.
 uvx hotato report --stereo call.wav --out report.html
 uvx hotato report --suite barge-in --out selftest.html
 uvx hotato report --stereo call.wav --format md --out report.md
+uvx hotato report --stereo call.wav --embed-audio --out report.html  # opt-in: embed the audio too
 ```
+
+`--embed-audio` embeds the exact scored audio (base64, under a size cap) so
+the report is a fully self-contained, hearable artifact -- and, for the same
+reason, a shareable-HTML caution applies: a report built with `--embed-audio`
+(or `hotato doctor` on a real recording, which sets it by default) carries
+the call audio inside the HTML file. Do not post it somewhere public, or
+attach it to a public issue/PR, without the same care you would give the raw
+recording.
 
 Per event it draws a to-scale caller/agent activity timeline from the
 frame data: the overlap shaded, the caller-onset and yield markers, the
@@ -2820,8 +2853,9 @@ python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte
 ```
 
 `--check` regenerating byte-identical output is the reproducibility guarantee:
-the audio on disk is exactly what the labelled timings say it is, on any
-machine. CI can run it as a drift gate.
+the audio on disk is exactly what the labelled timings say it is, deterministic
+for a fixed hotato version (byte-identical re-runs verified in CI on Linux
+x86_64, Python 3.10, 3.11, and 3.12). CI can run it as a drift gate.
 
 ## Additive scenario classes
 
@@ -3934,7 +3968,8 @@ decisions.
 
 ```bash
 # render the synthetic fixtures deterministically (sha256-seeded; byte-identical
-# on any machine), then run the harness over them
+# for a fixed hotato version -- verified in CI on Linux x86_64, Python 3.10,
+# 3.11, and 3.12), then run the harness over them
 python3 examples/render_examples.py
 PYTHONPATH=src python3 -m hotato.benchmark
 ```
@@ -4120,7 +4155,7 @@ workflows, production dashboards, load testing.
 timing evidence, CI-enforced regression tests, trace-backed turn-taking proof,
 refusing unsafe threshold bandaids.
 
-**Hotato answers:** "Did this exact production timing failure come back?"
+**Hotato answers:** "Is the recorded evidence for this exact timing failure still intact (every push), and does the CURRENT agent still avoid it (on a fresh recapture, [`docs/RECAPTURE.md`](RECAPTURE.md))?"
 **Hotato does not answer:** "Was the whole call successful?"
 
 These are complementary layers, not competing ones. A team running one of the
@@ -4152,12 +4187,14 @@ no ranking.
 |---|---|---|
 | Broad conversation QA: did the call succeed, was the transcript right, did it follow the rubric, simulate hundreds of scenarios, dashboards for the team | **Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell** | These grade the whole conversation, task success, and content, or they are the agent platform itself. Hotato does not do content, task success, or simulation. |
 | Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato never runs at runtime and never touches a live call. |
-| Prove a specific timing bug is fixed and **stays** fixed, from a real recorded call, portably, without sending audio anywhere | **Hotato** | A private, deterministic fixture: audio, a human label, and an explicit policy, scored the same way everywhere with `hotato verify`. Ships as a single portable contract bundle -- audio, timing evidence, trace evidence, label, policy, CI command -- in the release that adds the contract layer. |
+| Prove a specific timing bug is fixed, from a real recorded call, portably, without sending audio anywhere; a fresh recapture pins whether it **stays** fixed | **Hotato** | A private, deterministic fixture: audio, a human label, and an explicit policy, scored the same way everywhere with `hotato verify`. Ships as a single portable contract bundle -- audio, timing evidence, trace evidence, label, policy, CI command -- in the release that adds the contract layer. |
 
 If your open question is "is my agent good?", start with a QA platform. If it
 is "is my agent interrupting well right now?", start with a runtime layer. If
-it is "did the talk-over bug we fixed last month come back in this release?",
-that is Hotato.
+it is "is the evidence for the talk-over bug we fixed last month still
+intact, and does this release's agent still avoid it?", that is Hotato: the
+frozen check runs on every push, and the agent check needs a fresh recapture
+([`docs/RECAPTURE.md`](RECAPTURE.md)).
 
 ## Runtime layer vs regression layer
 
@@ -4169,13 +4206,18 @@ These two are often confused, so it is worth being exact.
   specific past moment is handled correctly.
 - A **regression layer** (Hotato) makes a decision *after* the call, from the
   recording: given this exact audio and this label, did the timing match, yes
-  or no, byte-stable on every run? It exists to catch the day a fixed bug
-  silently returns, and to hand that proof to CI as a portable artifact.
+  or no, byte-stable on every run? On the frozen recording it catches a
+  change to that recorded evidence or policy on every push, and hands that
+  proof to CI as a portable artifact; catching the day the AGENT itself
+  regresses needs a fresh recapture through the same check
+  ([`docs/RECAPTURE.md`](RECAPTURE.md)).
 
 You want both. A runtime layer improves the median call. A regression layer
-stops a good fix from quietly rotting three releases later. Hotato takes the
+catches evidence and policy drift on every push, and, recaptured, proves
+whether a good fix is still holding three releases later. Hotato takes the
 moment a runtime layer got wrong, freezes it as a fixture with `hotato
-fixture promote`, and fails CI if it regresses.
+fixture promote`, fails CI if the frozen evidence regresses, and recaptures
+to prove the live agent still holds.
 
 ## What Hotato is for, precisely
 
@@ -4185,9 +4227,12 @@ fixture promote`, and fails CI if it regresses.
   [THREAT-MODEL.md](THREAT-MODEL.md).
 - **Deterministic.** No learned score, no sampling. The same recording produces
   the same timing numbers every run, so a red build means the audio changed.
+  Deterministic for a fixed hotato version; byte-identical re-runs are
+  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the
-  same way on any machine with `hotato verify`. It ships as a self-contained
+  same way with `hotato verify`, deterministic for a fixed hotato version
+  (see above). It ships as a self-contained
   contract bundle -- adding timing evidence, trace evidence, and a CI command
   in one artifact -- in the release that adds the contract layer.
 - **Narrow on purpose.** Three timing signals: talking over the caller,
@@ -4210,8 +4255,9 @@ scoreboard, of its own results or anyone else's.
 Use a QA platform for broad quality, or one of the named orchestration
 platforms as your agent's runtime. Use a runtime layer for live interruption
 handling. Use Hotato when you need to prove, privately and portably, that a
-specific timing bug from a real call is fixed and does not come back. They
-compose; none of them replaces the others.
+specific timing bug from a real call is fixed, gate every push on the frozen
+evidence for it, and recapture to confirm it stays that way on your current
+agent. They compose; none of them replaces the others.
 
 
 ================================================================================
@@ -4234,6 +4280,34 @@ recording later and reports pass/fail.
 
 Hotato does not prove authorization, identity, compliance, or policy safety.
 Hotato proves timing behavior against this explicit contract.
+
+> **A contract bundle contains call audio (`audio/event.wav`).** Do not
+> commit a raw customer contract to a public repository -- treat it like any
+> other recording of a real caller. Use sanitized fixtures (synthetic or
+> consent-cleared) for anything public, and put real-customer contracts in
+> a private repository or controlled artifact storage instead.
+> `--include-identifiers` additionally writes a source basename and
+> candidate ref into `contract.json` and the card; leave it off by default
+> for the same reason.
+
+## Two lanes: what `verify` proves depends on which recording you feed it
+
+| | `contract verify` on the frozen recording | `contract verify` on a fresh recapture |
+| --- | --- | --- |
+| **What it re-scores** | The SAME `audio/event.wav` the contract was created from | A new recording of the SAME stimulus against your CURRENT agent |
+| **What a pass proves** | The evidence, the policy, and the scorer are still intact and still agree with the human label | The CURRENT agent's behavior on that stimulus still matches the label |
+| **What a pass does NOT prove** | That the deployed agent's behavior has not changed since | Nothing extra -- this is the one that speaks to the live agent |
+| **When it runs** | Every push, in the shipped `ci/github-action.yml` (`contract verify contracts/`) | Only when you recapture by hand or on a schedule; see [`docs/RECAPTURE.md`](RECAPTURE.md) |
+
+A frozen-recording pass is necessary but not sufficient to know the agent bug
+stayed fixed: it can only fail if someone edits the bundle's audio or policy,
+because the recording never changes. Proving the CURRENT agent still yields
+correctly requires re-running the same caller stimulus against it and
+re-verifying the fresh capture, by hand, per
+[`docs/RECAPTURE.md`](RECAPTURE.md). The two lanes are complementary, not
+interchangeable: run the frozen-recording gate on every push to catch
+evidence/policy drift for free, and recapture periodically (or after an agent
+change) to catch the thing the frozen gate structurally cannot.
 
 ## The bundle
 
@@ -4366,7 +4440,9 @@ hotato contract unpack contracts/refund-cutoff-001.hotato.pack --out contracts/r
 Packing the SAME bundle directory twice produces byte-identical archives
 (sorted member order, fixed timestamps, and every other value written into
 each member's ZipInfo, including its `create_system` byte): a contract's
-pack is a pure function of its bundle contents, on any machine.
+pack is a pure function of its bundle contents, deterministic for a fixed
+hotato version. Byte-identical re-runs are verified in CI on Linux x86_64,
+Python 3.10, 3.11, and 3.12.
 
 ### Security: unpack treats an archive as hostile input
 
@@ -4415,6 +4491,8 @@ coincides with the change; it is not a controlled experiment. See
 
 ## Read more
 
+- Proving the CURRENT agent, not just the frozen recording:
+  [`docs/RECAPTURE.md`](RECAPTURE.md)
 - The underlying regression-fixture primitive `contract create` wraps:
   [`docs/BAD-CALL-TO-CI.md`](BAD-CALL-TO-CI.md)
 - Battery-scale before/after proof: [`docs/FIX-LOOP.md`](FIX-LOOP.md)
@@ -4622,6 +4700,78 @@ Branch on `diarization.confidence_tier`; treat any event carrying
 `indicative_only: true` as indicative and never as a confident dual-channel
 verdict. A refused file is `scorable: false` with `not_scorable_reason` and exit
 `2`.
+
+
+================================================================================
+FILE: docs/EGRESS.md
+================================================================================
+
+# Egress: what talks to the network, command by command
+
+Derived from the code, not the marketing copy: every `urllib`/`http`/
+`subprocess`-to-a-network-tool call site in `src/hotato/`, mapped to the CLI
+command that reaches it. If a command is not listed under "reaches the
+network", it does not import `urllib`, does not open a socket, and does not
+shell out to a networked tool.
+
+## Fully local -- no network code path exists
+
+`run`, `report`, `doctor`, `team`, `export`, `benchmark`, `compare` (the
+batch result-comparison command, `stackbench.py`), `demo`, `start`, `card`,
+`diagnose`, `plan`, `explain`, `fixture create`, `fixture promote`,
+`contract create` (stereo / caller+agent / local-file mono), `contract
+verify`, `contract inspect`, `contract pack`, `contract unpack`, `trace
+attach`, `trace export`, `scan`, `trust`, `analyze`, `patch`, `verify`, `fix
+trial`, `loop`, `describe`, `init starter`, `init webhook` (the scaffold
+generator -- the server it scaffolds is a local listener, see below), `setup`.
+
+These read local files (recordings, scenarios, `hotato.yaml`, connection
+files) and write local files. `connect` also belongs here: it validates and
+stores credentials at `~/.hotato/connections.json` (mode `0600`) without a
+network round trip (`src/hotato/connections.py`: "nothing in this module
+makes a network call").
+
+## Reaches your configured vendor -- only when the command's job is to
+
+| Command | Reaches | When | Code |
+| --- | --- | --- | --- |
+| `capture --stack vapi\|retell\|twilio` | The stack's REST API | Always (fetches the one call you named) | `capture.py`: `_http_get`/`_http_get_json`/`_download` via `urllib.request` |
+| `capture --stack vapi\|retell\|twilio --demo` | Nothing | `--demo` scores a bundled reference file instead | `capture.py` |
+| `capture --stack livekit\|pipecat` | Nothing from Hotato | The recording is produced by YOUR infra; Hotato only scores the local file `setup` pointed you at | `capture.py` |
+| `pull` | The stack's list + download endpoints | Always (bulk-fetches recent recordings) | `capture.py` (same `_http_get`/`_download` path `capture` uses, looped) |
+| `sweep --stack <stack>` | Same as `pull` | Whenever `--demo` is NOT passed | `capture.py` via the pull path |
+| `sweep --demo` | Nothing | Sweeps the two bundled demo recordings | `analyze.py` on packaged audio |
+| `inspect --stack vapi\|retell` | The stack's assistant-config read endpoint (GET only, never a write) | Always | `inspectcfg.py`: `_http_get_json`, `inspect_vapi`, `inspect_retell` |
+| `inspect --stack livekit\|pipecat` | Nothing | Parses YOUR local config file with `ast`, no network | `inspectcfg.py`: `inspect_livekit_file`, `inspect_pipecat_file` |
+| `ingest` (webhook worker) | Inbound only, from the stack you configured to call your webhook; outbound only if the event's `recording_url` needs a download | Per event, and only for the fetch step | `ingest.py`: `_resolve_recording` reuses `capture.py`'s fetch/download; payloads are always treated as data, never instructions |
+| `apply` (default, no `--yes`) | Nothing | Dry run: prints the staging clone it WOULD create | `apply.py`: `build_apply` returns `dry_run: True`, never calls the networked function |
+| `apply --clone --yes` | The stack's REST API (`vapi`, `retell` only) | Only with `--yes` and credentials | `apply.py`: `create_clone` / `_http_json` is "the only networked function" in the module (its own docstring) -- reads the source config via GET, then POSTs to create a NEW staging assistant. Never PUTs/PATCHes the source. |
+| `issue create` (default, no `--yes`) | Nothing | Dry run: prints the issue body and the `gh` command it would run | `issuecmd.py` |
+| `issue create --yes` | GitHub, through your local `gh` CLI's existing auth | Only with `--yes` | `issuecmd.py`: `subprocess.run(["gh", "issue", "create", ...])` |
+| `pr create` (default, no `--yes`) | Nothing | Dry run: prints the PR body and the `git`/`gh` argv it would run | `prcmd.py` |
+| `pr create --yes` | Git remote + GitHub, through your local `gh` CLI's existing auth | Only with `--yes` | `prcmd.py`: `subprocess.run([...git...])` then `subprocess.run(["gh", "pr", "create", ...])` |
+
+## Optional extras that add a hosted call
+
+| Extra | Adds | Gate |
+| --- | --- | --- |
+| `hotato[neural]` | Nothing network -- a local Silero VAD cross-check model, run offline | N/A |
+| `hotato[livekit]` / `hotato[pipecat]` | Nothing from Hotato directly -- these SDKs run YOUR live capture infra; Hotato scores the file that infra writes | N/A |
+| `--diarizer pyannoteai` (`contract create --mono --diarize`, `run --mono --diarize`) | Uploads the mono audio to `pyannote.ai` for diarization | Refused (exit 2) unless `--egress-opt-in` is passed; the default diarizer (`pyannote`, local) never uploads. See `diarize.py`: `build_pyannoteai_backend`. |
+
+## The one credential-safety detail worth knowing
+
+`capture.py` installs a process-wide `urllib` redirect handler
+(`_CredentialSafeRedirectHandler`) so a 3xx redirect from a vendor API can
+never carry your Authorization header or API key to a different host. This
+applies to every fetch path in the table above that goes through
+`capture.py`'s `_http_get`/`_download`.
+
+## Read more
+
+- Posture summary and reporting a vulnerability: [`SECURITY.md`](../SECURITY.md)
+- Command-by-command threat model: [`docs/THREAT-MODEL.md`](THREAT-MODEL.md)
+- Ingest's untrusted-payload handling: [`docs/INGEST.md`](INGEST.md)
 
 
 ================================================================================
@@ -4898,6 +5048,138 @@ and how it is ranked, see [EVIDENCE-PACK.md](EVIDENCE-PACK.md) and
 
 
 ================================================================================
+FILE: docs/RECAPTURE.md
+================================================================================
+
+# Recapture: proving the CURRENT agent, not just the frozen recording
+
+`hotato contract verify` and a promoted fixture in CI both re-score the SAME
+audio the fixture or contract was created from. That audio never changes, so
+those checks can only fail if the recorded evidence, the policy, or the
+scorer changes -- never because your deployed agent got worse. Proving the
+CURRENT agent still avoids a bug requires generating a NEW recording of the
+same caller stimulus and scoring that. This page is the manual walkthrough
+for doing that. See the two-lane table in
+[`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it)
+for the guarantee each lane gives.
+
+There is no `hotato recapture` command. Reproducing a caller's stimulus
+against a live agent is not something Hotato can automate: it does not place
+calls, drive a caller script, or know what a caller said. This is a human
+task; Hotato's job starts again once you have a new recording.
+
+## When you need this
+
+- After a prompt, model, or config change you believe fixes a known bug, and
+  you want proof beyond "the frozen contract still fails the same way it
+  always did" (it will -- the recording never changes).
+- On a schedule (weekly, before a release) to catch silent regressions the
+  frozen-evidence CI gate structurally cannot see.
+- Before telling a customer, a teammate, or a PR reviewer "this is fixed."
+
+If your stack can create a staging clone (`vapi`, `retell`) and you already
+have `hotato apply --clone --yes`, `hotato fix trial` automates the
+before/after half of this (source vs. clone, re-captured) and folds in the
+neighbouring-cases check. Use this manual walkthrough when that path is not
+available, or when the recapture is on a live production agent you cannot
+clone.
+
+## Step 1: read the original contract's stimulus and policy
+
+```bash
+hotato contract inspect contracts/refund-cutoff-001.hotato
+```
+
+Note, from the printed fields (or `contract.json` directly with
+`--format json`):
+
+- `label.expected_behavior` (`yield` or `hold`) -- what the agent should do.
+- `policy.pass_conditions` (`max_talk_over_sec`, `max_time_to_yield_sec`) --
+  the SAME thresholds the fresh recapture must be scored against, or the
+  comparison is not apples-to-apples.
+- `source.category` / `source/call_metadata.json` (if `--include-identifiers`
+  was used at creation) -- whatever context was recorded about the caller
+  scenario. Hotato does not store a transcript or a script; if you need the
+  exact words a caller used, that has to come from your own call notes,
+  scripted test caller, or a human re-running the same scenario.
+
+## Step 2: reproduce the caller stimulus against the CURRENT agent
+
+Human-assisted is fine and expected: place the call (or run the scripted
+test caller) against the agent as it is deployed TODAY, using the same
+scenario that produced the original recording. Nothing about this step is
+automated by Hotato.
+
+## Step 3: capture dual-channel audio
+
+Record caller and agent on separate channels (two-channel WAV, or two
+aligned mono files) -- the same input requirement every other Hotato command
+has. A mixed mono recording cannot be scored reliably; see
+[`docs/CONTRACTS.md`](CONTRACTS.md#the-opt-in-diarized-mono-path) for the
+quality-gated diarized-mono fallback if separated channels are genuinely not
+available.
+
+## Step 4: create a NEW contract from the fresh recording, same policy
+
+```bash
+hotato contract create --stereo recapture-2026-07-10.wav --onset 41.90 \
+    --expect yield --id refund-cutoff-001-recapture-2026-07-10 \
+    --out contracts \
+    --max-talk-over 0.6 --max-time-to-yield 1.0
+```
+
+Use the SAME `--expect` and the SAME `--max-talk-over` / `--max-time-to-yield`
+values Step 1 read from the original contract's policy. `contract create`
+scores immediately and refuses a not-scorable recording (exit 2) rather than
+writing a meaningless bundle -- so a refusal here is itself information (the
+recapture didn't produce a scorable moment, not that the agent passed).
+
+## Step 5: verify the fresh contract
+
+```bash
+hotato contract verify contracts/refund-cutoff-001-recapture-2026-07-10.hotato
+```
+
+A pass here is the claim the frozen-recording gate cannot make: the CURRENT
+agent, on a fresh recording of the same stimulus, still meets the same
+labelled policy. Keep both contracts -- the original (the historical record
+of the bug) and the recapture (today's evidence) -- they answer different
+questions and neither substitutes for the other.
+
+## Limits, stated plainly
+
+- **This is not a controlled experiment.** A pass after a change coincides
+  with the change; it does not prove causation. See
+  [`docs/VALIDATION.md`](VALIDATION.md) and
+  [`docs/THREAT-MODEL.md`](THREAT-MODEL.md).
+- **The stimulus match is only as good as your reproduction of it.** A
+  scripted test caller reproduces wording and timing more faithfully than an
+  ad hoc human call; Hotato has no way to verify the fresh call actually
+  matches the original scenario -- that judgment is yours, same as the
+  original label.
+- **One recapture is one data point.** A single fresh pass does not establish
+  a rate; run it more than once, or fold it into a battery-scale check
+  (`hotato verify --before --after`, [`docs/FIX-LOOP.md`](FIX-LOOP.md)) if
+  you need a distribution rather than a single yes/no.
+- **This does not run in CI by itself.** Unlike `contract verify` on the
+  frozen recording, there is no automatic trigger for "go re-run the call
+  against production" -- wiring that is a decision you make (a scheduled
+  synthetic-caller job, a manual pre-release checklist item), not something
+  Hotato ships turned on.
+
+## Read more
+
+- The two-lane distinction this page exists to close:
+  [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it)
+- The automated before/after path for clone-appliable stacks:
+  [`docs/FIX-TRIAL.md`](FIX-TRIAL.md) · [`docs/APPLY.md`](APPLY.md)
+- Battery-scale before/after proof, coincidence not causation:
+  [`docs/FIX-LOOP.md`](FIX-LOOP.md)
+- What a contract does and does not prove:
+  [`docs/CONTRACTS.md`](CONTRACTS.md#what-a-contract-does-not-prove)
+
+
+================================================================================
 FILE: docs/RELEASE-CHECKLIST.md
 ================================================================================
 
@@ -5162,13 +5444,21 @@ yield`, it genuinely fails -- so `start --demo` prints:
 
 ```
 verified contract: FAIL as expected -- the demo call really did miss the
-interruption; this is the exact failure a CI regression gate would catch
+interruption; a CI gate on this contract catches any change to the evidence
+or policy -- catching the AGENT regressing requires a fresh recapture (see
+docs/RECAPTURE.md)
+(start --demo itself exits 0 because setup succeeded; run the next command to
+see the contract's CI exit 1: hotato contract verify contracts/)
 ```
 
-This is not a contrived pass. `hotato contract verify contracts/` re-scores
-the SAME bundled audio and reports the SAME regression (exit code `1`),
-exactly like a CI job would after a change reintroduces this failure. Run it
-yourself:
+This is not a contrived pass: `hotato contract verify contracts/` re-scores
+the SAME bundled audio and reports the SAME regression (exit code `1`), and a
+CI job wired to it fails the same way if that bundled evidence or policy ever
+changes. What it does NOT do, on this frozen recording, is tell you whether a
+CURRENT deployed agent still has the bug -- that requires re-running the same
+caller stimulus against it and verifying the fresh capture; see
+[`docs/RECAPTURE.md`](RECAPTURE.md). See [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it)
+for the full two-lane breakdown. Run it yourself:
 
 ```bash
 hotato contract verify contracts/
@@ -5650,7 +5940,9 @@ exposed and every frame is inspectable (`hotato run --dump-frames`).
 ## Job 1: timing reproducibility
 
 **The question:** given the same recording and the same reference config, does
-Hotato produce the same timing measurements every run, on any machine?
+Hotato produce the same timing measurements every run? (Deterministic for a
+fixed hotato version; byte-identical re-runs are verified in CI on Linux
+x86_64, Python 3.10, 3.11, and 3.12.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used

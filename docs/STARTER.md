@@ -157,6 +157,12 @@ hotato contract create --stereo call.wav --onset 42.18 \
 Commit the resulting `contracts/refund-cutoff-001.hotato/` directory. The
 next push runs it through the CI gate above.
 
+**A contract bundle contains call audio** (`audio/event.wav`). If this repo
+is or could become public, do not commit a raw customer contract into it --
+use a sanitized fixture (synthetic or consent-cleared) instead, and keep
+real-customer contracts in a private repository or controlled artifact
+storage. See [`CONTRACTS.md`](CONTRACTS.md).
+
 ## Read more
 
 - The bundle layout and the create/verify/inspect/pack/unpack commands:

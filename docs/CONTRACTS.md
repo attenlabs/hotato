@@ -15,6 +15,34 @@ recording later and reports pass/fail.
 Hotato does not prove authorization, identity, compliance, or policy safety.
 Hotato proves timing behavior against this explicit contract.
 
+> **A contract bundle contains call audio (`audio/event.wav`).** Do not
+> commit a raw customer contract to a public repository -- treat it like any
+> other recording of a real caller. Use sanitized fixtures (synthetic or
+> consent-cleared) for anything public, and put real-customer contracts in
+> a private repository or controlled artifact storage instead.
+> `--include-identifiers` additionally writes a source basename and
+> candidate ref into `contract.json` and the card; leave it off by default
+> for the same reason.
+
+## Two lanes: what `verify` proves depends on which recording you feed it
+
+| | `contract verify` on the frozen recording | `contract verify` on a fresh recapture |
+| --- | --- | --- |
+| **What it re-scores** | The SAME `audio/event.wav` the contract was created from | A new recording of the SAME stimulus against your CURRENT agent |
+| **What a pass proves** | The evidence, the policy, and the scorer are still intact and still agree with the human label | The CURRENT agent's behavior on that stimulus still matches the label |
+| **What a pass does NOT prove** | That the deployed agent's behavior has not changed since | Nothing extra -- this is the one that speaks to the live agent |
+| **When it runs** | Every push, in the shipped `ci/github-action.yml` (`contract verify contracts/`) | Only when you recapture by hand or on a schedule; see [`docs/RECAPTURE.md`](RECAPTURE.md) |
+
+A frozen-recording pass is necessary but not sufficient to know the agent bug
+stayed fixed: it can only fail if someone edits the bundle's audio or policy,
+because the recording never changes. Proving the CURRENT agent still yields
+correctly requires re-running the same caller stimulus against it and
+re-verifying the fresh capture, by hand, per
+[`docs/RECAPTURE.md`](RECAPTURE.md). The two lanes are complementary, not
+interchangeable: run the frozen-recording gate on every push to catch
+evidence/policy drift for free, and recapture periodically (or after an agent
+change) to catch the thing the frozen gate structurally cannot.
+
 ## The bundle
 
 `hotato contract create` writes one self-contained directory,
@@ -146,7 +174,9 @@ hotato contract unpack contracts/refund-cutoff-001.hotato.pack --out contracts/r
 Packing the SAME bundle directory twice produces byte-identical archives
 (sorted member order, fixed timestamps, and every other value written into
 each member's ZipInfo, including its `create_system` byte): a contract's
-pack is a pure function of its bundle contents, on any machine.
+pack is a pure function of its bundle contents, deterministic for a fixed
+hotato version. Byte-identical re-runs are verified in CI on Linux x86_64,
+Python 3.10, 3.11, and 3.12.
 
 ### Security: unpack treats an archive as hostile input
 
@@ -195,6 +225,8 @@ coincides with the change; it is not a controlled experiment. See
 
 ## Read more
 
+- Proving the CURRENT agent, not just the frozen recording:
+  [`docs/RECAPTURE.md`](RECAPTURE.md)
 - The underlying regression-fixture primitive `contract create` wraps:
   [`docs/BAD-CALL-TO-CI.md`](BAD-CALL-TO-CI.md)
 - Battery-scale before/after proof: [`docs/FIX-LOOP.md`](FIX-LOOP.md)

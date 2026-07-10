@@ -23,6 +23,13 @@ recording that is not scorable. Not scorable means the recording cannot answer
 the question (the caller channel is silent, or the agent was not talking when
 the caller started), so no verdict is given.
 
+**A real recording gets its audio embedded in the report by default.**
+Scoring a call with `--stereo` / `--caller`+`--agent` writes the exact scored
+audio into the HTML file as a base64 data URI, so hearing the moment next to
+its timeline works offline. The bundled self-test fallback stays unembedded.
+If you plan to share, mail, or post the resulting `report.html`, treat it the
+same as sharing the raw recording -- because it contains the raw recording.
+
 ## `hotato report`: the visual report
 
 One self-contained file: inline CSS, inline SVG, zero external requests. It
@@ -32,7 +39,16 @@ opens offline by double-click and survives being mailed around.
 uvx hotato report --stereo call.wav --out report.html
 uvx hotato report --suite barge-in --out selftest.html
 uvx hotato report --stereo call.wav --format md --out report.md
+uvx hotato report --stereo call.wav --embed-audio --out report.html  # opt-in: embed the audio too
 ```
+
+`--embed-audio` embeds the exact scored audio (base64, under a size cap) so
+the report is a fully self-contained, hearable artifact -- and, for the same
+reason, a shareable-HTML caution applies: a report built with `--embed-audio`
+(or `hotato doctor` on a real recording, which sets it by default) carries
+the call audio inside the HTML file. Do not post it somewhere public, or
+attach it to a public issue/PR, without the same care you would give the raw
+recording.
 
 Per event it draws a to-scale caller/agent activity timeline from the
 frame data: the overlap shaded, the caller-onset and yield markers, the

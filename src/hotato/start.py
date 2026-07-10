@@ -263,8 +263,14 @@ def run_start(*, demo: bool = False, stack: Optional[str] = None,
             print(f"  demo contract:   {contract_info['bundle_rel']}")
             if contract_info["passed"] is False:
                 print("  verified contract: FAIL as expected -- the demo "
-                      "call really did miss the interruption; this is the "
-                      "exact failure a CI regression gate would catch")
+                      "call really did miss the interruption; a CI gate on "
+                      "this contract catches any change to the evidence or "
+                      "policy -- catching the AGENT regressing requires a "
+                      "fresh recapture (see docs/RECAPTURE.md)")
+                print("  (start --demo itself exits 0 because setup "
+                      "succeeded; run the next command to see the "
+                      "contract's CI exit 1: hotato contract verify "
+                      "contracts/)")
             else:  # pragma: no cover - the bundled demo candidate always fails
                 mark = "PASS" if contract_info["passed"] else "NOT SCORABLE"
                 print(f"  verified contract: {mark}")

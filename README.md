@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://hotato.dev">
-    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: find where your voice agent talks over callers, and keep it from coming back" width="840">
+    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: find where your voice agent talks over callers, and pin the fix to a CI-gated contract" width="840">
   </a>
 </p>
 
@@ -10,7 +10,7 @@
 
 <p align="center"><b>The open-source flight recorder for production voice agents.</b></p>
 
-<p align="center">Find where your voice agent talks over callers, and keep it from coming back: turn a failed call into a portable contract with audio, timing, traces, trust checks, human labels, CI gates, and verified fix trials. MIT.</p>
+<p align="center">Find where your voice agent talks over callers, and pin the fix to a portable contract with audio, timing, traces, trust checks, human labels, CI gates on every push, and verified fix trials. Recapture to prove your current agent still holds. MIT.</p>
 
 <p align="center">
   <a href="https://pypi.org/project/hotato/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/hotato.svg"></a>
@@ -61,13 +61,22 @@ A real failure became a candidate, became a portable `.hotato` contract, and `co
 
 Every command above takes a two-channel recording (caller on one channel, agent on the other). A mono file or a bad export is marked NOT SCORABLE, never turned into a confident but meaningless verdict.
 
+`contract verify` and a promoted fixture in CI are two different guarantees, depending on which recording goes in:
+
+| | On the frozen recording (every push) | On a fresh recapture (by hand, see [`docs/RECAPTURE.md`](docs/RECAPTURE.md)) |
+| --- | --- | --- |
+| Proves | The evidence, policy, and scorer are intact | The CURRENT agent's behavior still matches the label |
+| Does not prove | That the deployed agent hasn't changed | -- |
+
+A contract bundle contains call audio. Do not commit a raw customer contract to a public repository; use sanitized fixtures for anything public. See [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+
 ## The loop
 
-Catch it, confirm it, gate it, keep it gone:
+Catch it, confirm it, gate it, then prove it holds:
 
 1. **Sweep** surfaces candidate talk-over and false-stop moments across your recent calls, ranked by how far the timing missed.
 2. **You label** one (`yield` = stop for the caller, `hold` = keep talking through a backchannel) and `fixture promote` saves it as a permanent regression test.
-3. **CI runs** that fixture on every change and exits non-zero the moment the timing regresses, so the bug a caller already felt cannot come back unnoticed.
+3. **CI runs** that fixture on every change and exits non-zero if the recorded evidence stops matching your policy -- a change to the evidence, thresholds, or scorer is caught on every push. Catching the AGENT itself regressing needs a fresh recapture through the same fixture: see [`docs/RECAPTURE.md`](docs/RECAPTURE.md).
 
 Hotato measures whether the agent stopped talking when the caller started, how many seconds that took, and how many seconds both were talking at once. It reports what it measured, never a guess at intent.
 
@@ -116,6 +125,8 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **CI gates**: GitHub Action [`docs/CI.md`](docs/CI.md) · pytest plugin [`docs/PYTEST.md`](docs/PYTEST.md)
 - **Recorded-call battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
 - **Failure contracts and traces**: turn a labelled candidate into a portable, CI-verified bundle and attach observability evidence: [`docs/CONTRACTS.md`](docs/CONTRACTS.md) · [`docs/TRACE.md`](docs/TRACE.md) · [`docs/OTEL.md`](docs/OTEL.md)
+- **Proving the CURRENT agent, not just the frozen recording**: the recapture walkthrough: [`docs/RECAPTURE.md`](docs/RECAPTURE.md)
+- **Egress**: a per-command network table derived from the code -- what's local, what reaches your vendor, what optional extras add a hosted call: [`docs/EGRESS.md`](docs/EGRESS.md)
 - **Root cause and a proven fix**: `hotato explain` turns a failing result into root-cause-by-layer evidence, and `hotato fix trial` proves a candidate change before/after, fail-closed: [`docs/EXPLAIN.md`](docs/EXPLAIN.md) · [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md) · [`docs/APPLY.md`](docs/APPLY.md) · [`docs/FIX-LOOP.md`](docs/FIX-LOOP.md)
 - **Evidence**: what Hotato validates, the input-condition trust matrix, every card and CLI block reproducible, and where Hotato does and doesn't fit next to Hamming/Cekura/Coval/Bluejay/Roark/Vapi/Retell: [`docs/VALIDATION.md`](docs/VALIDATION.md) · [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) · [`docs/GALLERY.md`](docs/GALLERY.md) · [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) · [`docs/COMPARE.md`](docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](AGENTS.md) · [`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt) · MCP server [`docs/MCP.md`](docs/MCP.md) · Security [`SECURITY.md`](SECURITY.md)
