@@ -689,6 +689,33 @@ def test_force_unpack_of_a_hostile_archive_preserves_the_existing_out_dir(tmp_pa
     assert sentinel.read_text() == "keep-me"
 
 
+def test_pack_refuses_a_file_symlink_in_the_bundle(tmp_path):
+    # v2 diligence (2026-07-10): a planted symlink must never ship outside
+    # bytes; the bundle must be self-contained.
+    outside = tmp_path / "secret.txt"
+    outside.write_text("OUTSIDE_SECRET")
+    bundle = tmp_path / "b.hotato"
+    (bundle / "audio").mkdir(parents=True)
+    (bundle / "contract.json").write_text("{}")
+    (bundle / "audio" / "evil.wav").symlink_to(outside)
+    out = tmp_path / "b.hotato.pack"
+    assert cli.main(["contract", "pack", str(bundle), "--out", str(out)]) == 2
+    assert not out.exists()
+
+
+def test_pack_refuses_a_directory_symlink_in_the_bundle(tmp_path):
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    (outside_dir / "leak.txt").write_text("OUTSIDE_SECRET")
+    bundle = tmp_path / "b.hotato"
+    bundle.mkdir()
+    (bundle / "contract.json").write_text("{}")
+    (bundle / "evidence").symlink_to(outside_dir, target_is_directory=True)
+    out = tmp_path / "b.hotato.pack"
+    assert cli.main(["contract", "pack", str(bundle), "--out", str(out)]) == 2
+    assert not out.exists()
+
+
 def test_unpack_accepts_a_well_formed_hand_built_archive(tmp_path):
     """Regression guard: the hardening above must not reject a legitimate,
     nested-path archive built the same way the hostile fixtures are."""

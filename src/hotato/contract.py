@@ -1219,6 +1219,20 @@ def _iter_bundle_files(bundle_dir: str):
     out = []
     for root, dirs, files in os.walk(bundle_dir):
         dirs.sort()
+        # A packed bundle must be self-contained: a symlink anywhere under the
+        # bundle would silently archive bytes from OUTSIDE it (a planted link
+        # to a secret would ship the secret). Refuse links fail-closed, for
+        # directories and files alike (os.walk already declines to descend
+        # into linked dirs, which would otherwise just vanish from the pack).
+        for name in list(dirs) + list(files):
+            cand = os.path.join(root, name)
+            if os.path.islink(cand):
+                rel = os.path.relpath(cand, bundle_dir).replace(os.sep, "/")
+                raise ValueError(
+                    f"bundle contains a symlink ({rel!r}); refusing to pack. "
+                    "A .hotato bundle must be self-contained: copy the real "
+                    "file into the bundle instead of linking to it"
+                )
         for fn in sorted(files):
             fp = os.path.join(root, fn)
             rel = os.path.relpath(fp, bundle_dir).replace(os.sep, "/")
