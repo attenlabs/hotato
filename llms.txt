@@ -240,8 +240,10 @@ was not talking when the caller started, carries `scorable: false` and a plain
 
 Hotato does not infer intent. You label the expected behavior for the event:
 yield means the agent should stop for the caller. hold means the agent should
-keep speaking through a backchannel/noise/acknowledgement. Hotato then
-measures whether the timing matched that label.
+keep speaking through a backchannel/noise/acknowledgement. Talk-through vs.
+stop is a policy call your team makes per moment, not a universal default;
+Hotato measures whether the agent's timing matched the policy label you gave
+it, never whether the policy itself was right.
 
 ## Scope and method (each limit is a property of how it works)
 

@@ -294,7 +294,7 @@ def test_hotato_md_flags_are_real(tmp_path, stack):
     flags_used = set(re.findall(r"--[a-z][a-z-]*", text))
     manifest = _describe_manifest()
     names = (
-        ["connect", "sweep", "contract create", "setup", "verify"]
+        ["connect", "sweep", "contract create", "setup", "verify", "inspect"]
     )
     real_flags = set()
     for name in names:

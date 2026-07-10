@@ -115,7 +115,8 @@ And the standing refusals:
   `"decision": "do_not_tune_single_threshold"` with a vendor-neutral
   engagement-control pointer (no product names, no digits in the pointer
   text). No single threshold satisfies both axes; raising it for one worsens
-  the other.
+  the other -- the threshold treadmill teams describe from the inside: tuned
+  endlessly, with no perfect setting, because both failures share one knob.
 * slow_yield without a clear layer: TTS buffering, transport latency, and VAD
   smoothing are indistinguishable from one recording, so the plan is a
   diagnostic checklist (instrumentation steps), never a knob change. A slow

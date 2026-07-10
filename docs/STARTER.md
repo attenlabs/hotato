@@ -57,6 +57,61 @@ recording API to pull from, so no credentials are generated or needed.
 two-track capture scaffold, and you point `hotato contract create --stereo`
 at the WAV your own deployment writes.
 
+## LiveKit and Pipecat runbook
+
+LiveKit and Pipecat are a foundational orchestration tier a lot of the
+market builds on, and they are the two stacks where capture and the
+turn-taking config both live in your own code rather than behind a vendor
+API. This is the operator runbook for both, capture through CI.
+
+### LiveKit
+
+1. **Capture.** Two audio-only Track egresses, one per participant --
+   RoomComposite mixes both parties into one channel and cannot attribute
+   overlap. `hotato setup --stack livekit` prints the copy-paste scaffold
+   (Python `livekit-api`, `TrackEgressRequest` + `DirectFileOutput`); a
+   ready-to-copy version also lives at `adapters/livekit_capture.py`.
+2. **Find the turn-taking config.** It lives on
+   `AgentSession(turn_handling=TurnHandlingOptions(...))`: `turn_detection`
+   (`inference.TurnDetector()` / `"realtime_llm"` / `"vad"` / `"stt"` /
+   `"manual"`), `endpointing` (`min_delay`, `max_delay`), and `interruption`
+   (`enabled`, `mode`, `min_duration`, `min_words`,
+   `false_interruption_timeout`, `resume_false_interruption`). Read what a
+   given agent file is ACTUALLY running, statically, before you propose
+   changing anything: `hotato inspect --stack livekit --config agent.py`.
+3. **Score it.**
+   `hotato capture --stack livekit --caller caller.wav --agent agent.wav --onset <sec> --expect yield`
+   (convert the egress output to WAV first, e.g. `ffmpeg -i caller.ogg caller.wav`).
+4. **Fixture, contract, CI.** Same as every stack from here -- see "Turn
+   your first bad call into a contract" below.
+
+### Pipecat
+
+1. **Capture.** A 2-channel `AudioBufferProcessor` in-pipeline (channel 0 =
+   user/caller, channel 1 = bot/agent) -- do not mix down to one channel.
+   `hotato setup --stack pipecat` prints the copy-paste scaffold; a
+   ready-to-copy version also lives at `adapters/pipecat_capture.py`.
+2. **Find the turn-taking config.** It lives on `PipelineTask`'s user-turn
+   strategies: start strategies (`VADUserTurnStartStrategy`,
+   `TranscriptionUserTurnStartStrategy`,
+   `MinWordsUserTurnStartStrategy(min_words=...)`,
+   `KrispVivaIPUserTurnStartStrategy(...)`) and stop strategies
+   (`SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=...)`,
+   `TurnAnalyzerUserTurnStopStrategy(turn_analyzer=...)`); note
+   `MinWordsInterruptionStrategy` is deprecated since pipecat 0.0.99 in
+   favor of `MinWordsUserTurnStartStrategy`. Read what a given bot file is
+   ACTUALLY running, statically: `hotato inspect --stack pipecat --config bot.py`.
+3. **Score it.**
+   `hotato capture --stack pipecat --stereo captured.wav --expect yield`
+   (write the WAV from the `AudioBufferProcessor`'s `on_audio_data` handler
+   first).
+4. **Fixture, contract, CI.** Same as every stack from here -- see "Turn
+   your first bad call into a contract" below.
+
+Both APIs move; `hotato setup` and `hotato inspect` state the verified-against
+date. Full field-level detail and provenance: [`ADAPTER-STATUS.md`](ADAPTER-STATUS.md)
+(capture) and [`FIX-PLANS.md`](FIX-PLANS.md) (inspect, Level 1 of the fix ladder).
+
 ## The CI gate
 
 `.github/workflows/hotato-contracts.yml` runs on push, on pull request, and
