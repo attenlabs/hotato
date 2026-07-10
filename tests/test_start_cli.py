@@ -136,6 +136,33 @@ def test_start_demo_prints_verified_contract_fail_as_expected(tmp_path, capsys):
     assert "verified contract: FAIL as expected" in out
 
 
+def test_start_demo_scopes_the_ci_gate_to_evidence_and_policy(tmp_path, capsys):
+    # The frozen demo contract's CI gate catches a change to the recorded
+    # evidence or policy; it does NOT prove the CURRENT agent stopped
+    # regressing -- that needs a fresh recapture (docs/RECAPTURE.md).
+    rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert ("a CI gate on this contract catches any change to the evidence "
+            "or policy") in out
+    assert "catching the AGENT regressing requires a fresh recapture" in out
+    assert "docs/RECAPTURE.md" in out
+    assert "exact failure a CI regression gate would catch" not in out
+
+
+def test_start_demo_explains_its_own_exit_0(tmp_path, capsys):
+    # start --demo exits 0 because the guided setup succeeded, not because
+    # the demo contract passed -- the demo contract genuinely FAILS its
+    # policy. The line must say so, since the process exit code alone reads
+    # as a pass.
+    rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert ("start --demo itself exits 0 because setup succeeded" in out)
+    assert "run the next command to see the contract's CI exit 1" in out
+    assert "hotato contract verify contracts/" in out
+
+
 def test_start_demo_prints_the_contract_verify_next_command(tmp_path, capsys):
     rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
     assert rc == 0

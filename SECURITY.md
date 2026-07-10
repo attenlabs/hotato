@@ -28,7 +28,10 @@ Attention Labs, and never uses a webhook payload as instructions.** The single
 off-box audio path is the hosted `--diarizer pyannoteai` backend, which requires
 an explicit `--egress-opt-in` flag; the default diarizer is local.
 
-Full detail, command by command: [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
+Full detail, command by command: [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md). A
+per-command network table derived directly from the code (which commands are
+fully local, which reach your configured vendor and when, which optional
+extras add a hosted call): [`docs/EGRESS.md`](docs/EGRESS.md).
 
 ## Reporting
 
