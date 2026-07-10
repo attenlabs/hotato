@@ -5,6 +5,7 @@ package exactly as a fresh `uvx` install would.
 """
 
 import json
+import wave
 
 import pytest
 
@@ -254,6 +255,120 @@ def test_stream_sha256_never_reads_the_whole_file_in_one_call(tmp_path, monkeypa
     digest = core._stream_sha256(target)
     assert len(digest) == 64
     assert 0 < max_read["n"] <= (1 << 20)
+
+
+# --- decoded-PCM identity: same conversation, re-exported ---------------
+
+def _write_test_wav(path, n_samples=2000, sample_rate=16000):
+    """A small deterministic mono wav, built the same way the rest of this
+    file already synthesizes fixtures (``write_wav``, no external audio)."""
+    from hotato._engine.audio import write_wav
+
+    samples = [(i % 100) / 100.0 - 0.5 for i in range(n_samples)]
+    write_wav(str(path), sample_rate, [samples])
+
+
+def test_run_single_stereo_provenance_carries_pcm_sha256():
+    env = run_single(
+        stereo=_bundled_stereo_path("01-hard-interruption"), expect="yield")
+    side = env["events"][0]["audio_provenance"]["sides"][0]
+    assert len(side["pcm_sha256"]) == 64
+    # Distinct from the raw-file digest: a different identity, not an alias.
+    assert side["pcm_sha256"] != side["sha256"]
+
+
+def test_pcm_sha256_deterministic_for_the_same_file(tmp_path):
+    from hotato import core
+
+    p = tmp_path / "a.wav"
+    _write_test_wav(p)
+    assert core._stream_pcm_sha256(str(p)) == core._stream_pcm_sha256(str(p))
+
+
+def test_pcm_sha256_unchanged_by_a_header_only_edit(tmp_path):
+    """A byte_rate/block_align-style edit inside the fmt chunk never touches
+    the data chunk: the DECODED samples are identical, so pcm_sha256 must
+    match, even though the raw-file sha256 (which hashes the whole
+    container) differs. This is the exact re-export/repack shape a re-tagged
+    or re-muxed copy of the same recording produces."""
+    from hotato import core
+
+    orig = tmp_path / "orig.wav"
+    edited = tmp_path / "edited.wav"
+    _write_test_wav(orig)
+    data = bytearray(orig.read_bytes())
+    # Canonical 44-byte stdlib-``wave`` header: byte_rate is the 4 bytes at
+    # offset 28. Corrupting it (to a value inconsistent with this file's
+    # sample_rate/channels/width) changes no sample byte -- getframerate()/
+    # getnframes()/readframes() never read this field.
+    assert data[36:40] == b"data"  # sanity: this is the canonical layout
+    data[28:32] = (999).to_bytes(4, "little")
+    edited.write_bytes(bytes(data))
+
+    assert core._stream_pcm_sha256(str(orig)) == core._stream_pcm_sha256(str(edited))
+    assert core._stream_sha256(str(orig)) != core._stream_sha256(str(edited))
+
+
+def test_pcm_sha256_unchanged_by_a_trailing_byte_append(tmp_path):
+    """Bytes appended after the declared data chunk (a common artifact of a
+    naive re-save/re-mux) are never read by ``readframes()`` -- bounded by
+    the header's own frame count -- so the decoded identity is unchanged
+    while the raw-file identity moves."""
+    from hotato import core
+
+    orig = tmp_path / "orig.wav"
+    appended = tmp_path / "appended.wav"
+    _write_test_wav(orig)
+    data = orig.read_bytes()
+    appended.write_bytes(data + b"\x7f" * 137)
+
+    assert core._stream_pcm_sha256(str(orig)) == core._stream_pcm_sha256(str(appended))
+    assert core._stream_sha256(str(orig)) != core._stream_sha256(str(appended))
+
+
+def test_pcm_sha256_changes_on_a_single_sample_edit(tmp_path):
+    """The inverse of the two invariance tests above: editing even one
+    sample byte inside the data chunk must move pcm_sha256, so the digest is
+    a substantive content check, not a constant that happens to survive the
+    two crafted edits above."""
+    from hotato import core
+
+    orig = tmp_path / "orig.wav"
+    edited = tmp_path / "edited.wav"
+    _write_test_wav(orig)
+    data = bytearray(orig.read_bytes())
+    data[44] ^= 0xFF  # first byte of the first PCM sample, past the header
+    edited.write_bytes(bytes(data))
+
+    assert core._stream_pcm_sha256(str(orig)) != core._stream_pcm_sha256(str(edited))
+
+
+def test_pcm_sha256_streams_in_bounded_chunks(tmp_path, monkeypatch):
+    """Proven functionally, mirroring
+    ``test_stream_sha256_never_reads_the_whole_file_in_one_call``: a spying
+    ``readframes`` records every chunk size requested while hashing a file
+    that needs several chunks under a (test-lowered) chunk size, and asserts
+    more than one call happened and none exceeded the bound -- never a
+    single ``readframes(n_frames)`` covering the whole file."""
+    from hotato import core
+
+    monkeypatch.setattr(core, "_PCM_HASH_CHUNK_FRAMES", 500)
+
+    p = tmp_path / "big.wav"
+    _write_test_wav(p, n_samples=1800)  # > 3 chunks of 500 frames
+
+    calls = []
+    real_readframes = wave.Wave_read.readframes
+
+    def spy_readframes(self, n):
+        assert n <= 500, "requested more than the bounded chunk size"
+        calls.append(n)
+        return real_readframes(self, n)
+
+    monkeypatch.setattr(wave.Wave_read, "readframes", spy_readframes)
+    digest = core._stream_pcm_sha256(str(p))
+    assert len(digest) == 64
+    assert len(calls) > 1, "expected multiple bounded reads, not one bulk read"
 
 
 def test_mono_stereo_file_rejected():
