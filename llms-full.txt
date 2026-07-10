@@ -48,6 +48,12 @@ Open `hotato-sweep.html` for the ranked candidate moments with a hear-the-bug pl
 
 A real failure became a candidate, became a portable `.hotato` contract, and `contract verify` catches it. Hotato prints the exact next commands to promote it into a permanent fixture, run it in CI, and re-verify.
 
+Point it at your own recording to walk the same loop end to end:
+
+```bash
+hotato start --stereo my-call.wav          # trust -> scan -> review -> label -> contract
+```
+
 ## Choose your path
 
 | You want to | Run this |
@@ -94,6 +100,28 @@ hotato sweep --stack vapi --since 7d --out hotato-sweep.html    # cron, CI, wher
 ```
 
 Run `sweep` on a timer and it becomes a scheduled batch scanner. Your audio stays on your machine unless you explicitly pull it from your stack. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) · runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md).
+
+## Fleet (private, self-hosted)
+
+`hotato fleet` runs the loop across every agent from one local workspace: ingest
+calls, surface candidates, label them, and run a before/after experiment that
+recomputes both sides from audio under a pinned manifest. It recommends a change;
+it never deploys one. Local mode is stdlib-only (SQLite plus a content-addressed
+store) with no account and no hosted dependency, and no product limit on how many
+agents you register.
+
+```bash
+hotato fleet init -w acme
+hotato fleet agent add -w acme --name support-bot --stack vapi --assistant-id asst_123
+hotato fleet ingest  -w acme --agent support-bot call.wav
+hotato fleet discover -w acme --agent support-bot call.wav
+hotato fleet review  -w acme
+```
+
+A before/after experiment refuses a proof built from an edited verdict, a
+re-encoded old call, a dropped fixture, or unrelated audio: the number comes from
+re-scoring the recordings, under one pinned policy, every time. Full guide:
+[`docs/GUARDIAN-FLEET.md`](docs/GUARDIAN-FLEET.md).
 
 ## What Hotato is not
 
