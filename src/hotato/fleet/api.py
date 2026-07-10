@@ -160,6 +160,22 @@ class FleetAPI:
         rc = _recompute.recompute_trial(before_env, before_dir, after_env, after_dir, man,
                                         capture_receipts=capture_receipts,
                                         capture_context=capture_context)
+        # Enrich the evidence with a trust preflight (input health + channel
+        # mapping), the SAME shared logic `hotato fix trial` uses, so an
+        # API-driven trial reaches PAIRED for a genuinely clean fix rather than
+        # stalling at MEASURED.
+        try:
+            from .. import fix_trial as _fix_trial
+            from .. import evidence as _ev
+            ih, cm = _fix_trial._trust_preflight(before_dir, after_dir, before_env, after_env)
+            vec = dict(rc["evidence"]["vector"])
+            if ih is not None:
+                vec["input_health"] = ih
+            if cm is not None:
+                vec["channel_mapping"] = cm
+            rc["evidence"] = _ev.classify(vec)
+        except Exception:  # noqa: BLE001 - enrichment is best-effort
+            pass
         tier = rc["evidence"]["tier"]
         if rc["refusal"]:
             verdict = "refused"
@@ -183,6 +199,59 @@ class FleetAPI:
                 "recommendation": recommendation, "manifest_hash": man["manifest_hash"],
                 "refusal": rc["refusal"], "flags": rc["flags"],
                 "evidence": rc["evidence"]}
+
+    # --- automatic experiment loop (clone -> apply -> recapture -> recompute) --
+    def experiment_clone_run(self, workspace_id, agent_id, *, trial_id, adapter,
+                             source_ref, variant, scenarios, before_env, before_dir,
+                             battery_env=None, policy=None, min_n=1,
+                             work_dir=None) -> dict:
+        """The complete automatic experiment path (plan rank 5 / §22.5): clone the
+        source agent, apply a bounded variant to the CLONE only, run each scenario
+        against it, capture the fresh recordings, score them, and recompute the
+        before/after trial under a pinned manifest. Recommends; never deploys.
+
+        With the mock adapter this runs fully offline; with a live adapter the
+        networked steps refuse without credentials (production is never mutated).
+        Returns the same shape as experiment_run plus the clone/capture record."""
+        import os as _os, json as _json
+        from .. import core as _core
+        work_dir = work_dir or _os.path.join(self.home, "clones", trial_id)
+        _os.makedirs(work_dir, exist_ok=True)
+        # 1) clone (clone-only; production untouched) + apply the variant to the clone
+        clone = adapter.clone_agent(source_ref, name=f"hotato-staging-{trial_id}")
+        applied = adapter.apply_variant(clone, variant)
+        # 2) run each scenario against the clone and capture fresh audio
+        after_dir = _os.path.join(work_dir, "after")
+        _os.makedirs(after_dir, exist_ok=True)
+        for sc in scenarios:
+            cap = adapter.run_scenario(clone, sc)
+            rec = cap["recording"]
+            dest = _os.path.join(after_dir, f"{sc['id']}.example.wav")
+            if _os.path.abspath(rec) != _os.path.abspath(dest):
+                _os.replace(rec, dest)
+        # 3) score the fresh recaptures into an after envelope
+        scen_dir = _os.path.join(work_dir, "scen")
+        _os.makedirs(scen_dir, exist_ok=True)
+        for sc in scenarios:
+            _json.dump(sc, open(_os.path.join(scen_dir, f"{sc['id']}.json"), "w"))
+        after_env = _core.run_suite(scenarios_dir=scen_dir, audio_dir=after_dir,
+                                    suffix=".example.wav")
+        _json.dump(after_env, open(_os.path.join(after_dir, "run.json"), "w"))
+        # 4) recompute the before/after trial under a pinned manifest
+        result = self.experiment_run(
+            workspace_id, agent_id, trial_id=trial_id,
+            battery_env=battery_env or before_env, before_env=before_env,
+            before_dir=before_dir, after_env=after_env, after_dir=after_dir,
+            policy=policy, min_n=min_n)
+        result["clone"] = {"ref": clone, "config_hash": applied.get("config_hash"),
+                           "cleaned_up": False}
+        # 5) clean up the test clone (best-effort; never leaves prod state)
+        try:
+            adapter.delete_clone(clone)
+            result["clone"]["cleaned_up"] = True
+        except Exception:  # noqa: BLE001
+            pass
+        return result
 
     # --- status / rollup -----------------------------------------------
     def status(self, workspace_id) -> dict:
