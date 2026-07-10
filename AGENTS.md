@@ -75,7 +75,18 @@ Do these in order. Every step is offline and reversible.
    (exit `1`) when a fixture's or a contract's timing regresses. Pattern and
    pytest plugin: [`docs/CI.md`](docs/CI.md) · [`docs/PYTEST.md`](docs/PYTEST.md).
 
-7. **Prove a fix before closing it.** When someone changes turn-taking config, run
+7. **When CI fails, explain before you tune.** `hotato explain result.json` (or a
+   `hotato-sweep.json#N` candidate ref, or a `.hotato` contract bundle) turns a
+   failing result into root-cause-by-layer evidence: likely layer, fixability
+   (`safe_to_patch` / `needs_human` / `insufficient_evidence` / `do_not_patch`),
+   the opposite-risk tradeoff, and a `safe_next_action`. It composes
+   `diagnose` and `plan`'s own policy gate; it adds no new scoring engine. When
+   the evidence cannot support one root cause, explain REFUSES with the reason
+   instead of guessing; treat a refusal as a correct answer, not a bug.
+   `--format json` for the machine shape, `--html` for a report. Docs:
+   [`docs/EXPLAIN.md`](docs/EXPLAIN.md).
+
+8. **Prove a fix before closing it.** When someone changes turn-taking config, run
    the battery before and after and compare:
    `hotato verify --before before.json --after after.json`. It reports what moved
    across the whole battery (coincidence, not causation); it does not certify a

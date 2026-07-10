@@ -206,6 +206,12 @@ _EXIT_CODES: dict = {
         (0, "plan written (including refusals)"),
         (2, "unusable input or missing credentials"),
     ),
+    "explain": (
+        (0, "explained, nothing attributable (no failing/ambiguous events)"),
+        (1, "explained: at least one attribution or refusal was produced"),
+        (2, "usage error or unusable input (a bad candidate ref, a file that "
+            "is not a hotato result, or an unreadable contract bundle)"),
+    ),
     "fixture": (
         (2, "no subcommand given (see hotato fixture create/promote --help)"),
     ),
@@ -1155,6 +1161,22 @@ def _cmd_plan(args) -> int:
     else:
         print(_fixplan.render_text(plan))
     print(f"wrote fix plan ({plan['decision']}) to {args.out}", file=sys.stderr)
+    return 0
+
+
+def _cmd_explain(args) -> int:
+    from . import explain as _explain
+
+    explanation = _explain.explain(args.source)
+    if args.html:
+        _atomic_write_text(args.html, _explain.render_html(explanation))
+        print(f"wrote {args.html}", file=sys.stderr)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(explanation, indent=2))
+    else:
+        print(_explain.render_text(explanation))
+    if explanation["attributions"] or explanation["refusals"]:
+        return 1
     return 0
 
 
@@ -2916,6 +2938,54 @@ def build_parser() -> argparse.ArgumentParser:
                     help="stdout format (default text summary; json prints "
                          "the full plan)")
     pl.set_defaults(func=_cmd_plan)
+
+    # --- explain: root-cause-by-layer, composed from diagnose + plan --------
+    ex = sub.add_parser(
+        "explain",
+        help="root-cause-by-layer analysis of a finished result: likely "
+             "layer, fixability, evidence for/against, unknowns, and a safe "
+             "next action (read-only; refuses rather than guesses)",
+        description=(
+            "Read a finished result -- a run envelope (hotato run --format "
+            "json > result.json), a sweep/analyze candidate ref "
+            "(hotato-sweep.json#N), or a contract bundle directory "
+            "(<id>.hotato) -- and emit a layer-general attribution per "
+            "attributable failure: failure_layer, type, confidence, "
+            "fixability (safe_to_patch | needs_human | insufficient_evidence "
+            "| do_not_patch), opposite_risk, evidence_for, evidence_against, "
+            "and explicit unknowns. This adds no new scoring engine: it "
+            "reframes hotato diagnose's per-event findings and the same "
+            "policy gate hotato plan enforces (a mapped knob, a passing "
+            "opposite-risk fixture, config-only-safe). A candidate ref "
+            "carries no human label, so it is always REFUSED with the exact "
+            "promote command for both labels. When evidence genuinely "
+            "cannot support one root cause (echo bleed, an ambiguous slow "
+            "yield, a contract whose false stop could be backchannel, "
+            "ambient noise, or echo), explain REFUSES with the reason "
+            "instead of guessing. Read-only: nothing is fetched, mutated, or "
+            "applied."
+        ),
+        epilog=(
+            _exit_codes_epilog("explain") + "\n"
+            "Examples:\n"
+            "  hotato explain result.json\n"
+            "  hotato explain hotato-sweep.json#1\n"
+            "  hotato explain contracts/refund-cutoff-001.hotato\n"
+            "  hotato explain result.json --format json\n"
+            "  hotato explain result.json --html explain.html"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ex.add_argument(
+        "source", metavar="RESULT",
+        help="a hotato envelope JSON, a FILE#N / FILE#CALL:N candidate ref, "
+             "or a contract bundle directory",
+    )
+    ex.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text)")
+    ex.add_argument("--html", default=None, metavar="PATH",
+                    help="also write a self-contained HTML report to PATH")
+    ex.set_defaults(func=_cmd_explain)
 
     # --- fixture create: bad call moment -> permanent regression fixture ----
     fx = sub.add_parser(

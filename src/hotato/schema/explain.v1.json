@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/explain.v1.json",
+  "title": "hotato explanation, schema hotato.explain.v1",
+  "description": "Root-cause-by-layer analysis composed from an existing plan/diagnosis, trust report, and contract evidence -- no new scoring engine. `hotato explain` reads a finished result (a run envelope, a sweep/analyze candidate ref, or a contract bundle) and emits, per attributable failure, a layer-general record (failure_layer/type/confidence/fixability/opposite_risk) plus evidence_for, evidence_against, and explicit unknowns. When the evidence cannot support picking one likely cause, the item is a refusal instead of a guess. Additive-only: new keys may appear without a version bump; a consumer must ignore unknown fields. Hotato does not infer intent and does not prove authorization, identity, compliance, or policy safety; an attribution here is evidence-based, never a proof of root cause.",
+  "type": "object",
+  "required": ["schema", "kind", "created_at", "source", "input_kind", "attributions", "refusals", "unknowns", "safe_next_action"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "hotato.explain.v1" },
+    "kind": { "const": "explanation" },
+    "created_at": { "type": "string" },
+    "source": { "type": ["string", "null"] },
+    "input_kind": { "enum": ["run_envelope", "sweep_candidate", "contract_bundle"] },
+    "stack": { "type": ["string", "null"] },
+    "battery": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "events": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "not_scorable": { "type": "integer", "minimum": 0 },
+        "decision": { "type": ["string", "null"] },
+        "notes": { "type": ["string", "null"] }
+      }
+    },
+    "attributions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["failure_layer", "type", "confidence", "fixability", "evidence_for", "evidence_against", "unknowns", "safe_next_action"],
+        "additionalProperties": true,
+        "properties": {
+          "event_id": { "type": ["string", "null"] },
+          "scenario_id": { "type": ["string", "null"] },
+          "failure_layer": {
+            "type": "string",
+            "description": "The layer-general taxonomy dimension. Only 'turn_taking' is populated in this build; the schema stays layer-general so future layers (asr, tool, policy, latency, handoff, ...) can be added without a version bump."
+          },
+          "type": {
+            "enum": [
+              "missed_real_interruption",
+              "false_stop_on_backchannel",
+              "false_stop_on_ambient_noise",
+              "slow_yield",
+              "excess_talk_over",
+              "endpointing_miss",
+              "threshold_funnel"
+            ]
+          },
+          "turn_taking_layer": {
+            "enum": ["interruption_detection", "endpointing", null]
+          },
+          "confidence": { "enum": ["high", "medium", "low"] },
+          "fixability": {
+            "enum": ["safe_to_patch", "needs_human", "insufficient_evidence", "do_not_patch"]
+          },
+          "opposite_risk": { "type": ["string", "null"] },
+          "evidence_for": { "type": "array", "items": { "type": "string" } },
+          "evidence_against": { "type": "array", "items": { "type": "string" } },
+          "unknowns": { "type": "array", "items": { "type": "string" } },
+          "safe_next_action": { "type": "string" }
+        }
+      }
+    },
+    "refusals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["reason", "unknowns", "safe_next_action"],
+        "additionalProperties": true,
+        "properties": {
+          "event_id": { "type": ["string", "null"] },
+          "scenario_id": { "type": ["string", "null"] },
+          "reason": { "type": "string" },
+          "evidence_for": { "type": "array", "items": { "type": "string" } },
+          "unknowns": { "type": "array", "items": { "type": "string" } },
+          "safe_next_action": { "type": "string" }
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Explicit, top-level unknowns that apply to the whole result (for example: no client-side playout trace attached)."
+    },
+    "safe_next_action": {
+      "type": "string",
+      "description": "The single best next command given everything above; never an auto-apply."
+    },
+    "notes": { "type": ["string", "null"] }
+  }
+}
