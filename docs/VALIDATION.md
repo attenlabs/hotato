@@ -13,7 +13,9 @@ exposed and every frame is inspectable (`hotato run --dump-frames`).
 ## Job 1: timing reproducibility
 
 **The question:** given the same recording and the same reference config, does
-Hotato produce the same timing measurements every run, on any machine?
+Hotato produce the same timing measurements every run? (Deterministic for a
+fixed hotato version; byte-identical re-runs are verified in CI on Linux
+x86_64, Python 3.10, 3.11, and 3.12.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used
