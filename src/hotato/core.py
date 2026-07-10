@@ -118,8 +118,33 @@ def _engine_meta() -> dict:
 # Additive and versioned (``schema_version``): a run envelope from before this
 # field existed simply omits it, and every reader (``verify``, ``fix_trial``)
 # must treat that absence as UNKNOWN provenance, never as proof of anything.
+#
+# ``sha256`` (raw file bytes) is identity of the CONTAINER: it changes on any
+# byte anywhere in the file, including a header field no decoder ever reads
+# (a byte_rate/block_align edit, a re-write with a different chunk order, a
+# byte appended past the declared data length) or a lossless transcode that
+# reorders/repads the container without touching a single sample value.
+# ``pcm_sha256`` is identity of the DECODED SAMPLES: a streamed sha256 over
+# only the WAV data-chunk's sample bytes, read via ``wave.readframes()`` in
+# fixed-size frame chunks -- the same primitive ``_load_signal``/
+# ``_engine.read_wav`` already call to decode, never a hand-rolled second
+# parser. Because it is bounded by the header's own frame count and never
+# touches RIFF/fmt metadata or anything past the last declared frame, a
+# header-only edit or a trailing-byte append leaves it UNCHANGED while
+# ``sha256`` differs; a change to even one sample value changes it. It is
+# additive and OPTIONAL in the schema for the same reason ``sha256`` is
+# effectively load-bearing today: a reader must treat its absence (an older
+# envelope, or one hand-built without it) as UNKNOWN, never as proof either
+# way.
 
 _AUDIO_PROVENANCE_SCHEMA_VERSION = "1"
+
+# Frames per ``wave.readframes()`` call when streaming the PCM digest: bounds
+# peak memory on a multi-hour recording to this many frames' worth of bytes
+# (well under a MiB at typical mono/stereo 16-bit rates) regardless of file
+# length, mirroring ``_stream_sha256``'s fixed-size chunked read over the raw
+# file.
+_PCM_HASH_CHUNK_FRAMES = 1 << 16
 
 
 def _stream_sha256(path: str) -> str:
@@ -130,11 +155,38 @@ def _stream_sha256(path: str) -> str:
     return h.hexdigest()
 
 
+def _stream_pcm_sha256(path: str) -> str:
+    """Streamed sha256 over the DECODED PCM sample bytes only.
+
+    Reads the WAV data chunk via the same ``wave.open()`` /
+    ``readframes()`` call ``_load_signal`` and the vendored
+    ``_engine.read_wav`` already decode with -- fixed sample width,
+    little-endian (the WAV container's own on-disk byte order, independent
+    of host architecture), channel-interleaved, exactly as stored -- in
+    bounded-size frame chunks, never the whole file in one call. This never
+    reads RIFF/fmt container metadata or any byte past the header's own
+    frame count, so it names the same identity for two files that decode to
+    identical samples even when their containers differ byte-for-byte (a
+    header field edited, trailing bytes appended past the declared data
+    length), while still changing on any edit to a sample value.
+    """
+    h = hashlib.sha256()
+    with wave.open(path, "rb") as wf:
+        while True:
+            chunk = wf.readframes(_PCM_HASH_CHUNK_FRAMES)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _wav_identity(role: str, path: str) -> dict:
-    """One file's provenance: a streamed sha256 of its raw bytes plus the
-    sample rate and frame count read straight from the WAV header (the same
-    cheap header read ``_load_signal`` already does; no float decode here)."""
+    """One file's provenance: a streamed sha256 of its raw bytes, a streamed
+    sha256 of its decoded PCM samples, plus the sample rate and frame count
+    read straight from the WAV header (the same cheap header read
+    ``_load_signal`` already does; no float decode here)."""
     sha256 = _stream_sha256(path)
+    pcm_sha256 = _stream_pcm_sha256(path)
     with wave.open(path, "rb") as wf:
         sample_rate = wf.getframerate()
         num_samples = wf.getnframes()
@@ -143,6 +195,7 @@ def _wav_identity(role: str, path: str) -> dict:
         "role": role,
         "path": os.path.basename(path),
         "sha256": sha256,
+        "pcm_sha256": pcm_sha256,
         "sample_rate": sample_rate,
         "num_samples": num_samples,
         "duration_sec": duration_sec,
