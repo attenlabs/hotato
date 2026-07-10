@@ -33,10 +33,10 @@ hotato fix trial patch.json --name staging-refund-fix \
 
 | Verdict | When | Exit |
 | --- | --- | --- |
-| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, and `--policy` (if given) passed | `0` |
+| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, `--policy` (if given) passed, AND every fixture the claim rests on carries distinct, known before/after audio identity (the fresh-capture provenance guard, below) | `0` |
 | `regressed` | any fixture regressed, a contract regressed, or the policy failed | `1` |
-| `inconclusive` | too few previously-failing fixtures to characterize, or nothing that used to fail now passes | `1` |
-| `refused` | the patch is the both-axes threshold funnel; apply's own refusal-first gate fires before any before/after evidence is even read | `3` |
+| `inconclusive` | too few previously-failing fixtures to characterize, nothing that used to fail now passes, OR audio identity is unknown on either side for a fixture the claim rests on | `1` |
+| `refused` | EITHER the patch is the both-axes threshold funnel (apply's refusal-first gate fires before any before/after evidence is even read), OR every other bar clears but a fixture the claim rests on has byte-identical before/after audio (the after run re-scored the SAME recording, not a fresh capture) | `3` |
 
 **`inconclusive` is fail-closed, not a pass.** A low-n battery or a
 zero-improvement battery exits the SAME non-zero code as a real regression,
@@ -60,6 +60,51 @@ No config patch will be applied
 Reason: both missed real interruption and false stop on backchannel, one threshold cannot safely fix both
 Recommended: enable or add engagement-control / backchannel-aware turn detection
 ```
+
+## Fresh-capture provenance guard: a re-score is never a fix
+
+`hotato apply`'s clone-only gate and `hotato verify`'s battery-scale rollup
+answer "did the numbers move." Neither one asks whether the AFTER evidence
+was actually RE-CAPTURED, or is just the SAME recording the BEFORE run
+scored, re-scored under a looser threshold. That gap is exploitable: run the
+same fixture twice with different `--max-time-to-yield` / `--max-talk-over`
+bounds, and you get a genuine-looking "improved" verdict with no code,
+config, or model change behind it at all.
+
+Every run envelope now records an `audio_provenance` block per event: a
+streamed sha256 of the exact audio bytes that were scored (plus sample rate
+and frame count), computed at capture time by `hotato run` / `hotato
+capture`. `hotato fix trial` compares this identity, before vs. after, for
+every fixture the `improved` claim rests on (previously failing, now
+passing -- exactly the fixtures composing verify's "N of M" headline):
+
+| Provenance | Meaning | Effect on verdict |
+| --- | --- | --- |
+| Distinct, known digests on every target fixture | a real recapture happened | none -- proceeds exactly as before |
+| Identical digest on any target fixture | the after run re-scored the SAME recording as the before run | downgraded to `refused` (exit `3`), never a soft pass |
+| A digest missing on either side of any target fixture | an older envelope, or one hand-built without `audio_provenance` -- identity is UNKNOWN | downgraded to `inconclusive` (exit `1`), never assumed fresh |
+
+A same-audio refusal is NOT the apply-gate refusal: it fires AFTER
+`verify` / `contract verify` / `explain` have already run, so (unlike the
+both-axes refusal, which reads no evidence at all) the full report --
+verify's proof, the contract rollup, the provenance digests, the
+attribution -- still renders below the refusal banner. Both refusal paths
+exit the SAME code `3`; `refusal_kind` in the JSON output
+(`"threshold_funnel"` vs. `"same_audio_recapture"`) tells them apart for a
+script that wants to.
+
+```
+No fix will be certified from re-scored audio
+Reason: 1 fixture(s) this claim rests on (f1) have byte-identical before/after audio (same sha256): the after run re-scored the SAME recording the before run scored, just against a different threshold or scorer config
+Recommended: recapture the fixture(s) through the applied clone (hotato apply --clone --yes) and re-run hotato fix trial against the new after evidence
+```
+
+Every rendered report (text, `--format json`, `--html`) surfaces the short
+digest for every target fixture, before and after, and whether they match --
+so a reader never has to take "fresh capture" on faith. The report's own
+conclusion states plainly what a passing digest check proves: that the fresh
+take passed the same human-labeled contract, not that the change caused it
+(hotato reports coincidence, never causation, throughout).
 
 ## Flags
 

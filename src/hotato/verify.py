@@ -214,12 +214,19 @@ def verify_sides(
                 "passed": _passed(b),
                 "talk_over_sec": bv.get("talk_over_sec"),
                 "seconds_to_yield": bv.get("seconds_to_yield"),
+                # Additive passthrough of whatever the envelope carried (a dict
+                # when the event was captured with the audio-provenance field,
+                # None for an older or hand-edited envelope). Never invented
+                # here; a consumer (hotato fix trial's recapture guard) reads
+                # it and must treat a missing value as UNKNOWN, never as proof.
+                "audio_provenance": b.get("audio_provenance"),
             },
             "after": {
                 "scorable": _scorable(a),
                 "passed": _passed(a),
                 "talk_over_sec": av.get("talk_over_sec"),
                 "seconds_to_yield": av.get("seconds_to_yield"),
+                "audio_provenance": a.get("audio_provenance"),
             },
         })
         b_failed = _scorable(b) and not _passed(b)

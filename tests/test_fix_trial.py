@@ -102,7 +102,8 @@ def funnel_patch(tmp_path):
     return _write_patch(tmp_path, _funnel_plan())
 
 
-def _ev(eid, expected_yield, passed, tov=0.0, tty=None, scorable=True):
+def _ev(eid, expected_yield, passed, tov=0.0, tty=None, scorable=True,
+        audio_sha=None):
     v = {
         "passed": passed,
         "did_yield": expected_yield if passed else (not expected_yield),
@@ -114,6 +115,17 @@ def _ev(eid, expected_yield, passed, tov=0.0, tty=None, scorable=True):
          "expected_yield": expected_yield, "verdict": v}
     if not scorable:
         e["scorable"] = False
+    # audio_sha=None mirrors an envelope with no audio_provenance field at all
+    # (an older hotato, or a hand-built one, like every OTHER event fixture in
+    # this file); pass a string to simulate a real captured event.
+    if audio_sha is not None:
+        e["audio_provenance"] = {
+            "schema_version": "1",
+            "sha256": audio_sha,
+            "sides": [{"role": "stereo", "path": f"{eid}.wav",
+                       "sha256": audio_sha, "sample_rate": 16000,
+                       "num_samples": 16000, "duration_sec": 1.0}],
+        }
     return e
 
 
@@ -136,14 +148,21 @@ def _write_env(tmp_path, name, events):
 
 def _improving_sides(tmp_path):
     """Three previously-failing yield fixtures fixed + a hold guard still
-    passing: a clean, min-n-supported improvement with no regression."""
+    passing: a clean, min-n-supported improvement with no regression. Each
+    target fixture carries DISTINCT before/after audio_provenance -- a real
+    fresh recapture, not a re-score -- so the provenance guard lets the
+    'improved' verdict stand."""
     before = _write_env(tmp_path, "before.json", [
-        _ev("f1", True, False, 1.2), _ev("f2", True, False, 0.9, 2.1),
-        _ev("f3", True, False, 1.5), _ev("h1", False, True, 0.0),
+        _ev("f1", True, False, 1.2, audio_sha="f1-before"),
+        _ev("f2", True, False, 0.9, 2.1, audio_sha="f2-before"),
+        _ev("f3", True, False, 1.5, audio_sha="f3-before"),
+        _ev("h1", False, True, 0.0, audio_sha="h1-before"),
     ])
     after = _write_env(tmp_path, "after.json", [
-        _ev("f1", True, True, 0.3, 0.4), _ev("f2", True, True, 0.2, 0.5),
-        _ev("f3", True, True, 0.4, 0.6), _ev("h1", False, True, 0.0),
+        _ev("f1", True, True, 0.3, 0.4, audio_sha="f1-after"),
+        _ev("f2", True, True, 0.2, 0.5, audio_sha="f2-after"),
+        _ev("f3", True, True, 0.4, 0.6, audio_sha="f3-after"),
+        _ev("h1", False, True, 0.0, audio_sha="h1-after"),
     ])
     return before, after
 
@@ -477,6 +496,155 @@ def test_refused_html_report_renders(tmp_path, funnel_patch, capsys):
     assert rc == 3
     html = html_path.read_text(encoding="utf-8")
     assert "No config patch will be applied" in html
+
+
+# --- fresh-capture provenance guard ------------------------------------------
+
+def _same_audio_sides(tmp_path):
+    """Like ``_improving_sides``, but f1's AFTER audio is the exact SAME
+    recording as its BEFORE audio (a re-score, not a recapture) -- the shape
+    of the recon-demonstrated forgery: rescore the identical wav with a
+    looser threshold and pass it off as a verified fix."""
+    before = _write_env(tmp_path, "before.json", [
+        _ev("f1", True, False, 1.2, audio_sha="f1-same"),
+        _ev("f2", True, False, 0.9, 2.1, audio_sha="f2-before"),
+        _ev("f3", True, False, 1.5, audio_sha="f3-before"),
+        _ev("h1", False, True, 0.0, audio_sha="h1-before"),
+    ])
+    after = _write_env(tmp_path, "after.json", [
+        _ev("f1", True, True, 0.3, 0.4, audio_sha="f1-same"),  # SAME digest
+        _ev("f2", True, True, 0.2, 0.5, audio_sha="f2-after"),
+        _ev("f3", True, True, 0.4, 0.6, audio_sha="f3-after"),
+        _ev("h1", False, True, 0.0, audio_sha="h1-after"),
+    ])
+    return before, after
+
+
+def test_same_audio_refuses_even_though_the_battery_improved(
+        tmp_path, config_patch, capsys):
+    before, after = _same_audio_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after, "--format", "json")
+    assert rc == _fix_trial.EXIT_REFUSED == _apply.REFUSAL_EXIT_CODE == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "refused"
+    assert payload["exit_code"] == 3
+    # Unlike the apply-gate refusal, real before/after evidence WAS read: the
+    # provenance guard fires only after verify already ran.
+    assert payload["verify"] is not None
+    assert payload["verify"]["regression_axis"]["now_pass"] == 3
+    assert payload["refusal_kind"] == "same_audio_recapture"
+    assert payload["refusal"]["headline"] == \
+        "No fix will be certified from re-scored audio"
+    assert "f1" in payload["refusal"]["reason"]
+    assert "byte-identical" in payload["refusal"]["reason"]
+    assert "re-scored the SAME recording" in payload["refusal"]["reason"]
+    assert "recapture" in payload["refusal"]["recommended"]
+    assert "REFUSED" in payload["conclusion"]
+    prov = payload["provenance"]
+    same = [f for f in prov["target_fixtures"] if f["status"] == "same"]
+    assert [f["fixture"] for f in same] == ["f1"]
+    assert prov["issue"]["kind"] == "same_audio"
+
+
+def test_same_audio_refusal_html_report_still_shows_the_real_evidence(
+        tmp_path, config_patch, capsys):
+    before, after = _same_audio_sides(tmp_path)
+    html_path = tmp_path / "refused-provenance.html"
+    rc = _run(tmp_path, config_patch, before, after, "--html", str(html_path))
+    assert rc == 3
+    html = html_path.read_text(encoding="utf-8")
+    assert "No fix will be certified from re-scored audio" in html
+    assert "Audio provenance" in html
+    # Unlike the apply-gate refusal report, verify's own proof still renders:
+    # the reader can see exactly what was measured, not just that it refused.
+    assert "Verify: battery-scale proof" in html
+
+
+def test_missing_provenance_both_sides_never_reaches_improved(
+        tmp_path, config_patch, capsys):
+    # A back-compat envelope from before this field existed (or hand-built,
+    # like every OTHER fixture builder in this file until this guard landed):
+    # no audio_provenance anywhere. Absence must never be silently read as
+    # proof of a fresh capture.
+    before = _write_env(tmp_path, "before.json", [
+        _ev("f1", True, False, 1.2), _ev("f2", True, False, 0.9, 2.1),
+        _ev("f3", True, False, 1.5), _ev("h1", False, True, 0.0),
+    ])
+    after = _write_env(tmp_path, "after.json", [
+        _ev("f1", True, True, 0.3, 0.4), _ev("f2", True, True, 0.2, 0.5),
+        _ev("f3", True, True, 0.4, 0.6), _ev("h1", False, True, 0.0),
+    ])
+    rc = _run(tmp_path, config_patch, before, after, "--format", "json")
+    assert rc == _fix_trial.EXIT_FAIL == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "inconclusive"
+    assert payload["refusal"] is None
+    assert "UNKNOWN" in payload["conclusion"]
+    assert "before and after missing" in payload["conclusion"]
+    prov = payload["provenance"]
+    assert prov["issue"]["kind"] == "unknown_provenance"
+    assert all(f["status"] == "unknown" for f in prov["target_fixtures"])
+
+
+def test_missing_provenance_before_side_only_downgrades_to_inconclusive(
+        tmp_path, config_patch, capsys):
+    before = _write_env(tmp_path, "before.json", [
+        _ev("f1", True, False, 1.2), _ev("f2", True, False, 0.9, 2.1),
+        _ev("f3", True, False, 1.5), _ev("h1", False, True, 0.0),
+    ])
+    after = _write_env(tmp_path, "after.json", [
+        _ev("f1", True, True, 0.3, 0.4, audio_sha="f1-after"),
+        _ev("f2", True, True, 0.2, 0.5, audio_sha="f2-after"),
+        _ev("f3", True, True, 0.4, 0.6, audio_sha="f3-after"),
+        _ev("h1", False, True, 0.0, audio_sha="h1-after"),
+    ])
+    rc = _run(tmp_path, config_patch, before, after, "--format", "json")
+    assert rc == _fix_trial.EXIT_FAIL == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "inconclusive"
+    assert "before missing" in payload["conclusion"]
+    fixtures = payload["provenance"]["issue"]["fixtures"]
+    assert all(f["before_sha256"] is None and f["after_sha256"] is not None
+               for f in fixtures)
+
+
+def test_missing_provenance_after_side_only_downgrades_to_inconclusive(
+        tmp_path, config_patch, capsys):
+    before = _write_env(tmp_path, "before.json", [
+        _ev("f1", True, False, 1.2, audio_sha="f1-before"),
+        _ev("f2", True, False, 0.9, 2.1, audio_sha="f2-before"),
+        _ev("f3", True, False, 1.5, audio_sha="f3-before"),
+        _ev("h1", False, True, 0.0, audio_sha="h1-before"),
+    ])
+    after = _write_env(tmp_path, "after.json", [
+        _ev("f1", True, True, 0.3, 0.4), _ev("f2", True, True, 0.2, 0.5),
+        _ev("f3", True, True, 0.4, 0.6), _ev("h1", False, True, 0.0),
+    ])
+    rc = _run(tmp_path, config_patch, before, after, "--format", "json")
+    assert rc == _fix_trial.EXIT_FAIL == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "inconclusive"
+    assert "after missing" in payload["conclusion"]
+    fixtures = payload["provenance"]["issue"]["fixtures"]
+    assert all(f["after_sha256"] is None and f["before_sha256"] is not None
+               for f in fixtures)
+
+
+def test_distinct_audio_reaches_improved_with_provenance_surfaced(
+        tmp_path, config_patch, capsys):
+    before, after = _improving_sides(tmp_path)
+    rc = _run(tmp_path, config_patch, before, after, "--format", "json")
+    assert rc == _fix_trial.EXIT_IMPROVED == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "improved"
+    prov = payload["provenance"]
+    assert prov["issue"] is None
+    fixtures = {f["fixture"]: f for f in prov["target_fixtures"]}
+    assert set(fixtures) == {"f1", "f2", "f3"}
+    for f in fixtures.values():
+        assert f["status"] == "different"
+        assert f["before_short"] and f["after_short"]
+        assert f["before_short"] != f["after_short"]
 
 
 # --- no em or en dashes anywhere ---------------------------------------------
