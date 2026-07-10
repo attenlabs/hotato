@@ -55,6 +55,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ._engine.score import ScoreConfig
+from . import attest as _attest
 from . import card as _card
 from . import fixture as _fixture
 from . import report as _report
@@ -745,6 +746,12 @@ def _create_from_fixture_path(
         },
         "bundle": {"paths": _bundle_paths_rel()},
     }
+    # Bind the contract's semantic identity (schema + label + policy +
+    # source-audio hash + scorer version/config + timestamp) into an embedded
+    # canonical digest, and write a detached attestation.json into the bundle.
+    # A later verify recomputes this digest: a body edited after creation (e.g.
+    # a loosened policy re-packed with a fresh manifest) no longer matches.
+    _attest.embed_attestation(contract, bundle_dir=tmp_dir)
     _finish_bundle(
         tmp_dir, contract, want_yield=want_yield, expect=expect,
         stack=stack, category=scenario.get("category"),
@@ -851,6 +858,10 @@ def _create_diarized_mono(
         },
         "bundle": {"paths": _bundle_paths_rel()},
     }
+    # Same canonical-digest binding as the fixture path (see the note there):
+    # the diarized-mono contract is attested identically so a re-packed,
+    # policy-loosened mono bundle is caught by the digest-mismatch check.
+    _attest.embed_attestation(contract, bundle_dir=tmp_dir)
     _finish_bundle(
         tmp_dir, contract, want_yield=want_yield, expect=expect,
         stack=stack, category=("should_yield" if want_yield else "should_not_yield"),
@@ -1035,6 +1046,13 @@ def _verify_one(bundle_dir: str) -> dict:
     scorable = event.get("scorable") is not False
     v = event.get("verdict") or {}
     passed = scorable and bool(v.get("passed"))
+    # Authenticity is an ADDITIONAL axis, orthogonal to the pass/fail re-scoring
+    # above: recompute the canonical digest and compare to the one embedded at
+    # creation. A body edited after creation (a loosened policy re-packed with a
+    # fresh, self-consistent manifest) is caught here as "tampered"; a bundle
+    # that matches but carries no verifying signature is "unsigned, internally
+    # consistent evidence", NEVER "authenticated".
+    auth = _attest.assess_contract(contract, bundle_dir=bundle_dir)
     return {
         "id": contract.get("id") or os.path.basename(bundle_dir),
         "dir": bundle_dir,
@@ -1047,6 +1065,9 @@ def _verify_one(bundle_dir: str) -> dict:
             "seconds_to_yield": v.get("seconds_to_yield") if scorable else None,
             "talk_over_sec": v.get("talk_over_sec") if scorable else None,
         },
+        "authenticity": auth["authenticity"],
+        "authenticated": auth["authenticated"],
+        "authenticity_reason": auth["reason"],
     }
 
 
@@ -1064,7 +1085,12 @@ def verify_contracts(path: str) -> dict:
             "directly, or *.hotato/contract.json inside it)"
         )
     results = [_verify_one(bd) for bd in bundle_dirs]
-    failed = [r for r in results if not r["passed"]]
+    # A regressed score OR a tampered contract (edited after creation) fails the
+    # batch. The per-result "passed" (the re-scoring axis) is left untouched;
+    # tampering is an additional reason to fail, never a rewrite of the score.
+    failed = [r for r in results
+              if not r["passed"] or r.get("authenticity") == "tampered"]
+    tampered = [r for r in results if r.get("authenticity") == "tampered"]
     return {
         "tool": "hotato",
         "kind": "contract-verify",
@@ -1074,6 +1100,7 @@ def verify_contracts(path: str) -> dict:
         "count": len(results),
         "results": results,
         "summary": {"passed": len(results) - len(failed), "failed": len(failed)},
+        "tampered": len(tampered),
         "exit_code": 1 if failed else 0,
     }
 
@@ -1084,8 +1111,12 @@ def render_verify_text(v: dict) -> str:
         f"{'' if v['count'] == 1 else 's'})",
     ]
     for r in v["results"]:
+        auth = r.get("authenticity", "unattested")
         if not r["scorable"]:
-            lines.append(f"  [NOT SCORABLE] {r['id']}: {r['not_scorable_reason']}")
+            lines.append(
+                f"  [NOT SCORABLE] {r['id']}: {r['not_scorable_reason']} "
+                f"| authenticity: {auth}"
+            )
             continue
         mark = "PASS" if r["passed"] else "FAIL"
         m = r["measurement"]
@@ -1093,10 +1124,20 @@ def render_verify_text(v: dict) -> str:
             f"  [{mark}] {r['id']} (expect {r['expect']}): "
             f"did_yield={m['did_yield']} "
             f"seconds_to_yield={m['seconds_to_yield']} "
-            f"talk_over={m['talk_over_sec']}"
+            f"talk_over={m['talk_over_sec']} "
+            f"| authenticity: {auth}"
         )
+        if auth == "tampered":
+            lines.append(
+                f"    [TAMPERED] {r['id']}: {r.get('authenticity_reason', '')}"
+            )
     s = v["summary"]
     lines.append(f"  {s['passed']}/{v['count']} contracts pass; exit_code={v['exit_code']}")
+    if v.get("tampered"):
+        lines.append(
+            f"  {v['tampered']} contract(s) TAMPERED (canonical digest "
+            "mismatch: edited after creation)"
+        )
     lines.append(f"  {_STORED_EVIDENCE_CAVEAT}")
     return "\n".join(lines)
 
@@ -1155,11 +1196,15 @@ def render_verify_html(v: dict) -> str:
             detail = (f"did_yield={m['did_yield']} "
                      f"seconds_to_yield={m['seconds_to_yield']} "
                      f"talk_over={m['talk_over_sec']}")
+        auth = r.get("authenticity", "unattested")
+        acolor = "#e0664f" if auth == "tampered" else (
+            "#74c98a" if auth == "authenticated" else "#b7ab97")
         rows.append(
             f'<tr><td class="mono">{esc(r["id"])}</td>'
             f'<td>{esc(r["expect"])}</td>'
             f'<td style="color:{color};font-weight:700">{mark}</td>'
-            f'<td class="mono">{esc(detail)}</td></tr>'
+            f'<td class="mono">{esc(detail)}</td>'
+            f'<td style="color:{acolor};font-weight:600">{esc(auth)}</td></tr>'
         )
     s = v["summary"]
     verdict = "PASSED" if v["exit_code"] == 0 else "FAILED"
@@ -1180,7 +1225,7 @@ def render_verify_html(v: dict) -> str:
         f'<p>{esc(v["dir"])}: {s["passed"]}/{v["count"]} contracts pass.</p>'
         f'<p style="color:#e8c547;font-weight:600">{esc(_STORED_EVIDENCE_CAVEAT)}</p>'
         '<table><thead><tr><th>id</th><th>expect</th><th>result</th>'
-        '<th>measured</th></tr></thead><tbody>' + "".join(rows)
+        '<th>measured</th><th>authenticity</th></tr></thead><tbody>' + "".join(rows)
         + "</tbody></table>"
         f'<p style="color:#b7ab97;font-size:12.5px;margin-top:18px">'
         f"{esc(_NOT_PROVED)} Hotato reports coincidence, not causation."
@@ -1604,6 +1649,35 @@ def unpack_contract(archive_path: str, out_dir: str, *,
                 f"{archive_path!r} is corrupt (bad CRC-32 while reading a "
                 f"member): {exc}"
             ) from exc
+
+        # Authenticity axis: the sha256 manifest above only proves the archive
+        # is INTERNALLY byte-consistent, and `contract pack` recomputes it on
+        # every pack -- so a bundle whose contract.json was edited (a loosened
+        # policy) and re-packed passes the manifest check. Now that the bundle
+        # is extracted, recompute the contract's canonical digest and compare it
+        # to the one embedded at creation. A mismatch means the body was edited
+        # after creation; refuse fail-closed (the temp extraction is removed and
+        # out_dir is never created), matching unpack's hostile-input posture.
+        auth = None
+        cpath = os.path.join(tmp_out, "contract.json")
+        if os.path.isfile(cpath):
+            try:
+                with open(cpath, encoding="utf-8") as fh:
+                    _unpacked_contract = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                _unpacked_contract = None
+            if isinstance(_unpacked_contract, dict) and \
+                    _unpacked_contract.get("schema") == SCHEMA:
+                auth = _attest.assess_contract(_unpacked_contract, bundle_dir=tmp_out)
+                if auth["authenticity"] == "tampered":
+                    raise ValueError(
+                        f"{archive_path!r} unpacked but its contract fails "
+                        "authenticity: " + auth["reason"] + ". The sha256 "
+                        "manifest only proves internal byte-consistency (a "
+                        "re-pack recomputes it); refusing to unpack a tampered "
+                        "contract"
+                    )
+
         if os.path.exists(out_dir):
             shutil.rmtree(out_dir)
         os.replace(tmp_out, out_dir)
@@ -1611,13 +1685,16 @@ def unpack_contract(archive_path: str, out_dir: str, *,
         shutil.rmtree(tmp_out, ignore_errors=True)
         raise
     return {"path": out_dir, "archive": archive_path, "files": len(manifest),
-           "manifest": manifest}
+           "manifest": manifest,
+           "authenticity": auth["authenticity"] if auth else "unattested",
+           "authenticated": bool(auth and auth["authenticated"])}
 
 
 def render_unpack_text(result: dict) -> str:
     return (
         f"unpacked {result['archive']} -> {result['path']} "
-        f"({result['files']} files, sha256-verified)"
+        f"({result['files']} files, sha256-verified; "
+        f"authenticity: {result.get('authenticity', 'unattested')})"
     )
 
 
@@ -1626,4 +1703,6 @@ def unpack_result_json(result: dict) -> dict:
         "tool": "hotato", "kind": "contract-unpack", "schema_version": "1",
         "path": result["path"], "archive": result["archive"],
         "files": result["files"],
+        "authenticity": result.get("authenticity", "unattested"),
+        "authenticated": bool(result.get("authenticated")),
     }
