@@ -80,12 +80,14 @@ to prove the live agent still holds.
   offline. Audio stays on your machine unless you explicitly pull it from your
   own stack. Nothing is uploaded to Attention Labs. See
   [THREAT-MODEL.md](THREAT-MODEL.md).
-- **Deterministic.** No learned score, no sampling. The same recording produces
-  the same timing numbers every run, so a red build means the audio changed.
-  Deterministic for a fixed hotato version; byte-identical re-runs are
-  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12. The same check
-  now also runs in CI on macOS and Windows, not yet green -- see
-  [VALIDATION.md](VALIDATION.md) Job 1.
+- **Deterministic under pinned inputs.** No learned score, no sampling. With
+  the same supported hotato version, the same audio, channel map, event
+  onset, label, and scoring config, the reference backend produces the same
+  timing numbers every run, so a changed result means at least one pinned
+  input, policy, or scorer component changed -- most commonly the audio
+  itself. Byte-identical re-runs are verified in CI on Linux x86_64, Python
+  3.10, 3.11, and 3.12. The same check now also runs in CI on macOS and
+  Windows, not yet green -- see [VALIDATION.md](VALIDATION.md) Job 1.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the
   same way with `hotato verify`, deterministic for a fixed hotato version

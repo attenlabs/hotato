@@ -14,7 +14,7 @@ FILE: README.md
 
 <p align="center"><b>The open-source flight recorder for production voice agents.</b></p>
 
-<p align="center">Find where your voice agent talks over callers, and pin the failure to a portable contract with audio, timing, traces, trust checks, human labels, and CI gates. Recapture the call against your changed agent and the same contract verifies whether the fix held without breaking the opposite behavior. MIT.</p>
+<p align="center">Find where your voice agent talks over callers, and pin the failure to a portable contract with audio, timing, traces, trust checks, human labels, and CI gates. Recapture the call against your changed agent, and the same contract shows whether the fresh recapture passes it without regressing the paired hold guard. MIT.</p>
 
 <p align="center">
   <a href="https://pypi.org/project/hotato/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/hotato.svg"></a>
@@ -59,7 +59,7 @@ A real failure became a candidate, became a portable `.hotato` contract, and `co
 | Turn a confirmed failure into a portable contract | `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield --id refund-cutoff-001 --out contracts` ([`docs/CONTRACTS.md`](docs/CONTRACTS.md)) |
 | Verify contracts in CI | `hotato contract verify contracts/ --junit contracts-junit.xml` |
 | Attach observability traces to a contract | `hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl` ([`docs/TRACE.md`](docs/TRACE.md)) |
-| Prove a candidate fix, before/after, fail-closed | `hotato fix trial patch.json --name staging-x --before before/ --after after/` ([`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md)) |
+| Test a candidate fix, before/after, fail-closed | `hotato fix trial patch.json --name staging-x --before before/ --after after/` ([`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md)) |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |
 | Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` (one tool, `voice_eval_run`; configs in [`docs/MCP.md`](docs/MCP.md)) |
 
@@ -93,7 +93,7 @@ hotato connect vapi                                             # credentials st
 hotato sweep --stack vapi --since 7d --out hotato-sweep.html    # cron, CI, wherever
 ```
 
-Run `sweep` on a timer and it becomes a passive monitor. Your audio stays on your machine unless you explicitly pull it from your stack. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) · runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md).
+Run `sweep` on a timer and it becomes a scheduled batch scanner. Your audio stays on your machine unless you explicitly pull it from your stack. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) · runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md).
 
 ## What Hotato is not
 
@@ -131,7 +131,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **Failure contracts and traces**: turn a labelled candidate into a portable, CI-verified bundle and attach observability evidence: [`docs/CONTRACTS.md`](docs/CONTRACTS.md) · [`docs/TRACE.md`](docs/TRACE.md) · [`docs/OTEL.md`](docs/OTEL.md)
 - **Proving the CURRENT agent, not just the frozen recording**: the recapture walkthrough: [`docs/RECAPTURE.md`](docs/RECAPTURE.md)
 - **Egress**: a per-command network table derived from the code -- what's local, what reaches your vendor, what optional extras add a hosted call: [`docs/EGRESS.md`](docs/EGRESS.md)
-- **Root cause and a proven fix**: `hotato explain` turns a failing result into root-cause-by-layer evidence, and `hotato fix trial` proves a candidate change before/after, fail-closed: [`docs/EXPLAIN.md`](docs/EXPLAIN.md) · [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md) · [`docs/APPLY.md`](docs/APPLY.md) · [`docs/FIX-LOOP.md`](docs/FIX-LOOP.md)
+- **Root-cause evidence and a before/after fix trial**: `hotato explain` turns a failing result into root-cause-by-layer evidence, and `hotato fix trial` tests a candidate change before/after, fail-closed: [`docs/EXPLAIN.md`](docs/EXPLAIN.md) · [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md) · [`docs/APPLY.md`](docs/APPLY.md) · [`docs/FIX-LOOP.md`](docs/FIX-LOOP.md)
 - **Evidence**: what Hotato validates, the input-condition trust matrix, every card and CLI block reproducible, and where Hotato does and doesn't fit next to Hamming/Cekura/Coval/Bluejay/Roark/Vapi/Retell: [`docs/VALIDATION.md`](docs/VALIDATION.md) · [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) · [`docs/GALLERY.md`](docs/GALLERY.md) · [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) · [`docs/COMPARE.md`](docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](AGENTS.md) · [`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt) · MCP server [`docs/MCP.md`](docs/MCP.md) · Security [`SECURITY.md`](SECURITY.md)
 - **Contributing**: the highest-value PR is a labelled call fixture: [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
@@ -4238,7 +4238,7 @@ The input's kind decides the card; you do not pick.
 | a `sweep`/`analyze` candidate ref, `FILE#N`, that is a talk-over moment | **talk-over candidate** |
 | a `sweep`/`analyze` candidate ref, `FILE#N`, that is a false-stop moment | **false-stop candidate** |
 | a fix plan whose `decision` is `do_not_tune_single_threshold` | **threshold funnel** (the hero) |
-| a supported `hotato verify` rollup | **verify** |
+| a supported `hotato verify` before/after rollup that improved | **paired comparison** |
 
 `#N` is the same 1-based rank the sweep report and dashboard show, and it is the
 same ref `hotato fixture promote` takes, so a card and a fixture speak of the
@@ -4281,17 +4281,19 @@ hotato card fix-plan.json --out no-single-threshold.svg
 Only a `do_not_tune_single_threshold` plan renders this card; any other plan is
 a clean exit-2 usage error (it is not one of the four kinds).
 
-### D. verify
+### D. paired comparison
 
-A supported `hotato verify` rollup: the previously-failing fixtures now pass and
-no hold/backchannel fixture regressed. The card reads "FIX VERIFIED WITHOUT
-BREAKING BACKCHANNELS" and closes with "Hotato reports coincidence, not
-causation." A verify result that does not support that claim (too few
-previously-failing fixtures, nothing now passing, or a regressed hold fixture)
-is refused with exit 2 rather than stamped verified.
+A supported `hotato verify` before/after rollup where at least one previously-failing
+fixture now passes and no hold/backchannel fixture regressed. This is paired
+evidence, not a claim about the current agent standing alone -- the card
+reads "PAIRED EVIDENCE IMPROVED", never "verified" or "fix verified", and
+closes with "Hotato reports coincidence, not causation." A verify result that
+does not support that claim (too few previously-failing fixtures, nothing now
+passing, or a regressed hold fixture) is refused with exit 2 rather than
+stamped as an improvement.
 
 ```bash
-hotato card verify.json --out verified.svg
+hotato card verify.json --out comparison.svg
 ```
 
 ## Redaction: safe to share by default
@@ -4413,12 +4415,14 @@ to prove the live agent still holds.
   offline. Audio stays on your machine unless you explicitly pull it from your
   own stack. Nothing is uploaded to Attention Labs. See
   [THREAT-MODEL.md](THREAT-MODEL.md).
-- **Deterministic.** No learned score, no sampling. The same recording produces
-  the same timing numbers every run, so a red build means the audio changed.
-  Deterministic for a fixed hotato version; byte-identical re-runs are
-  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12. The same check
-  now also runs in CI on macOS and Windows, not yet green -- see
-  [VALIDATION.md](VALIDATION.md) Job 1.
+- **Deterministic under pinned inputs.** No learned score, no sampling. With
+  the same supported hotato version, the same audio, channel map, event
+  onset, label, and scoring config, the reference backend produces the same
+  timing numbers every run, so a changed result means at least one pinned
+  input, policy, or scorer component changed -- most commonly the audio
+  itself. Byte-identical re-runs are verified in CI on Linux x86_64, Python
+  3.10, 3.11, and 3.12. The same check now also runs in CI on macOS and
+  Windows, not yet green -- see [VALIDATION.md](VALIDATION.md) Job 1.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the
   same way with `hotato verify`, deterministic for a fixed hotato version
@@ -6294,8 +6298,9 @@ $ hotato run --stereo 01-hard-interruption.example.wav --expect yield
 ```
 
 `seconds_to_yield=0.51s` and `talk_over=0.51s` are identical across runs. This
-is the property a regression test needs: a red build means the audio changed,
-not that the scorer drifted.
+is the property a regression test needs: under a fixed hotato version and the
+same pinned audio, channel map, onset, label, and scoring config, a changed
+result means one of those pinned inputs changed, not that the scorer drifted.
 
 **What this job does NOT establish.** That 0.51s is the "true" yield latency in
 some absolute sense, or that the reference thresholds are right for your product.

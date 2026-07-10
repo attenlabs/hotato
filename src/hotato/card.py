@@ -14,7 +14,8 @@ Four card kinds, auto-detected from the input:
   B. false-stop candidate -- an ``agent_stop_no_caller`` moment (FILE#N)
   C. threshold funnel     -- a fix plan whose decision is
      ``do_not_tune_single_threshold`` (the hero card)
-  D. verify               -- a supported ``hotato verify`` rollup
+  D. paired comparison    -- a supported ``hotato verify`` before/after rollup
+     that actually improved; never rendered as an unconditional "verified"
 
 Every byte is a pure function of the input JSON: no timestamps, no version, no
 randomness, so the same input renders the same SVG forever. The SVG references
@@ -44,7 +45,7 @@ _C = {
     "cream": "#f1e8d7",
     "muted": "#b7ab97",
     "ember": "#f0663a",   # accent + the measured timing number
-    "green": "#74c98a",   # verify: the fix held
+    "green": "#74c98a",   # comparison: paired evidence improved
 }
 
 _W = 1200
@@ -236,32 +237,45 @@ def _render_funnel(plan: dict) -> str:
     return _frame(body)
 
 
-# --- card D: a supported verify rollup ------------------------------------
+# --- card D: a supported before/after comparison rollup -------------------
+#
+# A ``hotato verify`` result is paired before/after evidence, never a claim
+# about the CURRENT agent in isolation. This card must never render the word
+# "VERIFIED": per the words-to-reserve table, the honest status for a genuine
+# paired improvement is "PAIRED EVIDENCE IMPROVED", not "verified fix" or
+# "fix verified". Hotato reports coincidence, never causation, and never
+# claims a hold guard was "protected" -- only that it did not regress.
 
 def _render_verify(v: dict) -> str:
     claim = v.get("claim") or {}
     hold = v.get("hold_axis") or {}
     reg = v.get("regression_axis") or {}
+    now = reg.get("now_pass") or 0
+    used = reg.get("used_to_fail")
+    still = hold.get("still_pass")
+    guards = hold.get("hold_guards")
     if not claim.get("supported"):
         raise ValueError(
-            "this verify result does not support a fix claim (too few "
+            "this verify result does not support a claim (too few "
             "previously-failing fixtures, or nothing now passes); no card. "
             "Run hotato verify with enough paired fixtures first."
         )
     if (hold.get("regressed") or 0) > 0:
         raise ValueError(
             "this verify result regressed a hold/backchannel fixture; the "
-            "'fix verified without breaking backchannels' card would be false. "
-            "No card."
+            "'paired evidence improved' card would be false. No card."
         )
-    now = reg.get("now_pass")
-    used = reg.get("used_to_fail")
-    still = hold.get("still_pass")
-    guards = hold.get("hold_guards")
+    if now == 0:
+        raise ValueError(
+            "this verify result improved nothing (no previously-failing "
+            "fixture now passes); the 'paired evidence improved' card would "
+            "be false. No card."
+        )
 
-    body = [_kind_tag("VERIFIED")]
-    body += _headline(_wrap("FIX VERIFIED WITHOUT BREAKING BACKCHANNELS", 26),
-                      top=200)
+    body = [_kind_tag("PAIRED EVIDENCE")]
+    body += _headline(_wrap("PAIRED EVIDENCE IMPROVED", 26), top=200)
+    body.append(_text(_M, 250, "no submitted hold guard regressed", size=23,
+                      fill=_C["muted"], weight="500"))
     rows = [
         (f"{now} of {used}", "failing fixtures now pass", _C["green"]),
         (f"{still} of {guards}", "hold fixtures still pass", _C["cream"]),

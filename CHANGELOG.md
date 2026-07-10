@@ -131,9 +131,14 @@ design. See `docs/BENCHMARK.md`.
   verdict to `refused` (the same exit code `3` `hotato apply`'s own refusal
   uses); a digest missing on either side (an older envelope, or one built by
   hand) downgrades to `inconclusive`, never assumed fresh. Distinct, known
-  digests proceed exactly as before. Closes the exact forgery path where the
-  same recording is rescored with a looser threshold and passed off as a
-  verified fix. See `docs/FIX-TRIAL.md#fresh-capture-provenance-guard-a-re-score-is-never-a-fix`
+  digests proceed exactly as before. This byte-identity guard blocks literal
+  byte-for-byte reuse of the same recording passed off as a fix; it does not
+  establish conversational freshness, authenticate envelope contents, pin
+  scoring policy, or detect a transformed export of the same call -- a
+  header-only edit or trailing-byte append still produced a distinct raw
+  digest at this stage and could pass. (Closed in `[Unreleased]` below by
+  comparing decoded PCM, not raw bytes.) See
+  `docs/FIX-TRIAL.md#fresh-capture-provenance-guard-a-re-score-is-never-a-fix`
   and `docs/RECAPTURE.md#how-hotato-tells-a-recapture-from-a-re-score`.
 - **Report-facing claim-language cautions**: `hotato contract verify` now
   prints, in every text and HTML render, "This result re-measures stored

@@ -23,7 +23,7 @@ The input's kind decides the card; you do not pick.
 | a `sweep`/`analyze` candidate ref, `FILE#N`, that is a talk-over moment | **talk-over candidate** |
 | a `sweep`/`analyze` candidate ref, `FILE#N`, that is a false-stop moment | **false-stop candidate** |
 | a fix plan whose `decision` is `do_not_tune_single_threshold` | **threshold funnel** (the hero) |
-| a supported `hotato verify` rollup | **verify** |
+| a supported `hotato verify` before/after rollup that improved | **paired comparison** |
 
 `#N` is the same 1-based rank the sweep report and dashboard show, and it is the
 same ref `hotato fixture promote` takes, so a card and a fixture speak of the
@@ -66,17 +66,19 @@ hotato card fix-plan.json --out no-single-threshold.svg
 Only a `do_not_tune_single_threshold` plan renders this card; any other plan is
 a clean exit-2 usage error (it is not one of the four kinds).
 
-### D. verify
+### D. paired comparison
 
-A supported `hotato verify` rollup: the previously-failing fixtures now pass and
-no hold/backchannel fixture regressed. The card reads "FIX VERIFIED WITHOUT
-BREAKING BACKCHANNELS" and closes with "Hotato reports coincidence, not
-causation." A verify result that does not support that claim (too few
-previously-failing fixtures, nothing now passing, or a regressed hold fixture)
-is refused with exit 2 rather than stamped verified.
+A supported `hotato verify` before/after rollup where at least one previously-failing
+fixture now passes and no hold/backchannel fixture regressed. This is paired
+evidence, not a claim about the current agent standing alone -- the card
+reads "PAIRED EVIDENCE IMPROVED", never "verified" or "fix verified", and
+closes with "Hotato reports coincidence, not causation." A verify result that
+does not support that claim (too few previously-failing fixtures, nothing now
+passing, or a regressed hold fixture) is refused with exit 2 rather than
+stamped as an improvement.
 
 ```bash
-hotato card verify.json --out verified.svg
+hotato card verify.json --out comparison.svg
 ```
 
 ## Redaction: safe to share by default

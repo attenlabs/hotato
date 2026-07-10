@@ -563,10 +563,10 @@ def _same_audio_refusal(issue: dict) -> dict:
     return _refusal(
         _PROVENANCE_REFUSAL_HEADLINE, reason, recommended,
         why=(
-            "A verified fix requires the AFTER evidence to be a fresh "
-            "recording, not a re-score of the BEFORE recording under a looser "
-            "threshold. Two runs over the same decoded audio prove nothing "
-            "about a code, config, or model change; they only prove the "
+            "A legitimate improvement claim requires the AFTER evidence to be "
+            "a fresh recording, not a re-score of the BEFORE recording under a "
+            "looser threshold. Two runs over the same decoded audio show "
+            "nothing about a code, config, or model change; they only show the "
             "scorer's threshold moved. Comparing decoded PCM (not raw bytes) "
             "means a header-only edit or a trailing-byte append cannot dress a "
             "re-score up as a fresh capture."
