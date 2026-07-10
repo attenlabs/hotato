@@ -50,7 +50,7 @@ from typing import List, Optional, Tuple
 
 from ._engine.audio import frame_rms, to_dbfs
 from ._engine.score import ScoreConfig
-from ._engine.vad import energy_vad, first_active_sec
+from ._engine.vad import VADParams, energy_vad, first_active_sec
 from .echo import DEFAULT_COHERENCE_THRESHOLD, echo_signal
 from .errors import ChannelRangeError
 
@@ -156,6 +156,30 @@ LEAKAGE_MIN_FRAMES = 12
 # consistent ratio during a short overlap.
 LEAKAGE_MIN_COVERAGE = 0.5
 
+# --- dynamic leakage rule (secondary, catches a leak earlier than the fixed dB) --
+# The fixed LEAKAGE_WARN_DB above is a RATIO (copy vs source), not aligned with the
+# scorer's real failure boundary: what actually corrupts a downstream measurement is
+# the leaked copy crossing the RECEIVING channel's own VAD activity gate, so its
+# leaked frames get counted as that party's activity. That gate is an ABSOLUTE level
+# (max(noise_floor + rel_db, abs_gate_db)), so a faint-ratio leak of a LOUD source can
+# cross it while a same-ratio leak of a quiet source does not. This secondary rule
+# predicts the leaked copy's absolute level (source level + the estimated bleed gain)
+# and flags the leak when that prediction clears the receiver's gate for a sustained
+# run -- letting a leak caution EARLIER than the -40 dB ratio bar. It only ADDS
+# suspected cases; the fixed LEAKAGE_WARN_DB case is preserved unchanged.
+#
+# The receiver gate is built from the VAD reference defaults (imported, not hard-coded
+# here) so it tracks the same rel_db / abs_gate_db the scorer's VAD uses.
+_VAD_REL_DB = VADParams.rel_db          # 15.0 dB: the VAD's speech margin over the floor
+_VAD_ABS_GATE_DB = VADParams.abs_gate_db  # -60.0 dBFS: the VAD's absolute activity floor
+# The predicted leak must clear the receiver gate by this margin over a sustained run
+# before the dynamic rule cautions. Without it, a leak that merely grazes the absolute
+# gate floor (the faint, documented-safe boundary at ~ -46 dB ratio, whose loudest
+# leaked frames sit ~ 2 dB above the -60 dBFS floor) would trip; the margin keeps that
+# safe while still cautioning EARLIER than -40 dB for a leak that clearly clears the
+# gate (e.g. a loud source's -45 dB-ratio leak, whose copy sits ~ 6 dB above it).
+LEAKAGE_GATE_MARGIN_DB = 6.0
+
 # --- low input level -------------------------------------------------------
 # When even the loudest channel peaks below this, the recording is quiet enough
 # that framing/threshold quantization can materially UNDER-estimate turn timing
@@ -257,7 +281,43 @@ def _median(values: List[float]) -> float:
     return s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
 
 
-def _copy_leak_one_direction(resid, src, act_resid, act_src, hop):
+def _leak_crosses_receiver_gate(src, act_src, lag, leak_db, hop,
+                                resid_noise_floor_db) -> bool:
+    """Dynamic-leakage secondary check: would the leaked copy of ``src`` cross the
+    RECEIVING channel's effective VAD activity gate for a sustained run?
+
+    ``energy_vad`` marks a receiver frame active when its level clears
+    ``max(noise_floor + rel_db, abs_gate_db)``. The leaked copy's absolute level on
+    the receiver is predicted from the source level ``lag`` frames earlier plus the
+    estimated (negative) bleed gain ``leak_db`` -- so this isolates the LEAK's own
+    contribution and never counts the receiver's genuine speech. When that predicted
+    level clears the gate (plus ``LEAKAGE_GATE_MARGIN_DB``) for a run at least
+    ``SPEECH_MIN_RUN_SEC`` long (the run that opens a turn downstream), the leak would
+    register as receiver activity and can move a measurement, so it is suspected.
+
+    Returns ``False`` when the receiver noise floor is unknown (the check is skipped,
+    never guessed) or no run clears the gate."""
+    if resid_noise_floor_db is None:
+        return False
+    n = min(len(src), len(act_src))
+    if n == 0 or lag >= n:
+        return False
+    gate = max(resid_noise_floor_db + _VAD_REL_DB, _VAD_ABS_GATE_DB) + LEAKAGE_GATE_MARGIN_DB
+    min_run = max(1, int(round(SPEECH_MIN_RUN_SEC / hop)))
+    src_db = to_dbfs(src[:n])
+    run = 0
+    for i in range(lag, n):
+        if act_src[i - lag] and src_db[i - lag] + leak_db >= gate:
+            run += 1
+            if run >= min_run:
+                return True
+        else:
+            run = 0
+    return False
+
+
+def _copy_leak_one_direction(resid, src, act_resid, act_src, hop,
+                             resid_noise_floor_db=None):
     """Estimate a delayed, attenuated COPY of ``src`` present on the ``resid``
     channel (leakage), robust to the copy being loud enough to re-trigger the
     residual channel's own VAD.
@@ -268,17 +328,20 @@ def _copy_leak_one_direction(resid, src, act_resid, act_src, hop):
     scaled delayed copy of a single source, so every leaked frame shares the same
     ratio. Independent speech on the residual channel does not: its level relative
     to the source varies frame to frame. The lag whose ratio cluster is tightest
-    is returned as ``(leak_db, consistency, coverage, lag_sec)``, where
+    is returned as ``(leak_db, consistency, coverage, lag_sec, crosses_gate)``, where
     ``consistency`` is the fraction of qualifying frames within ``LEAKAGE_TOL_DB``
-    of the cluster median and ``coverage`` is the fraction of the source channel's
+    of the cluster median, ``coverage`` is the fraction of the source channel's
     active frames the copy spans (a real leak shadows its source and so spans
-    nearly all of them; a brief coincidental overlap spans few).
+    nearly all of them; a brief coincidental overlap spans few), and ``crosses_gate``
+    is the dynamic secondary check (``_leak_crosses_receiver_gate``): whether the
+    leaked copy at the winning lag would clear the receiving channel's VAD activity
+    gate for a sustained run (``False`` when ``resid_noise_floor_db`` is not given).
 
-    Returns ``(None, None, 0.0, None)`` when no lag has ``LEAKAGE_MIN_FRAMES``
+    Returns ``(None, None, 0.0, None, False)`` when no lag has ``LEAKAGE_MIN_FRAMES``
     qualifying frames -- an undefined estimate, never a fabricated leak."""
     n = min(len(resid), len(src), len(act_resid), len(act_src))
     if n == 0:
-        return None, None, 0.0, None
+        return None, None, 0.0, None, False
     peak_src = max(src[:n], default=0.0)
     peak_resid = max(resid[:n], default=0.0)
     src_active = sum(1 for i in range(n) if act_src[i]) or 1
@@ -289,6 +352,7 @@ def _copy_leak_one_direction(resid, src, act_resid, act_src, hop):
     max_lag = min(max(0, int(round(LEAKAGE_MAX_LAG_SEC / hop))), max(0, n - 1))
     best = (None, None, 0.0, None)
     best_key = (-1.0, -1)
+    best_lag_frames = 0
     for lag in range(0, max_lag + 1):
         ratios = []
         for i in range(lag, n):
@@ -309,12 +373,20 @@ def _copy_leak_one_direction(resid, src, act_resid, act_src, hop):
         key = (round(consistency, 4), len(ratios))
         if key > best_key:
             best_key = key
+            best_lag_frames = lag
             best = (round(med, 1), round(consistency, 3),
                     round(coverage, 3), round(lag * hop, 3))
-    return best
+    # Dynamic secondary check on the winning lag: does the leaked copy actually clear
+    # the receiver's VAD gate for a sustained run? (Uses the UNROUNDED work above via
+    # best_lag_frames + the reported median gain.)
+    crosses_gate = _leak_crosses_receiver_gate(
+        src, act_src, best_lag_frames, best[0], hop, resid_noise_floor_db
+    ) if best[0] is not None else False
+    return (*best, crosses_gate)
 
 
-def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop) -> dict:
+def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop,
+                      caller_noise_floor_db=None, agent_noise_floor_db=None) -> dict:
     """Cross-channel leakage (bleed): the level of the loudest consistent,
     attenuated delayed COPY of one channel found on the other, and whether it is
     loud enough to be mistaken for the other party's activity downstream.
@@ -322,13 +394,19 @@ def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop) -> dict:
     Both directions are measured -- an agent copy leaking onto the caller channel
     (the dangerous direction: leaked agent audio read as caller activity) and the
     reverse. The loudest consistent copy is reported. ``leakage_suspected`` is set
-    only when that copy is at or above ``LEAKAGE_WARN_DB``; a fainter copy is
-    reported (for transparency) but not flagged, and no consistent copy at all
-    reports ``leakage_db = None``."""
-    ac = _copy_leak_one_direction(rms_c, rms_a, caller_active, agent_active, hop)
-    ca = _copy_leak_one_direction(rms_a, rms_c, agent_active, caller_active, hop)
+    when that copy is at or above the fixed ``LEAKAGE_WARN_DB`` ratio OR when the
+    dynamic rule finds it would cross the RECEIVING channel's VAD gate for a
+    sustained run (``crosses_gate``, computed against that receiver's noise floor);
+    a fainter copy that does neither is reported (for transparency) but not flagged,
+    and no consistent copy at all reports ``leakage_db = None``."""
+    # For agent->caller the receiver is the caller channel, so its noise floor gates
+    # the dynamic check; for caller->agent the receiver is the agent channel.
+    ac = _copy_leak_one_direction(rms_c, rms_a, caller_active, agent_active, hop,
+                                  caller_noise_floor_db)
+    ca = _copy_leak_one_direction(rms_a, rms_c, agent_active, caller_active, hop,
+                                  agent_noise_floor_db)
     candidates = []
-    for (db, cons, coverage, lag), direction in (
+    for (db, cons, coverage, lag, crosses), direction in (
         (ac, "agent_into_caller"),
         (ca, "caller_into_agent"),
     ):
@@ -336,17 +414,19 @@ def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop) -> dict:
                 and cons >= LEAKAGE_CONSISTENCY
                 and coverage >= LEAKAGE_MIN_COVERAGE
                 and LEAKAGE_REPORT_DB <= db <= LEAKAGE_ATTEN_MAX_DB):
-            candidates.append((db, cons, lag, direction))
+            candidates.append((db, cons, lag, direction, crosses))
     if not candidates:
         return {"leakage_db": None, "leakage_direction": None,
                 "leakage_lag_sec": None, "leakage_suspected": False}
     # The loudest consistent copy (highest dB = most leaked energy) is the worst.
-    db, cons, lag, direction = max(candidates, key=lambda t: t[0])
+    db, cons, lag, direction, crosses = max(candidates, key=lambda t: t[0])
     return {
         "leakage_db": db,
         "leakage_direction": direction,
         "leakage_lag_sec": lag,
-        "leakage_suspected": db >= LEAKAGE_WARN_DB,
+        # Fixed -40 dB ratio bar OR the dynamic gate-crossing rule; the dynamic term
+        # only ADDS suspected cases (it can flag EARLIER than -40 dB), never removes.
+        "leakage_suspected": db >= LEAKAGE_WARN_DB or crosses,
     }
 
 
@@ -447,8 +527,10 @@ def trust_report(
     # match what the scorer would measure on the same file.
     rms_c, hop = frame_rms(caller_samples, signal.sample_rate, cfg.frame_ms, cfg.hop_ms)
     rms_a, _ = frame_rms(agent_samples, signal.sample_rate, cfg.frame_ms, cfg.hop_ms)
-    caller_active = energy_vad(rms_c, hop, cfg.caller_vad).active
-    agent_active = energy_vad(rms_a, hop, cfg.agent_vad).active
+    caller_vad = energy_vad(rms_c, hop, cfg.caller_vad)
+    agent_vad = energy_vad(rms_a, hop, cfg.agent_vad)
+    caller_active = caller_vad.active
+    agent_active = agent_vad.active
     n = min(len(caller_active), len(agent_active))
     caller_active, agent_active = caller_active[:n], agent_active[:n]
 
@@ -493,7 +575,11 @@ def trust_report(
     # Leakage (bleed) estimate: catches the symmetric bleed the whole-clip
     # coherence dilutes away. Loud leakage is loud enough that leaked audio can be
     # read as the other party's activity and corrupt a downstream timing verdict.
-    leakage = _leakage_estimate(rms_c[:n], rms_a[:n], caller_active, agent_active, hop)
+    leakage = _leakage_estimate(
+        rms_c[:n], rms_a[:n], caller_active, agent_active, hop,
+        caller_noise_floor_db=caller_vad.noise_floor_db,
+        agent_noise_floor_db=agent_vad.noise_floor_db,
+    )
     crosstalk_out = {
         "coherence": crosstalk["coherence"],
         "lag_sec": crosstalk["lag_sec"],
@@ -536,9 +622,18 @@ def trust_report(
             "carrying the agent's own audio (echo bleed), so a scan may see the "
             "agent hearing itself"
         )
-    # Loud, consistent cross-channel leakage: the copy-ratio cluster the whole-clip
-    # coherence can miss. Downgrades the recommendation (below) off "safe to scan".
-    caution: Optional[str] = None
+    # VERDICT-CHANGING warnings force the caution headline. Each appends its warning
+    # AND a caution reason; the reasons are composed into one "scan with caution: ..."
+    # recommendation in _finalize. A verdict-changing warning is one that could move
+    # what a downstream turn-taking measurement reads: cross-channel leakage (leaked
+    # audio counted as the other party), a very low signal level (timing under-
+    # measured), and a possible channel swap (caller/agent reversed). Clipping and
+    # leading silence stay INFORMATIONAL warnings above -- a hot capture or a late
+    # trigger does not, on its own, change the measured timing -- so they do not
+    # caution. Cross-channel echo coherence surfaces via crosstalk_risk.suspected and
+    # only cautions when it is also leakage-suspected (handled here), unchanged.
+    caution_reasons: List[str] = []
+    # Cross-channel leakage: the copy-ratio cluster the whole-clip coherence can miss.
     if leakage["leakage_suspected"]:
         _dir = ("agent audio on the caller channel"
                 if leakage["leakage_direction"] == "agent_into_caller"
@@ -551,18 +646,27 @@ def trust_report(
             "are separated"
         )
         warnings.append(leak_msg)
-        caution = f"{CAUTION_RECOMMENDATION}: {leak_msg}"
+        caution_reasons.append(leak_msg)
     # Low input level: quiet enough that timing may be under-measured downstream
-    # while every scorability gate still passes. A warning only.
+    # while every scorability gate still passes.
     loudest_peak_dbfs = max(_peak_dbfs(c_peak), _peak_dbfs(a_peak))
     if loudest_peak_dbfs < LOW_SIGNAL_WARN_DBFS:
-        warnings.append(
+        low_msg = (
             f"signal level very low (loudest channel peaks at "
             f"{loudest_peak_dbfs:.1f} dBFS); timing may be underestimated -- "
             "re-capture at a higher input level for an exact measurement"
         )
+        warnings.append(low_msg)
+        caution_reasons.append(low_msg)
+    # Possible channel swap: the mapping may be reversed, which flips every per-role
+    # timing measurement downstream.
     if swap:
         warnings.append(channels["swap_reason"])
+        caution_reasons.append(channels["swap_reason"])
+    caution: Optional[str] = (
+        f"{CAUTION_RECOMMENDATION}: {'; '.join(caution_reasons)}"
+        if caution_reasons else None
+    )
 
     # Not-scorable gate, first matching reason wins. Ordered from the most
     # fundamental input defect outward.
@@ -621,9 +725,16 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
     and set the process exit code (0 scorable, 2 not).
 
     ``caution`` downgrades the recommendation of a still-scorable recording OFF
-    "safe to scan" (a loud cross-channel leak can corrupt a downstream timing
-    verdict) WITHOUT changing scorability or the exit code -- ``scorable`` and the
-    not-scorable gate are untouched, only the human-facing recommendation is."""
+    "safe to scan" (a verdict-changing warning -- leakage, low signal, or a possible
+    channel swap -- can corrupt a downstream timing measurement) WITHOUT changing
+    scorability or the exit code -- ``scorable`` and the not-scorable gate are
+    untouched, only the human-facing recommendation is.
+
+    ``input_health`` is an explicit 3-state summary of that same axis, additive to
+    the report: "clean" (scorable, no verdict-changing warning), "caution" (scorable
+    but a verdict-changing warning is present, i.e. ``caution`` is set), or
+    "not_scorable" (a gate failed). It restates in one field what a machine reader
+    would otherwise have to infer from ``scorable`` + the recommendation prefix."""
     if channels is not None:
         base["channels"] = channels
     if crosstalk is not None:
@@ -633,11 +744,13 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
     base["scorable"] = scorable
     if scorable:
         base["recommendation"] = caution if caution else SAFE_RECOMMENDATION
+        base["input_health"] = "caution" if caution else "clean"
         base["not_scorable_reason"] = None
         base["next_step"] = None
         base["exit_code"] = 0
     else:
         base["recommendation"] = f"NOT SCORABLE: {reason}"
+        base["input_health"] = "not_scorable"
         base["not_scorable_reason"] = reason
         base["next_step"] = next_step
         base["exit_code"] = 2
@@ -673,6 +786,7 @@ def _diarize_trust(base: dict, signal, *, diarizer: str, egress_opt_in: bool,
     if tier == "refuse":
         base["scorable"] = False
         base["recommendation"] = f"NOT SCORABLE: {dm.not_scorable_reason}"
+        base["input_health"] = "not_scorable"
         base["not_scorable_reason"] = dm.not_scorable_reason
         base["next_step"] = (
             "record a dual-channel call (caller and agent on separate channels) "
@@ -687,6 +801,9 @@ def _diarize_trust(base: dict, signal, *, diarizer: str, egress_opt_in: bool,
             f"SCORABLE via diarized-mono ({label}); score with: "
             "hotato run --mono <file> --diarize"
         )
+        # "clean" scorable; a below-bar tier carries indicative_only, not a
+        # verdict-changing input-health warning, so the input itself reads clean.
+        base["input_health"] = "clean"
         base["not_scorable_reason"] = None
         base["next_step"] = None
         base["exit_code"] = 0
