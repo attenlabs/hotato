@@ -125,6 +125,49 @@ recapture again after the next change."* See
 [`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-honestly-say)
 for the fuller claim-language table this line is drawn from.
 
+## What this does not stop
+
+This is an offline tool: a user who controls every input can always lie to
+themselves. Recomputing identity from the actual audio (above) makes the
+specific forgeries an external red-team demonstrated against a prior build --
+hand-written envelopes, a flipped header byte, a re-scored recording, a
+cherry-picked after set -- impossible or loud. It does not close everything,
+and none of the following is a bug the guard failed to catch; each is outside
+what an offline recompute over supplied files can ever establish:
+
+* **Fabricated inputs are still yours to fabricate.** Hand fix trial a
+  genuinely fresh recording of a call that never happened, or one that does
+  not actually match the bug you are claiming to fix, and the guard verifies
+  the audio identity honestly and still reaches `improved`. It checks that
+  the bytes it scored are what they claim to be, never that the stimulus
+  itself is real.
+* **A contract's `MANIFEST.sha256.json` is integrity, not authenticity.** It
+  proves the archive still agrees with itself after packing; it does not
+  prove who approved the policy inside it. Loosen a `.hotato` bundle's
+  policy (raise `max_talk_over_sec`, say) before `contract pack`, and
+  `contract verify` on the repacked bundle still passes -- it is re-checking
+  the archive against itself, not against an external record of what the
+  policy was supposed to be. Only a trusted signature over the manifest
+  closes this; none is implemented today.
+* **A resample, re-encode, or gain change of the SAME call still changes the
+  decoded PCM.** The freshness check above is exactly "is the decoded PCM
+  different." A deliberately transcoded copy of the identical recording
+  (resampled, gain-adjusted, round-tripped through a lossy codec) decodes to
+  different samples, so it reads as a distinct capture -- it is not; it is
+  the same call in a different container. This is a known, undetected
+  residual of a PCM-identity check, not a claim the guard makes and breaks.
+* **Signatures are not implemented.** Nothing here is cryptographically
+  signed; a sha256 digest is a checksum, not an attestation of who produced
+  it.
+
+A green fix trial does not prove the audio was freshly captured for the
+scenario claimed, that the same policy and labels were used throughout, that
+any omitted fixture was safe to omit, that the named revision or clone
+existed, that the patch was applied to it, or that the deployed agent
+improved. The verdict states exactly what it recomputed and verified from
+the files it was given; everything else is a boundary of the offline model,
+not a promise this tool makes and quietly fails to keep.
+
 ## Flags
 
 | Flag | Meaning |
@@ -142,16 +185,42 @@ for the fuller claim-language table this line is drawn from.
 
 ## Output
 
-* **text** (default): the verdict, verify's own rendered proof, the contract
-  verify rollup when `--contracts` was given, and the attribution section
-  (one `hotato explain` render per file under `--before`).
+Every surface renders the apply receipt right beside the verdict, not buried
+in the raw `apply` sub-object: fix trial calls `apply.build_apply` and never
+`apply.create_clone`, so `apply_dry_run` is `True` and `apply_created` /
+`apply_applies_change` are `False` on EVERY run, including an `improved` one.
+A green verdict never means "and the change was applied" -- the report says
+so in the same breath as the verdict, in text (`apply: dry_run=True
+created=False applies_change=False`, plus the plain-English sentence right
+under it), JSON (top-level `apply_dry_run` / `apply_created` /
+`apply_applies_change` / `apply_receipt_note`, alongside `verdict`), and HTML
+(pills and a header line, in the `<header>` block itself). Proving the change
+actually reached the clone or agent is `hotato apply --clone --yes`'s job,
+recorded in its own receipt -- fix trial only proves what the before/after
+evidence shows once that has already happened.
+
+* **text** (default): the apply receipt, the verdict, verify's own rendered
+  proof, the contract verify rollup when `--contracts` was given, and the
+  attribution section (one `hotato explain` render per file under
+  `--before`). When the trial's own verdict is not `improved` (a provenance,
+  completeness, contract, or policy issue downgraded it), verify's nested
+  `CLAIM` line is tagged `CLAIM (SUPERSEDED BY {VERDICT})` with a one-line
+  restatement, whenever that sub-claim would otherwise read "supported" --
+  because a fix-trial verdict of `regressed` / `refused` / `inconclusive`
+  can still contain a verify claim that, read alone, looks like a pass; the
+  parent verdict controls, and the render says so rather than leaving a
+  clean-looking claim floating under a red result.
 * **`--format json`**: the full machine shape, schema `hotato.fix_trial.v1`.
   Every sub-result is the REAL nested result the underlying command already
   produces (`apply`, `verify`, `contract_verify`, `attribution`) -- nothing
-  here is a re-derived summary.
+  here is a re-derived summary. `apply_dry_run` / `apply_created` /
+  `apply_applies_change` / `apply_receipt_note` sit at the top level next to
+  `verdict`, not only inside the nested `apply` object.
 * **`--html PATH`**: a self-contained report, reusing the same house style
-  the other HTML reports use: the verdict chip, the verify proof table, the
-  contract-verify rollup, and the attribution cards.
+  the other HTML reports use: the apply-receipt pills and note in the
+  header, the verdict chip, the verify proof table (with the same
+  superseded-claim label as text, when it applies), the contract-verify
+  rollup, and the attribution cards.
 
 ## Exit codes
 

@@ -172,6 +172,29 @@ faith:
   synthetic-caller job, a manual pre-release checklist item), not something
   Hotato ships turned on.
 
+## What this does not stop
+
+This is an offline tool: a user who controls every input can always lie to
+themselves. Nothing on this page, and nothing `hotato fix trial`'s guard
+recomputes, changes that. Specifically:
+
+- **A genuinely fresh recording of a fabricated stimulus still passes.** If
+  the "same scenario" you reproduced in Step 2 does not actually match the
+  original bug, the audio identity check has nothing to say about it -- it
+  verifies the bytes are freshly captured, never that the scenario is the
+  one you claim.
+- **Repacking a `.hotato` contract with a loosened policy still verifies.**
+  `MANIFEST.sha256.json` is integrity (the archive agrees with itself), not
+  authenticity (who approved the policy inside it). No signature is
+  implemented yet.
+- **A resample, re-encode, or gain change of the SAME call still reads as a
+  distinct capture,** because the guard's freshness check is decoded-PCM
+  difference, and those transforms change the decoded samples of a call that
+  is otherwise identical. This is a known residual, not a claim broken.
+
+See [`docs/FIX-TRIAL.md`](FIX-TRIAL.md#what-this-does-not-stop) for the same
+note at length, in the context of the automated guard it applies to.
+
 ## Read more
 
 - The two-lane distinction this page exists to close:
