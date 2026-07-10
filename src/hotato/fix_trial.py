@@ -34,52 +34,73 @@ The verdict is FAIL-CLOSED, never a soft pass:
   failing fixtures), at least one now passes, NOTHING regressed anywhere in
   the battery (including the hold/opposite-risk axis -- a hold fixture
   flipping pass-to-fail is ``compare.classify_pair``'s ``"regressed"``,
-  whichever axis it is on), no contract regressed, and ``policy`` (if given)
-  passed.
+  whichever axis it is on), no contract regressed, ``policy`` (if given)
+  passed, every before target and hold has an after counterpart, AND the
+  audio identity every guarded fixture rests on is VERIFIABLE (below).
 * ``regressed`` -- any fixture regressed, a contract regressed, or the
   policy failed. Exits the same non-zero code as ``inconclusive``.
 * ``inconclusive`` -- neither improved nor regressed: too few previously-
-  failing fixtures to characterize (below ``min_n``), or nothing that used
-  to fail now passes. INCONCLUSIVE IS NOT A PASS: it is fail-closed, exactly
-  like a real regression, so CI never treats "we could not tell" as green.
-* ``refused`` -- either apply's both-axes threshold-funnel gate fires before
-  any before/after evidence is even read, OR (the fresh-capture provenance
-  guard, below) every other bar is cleared but the AFTER evidence for a
-  fixture the claim rests on is a re-score of the SAME recording the BEFORE
-  run scored. Either way the refusal is a FEATURE, not an error: both share
-  the same distinct exit code apply's own refusal uses.
+  failing fixtures to characterize (below ``min_n``), nothing that used to
+  fail now passes, or the audio identity is present-but-UNVERIFIABLE (a
+  malformed provenance block, a missing block, or a well-formed assertion
+  hotato could not recompute at trial time). INCONCLUSIVE IS NOT A PASS: it
+  is fail-closed, so CI never treats "we could not tell" as green.
+* ``refused`` -- apply's both-axes threshold-funnel gate fires before any
+  before/after evidence is read; OR the after set drops a required before
+  fixture (an incomplete, cherry-picked comparison); OR a guarded fixture's
+  recorded provenance does NOT match the audio present on disk; OR the
+  before/after audio a guarded fixture rests on is the SAME conversation
+  (identical decoded PCM -- a re-score, not a recapture). The refusal is a
+  FEATURE, not an error: every path shares the distinct exit code apply's
+  own refusal uses.
 
 Hotato does not infer intent and does not prove authorization, identity,
 compliance, or policy safety. Every number here is a real measurement;
-verify's coincidence-not-causation rule still applies throughout.
+verify's coincidence-not-causation rule still applies throughout. This is an
+offline tool: a user who controls every input can always lie to themselves.
+The guard's job is narrower and honest: make the motivated failure modes
+impossible or loud, recompute what can be recomputed from the actual files,
+and state exactly what was and was NOT verified.
 
-Fresh-capture provenance guard: an ``improved`` verdict is never reachable
-from a re-score of frozen evidence. For every fixture the improvement claim
-rests on (previously failing, now passing -- exactly the fixtures composing
-verify's "N of M" headline), this module compares the ``audio_provenance``
-sha256 the BEFORE and AFTER envelopes recorded for that fixture:
+Fresh-capture provenance guard: an ``improved`` verdict is never reachable on
+unverifiable evidence. For every guarded fixture -- the fail->pass targets AND
+the still-passing holds (a frozen hold is a re-score too) -- this module reads
+the ``audio_provenance`` each side recorded and:
 
-* identical digest -- the after run scored the SAME bytes as the before run,
-  just against a different threshold or scorer config. That is not a fix
-  claim; it is a re-score. Verdict downgrades to ``refused`` (never a soft
-  pass), the SAME exit code as apply's own refusal.
-* a digest missing on either side (an older envelope, or one built by hand,
-  never carried ``audio_provenance``) -- provenance is UNKNOWN, and an
-  unknown can never be assumed to be a fresh capture. Verdict downgrades to
-  ``inconclusive``, with the reason naming which side lacked provenance.
-* distinct, known digests on every target fixture -- proceed exactly as
-  before; the digests are still surfaced in the report so the reader can see
-  the recapture happened, not just take it on faith.
+* VALIDATES it without touching disk: every ``sha256`` / ``pcm_sha256`` must
+  be 64-char lowercase hex, each side's ``sample_rate`` / ``num_samples`` must
+  be plausible, and the top-level digest must be consistent with the per-side
+  digests it claims to combine. A malformed block is UNKNOWN (inconclusive),
+  never "a distinct recording".
+* RECOMPUTES it when the audio is present next to the envelope: the raw and
+  decoded-PCM sha256 are recomputed at trial time; a digest that disagrees
+  with the bytes on disk is a hand-edit, and the verdict is ``refused``.
+* compares DECODED PCM (not raw bytes) before vs. after: identical decoded
+  audio is the same conversation re-scored -- ``refused`` -- and because the
+  comparison is on samples, a header-only edit or a trailing-byte append
+  cannot disguise a re-score as a fresh capture. When a side records no
+  ``pcm_sha256`` (an older envelope) the check falls back to the raw digest
+  AND marks the fixture unverified, so it cannot reach ``improved``.
+* treats a well-formed identity hotato could NOT recompute (the audio was not
+  present) as UNVERIFIABLE: asserted, not proven, so ``inconclusive`` -- a fix
+  claim requires provenance hotato can recompute.
+
+The per-fixture identities and their status are surfaced in every report so a
+reader sees exactly what was verified, not just the final verdict.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
+import wave
 from datetime import datetime, timezone
 from typing import Optional
 
 from . import apply as _apply
 from . import contract as _contract
+from . import core as _core
 from . import explain as _explain
 from . import report as _report
 from . import verify as _verify
@@ -185,6 +206,34 @@ def _attribution_for(before: str) -> dict:
 
 
 # --- fresh-capture provenance guard ------------------------------------------
+#
+# An "improved" verdict is only reachable when the audio identity the report
+# rests on is VERIFIABLE: well-formed, internally consistent, freshly captured
+# (distinct decoded PCM before vs. after), and -- when the audio is present next
+# to the envelope -- recomputed at trial time to match what the envelope claims.
+# The guard never trusts a digest string on its own. Every downgrade path is
+# fail-closed: an envelope that merely ASSERTS an identity hotato cannot
+# recompute can never earn "improved". The philosophy is not attacker-proof (a
+# user who controls every input can always lie to themselves offline); it is
+# that the honest-but-motivated failure modes become impossible or loud, and
+# the report states exactly what was and was NOT verified.
+
+# A recorded sha256 / pcm_sha256 must be a real digest shape before it means
+# anything: 64 lowercase hex characters (what hashlib.sha256().hexdigest()
+# emits). A non-hex or wrong-length string is not "a different recording", it is
+# an unvalidated assertion, and the fixture it names cannot reach "improved".
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+
+# Plausible-audio metadata bounds. A sample rate outside this window or a
+# non-positive frame count is absurd on its face (recon's forged block used
+# sample_rate 123, num_samples -5): the block is malformed, treated as UNKNOWN.
+_MIN_SAMPLE_RATE = 4000
+_MAX_SAMPLE_RATE = 384000
+
+
+def _is_hex64(s) -> bool:
+    return isinstance(s, str) and bool(_HEX64_RE.match(s))
+
 
 def _target_fixtures(v: dict) -> list:
     """The fixtures the 'improved' claim rests on: previously failing (before
@@ -198,93 +247,383 @@ def _target_fixtures(v: dict) -> list:
     ]
 
 
+def _hold_fixtures(v: dict) -> list:
+    """The hold / opposite-risk fixtures that passed on BOTH sides (verify's
+    ``hold_axis.hold_guards`` set). A naive bandaid can freeze a hold's audio
+    (re-score byte-identical evidence) so it never appears to regress; holds
+    therefore get the SAME fresh-capture / identity guard the targets get."""
+    return [
+        r for r in v.get("per_fixture", [])
+        if r["expect"] == "hold" and r["before"]["passed"] and r["after"]["passed"]
+    ]
+
+
+def _guarded_fixtures(v: dict) -> list:
+    """Every fixture the verdict rests on: the fail->pass targets AND the
+    still-passing holds. Both must clear the identity guard for 'improved'."""
+    seen, out = set(), []
+    for r in _target_fixtures(v) + _hold_fixtures(v):
+        if r["fixture"] not in seen:
+            seen.add(r["fixture"])
+            out.append(r)
+    return out
+
+
 def _short_sha(sha) -> Optional[str]:
     return sha[:12] if isinstance(sha, str) and sha else None
 
 
-def _fixture_provenance(r: dict) -> dict:
-    """Compare one target fixture's before/after audio identity. Reads only
-    the ``audio_provenance`` the envelopes already carried (passed through by
-    :func:`hotato.verify.verify_sides`); invents nothing, and a missing side
-    is honestly ``"unknown"``, never assumed distinct."""
+def _validate_provenance(prov: dict) -> tuple:
+    """Format + metadata + internal-consistency validation of one
+    ``audio_provenance`` block, WITHOUT touching disk. Returns ``(ok, reason)``.
+
+    Checks (each failure => the block is UNKNOWN, never 'a distinct recording'):
+    every present ``sha256`` / ``pcm_sha256`` is 64-char lowercase hex; each
+    side carries a plausible ``sample_rate`` and a positive ``num_samples``; and
+    the top-level ``sha256`` is exactly what ``core._audio_provenance`` would
+    compose from the per-side digests (one side's own digest, or the order-stable
+    sha256 of the concatenated side digests). An inconsistent top-level digest
+    means the nested structure and the headline disagree -- unverifiable."""
+    if not isinstance(prov, dict):
+        return False, "audio_provenance is not an object"
+    top = prov.get("sha256")
+    if not _is_hex64(top):
+        return False, "top-level sha256 is not 64-char lowercase hex"
+    sides = prov.get("sides")
+    if not isinstance(sides, list) or not sides:
+        return False, "audio_provenance carries no sides"
+    side_shas = []
+    for i, s in enumerate(sides):
+        if not isinstance(s, dict):
+            return False, f"side {i} is not an object"
+        ssha = s.get("sha256")
+        if not _is_hex64(ssha):
+            return False, f"side {i} sha256 is not 64-char lowercase hex"
+        side_shas.append(ssha)
+        pcm = s.get("pcm_sha256")
+        if pcm is not None and not _is_hex64(pcm):
+            return False, f"side {i} pcm_sha256 is not 64-char lowercase hex"
+        sr = s.get("sample_rate")
+        if (not isinstance(sr, int) or isinstance(sr, bool)
+                or not _MIN_SAMPLE_RATE <= sr <= _MAX_SAMPLE_RATE):
+            return False, (
+                f"side {i} sample_rate {sr!r} is not a plausible audio rate "
+                f"({_MIN_SAMPLE_RATE}..{_MAX_SAMPLE_RATE} Hz)")
+        ns = s.get("num_samples")
+        if not isinstance(ns, int) or isinstance(ns, bool) or ns <= 0:
+            return False, f"side {i} num_samples {ns!r} is not a positive integer"
+    if len(side_shas) == 1:
+        expected = side_shas[0]
+    else:
+        h = hashlib.sha256()
+        for ssha in side_shas:
+            h.update(ssha.encode("ascii"))
+        expected = h.hexdigest()
+    if top != expected:
+        return False, (
+            "top-level sha256 does not match the per-side digests it claims to "
+            "combine")
+    return True, None
+
+
+def _identity(prov: dict) -> tuple:
+    """A comparable identity for a validated block, plus whether it is a DECODED
+    (pcm) identity. When every side records a ``pcm_sha256`` the identity is the
+    order-stable combination of those (content of the samples, immune to header
+    edits / trailing-byte appends); otherwise it falls back to the raw top-level
+    ``sha256`` (container identity) and reports ``pcm=False`` so the caller marks
+    the fixture unverified."""
+    sides = prov.get("sides") or []
+    pcms = [s.get("pcm_sha256") for s in sides if isinstance(s, dict)]
+    if sides and len(pcms) == len(sides) and all(_is_hex64(p) for p in pcms):
+        if len(pcms) == 1:
+            return pcms[0], True
+        h = hashlib.sha256()
+        for p in pcms:
+            h.update(p.encode("ascii"))
+        return h.hexdigest(), True
+    return prov.get("sha256"), False
+
+
+def _recompute_side(base_dir: Optional[str], side: dict) -> tuple:
+    """Best-effort recompute of ONE side against the file it names, resolved
+    next to the envelope (only a basename survives capture). Returns
+    ``(status, detail)`` where status is:
+
+    * ``"match"``    -- the file is present and its recomputed raw (and, when
+      recorded, decoded PCM) sha256 equals what the envelope claims;
+    * ``"mismatch"`` -- the file is present but its bytes/samples do NOT match
+      the envelope: the provenance was hand-edited or the audio was swapped;
+    * ``"absent"``   -- no file to recompute from (nothing is asserted false,
+      but nothing is confirmed either)."""
+    path = side.get("path")
+    if not isinstance(path, str) or not path:
+        return "absent", "no path recorded"
+    name = os.path.basename(path)
+    if not base_dir:
+        return "absent", f"{name} not resolvable (envelope directory unknown)"
+    fp = os.path.join(base_dir, name)
+    if not os.path.isfile(fp):
+        return "absent", f"{name} is not present next to the envelope"
+    try:
+        raw = _core._stream_sha256(fp)
+    except OSError as exc:
+        return "absent", f"{name} could not be read ({exc})"
+    if raw != side.get("sha256"):
+        return "mismatch", f"{name} raw sha256 does not match the envelope"
+    pcm_recorded = side.get("pcm_sha256")
+    if pcm_recorded is not None:
+        try:
+            pcm = _core._stream_pcm_sha256(fp)
+        except (OSError, wave.Error, EOFError) as exc:
+            return "absent", f"{name} is not a decodable WAV ({exc})"
+        if pcm != pcm_recorded:
+            return "mismatch", f"{name} decoded PCM does not match the envelope"
+    return "match", name
+
+
+def _fixture_provenance(r: dict, before_base: Optional[str],
+                        after_base: Optional[str]) -> dict:
+    """Evaluate one guarded fixture's before/after audio identity end to end:
+    presence, format/metadata/consistency validation, recompute-against-disk,
+    and the decoded-PCM fresh-capture comparison. ``status`` is one of
+    ``verified`` (distinct, recomputed, decodable), ``same_audio`` (a re-score
+    of the same conversation), ``mismatch`` (envelope disagrees with disk),
+    ``invalid`` (malformed block), ``missing`` (no block on a side), or
+    ``unverifiable`` (a well-formed but un-recomputable assertion)."""
     bp = r["before"].get("audio_provenance")
     ap = r["after"].get("audio_provenance")
-    b_sha = bp.get("sha256") if isinstance(bp, dict) else None
-    a_sha = ap.get("sha256") if isinstance(ap, dict) else None
-    if b_sha is None or a_sha is None:
-        status = "unknown"
-    elif b_sha == a_sha:
-        status = "same"
-    else:
-        status = "different"
-    return {
+    b_present = isinstance(bp, dict)
+    a_present = isinstance(ap, dict)
+    b_sha = bp.get("sha256") if b_present else None
+    a_sha = ap.get("sha256") if a_present else None
+    out = {
         "fixture": r["fixture"],
+        "role": r["expect"],
         "before_sha256": b_sha,
         "after_sha256": a_sha,
         "before_short": _short_sha(b_sha),
         "after_short": _short_sha(a_sha),
-        "status": status,
     }
 
+    if not b_present or not a_present:
+        missing = []
+        if not b_present:
+            missing.append("before")
+        if not a_present:
+            missing.append("after")
+        out["status"] = "missing"
+        out["detail"] = " and ".join(missing) + " missing"
+        return out
 
-def _provenance_report(v: dict) -> dict:
-    """Per-fixture provenance for every target fixture, plus the single issue
-    (if any) that must gate the verdict. ``same_audio`` (a re-score of frozen
-    evidence) always wins over ``unknown_provenance`` (a digest missing on
-    one or both sides) when both are present, since a confirmed re-score is a
-    stronger, more specific finding than an unverifiable one."""
-    targets = [_fixture_provenance(r) for r in _target_fixtures(v)]
-    same = [t for t in targets if t["status"] == "same"]
-    unknown = [t for t in targets if t["status"] == "unknown"]
-    if same:
+    ok_b, reason_b = _validate_provenance(bp)
+    ok_a, reason_a = _validate_provenance(ap)
+    if not ok_b or not ok_a:
+        side = "before" if not ok_b else "after"
+        out["status"] = "invalid"
+        out["detail"] = f"{side}: {reason_b if not ok_b else reason_a}"
+        return out
+
+    b_id, b_pcm = _identity(bp)
+    a_id, a_pcm = _identity(ap)
+    pcm_basis = b_pcm and a_pcm
+
+    # Same conversation: identical decoded PCM (or, when PCM is unrecorded,
+    # identical raw bytes). A re-score of frozen evidence is never a fix.
+    if b_id == a_id:
+        out["status"] = "same_audio"
+        out["identity_basis"] = "pcm" if pcm_basis else "raw"
+        return out
+
+    # Recompute both blocks against any audio present on disk.
+    any_mismatch = None
+    all_present = True
+    for base, prov in ((before_base, bp), (after_base, ap)):
+        for s in prov["sides"]:
+            st, detail = _recompute_side(base, s)
+            if st == "mismatch":
+                any_mismatch = detail
+                break
+            if st != "match":
+                all_present = False
+        if any_mismatch:
+            break
+
+    if any_mismatch:
+        out["status"] = "mismatch"
+        out["detail"] = any_mismatch
+        return out
+
+    if not pcm_basis:
+        # Distinct raw containers, but at least one side records no decoded-PCM
+        # digest: a header edit alone can make two byte-different files decode
+        # to the SAME conversation, so raw-distinct is not proof of a fresh
+        # capture. Fall back to raw for the same-audio check above, and mark
+        # this unverified so it can never reach 'improved'.
+        out["status"] = "unverifiable"
+        out["detail"] = (
+            "a decoded-PCM digest is missing on at least one side, so a fresh "
+            "capture cannot be confirmed from the raw digest alone")
+        return out
+
+    if not all_present:
+        out["status"] = "unverifiable"
+        out["detail"] = (
+            "audio identity was asserted by the envelope but not recomputed at "
+            "trial time (the audio was not present)")
+        return out
+
+    out["status"] = "verified"
+    return out
+
+
+def _provenance_report(v: dict, before_base: Optional[str] = None,
+                       after_base: Optional[str] = None) -> dict:
+    """Per-fixture provenance for every GUARDED fixture (targets + holds), plus
+    the single issue that must gate the verdict. Precedence, strongest first: a
+    recompute ``mismatch`` and a ``same_audio`` re-score are confirmed forgeries
+    (refuse); an ``invalid`` block, a ``missing`` block, and an ``unverifiable``
+    assertion are unknowns (inconclusive, never 'improved')."""
+    fixtures = [
+        _fixture_provenance(r, before_base, after_base)
+        for r in _guarded_fixtures(v)
+    ]
+
+    def pick(status):
+        return [f for f in fixtures if f["status"] == status]
+
+    mismatch = pick("mismatch")
+    same = pick("same_audio")
+    invalid = pick("invalid")
+    missing = pick("missing")
+    unverifiable = pick("unverifiable")
+    if mismatch:
+        issue = {"kind": "recompute_mismatch", "fixtures": mismatch}
+    elif same:
         issue = {"kind": "same_audio", "fixtures": same}
-    elif unknown:
-        issue = {"kind": "unknown_provenance", "fixtures": unknown}
+    elif invalid:
+        issue = {"kind": "invalid_provenance", "fixtures": invalid}
+    elif missing:
+        issue = {"kind": "unknown_provenance", "fixtures": missing}
+    elif unverifiable:
+        issue = {"kind": "unverifiable", "fixtures": unverifiable}
     else:
         issue = None
-    return {"target_fixtures": targets, "issue": issue}
+    return {"target_fixtures": fixtures, "issue": issue}
 
 
 _PROVENANCE_REFUSAL_HEADLINE = "No fix will be certified from re-scored audio"
+_MISMATCH_REFUSAL_HEADLINE = (
+    "Envelope provenance does not match the audio on disk")
+_INCOMPLETE_REFUSAL_HEADLINE = (
+    "No fix will be certified from an incomplete after set")
+
+
+def _refusal(headline: str, reason: str, recommended: str, why: str) -> dict:
+    """Build the SAME refusal shape apply's own gate uses (headline / reason /
+    recommended / lines / why), so both renderers and callers already branching
+    on ``t["refusal"]["lines"]`` handle every refusal identically."""
+    return {
+        "headline": headline,
+        "reason": reason,
+        "recommended": recommended,
+        "lines": [headline, f"Reason: {reason}", f"Recommended: {recommended}"],
+        "why": why,
+    }
 
 
 def _same_audio_refusal(issue: dict) -> dict:
-    """Build the SAME refusal shape apply's own gate uses (headline / reason /
-    recommended / lines / why), so both renderers and callers already
-    branching on ``t["refusal"]["lines"]`` handle this refusal identically."""
     names = ", ".join(f["fixture"] for f in issue["fixtures"])
+    basis = ("decoded PCM" if all(
+        f.get("identity_basis") == "pcm" for f in issue["fixtures"])
+        else "audio")
     reason = (
-        f"{len(issue['fixtures'])} fixture(s) this claim rests on ({names}) "
-        "have byte-identical before/after audio (same sha256): the after run "
-        "re-scored the SAME recording the before run scored, just against a "
-        "different threshold or scorer config"
+        f"{len(issue['fixtures'])} fixture(s) this verdict rests on ({names}) "
+        f"have identical before/after {basis}: the after run re-scored the SAME "
+        "conversation the before run scored, just against a different threshold "
+        "or scorer config"
     )
     recommended = (
         "recapture the fixture(s) through the applied clone "
         "(hotato apply --clone --yes) and re-run hotato fix trial against "
         "the new after evidence"
     )
-    lines = (
-        _PROVENANCE_REFUSAL_HEADLINE,
-        f"Reason: {reason}",
-        f"Recommended: {recommended}",
-    )
-    return {
-        "headline": _PROVENANCE_REFUSAL_HEADLINE,
-        "reason": reason,
-        "recommended": recommended,
-        "lines": list(lines),
-        "why": (
+    return _refusal(
+        _PROVENANCE_REFUSAL_HEADLINE, reason, recommended,
+        why=(
             "A verified fix requires the AFTER evidence to be a fresh "
-            "recording, not a re-score of the BEFORE recording under a "
-            "looser threshold. Two runs over byte-identical audio prove "
-            "nothing about a code, config, or model change -- they only "
-            "prove the scorer's threshold moved. This refusal is the "
-            "feature: it closes the exact path where the same recording is "
-            "rescored with a looser threshold and passed off as a verified "
-            "improvement."
+            "recording, not a re-score of the BEFORE recording under a looser "
+            "threshold. Two runs over the same decoded audio prove nothing "
+            "about a code, config, or model change; they only prove the "
+            "scorer's threshold moved. Comparing decoded PCM (not raw bytes) "
+            "means a header-only edit or a trailing-byte append cannot dress a "
+            "re-score up as a fresh capture."
         ),
-    }
+    )
+
+
+def _mismatch_refusal(issue: dict) -> dict:
+    names = ", ".join(f["fixture"] for f in issue["fixtures"])
+    details = "; ".join(
+        f["detail"] for f in issue["fixtures"] if f.get("detail"))
+    reason = (
+        f"{len(issue['fixtures'])} fixture(s) this verdict rests on ({names}) "
+        "carry an audio_provenance digest that does NOT match the audio present "
+        f"on disk ({details}): the recorded identity was hand-edited or the "
+        "audio was swapped after capture"
+    )
+    recommended = (
+        "recapture the fixture(s) with a current hotato build so the envelope "
+        "records the identity of the audio actually scored, and re-run"
+    )
+    return _refusal(
+        _MISMATCH_REFUSAL_HEADLINE, reason, recommended,
+        why=(
+            "When the audio is present next to the envelope, hotato recomputes "
+            "its raw and decoded-PCM sha256 at trial time and refuses if the "
+            "envelope disagrees with the file. A digest a reader cannot "
+            "reproduce from the bytes on disk is an assertion, not evidence."
+        ),
+    )
+
+
+def _incomplete_after_refusal(required: list) -> dict:
+    names = ", ".join(f"{r['fixture']} ({r['role']})" for r in required)
+    reason = (
+        f"{len(required)} fixture(s) present in the before battery are missing "
+        f"from the after battery ({names}): a fail->pass target or a hold guard "
+        "was dropped from the after set, so the before/after comparison is over "
+        "a cherry-picked subset"
+    )
+    recommended = (
+        "re-capture the FULL battery through the applied clone so every before "
+        "fixture has an after counterpart, and re-run"
+    )
+    return _refusal(
+        _INCOMPLETE_REFUSAL_HEADLINE, reason, recommended,
+        why=(
+            "An 'improved' verdict must compare the same battery on both sides. "
+            "Omitting a target that did not get fixed, or a hold that would "
+            "regress, would let a cherry-picked after set read as a clean pass. "
+            "Every before target and every before hold must reappear after."
+        ),
+    )
+
+
+def _invalid_provenance_reason(issue: dict) -> str:
+    parts = [
+        f"{f['fixture']} ({f['detail']})"
+        for f in issue["fixtures"]
+    ]
+    return (
+        "Provenance guard: audio identity is MALFORMED for "
+        + ", ".join(parts)
+        + ". A digest that is not well-formed hex, an implausible sample rate "
+        "or frame count, or a top-level digest inconsistent with the per-side "
+        "digests is an unvalidated assertion, not a distinct recording, so this "
+        "cannot be certified 'improved'; recapture with a current hotato build "
+        "and re-run."
+    )
 
 
 def _unknown_provenance_reason(issue: dict) -> str:
@@ -304,6 +643,17 @@ def _unknown_provenance_reason(issue: dict) -> str:
         "fresh capture, so this cannot be certified 'improved'; recapture "
         "with a current hotato build (or supply --before/--after envelopes "
         "that carry audio_provenance) and re-run."
+    )
+
+
+def _unverifiable_reason(issue: dict) -> str:
+    names = ", ".join(f["fixture"] for f in issue["fixtures"])
+    return (
+        "Provenance guard: audio identity was asserted by the envelope but not "
+        f"recomputed at trial time for {names} (the audio was not present); a "
+        "fix claim requires provenance hotato can recompute. Re-run with the "
+        "captured audio present next to the envelopes (or recapture through the "
+        "applied clone) so the identity is verified, not just declared."
     )
 
 
@@ -353,6 +703,10 @@ def run_trial(
         "after": after,
         "battery": battery_dir,
         "contracts": contracts,
+        # The effective min_n is echoed in every surface (text/json/html) so a
+        # lowered floor is always visible: a caller cannot quietly drop the bar
+        # to 1 and have it pass unremarked.
+        "min_n": min_n,
     }
 
     if apply_result.get("refused"):
@@ -397,23 +751,42 @@ def run_trial(
     policy_failed = policy_result is not None and not policy_result["passed"]
 
     # Fresh-capture provenance guard: computed regardless of the base verdict
-    # (the report always shows the target fixtures' before/after digests), but
+    # (the report always shows the guarded fixtures' before/after digests), but
     # it can only ever DOWNGRADE an otherwise-improved verdict -- a real
     # regression stays a regression whether or not the recapture can be
-    # verified; fail-closed needs no proof to reject, only to accept.
-    provenance = _provenance_report(v)
+    # verified; fail-closed needs no proof to reject, only to accept. Side audio
+    # is resolved (best effort) next to the envelope it came from, so a captured
+    # WAV kept beside its run.json is recomputed at trial time.
+    before_base = before if os.path.isdir(before) else os.path.dirname(before)
+    after_base = after if os.path.isdir(after) else os.path.dirname(after)
+    provenance = _provenance_report(v, before_base or ".", after_base or ".")
     issue = provenance["issue"]
+
+    # Completeness: every before target AND before hold must reappear in the
+    # after set. A required fixture present only in before means the comparison
+    # is over a cherry-picked subset (an omitted hold that would regress, or an
+    # unfixed target quietly dropped), so 'improved' is not reachable.
+    required_only_before = v["unpaired"].get("only_before_required") or []
+
     refusal = None
     refusal_kind = None
 
     if regressed_any or contract_regressed or policy_failed:
         verdict = VERDICT_REGRESSED
     elif vm["passed"]:
-        if issue and issue["kind"] == "same_audio":
+        if required_only_before:
+            verdict = VERDICT_REFUSED
+            refusal = _incomplete_after_refusal(required_only_before)
+            refusal_kind = "incomplete_after"
+        elif issue and issue["kind"] == "recompute_mismatch":
+            verdict = VERDICT_REFUSED
+            refusal = _mismatch_refusal(issue)
+            refusal_kind = "recompute_mismatch"
+        elif issue and issue["kind"] == "same_audio":
             verdict = VERDICT_REFUSED
             refusal = _same_audio_refusal(issue)
             refusal_kind = "same_audio_recapture"
-        elif issue:  # unknown_provenance
+        elif issue:  # invalid / unknown / unverifiable -> inconclusive
             verdict = VERDICT_INCONCLUSIVE
         else:
             verdict = VERDICT_IMPROVED
@@ -426,7 +799,8 @@ def run_trial(
         exit_code = EXIT_IMPROVED
     else:
         exit_code = EXIT_FAIL
-    conclusion = _conclusion(verdict, v, cv, policy_result, contract_regressed, issue)
+    conclusion = _conclusion(verdict, v, cv, policy_result, contract_regressed,
+                             issue, refusal_kind, required_only_before)
 
     return {
         **base,
@@ -445,12 +819,14 @@ def run_trial(
 
 
 def _conclusion(verdict, v, cv, policy_result, contract_regressed,
-                 provenance_issue=None) -> str:
+                 provenance_issue=None, refusal_kind=None,
+                 required_only_before=None) -> str:
     ra, ha = v["regression_axis"], v["hold_axis"]
     bits = [
         f"{ra['now_pass']} of {ra['used_to_fail']} previously-failing "
         f"fixture(s) now pass, {ha['still_pass']} of {ha['hold_guards']} "
         "hold fixture(s) still pass",
+        f"min-n {v['min_n']}",
     ]
     if v["regressions"]:
         bits.append(f"{len(v['regressions'])} fixture(s) REGRESSED")
@@ -470,12 +846,22 @@ def _conclusion(verdict, v, cv, policy_result, contract_regressed,
     else:
         head = "INCONCLUSIVE -- fail-closed, not a soft pass"
     tail = f"{head}: {detail}. hotato reports coincidence, not causation."
-    if provenance_issue and provenance_issue["kind"] == "same_audio" \
-            and verdict == VERDICT_REFUSED:
-        tail += " " + _same_audio_refusal(provenance_issue)["reason"] + "."
-    elif provenance_issue and provenance_issue["kind"] == "unknown_provenance" \
-            and verdict == VERDICT_INCONCLUSIVE:
-        tail += " " + _unknown_provenance_reason(provenance_issue)
+    # Append the precise reason for a downgrade, matching the verdict path.
+    if verdict == VERDICT_REFUSED:
+        if refusal_kind == "incomplete_after" and required_only_before:
+            tail += " " + _incomplete_after_refusal(required_only_before)["reason"] + "."
+        elif refusal_kind == "recompute_mismatch" and provenance_issue:
+            tail += " " + _mismatch_refusal(provenance_issue)["reason"] + "."
+        elif refusal_kind == "same_audio_recapture" and provenance_issue:
+            tail += " " + _same_audio_refusal(provenance_issue)["reason"] + "."
+    elif verdict == VERDICT_INCONCLUSIVE and provenance_issue:
+        kind = provenance_issue["kind"]
+        if kind == "invalid_provenance":
+            tail += " " + _invalid_provenance_reason(provenance_issue)
+        elif kind == "unknown_provenance":
+            tail += " " + _unknown_provenance_reason(provenance_issue)
+        elif kind == "unverifiable":
+            tail += " " + _unverifiable_reason(provenance_issue)
     return tail
 
 
@@ -484,7 +870,8 @@ def _conclusion(verdict, v, cv, policy_result, contract_regressed,
 def render_text(t: dict) -> str:
     lines = [
         f"hotato fix trial [{t['verdict'].upper()}] "
-        f"patch={t.get('patch_source')!r} name={t.get('name')!r}",
+        f"patch={t.get('patch_source')!r} name={t.get('name')!r} "
+        f"min-n={t.get('min_n')}",
         f"  {t['conclusion']}",
     ]
     # The apply-gate refusal fires BEFORE any before/after evidence is read
@@ -514,16 +901,22 @@ def render_text(t: dict) -> str:
         lines.append("")
         lines.append("-- audio provenance: before vs after recapture --")
         lines.append(
-            "  identity of the exact audio each side scored, for every "
-            "fixture the improvement claim rests on. A fresh take proves the "
-            "same human-labeled contract passed on new evidence, never that "
-            "the change caused it."
+            "  identity of the exact audio each side scored, for every target "
+            "and hold fixture the verdict rests on. 'verified' means the "
+            "digests are well-formed, freshly distinct (decoded PCM), and "
+            "recomputed from the audio on disk; anything else is named plainly "
+            "and cannot earn 'improved'. A fresh take proves the same "
+            "human-labeled contract passed on new evidence, never that the "
+            "change caused it."
         )
         lines.append(f"  {_PROVENANCE_CAUTION}")
         for f in prov["target_fixtures"]:
+            detail = f" -- {f['detail']}" if f.get("detail") else ""
             lines.append(
-                f"  {f['fixture']}: before={f['before_short'] or 'unknown'} "
-                f"after={f['after_short'] or 'unknown'} ({f['status']})"
+                f"  {f['fixture']} ({f.get('role', '?')}): "
+                f"before={f['before_short'] or 'unknown'} "
+                f"after={f['after_short'] or 'unknown'} "
+                f"[{f['status']}]{detail}"
             )
     a = t.get("attribution")
     if a:
@@ -594,20 +987,23 @@ def _attribution_html(esc, a) -> str:
 def _provenance_html(esc, prov) -> str:
     if not prov or not prov.get("target_fixtures"):
         return ""
-    rows = [
-        (f["fixture"],
-         f"{f['before_short'] or 'unknown'} vs {f['after_short'] or 'unknown'}"
-         f" ({f['status']})")
-        for f in prov["target_fixtures"]
-    ]
+    rows = []
+    for f in prov["target_fixtures"]:
+        detail = f" -- {f['detail']}" if f.get("detail") else ""
+        rows.append((
+            f"{f['fixture']} ({f.get('role', '?')})",
+            f"{f['before_short'] or 'unknown'} vs "
+            f"{f['after_short'] or 'unknown'} [{f['status']}]{detail}"))
     return (
         '<section class="card"><div class="ctitle">Audio provenance: before '
         'vs after recapture</div><div class="cmpcap">Streamed sha256 '
-        'identity of the exact audio each side scored, for every fixture the '
-        'improvement claim rests on (previously failing, now passing). A '
-        'fresh take proves the same human-labeled contract passed on new '
-        'evidence; identical digests mean the after run re-scored the same '
-        'recording, not a fresh capture.</div>'
+        'identity of the exact audio each side scored, for every target and '
+        'hold fixture the verdict rests on. "verified" means the digests are '
+        'well-formed, freshly distinct (decoded PCM), and recomputed from the '
+        'audio on disk at trial time; anything else is named plainly and '
+        'cannot earn "improved". A fresh take proves the same human-labeled '
+        'contract passed on new evidence; identical decoded audio means the '
+        'after run re-scored the same conversation, not a fresh capture.</div>'
         f'<div class="does">{esc(_PROVENANCE_CAUTION)}</div>'
         + _kv_table(esc, rows) + '</section>'
     )
@@ -647,6 +1043,7 @@ def render_html(t: dict) -> str:
         '<div class="metarow">'
         '<span class="pill">offline <b>yes</b></span>'
         '<span class="pill">clone-only <b>yes</b></span>'
+        f'<span class="pill">min-n <b>{esc(t.get("min_n"))}</b></span>'
         '</div></div></header>'
     )
     summary = (
