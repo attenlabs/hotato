@@ -23,8 +23,8 @@ from . import errors as _errors
 from .core import LIMITS, SUITE_ID, process_exit_code, run_single, run_suite
 
 _TOOL_DESCRIPTION = f"""\
-Find where your voice agent talks over callers, and keep it from coming back.
-Offline turn-taking regression tests from your own call recordings. Score a call
+Offline turn-taking analysis and regression evidence for dual-channel
+voice-agent recordings, built from your own call recordings. Score a call
 recording and return a machine-readable verdict with an actionable, honest fix
 for each failing event.
 

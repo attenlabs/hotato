@@ -116,6 +116,68 @@ def test_card_from_plan_funnel(tmp_path):
     assert "%" not in svg
 
 
+# --- the paired-comparison card (D): a supported verify rollup ------------
+#
+# This card is the audit's flagship honesty case: the most authoritative-
+# looking artifact must never be the weakest evidence path. It renders "PAIRED
+# EVIDENCE IMPROVED", never the bare word "VERIFIED" or "fix verified", and is
+# refused (no card, exit 2) whenever that headline would be false: an
+# unsupported claim, a regressed hold guard, or -- the gap the previous
+# render missed -- a supported claim where nothing actually improved.
+
+def _verify_json(tmp_path, *, supported=True, now_pass=2, used_to_fail=3,
+                  hold_guards=2, still_pass=2, regressed=0):
+    doc = {
+        "tool": "hotato", "kind": "verify", "schema_version": "1",
+        "claim": {"supported": supported, "statement": "synthetic"},
+        "regression_axis": {"now_pass": now_pass, "used_to_fail": used_to_fail},
+        "hold_axis": {"hold_guards": hold_guards, "still_pass": still_pass,
+                      "regressed": regressed},
+    }
+    p = tmp_path / "verify.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    return p
+
+
+def test_card_from_verify_reads_paired_evidence_improved(tmp_path):
+    v = _verify_json(tmp_path, now_pass=2, used_to_fail=3,
+                      still_pass=2, hold_guards=2)
+    rc, svg = _card_cli(tmp_path, str(v))
+    assert rc == 0
+    _assert_is_card_svg(svg)
+    assert "PAIRED EVIDENCE IMPROVED" in svg
+    assert "2 of 3" in svg  # failing fixtures now pass
+    assert "2 of 2" in svg  # hold fixtures still pass
+    assert "Hotato reports coincidence, not causation." in svg
+    # never the bare status word or the retired phrase
+    assert "VERIFIED" not in svg
+    assert "FIX VERIFIED" not in svg
+
+
+def test_card_from_verify_unsupported_claim_refused(tmp_path):
+    v = _verify_json(tmp_path, supported=False)
+    rc, svg = _card_cli(tmp_path, str(v))
+    assert rc == 2
+    assert svg is None
+
+
+def test_card_from_verify_regressed_hold_refused(tmp_path):
+    v = _verify_json(tmp_path, regressed=1)
+    rc, svg = _card_cli(tmp_path, str(v))
+    assert rc == 2
+    assert svg is None
+
+
+def test_card_from_verify_zero_improvement_refused(tmp_path):
+    # A supported claim (enough previously-failing fixtures) where NOTHING
+    # newly passes must not render "PAIRED EVIDENCE IMPROVED": that headline
+    # would be false even though the claim technically clears --min-n.
+    v = _verify_json(tmp_path, supported=True, now_pass=0, used_to_fail=3)
+    rc, svg = _card_cli(tmp_path, str(v))
+    assert rc == 2
+    assert svg is None
+
+
 # --- redaction ------------------------------------------------------------
 
 def _sweep_with_call_id(tmp_path):

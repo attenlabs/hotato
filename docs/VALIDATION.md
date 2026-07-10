@@ -42,8 +42,9 @@ $ hotato run --stereo 01-hard-interruption.example.wav --expect yield
 ```
 
 `seconds_to_yield=0.51s` and `talk_over=0.51s` are identical across runs. This
-is the property a regression test needs: a red build means the audio changed,
-not that the scorer drifted.
+is the property a regression test needs: under a fixed hotato version and the
+same pinned audio, channel map, onset, label, and scoring config, a changed
+result means one of those pinned inputs changed, not that the scorer drifted.
 
 **What this job does NOT establish.** That 0.51s is the "true" yield latency in
 some absolute sense, or that the reference thresholds are right for your product.

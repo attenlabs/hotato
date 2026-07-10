@@ -1,13 +1,14 @@
 # hotato
 
-> Find where your voice agent talks over callers, and keep it from coming back.
-> Offline regression tests from your own call recordings, MIT and zero-install:
-> score a real call recording, keep it as a fixture, fail CI when the timing
-> regresses. Hotato measures whether the agent stopped talking when the caller
-> started (a yield), how many seconds that took, and how many seconds both were
-> talking at once (talk-over).
-> Every failure points at a concrete fix. Runs entirely on your machine. Built
-> to be called by an AI agent mid-task, as a CLI or a one-tool MCP server.
+> Offline turn-taking analysis and regression evidence for dual-channel
+> voice-agent recordings, MIT and zero-install: score a real call recording,
+> keep it as a fixture, fail CI when the timing regresses. Hotato measures
+> whether the agent stopped talking when the caller started (a yield), how
+> many seconds that took, and how many seconds both were talking at once
+> (talk-over).
+> Some timing signatures map to a likely fix class; root cause may remain
+> unknown. Runs entirely on your machine. Built to be called by an AI agent
+> mid-task, as a CLI or a one-tool MCP server.
 > Version 0.5.0. This file is the machine-readable index; `hotato describe
 > --format json` emits the same information generated straight from the CLI's
 > own argparse structure (every subcommand, its args, its exit codes, plus the
