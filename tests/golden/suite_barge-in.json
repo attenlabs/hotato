@@ -6,6 +6,20 @@
   },
   "events": [
     {
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "4e94ed51482e7bf09550e76991272525884301c365842ad7f5d219fc3f8dd9bc",
+        "sides": [
+          {
+            "duration_sec": 6.0,
+            "num_samples": 96000,
+            "path": "01-hard-interruption.example.wav",
+            "role": "stereo",
+            "sample_rate": 16000,
+            "sha256": "4e94ed51482e7bf09550e76991272525884301c365842ad7f5d219fc3f8dd9bc"
+          }
+        ]
+      },
       "category": "should_yield",
       "event_id": "01-hard-interruption",
       "expected_yield": true,
@@ -48,6 +62,20 @@
       }
     },
     {
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "a61b274905266e61bca1701f88df9da8a6d9794f06186af04c3cbf231ac3e2b9",
+        "sides": [
+          {
+            "duration_sec": 6.0,
+            "num_samples": 96000,
+            "path": "02-backchannel-mhm.example.wav",
+            "role": "stereo",
+            "sample_rate": 16000,
+            "sha256": "a61b274905266e61bca1701f88df9da8a6d9794f06186af04c3cbf231ac3e2b9"
+          }
+        ]
+      },
       "category": "should_not_yield",
       "event_id": "02-backchannel-mhm",
       "expected_yield": false,
@@ -85,6 +113,20 @@
       }
     },
     {
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "5a694aaa44682159051e69ccb80b2097cd94af3fba4bdd2a3eb5f09c5a60e872",
+        "sides": [
+          {
+            "duration_sec": 6.5,
+            "num_samples": 104000,
+            "path": "03-filler-start.example.wav",
+            "role": "stereo",
+            "sample_rate": 16000,
+            "sha256": "5a694aaa44682159051e69ccb80b2097cd94af3fba4bdd2a3eb5f09c5a60e872"
+          }
+        ]
+      },
       "category": "should_yield",
       "event_id": "03-filler-start",
       "expected_yield": true,
@@ -127,6 +169,20 @@
       }
     },
     {
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "f513a18eea4edfbc3ddf29c4ea05d50b87983c5f61ed2d6055354d3fead279a4",
+        "sides": [
+          {
+            "duration_sec": 6.0,
+            "num_samples": 96000,
+            "path": "04-correction.example.wav",
+            "role": "stereo",
+            "sample_rate": 16000,
+            "sha256": "f513a18eea4edfbc3ddf29c4ea05d50b87983c5f61ed2d6055354d3fead279a4"
+          }
+        ]
+      },
       "category": "should_yield",
       "event_id": "04-correction",
       "expected_yield": true,
@@ -169,6 +225,20 @@
       }
     },
     {
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "2a719d4d1190f9e5aee98d895db00b2791eb97af85f30b0e359301bbb5f9523a",
+        "sides": [
+          {
+            "duration_sec": 6.0,
+            "num_samples": 48000,
+            "path": "05-telephony-8khz.example.wav",
+            "role": "stereo",
+            "sample_rate": 8000,
+            "sha256": "2a719d4d1190f9e5aee98d895db00b2791eb97af85f30b0e359301bbb5f9523a"
+          }
+        ]
+      },
       "category": "should_yield",
       "event_id": "05-telephony-8khz",
       "expected_yield": true,
@@ -211,6 +281,20 @@
       }
     },
     {
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "80add9dd59b9c762ed8f62ea117ed7a9e7d8b73ec3ec94495f74000da24ddb08",
+        "sides": [
+          {
+            "duration_sec": 7.0,
+            "num_samples": 112000,
+            "path": "06-double-talk.example.wav",
+            "role": "stereo",
+            "sample_rate": 16000,
+            "sha256": "80add9dd59b9c762ed8f62ea117ed7a9e7d8b73ec3ec94495f74000da24ddb08"
+          }
+        ]
+      },
       "category": "should_yield",
       "event_id": "06-double-talk",
       "expected_yield": true,
@@ -253,6 +337,20 @@
       }
     },
     {
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "519bc0eef7aadaf9e325735d51faa16941ec35f2715f2ec9fd6416e7e3a1714d",
+        "sides": [
+          {
+            "duration_sec": 6.0,
+            "num_samples": 96000,
+            "path": "07-echo-bleed.example.wav",
+            "role": "stereo",
+            "sample_rate": 16000,
+            "sha256": "519bc0eef7aadaf9e325735d51faa16941ec35f2715f2ec9fd6416e7e3a1714d"
+          }
+        ]
+      },
       "category": "should_not_yield",
       "event_id": "07-echo-bleed",
       "expected_yield": false,
@@ -290,6 +388,20 @@
       }
     },
     {
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "d792e9343dad4bc652ebf32384d77a35ccef5f723b80ee43ba13b92a08a691de",
+        "sides": [
+          {
+            "duration_sec": 8.0,
+            "num_samples": 128000,
+            "path": "08-rapid-turn-taking.example.wav",
+            "role": "stereo",
+            "sample_rate": 16000,
+            "sha256": "d792e9343dad4bc652ebf32384d77a35ccef5f723b80ee43ba13b92a08a691de"
+          }
+        ]
+      },
       "category": "should_yield",
       "event_id": "08-rapid-turn-taking",
       "expected_yield": true,

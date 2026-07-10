@@ -7,6 +7,24 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Added
+- **Fresh-capture provenance guard for `hotato fix trial`**: every run
+  envelope now records an `audio_provenance` block per event (a streamed
+  sha256 of the exact audio bytes scored, plus sample rate and frame count;
+  additive, `schema_version` stays `"1"`). `hotato fix trial` compares this
+  identity, before vs. after, for every fixture the `improved` claim rests
+  on: an identical digest (the after run re-scored the SAME recording the
+  before run scored, just under a different threshold) downgrades the
+  verdict to `refused` (the same exit code `3` `hotato apply`'s own refusal
+  uses); a digest missing on either side (an older envelope, or one built by
+  hand) downgrades to `inconclusive`, never assumed fresh. Distinct, known
+  digests proceed exactly as before. Closes the exact forgery path where the
+  same recording is rescored with a looser threshold and passed off as a
+  verified fix. See `docs/FIX-TRIAL.md#fresh-capture-provenance-guard-a-re-score-is-never-a-fix`
+  and `docs/RECAPTURE.md#how-hotato-tells-a-recapture-from-a-re-score`.
+
 ## [0.7.2] - 2026-07-10
 
 ### Fixed

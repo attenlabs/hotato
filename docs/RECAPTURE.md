@@ -93,6 +93,28 @@ labelled policy. Keep both contracts -- the original (the historical record
 of the bug) and the recapture (today's evidence) -- they answer different
 questions and neither substitutes for the other.
 
+## How Hotato tells a recapture from a re-score
+
+Every run envelope Step 3's capture produces (and every `hotato contract
+create`) carries an `audio_provenance` block per event: a streamed sha256 of
+the exact audio bytes that were scored, plus sample rate and frame count.
+This is the mechanical proof that Step 2/3 actually happened -- a NEW
+recording, not the old one replayed through a looser threshold.
+
+`hotato fix trial` enforces this automatically: it refuses to certify
+`improved` when a fixture the claim rests on has byte-identical before/after
+audio (verdict `refused`), and refuses to certify it when either side's
+identity is unknown (verdict `inconclusive`, for example an envelope from
+before this field existed). See
+[`docs/FIX-TRIAL.md`](FIX-TRIAL.md#fresh-capture-provenance-guard-a-re-score-is-never-a-fix)
+for the full guard.
+
+`hotato contract verify` on a frozen bundle does NOT run this guard -- by
+design, per the two-lane table above, it re-scores the SAME recording on
+purpose (a CI regression gate on labelled evidence, not a fix claim), so
+identical audio identity there is expected, not a red flag. The guard exists
+specifically where a "fix" is being claimed: `fix trial`'s before/after.
+
 ## Limits, stated plainly
 
 - **This is not a controlled experiment.** A pass after a change coincides

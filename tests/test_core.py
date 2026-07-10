@@ -151,6 +151,111 @@ def test_regression_sets_exit_code_and_fix():
     assert env["fix_map"][0]["fix_class"] in ("config", "engagement-control")
 
 
+# --- audio provenance: identity of the exact bytes an event scored ----------
+
+def test_run_single_stereo_carries_audio_provenance():
+    env = run_single(
+        stereo=_bundled_stereo_path("01-hard-interruption"), expect="yield")
+    prov = env["events"][0]["audio_provenance"]
+    assert prov["schema_version"] == "1"
+    assert len(prov["sha256"]) == 64
+    assert prov["sides"][0]["role"] == "stereo"
+    assert prov["sides"][0]["sha256"] == prov["sha256"]
+    assert prov["sides"][0]["sample_rate"] > 0
+    assert prov["sides"][0]["num_samples"] > 0
+    assert prov["sides"][0]["duration_sec"] > 0
+
+
+def test_run_single_stereo_provenance_is_deterministic_for_the_same_file():
+    a = run_single(stereo=_bundled_stereo_path("01-hard-interruption"),
+                    expect="yield")
+    b = run_single(stereo=_bundled_stereo_path("01-hard-interruption"),
+                    expect="yield")
+    assert (a["events"][0]["audio_provenance"]["sha256"]
+            == b["events"][0]["audio_provenance"]["sha256"])
+
+
+def test_run_single_stereo_provenance_differs_for_different_files():
+    a = run_single(stereo=_bundled_stereo_path("01-hard-interruption"),
+                    expect="yield")
+    b = run_single(stereo=_bundled_stereo_path("02-backchannel-mhm"),
+                    expect="hold")
+    assert (a["events"][0]["audio_provenance"]["sha256"]
+            != b["events"][0]["audio_provenance"]["sha256"])
+
+
+def test_run_single_caller_agent_provenance_has_both_sides_and_a_combined_hash(
+        tmp_path):
+    from hotato._engine.audio import write_wav
+
+    caller = tmp_path / "caller.wav"
+    agent = tmp_path / "agent.wav"
+    write_wav(str(caller), 16000, [[0.1] * 1600])
+    write_wav(str(agent), 16000, [[0.2] * 1600])
+    env = run_single(caller=str(caller), agent=str(agent), expect="yield")
+    prov = env["events"][0]["audio_provenance"]
+    roles = {s["role"]: s for s in prov["sides"]}
+    assert set(roles) == {"caller", "agent"}
+    assert roles["caller"]["sha256"] != roles["agent"]["sha256"]
+    # The combined hash is order-stable and distinct from either side alone
+    # (mirrors contract.py's _sha256_two_files), so a caller-only or
+    # agent-only re-recording still changes the event's overall identity.
+    assert prov["sha256"] not in (roles["caller"]["sha256"], roles["agent"]["sha256"])
+
+
+def test_run_suite_events_all_carry_audio_provenance():
+    env = run_suite(suite="barge-in")
+    for e in env["events"]:
+        prov = e.get("audio_provenance")
+        assert prov is not None, e["event_id"]
+        assert len(prov["sha256"]) == 64
+
+
+def test_stream_sha256_never_reads_the_whole_file_in_one_call(tmp_path, monkeypatch):
+    """The provenance hash must be safe on a multi-hour recording: it reads
+    the file in fixed-size chunks, never loading the whole thing into memory
+    in one ``read()``. Proven functionally (not just by code inspection): a
+    spying ``open`` records the largest single ``read(n)`` size the hasher
+    ever requests and asserts it never exceeds the chunk size, regardless of
+    how large the underlying file is."""
+    import wave
+
+    from hotato import core
+
+    path = tmp_path / "big.wav"
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        # ~6 MiB of silence: several chunk-size reads, fast to write in a
+        # unit test.
+        wf.writeframes(b"\x00\x00" * (3 * 1024 * 1024))
+
+    real_open = open
+    max_read = {"n": 0}
+    target = str(path)
+
+    def spying_open(file, mode="r", *a, **k):
+        fh = real_open(file, mode, *a, **k)
+        if str(file) == target and "b" in mode:
+            orig_read = fh.read
+
+            def spy_read(n=-1, *ra, **rk):
+                if not (isinstance(n, int) and n > 0):
+                    raise AssertionError(
+                        "unbounded read() would load the whole file")
+                max_read["n"] = max(max_read["n"], n)
+                return orig_read(n, *ra, **rk)
+
+            fh.read = spy_read
+        return fh
+
+    monkeypatch.setattr(core, "open", spying_open, raising=False)
+    digest = core._stream_sha256(target)
+    assert len(digest) == 64
+    assert 0 < max_read["n"] <= (1 << 20)
+
+
 def test_mono_stereo_file_rejected():
     """A single-channel file passed as --stereo must raise, never silently
     mis-score as if it had separated channels."""
