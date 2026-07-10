@@ -46,13 +46,21 @@ yield`, it genuinely fails -- so `start --demo` prints:
 
 ```
 verified contract: FAIL as expected -- the demo call really did miss the
-interruption; this is the exact failure a CI regression gate would catch
+interruption; a CI gate on this contract catches any change to the evidence
+or policy -- catching the AGENT regressing requires a fresh recapture (see
+docs/RECAPTURE.md)
+(start --demo itself exits 0 because setup succeeded; run the next command to
+see the contract's CI exit 1: hotato contract verify contracts/)
 ```
 
-This is not a contrived pass. `hotato contract verify contracts/` re-scores
-the SAME bundled audio and reports the SAME regression (exit code `1`),
-exactly like a CI job would after a change reintroduces this failure. Run it
-yourself:
+This is not a contrived pass: `hotato contract verify contracts/` re-scores
+the SAME bundled audio and reports the SAME regression (exit code `1`), and a
+CI job wired to it fails the same way if that bundled evidence or policy ever
+changes. What it does NOT do, on this frozen recording, is tell you whether a
+CURRENT deployed agent still has the bug -- that requires re-running the same
+caller stimulus against it and verifying the fresh capture; see
+[`docs/RECAPTURE.md`](RECAPTURE.md). See [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it)
+for the full two-lane breakdown. Run it yourself:
 
 ```bash
 hotato contract verify contracts/
