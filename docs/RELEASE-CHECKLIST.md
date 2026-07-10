@@ -7,7 +7,8 @@ Run top to bottom for every release. Each item is a gate: green means proceed.
 - [ ] `python3 -m pytest -q` fully green on a clean checkout.
 - [ ] `python3 sync_engine.py --check` passes: the vendored `_engine` is byte-identical to upstream.
 - [ ] CI is green on the release commit (`.github/workflows/tests.yml`).
-- [ ] Version bumped in EVERY lockstep site: `pyproject.toml`, `src/hotato/__init__.py` (`__version__` -- this is what `hotato --version`, `hotato describe`, and stackbench provenance self-report), `server.json` (both `version` fields), `CITATION.cff` (`version` + `date-released`), the `llms.txt` version line; `CHANGELOG.md` has a dated entry for it. `tests/test_version_lockstep.py` gates the ones tests can see.
+- [ ] GitHub Actions stay SHA-pinned: every `uses:` in `.github/workflows/*.yml` references an action by full 40-char commit SHA with a trailing `# vX.Y.Z` comment (never a mutable `@v4` tag or `@release/v1` branch). When bumping an action, update the SHA and the comment together; do not revert to a floating tag.
+- [ ] Version bumped in EVERY lockstep site: `pyproject.toml`, `src/hotato/__init__.py` (`__version__` -- this is what `hotato --version`, `hotato describe`, and stackbench provenance self-report), `server.json` (both `version` fields), `CITATION.cff` (`version` + `date-released`), the `llms.txt` version line; `CHANGELOG.md` has a dated entry for it. `tests/test_version_lockstep.py` gates the ones tests can see -- it now parses and compares `pyproject.toml`, `__init__.py`, the `describe` manifest, installed dist metadata, `llms.txt`'s `Version` line, `server.json` (top-level + each package), and `CITATION.cff`'s `version:`, so a missed bump in any of those reddens CI.
 
 ## README and assets
 
@@ -24,6 +25,7 @@ Run top to bottom for every release. Each item is a gate: green means proceed.
 ## Package
 
 - [ ] Build sdist and wheel from a clean tree; install the wheel in a fresh venv and run `hotato run --suite barge-in`.
+- [ ] Generate the SBOM and attach it to the release: `python3 scripts/gen_sbom.py` writes `dist/hotato.sbom.cdx.json` (a minimal CycloneDX bill of materials for the core package and every declared dependency, generated offline straight from `pyproject.toml` -- no network, no pip). Validate it with `python3 scripts/gen_sbom.py --check dist/hotato.sbom.cdx.json`, then upload `dist/*.sbom.cdx.json` alongside the sdist/wheel on the GitHub release.
 - [ ] Publish to PyPI. **Current mechanism: manual upload with an API token** (`twine upload dist/*` using a token scoped to the `hotato` project). This is the only working path today.
 - [ ] Verify `uvx hotato demo` works from the published package (fresh machine or cleared uv cache): it renders and opens the failing demo report.
 - [ ] Verify `uvx hotato doctor` (self-test path) works from the published package.

@@ -79,3 +79,70 @@ def test_installed_dist_metadata_matches_pyproject():
     except PackageNotFoundError:
         pytest.skip("hotato is not installed in this environment")
     assert dist_version == _pyproject_version()
+
+
+# --- Static distribution-surface lockstep -------------------------------------
+# Files an agent, a citation tool, or the MCP registry reads directly, none of
+# which the version-consistency tests above ever parsed. Each is read straight
+# from disk (no import, no CLI) and compared to pyproject.toml, so a missed bump
+# in any single surface reddens this file. (This is exactly the class of drift
+# that shipped: llms.txt still said "Version 0.5.0" at the 0.9.0 release.)
+
+
+def _llms_txt_version():
+    """The 'Version X.Y.Z' line in llms.txt -- the machine-readable index an
+    agent reads to learn the tool version without running it."""
+    with open(os.path.join(ROOT, "llms.txt"), encoding="utf-8") as fh:
+        text = fh.read()
+    m = re.search(r"(?m)^>?\s*Version\s+(\S+)", text)
+    assert m, "no 'Version X.Y.Z' line found in llms.txt"
+    return m.group(1).rstrip(".")
+
+
+def _server_json():
+    with open(os.path.join(ROOT, "server.json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _citation_cff_version():
+    """The top-level `version:` key in CITATION.cff. Parsed with a regex to
+    keep this test stdlib-only (no PyYAML dependency); the file's `version:`
+    lives at column 0, distinct from any nested key."""
+    with open(os.path.join(ROOT, "CITATION.cff"), encoding="utf-8") as fh:
+        text = fh.read()
+    m = re.search(r"(?m)^version:\s*(\S+)", text)
+    assert m, "no top-level 'version:' key found in CITATION.cff"
+    return m.group(1).strip("\"'")
+
+
+def test_llms_txt_version_matches_pyproject():
+    assert _llms_txt_version() == _pyproject_version(), (
+        "llms.txt's 'Version X.Y.Z' line is out of lockstep with pyproject.toml "
+        "-- agents read this file for the tool version. Bump it "
+        "(see docs/RELEASE-CHECKLIST.md)."
+    )
+
+
+def test_server_json_top_level_version_matches_pyproject():
+    assert _server_json()["version"] == _pyproject_version(), (
+        "server.json top-level 'version' is out of lockstep with pyproject.toml "
+        "-- this is what the MCP registry publishes. Bump it."
+    )
+
+
+def test_server_json_package_versions_match_pyproject():
+    pv = _pyproject_version()
+    packages = _server_json().get("packages", [])
+    assert packages, "server.json has no packages[] to check"
+    for pkg in packages:
+        assert pkg.get("version") == pv, (
+            f"server.json package {pkg.get('identifier')!r} version "
+            f"{pkg.get('version')!r} != pyproject.toml {pv!r}. Bump it."
+        )
+
+
+def test_citation_cff_version_matches_pyproject():
+    assert _citation_cff_version() == _pyproject_version(), (
+        "CITATION.cff 'version:' is out of lockstep with pyproject.toml -- this "
+        "is what citation tooling reports. Bump it (and date-released)."
+    )
