@@ -36,6 +36,10 @@ _ALL_SUBCOMMANDS = [
     "init", "init webhook", "init starter",
     "issue", "issue create",
     "pr", "pr create",
+    "fleet", "fleet init", "fleet agent", "fleet agent add", "fleet agent list",
+    "fleet ingest", "fleet discover", "fleet review", "fleet label", "fleet status",
+    "fleet experiment", "fleet experiment run", "fleet canary", "fleet canary start",
+    "fleet canary rollback", "fleet export",
 ]
 
 
