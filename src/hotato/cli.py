@@ -2440,6 +2440,9 @@ def _cmd_start(args) -> int:
     return _start.run_start(
         demo=args.demo, stack=args.stack, folder=args.folder,
         stereo=args.stereo, out_dir=args.dir, fmt=args.format,
+        label=getattr(args, "label", None), onset_sec=getattr(args, "onset", None),
+        caller_channel=getattr(args, "caller_channel", 0),
+        agent_channel=getattr(args, "agent_channel", 1),
     )
 
 
@@ -3137,6 +3140,14 @@ def build_parser() -> argparse.ArgumentParser:
                          "current directory)")
     st.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
+    st.add_argument("--label", default=None, choices=["yield", "hold"],
+                    help="(--stereo) your human label for the top candidate; creates a contract")
+    st.add_argument("--onset", type=float, default=None,
+                    help="(--stereo) pin the caller onset in seconds (else the top candidate)")
+    st.add_argument("--caller-channel", type=int, default=0,
+                    help="(--stereo) caller channel index")
+    st.add_argument("--agent-channel", type=int, default=1,
+                    help="(--stereo) agent channel index")
     st.set_defaults(func=_cmd_start)
 
     cd = sub.add_parser(

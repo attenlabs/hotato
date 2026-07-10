@@ -166,7 +166,9 @@ def _next_commands_text(card_written: bool, contract_written: bool) -> str:
 
 def run_start(*, demo: bool = False, stack: Optional[str] = None,
               folder: Optional[str] = None, stereo: Optional[str] = None,
-              out_dir: Optional[str] = None, fmt: str = "text") -> int:
+              out_dir: Optional[str] = None, fmt: str = "text",
+              label: Optional[str] = None, onset_sec: Optional[float] = None,
+              caller_channel: int = 0, agent_channel: int = 1) -> int:
     """``hotato start``. Only ``--demo`` fully runs in this build; the other
     modes are stubbed and route to the shipped command that does the job."""
     modes = [m for m, on in (("--demo", demo), ("--stack", stack),
@@ -177,11 +179,15 @@ def run_start(*, demo: bool = False, stack: Optional[str] = None,
             "first run). --stack/--folder/--stereo are placeholders in this "
             "build; use hotato sweep / hotato analyze / hotato run for those."
         )
+    if stereo:
+        return _run_stereo_flow(
+            stereo, out_dir=out_dir or ".", fmt=fmt,
+            label=label, onset_sec=onset_sec,
+            caller_channel=caller_channel, agent_channel=agent_channel)
     if not demo:
-        # Stub modes: point at the shipped primitive rather than pretend.
+        # --stack / --folder still route to the shipped primitive.
         route = {"--stack": "hotato sweep --stack <stack>",
-                 "--folder": "hotato analyze <folder>",
-                 "--stereo": "hotato run --stereo <call.wav>"}[modes[0]]
+                 "--folder": "hotato analyze <folder>"}[modes[0]]
         msg = (f"hotato start {modes[0]} is not yet in this build. "
                f"For now, run: {route}")
         if fmt == "json":
@@ -276,3 +282,174 @@ def run_start(*, demo: bool = False, stack: Optional[str] = None,
                 print(f"  verified contract: {mark}")
         print(_next_commands_text(card_written, contract_written))
     return 0
+
+
+# --- start --stereo: the guided own-call first run --------------------------
+
+_STEREO_REVIEW_HTML = "hotato-review.html"
+_STEREO_CARD = "hotato-candidate.svg"
+_STEREO_CONTRACTS = "contracts"
+
+
+def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
+                     caller_channel, agent_channel):
+    """The guided own-call flow: trust preflight -> channel-mapping check ->
+    candidate scan -> local review page -> (human label) -> contract + an
+    evidence-tier-aware card, ending with one sentence on what the result proves
+    and one on what it does not. No credential, no network.
+
+    Without ``--label`` it stops at the review page and prints the exact command
+    to finish; with ``--label yield|hold`` (a HUMAN decision) it creates the
+    contract and card. A single recording is MEASURED evidence, never a paired
+    fresh-recapture proof -- the flow says so explicitly."""
+    from . import trust as _trust
+    from . import scan as _scan
+    from . import ingest as _ingest
+    from . import contract as _contract
+    from . import evidence as _evidence
+    from .core import run_single
+
+    if not os.path.isdir(out_dir):
+        raise ValueError(f"--dir {out_dir!r} is not a directory")
+
+    # 1) trust preflight
+    report = _trust.trust_report(stereo, caller_channel=caller_channel,
+                                 agent_channel=agent_channel)
+    input_health = report.get("input_health") or (
+        "clean" if report.get("scorable") else "not_scorable")
+    if not report.get("scorable"):
+        msg = f"NOT SCORABLE: {report.get('recommendation')}"
+        _emit_stereo(fmt, {"tool": "hotato", "kind": "start", "mode": "--stereo",
+                           "ran": False, "scorable": False,
+                           "input_health": input_health,
+                           "recommendation": report.get("recommendation")}, msg)
+        return 2
+    channels = report.get("channels") or {}
+    possible_swap = bool(channels.get("possible_swap"))
+
+    # 2) candidate scan + review page
+    scanned = _scan.scan_recording(stereo, caller_channel=caller_channel,
+                                   agent_channel=agent_channel)
+    cands = scanned.get("candidates", [])
+    review_html = _ingest.render_candidates_html(scanned, top=10)
+    _write_text(os.path.join(out_dir, _STEREO_REVIEW_HTML), review_html)
+
+    top = cands[0] if cands else None
+    top_onset = onset_sec if onset_sec is not None else (
+        top.get("t_sec") if top else None)
+
+    # 3) measure the top candidate (onset frame + decision margin + boundary)
+    measured = None
+    if top_onset is not None:
+        expect = label if label in ("yield", "hold") else "yield"
+        env = run_single(stereo=stereo, onset_sec=top_onset, expect=expect,
+                         caller_channel=caller_channel, agent_channel=agent_channel)
+        ev = env["events"][0]
+        measured = {"onset_sec": top_onset,
+                    "verdict": ev["verdict"],
+                    "measurements": {k: ev["measurements"].get(k) for k in (
+                        "onset_frame_index", "onset_effective_sec",
+                        "decision_margin_sec", "decision_margin_hops",
+                        "boundary_sensitive", "hop_sec")}}
+
+    # 4) optional human label -> contract + evidence-tier card
+    contract_info = None
+    card_written = False
+    if label in ("yield", "hold") and top_onset is not None:
+        cdir = os.path.join(out_dir, _STEREO_CONTRACTS)
+        os.makedirs(cdir, exist_ok=True)
+        res = _contract.create_contract(
+            stereo=stereo, expect=label, out_dir=cdir, onset_sec=top_onset,
+            contract_id="own-call-001", caller_channel=caller_channel,
+            agent_channel=agent_channel,
+            max_time_to_yield_sec=None, max_talk_over_sec=None)
+        contract_info = {"id": "own-call-001", "dir": os.path.relpath(
+            res.get("path", cdir), out_dir)}
+        # evidence tier for ONE measured recording (never paired here)
+        vector = {"input_health": input_health,
+                  "channel_mapping": "suspect" if possible_swap else "confirmed",
+                  "label_authority": "human",
+                  "score_integrity": "recomputed", "audio_identity": "recomputed"}
+        classification = _evidence.classify(
+            vector, required=_evidence.REQUIRED_FOR_MEASURED)
+        # A single own-call recording is MEASURED evidence at most: there is no
+        # before/after pairing or experiment here, so it can never read as a
+        # paired/attested proof. Cap the tier and use measured-tier language.
+        capped = min(classification["tier"], _evidence.TIER_MEASURED)
+        classification["tier"] = capped
+        classification["headline"] = _evidence.TIER_HEADLINE[capped]
+        try:
+            from . import card as _card2
+            verify_like = _contract.inspect_contract(
+                os.path.join(res.get("path", cdir), "contract.json"))                 if os.path.isfile(os.path.join(res.get("path", cdir), "contract.json")) else None
+        except Exception:
+            verify_like = None
+        contract_info["evidence_tier"] = classification["tier"]
+        contract_info["evidence_headline"] = classification["headline"]
+
+    # 5) assemble output
+    proves = ("This measures whether THIS recording met the yield/hold policy "
+              "you labelled, under the recorded conditions.")
+    not_proves = ("It does not prove the call was fresh, that any change caused "
+                  "the result, or that future calls will pass. A paired "
+                  "fresh-recapture proof needs a before/after trial "
+                  "(hotato fix trial) with recomputed audio.")
+    payload = {
+        "tool": "hotato", "kind": "start", "mode": "--stereo", "ran": True,
+        "offline": True, "scorable": True, "input_health": input_health,
+        "possible_channel_swap": possible_swap,
+        "recommendation": report.get("recommendation"),
+        "total_candidates": scanned.get("total_candidates"),
+        "review_page": _STEREO_REVIEW_HTML,
+        "top_candidate": measured,
+        "contract": contract_info,
+        "proves": proves, "does_not_prove": not_proves,
+        "next": _stereo_next(label, contract_info),
+    }
+    if fmt == "json":
+        print(_errors.safe_json_dumps(payload, indent=2))
+        return 0
+    # text
+    lines = ["hotato start --stereo: guided own-call review (offline).",
+             f"  input health:    {input_health}"
+             + ("  [!] possible channel swap -- confirm mapping" if possible_swap else ""),
+             f"  recommendation:  {report.get('recommendation')}",
+             f"  candidates:      {scanned.get('total_candidates')} moments -> {_STEREO_REVIEW_HTML}"]
+    if measured:
+        m = measured["measurements"]; v = measured["verdict"]
+        bs = " [BOUNDARY-SENSITIVE]" if m.get("boundary_sensitive") else ""
+        lines += [f"  top candidate:   onset {measured['onset_sec']:.2f}s "
+                  f"(frame {m.get('onset_frame_index')}), "
+                  f"time-to-yield {v.get('seconds_to_yield')}, "
+                  f"talk-over {v.get('talk_over_sec')}s{bs}"]
+    if contract_info:
+        lines += [f"  contract:        {contract_info['dir']} "
+                  f"(evidence: {contract_info['evidence_headline']}, tier "
+                  f"{contract_info['evidence_tier']})"]
+    lines += ["", f"  What this proves:     {proves}",
+              f"  What it does NOT:     {not_proves}", ""]
+    lines += _stereo_next(label, contract_info)
+    print("\n".join(lines))
+    return 0
+
+
+def _stereo_next(label, contract_info):
+    if label not in ("yield", "hold"):
+        return [
+            "Next: review the candidates in the page above, then label the real "
+            "one to create a contract:",
+            "  hotato start --stereo <call.wav> --label yield   # or --label hold",
+            "  (add --onset <sec> to pin a specific moment)",
+        ]
+    return [
+        "Next: connect your stack and recapture to build a paired proof:",
+        "  hotato connect --stack vapi --api-key <key>",
+        "  hotato fix trial <patch.json> --before <before/> --after <after/> --battery <before/>",
+    ]
+
+
+def _emit_stereo(fmt, payload, text_msg):
+    if fmt == "json":
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(text_msg)
