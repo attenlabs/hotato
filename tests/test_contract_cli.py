@@ -27,18 +27,21 @@ Pinned here, against the canon in docs/CONTRACTS.md:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
 import struct
 import wave
 import xml.etree.ElementTree as ET
+import zipfile
 from importlib import resources
 
 import pytest
 
 from hotato import analyze as _analyze
 from hotato import cli
+from hotato import contract as _contract
 from hotato import diarize as _diarize
 
 HARD = str(resources.files("hotato").joinpath(
@@ -533,6 +536,147 @@ def test_pack_of_a_non_bundle_directory_is_refused(tmp_path):
     empty.mkdir()
     (empty / "hello.txt").write_text("hi")
     assert cli.main(["contract", "pack", str(empty)]) == 2
+
+
+# --- unpack hardening against hostile archives ------------------------------
+#
+# A .hotato archive travels between teams (`contract pack` on one machine,
+# `contract unpack` on another), so `unpack_contract` treats it as hostile
+# input, not just a corruption check. Each fixture below hand-builds a
+# minimal, otherwise well-formed archive (never through `contract pack`) so
+# exactly one property is hostile. Every case must be refused (exit 2) with
+# NOTHING written outside the archive itself: no --out directory, no stray
+# extraction temp directory left behind.
+
+def _hostile_zip(path, members, *, manifest_entries=None):
+    """Write a raw archive with MANIFEST.sha256.json plus `members` (a list
+    of dicts: name, data, and optionally external_attr / compress_type), for
+    hand-crafting one hostile property at a time. `manifest_entries`
+    defaults to the correct sha256 of every member under its own name;
+    pass an explicit dict to build an archive whose manifest omits a member
+    the archive actually carries."""
+    if manifest_entries is None:
+        manifest_entries = {
+            m["name"]: hashlib.sha256(m["data"]).hexdigest() for m in members
+        }
+    manifest_bytes = (json.dumps(manifest_entries, indent=2, sort_keys=True)
+                      + "\n").encode("utf-8")
+    with zipfile.ZipFile(str(path), "w") as zf:
+        zi = zipfile.ZipInfo(_contract.MANIFEST_NAME, date_time=(1980, 1, 1, 0, 0, 0))
+        zf.writestr(zi, manifest_bytes)
+        for m in members:
+            zi = zipfile.ZipInfo(m["name"], date_time=(1980, 1, 1, 0, 0, 0))
+            zi.external_attr = m.get("external_attr", 0o644 << 16)
+            zf.writestr(zi, m["data"],
+                       compress_type=m.get("compress_type", zipfile.ZIP_DEFLATED))
+
+
+def _assert_nothing_written(dest):
+    """After a refused unpack, --out must not exist and no stray extraction
+    temp directory may be left behind in its parent."""
+    assert not dest.exists()
+    leftovers = [p.name for p in dest.parent.iterdir()
+                if p.name.startswith(".hotato-unpack-tmp-")]
+    assert leftovers == []
+
+
+def test_unpack_refuses_a_path_traversal_member(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    _hostile_zip(archive, [{"name": "../evil.txt", "data": b"pwned"}])
+    dest = tmp_path / "unpacked"
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest)]) == 2
+    _assert_nothing_written(dest)
+    assert not (tmp_path.parent / "evil.txt").exists()
+
+
+def test_unpack_refuses_a_backslash_traversal_member(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    _hostile_zip(archive, [{"name": "..\\..\\evil.txt", "data": b"pwned"}])
+    dest = tmp_path / "unpacked"
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest)]) == 2
+    _assert_nothing_written(dest)
+
+
+def test_unpack_refuses_a_drive_letter_member(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    _hostile_zip(archive, [{"name": "C:evil.txt", "data": b"pwned"}])
+    dest = tmp_path / "unpacked"
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest)]) == 2
+    _assert_nothing_written(dest)
+
+
+def test_unpack_refuses_a_symlink_member(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    _hostile_zip(archive, [{
+        "name": "evidence/trust.json", "data": b"/etc/passwd",
+        "external_attr": 0o120777 << 16,
+    }])
+    dest = tmp_path / "unpacked"
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest)]) == 2
+    _assert_nothing_written(dest)
+
+
+def test_unpack_refuses_duplicate_member_names(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    data = b"hello"
+    manifest_bytes = (json.dumps({"contract.json": hashlib.sha256(data).hexdigest()},
+                                 indent=2, sort_keys=True) + "\n").encode("utf-8")
+    with zipfile.ZipFile(str(archive), "w") as zf:
+        zi = zipfile.ZipInfo(_contract.MANIFEST_NAME, date_time=(1980, 1, 1, 0, 0, 0))
+        zf.writestr(zi, manifest_bytes)
+        for _ in range(2):
+            zi = zipfile.ZipInfo("contract.json", date_time=(1980, 1, 1, 0, 0, 0))
+            zf.writestr(zi, data)
+    dest = tmp_path / "unpacked"
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest)]) == 2
+    _assert_nothing_written(dest)
+
+
+def test_unpack_refuses_a_member_not_declared_in_manifest(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    declared = {"name": "contract.json", "data": b"{}"}
+    undeclared = {"name": "evidence/trust.json", "data": b"sneaky"}
+    _hostile_zip(
+        archive, [declared, undeclared],
+        manifest_entries={declared["name"]: hashlib.sha256(declared["data"]).hexdigest()},
+    )
+    dest = tmp_path / "unpacked"
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest)]) == 2
+    _assert_nothing_written(dest)
+
+
+def test_unpack_refuses_oversized_decompression(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    _hostile_zip(archive, [{"name": "contract.json", "data": os.urandom(5000)}])
+    dest = tmp_path / "unpacked"
+    rc = cli.main(["contract", "unpack", str(archive), "--out", str(dest),
+                  "--max-bytes", "1024"])
+    assert rc == 2
+    _assert_nothing_written(dest)
+
+
+def test_unpack_refuses_a_compression_ratio_bomb(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    _hostile_zip(archive, [{"name": "contract.json", "data": b"\x00" * 2_000_000}])
+    dest = tmp_path / "unpacked"
+    # Well under the 512 MiB default total-bytes cap: only the per-member
+    # ratio check can catch this one.
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest)]) == 2
+    _assert_nothing_written(dest)
+
+
+def test_unpack_accepts_a_well_formed_hand_built_archive(tmp_path):
+    """Regression guard: the hardening above must not reject a legitimate,
+    nested-path archive built the same way the hostile fixtures are."""
+    archive = tmp_path / "clean.hotato.pack"
+    _hostile_zip(archive, [
+        {"name": "contract.json", "data": b'{"ok": true}'},
+        {"name": "evidence/trust.json", "data": b'{"trust": "ok"}'},
+    ])
+    dest = tmp_path / "unpacked"
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest)]) == 0
+    assert (dest / "contract.json").read_bytes() == b'{"ok": true}'
+    assert (dest / "evidence" / "trust.json").read_bytes() == b'{"trust": "ok"}'
 
 
 # --- diarized-mono opt-in path (stub diarizer; no network, no extras) ------

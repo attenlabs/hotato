@@ -47,6 +47,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -86,6 +87,29 @@ SCHEMA = "hotato.contract.v1"
 CREATED_BY = "hotato contract create"
 BUNDLE_SUFFIX = ".hotato"
 MANIFEST_NAME = "MANIFEST.sha256.json"
+
+# --- unpack hardening: a .hotato archive is meant to travel between teams --
+# (`contract pack` on one machine, `contract unpack` on another), so it is
+# untrusted input, not just a corruption check. Every limit below is
+# enforced as a ValueError, so a hostile archive hits the SAME clean exit-2
+# contract as any other unpack usage error (see errors.HANDLED) -- never an
+# uncaught exception or a partially-written --out.
+DEFAULT_MAX_UNPACK_BYTES = 512 * 1024 * 1024  # 512 MiB of real bundle content
+_MAX_UNPACK_BYTES_ENV = "HOTATO_CONTRACT_MAX_UNPACK_BYTES"
+# A real bundle carries on the order of 15-30 files (contract.json, audio,
+# evidence/*, source/*, policy/*, reports/*, ci/*, provenance.json, plus any
+# traces); this is generous headroom against a many-tiny-members bomb while
+# still being cheap to reject before any member is opened.
+MAX_UNPACK_MEMBERS = 5_000
+# Per-member compression-ratio bomb: below this declared size, ratio alone is
+# noise (a tiny file that compresses well is not a threat by itself). A
+# single-pass DEFLATE stream tops out near ~1032:1 on pathological input;
+# 300:1 is already far outside anything a real bundle member (audio/json/
+# html/svg) produces.
+_RATIO_BOMB_MIN_DECLARED_BYTES = 1_000_000
+_RATIO_BOMB_MAX_RATIO = 300
+_UNPACK_COPY_CHUNK_BYTES = 1024 * 1024
+_DRIVE_LETTER_RE = re.compile(r"^[A-Za-z]:")
 
 # Same slug rule fixture ids and the corpus label schema use.
 _SLUG_RE = _fixture._SLUG_RE
@@ -1207,7 +1231,19 @@ def pack_contract(bundle_dir: str, *, out_path: Optional[str] = None,
                   force: bool = False) -> dict:
     """Pack a ``<id>.hotato`` bundle directory into a single deterministic
     ``.hotato`` archive file, with a sha256 manifest of every member so
-    :func:`unpack_contract` can verify the round trip byte for byte."""
+    :func:`unpack_contract` can verify the round trip byte for byte.
+
+    Determinism (packing the SAME bundle directory twice, even on different
+    machines, produces byte-identical archives) is a deliberate property of
+    every value written into each member's ``ZipInfo``, not an accident of
+    the platform this happens to run on: member order comes from
+    :func:`_iter_bundle_files`, which walks and sorts by relative path;
+    ``date_time`` is pinned to a fixed epoch instead of the real mtime;
+    ``external_attr`` (file mode) and ``compress_type`` / ``compresslevel``
+    are fixed constants; and ``create_system`` -- which ``zipfile`` otherwise
+    defaults from ``sys.platform`` (0 on Windows, 3 elsewhere) and would
+    silently make a Windows-packed archive differ byte-for-byte from a
+    Linux-packed one of the SAME bundle -- is pinned to 3 below."""
     if not os.path.isdir(bundle_dir):
         raise ValueError(f"{bundle_dir!r} is not a directory")
     cpath = os.path.join(bundle_dir, "contract.json")
@@ -1240,10 +1276,12 @@ def pack_contract(bundle_dir: str, *, out_path: Optional[str] = None,
                              compresslevel=6) as zf:
             zi = zipfile.ZipInfo(MANIFEST_NAME, date_time=(1980, 1, 1, 0, 0, 0))
             zi.external_attr = 0o644 << 16
+            zi.create_system = 3  # pin to Unix; see the determinism note above
             zf.writestr(zi, manifest_bytes)
             for rel, fp in entries:
                 zi = zipfile.ZipInfo(rel, date_time=(1980, 1, 1, 0, 0, 0))
                 zi.external_attr = 0o644 << 16
+                zi.create_system = 3  # pin to Unix; see the determinism note above
                 with open(fp, "rb") as fh:
                     zf.writestr(zi, fh.read())
         os.replace(tmp_out, out_path)
@@ -1274,12 +1312,143 @@ def pack_result_json(result: dict) -> dict:
     }
 
 
+def _max_unpack_bytes() -> int:
+    """Resolve the total-decompressed-bytes cap: ``HOTATO_CONTRACT_MAX_UNPACK_BYTES``
+    if set (same override convention as ``HOTATO_ALLOW_MONO`` /
+    ``HOTATO_INGEST_ALLOWED_HOSTS`` elsewhere in the codebase), else
+    :data:`DEFAULT_MAX_UNPACK_BYTES`."""
+    raw = os.environ.get(_MAX_UNPACK_BYTES_ENV, "").strip()
+    if not raw:
+        return DEFAULT_MAX_UNPACK_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(
+            f"{_MAX_UNPACK_BYTES_ENV}={raw!r} is not an integer number of bytes"
+        )
+    if value <= 0:
+        raise ValueError(f"{_MAX_UNPACK_BYTES_ENV} must be a positive integer")
+    return value
+
+
+def _safe_member_parts(name: str) -> list:
+    """Validate one archive member name for extraction safety and return its
+    validated forward-slash path parts. Rejects absolute paths, ``..``
+    traversal, and empty segments (also catches a trailing-slash directory
+    entry, which a real ``.hotato`` pack never contains). Backslashes and
+    drive letters (``C:\\...``) are rejected outright rather than
+    interpreted, so a Windows-style path is caught the same way regardless of
+    the host platform doing the unpacking -- POSIX ``os.path.join`` would
+    otherwise treat a backslash as a harmless literal filename character and
+    let it through."""
+    if not name:
+        raise ValueError("archive contains a member with an empty name")
+    if "\\" in name:
+        raise ValueError(f"unsafe path in archive (backslash path separator): {name!r}")
+    if name.startswith("/") or _DRIVE_LETTER_RE.match(name):
+        raise ValueError(f"unsafe path in archive (absolute path): {name!r}")
+    parts = name.split("/")
+    if ".." in parts or "" in parts:
+        raise ValueError(f"unsafe path in archive: {name!r}")
+    return parts
+
+
+def _check_member_safety(info: zipfile.ZipInfo) -> None:
+    """Reject one archive member outright (fail closed) for any property that
+    would make it unsafe to extract, before any of its bytes are
+    decompressed: an unsafe path (see :func:`_safe_member_parts`), a symlink
+    (its ``external_attr`` upper bits carry the POSIX file mode), or an
+    encrypted entry (would otherwise raise an uncaught ``RuntimeError`` deep
+    in zipfile, breaking the tool's clean exit-2 contract)."""
+    _safe_member_parts(info.filename)
+    mode = (info.external_attr >> 16) & 0o170000
+    if mode == 0o120000:
+        raise ValueError(f"archive member is a symbolic link, which is not allowed: {info.filename!r}")
+    if info.flag_bits & 0x1:
+        raise ValueError(f"archive member is encrypted, which is not supported: {info.filename!r}")
+
+
+def _check_ratio_bomb(info: zipfile.ZipInfo) -> None:
+    """Reject a member whose declared compression ratio is far beyond
+    anything a real bundle member (audio/json/html/svg) produces -- a
+    single small compressed member designed to expand enormously. This is a
+    fast, pre-decompression heuristic on the archive's own metadata; the
+    total-bytes cap enforced during actual extraction (see
+    :func:`unpack_contract`) is the authoritative defense and does not trust
+    this metadata."""
+    if info.compress_size <= 0:
+        if info.file_size > 0:
+            raise ValueError(
+                f"archive member {info.filename!r} claims decompressed "
+                "content from zero compressed bytes; refusing to unpack"
+            )
+        return
+    if info.file_size < _RATIO_BOMB_MIN_DECLARED_BYTES:
+        return
+    ratio = info.file_size / info.compress_size
+    if ratio > _RATIO_BOMB_MAX_RATIO:
+        raise ValueError(
+            f"archive member {info.filename!r} has a {ratio:.0f}:1 "
+            "compression ratio, far beyond anything a real bundle member "
+            "produces; refusing to unpack a possible zip bomb"
+        )
+
+
+def _read_member_capped(zf: zipfile.ZipFile, name: str, max_bytes: int) -> bytes:
+    """Read one archive member fully into memory, capping the ACTUAL
+    decompressed byte count (not the archive's declared, and therefore
+    untrusted, size metadata) against ``max_bytes`` -- the same authoritative
+    defense :func:`unpack_contract`'s main extraction loop applies to bundle
+    members written to disk, for the one member (the sha256 manifest) that
+    must be read into memory instead."""
+    chunks = []
+    total = 0
+    with zf.open(name) as src:
+        while True:
+            chunk = src.read(_UNPACK_COPY_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError(
+                    f"archive member {name!r} decompresses to more than "
+                    f"{max_bytes} bytes; refusing to unpack a possible zip bomb"
+                )
+            chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def unpack_contract(archive_path: str, out_dir: str, *,
-                    force: bool = False) -> dict:
+                    force: bool = False, max_bytes: Optional[int] = None) -> dict:
     """Unpack a ``.hotato`` archive to ``out_dir``, verifying every member
     against the sha256 manifest packed alongside it. Raises ``ValueError`` on
     any mismatch (a corrupt or tampered archive); the partial extraction is
-    removed, never left half-written."""
+    removed, never left half-written.
+
+    A ``.hotato`` archive travels between teams, so this treats it as
+    HOSTILE input, not just a corruption check. Before any member is
+    extracted: every member name is checked for path traversal (``..``),
+    absolute paths, and Windows-style backslash / drive-letter forms;
+    symlink and encrypted members are refused; duplicate member names are
+    refused; the member count is capped (:data:`MAX_UNPACK_MEMBERS`); and
+    each member's declared compression ratio is checked for a bomb
+    (:func:`_check_ratio_bomb`). Every member actually present in the
+    archive must be declared in the sha256 manifest -- an undeclared extra
+    member is refused, not silently ignored. During extraction itself, the
+    ACTUAL decompressed byte count (not the archive's declared, and
+    therefore untrusted, size metadata) is capped against ``max_bytes``
+    (default :data:`DEFAULT_MAX_UNPACK_BYTES`, override with
+    ``HOTATO_CONTRACT_MAX_UNPACK_BYTES`` or this argument / ``--max-bytes``),
+    so a member whose real decompressed content outgrows what it claims is
+    still caught. Every rejection leaves nothing behind outside the target:
+    extraction happens into a sibling temp directory that is removed on any
+    failure, and ``out_dir`` is only ever populated by the final atomic
+    rename once every check has passed."""
+    if max_bytes is None:
+        max_bytes = _max_unpack_bytes()
+    elif isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+        raise ValueError("max_bytes must be a positive integer")
+
     # No pre-check: zipfile.ZipFile(archive_path) below raises the SAME
     # FileNotFoundError a plain open() would (with .filename set), which
     # errors.classify() already turns into a clean file_not_found error --
@@ -1306,26 +1475,89 @@ def unpack_contract(archive_path: str, out_dir: str, *,
             raise ValueError(f"{archive_path!r} is not a valid .hotato archive: {exc}") from exc
         try:
             with zf_ctx as zf:
+                infos = zf.infolist()
+                if len(infos) > MAX_UNPACK_MEMBERS:
+                    raise ValueError(
+                        f"archive contains {len(infos)} members, more than the "
+                        f"{MAX_UNPACK_MEMBERS} limit; refusing to unpack"
+                    )
+                seen_names = set()
+                declared_total = 0
+                for info in infos:
+                    _check_member_safety(info)
+                    if info.filename in seen_names:
+                        raise ValueError(
+                            f"archive contains a duplicate member: {info.filename!r}"
+                        )
+                    seen_names.add(info.filename)
+                    _check_ratio_bomb(info)
+                    declared_total += info.file_size
+                    if declared_total > max_bytes:
+                        raise ValueError(
+                            f"archive declares more than {max_bytes} bytes of "
+                            "decompressed content; refusing to unpack a "
+                            "possible zip bomb (set --max-bytes or "
+                            f"{_MAX_UNPACK_BYTES_ENV} to raise the limit for a "
+                            "trusted archive)"
+                        )
+
                 names = set(zf.namelist())
                 if MANIFEST_NAME not in names:
                     raise ValueError(
                         f"{archive_path!r} is not a hotato .hotato pack (no "
                         f"{MANIFEST_NAME})"
                     )
-                manifest = json.loads(zf.read(MANIFEST_NAME).decode("utf-8"))
+                manifest = json.loads(
+                    _read_member_capped(zf, MANIFEST_NAME, max_bytes).decode("utf-8")
+                )
+                if not isinstance(manifest, dict):
+                    raise ValueError(
+                        f"{archive_path!r} has a malformed {MANIFEST_NAME} "
+                        "(not a JSON object); the archive is corrupt"
+                    )
+                declared_members = set()
                 for rel in sorted(manifest):
-                    parts = rel.split("/")
-                    if rel.startswith("/") or ".." in parts or "" in parts:
-                        raise ValueError(f"unsafe path in manifest: {rel!r}")
+                    _safe_member_parts(rel)
+                    declared_members.add(rel)
                     if rel not in names:
                         raise ValueError(
                             f"{archive_path!r} is missing {rel!r}, which the "
                             "manifest lists; the archive is corrupt"
                         )
+                # Fail closed on any member the archive carries but its own
+                # manifest does not declare, instead of silently ignoring it
+                # (an undeclared member never reaches disk either way, since
+                # extraction below only walks `manifest`, but a member the
+                # sender never accounted for is itself a tamper signal a
+                # sha256-only check would miss).
+                undeclared = (names - declared_members) - {MANIFEST_NAME}
+                if undeclared:
+                    raise ValueError(
+                        "archive contains members not declared in its "
+                        f"manifest: {sorted(undeclared)}"
+                    )
+
+                written_total = 0
+                for rel in sorted(manifest):
+                    parts = rel.split("/")
                     dest = os.path.join(tmp_out, *parts)
                     os.makedirs(os.path.dirname(dest), exist_ok=True)
                     with zf.open(rel) as src, open(dest, "wb") as out_f:
-                        shutil.copyfileobj(src, out_f)
+                        while True:
+                            chunk = src.read(_UNPACK_COPY_CHUNK_BYTES)
+                            if not chunk:
+                                break
+                            written_total += len(chunk)
+                            if written_total > max_bytes:
+                                raise ValueError(
+                                    f"archive decompresses to more than "
+                                    f"{max_bytes} bytes (exceeded while "
+                                    f"extracting {rel!r}); refusing to unpack "
+                                    "a possible zip bomb (set --max-bytes or "
+                                    f"{_MAX_UNPACK_BYTES_ENV} to raise the "
+                                    "limit for a trusted archive)"
+                                )
+                            out_f.write(chunk)
                     got = _sha256_file(dest)
                     want = manifest[rel]
                     if got != want:

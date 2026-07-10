@@ -248,8 +248,11 @@ _EXIT_CODES: dict = {
     "contract unpack": (
         (0, "the archive was unpacked and every member verified against its "
             "sha256 manifest"),
-        (2, "usage error, a corrupt/tampered archive (sha256 mismatch), or "
-            "an existing --out without --force"),
+        (2, "usage error, a corrupt/tampered archive (sha256 mismatch), an "
+            "existing --out without --force, or a hostile archive (path "
+            "traversal, a symlink or encrypted member, a duplicate or "
+            "undeclared member, too many members, or a declared/actual "
+            "decompressed size past --max-bytes)"),
     ),
     "trace": (
         (2, "no subcommand given (see hotato trace ingest/attach/export "
@@ -1440,7 +1443,9 @@ def _cmd_contract_pack(args) -> int:
 def _cmd_contract_unpack(args) -> int:
     from . import contract as _contract
 
-    result = _contract.unpack_contract(args.archive, args.out, force=args.force)
+    result = _contract.unpack_contract(
+        args.archive, args.out, force=args.force, max_bytes=args.max_bytes,
+    )
     if args.format == "json":
         print(_errors.safe_json_dumps(_contract.unpack_result_json(result), indent=2))
     else:
@@ -3286,7 +3291,12 @@ def build_parser() -> argparse.ArgumentParser:
             "a bundle directory, verifying every member's sha256 against "
             "the packed manifest. Any mismatch (a corrupt or tampered "
             "archive) is refused (exit 2) and nothing partial is left "
-            "behind."
+            "behind. Treats the archive as hostile input: path traversal, "
+            "absolute/backslash/drive-letter paths, symlink or encrypted "
+            "members, duplicate names, members not declared in the "
+            "manifest, too many members, and a decompressed size (declared "
+            "or actual) past --max-bytes are all refused before or during "
+            "extraction."
         ),
         epilog=_exit_codes_epilog("contract unpack"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -3297,6 +3307,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="directory to unpack the bundle into")
     cu.add_argument("--force", action="store_true",
                     help="overwrite an existing --out directory")
+    cu.add_argument("--max-bytes", type=int, default=None, metavar="N",
+                    help="cap on total decompressed bytes, enforced against "
+                         "the archive's ACTUAL decompressed content (default "
+                         "512 MiB, or $HOTATO_CONTRACT_MAX_UNPACK_BYTES; "
+                         "raise only for a trusted archive)")
     cu.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     cu.set_defaults(func=_cmd_contract_unpack)
