@@ -7,6 +7,42 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [0.10.0] - 2026-07-10
+
+### Added
+- **Guardian/Fleet.** A private, self-hosted control plane over the evidence kernel.
+  `hotato fleet` (init/agent/ingest/discover/review/label/experiment/status): a
+  workspace-scoped registry with no product-level agent cap, a content-addressed
+  artifact store with lineage, an idempotent leased job queue, and a Guardian loop
+  that recommends but never auto-deploys.
+- **Recompute-from-audio proof gate.** `fix trial` pins an immutable trial manifest
+  (scorer + one policy + the complete fixture universe + per-fixture onset/expect/
+  stimulus) and re-derives every verdict from on-disk audio. It refuses verdict
+  tampering, same-PCM re-encodes, dropped fixtures, and unrelated-stimulus swaps; a
+  green paired proof requires the evidence tier to reach PAIRED.
+- **Evidence vector + lattice.** The public tier of any artifact is the weakest tier
+  its required dimensions allow (a minimum over an inspectable vector, never a blended
+  confidence percentage). Cards, reports, CLI, and JSON consume it.
+- **Capture receipts** (machine-verified fresh recapture vs operator-asserted) and
+  **contract authenticity** (canonical digest + detached attestation; a repacked
+  loosened-policy bundle is reported tampered, not authenticated).
+- **Boundary sensitivity** per event (onset frame, effective onset, decision margin,
+  boundary_sensitive), derived in hotato's layer with the vendored engine kept
+  byte-identical to upstream.
+- **Honest trust headline**: any verdict-changing warning forces "scan with caution";
+  explicit three-state input health; leakage judged against the receiver's VAD gate.
+- **Evidence-tier-aware rendering + SVG accessibility**; **deterministic synthetic
+  perturbations** (kept on a separate axis from real evidence); **privacy/retention/
+  redaction**; a **stack adapter capability protocol** with an offline mock loop.
+
+### Changed
+- Standalone `verify` on envelope-only input now reads as an unverified envelope
+  comparison, never a green paired proof.
+
+### Release integrity
+- Version lockstep now gates llms.txt, server.json, and CITATION.cff; offline SBOM
+  generator; all GitHub Actions pinned by immutable SHA.
+
 ## [0.9.0] - 2026-07-10
 
 ### Added
