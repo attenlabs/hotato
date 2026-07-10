@@ -294,6 +294,42 @@ def _event_from_result(
     onset_measurement = result.caller_onset_sec
     if onset_measurement is not None and onset_measurement < 0:
         onset_measurement = None
+    # Boundary-sensitivity, derived ENTIRELY in hotato's layer from the engine's
+    # existing outputs (the vendored _engine stays byte-identical to upstream):
+    # the onset the caller requested, the quantized onset/yield frame the scorer
+    # landed on, and how far the result sits from the binding pass/fail bound. A
+    # result within one hop of flipping is boundary_sensitive.
+    hop = result.hop_sec or 0.0
+    onset_used = onset_measurement
+    if onset_used is None:
+        onset_used = result.detected_caller_onset_sec
+    if onset_used is not None and hop > 0:
+        onset_frame_index = max(0, int(round(onset_used / hop)))
+        onset_effective_sec = onset_frame_index * hop
+    else:
+        onset_frame_index = None
+        onset_effective_sec = None
+    onset_requested_sec = onset_measurement if onset_provided else None
+    if (result.did_yield and result.time_to_yield_sec is not None
+            and onset_frame_index is not None and hop > 0):
+        yield_frame_index = onset_frame_index + int(round(result.time_to_yield_sec / hop))
+    else:
+        yield_frame_index = None
+    _margins = []
+    _max_ttoy = expected.get("max_time_to_yield_sec")
+    if _max_ttoy is not None and result.time_to_yield_sec is not None:
+        _margins.append(_max_ttoy - result.time_to_yield_sec)
+    _max_over = expected.get("max_talk_over_sec")
+    if _max_over is not None:
+        _margins.append(_max_over - result.talk_over_sec)
+    if _margins and hop > 0:
+        decision_margin_sec = round(min(_margins), 6)   # tightest slack (smallest)
+        decision_margin_hops = int(round(decision_margin_sec / hop))
+        boundary_sensitive = abs(decision_margin_hops) <= 1
+    else:
+        decision_margin_sec = None
+        decision_margin_hops = None
+        boundary_sensitive = False
     event = {
         "event_id": event_id,
         "scenario_id": scenario_id,
@@ -318,13 +354,13 @@ def _event_from_result(
             # binding pass/fail threshold. A result one hop from flipping carries
             # boundary_sensitive: true. All default to null/false when not
             # derivable; none of the pre-existing keys above are touched.
-            "onset_requested_sec": result.onset_requested_sec,
-            "onset_frame_index": result.onset_frame_index,
-            "onset_effective_sec": result.onset_effective_sec,
-            "yield_frame_index": result.yield_frame_index,
-            "decision_margin_sec": verdict.decision_margin_sec,
-            "decision_margin_hops": verdict.decision_margin_hops,
-            "boundary_sensitive": verdict.boundary_sensitive,
+            "onset_requested_sec": onset_requested_sec,
+            "onset_frame_index": onset_frame_index,
+            "onset_effective_sec": onset_effective_sec,
+            "yield_frame_index": yield_frame_index,
+            "decision_margin_sec": decision_margin_sec,
+            "decision_margin_hops": decision_margin_hops,
+            "boundary_sensitive": boundary_sensitive,
         },
         "signals": signals,
         "fix": None,

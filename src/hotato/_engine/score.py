@@ -75,22 +75,6 @@ class ScoreResult:
     # speech was detectable" apart from a genuine onset near 0.0. It changes no
     # numeric output: the scoring math above it is untouched.
     detected_caller_onset_sec: Optional[float] = None
-    # Boundary-sensitivity provenance (additive, defaulted so older constructions
-    # stay valid). These expose the QUANTIZED onset the scorer actually used and the
-    # yield frame it landed on, so a reader can see where a near-threshold result
-    # sat on the frame grid. They change no existing numeric output.
-    #   onset_requested_sec  the caller_onset_sec argument as passed in (None when
-    #                        the onset was auto-detected rather than supplied).
-    #   onset_frame_index    the integer hop index the onset was snapped to.
-    #   onset_effective_sec  onset_frame_index * hop_sec -- the quantized onset time
-    #                        actually used (kept UNROUNDED so it equals the product
-    #                        exactly).
-    #   yield_frame_index    the hop index of the counted yield, or None when the
-    #                        agent did not yield.
-    onset_requested_sec: Optional[float] = None
-    onset_frame_index: Optional[int] = None
-    onset_effective_sec: Optional[float] = None
-    yield_frame_index: Optional[int] = None
 
     def as_dict(self):
         d = asdict(self)
@@ -171,9 +155,6 @@ def score_channels(
     n = min(len(caller.active), len(agent.active))
 
     # 1. caller onset: use the label if given, otherwise detect it.
-    # Capture the requested onset (as passed in) BEFORE it is overwritten by the
-    # detected value, so we can report what the caller actually asked for.
-    onset_requested_sec = caller_onset_sec
     detected_onset = first_active_sec(caller.active, hop, min_run_sec=cfg.onset_min_run_sec)
     if caller_onset_sec is None:
         caller_onset_sec = detected_onset
@@ -284,13 +265,6 @@ def score_channels(
         detected_caller_onset_sec=(
             round(detected_onset, 3) if detected_onset >= 0 else None
         ),
-        # Additive boundary-sensitivity provenance. onset_effective_sec is kept
-        # UNROUNDED (onset_idx * hop) so onset_effective_sec == onset_frame_index *
-        # hop_sec holds exactly for any reader that re-derives it.
-        onset_requested_sec=onset_requested_sec,
-        onset_frame_index=onset_idx,
-        onset_effective_sec=onset_idx * hop,
-        yield_frame_index=(yield_idx if did_yield else None),
     )
 
 
@@ -316,16 +290,6 @@ def score_stereo(
 class Verdict:
     passed: bool
     reasons: list
-    # Additive boundary-sensitivity fields (defaulted so existing constructions and
-    # consumers of passed/reasons are unaffected). decision_margin_sec is the SIGNED
-    # slack in seconds from the tightest binding threshold to the measured value
-    # (positive = inside the pass boundary, magnitude = how much slack; negative =
-    # over the line). decision_margin_hops is that slack expressed in frame hops.
-    # boundary_sensitive is True when the result sits within one hop of flipping.
-    # All three are None/False when no numeric bound applies (pure yield/hold).
-    decision_margin_sec: Optional[float] = None
-    decision_margin_hops: Optional[int] = None
-    boundary_sensitive: bool = False
 
 
 def evaluate(result: ScoreResult, expected: dict) -> Verdict:
@@ -357,41 +321,7 @@ def evaluate(result: ScoreResult, expected: dict) -> Verdict:
                 "(a false or phantom barge-in)"
             )
 
-    # --- decision margin (additive; does NOT affect passed/reasons above) ------
-    # The signed distance from each binding numeric threshold to the measured
-    # value. A margin only exists for a yield we actually measured against a
-    # numeric bound: for an expect-yield, max_time_to_yield_sec gives
-    # (bound - time_to_yield) and max_talk_over_sec gives (bound - talk_over).
-    # When several bounds apply we keep the TIGHTEST (smallest slack) -- the one
-    # closest to flipping the verdict. When no numeric bound applies (pure
-    # yield/hold, or a yield that never happened) the margin is null and the
-    # result is not treated as boundary-sensitive.
-    decision_margin_sec = None
-    decision_margin_hops = None
-    boundary_sensitive = False
-    margins = []
-    if want_yield and result.did_yield:
-        max_ttoy = expected.get("max_time_to_yield_sec")
-        if max_ttoy is not None and result.time_to_yield_sec is not None:
-            margins.append(max_ttoy - result.time_to_yield_sec)
-        max_over = expected.get("max_talk_over_sec")
-        if max_over is not None and result.talk_over_sec is not None:
-            margins.append(max_over - result.talk_over_sec)
-    if margins:
-        margin = min(margins)  # tightest binding constraint = smallest slack
-        decision_margin_sec = round(margin, 3)
-        hop = result.hop_sec
-        if hop:
-            decision_margin_hops = int(round(margin / hop))
-            boundary_sensitive = abs(decision_margin_hops) <= 1
-
-    return Verdict(
-        passed=len(reasons) == 0,
-        reasons=reasons,
-        decision_margin_sec=decision_margin_sec,
-        decision_margin_hops=decision_margin_hops,
-        boundary_sensitive=boundary_sensitive,
-    )
+    return Verdict(passed=len(reasons) == 0, reasons=reasons)
 
 
 # --- frame-level evidence dump --------------------------------------------

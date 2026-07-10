@@ -27,9 +27,16 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
+        "boundary_sensitive": false,
         "caller_onset_sec": 2.4,
+        "decision_margin_hops": 20,
+        "decision_margin_sec": 0.2,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_effective_sec": 2.4,
+        "onset_frame_index": 240,
+        "onset_requested_sec": 2.4,
+        "yield_frame_index": 290
       },
       "scenario_id": "01-hard-interruption",
       "signals": {
@@ -84,9 +91,16 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
+        "boundary_sensitive": false,
         "caller_onset_sec": 2.1,
+        "decision_margin_hops": null,
+        "decision_margin_sec": null,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_effective_sec": 2.1,
+        "onset_frame_index": 210,
+        "onset_requested_sec": 2.1,
+        "yield_frame_index": null
       },
       "scenario_id": "02-backchannel-mhm",
       "signals": {
@@ -136,9 +150,16 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
+        "boundary_sensitive": false,
         "caller_onset_sec": 2.3,
+        "decision_margin_hops": 25,
+        "decision_margin_sec": 0.25,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_effective_sec": 2.3000000000000003,
+        "onset_frame_index": 230,
+        "onset_requested_sec": 2.3,
+        "yield_frame_index": 295
       },
       "scenario_id": "03-filler-start",
       "signals": {
@@ -193,9 +214,16 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
+        "boundary_sensitive": true,
         "caller_onset_sec": 2.0,
+        "decision_margin_hops": 0,
+        "decision_margin_sec": 0.0,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_effective_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_requested_sec": 2.0,
+        "yield_frame_index": 250
       },
       "scenario_id": "04-correction",
       "signals": {
@@ -250,9 +278,16 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
+        "boundary_sensitive": false,
         "caller_onset_sec": 2.4,
+        "decision_margin_hops": 20,
+        "decision_margin_sec": 0.2,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_effective_sec": 2.4,
+        "onset_frame_index": 240,
+        "onset_requested_sec": 2.4,
+        "yield_frame_index": 290
       },
       "scenario_id": "05-telephony-8khz",
       "signals": {
@@ -307,9 +342,16 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
+        "boundary_sensitive": false,
         "caller_onset_sec": 2.2,
+        "decision_margin_hops": 15,
+        "decision_margin_sec": 0.15,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_effective_sec": 2.2,
+        "onset_frame_index": 220,
+        "onset_requested_sec": 2.2,
+        "yield_frame_index": 325
       },
       "scenario_id": "06-double-talk",
       "signals": {
@@ -364,9 +406,16 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
+        "boundary_sensitive": false,
         "caller_onset_sec": 2.0,
+        "decision_margin_hops": null,
+        "decision_margin_sec": null,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_effective_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_requested_sec": 2.0,
+        "yield_frame_index": null
       },
       "scenario_id": "07-echo-bleed",
       "signals": {
@@ -416,9 +465,16 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
+        "boundary_sensitive": false,
         "caller_onset_sec": 2.1,
+        "decision_margin_hops": 20,
+        "decision_margin_sec": 0.2,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_effective_sec": 2.1,
+        "onset_frame_index": 210,
+        "onset_requested_sec": 2.1,
+        "yield_frame_index": 260
       },
       "scenario_id": "08-rapid-turn-taking",
       "signals": {
