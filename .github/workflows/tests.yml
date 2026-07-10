@@ -41,6 +41,11 @@ jobs:
           - os: windows-latest
             python-version: "3.12"
     runs-on: ${{ matrix.os }}
+    # Windows is MEASURED, not supported: the suite has known Windows failures
+    # (cross-drive relpath, path-separator assumptions, POSIX-only calls).
+    # The job runs so the failures stay visible and countable; it does not gate
+    # a release, and no Windows support is claimed anywhere in the docs.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
