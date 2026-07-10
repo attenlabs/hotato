@@ -1,0 +1,131 @@
+# PyPI Trusted Publishing (OIDC) -- additive, disarmed by default.
+#
+# This workflow does NOT replace or touch the existing release path
+# (docs/RELEASE-CHECKLIST.md's manual "Publish to PyPI" step, done by hand
+# with an API token). It exists so that path is available once an operator
+# opts in, and until then it is inert:
+#
+#   - it only runs on workflow_dispatch (never on push/tag), AND
+#   - it requires a `confirm` input equal to the literal string "PUBLISH", AND
+#   - it requires a `version` input that must match pyproject.toml exactly
+#     (the job fails before building anything if it doesn't), AND
+#   - the publish step needs PyPI's "Trusted Publisher" configured for THIS
+#     exact repo + workflow filename + environment name before GitHub's
+#     short-lived OIDC token will be accepted by PyPI at all. Until an
+#     operator does that in the PyPI UI, a dispatch of this workflow builds,
+#     tests, and twine-checks the package, then fails cleanly at the publish
+#     step with an OIDC trust error. Nothing is uploaded, no secret exists to
+#     leak (no PyPI API token is stored or used anywhere in this workflow).
+#
+# Operator setup steps (PyPI UI) live in docs/RELEASE-CHECKLIST.md.
+#
+# No long-lived PyPI credential is used or needed: `id-token: write` lets
+# this workflow mint a short-lived OIDC token that PyPI exchanges for a
+# scoped, single-use upload token at publish time (PEP 740 / PyPA Trusted
+# Publishing). That permission is granted ONLY on the publish job below,
+# never at the workflow level, and the job that grants it is gated behind
+# both the confirm/version checks above AND a `pypi` GitHub Environment
+# (Settings > Environments), which an operator can additionally protect with
+# required reviewers for a human-approval gate on top of the input checks.
+
+name: publish-pypi-oidc
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (must match pyproject.toml exactly, e.g. 0.7.2)"
+        required: true
+        type: string
+      confirm:
+        description: 'Type PUBLISH (exact, case-sensitive) to confirm. Any other value aborts before anything is built.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirmation input must be exactly PUBLISH
+        run: |
+          if [ "${{ inputs.confirm }}" != "PUBLISH" ]; then
+            echo "::error::confirm input was '${{ inputs.confirm }}', not the required literal 'PUBLISH'. Aborting before any build step." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: version input must match pyproject.toml
+        id: check-version
+        run: |
+          python - <<'PY'
+          import os
+          import re
+
+          pyproject = open("pyproject.toml").read()
+          m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+          if not m:
+              raise SystemExit("could not find version in pyproject.toml")
+          pv = m.group(1)
+
+          requested = os.environ["REQUESTED_VERSION"]
+          if requested != pv:
+              raise SystemExit(
+                  f"version input {requested!r} != pyproject.toml version {pv!r}; "
+                  "refusing to build/publish a mismatched version."
+              )
+
+          print(f"version input matches pyproject.toml: {pv}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"version={pv}\n")
+          PY
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+
+      - name: Install package and dev/test dependencies
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+
+      - name: Full test suite
+        run: python -m pytest -q
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+
+      - name: twine check
+        run: python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build-and-verify
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI Trusted Publishing OIDC; granted ONLY on this job
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+
+      - name: Publish to PyPI (Trusted Publishing / OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
