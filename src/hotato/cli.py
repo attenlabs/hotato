@@ -461,6 +461,10 @@ _EXIT_CODES: dict = {
         (0, "printed the workspace counts and job-queue stats"),
         (2, "usage error or an unreadable --home"),
     ),
+    "fleet benchmark": (
+        (0, "the private per-agent benchmark was produced"),
+        (2, "usage error or an unwritable --home"),
+    ),
     "fleet experiment": (
         (2, "no subcommand given (see hotato fleet experiment run --help)"),
     ),
@@ -1690,6 +1694,29 @@ def _cmd_fleet_status(args) -> int:
                 lines.append(f"  {k:<12} {jobs[k]}")
         else:
             lines.append("  (none)")
+        _fleet_emit(args, res, lines)
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_benchmark(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.benchmark(args.workspace,
+                            min_evidence_tier=getattr(args, "min_tier", None))
+        lines = [f"workspace: {res['workspace_id']}  scope: {res['scope']}"]
+        if getattr(args, "min_tier", None) is not None:
+            lines.append(f"evidence-tier floor: {args.min_tier}")
+        lines.append("agents (ranked by paired-or-better trials):")
+        for r in res["agents"]:
+            lines.append(
+                f"  {r['agent_id']:<16} {r['stack']:<8} trials={r['trials']} "
+                f"improved={r['improved']} paired+={r['paired_or_better']} "
+                f"refused={r['refused']} contracts={r['contracts']}"
+                f"(hs {r['high_stakes_contracts']})")
+        if not res["agents"]:
+            lines.append("  (no agents registered)")
         _fleet_emit(args, res, lines)
         return 0
     finally:
@@ -4960,6 +4987,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "workspace counts + job-queue stats")
     _fleet_common(fst)
     fst.set_defaults(func=_cmd_fleet_status)
+
+    fbe = _fleet_parser(flsub, "benchmark", "fleet benchmark",
+                        "private per-agent comparison in this workspace (not a public leaderboard)")
+    _fleet_common(fbe)
+    fbe.add_argument("--min-tier", type=int, default=None,
+                     help="exclude trials below this evidence tier (0..4)")
+    fbe.set_defaults(func=_cmd_fleet_benchmark)
 
     fe = _fleet_parser(flsub, "experiment", "fleet experiment",
                        "run a manifest-bound before/after trial (hotato fleet "
