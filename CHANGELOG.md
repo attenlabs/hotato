@@ -7,6 +7,51 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Changed
+- **`hotato fix trial`'s provenance guard now verifies identity, it does not
+  trust the envelope.** An external red-team of 0.8.0 showed the guard trusted
+  the `audio_provenance` JSON: a digest string was compared for equality and
+  nothing else, so a hand-written envelope (valid-looking digests, no audio),
+  a non-hex or absurd-metadata block, a header-only byte flip (decoded audio
+  unchanged), a cherry-picked after set, or a frozen hold could all still reach
+  `improved`. The guard is rebuilt around one rule: an `improved` verdict is
+  never reachable on unverifiable evidence.
+  - **Validate before trusting**: every `sha256` / `pcm_sha256` must be 64-char
+    lowercase hex; each side's `sample_rate` / `num_samples` must be plausible;
+    the top-level digest must be consistent with the per-side digests it claims
+    to combine. A malformed block is UNKNOWN (`inconclusive`), never "a distinct
+    recording".
+  - **Recompute when the audio is present**: the raw and decoded-PCM sha256 are
+    recomputed from the file next to the envelope at trial time; a digest that
+    disagrees with the bytes on disk is `refused`
+    (`refusal_kind: recompute_mismatch`).
+  - **Unverifiable is never `improved`**: a well-formed identity hotato could
+    not recompute (the audio was not present) downgrades to `inconclusive` with
+    the reason that a fix claim requires provenance hotato can recompute. This
+    closes the decisive forgery -- hand-written envelopes with no files.
+  - **Compare DECODED PCM, not raw bytes**: identical decoded audio before vs.
+    after is the same conversation re-scored (`refused`), so a header-only edit
+    or a trailing-byte append can no longer disguise a re-score as a recapture.
+    When a side records no `pcm_sha256` the check falls back to the raw digest
+    AND marks the fixture unverified.
+  - **Completeness**: every before target and hold must have an after
+    counterpart; a required only-before fixture is `refused`
+    (`refusal_kind: incomplete_after`) with the omitted list.
+  - **Holds get the same guard as targets**: a still-passing hold with frozen
+    (re-scored) audio is now `refused`, not silently accepted.
+  - **`--min-n` is echoed in every surface** (text, JSON, HTML) so a lowered
+    floor is always visible.
+  - `hotato verify`'s envelope rollup additively reports
+    `unpaired.only_before_required` (before targets / holds dropped from the
+    after set); the flat `only_before` / `only_after` lists are unchanged.
+  - Docs (`docs/FIX-TRIAL.md`, `docs/RECAPTURE.md`) updated to describe the
+    hardened guard exactly. No new claim is made about attacker-proofing an
+    offline tool a user fully controls; the guard makes the honest-but-motivated
+    failure modes impossible or loud, recomputes what can be recomputed, and the
+    report states exactly what was and was NOT verified.
+
 ## [0.8.0] - 2026-07-10
 
 ### Fixed

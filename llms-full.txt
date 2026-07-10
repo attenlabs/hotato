@@ -1564,10 +1564,10 @@ hotato fix trial patch.json --name staging-refund-fix \
 
 | Verdict | When | Exit |
 | --- | --- | --- |
-| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, `--policy` (if given) passed, AND every fixture the claim rests on carries distinct, known before/after audio identity (the fresh-capture provenance guard, below) | `0` |
+| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, `--policy` (if given) passed, every before target and hold has an after counterpart, AND every guarded fixture (target and hold) carries VERIFIABLE before/after audio identity (well-formed, freshly distinct decoded PCM, recomputed from the audio on disk -- the provenance guard, below) | `0` |
 | `regressed` | any fixture regressed, a contract regressed, or the policy failed | `1` |
-| `inconclusive` | too few previously-failing fixtures to characterize, nothing that used to fail now passes, OR audio identity is unknown on either side for a fixture the claim rests on | `1` |
-| `refused` | EITHER the patch is the both-axes threshold funnel (apply's refusal-first gate fires before any before/after evidence is even read), OR every other bar clears but a fixture the claim rests on has byte-identical before/after audio (the after run re-scored the SAME recording, not a fresh capture) | `3` |
+| `inconclusive` | too few previously-failing fixtures to characterize, nothing that used to fail now passes, OR the audio identity is present-but-unverifiable for a guarded fixture (a malformed provenance block, a missing block, or a well-formed assertion hotato could not recompute at trial time because the audio was not present) | `1` |
+| `refused` | the patch is the both-axes threshold funnel (apply's refusal-first gate fires before any before/after evidence is even read); OR the after set drops a required before fixture (an incomplete, cherry-picked comparison); OR a guarded fixture's recorded provenance does not match the audio on disk; OR a guarded fixture's before/after audio is the SAME conversation (identical decoded PCM -- a re-score, not a recapture) | `3` |
 
 **`inconclusive` is fail-closed, not a pass.** A low-n battery or a
 zero-improvement battery exits the SAME non-zero code as a real regression,
@@ -1602,40 +1602,50 @@ same fixture twice with different `--max-time-to-yield` / `--max-talk-over`
 bounds, and you get a genuine-looking "improved" verdict with no code,
 config, or model change behind it at all.
 
-Every run envelope now records an `audio_provenance` block per event: a
-streamed sha256 of the exact audio bytes that were scored (plus sample rate
-and frame count), computed at capture time by `hotato run` / `hotato
-capture`. `hotato fix trial` compares this identity, before vs. after, for
-every fixture the `improved` claim rests on (previously failing, now
-passing -- exactly the fixtures composing verify's "N of M" headline):
+Every run envelope records an `audio_provenance` block per event: a streamed
+sha256 of the raw file bytes AND a streamed sha256 of the decoded PCM samples
+(plus sample rate and frame count), computed at capture time by `hotato run`
+/ `hotato capture`. `hotato fix trial` does not trust the string; it VERIFIES
+the identity for every GUARDED fixture -- the fail->pass targets AND the
+still-passing holds (a frozen hold is a re-score too, so holds get the same
+guard). This is an offline tool: a user who controls every input can always
+lie to themselves. The guard's job is narrower and honest -- make the
+motivated failure modes impossible or loud, recompute what can be recomputed
+from the actual files, and state exactly what was and was NOT verified:
 
-| Provenance | Meaning | Effect on verdict |
+| Situation | What it is | Effect on verdict |
 | --- | --- | --- |
-| Distinct, known digests on every target fixture | a real recapture happened | none -- proceeds exactly as before |
-| Identical digest on any target fixture | the after run re-scored the SAME recording as the before run | downgraded to `refused` (exit `3`), never a soft pass |
-| A digest missing on either side of any target fixture | an older envelope, or one hand-built without `audio_provenance` -- identity is UNKNOWN | downgraded to `inconclusive` (exit `1`), never assumed fresh |
+| Well-formed, freshly distinct (decoded PCM) identity, recomputed from the audio present on disk and matching | a verified fresh recapture | proceeds -- eligible for `improved` |
+| Identical decoded PCM before vs. after on any guarded fixture | the after run re-scored the SAME conversation (a header-only edit or trailing-byte append cannot hide it -- the comparison is on samples, not container bytes) | `refused` (exit `3`) |
+| Recorded digest does NOT match the audio present on disk | the provenance was hand-edited or the audio was swapped after capture | `refused` (exit `3`) |
+| A required before fixture (target or hold) missing from the after set | a cherry-picked, incomplete comparison | `refused` (exit `3`) |
+| Malformed block (non-hex digest, absurd sample rate / frame count, or a top-level digest inconsistent with the per-side digests) | an unvalidated assertion, not a distinct recording | `inconclusive` (exit `1`) |
+| A provenance block missing on either side | an older envelope, or one hand-built without `audio_provenance` -- identity is UNKNOWN | `inconclusive` (exit `1`) |
+| Well-formed identity that hotato could NOT recompute (the audio was not present) | asserted, not proven | `inconclusive` (exit `1`) |
 
-A same-audio refusal is NOT the apply-gate refusal: it fires AFTER
+A provenance-guard refusal is NOT the apply-gate refusal: it fires AFTER
 `verify` / `contract verify` / `explain` have already run, so (unlike the
 both-axes refusal, which reads no evidence at all) the full report --
-verify's proof, the contract rollup, the provenance digests, the
-attribution -- still renders below the refusal banner. Both refusal paths
-exit the SAME code `3`; `refusal_kind` in the JSON output
-(`"threshold_funnel"` vs. `"same_audio_recapture"`) tells them apart for a
-script that wants to.
+verify's proof, the contract rollup, the provenance identities, the
+attribution -- still renders below the refusal banner. Every refusal path
+exits the SAME code `3`; `refusal_kind` in the JSON output
+(`"threshold_funnel"`, `"incomplete_after"`, `"recompute_mismatch"`,
+`"same_audio_recapture"`) tells them apart for a script that wants to.
 
 ```
 No fix will be certified from re-scored audio
-Reason: 1 fixture(s) this claim rests on (f1) have byte-identical before/after audio (same sha256): the after run re-scored the SAME recording the before run scored, just against a different threshold or scorer config
+Reason: 1 fixture(s) this verdict rests on (f1) have identical before/after decoded PCM: the after run re-scored the SAME conversation the before run scored, just against a different threshold or scorer config
 Recommended: recapture the fixture(s) through the applied clone (hotato apply --clone --yes) and re-run hotato fix trial against the new after evidence
 ```
 
 Every rendered report (text, `--format json`, `--html`) surfaces the short
-digest for every target fixture, before and after, and whether they match --
-so a reader never has to take "fresh capture" on faith. The report's own
-conclusion states plainly what a passing digest check proves: that the fresh
-take passed the same human-labeled contract, not that the change caused it
-(hotato reports coincidence, never causation, throughout).
+digest and the verified status for every guarded fixture, before and after --
+so a reader never has to take "fresh capture" on faith, and can see exactly
+what was verified versus merely asserted. The effective `--min-n` is echoed
+in every surface too, so a lowered floor is always visible. The report's own
+conclusion states plainly what a passing check proves: that the fresh take
+passed the same human-labeled contract, not that the change caused it (hotato
+reports coincidence, never causation, throughout).
 
 The text and HTML renders of this section also print, verbatim, wherever it
 appears (an `improved` verdict, or a `refused`/`inconclusive` one the guard
@@ -5223,15 +5233,23 @@ questions and neither substitutes for the other.
 
 Every run envelope Step 3's capture produces (and every `hotato contract
 create`) carries an `audio_provenance` block per event: a streamed sha256 of
-the exact audio bytes that were scored, plus sample rate and frame count.
-This is the mechanical proof that Step 2/3 actually happened -- a NEW
-recording, not the old one replayed through a looser threshold.
+the raw file bytes AND a streamed sha256 of the decoded PCM samples, plus
+sample rate and frame count. This is the mechanical proof that Step 2/3
+actually happened -- a NEW recording, not the old one replayed through a
+looser threshold.
 
-`hotato fix trial` enforces this automatically: it refuses to certify
-`improved` when a fixture the claim rests on has byte-identical before/after
-audio (verdict `refused`), and refuses to certify it when either side's
-identity is unknown (verdict `inconclusive`, for example an envelope from
-before this field existed). See
+`hotato fix trial` enforces this automatically, and does not trust the string:
+for every guarded fixture (the fail->pass targets AND the still-passing holds)
+it VALIDATES the block (well-formed hex, plausible metadata, a top-level digest
+consistent with the per-side digests), RECOMPUTES the raw and decoded-PCM
+sha256 from the audio when it is present next to the envelope (a mismatch is
+`refused`), and compares DECODED PCM before vs. after so a header-only edit or a
+trailing-byte append cannot dress a re-score up as a fresh capture (identical
+decoded audio is `refused`). It also refuses an incomplete after set (a dropped
+target or hold), and downgrades to `inconclusive` -- never `improved` -- when
+the identity is merely asserted: malformed, missing, or well-formed but not
+recomputable because the audio was not present. An `improved` verdict is never
+reachable on unverifiable evidence. See
 [`docs/FIX-TRIAL.md`](FIX-TRIAL.md#fresh-capture-provenance-guard-a-re-score-is-never-a-fix)
 for the full guard.
 
@@ -5252,7 +5270,7 @@ you actually have:
 | **Historical contract only** | `hotato contract create` ran once; you are reading `contract.json` / `hotato contract inspect`, no `verify` run since | "On \[created_at], a human labeled this call and hotato measured \[timing] against that label; this is the frozen record of that one measurement." | "This proves our agent behaves correctly" -- nothing has been re-checked since capture; it speaks to that one recorded moment, not to now. |
 | **Contract plus unchanged historical audio** | `hotato contract verify` re-scored the SAME `audio/event.wav` the contract was created from | "`hotato contract verify` re-measured stored evidence and it still meets its policy." (This is the literal caveat `contract verify` now prints -- see below.) | "The deployed agent no longer has this bug." Per the two-lane table in [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it), a pass here can only fail if the evidence, policy, or scorer changed, never because the deployed agent changed. |
 | **Separately captured current-agent take** | Steps 1 to 5 above: a fresh recording of the same stimulus, a new contract created from it, verified once, standalone (no paired before/after) | "The CURRENT agent, on a fresh recording of the same stimulus captured \[date], still meets the labeled policy. One data point." | "This proves the fix caused the improvement" (coincidence, not causation) or "this guarantees the next call passes too" (one recapture is one data point, not a rate -- see Limits below). |
-| **Fresh take plus opposite-risk cases** | `hotato fix trial` `improved`: paired before/after with distinct `audio_provenance` on every target fixture (the fresh-capture provenance guard held) AND the hold/opposite-risk fixture still passed | "This proves the specific fresh capture scored above, at the revision it was captured from, including that a paired hold/opposite-risk case did not flip." (The literal caution `fix trial` prints -- see below.) | "This fix is now permanently verified" or "it will keep holding after future deploys." A later deploy is a new revision this report says nothing about, and nothing here re-runs itself. |
+| **Fresh take plus opposite-risk cases** | `hotato fix trial` `improved`: paired before/after with verified (recomputed, freshly distinct decoded-PCM) `audio_provenance` on every guarded target AND hold fixture (the provenance guard held) AND the hold/opposite-risk fixture still passed | "This proves the specific fresh capture scored above, at the revision it was captured from, including that a paired hold/opposite-risk case did not flip." (The literal caution `fix trial` prints -- see below.) | "This fix is now permanently verified" or "it will keep holding after future deploys." A later deploy is a new revision this report says nothing about, and nothing here re-runs itself. |
 | **Production rerun after deploy** | You (there is no automatic trigger) recaptured again against the LIVE deployed agent post-deploy, per this page, on your own schedule | "As of \[date], a fresh production capture reverified the same labeled stimulus against the live agent." Still one data point per run. | "The fix is confirmed working in production, no further checks needed." This does not run in CI by itself (see Limits below); each rerun is one more independent data point, not a standing guarantee that survives the NEXT deploy. |
 
 Two of these statements are not just guidance in this doc -- they are wired

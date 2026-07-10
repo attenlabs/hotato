@@ -185,6 +185,19 @@ def verify_sides(
     paired_keys = sorted(set(before_by) & set(after_by))
     only_before = sorted(set(before_by) - set(after_by))
     only_after = sorted(set(after_by) - set(before_by))
+    # Which before-only fixtures were REQUIRED to reappear after: a fail->pass
+    # target (scorable and failing before) or a hold guard (a passing hold). A
+    # downstream completeness check (hotato fix trial) refuses to certify an
+    # 'improved' verdict computed over a cherry-picked subset that quietly
+    # dropped one of these from the after set. Purely additive: the flat
+    # ``only_before`` / ``only_after`` lists are unchanged.
+    only_before_required = []
+    for key in only_before:
+        b = before_by[key]
+        if _scorable(b) and not _passed(b):
+            only_before_required.append({"fixture": key, "role": "target"})
+        elif not bool(b.get("expected_yield")) and _passed(b):
+            only_before_required.append({"fixture": key, "role": "hold"})
     if not paired_keys:
         raise ValueError(
             "no fixtures pair between --before and --after (matched on event_id, "
@@ -315,7 +328,8 @@ def verify_sides(
             "before": _pooled(before_events),
             "after": _pooled(after_events),
         },
-        "unpaired": {"only_before": only_before, "only_after": only_after},
+        "unpaired": {"only_before": only_before, "only_after": only_after,
+                     "only_before_required": only_before_required},
         "per_fixture": per_fixture,
     }
 
