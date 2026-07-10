@@ -112,3 +112,28 @@ def test_experiment_run_refuses_same_audio(tmp_path):
     assert res["verdict"] == "refused"
     assert res["flags"]["same_pcm"]
     api.close()
+
+
+def test_private_benchmark_ranks_agents_and_excludes_low_evidence(tmp_path):
+    api = FleetAPI(home=str(tmp_path / "home"))
+    api.init_workspace("ws1")
+    api.agent_add("ws1", "bot-a", stack="vapi")
+    api.agent_add("ws1", "bot-b", stack="retell")
+    api.registry.add_trial("ws1", "t1", agent_id="bot-a", verdict="improved", evidence_tier=3)
+    api.registry.add_trial("ws1", "t2", agent_id="bot-a", verdict="refused", evidence_tier=0)
+    api.registry.add_trial("ws1", "t3", agent_id="bot-b", verdict="inconclusive", evidence_tier=2)
+    api.registry.add_contract("ws1", "c1", agent_id="bot-a", high_stakes=1)
+    b = api.benchmark("ws1")
+    assert b["scope"] == "private-single-workspace"
+    assert "Not a public leaderboard" in b["note"]
+    # ranked by paired-or-better: bot-a (1 paired) first
+    assert b["agents"][0]["agent_id"] == "bot-a"
+    assert b["agents"][0]["paired_or_better"] == 1
+    assert b["agents"][0]["high_stakes_contracts"] == 1
+    # an evidence floor excludes the low-tier trials
+    b2 = api.benchmark("ws1", min_evidence_tier=3)
+    a_row = next(r for r in b2["agents"] if r["agent_id"] == "bot-a")
+    assert a_row["trials"] == 1        # only the tier-3 trial survives the floor
+    # workspace-scoped: another workspace sees nothing
+    assert api.benchmark("ws2")["agents"] == []
+    api.close()

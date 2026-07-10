@@ -253,6 +253,64 @@ class FleetAPI:
             pass
         return result
 
+    # --- private fleet benchmark (workspace-scoped; NO public leaderboard) -----
+    def benchmark(self, workspace_id, *, min_evidence_tier=None,
+                  exclude_unknown_health=True) -> dict:
+        """Compare the agents in ONE workspace on their recorded trials and
+        contracts (plan §13, private-first). Reports per-agent counts, verdict
+        mix, and evidence-tier distribution from real registry data -- never a
+        cross-workspace or public leaderboard, and no result whose evidence tier
+        is below a floor (when set) enters the comparison.
+
+        Honest by construction: it aggregates only what was actually recorded;
+        real and any synthetic trials would be separate axes (synthetic trials
+        are not registered here). No blended score -- the component counts stay
+        visible."""
+        from .. import evidence as _ev
+        agents = self.registry.list_agents(workspace_id)
+        rows = []
+        for a in agents:
+            aid = a["agent_id"]
+            trials = self.registry._all(
+                "SELECT verdict, evidence_tier FROM trials "
+                "WHERE workspace_id=? AND agent_id=?", (workspace_id, aid))
+            if min_evidence_tier is not None:
+                trials = [t for t in trials
+                          if (t.get("evidence_tier") or 0) >= min_evidence_tier]
+            verdicts = {}
+            tiers = {}
+            for t in trials:
+                verdicts[t["verdict"]] = verdicts.get(t["verdict"], 0) + 1
+                tk = t.get("evidence_tier")
+                tiers[tk] = tiers.get(tk, 0) + 1
+            contracts = self.registry._one(
+                "SELECT COUNT(*) c, SUM(high_stakes) hs FROM contracts "
+                "WHERE workspace_id=? AND agent_id=?", (workspace_id, aid))
+            rows.append({
+                "agent_id": aid, "stack": a["stack"],
+                "trials": len(trials),
+                "verdicts": verdicts,
+                "improved": verdicts.get("improved", 0),
+                "refused": verdicts.get("refused", 0),
+                "inconclusive": verdicts.get("inconclusive", 0),
+                "evidence_tier_distribution": {str(k): v for k, v in sorted(
+                    tiers.items(), key=lambda kv: (kv[0] is None, kv[0]))},
+                "paired_or_better": sum(v for k, v in tiers.items()
+                                        if (k or 0) >= _ev.TIER_PAIRED),
+                "contracts": (contracts["c"] if contracts else 0) or 0,
+                "high_stakes_contracts": (contracts["hs"] if contracts else 0) or 0,
+            })
+        rows.sort(key=lambda r: (-r["paired_or_better"], -r["improved"], r["agent_id"]))
+        return {
+            "tool": "hotato", "kind": "fleet_benchmark", "workspace_id": workspace_id,
+            "scope": "private-single-workspace",
+            "min_evidence_tier": min_evidence_tier,
+            "agents": rows,
+            "note": ("private to this workspace; component counts stay visible, not "
+                     "collapsed into one score. Not a public leaderboard (that needs "
+                     "a standardized capture protocol + independent attestation)."),
+        }
+
     # --- status / rollup -----------------------------------------------
     def status(self, workspace_id) -> dict:
         return {"workspace_id": workspace_id, "mode": "local", "home": self.home,
