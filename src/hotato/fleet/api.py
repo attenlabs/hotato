@@ -1,0 +1,194 @@
+"""Fleet domain API: the local Guardian loop over the evidence kernel.
+
+Wires the registry + content-addressed store + the deterministic kernel
+(trust, scan, contract, manifest, recompute, evidence) into one workflow:
+
+    ingest -> discover candidates -> human review -> label -> contract
+           -> manifest-bound before/after trial -> recommendation
+
+It NEVER auto-labels (every failure needs a human label) and NEVER auto-deploys
+(a trial produces a recommendation; production deployment stays an explicit human
+approval in this release). Live clone/recapture/canary require a connected stack
+and credentials and are surfaced as recommendation-only until enabled.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from typing import Optional
+
+from .. import core as _core
+from .. import evidence as _evidence
+from .. import manifest as _manifest
+from .. import recompute as _recompute
+from .. import scan as _scan
+from .. import trust as _trust
+from .registry import Registry, DEFAULT_HOME
+from .store import ArtifactStore
+from .jobs import JobQueue
+
+
+def _short(s: str, n: int = 12) -> str:
+    return (s or "")[:n]
+
+
+class FleetAPI:
+    def __init__(self, home: str = DEFAULT_HOME):
+        self.home = os.path.abspath(home)
+        self.registry = Registry(home=self.home)
+        self.store = ArtifactStore(os.path.join(self.home, "artifacts"))
+        self.jobs = JobQueue(self.registry.conn)
+
+    def close(self):
+        self.registry.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    # --- setup ----------------------------------------------------------
+    def init_workspace(self, workspace_id: str, name: Optional[str] = None) -> dict:
+        self.registry.ensure_workspace(workspace_id, name)
+        return {"workspace_id": workspace_id, "home": self.home, "mode": "local"}
+
+    def agent_add(self, workspace_id, agent_id, *, stack, name=None, connection_id=None,
+                  external_ref=None) -> dict:
+        self.registry.add_agent(workspace_id, agent_id, name=name, stack=stack,
+                                connection_id=connection_id, external_ref=external_ref)
+        return {"workspace_id": workspace_id, "agent_id": agent_id, "stack": stack}
+
+    def agent_list(self, workspace_id) -> list:
+        return self.registry.list_agents(workspace_id)
+
+    # --- ingest ---------------------------------------------------------
+    def ingest_recording(self, workspace_id, agent_id, wav_path, *, call_id=None,
+                         deployment_id=None) -> dict:
+        """Register a completed call's recording. Idempotent on (workspace, call_id)
+        and content-addressed by decoded PCM: a duplicate webhook / re-pull
+        converges on one recording, never a duplicate candidate later."""
+        self.registry.ensure_workspace(workspace_id)
+        prov = _core._audio_provenance(("stereo", wav_path))
+        pcm = prov["sides"][0]["pcm_sha256"]
+        raw = prov["sides"][0]["sha256"]
+        call_id = call_id or f"call-{_short(pcm)}"
+        if self.registry.has_call(workspace_id, call_id):
+            return {"call_id": call_id, "deduped": True}
+        # store audio SEPARATELY (content-addressed); never embedded in a report
+        digest = self.store.put_file(wav_path, kind="recording", workspace_id=workspace_id,
+                                     meta={"call_id": call_id, "pcm_sha256": pcm})
+        self.registry.add_call(workspace_id, call_id, deployment_id=deployment_id,
+                               agent_id=agent_id, provider_locator=os.path.basename(wav_path))
+        recording_id = f"rec-{_short(pcm)}"
+        self.registry.add_recording(workspace_id, recording_id, call_id=call_id,
+                                    raw_sha256=raw, pcm_sha256=pcm, artifact_digest=digest,
+                                    channel_layout="stereo")
+        return {"call_id": call_id, "recording_id": recording_id, "artifact_digest": digest,
+                "deduped": False}
+
+    # --- discover -------------------------------------------------------
+    def discover(self, workspace_id, agent_id, wav_path, *, recording_id=None,
+                 caller_channel=0, agent_channel=1) -> dict:
+        """Trust-preflight, then scan for candidate moments. Refuses unscorable
+        input; never promotes a timing candidate into a failure (no auto-label).
+        Ranking components are stored visibly, not hidden in one opaque score."""
+        report = _trust.trust_report(wav_path, caller_channel=caller_channel,
+                                     agent_channel=agent_channel)
+        input_health = report.get("input_health")
+        if input_health is None:
+            input_health = "clean" if report.get("scorable") else "not_scorable"
+        if not report.get("scorable"):
+            return {"scorable": False, "recommendation": report.get("recommendation"),
+                    "candidates": []}
+        scanned = _scan.scan_recording(wav_path, caller_channel=caller_channel,
+                                       agent_channel=agent_channel)
+        cands = scanned.get("candidates", scanned.get("moments", []))
+        out = []
+        for i, c in enumerate(cands[:5]):
+            salience = c.get("overlap_sec") or c.get("gap_sec") or 0.0
+            cid = f"cand-{_short(recording_id or wav_path)}-{i}"
+            components = {
+                "severity": salience,
+                "input_health": input_health,
+                "recurrence": None,       # filled by clustering across calls (future)
+                "novelty": None,
+                "covered_by_contract": False,
+            }
+            self.registry.add_candidate(workspace_id, cid, recording_id=recording_id,
+                                        agent_id=agent_id, onset_sec=c.get("onset_sec"),
+                                        measured_json=json.dumps({**c, "components": components}),
+                                        severity=salience, cluster=c.get("kind"))
+            out.append({"candidate_id": cid, "onset_sec": c.get("onset_sec"),
+                        "severity": salience, "components": components})
+        return {"scorable": True, "input_health": input_health, "candidates": out}
+
+    def review_queue(self, workspace_id, *, agent_id=None, limit=5) -> list:
+        return self.registry.list_candidates(workspace_id, agent_id=agent_id,
+                                              status="new", limit=limit)
+
+    # --- label -> contract ---------------------------------------------
+    def label(self, workspace_id, candidate_id, *, decision, reviewer, rationale=None) -> dict:
+        """Record a HUMAN label on a candidate. yield/hold promote to a labeled
+        failure; not_a_useful_event/bad_input dismiss it. No model may do this."""
+        if decision not in ("yield", "hold", "not_a_useful_event", "bad_input"):
+            raise ValueError("decision must be yield|hold|not_a_useful_event|bad_input")
+        label_id = f"label-{_short(candidate_id)}"
+        self.registry.add_label(workspace_id, label_id, candidate_id=candidate_id,
+                                reviewer=reviewer, decision=decision, rationale=rationale)
+        status = "labeled" if decision in ("yield", "hold") else "dismissed"
+        self.registry.set_candidate_status(workspace_id, candidate_id, status)
+        return {"label_id": label_id, "candidate_id": candidate_id, "decision": decision,
+                "status": status}
+
+    # --- experiment (manifest-bound; recommendation-only) --------------
+    def experiment_run(self, workspace_id, agent_id, *, trial_id, battery_env, before_env,
+                       before_dir, after_env, after_dir, policy=None, min_n=1,
+                       capture_receipts=None, capture_context="operator") -> dict:
+        """Recompute a before/after trial under an immutable manifest and record a
+        recommendation. Hard gates (score mismatch, same audio, dropped fixtures,
+        unrelated audio) refuse; a green paired proof also requires evidence tier
+        >= PAIRED. NEVER deploys."""
+        nonce = hashlib.sha256(
+            (_manifest.canonical_json([m_ev.get("event_id") for m_ev in battery_env.get("events", [])])
+             + trial_id).encode("utf-8")).hexdigest()
+        man = _manifest.build_manifest(battery_env, trial_id=trial_id, nonce=nonce,
+                                       policy=policy, min_n=min_n, agent_id=agent_id,
+                                       workspace_id=workspace_id)
+        man_digest = self.store.put_json(man, kind="trial_manifest", workspace_id=workspace_id)
+        rc = _recompute.recompute_trial(before_env, before_dir, after_env, after_dir, man,
+                                        capture_receipts=capture_receipts,
+                                        capture_context=capture_context)
+        tier = rc["evidence"]["tier"]
+        if rc["refusal"]:
+            verdict = "refused"
+            recommendation = f"refused: {rc['refusal']['reason']}"
+        elif tier >= _evidence.TIER_PAIRED and rc["after_rebuilt"]["summary"]["failed"] == 0:
+            verdict = "improved"
+            recommendation = ("passed the pinned fresh-recapture battery; approval is required "
+                              "before any deployment (no auto-deploy in this release).")
+        else:
+            verdict = "inconclusive"
+            limited = ", ".join(d["dimension"] for d in rc["evidence"]["limited_by"])
+            recommendation = f"inconclusive: evidence tier {tier} (limited by {limited})."
+        self.registry.add_trial(workspace_id, trial_id, agent_id=agent_id,
+                                manifest_hash=man["manifest_hash"], manifest_digest=man_digest,
+                                verdict=verdict, evidence_tier=tier)
+        decision_id = f"decision-{_short(trial_id)}"
+        self.registry.add_decision(workspace_id, decision_id, trial_id=trial_id,
+                                   recommendation=recommendation,
+                                   hard_gate_json=json.dumps(rc["flags"]), approved=0)
+        return {"trial_id": trial_id, "verdict": verdict, "evidence_tier": tier,
+                "recommendation": recommendation, "manifest_hash": man["manifest_hash"],
+                "refusal": rc["refusal"], "flags": rc["flags"],
+                "evidence": rc["evidence"]}
+
+    # --- status / rollup -----------------------------------------------
+    def status(self, workspace_id) -> dict:
+        return {"workspace_id": workspace_id, "mode": "local", "home": self.home,
+                "counts": self.registry.counts(workspace_id),
+                "jobs": self.jobs.stats(workspace_id)}
+
+
+__all__ = ["FleetAPI"]
