@@ -665,6 +665,30 @@ def test_unpack_refuses_a_compression_ratio_bomb(tmp_path):
     _assert_nothing_written(dest)
 
 
+def test_force_unpack_of_an_invalid_archive_preserves_the_existing_out_dir(tmp_path):
+    # A9 regression (external diligence, 2026-07-10): --force must not delete
+    # the destination before the archive has proven valid end to end.
+    bad = tmp_path / "bad.hotato.pack"
+    bad.write_bytes(b"not a zip")
+    dest = tmp_path / "out"
+    dest.mkdir()
+    sentinel = dest / "sentinel.txt"
+    sentinel.write_text("keep-me")
+    assert cli.main(["contract", "unpack", str(bad), "--out", str(dest), "--force"]) == 2
+    assert sentinel.read_text() == "keep-me"
+
+
+def test_force_unpack_of_a_hostile_archive_preserves_the_existing_out_dir(tmp_path):
+    archive = tmp_path / "hostile.hotato.pack"
+    _hostile_zip(archive, [{"name": "../evil.txt", "data": b"pwned"}])
+    dest = tmp_path / "out"
+    dest.mkdir()
+    sentinel = dest / "sentinel.txt"
+    sentinel.write_text("keep-me")
+    assert cli.main(["contract", "unpack", str(archive), "--out", str(dest), "--force"]) == 2
+    assert sentinel.read_text() == "keep-me"
+
+
 def test_unpack_accepts_a_well_formed_hand_built_archive(tmp_path):
     """Regression guard: the hardening above must not reject a legitimate,
     nested-path archive built the same way the hostile fixtures are."""

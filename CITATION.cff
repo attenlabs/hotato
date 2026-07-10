@@ -10,8 +10,8 @@ type: software
 authors:
   - name: "Attention Labs, Inc."
 license: MIT
-version: 0.7.0
-date-released: "2026-07-09"
+version: 0.7.1
+date-released: "2026-07-10"
 repository-code: "https://github.com/attenlabs/hotato"
 url: "https://hotato.dev"
 keywords:

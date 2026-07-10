@@ -1453,13 +1453,15 @@ def unpack_contract(archive_path: str, out_dir: str, *,
     # FileNotFoundError a plain open() would (with .filename set), which
     # errors.classify() already turns into a clean file_not_found error --
     # no need to duplicate that check here.
-    if os.path.exists(out_dir):
-        if not force:
-            raise ValueError(
-                f"{out_dir!r} already exists; pass --force to overwrite it, "
-                "or choose a new --out"
-            )
-        shutil.rmtree(out_dir)
+    if os.path.exists(out_dir) and not force:
+        raise ValueError(
+            f"{out_dir!r} already exists; pass --force to overwrite it, "
+            "or choose a new --out"
+        )
+    # With --force the existing out_dir is NOT touched yet: the archive must
+    # first prove valid end to end (every guard + full extraction into the
+    # temp dir below). A hostile or corrupt archive must never cost the user
+    # the directory they asked to replace.
 
     parent = os.path.dirname(os.path.normpath(out_dir)) or "."
     os.makedirs(parent, exist_ok=True)
@@ -1575,6 +1577,8 @@ def unpack_contract(archive_path: str, out_dir: str, *,
                 f"{archive_path!r} is corrupt (bad CRC-32 while reading a "
                 f"member): {exc}"
             ) from exc
+        if os.path.exists(out_dir):
+            shutil.rmtree(out_dir)
         os.replace(tmp_out, out_dir)
     except BaseException:
         shutil.rmtree(tmp_out, ignore_errors=True)

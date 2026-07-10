@@ -7,6 +7,18 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [0.7.1] - 2026-07-10
+
+### Fixed
+- `hotato contract unpack --force` no longer deletes the existing output
+  directory before the archive has proven valid. In 0.6.0 and 0.7.0, a
+  corrupt or hostile archive combined with `--force` destroyed the
+  directory the user asked to replace and then failed. The destination is
+  now touched only on the success path, after every guard and the full
+  extraction into the temporary directory have passed. Found by external
+  diligence against the published package; regression-tested with the
+  exact reproduction.
+
 ## [0.7.0] - 2026-07-09
 
 ### Added
@@ -1016,6 +1028,7 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   leaderboard, or star count. The synthetic fixtures are a floor and a regression
   guard; real validity comes from contributed, consented, human-labelled calls.
 
+[0.7.1]: https://github.com/attenlabs/hotato/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/attenlabs/hotato/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/attenlabs/hotato/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/attenlabs/hotato/compare/v0.4.1...v0.5.0
