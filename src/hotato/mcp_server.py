@@ -325,6 +325,117 @@ def _run_tool_impl(
     )
 
 
+# --- agent-native fleet tools (read / verify / propose; NO production mutation) ---
+# Every response carries an evidence/refusal status and names any irreversible
+# action that remains PENDING a human. An MCP caller (an LLM agent, possibly
+# steered by untrusted content) can inspect and PROPOSE, never deploy.
+
+def mcp_fleet_status(home: Optional[str] = None, workspace_id: str = "default") -> dict:
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+    api = FleetAPI(home=home or DEFAULT_HOME)
+    try:
+        return {"tool": "hotato", "kind": "fleet_status", **api.status(workspace_id)}
+    finally:
+        api.close()
+
+
+def mcp_candidate_list(home: Optional[str] = None, workspace_id: str = "default",
+                       agent_id: Optional[str] = None, limit: int = 10) -> dict:
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+    api = FleetAPI(home=home or DEFAULT_HOME)
+    try:
+        cands = api.review_queue(workspace_id, agent_id=agent_id, limit=limit)
+        return {"tool": "hotato", "kind": "candidate_list",
+                "candidates": cands, "count": len(cands),
+                "note": "candidate MOMENTS, not labelled failures; a human must label."}
+    finally:
+        api.close()
+
+
+def mcp_contract_list(home: Optional[str] = None, workspace_id: str = "default") -> dict:
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+    api = FleetAPI(home=home or DEFAULT_HOME)
+    try:
+        rows = api.registry._all(
+            "SELECT contract_id, agent_id, policy_hash, canonical_digest, high_stakes "
+            "FROM contracts WHERE workspace_id=? ORDER BY created_at DESC", (workspace_id,))
+        return {"tool": "hotato", "kind": "contract_list",
+                "contracts": rows, "count": len(rows)}
+    finally:
+        api.close()
+
+
+def mcp_trial_explain(home: Optional[str] = None, workspace_id: str = "default",
+                      trial_id: str = "") -> dict:
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+    api = FleetAPI(home=home or DEFAULT_HOME)
+    try:
+        row = api.registry._one(
+            "SELECT * FROM trials WHERE workspace_id=? AND trial_id=?",
+            (workspace_id, trial_id))
+        dec = api.registry._one(
+            "SELECT recommendation, approved FROM decisions WHERE workspace_id=? AND trial_id=?",
+            (workspace_id, trial_id))
+        if row is None:
+            return {"tool": "hotato", "kind": "trial_explain", "found": False}
+        row = dict(row)
+        return {"tool": "hotato", "kind": "trial_explain", "found": True,
+                "trial": row, "verdict": row.get("verdict"),
+                "evidence_tier": row.get("evidence_tier"),
+                "recommendation": (dict(dec).get("recommendation") if dec else None),
+                "pending_irreversible_action": (
+                    "deployment approval (human-gated)" if row.get("verdict") == "improved"
+                    else None)}
+    finally:
+        api.close()
+
+
+def mcp_artifact_verify(report_path: str) -> dict:
+    """Verify a contract bundle's authenticity + evidence WITHOUT trusting it.
+    Read-only; recomputes the canonical digest and reports the authenticity axis."""
+    safe = _guard_input_path(report_path, "report_path")
+    from . import contract as _contract
+    import os as _os
+    target = _os.path.dirname(safe) if _os.path.isfile(safe) else safe
+    try:
+        v = _contract.verify_contracts(target)
+    except Exception as exc:  # noqa: BLE001
+        return {"tool": "hotato", "kind": "artifact_verify", "ok": False, "error": str(exc)}
+    results = v.get("results", [])
+    first = results[0] if results else {}
+    return {"tool": "hotato", "kind": "artifact_verify", "ok": True,
+            "authenticity": first.get("authenticity"),
+            "authenticated": first.get("authenticated"),
+            "passed": first.get("passed"),
+            "summary": v.get("summary"),
+            "note": "unsigned bundles are internally consistent, NOT authenticated."}
+
+
+def mcp_experiment_propose(home: Optional[str] = None, workspace_id: str = "default",
+                           agent_id: str = "", contract_id: str = "",
+                           parameter: str = "interrupt_sensitivity") -> dict:
+    """Propose a BOUNDED variant set (baseline + one lower + one higher step) with
+    expected directional effects. Read-only: it does NOT clone, apply, or deploy."""
+    variants = [
+        {"variant": "baseline", "delta": {}, "expected": "current behavior (control)"},
+        {"variant": "lower_one_step", "delta": {parameter: "-1 documented step"},
+         "expected": "faster yield on true interruptions; higher false-stop risk on backchannels"},
+        {"variant": "higher_one_step", "delta": {parameter: "+1 documented step"},
+         "expected": "fewer false stops; slower yield on true interruptions"},
+    ]
+    return {"tool": "hotato", "kind": "experiment_propose",
+            "workspace_id": workspace_id, "agent_id": agent_id,
+            "contract_id": contract_id, "parameter": parameter,
+            "variants": variants,
+            "pending_irreversible_action": None,
+            "note": ("a proposal only; run under a pinned trial manifest with a "
+                     "fresh recapture. Production deployment stays human-gated.")}
+
+
 def build_server():
     """Construct the FastMCP server with the single tool registered."""
     try:
@@ -369,6 +480,34 @@ def build_server():
             max_time_to_yield_sec=max_time_to_yield_sec,
             report_path=report_path,
         )
+
+    @server.tool(name="fleet_status", description="Read the local fleet workspace rollup (counts + jobs). Read-only.")
+    def fleet_status(home: Optional[str] = None, workspace_id: str = "default") -> dict:
+        return mcp_fleet_status(home, workspace_id)
+
+    @server.tool(name="candidate_list", description="List top candidate moments awaiting human review. Read-only; never labels.")
+    def candidate_list(home: Optional[str] = None, workspace_id: str = "default",
+                       agent_id: Optional[str] = None, limit: int = 10) -> dict:
+        return mcp_candidate_list(home, workspace_id, agent_id, limit)
+
+    @server.tool(name="contract_list", description="List contracts in a workspace. Read-only.")
+    def contract_list(home: Optional[str] = None, workspace_id: str = "default") -> dict:
+        return mcp_contract_list(home, workspace_id)
+
+    @server.tool(name="trial_explain", description="Explain a recorded trial's verdict, evidence tier, recommendation, and any pending human-gated action. Read-only.")
+    def trial_explain(home: Optional[str] = None, workspace_id: str = "default",
+                      trial_id: str = "") -> dict:
+        return mcp_trial_explain(home, workspace_id, trial_id)
+
+    @server.tool(name="artifact_verify", description="Verify a contract bundle's authenticity + evidence without trusting it. Read-only.")
+    def artifact_verify(report_path: str) -> dict:
+        return mcp_artifact_verify(report_path)
+
+    @server.tool(name="experiment_propose", description="Propose a bounded variant set with expected effects. Read-only; does not clone, apply, or deploy.")
+    def experiment_propose(home: Optional[str] = None, workspace_id: str = "default",
+                           agent_id: str = "", contract_id: str = "",
+                           parameter: str = "interrupt_sensitivity") -> dict:
+        return mcp_experiment_propose(home, workspace_id, agent_id, contract_id, parameter)
 
     return server
 
