@@ -42,12 +42,48 @@ import os
 from typing import Optional, Tuple
 
 from . import compare as _compare
+from . import evidence as _evidence
 from ._stats import dist_summary
 from .aggregate import is_envelope
 
 SCHEMA_ID = "hotato.verify.v1"
 
 DEFAULT_MIN_N = 3
+
+
+def _envelope_evidence(audio_identity: str = "missing") -> dict:
+    """The evidence classification a STANDALONE ``hotato verify`` is allowed to
+    claim. Standalone verify is an ENVELOPE COMPARISON: it re-derives nothing
+    from audio, so ``score_integrity`` is ``envelope_only`` and the honest
+    ceiling is ASSERTED (tier 1) -- never a fresh-recapture paired proof. The
+    only dimension that varies is whether every paired fixture even ASSERTS a
+    distinct audio identity (a ``pcm_sha256`` in its ``audio_provenance``);
+    that lifts ``audio_identity`` from ``missing`` to ``asserted`` but, because
+    ``score_integrity`` caps at ASSERTED, cannot raise the overall tier. The
+    classification is additive: it never changes the claim or the counts."""
+    return _evidence.classify({
+        "score_integrity": "envelope_only",
+        "audio_identity": audio_identity,
+        "pairing_integrity": "id_only",
+        "label_authority": "none",     # envelopes carry no human-label proof
+        "policy_integrity": "unsigned",
+        "fixture_set_integrity": "unknown",
+        "capture_origin": "unknown",
+        "input_health": None,
+        "channel_mapping": None,
+    })
+
+
+def _read_evidence(v: dict) -> dict:
+    """Read the evidence classification a renderer must honor. A fix-trial can
+    overlay a RICHER block (recomputed from audio) on the verify dict; when a
+    usable ``evidence`` block is already present, keep it. A legacy input with
+    no block is treated as the envelope-only ASSERTED ceiling -- never as a
+    silent proof."""
+    ev = v.get("evidence")
+    if isinstance(ev, dict) and isinstance(ev.get("tier"), int):
+        return ev
+    return _envelope_evidence()
 
 
 def _event_key(event: dict) -> Optional[str]:
@@ -260,6 +296,25 @@ def verify_sides(
     k = len(hold_guards_pass)
     claim_supported = m >= min_n
 
+    # --- evidence classification (additive; the claim and counts above are
+    #     unchanged) -----------------------------------------------------------
+    # Read the per-fixture ``audio_provenance`` already threaded onto each side:
+    # if EVERY paired fixture asserts a distinct audio identity (a pcm_sha256 on
+    # both before and after), ``audio_identity`` is "asserted"; if any is
+    # missing, it is "missing". Either way, ``score_integrity='envelope_only'``
+    # holds the standalone tier at ASSERTED -- a paired-envelope-comparison is
+    # not a fresh-recapture proof.
+    def _has_pcm(side: dict) -> bool:
+        ap = side.get("audio_provenance")
+        return isinstance(ap, dict) and bool(ap.get("pcm_sha256"))
+
+    audio_identity = "missing"
+    if per_fixture and all(
+        _has_pcm(r["before"]) and _has_pcm(r["after"]) for r in per_fixture
+    ):
+        audio_identity = "asserted"
+    evidence_block = _envelope_evidence(audio_identity)
+
     if claim_supported:
         head = (
             f"{n} of {m} fixtures that used to fail now pass"
@@ -306,6 +361,8 @@ def verify_sides(
         "schema_version": "1",
         "offline": True,
         "min_n": min_n,
+        "evidence_class": "paired-envelope-comparison",
+        "evidence": evidence_block,
         "paired": len(paired_keys),
         "results": counts,
         "regression_axis": {
@@ -610,9 +667,26 @@ def render_html(v: dict) -> str:
     # (every guardrail held AND every target met); otherwise it is verify's own
     # min-n / regression bar.
     passed = pol["passed"] if pol else m["passed"]
-    verdict_word = "PASSED" if passed else "FAILED"
     chip_label = "Policy check" if pol else "Fix verification"
-    chip_c = C["green"] if passed else C["red"]
+
+    # Cap the POSITIVE headline by the evidence tier. A would-be PASS whose
+    # evidence classification does not reach the paired tier -- a standalone
+    # envelope comparison (no audio re-score), or a legacy input with no
+    # evidence block -- must NOT render as a green verified pass. This caps both
+    # the policy verdict AND verify's own min-n verdict, and the honest one-line
+    # caveat is shown in the conclusion below.
+    ev = _read_evidence(v)
+    ev_tier = ev.get("tier", _evidence.TIER_ASSERTED)
+    paired_ok = passed and ev_tier >= _evidence.TIER_PAIRED
+    if passed and not paired_ok:
+        verdict_word = "ENVELOPE COMPARISON (UNVERIFIED)"
+        chip_c = C["muted"]
+    elif passed:
+        verdict_word = "PASSED"
+        chip_c = C["green"]
+    else:
+        verdict_word = "FAILED"
+        chip_c = C["red"]
 
     css = _report._CSS + (_EXTRA_CSS % C)
 
@@ -753,6 +827,8 @@ def render_html(v: dict) -> str:
         '<div class="concl">'
         f'<b>{esc(conclusion)}</b>'
         f'<div class="notprove">Claim: {esc(v["claim"]["statement"])}</div>'
+        f'<div class="notprove">Evidence tier {esc(ev.get("headline", ""))}: '
+        f'{esc(_evidence.one_sentence(ev))}</div>'
         '<div class="notprove">What this does not prove: Hotato measures '
         'timing only. It does not run a controlled experiment, does not '
         'attribute cause, and does not judge whether a turn was semantically '

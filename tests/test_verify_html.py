@@ -95,8 +95,13 @@ def test_render_html_passed_is_self_contained_with_all_sections(tmp_path):
     html = _verify.render_html(v)
 
     _assert_self_contained(html)
-    # headline reflects pass
-    assert "Fix verification: PASSED" in html
+    # A standalone verify is an envelope comparison (evidence tier ASSERTED),
+    # so the positive headline is capped by the tier: it must NOT read as a
+    # green verified pass, and the honest one-line caveat is shown. (Before the
+    # fix, a no-audio envelope pair rendered a full "PASSED" here.)
+    assert "Fix verification: ENVELOPE COMPARISON (UNVERIFIED)" in html
+    assert "Fix verification: PASSED" not in html
+    assert "envelope-only" in html.lower()
     # both required sections present
     assert "Target failure improvement" in html
     assert "talk-over p95" in html
@@ -189,7 +194,9 @@ def test_cli_out_html_writes_report(tmp_path):
                      "--out", str(out)]) == 0
     html = out.read_text(encoding="utf-8")
     _assert_self_contained(html)
-    assert "Fix verification: PASSED" in html
+    # capped by the envelope-only evidence tier (see the render test above)
+    assert "Fix verification: ENVELOPE COMPARISON (UNVERIFIED)" in html
+    assert "Fix verification: PASSED" not in html
 
 
 def test_cli_out_json_still_writes_json(tmp_path):

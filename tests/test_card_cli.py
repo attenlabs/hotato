@@ -22,6 +22,7 @@ import pytest
 from hotato import analyze as _analyze
 from hotato import card as _card
 from hotato import cli
+from hotato import evidence as _evidence
 from hotato.core import run_suite
 from hotato.diagnose import diagnose_envelope
 from hotato.fixplan import build_plan
@@ -126,7 +127,7 @@ def test_card_from_plan_funnel(tmp_path):
 # render missed -- a supported claim where nothing actually improved.
 
 def _verify_json(tmp_path, *, supported=True, now_pass=2, used_to_fail=3,
-                  hold_guards=2, still_pass=2, regressed=0):
+                  hold_guards=2, still_pass=2, regressed=0, evidence=None):
     doc = {
         "tool": "hotato", "kind": "verify", "schema_version": "1",
         "claim": {"supported": supported, "statement": "synthetic"},
@@ -134,14 +135,33 @@ def _verify_json(tmp_path, *, supported=True, now_pass=2, used_to_fail=3,
         "hold_axis": {"hold_guards": hold_guards, "still_pass": still_pass,
                       "regressed": regressed},
     }
+    if evidence is not None:
+        doc["evidence"] = evidence
     p = tmp_path / "verify.json"
     p.write_text(json.dumps(doc), encoding="utf-8")
     return p
 
 
+# A paired-tier evidence block (as a fix-trial recompute-from-audio produces):
+# every required dimension caps at PAIRED or above. Only this may render green.
+_PAIRED_EVIDENCE = _evidence.classify({
+    "score_integrity": "recomputed",
+    "audio_identity": "recomputed",
+    "policy_integrity": "manifest_pinned",
+    "fixture_set_integrity": "manifest_complete",
+    "input_health": "clean",
+    "channel_mapping": "confirmed",
+    "label_authority": "human",
+    "pairing_integrity": "contract_bound",
+    "capture_origin": "operator_asserted",
+})
+
+
 def test_card_from_verify_reads_paired_evidence_improved(tmp_path):
+    # The green card renders ONLY when the evidence classification reaches the
+    # paired tier; a genuine fix-trial result carries exactly this block.
     v = _verify_json(tmp_path, now_pass=2, used_to_fail=3,
-                      still_pass=2, hold_guards=2)
+                      still_pass=2, hold_guards=2, evidence=_PAIRED_EVIDENCE)
     rc, svg = _card_cli(tmp_path, str(v))
     assert rc == 0
     _assert_is_card_svg(svg)
