@@ -4,7 +4,9 @@
 
 Your test suite checks what the agent says. Production calls fail on when it
 speaks. Four timing failures show up again and again in real transcripts, and
-all four are invisible to text-level tests:
+all four are invisible to text-level tests. Three are interruption patterns
+(missed interruption, false stop, slow yield); the fourth is an endpointing
+gap:
 
 1. **Missed interruption.** The caller says "stop, take that off" and the agent
    keeps talking. `did_yield` is false where it must be true. The caller
@@ -19,11 +21,16 @@ all four are invisible to text-level tests:
 4. **Endpointing misses.** Endpointing is detecting that the caller finished
    speaking. When it misses, the caller gets dead air after they finish
    (`response_gap_sec`), or the agent starts before they are done
-   (`premature_start_sec`). Both read as a broken conversation partner.
+   (`premature_start_sec`). Both read as a broken conversation partner. The
+   silence ambiguity underneath (thinking, distracted, or gone quiet) is not
+   something Hotato resolves either: it measures how long the silence lasted,
+   never what it meant.
 
 Each of these lives entirely in the audio timing of the call. A transcript
 diff, an LLM judge on text, and a unit test on the agent's reply all score a
-call with any of these failures as perfect.
+call with any of these failures as perfect. The transcript reads clean; the
+caller called back anyway. That gap, between a passing text-level check and a
+caller who came back unhappy, is exactly what these four patterns hide.
 
 Hotato does not infer intent. You label the expected behavior for the event:
 yield means the agent should stop for the caller. hold means the agent should
