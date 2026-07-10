@@ -232,6 +232,120 @@ def test_clipping_is_warned_without_blocking_scan(tmp_path):
     assert r["exit_code"] == 0
 
 
+# --- cross-channel leakage: warned + downgraded, scorability unchanged -------
+
+def _write_raw_stereo(path, caller, agent, *, sr=16000):
+    """Write two float channels (in [-1, 1]) to a 16-bit PCM stereo WAV."""
+    n = min(len(caller), len(agent))
+    frames = bytearray()
+    for i in range(n):
+        c = int(max(-1.0, min(1.0, caller[i])) * 32767)
+        a = int(max(-1.0, min(1.0, agent[i])) * 32767)
+        frames += struct.pack("<hh", c, a)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(bytes(frames))
+    return str(path)
+
+
+def _tone(n, seg, freq, *, sr=16000, amp=0.35):
+    out = [0.0] * n
+    a, b = int(seg[0] * sr), int(seg[1] * sr)
+    for i in range(a, min(b, n)):
+        out[i] = amp * math.sin(2 * math.pi * freq * i / sr)
+    return out
+
+
+def _bleed_stereo(path, gain, *, sr=16000):
+    """Agent talks in two turns; the caller genuinely interjects once; and the
+    caller channel additionally carries a delayed, attenuated COPY of the agent
+    (echo bleed at ``gain``). At a loud enough gain the leaked agent audio is read
+    as caller activity across the agent's whole span -- the exact input on which a
+    downstream timing verdict was red-teamed into flipping."""
+    dur = 8.0
+    n = int(dur * sr)
+    delay = int(0.12 * sr)
+    agent = [0.0] * n
+    for seg in [(0.2, 3.4), (5.5, 7.8)]:
+        t = _tone(n, seg, 330.0, sr=sr)
+        for i in range(n):
+            agent[i] += t[i]
+    caller = _tone(n, (3.0, 4.0), 220.0, sr=sr)
+    for i in range(n):
+        j = i - delay
+        if 0 <= j < n:
+            caller[i] += gain * agent[j]
+    return _write_raw_stereo(path, caller, agent, sr=sr)
+
+
+def test_high_leakage_is_not_safe_to_scan(tmp_path):
+    # ~ -30 dB symmetric bleed: a loud, consistent delayed copy of the agent on
+    # the caller channel. trust must stop calling this "safe to scan".
+    p = _bleed_stereo(tmp_path / "bleed.wav", gain=0.03)
+    r = trust_report(p)
+    ct = r["crosstalk_risk"]
+    assert ct["leakage_db"] is not None
+    assert ct["leakage_db"] >= trust_mod.LEAKAGE_WARN_DB  # loud enough to matter
+    assert ct["leakage_direction"] == "agent_into_caller"
+    assert ct["suspected"] is True
+    assert any("leakage" in w for w in r["warnings"])
+    assert r["recommendation"].startswith(trust_mod.CAUTION_RECOMMENDATION)
+    assert r["recommendation"] != SAFE_RECOMMENDATION
+    # DISCLOSED, never silently rescored: scorability + exit code are unchanged.
+    assert r["scorable"] is True
+    assert r["exit_code"] == 0
+
+
+def test_clean_dual_channel_has_no_leakage_and_stays_safe(tmp_path):
+    p = _write_stereo(tmp_path / "clean.wav",
+                      caller_segments=[(3.0, 3.7)],
+                      agent_segments=[(0.2, 5.8)])
+    r = trust_report(p)
+    assert r["crosstalk_risk"]["leakage_db"] is None
+    assert r["crosstalk_risk"]["suspected"] is False
+    assert not any("leakage" in w for w in r["warnings"])
+    assert r["recommendation"] == SAFE_RECOMMENDATION
+
+
+def test_faint_leakage_is_reported_but_below_the_warn_bar_stays_safe(tmp_path):
+    # A quieter bleed (~ -46 dB) is measured and reported for transparency, but it
+    # sits below the level that breaks a verdict, so it is NOT flagged: reporting a
+    # number is not the same as raising an alarm.
+    p = _bleed_stereo(tmp_path / "faint.wav", gain=0.005)
+    r = trust_report(p)
+    ct = r["crosstalk_risk"]
+    assert ct["leakage_db"] is not None
+    assert ct["leakage_db"] < trust_mod.LEAKAGE_WARN_DB
+    assert ct["suspected"] is False
+    assert r["recommendation"] == SAFE_RECOMMENDATION
+
+
+# --- low input level: warned, scorability unchanged -------------------------
+
+def test_low_signal_level_is_warned_without_blocking_scan(tmp_path):
+    # Both channels captured very quietly (peak ~ -34 dBFS): timing may be
+    # underestimated downstream, so trust warns -- scorability stays unchanged.
+    p = _write_stereo(tmp_path / "quiet.wav",
+                      caller_segments=[(3.0, 3.7)],
+                      agent_segments=[(0.2, 5.8)],
+                      caller_amp=0.02, agent_amp=0.02)
+    r = trust_report(p)
+    assert any("signal level very low" in w for w in r["warnings"])
+    assert r["scorable"] is True
+    assert r["exit_code"] == 0
+
+
+def test_normal_level_has_no_low_signal_warning(tmp_path):
+    p = _write_stereo(tmp_path / "normal.wav",
+                      caller_segments=[(3.0, 3.7)],
+                      agent_segments=[(0.2, 5.8)])
+    r = trust_report(p)
+    assert not any("signal level very low" in w for w in r["warnings"])
+    assert r["recommendation"] == SAFE_RECOMMENDATION
+
+
 # --- JSON shape is stable and agent-parseable -------------------------------
 
 def test_json_shape(tmp_path, capsys):
@@ -249,7 +363,11 @@ def test_json_shape(tmp_path, capsys):
     assert set(d["scorability"]) == {"separated_tracks",
                                      "enough_caller_activity",
                                      "enough_agent_activity"}
-    assert set(d["crosstalk_risk"]) == {"coherence", "lag_sec", "suspected"}
+    assert set(d["crosstalk_risk"]) == {"coherence", "lag_sec", "suspected",
+                                        "leakage_db", "leakage_direction"}
+    # A clean call carries no cross-channel leakage copy.
+    assert d["crosstalk_risk"]["leakage_db"] is None
+    assert d["crosstalk_risk"]["leakage_direction"] is None
     assert set(d["channels"]) == {"caller", "agent", "possible_swap",
                                   "swap_reason"}
     for role in ("caller", "agent"):

@@ -46,10 +46,25 @@ with `--caller-channel` / `--agent-channel`). `trust` reports INPUT health only:
 - **crosstalk risk**: cross-channel echo coherence: is the caller channel
   carrying a delayed copy of the agent's own audio (echo bleed / missing echo
   cancellation)?
+- **cross-channel leakage** (`crosstalk_risk.leakage_db`): the level, in dB below
+  the source, of a consistent attenuated delayed COPY of one channel found on the
+  other. The whole-clip coherence above is a single best-lag cosine over the
+  entire envelope, so unrelated activity elsewhere in the call dilutes it: bleed
+  loud enough to corrupt a downstream timing verdict can sit under the coherence
+  bar and go unflagged. This number is measured differently -- from the per-frame
+  level ratio of the copy, which a real leak holds constant across every frame the
+  source speaks -- so it catches that regime. At or above `-40 dB` (calibrated to
+  the level at which symmetric bleed was red-teamed into flipping a verdict) the
+  copy is loud enough to be counted as the other party's activity, so it is
+  flagged and the recommendation is downgraded off `safe to scan`;
+- **low signal level**: when even the loudest channel peaks below `-30 dBFS`, the
+  capture is quiet enough that turn timing can be under-measured downstream; a
+  warning, never a not-scorable condition;
 - **scorability**: the three things a real score needs: separated tracks, enough
   caller activity, and enough agent activity;
-- **recommendation**: `safe to scan`, or `NOT SCORABLE` with the specific reason
-  AND the next step to fix it.
+- **recommendation**: `safe to scan`; `scan with caution` (scorable, but a loud
+  cross-channel leak may corrupt the timing a scan produces); or `NOT SCORABLE`
+  with the specific reason AND the next step to fix it.
 
 ## What it is NOT
 
@@ -72,9 +87,14 @@ false`, a plain reason, and the next step, and exits `2`:
 - **a silent required channel**: for example `caller channel has no detected
   speech`. Next step: verify channel mapping or export dual-channel again.
 
-Clipping, high leading silence, crosstalk risk, and a possible channel swap are
-**warnings**: they are surfaced but do not, by themselves, make a recording
-unscorable.
+Clipping, high leading silence, crosstalk risk, cross-channel leakage, a very low
+signal level, and a possible channel swap are **warnings**: they are surfaced but
+do not, by themselves, make a recording unscorable. A loud cross-channel leak
+additionally downgrades the recommendation to `scan with caution` -- the tracks
+are still separated and scorable, so the scorability gate and exit code are
+unchanged; only the human-facing recommendation records that a scan's timing may
+be wrong. Nothing here moves the not-scorable boundary: `trust` adds signals and
+discloses limits, it never silently changes what passes.
 
 ## Mono via `--diarize`: is this mono file confidently separable?
 
@@ -134,7 +154,7 @@ hotato trust --stereo call.wav --format json
     "possible_swap": false,
     "swap_reason": null
   },
-  "crosstalk_risk": {"coherence": 0.057, "lag_sec": 0.39, "suspected": false},
+  "crosstalk_risk": {"coherence": 0.057, "lag_sec": 0.39, "suspected": false, "leakage_db": null, "leakage_direction": null},
   "scorability": {"separated_tracks": true, "enough_caller_activity": true, "enough_agent_activity": true},
   "warnings": [],
   "scorable": true,
