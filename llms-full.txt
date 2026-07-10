@@ -59,6 +59,7 @@ A real failure became a candidate, became a portable `.hotato` contract, and `co
 | Turn a confirmed failure into a portable contract | `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield --id refund-cutoff-001 --out contracts` ([`docs/CONTRACTS.md`](docs/CONTRACTS.md)) |
 | Verify contracts in CI | `hotato contract verify contracts/ --junit contracts-junit.xml` |
 | Attach observability traces to a contract | `hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl` ([`docs/TRACE.md`](docs/TRACE.md)) |
+| Prove a candidate fix, before/after, fail-closed | `hotato fix trial patch.json --name staging-x --before before/ --after after/` ([`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md)) |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |
 | Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` (one tool, `voice_eval_run`; configs in [`docs/MCP.md`](docs/MCP.md)) |
 
@@ -119,6 +120,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **CI gates**: GitHub Action [`docs/CI.md`](docs/CI.md) · pytest plugin [`docs/PYTEST.md`](docs/PYTEST.md)
 - **Recorded-call battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
 - **Failure contracts and traces**: turn a labelled candidate into a portable, CI-verified bundle and attach observability evidence: [`docs/CONTRACTS.md`](docs/CONTRACTS.md) · [`docs/TRACE.md`](docs/TRACE.md) · [`docs/OTEL.md`](docs/OTEL.md)
+- **Root cause and a proven fix**: `hotato explain` turns a failing result into root-cause-by-layer evidence, and `hotato fix trial` proves a candidate change before/after, fail-closed: [`docs/EXPLAIN.md`](docs/EXPLAIN.md) · [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md) · [`docs/APPLY.md`](docs/APPLY.md) · [`docs/FIX-LOOP.md`](docs/FIX-LOOP.md)
 - **Evidence**: what Hotato validates, the input-condition trust matrix, every card and CLI block reproducible, and where Hotato does and doesn't fit next to Hamming/Cekura/Coval/Bluejay/Roark/Vapi/Retell: [`docs/VALIDATION.md`](docs/VALIDATION.md) · [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) · [`docs/GALLERY.md`](docs/GALLERY.md) · [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) · [`docs/COMPARE.md`](docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](AGENTS.md) · [`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt) · MCP server [`docs/MCP.md`](docs/MCP.md) · Security [`SECURITY.md`](SECURITY.md)
 - **Contributing**: the highest-value PR is a labelled call fixture: [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
@@ -138,7 +140,9 @@ FILE: docs/WHY.md
 
 Your test suite checks what the agent says. Production calls fail on when it
 speaks. Four timing failures show up again and again in real transcripts, and
-all four are invisible to text-level tests:
+all four are invisible to text-level tests. Three are interruption patterns
+(missed interruption, false stop, slow yield); the fourth is an endpointing
+gap:
 
 1. **Missed interruption.** The caller says "stop, take that off" and the agent
    keeps talking. `did_yield` is false where it must be true. The caller
@@ -153,11 +157,16 @@ all four are invisible to text-level tests:
 4. **Endpointing misses.** Endpointing is detecting that the caller finished
    speaking. When it misses, the caller gets dead air after they finish
    (`response_gap_sec`), or the agent starts before they are done
-   (`premature_start_sec`). Both read as a broken conversation partner.
+   (`premature_start_sec`). Both read as a broken conversation partner. The
+   silence ambiguity underneath (thinking, distracted, or gone quiet) is not
+   something Hotato resolves either: it measures how long the silence lasted,
+   never what it meant.
 
 Each of these lives entirely in the audio timing of the call. A transcript
 diff, an LLM judge on text, and a unit test on the agent's reply all score a
-call with any of these failures as perfect.
+call with any of these failures as perfect. The transcript reads clean; the
+caller called back anyway. That gap, between a passing text-level check and a
+caller who came back unhappy, is exactly what these four patterns hide.
 
 Hotato does not infer intent. You label the expected behavior for the event:
 yield means the agent should stop for the caller. hold means the agent should
@@ -1103,7 +1112,8 @@ And the standing refusals:
   `"decision": "do_not_tune_single_threshold"` with a vendor-neutral
   engagement-control pointer (no product names, no digits in the pointer
   text). No single threshold satisfies both axes; raising it for one worsens
-  the other.
+  the other -- the threshold treadmill teams describe from the inside: tuned
+  endlessly, with no perfect setting, because both failures share one knob.
 * slow_yield without a clear layer: TTS buffering, transport latency, and VAD
   smoothing are indistinguishable from one recording, so the plan is a
   diagnostic checklist (instrumentation steps), never a knob change. A slow
@@ -1487,6 +1497,11 @@ anti-bandaid gate: the fix passes only if every guardrail holds (including
 `max_new_false_yields` on the hold fixtures) AND every target is met, so a patch
 that just makes the agent yield to everything is caught. See `docs/FIX-LOOP.md`.
 
+Or run the whole thing (this gate + verify + an optional contracts re-verify +
+explain's attribution) as one fail-closed before/after report:
+`hotato fix trial patch.json --name staging-refund-fix --before before/ --after
+after/`. See [`docs/FIX-TRIAL.md`](FIX-TRIAL.md).
+
 ## Exit codes
 
 - `0` the staging clone was rendered (dry run by default; with `--yes` and
@@ -1497,6 +1512,121 @@ that just makes the agent yield to everything is caught. See `docs/FIX-LOOP.md`.
   produced no config change, or unreadable input.
 - `3` principled refusal: the plan is the both-axes threshold funnel, so no
   single-threshold patch is applied by design. The refusal is the feature.
+
+
+================================================================================
+FILE: docs/FIX-TRIAL.md
+================================================================================
+
+# fix trial: one before/after proof, composed, fail-closed
+
+`hotato fix trial` is the last rung of the fix ladder: it composes the
+already-shipped, already-guarded primitives into ONE before/after report that
+says whether a candidate change actually holds. No new scoring engine, no new
+networked path:
+
+* **`hotato apply`'s exact offline gate** (`build_apply`, `clone=True`):
+  refusal-first on the both-axes threshold funnel, opposite-risk-battery-
+  required, clone-only. fix trial never creates a clone itself and never
+  touches the network -- it never calls `apply.create_clone` /
+  `apply._http_json`, so it carries the same clone-only, production-
+  unmutatable guarantee apply's own dry run gives, by construction.
+* **`hotato verify`'s battery-scale rollup**: the BEFORE run (the original
+  failure evidence) against the AFTER run (re-captured through the clone you
+  created separately with `hotato apply --clone --yes`), scoring EVERY paired
+  fixture, not just the target failure -- the "neighbouring cases" check.
+* **`hotato contract verify`**, when `--contracts DIR` is given: another
+  neighbouring-cases check, on real labelled moments outside the battery.
+* **`hotato explain`**, folded in as the report's attribution section: root
+  cause of the ORIGINAL failure, reused exactly.
+
+```
+hotato patch fixplan.json --format json --out patch.json
+hotato apply patch.json --clone --name staging-refund-fix --battery tests/hotato
+# ... re-capture the battery through the source (before/) and the clone (after/) ...
+hotato fix trial patch.json --name staging-refund-fix \
+    --before before/ --after after/ --battery tests/hotato \
+    --policy hotato.verify.yaml --out fix-trial.json --html fix-trial.html
+```
+
+## The verdict is fail-closed, never a soft pass
+
+| Verdict | When | Exit |
+| --- | --- | --- |
+| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, and `--policy` (if given) passed | `0` |
+| `regressed` | any fixture regressed, a contract regressed, or the policy failed | `1` |
+| `inconclusive` | too few previously-failing fixtures to characterize, or nothing that used to fail now passes | `1` |
+| `refused` | the patch is the both-axes threshold funnel; apply's own refusal-first gate fires before any before/after evidence is even read | `3` |
+
+**`inconclusive` is fail-closed, not a pass.** A low-n battery or a
+zero-improvement battery exits the SAME non-zero code as a real regression,
+so CI never treats "we could not tell" as green. A hold fixture that flips
+from passing to failing (the opposite-risk axis) is `compare.classify_pair`'s
+`"regressed"` result whichever axis it is on, so it is caught by the same
+check that catches a talk-over regression -- there is no separate,
+weaker gate for the opposite-risk axis.
+
+## Refusal: correct output, not an error
+
+If the patch is `do_not_tune_single_threshold` (the battery missed a real
+interruption AND false-stopped on a backchannel in the same battery), fix
+trial refuses before reading `--before` / `--after` / `--contracts` at all,
+prints the exact canon recommendation, and exits `3` -- the SAME distinct
+code `hotato apply` uses for the same refusal, so a script that already
+branches on apply's refusal code recognizes fix trial's too.
+
+```
+No config patch will be applied
+Reason: both missed real interruption and false stop on backchannel, one threshold cannot safely fix both
+Recommended: enable or add engagement-control / backchannel-aware turn detection
+```
+
+## Flags
+
+| Flag | Meaning |
+| --- | --- |
+| `PATCH_JSON` | a `hotato patch` artifact |
+| `--name NAME` | name of the staging clone this trial is proving (required for a non-refused patch; the same `--name` `hotato apply` takes -- fix trial evaluates the SAME clone-only gate, it never creates a clone itself) |
+| `--before RUN.json\|DIR` | the OLD run envelope(s): the original failure evidence. Also the default opposite-risk `--battery`, and the attribution source, when those are omitted |
+| `--after RUN.json\|DIR` | the NEW run envelope(s), re-captured through the staging clone |
+| `--battery DIR` | the opposite-risk battery apply's gate checks (BOTH a yield and a hold fixture); defaults to `--before` |
+| `--contracts DIR` | also re-verify a directory of hotato contracts; any contract regression fails the trial |
+| `--policy hotato.verify.yaml` | gate verify's rollup (see `docs/FIX-LOOP.md`); a violation fails the trial |
+| `--min-n N` | minimum previously-failing fixtures needed to support the claim (default 3) |
+| `--out PATH` | also write the full proof JSON |
+| `--html PATH` | also write a self-contained before/after HTML report |
+
+## Output
+
+* **text** (default): the verdict, verify's own rendered proof, the contract
+  verify rollup when `--contracts` was given, and the attribution section
+  (one `hotato explain` render per file under `--before`).
+* **`--format json`**: the full machine shape, schema `hotato.fix_trial.v1`.
+  Every sub-result is the REAL nested result the underlying command already
+  produces (`apply`, `verify`, `contract_verify`, `attribution`) -- nothing
+  here is a re-derived summary.
+* **`--html PATH`**: a self-contained report, reusing the same house style
+  the other HTML reports use: the verdict chip, the verify proof table, the
+  contract-verify rollup, and the attribution cards.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | `improved` |
+| 1 | fail-closed: `regressed` or `inconclusive` |
+| 2 | usage error: the same gates `hotato apply` enforces (no `--name`, no opposite-risk battery, a stack with no clone target, a patch with no concrete change) or `hotato verify` / `contract verify` already enforce (no fixtures pair, an invalid `--policy`, a `--contracts` dir with no contracts, unreadable input) |
+| 3 | principled refusal: the both-axes threshold funnel. Shared with `hotato apply`'s refusal code |
+
+## What this is not
+
+fix trial does not create, patch, or delete anything on your platform; it
+never calls `apply.create_clone`. It does not prove authorization, identity,
+compliance, or policy safety. It reports coincidence, never causation --
+every underlying `verify` and `contract verify` number keeps that rule. See
+[`FIX-LOOP.md`](FIX-LOOP.md) for the manual steps this composes, and
+[`APPLY.md`](APPLY.md) / [`EXPLAIN.md`](EXPLAIN.md) for the primitives
+themselves.
 
 
 ================================================================================
@@ -2052,6 +2182,61 @@ recording API to pull from, so no credentials are generated or needed.
 `capture-in-your-infra`; `hotato setup --stack <stack>` prints the exact
 two-track capture scaffold, and you point `hotato contract create --stereo`
 at the WAV your own deployment writes.
+
+## LiveKit and Pipecat runbook
+
+LiveKit and Pipecat are a foundational orchestration tier a lot of the
+market builds on, and they are the two stacks where capture and the
+turn-taking config both live in your own code rather than behind a vendor
+API. This is the operator runbook for both, capture through CI.
+
+### LiveKit
+
+1. **Capture.** Two audio-only Track egresses, one per participant --
+   RoomComposite mixes both parties into one channel and cannot attribute
+   overlap. `hotato setup --stack livekit` prints the copy-paste scaffold
+   (Python `livekit-api`, `TrackEgressRequest` + `DirectFileOutput`); a
+   ready-to-copy version also lives at `adapters/livekit_capture.py`.
+2. **Find the turn-taking config.** It lives on
+   `AgentSession(turn_handling=TurnHandlingOptions(...))`: `turn_detection`
+   (`inference.TurnDetector()` / `"realtime_llm"` / `"vad"` / `"stt"` /
+   `"manual"`), `endpointing` (`min_delay`, `max_delay`), and `interruption`
+   (`enabled`, `mode`, `min_duration`, `min_words`,
+   `false_interruption_timeout`, `resume_false_interruption`). Read what a
+   given agent file is ACTUALLY running, statically, before you propose
+   changing anything: `hotato inspect --stack livekit --config agent.py`.
+3. **Score it.**
+   `hotato capture --stack livekit --caller caller.wav --agent agent.wav --onset <sec> --expect yield`
+   (convert the egress output to WAV first, e.g. `ffmpeg -i caller.ogg caller.wav`).
+4. **Fixture, contract, CI.** Same as every stack from here -- see "Turn
+   your first bad call into a contract" below.
+
+### Pipecat
+
+1. **Capture.** A 2-channel `AudioBufferProcessor` in-pipeline (channel 0 =
+   user/caller, channel 1 = bot/agent) -- do not mix down to one channel.
+   `hotato setup --stack pipecat` prints the copy-paste scaffold; a
+   ready-to-copy version also lives at `adapters/pipecat_capture.py`.
+2. **Find the turn-taking config.** It lives on `PipelineTask`'s user-turn
+   strategies: start strategies (`VADUserTurnStartStrategy`,
+   `TranscriptionUserTurnStartStrategy`,
+   `MinWordsUserTurnStartStrategy(min_words=...)`,
+   `KrispVivaIPUserTurnStartStrategy(...)`) and stop strategies
+   (`SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=...)`,
+   `TurnAnalyzerUserTurnStopStrategy(turn_analyzer=...)`); note
+   `MinWordsInterruptionStrategy` is deprecated since pipecat 0.0.99 in
+   favor of `MinWordsUserTurnStartStrategy`. Read what a given bot file is
+   ACTUALLY running, statically: `hotato inspect --stack pipecat --config bot.py`.
+3. **Score it.**
+   `hotato capture --stack pipecat --stereo captured.wav --expect yield`
+   (write the WAV from the `AudioBufferProcessor`'s `on_audio_data` handler
+   first).
+4. **Fixture, contract, CI.** Same as every stack from here -- see "Turn
+   your first bad call into a contract" below.
+
+Both APIs move; `hotato setup` and `hotato inspect` state the verified-against
+date. Full field-level detail and provenance: [`ADAPTER-STATUS.md`](ADAPTER-STATUS.md)
+(capture) and [`FIX-PLANS.md`](FIX-PLANS.md) (inspect, Level 1 of the fix ladder).
 
 ## The CI gate
 
@@ -4487,6 +4672,159 @@ Adoption numbers, stars, install counts, or logos. Those measure attention, not
 whether the tool measures what it says. See
 [evidence/README.md](evidence/README.md) for why that distinction is the whole
 point of this pack.
+
+
+================================================================================
+FILE: docs/EXPLAIN.md
+================================================================================
+
+# explain: root-cause-by-layer, composed from what already exists
+
+`hotato explain` reads a finished result and turns it into a root-cause
+attribution: which layer likely failed, whether a fix is safe to try, the
+opposite-risk tradeoff, and a plain next command. It is compositional: no new
+scoring engine. It reframes `hotato diagnose`'s per-event findings and the
+same policy gate `hotato plan` enforces (a mapped knob, one bounded step, a
+passing opposite-risk fixture in the battery, config-only-safe), plus, for a
+contract bundle, the bundle's own trust report and policy bounds and an
+attached voice trace when present.
+
+When the evidence cannot support picking ONE root cause, explain REFUSES with
+the reason instead of guessing. A refusal is a first-class, correct output,
+not an error.
+
+```
+hotato run --suite barge-in --format json > result.json
+hotato explain result.json
+```
+
+## Three input shapes, auto-detected
+
+| Input | Example | What happens |
+|---|---|---|
+| a run envelope | `hotato explain result.json` | full diagnose + policy-gate attribution, per failing event |
+| a sweep/analyze candidate ref | `hotato explain hotato-sweep.json#1` | ALWAYS refused: a candidate carries no human label |
+| a contract bundle directory | `hotato explain contracts/refund-cutoff-001.hotato` | attributed from the contract's own measurement + policy bounds, or refused when disambiguation needs a signal the bundle does not carry |
+
+## The attribution shape
+
+Layer-general by design, so a future layer (asr, tool, policy, latency,
+handoff, ...) can be added without a version bump. Only `turn_taking` is
+populated in this build:
+
+```
+{"event_id":         the failing event, or null for a battery-level finding,
+ "failure_layer":    "turn_taking",
+ "type":             missed_real_interruption | false_stop_on_backchannel |
+                     false_stop_on_ambient_noise | slow_yield |
+                     excess_talk_over | endpointing_miss | threshold_funnel,
+ "turn_taking_layer": interruption_detection | endpointing,
+ "confidence":       high | medium | low,
+ "fixability":       safe_to_patch | needs_human | insufficient_evidence |
+                     do_not_patch,
+ "opposite_risk":    the tradeoff a fix on this axis trades against,
+ "evidence_for":     measured fields and notes that support this attribution,
+ "evidence_against":  the honest caveats against treating it as settled,
+ "unknowns":         explicit gaps in the evidence (never silently assumed),
+ "safe_next_action": one concrete next command, never an auto-apply}
+```
+
+`fixability` reuses the SAME gate `hotato plan` already enforces:
+
+* `safe_to_patch` -- the failure maps to one setting AND the battery already
+  contains a passing opposite-risk fixture on that axis (the same coverage
+  `hotato plan` requires before it proposes a change).
+* `insufficient_evidence` -- the failure maps to one setting but the
+  opposite-risk fixture is missing, so a change could not be verified; or a
+  contract bundle's own policy-bound comparison found a violation with no
+  companion moment in the bundle to verify a change against.
+* `needs_human` -- an audio-path problem (echo bleed), never a threshold.
+* `do_not_patch` -- the threshold funnel: the battery missed a real
+  interruption AND false-stopped on a backchannel in the SAME battery. No
+  single sensitivity threshold can fix both; the fix class is
+  engagement-control, not calibration. This produces one COMPOSITE
+  battery-level attribution (`event_id: null`, `type: threshold_funnel`) in
+  addition to the two per-event attributions it explains.
+
+## Refusals: correct output, not an error
+
+A refusal means the evidence in hand cannot support attributing ONE root
+cause, so explain says so instead of guessing:
+
+* **a not-scorable event** -- an input problem, never an agent failure.
+* **an ambiguous slow yield** (`unknown_root_cause`, no passing opposite-risk
+  fixture) -- TTS buffering, transport latency, and VAD smoothing are
+  indistinguishable from one recording.
+* **an echo-tagged false stop** -- the agent most likely heard its own TTS
+  bleed, an audio-path problem, not a turn-taking threshold.
+* **a sweep/analyze candidate ref** -- ALWAYS refused. A candidate carries no
+  human label (`yield` vs `hold`); explain prints the exact promote command
+  for BOTH labels and lets a human choose.
+* **a contract's false stop with no disambiguating `candidate_kind`** -- a
+  `contract.json` does not carry the raw echo/ambient signal a full run
+  envelope's `diagnose` has, so a false stop on `hold` could be a genuine
+  backchannel-discrimination miss, ambient non-speech noise, or echo bleed.
+  Explain refuses rather than pick one; it points back at
+  `hotato run --dump-frames` / `hotato diagnose` on the original envelope.
+
+```
+{"event_id":         the refused event, or null,
+ "reason":           why the evidence cannot support one attribution,
+ "evidence_for":     what IS known,
+ "unknowns":         the specific gap,
+ "safe_next_action": one concrete next command}
+```
+
+## Contract bundles: attributed from the bundle's OWN fields, honestly bounded
+
+`contract.json` does not carry the scorer's raw `reasons` text a run
+envelope's event does, so a contract-bundle attribution is deliberately
+narrower than a full `diagnose`:
+
+* a missed interruption (`expect: yield`, `did_yield: false`) is unambiguous
+  and always attributed;
+* a "yielded but still failed its policy" contract is attributed by comparing
+  the MEASURED `seconds_to_yield` / `talk_over_sec` against the contract's OWN
+  `policy.pass_conditions` bounds -- a bound comparison, never a guess;
+* a false stop on `hold` is attributed as echo ONLY when the contract's
+  `source.candidate_kind` says so (it was created `--from-candidate` an
+  `echo_correlated_activity` moment); otherwise it is refused (see above);
+* a single bundle never carries opposite-risk coverage on its own (it is one
+  moment), so a contract-bundle attribution never reaches `safe_to_patch` --
+  the honest ceiling is `insufficient_evidence` until a companion contract or
+  fixture on the other axis exists.
+
+When a voice trace is attached (`hotato trace attach`), its findings
+(`traces/voice_trace.jsonl`) are folded into `evidence_for`; when it is not
+attached, explain adds an explicit unknown saying so -- TTS-cancellation lag,
+transport latency, and VAD smoothing stay indistinguishable from timing alone
+without one. See [`TRACE.md`](TRACE.md).
+
+## Output
+
+* **text** (default): a plain summary, per attribution and per refusal.
+* **`--format json`**: the full machine shape, schema
+  `hotato.explain.v1` (`src/hotato/schema/explain.v1.json`).
+* **`--html PATH`**: a self-contained report, reusing the same house style
+  (`hotato.report`'s CSS and escaping) the other HTML reports use.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | explained: nothing attributable (no failing or ambiguous events) |
+| 1 | explained: at least one attribution or refusal was produced |
+| 2 | usage error or unusable input (a bad candidate ref, a file that is not a hotato result, or an unreadable contract bundle) |
+
+## What this is not
+
+Hotato does not infer intent and does not prove authorization, identity,
+compliance, or policy safety. Every attribution here is evidence-based, never
+a proof of root cause -- see the `evidence_against` and `unknowns` fields on
+every record. `explain` never mutates anything: it is read-only, exactly like
+`diagnose` and `plan`. Applying a change is still a human decision in your
+own stack; see [`FIX-PLANS.md`](FIX-PLANS.md) and [`FIX-LOOP.md`](FIX-LOOP.md)
+for the guarded ladder from a plan to a proven fix.
 
 
 ================================================================================
