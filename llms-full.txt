@@ -1977,10 +1977,10 @@ hotato trust: your-call.wav
   leading silence: 0.45s
   crosstalk: coherence 0.057 (low) at 0.39s lag
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => safe to scan
+  => eligible for scan
 ```
 
-Exit code `0` means safe to scan; exit code `2` means NOT SCORABLE (or a usage
+Exit code `0` means eligible for scan; exit code `2` means NOT SCORABLE (or a usage
 error / unreadable file), so `trust` composes straight into a shell gate:
 
 ```bash
@@ -2015,13 +2015,13 @@ with `--caller-channel` / `--agent-channel`). `trust` reports INPUT health only:
   source speaks -- so it catches that regime. At or above `-40 dB` (calibrated to
   the level at which symmetric bleed was red-teamed into flipping a verdict) the
   copy is loud enough to be counted as the other party's activity, so it is
-  flagged and the recommendation is downgraded off `safe to scan`;
+  flagged and the recommendation is downgraded off `eligible for scan`;
 - **low signal level**: when even the loudest channel peaks below `-30 dBFS`, the
   capture is quiet enough that turn timing can be under-measured downstream; a
   warning, never a not-scorable condition;
 - **scorability**: the three things a real score needs: separated tracks, enough
   caller activity, and enough agent activity;
-- **recommendation**: `safe to scan`; `scan with caution` (scorable, but a loud
+- **recommendation**: `eligible for scan`; `scan with caution` (scorable, but a loud
   cross-channel leak may corrupt the timing a scan produces); or `NOT SCORABLE`
   with the specific reason AND the next step to fix it.
 
@@ -2030,7 +2030,7 @@ with `--caller-channel` / `--agent-channel`). `trust` reports INPUT health only:
 `trust` never labels intent and never emits a turn-taking verdict. There is no
 `yield` / `hold`, no `pass` / `fail`, no `did_yield`, no talk-over number. It
 answers exactly one question (is this audio good enough to score?) and stops.
-A recording that is safe to scan may still contain agent bugs; finding those is
+A recording that is eligible for scan may still contain agent bugs; finding those is
 what [`hotato scan`](../src/hotato/scan.py) and `hotato run` are for.
 
 ## Not scorable
@@ -2117,7 +2117,7 @@ hotato trust --stereo call.wav --format json
   "scorability": {"separated_tracks": true, "enough_caller_activity": true, "enough_agent_activity": true},
   "warnings": [],
   "scorable": true,
-  "recommendation": "safe to scan",
+  "recommendation": "eligible for scan",
   "not_scorable_reason": null,
   "next_step": null,
   "exit_code": 0
@@ -3204,13 +3204,21 @@ FILE: docs/MCP.md
 # MCP: the hotato server
 
 hotato ships an MCP server, `hotato-mcp`, that speaks MCP over stdio and
-exposes nine tools: one scoring tool, `voice_eval_run`, which returns the
-identical JSON envelope (`schema_version` "1") the CLI emits, plus eight fleet
-tools that read, verify, and propose over a local fleet workspace
-(`fleet_status`, `candidate_list`, `contract_list`, `trial_explain`,
-`artifact_verify`, `experiment_propose`) and run clone-scoped experiments
-(`experiment_run`, `clone_cleanup`). None of them deploys to production.
+exposes twelve tools: one scoring tool, `voice_eval_run`, which returns the
+identical JSON envelope (`schema_version` "1") the CLI emits, plus eleven fleet
+tools. Eight read, verify, and propose over a local fleet workspace
+(`fleet_status`, `candidate_list`, `candidate_inspect`, `contract_list`,
+`trial_explain`, `experiment_status`, `artifact_verify`, `experiment_propose`);
+three are clone-scoped actions that recompute, never deploy (`experiment_create`,
+`experiment_run`, `clone_cleanup`). None of them deploys to production.
 Everything runs locally; no audio leaves the machine.
+
+Every tool response carries a uniform control envelope: four keys ride on every
+response (pure reads included) so an autonomous caller parses one shape:
+`evidence_status` (or null for a pure read with no verdict), `refusal_reason`
+(or null), `artifact_digests` (a list, or `[]`), and
+`pending_irreversible_action` (the exact human-gated action still pending, e.g.
+deployment approval, or null).
 
 ## Run it (zero-install)
 
@@ -3314,7 +3322,7 @@ surfaces.
 
 ## The fleet tools
 
-Eight tools drive the local, self-hosted fleet control plane
+Eleven tools drive the local, self-hosted fleet control plane
 ([`GUARDIAN-FLEET.md`](GUARDIAN-FLEET.md)). They read and reason over a
 workspace; they never auto-label and never deploy to production.
 
@@ -3322,10 +3330,13 @@ workspace; they never auto-label and never deploy to production.
 | --- | --- | --- |
 | `fleet_status` | read-only | workspace counts + job-queue stats |
 | `candidate_list` | read-only | top candidate moments awaiting a human label |
+| `candidate_inspect` | read-only | one candidate's detail: onset, measured components (severity/input_health/recurrence/novelty/covered_by_contract), and trust findings |
 | `contract_list` | read-only | contracts in a workspace |
 | `trial_explain` | read-only | a recorded trial's verdict, evidence tier, and any pending human-gated action |
+| `experiment_status` | read-only | a trial's current verdict, evidence tier, recommendation, and manifest hash |
 | `artifact_verify` | read-only | a contract bundle's authenticity + evidence, without trusting it |
 | `experiment_propose` | read-only | a bounded variant set with expected effects; does not clone, apply, or deploy |
+| `experiment_create` | clone-scoped | precommit a trial manifest from a committed battery BEFORE any capture; never captures, never deploys |
 | `experiment_run` | clone-scoped | recompute a before/after trial offline (no network, no production mutation) and record a recommendation |
 | `clone_cleanup` | clone-scoped | delete a STAGING clone an experiment created; never touches production |
 
@@ -5425,7 +5436,7 @@ of one hundreds of milliseconds inside the limit.
 
 ### Honest trust headline
 Any verdict-changing warning (low signal, possible channel swap, VAD-relevant
-leakage) forces `scan with caution`, never `safe to scan`. `input_health` is an
+leakage) forces `scan with caution`, never `eligible for scan`. `input_health` is an
 explicit three-state field (`clean` / `caution` / `not_scorable`). Leakage is
 judged both against the fixed −40 dB bar and dynamically against the receiving
 channel's effective VAD gate.
@@ -5723,28 +5734,36 @@ Run top to bottom for every release. Each item is a gate: green means proceed.
 
 ## Package
 
-- [ ] Build sdist and wheel from a clean tree; install the wheel in a fresh venv and run `hotato run --suite barge-in`.
-- [ ] Generate the SBOM and attach it to the release: `python3 scripts/gen_sbom.py` writes `dist/hotato.sbom.cdx.json` (a minimal CycloneDX bill of materials for the core package and every declared dependency, generated offline straight from `pyproject.toml` -- no network, no pip). Validate it with `python3 scripts/gen_sbom.py --check dist/hotato.sbom.cdx.json`, then upload `dist/*.sbom.cdx.json` alongside the sdist/wheel on the GitHub release.
-- [ ] Publish to PyPI. **Current mechanism: manual upload with an API token** (`twine upload dist/*` using a token scoped to the `hotato` project). This is the only working path today.
+- [ ] Build sdist and wheel from a clean tree; install the wheel in a fresh venv and run `hotato run --suite barge-in`. CI does this on every version tag in the `release.yml` `sanity` job.
+- [ ] Generate + validate the SBOM(s) and attach them to the GitHub release: `python3 scripts/gen_sbom.py` writes `dist/hotato.sbom.cdx.json` (a minimal CycloneDX bill of materials for the core package and every declared dependency, generated offline straight from `pyproject.toml` -- no network, no pip). For a per-profile breakdown, `python3 scripts/gen_sbom.py --list-profiles` enumerates `core` plus each declared extra, and `python3 scripts/gen_sbom.py --profile <name>` writes `dist/hotato.sbom.<name>.cdx.json` (core alone, or core plus that one extra). Validate each with `python3 scripts/gen_sbom.py --check <file>`, then upload `dist/*.cdx.json` alongside the sdist/wheel on the GitHub release. CI produces and validates all of these automatically: `release.yml` uploads them in the `hotato-release-dist` artifact, and `publish-pypi-oidc.yml` uploads them in the `hotato-sbom` artifact.
+- [ ] Publish to PyPI via **Trusted Publishing (OIDC)** -- the default path (see below): dispatch `publish-pypi-oidc.yml` with `version` = the release's `pyproject.toml` version and `confirm` = `PUBLISH`. That workflow builds reproducibly (a second build is rebuilt with a pinned backend and the two builds' `sha256sum`s are compared -- a mismatch fails the run), generates + validates the SBOMs, uploads the exact built artifacts, and then in a separate gated `publish` job downloads those exact bytes, attests build provenance over them, and uploads them to PyPI. No long-lived PyPI token is stored or used.
+- [ ] Verify the build-provenance attestation for the published wheel and sdist: `gh attestation verify dist/hotato-<version>-py3-none-any.whl --repo attenlabs/hotato` (and again for `dist/hotato-<version>.tar.gz`). This checks the GitHub-signed provenance emitted by the `publish` job's `actions/attest-build-provenance` step, proving those exact bytes were built by this repo's workflow.
+- [ ] Verify the published SBOM(s): re-run `python3 scripts/gen_sbom.py --check dist/hotato.sbom.cdx.json` (and each `dist/hotato.sbom.<profile>.cdx.json`) on the files attached to the release, and confirm each SBOM's `metadata.component.version` matches the release version.
 - [ ] Verify `uvx hotato demo` works from the published package (fresh machine or cleared uv cache): it renders and opens the failing demo report.
 - [ ] Verify `uvx hotato doctor` (self-test path) works from the published package.
 - [ ] Tag the release commit and push the tag; GitHub release notes point at the CHANGELOG entry.
 
-### PyPI Trusted Publishing (OIDC) -- exists, not yet active
+### Publishing path: PyPI Trusted Publishing (OIDC) -- DEFAULT
 
-`.github/workflows/publish-pypi-oidc.yml` is a `workflow_dispatch`-only workflow
-that builds, runs the full test suite, `twine check`s the artifacts, and
-publishes via [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
-(short-lived GitHub OIDC token, no stored API token). It requires a `version`
-input matching `pyproject.toml` and a `confirm` input equal to `PUBLISH`, and
-the publish step runs under the `pypi` GitHub Environment with `id-token:
-write` granted only on that job.
+`.github/workflows/publish-pypi-oidc.yml` is the default publish path. It is a
+`workflow_dispatch`-only workflow that builds (with a pinned, reproducible
+backend), runs the full test suite, `twine check`s the artifacts, runs a
+second-build `sha256sum` reproducibility check, generates + validates the
+CycloneDX SBOMs, and publishes via
+[PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) using a
+short-lived GitHub OIDC token (no stored API token). It requires a `version`
+input matching `pyproject.toml` and a `confirm` input equal to `PUBLISH`; the
+`publish` job runs under the `pypi` GitHub Environment with `id-token: write`
+and `attestations: write` granted only on that job, and attests build
+provenance over the exact artifacts before uploading them.
 
-It cannot publish anything yet: PyPI rejects the OIDC token until an operator
-registers this exact repo + workflow + environment as a trusted publisher for
-the `hotato` project. **hotato is already on PyPI**, so this is the existing-project
-flow (not the pending-publisher flow for unpublished names). One-time operator
-setup:
+**One-time operator action** (required before this path can publish): register
+the Trusted Publisher on PyPI for `attenlabs/hotato` + workflow
+`publish-pypi-oidc.yml`. Until this is done, PyPI rejects the OIDC token and a
+dispatch builds/tests/attests cleanly then fails at the upload step -- safe,
+since there is no credential to leak and nothing is uploaded. **hotato is
+already on PyPI**, so this is the existing-project flow (not the
+pending-publisher flow for unpublished names):
 
 1. Sign in to PyPI as an owner/maintainer of the `hotato` project and open
    `https://pypi.org/manage/project/hotato/settings/publishing/`.
@@ -5760,15 +5779,18 @@ setup:
    > New environment, name `pypi`) if it does not already exist. Optionally
    add required reviewers there for a human-approval gate in addition to the
    `confirm`/`version` input checks already in the workflow.
-5. To cut a release this way: dispatch `publish-pypi-oidc.yml` with
-   `version` set to the release's `pyproject.toml` version and `confirm` set
-   to `PUBLISH`.
+5. To cut a release this way: dispatch `publish-pypi-oidc.yml` with `version`
+   set to the release's `pyproject.toml` version and `confirm` set to
+   `PUBLISH`.
 
-Until step 3 is done, dispatching the workflow will build and test cleanly
-and then fail at the publish step with an OIDC trust error -- expected and
-safe, since there is no credential to leak and nothing gets uploaded. The
-manual token-based step above remains the release path until an operator
-completes this setup and chooses to switch.
+### Fallback: manual token upload (twine)
+
+If Trusted Publishing is unavailable (e.g. the publisher is not yet registered
+and a release must go out), publish by hand with a project-scoped API token:
+`python3 -m twine upload dist/*` using a token scoped to the `hotato` project.
+This path uses a long-lived credential and produces no build-provenance
+attestation, so prefer the OIDC path above; use twine only as a fallback and
+still attach the generated `dist/*.cdx.json` SBOMs to the GitHub release.
 
 ## After release
 
@@ -6184,7 +6206,7 @@ FILE: docs/TRUST-GALLERY.md
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.0.1, offline. The rows
+Every block below is verbatim CLI output from hotato 1.1.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean case starts from the bundled example `01-hard-interruption.example.wav`
@@ -6209,10 +6231,10 @@ hotato trust: 01-hard-interruption.example.wav
   leading silence: 0.19s
   crosstalk: coherence 0.306 (low) at 0.5s lag
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => safe to scan
+  => eligible for scan
 ```
 
-**Verdict:** `safe to scan`, exit 0. Score it. This is the only condition where
+**Verdict:** `eligible for scan`, exit 0. Score it. This is the only condition where
 a full turn-taking verdict is trustworthy without a caveat.
 
 ---
@@ -6276,10 +6298,10 @@ hotato trust: swapped-warn.wav
   leading silence: 0.00s
   possible channel swap: channel 0 (mapped as caller) holds the floor 2.71s vs 1.05s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => safe to scan
+  => eligible for scan
 ```
 
-**Verdict:** `safe to scan`, exit 0, with a swap warning. This is the most
+**Verdict:** `eligible for scan`, exit 0, with a swap warning. This is the most
 dangerous condition, because scoring proceeds. A swap silently inverts every
 yield into a hold. Confirm the mapping (or set `--caller-channel` /
 `--agent-channel`) before you trust the verdict.
@@ -6300,10 +6322,10 @@ hotato trust: 07-echo-bleed.example.wav
   leading silence: 0.19s
   crosstalk: coherence 1.0 (HIGH) at 0.12s lag
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => safe to scan
+  => eligible for scan
 ```
 
-**Verdict:** `safe to scan`, exit 0, with a **HIGH crosstalk** warning. Scoring
+**Verdict:** `eligible for scan`, exit 0, with a **HIGH crosstalk** warning. Scoring
 proceeds, but the "caller" activity may be leaked TTS, so every candidate here is
 lower confidence. The scan step (example 8) names the specific moment.
 
@@ -6409,11 +6431,11 @@ Worked examples with real CLI output for every row are in
 
 | Input condition | `trust` behavior | Exit | Scoring downstream |
 |---|---|---|---|
-| **Clean dual-channel (stereo)** | `safe to scan` | 0 | **Full scoring.** `scan`, `run`, `compare`, `verify` all run normally. |
+| **Clean dual-channel (stereo)** | `eligible for scan` | 0 | **Full scoring.** `scan`, `run`, `compare`, `verify` all run normally. |
 | **Silent caller channel** | `NOT SCORABLE: caller channel has no detected speech` | 2 | **Refused.** There is no caller to measure a yield against. |
 | **Silent agent channel** | `NOT SCORABLE: agent channel has no detected speech` | 2 | **Refused.** There is no agent floor to interrupt. |
-| **Channel swap risk** | `safe to scan` **plus** `possible channel swap` **warning** | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
-| **High crosstalk / echo bleed** | `safe to scan` **plus** high `crosstalk: coherence` **warning** | 0 | Scores at **lower confidence.** `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
+| **Channel swap risk** | `eligible for scan` **plus** `possible channel swap` **warning** | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
+| **High crosstalk / echo bleed** | `eligible for scan` **plus** high `crosstalk: coherence` **warning** | 0 | Scores at **lower confidence.** `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
 | **Mixed mono (single channel)** | `NOT SCORABLE: single channel, caller and agent cannot be told apart` | 2 | **Refused by default.** Export dual-channel, or take one of the two opt-in escapes (below). |
 | **Mono, opt-in `--allow-mono`** | accepted in **degraded mode**, results **indicative only** | 0 | On `capture` / `pull` / `sweep` for a mono-only stack. Talk-over cannot be attributed, so no SLA gate fires. Never equivalent to dual-channel. |
 | **Mono, opt-in `--diarize`** | separability **tier**: `high` / `low` / `refuse` | 0 (high/low), 2 (refuse) | The separation front-end. `hotato run --mono call.wav --diarize` scores it; at `low` the verdict is stamped `indicative_only`. Never equivalent to dual-channel. |
@@ -6421,7 +6443,7 @@ Worked examples with real CLI output for every row are in
 | **Noisy / false-positive candidate** | `trust` warns (clipping, crosstalk, hot capture); `scan` still lists the candidate | 0 | Surfaced **with** the warning. A candidate you inspect and label `hold`, not a bug Hotato asserts. |
 
 **Reading the two axes.** `trust` answers one question: is this audio good enough
-to score? The exit code is the machine contract, `0` = safe to scan (possibly
+to score? The exit code is the machine contract, `0` = eligible for scan (possibly
 with warnings), `2` = not scorable (with the reason and the next step). Warnings
 (swap, crosstalk, clipping, leading silence) do **not** by themselves make a
 recording unscorable; the three hard refusals do (mono, identical channels, a

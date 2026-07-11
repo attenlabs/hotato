@@ -31,10 +31,74 @@ from __future__ import annotations
 
 import json
 import os
+from functools import lru_cache
+from importlib import resources
 from typing import List
 
 from . import evidence as _evidence
 from . import fixture as _fixture
+
+
+# --- claim-language contract (src/hotato/data/evidence_language.json) ------
+#
+# The single source of truth for which public claim PHRASE may assert which
+# evidence tier. card.py renders its headline via ``evidence.headline_for`` and
+# then VALIDATES that the rendered phrase is one the table knows AND that the
+# tier the table permits it does not exceed the classification tier the evidence
+# vector actually earned -- so no renderer can ever emit a phrase stronger than
+# its evidence. scripts/copy_lint.py reads the SAME table for shipped static
+# copy, so the phrasing and its evidence bar have one source of truth.
+
+class ClaimContractError(ValueError):
+    """A renderer produced a claim phrase stronger than its evidence tier, or a
+    phrase the claim-language contract does not know. Fail-closed: refuse the card
+    rather than ship an over-claim."""
+
+
+@lru_cache(maxsize=1)
+def _claim_table() -> dict:
+    raw = (resources.files("hotato")
+           .joinpath("data", "evidence_language.json")
+           .read_text(encoding="utf-8"))
+    return json.loads(raw).get("claims", {})
+
+
+def _claim_max_tier(headline: str):
+    """The max_tier the contract allows the rendered ``headline`` to assert, or
+    ``None`` when the phrase is not in the contract. Matches the longest claim
+    phrase the headline starts with, so a headline carrying a trailing qualifier
+    (e.g. ``... -- NO HOLD GUARD SUBMITTED``) still resolves to its base claim."""
+    table = _claim_table()
+    if headline in table:
+        return table[headline]["max_tier"]
+    best = None
+    best_len = -1
+    for phrase, meta in table.items():
+        if headline.startswith(phrase) and len(phrase) > best_len:
+            best, best_len = meta["max_tier"], len(phrase)
+    return best
+
+
+def _assert_claim_within_evidence(headline: str, tier: int) -> None:
+    """Fail-closed check: the rendered ``headline`` must be a phrase the claim
+    contract knows, and the tier that phrase is allowed to assert must not exceed
+    the classification ``tier`` the evidence vector earned. Since
+    ``evidence.headline_for`` already returns the phrase FOR ``tier``, this always
+    holds for correct code -- it is the tripwire that catches a future renderer or
+    a hand-edited phrase that would over-claim."""
+    max_tier = _claim_max_tier(headline)
+    if max_tier is None:
+        raise ClaimContractError(
+            f"rendered claim {headline!r} is not in the evidence-language "
+            "contract (src/hotato/data/evidence_language.json); refusing to ship "
+            "a claim the honesty table does not govern"
+        )
+    if max_tier > tier:
+        raise ClaimContractError(
+            f"rendered claim {headline!r} asserts evidence tier {max_tier}, above "
+            f"the classification tier {tier} the evidence vector earned; refusing "
+            "to ship an over-claim"
+        )
 
 # --- warm charcoal / cream / ember theme (mirrors report.py so a card reads as
 #     the same family as the report it came from). Inline hex only; nothing here
@@ -338,6 +402,9 @@ def _render_verify(v: dict) -> str:
                    _evidence.TIER_ASSERTED)
     ev_headline = _evidence.headline_for(
         tier, vector if isinstance(vector, dict) else {})
+    # Claim contract: the rendered headline may never assert a tier above the
+    # evidence the vector earned. Validated against the same table copy_lint reads.
+    _assert_claim_within_evidence(ev_headline, tier)
 
     text_equiv = (
         f"{now} of {used} failing fixtures now pass; {still} of {guards} hold "
@@ -348,6 +415,8 @@ def _render_verify(v: dict) -> str:
         _attested = tier >= _evidence.TIER_ATTESTED
         _card_title = ("PAIRED FRESH-RECAPTURE" if _attested
                        else "PAIRED (OPERATOR-ASSERTED)")
+        # The big visible claim on the card face is also bound by the contract.
+        _assert_claim_within_evidence(_card_title, tier)
         _kind = "ATTESTED PAIRED" if _attested else "PAIRED (OPERATOR-ASSERTED)"
         _guard_line = ("no submitted hold guard regressed" if guards
                        else "no hold guard was submitted")

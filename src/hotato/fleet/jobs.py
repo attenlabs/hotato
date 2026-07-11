@@ -154,6 +154,26 @@ class JobQueue:
         self.conn.commit()
         return {"ok": True, "state": state}
 
+    def record_start(self, **kw) -> dict:
+        """In-process idempotent operation record: enqueue the job and report
+        whether an identical operation already completed. Callers execute the work
+        synchronously and call ``record_done``; a duplicate webhook / scheduler
+        retry / crash-replay maps to the SAME job_id and short-circuits when it is
+        already 'done' -- one logical result, never a duplicate (plan §7.3)."""
+        r = self.enqueue(**kw)
+        j = self.get(r["job_id"])
+        return {"job_id": r["job_id"], "deduped": r["deduped"],
+                "already_done": bool(j and j["state"] == "done")}
+
+    def record_done(self, job_id, *, output_hashes=None) -> None:
+        """Mark an in-process job done (no lease dance; the caller ran it inline)."""
+        now = self._now()
+        self.conn.execute(
+            "UPDATE jobs SET state='done', output_hashes=?, refusal_reason=NULL, updated_at=? "
+            "WHERE job_id=?",
+            (json.dumps(output_hashes or [], sort_keys=True), now, job_id))
+        self.conn.commit()
+
     def get(self, job_id):
         cur = self.conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,))
         row = cur.fetchone()

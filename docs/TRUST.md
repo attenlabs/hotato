@@ -18,10 +18,10 @@ hotato trust: your-call.wav
   leading silence: 0.45s
   crosstalk: coherence 0.057 (low) at 0.39s lag
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => safe to scan
+  => eligible for scan
 ```
 
-Exit code `0` means safe to scan; exit code `2` means NOT SCORABLE (or a usage
+Exit code `0` means eligible for scan; exit code `2` means NOT SCORABLE (or a usage
 error / unreadable file), so `trust` composes straight into a shell gate:
 
 ```bash
@@ -56,13 +56,13 @@ with `--caller-channel` / `--agent-channel`). `trust` reports INPUT health only:
   source speaks -- so it catches that regime. At or above `-40 dB` (calibrated to
   the level at which symmetric bleed was red-teamed into flipping a verdict) the
   copy is loud enough to be counted as the other party's activity, so it is
-  flagged and the recommendation is downgraded off `safe to scan`;
+  flagged and the recommendation is downgraded off `eligible for scan`;
 - **low signal level**: when even the loudest channel peaks below `-30 dBFS`, the
   capture is quiet enough that turn timing can be under-measured downstream; a
   warning, never a not-scorable condition;
 - **scorability**: the three things a real score needs: separated tracks, enough
   caller activity, and enough agent activity;
-- **recommendation**: `safe to scan`; `scan with caution` (scorable, but a loud
+- **recommendation**: `eligible for scan`; `scan with caution` (scorable, but a loud
   cross-channel leak may corrupt the timing a scan produces); or `NOT SCORABLE`
   with the specific reason AND the next step to fix it.
 
@@ -71,7 +71,7 @@ with `--caller-channel` / `--agent-channel`). `trust` reports INPUT health only:
 `trust` never labels intent and never emits a turn-taking verdict. There is no
 `yield` / `hold`, no `pass` / `fail`, no `did_yield`, no talk-over number. It
 answers exactly one question (is this audio good enough to score?) and stops.
-A recording that is safe to scan may still contain agent bugs; finding those is
+A recording that is eligible for scan may still contain agent bugs; finding those is
 what [`hotato scan`](../src/hotato/scan.py) and `hotato run` are for.
 
 ## Not scorable
@@ -158,7 +158,7 @@ hotato trust --stereo call.wav --format json
   "scorability": {"separated_tracks": true, "enough_caller_activity": true, "enough_agent_activity": true},
   "warnings": [],
   "scorable": true,
-  "recommendation": "safe to scan",
+  "recommendation": "eligible for scan",
   "not_scorable_reason": null,
   "next_step": null,
   "exit_code": 0

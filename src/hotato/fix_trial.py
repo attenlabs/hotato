@@ -275,7 +275,7 @@ def _trust_preflight(before_arg: str, after_arg: str, before_env: dict,
     except Exception:  # pragma: no cover - trust is a first-party module
         return None, None
 
-    safe = getattr(_trust, "SAFE_RECOMMENDATION", "safe to scan")
+    safe = getattr(_trust, "SAFE_RECOMMENDATION", "eligible for scan")
     before_base = (before_arg if os.path.isdir(before_arg)
                    else os.path.dirname(before_arg)) or "."
     after_base = (after_arg if os.path.isdir(after_arg)

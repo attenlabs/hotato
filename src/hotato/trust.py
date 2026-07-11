@@ -27,14 +27,15 @@ What it reports, all of it INPUT health and nothing about the agent's behaviour:
                             under-measured downstream (a warning, never a gate)
   scorability               separated tracks? enough caller activity? enough agent
                             activity? -- the three things a real score needs
-  recommendation            "safe to scan", or "NOT SCORABLE" with the specific
-                            reason AND the next step to fix it
+  recommendation            "eligible for scan", or "NOT SCORABLE" with the
+                            specific reason AND the next step to fix it
 
 HONESTY, the whole point of this command: it NEVER labels intent and NEVER emits
 a turn-taking verdict (no yield / hold, no pass / fail). It answers exactly one
-question -- is this audio good enough to score? -- and stops there. A recording
-that is safe to scan may still contain agent bugs; that is what ``hotato scan`` /
-``hotato run`` are for.
+question -- is this audio good enough to score? -- and stops there. "Eligible for
+scan" says the input is scorable, NOT that the audio is problem-free: a recording
+that is eligible for scan may still contain agent bugs; that is what
+``hotato scan`` / ``hotato run`` are for.
 
 Everything runs offline and reuses hotato's existing primitives: the hardened WAV
 reader (``core._read_wav``), the reference framing (``_engine.audio.frame_rms``),
@@ -68,8 +69,13 @@ NOTE = (
     "or pass/fail verdict."
 )
 
-# A recording that clears every gate below.
-SAFE_RECOMMENDATION = "safe to scan"
+# A recording that clears every gate below. The wording is deliberately
+# "eligible for scan", NOT a safety guarantee: clearing the scorability gates makes
+# an input SCORABLE (eligible to be measured), which is a statement about the input,
+# not a safety guarantee about the recording or the agent. A scorable recording
+# can still carry bugs, clipping, or bleed; only the not-scorable gate is a hard
+# stop. Overclaiming safety is exactly the headline honesty gap this rename fixes.
+SAFE_RECOMMENDATION = "eligible for scan"
 
 # The single fix instruction shared by every channel-level not-scorable reason
 # (a silent channel, or the two channels swapped): the mapping or the export is
@@ -140,7 +146,7 @@ LEAKAGE_ATTEN_MAX_DB = -6.0
 LEAKAGE_REPORT_DB = -50.0
 # At or above this level the leaked audio is loud enough to be read as the other
 # party's activity and corrupt a downstream timing verdict, so it is flagged
-# (suspected + warning + the recommendation is downgraded off "safe to scan").
+# (suspected + warning + the recommendation is downgraded off "eligible for scan").
 # Calibrated to the level at which the red-team reproduced a verdict break under
 # symmetric bleed (~ -40 dB); every clean dual-channel corpus fixture stays well
 # below it (their loudest consistent copies sit at ~ -54 dB), so none are flagged.
@@ -316,6 +322,53 @@ def _leak_crosses_receiver_gate(src, act_src, lag, leak_db, hop,
     return False
 
 
+def _leak_alters_receiver_mask(resid, src, other_active, leak_db, lag_sec, hop,
+                               vad_params) -> bool:
+    """Would REMOVING the suspected delayed-attenuated leak change the receiving
+    channel's VAD activity mask in a way that could move a downstream turn-taking
+    measurement? This is the honest, dB-free replacement for a fixed leakage bar:
+    the caution depends on whether the leaked component actually creates (or erases)
+    activity frames the scorer would read, not on the leak's absolute or ratio dB.
+
+    It reconstructs the receiver WITHOUT the leak by subtracting the predicted leak
+    energy per frame -- ``resid_wo[i] = sqrt(max(0, resid[i]^2 - (g*src[i-lag])^2))``
+    with ``g = 10**(leak_db/20)`` -- then runs the SAME ``energy_vad`` on the receiver
+    with and without the leak and compares three things a timing verdict reads:
+
+      * ONSET: the first sustained active run (moves a yield/response-gap measurement);
+      * total active frames (adds/removes activity attributed to the receiver);
+      * TALK-OVER: frames active while the OTHER channel is also active (overlap).
+
+    Any change means the leak is verdict-changing, so caution is forced regardless of
+    dB. Deterministic and stdlib-only (reuses the reference ``energy_vad`` /
+    ``first_active_sec``). Returns ``False`` when there is no leak estimate or no VAD
+    params (the check is skipped, never guessed)."""
+    if leak_db is None or vad_params is None:
+        return False
+    n = min(len(resid), len(src), len(other_active))
+    if n == 0:
+        return False
+    lag = int(round((lag_sec or 0.0) / hop))
+    g = 10 ** (leak_db / 20.0)
+    resid_wo = list(resid[:n])
+    for i in range(lag, n):
+        leaked = g * src[i - lag]
+        e = resid[i] * resid[i] - leaked * leaked
+        resid_wo[i] = math.sqrt(e) if e > 0.0 else 0.0
+    mask_with = energy_vad(resid[:n], hop, vad_params).active
+    mask_wo = energy_vad(resid_wo, hop, vad_params).active
+    m = min(len(mask_with), len(mask_wo), n)
+    on_with = first_active_sec(mask_with[:m], hop, SPEECH_MIN_RUN_SEC)
+    on_wo = first_active_sec(mask_wo[:m], hop, SPEECH_MIN_RUN_SEC)
+    if round(on_with, 3) != round(on_wo, 3):
+        return True
+    if sum(mask_with[:m]) != sum(mask_wo[:m]):
+        return True
+    to_with = sum(1 for i in range(m) if mask_with[i] and other_active[i])
+    to_wo = sum(1 for i in range(m) if mask_wo[i] and other_active[i])
+    return to_with != to_wo
+
+
 def _copy_leak_one_direction(resid, src, act_resid, act_src, hop,
                              resid_noise_floor_db=None):
     """Estimate a delayed, attenuated COPY of ``src`` present on the ``resid``
@@ -386,7 +439,8 @@ def _copy_leak_one_direction(resid, src, act_resid, act_src, hop,
 
 
 def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop,
-                      caller_noise_floor_db=None, agent_noise_floor_db=None) -> dict:
+                      caller_noise_floor_db=None, agent_noise_floor_db=None,
+                      caller_vad_params=None, agent_vad_params=None) -> dict:
     """Cross-channel leakage (bleed): the level of the loudest consistent,
     attenuated delayed COPY of one channel found on the other, and whether it is
     loud enough to be mistaken for the other party's activity downstream.
@@ -394,11 +448,16 @@ def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop,
     Both directions are measured -- an agent copy leaking onto the caller channel
     (the dangerous direction: leaked agent audio read as caller activity) and the
     reverse. The loudest consistent copy is reported. ``leakage_suspected`` is set
-    when that copy is at or above the fixed ``LEAKAGE_WARN_DB`` ratio OR when the
-    dynamic rule finds it would cross the RECEIVING channel's VAD gate for a
-    sustained run (``crosses_gate``, computed against that receiver's noise floor);
-    a fainter copy that does neither is reported (for transparency) but not flagged,
-    and no consistent copy at all reports ``leakage_db = None``."""
+    when the leak actually ALTERS the receiving channel's activity mask (the honest,
+    dB-free test ``_leak_alters_receiver_mask``: removing the leak would move the
+    onset, the total active frames, or the talk-over overlap the scorer reads) OR --
+    kept as additive safety nets, never as the sole gate -- when the copy is at or
+    above the fixed ``LEAKAGE_WARN_DB`` ratio OR would cross the RECEIVING channel's
+    VAD gate for a sustained run (``crosses_gate``). A copy that does none of these
+    is reported (for transparency) but not flagged; no consistent copy at all reports
+    ``leakage_db = None``. The mask test closes the ~6-11 dB gap a fixed bar left:
+    a verdict-changing leak below the fixed bar is now flagged because it changes the
+    activity the measurement depends on, whatever its absolute dB."""
     # For agent->caller the receiver is the caller channel, so its noise floor gates
     # the dynamic check; for caller->agent the receiver is the agent channel.
     ac = _copy_leak_one_direction(rms_c, rms_a, caller_active, agent_active, hop,
@@ -414,19 +473,30 @@ def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop,
                 and cons >= LEAKAGE_CONSISTENCY
                 and coverage >= LEAKAGE_MIN_COVERAGE
                 and LEAKAGE_REPORT_DB <= db <= LEAKAGE_ATTEN_MAX_DB):
-            candidates.append((db, cons, lag, direction, crosses))
+            # Mask-alteration test on the RECEIVING channel for this direction: the
+            # leak is verdict-changing when removing it would move the receiver's
+            # activity mask (onset / total / talk-over). agent->caller receives on the
+            # caller channel (other party = agent); caller->agent is the reverse.
+            if direction == "agent_into_caller":
+                alters = _leak_alters_receiver_mask(
+                    rms_c, rms_a, agent_active, db, lag, hop, caller_vad_params)
+            else:
+                alters = _leak_alters_receiver_mask(
+                    rms_a, rms_c, caller_active, db, lag, hop, agent_vad_params)
+            candidates.append((db, cons, lag, direction, crosses, alters))
     if not candidates:
         return {"leakage_db": None, "leakage_direction": None,
                 "leakage_lag_sec": None, "leakage_suspected": False}
     # The loudest consistent copy (highest dB = most leaked energy) is the worst.
-    db, cons, lag, direction, crosses = max(candidates, key=lambda t: t[0])
+    db, cons, lag, direction, crosses, alters = max(candidates, key=lambda t: t[0])
     return {
         "leakage_db": db,
         "leakage_direction": direction,
         "leakage_lag_sec": lag,
-        # Fixed -40 dB ratio bar OR the dynamic gate-crossing rule; the dynamic term
-        # only ADDS suspected cases (it can flag EARLIER than -40 dB), never removes.
-        "leakage_suspected": db >= LEAKAGE_WARN_DB or crosses,
+        # PRIMARY: the leak actually alters the receiver's activity mask (dB-free).
+        # The fixed -40 dB ratio bar and the gate-crossing rule are kept as additive
+        # safety nets -- they only ADD suspected cases, never remove one.
+        "leakage_suspected": alters or db >= LEAKAGE_WARN_DB or crosses,
     }
 
 
@@ -450,8 +520,8 @@ def trust_report(
     raised: they are reported as ``scorable: false`` with the reason and the
     next step, because "is this scorable?" is exactly the question asked.
 
-    ``exit_code`` in the returned dict is 0 when the recording is safe to scan
-    and 2 when it is not, matching the CLI's unusable-input convention.
+    ``exit_code`` in the returned dict is 0 when the recording is eligible for
+    scan and 2 when it is not, matching the CLI's unusable-input convention.
     """
     from .core import _read_wav  # hardened WAV reader; reused, never reimplemented
 
@@ -579,6 +649,8 @@ def trust_report(
         rms_c[:n], rms_a[:n], caller_active, agent_active, hop,
         caller_noise_floor_db=caller_vad.noise_floor_db,
         agent_noise_floor_db=agent_vad.noise_floor_db,
+        caller_vad_params=cfg.caller_vad,
+        agent_vad_params=cfg.agent_vad,
     )
     crosstalk_out = {
         "coherence": crosstalk["coherence"],
@@ -725,7 +797,7 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
     and set the process exit code (0 scorable, 2 not).
 
     ``caution`` downgrades the recommendation of a still-scorable recording OFF
-    "safe to scan" (a verdict-changing warning -- leakage, low signal, or a possible
+    "eligible for scan" (a verdict-changing warning -- leakage, low signal, or a possible
     channel swap -- can corrupt a downstream timing measurement) WITHOUT changing
     scorability or the exit code -- ``scorable`` and the not-scorable gate are
     untouched, only the human-facing recommendation is.

@@ -8,14 +8,22 @@ or, if installed:
 
     python -m hotato.mcp_server
 
-It speaks MCP over stdio and exposes nine tools: one scoring tool,
+It speaks MCP over stdio and exposes twelve tools: one scoring tool,
 ``voice_eval_run`` (whose schema states the honest scope and ceiling and which
-returns the same JSON envelope as the CLI), plus eight fleet tools that
+returns the same JSON envelope as the CLI), plus eleven fleet tools. Eight
 read/verify/propose over a local fleet workspace (``fleet_status``,
-``candidate_list``, ``contract_list``, ``trial_explain``, ``artifact_verify``,
-``experiment_propose``) and run clone-scoped experiments (``experiment_run``,
-``clone_cleanup``). None of them deploys to production. Everything runs locally;
-no audio leaves the machine.
+``candidate_list``, ``candidate_inspect``, ``contract_list``, ``trial_explain``,
+``experiment_status``, ``artifact_verify``, ``experiment_propose``); three are
+clone-scoped actions that recompute, never deploy (``experiment_create``,
+``experiment_run``, ``clone_cleanup``). None of them deploys to production; the
+deployment approval always stays a human gate. Everything runs locally; no audio
+leaves the machine.
+
+Every tool response carries a uniform control envelope (plan §17): four keys ride
+on EVERY response -- ``evidence_status`` (or null for a pure read that carries no
+verdict), ``refusal_reason`` (or null), ``artifact_digests`` (a list, or []), and
+``pending_irreversible_action`` (the exact human-gated action still pending, e.g.
+deployment approval, or null) -- so an autonomous caller parses one shape.
 """
 
 from __future__ import annotations
@@ -335,12 +343,35 @@ def _run_tool_impl(
 # action that remains PENDING a human. An MCP caller (an LLM agent, possibly
 # steered by untrusted content) can inspect and PROPOSE, never deploy.
 
+def _envelope(payload: dict, *, evidence_status=None, refusal_reason=None,
+              artifact_digests=None, pending_irreversible_action=None) -> dict:
+    """Give every MCP tool response the uniform plan-§17 control envelope.
+
+    Four keys ride on EVERY response (pure reads included): ``evidence_status``
+    (an evidence tier / authenticity axis, or None for a pure read with no
+    verdict), ``refusal_reason`` (why a request was declined, or None),
+    ``artifact_digests`` (the content-addressed digests this response touched, or
+    []), and ``pending_irreversible_action`` (the exact human-gated action that
+    still has to happen, e.g. deployment approval, or None).
+
+    A value ALREADY on the payload wins -- a tool that computed a real verdict or
+    named its own pending gate keeps it -- so this only fills a key that is absent.
+    An autonomous caller can then parse one shape for the whole tool surface."""
+    payload.setdefault("evidence_status", evidence_status)
+    payload.setdefault("refusal_reason", refusal_reason)
+    payload.setdefault("artifact_digests",
+                       list(artifact_digests) if artifact_digests else [])
+    payload.setdefault("pending_irreversible_action", pending_irreversible_action)
+    return payload
+
+
 def mcp_fleet_status(home: Optional[str] = None, workspace_id: str = "default") -> dict:
     from .fleet.api import FleetAPI
     from .fleet.registry import DEFAULT_HOME
     api = FleetAPI(home=home or DEFAULT_HOME)
     try:
-        return {"tool": "hotato", "kind": "fleet_status", **api.status(workspace_id)}
+        return _envelope({"tool": "hotato", "kind": "fleet_status",
+                          **api.status(workspace_id)})
     finally:
         api.close()
 
@@ -352,11 +383,69 @@ def mcp_candidate_list(home: Optional[str] = None, workspace_id: str = "default"
     api = FleetAPI(home=home or DEFAULT_HOME)
     try:
         cands = api.review_queue(workspace_id, agent_id=agent_id, limit=limit)
-        return {"tool": "hotato", "kind": "candidate_list",
-                "candidates": cands, "count": len(cands),
-                "note": "candidate MOMENTS, not labelled failures; a human must label."}
+        return _envelope({"tool": "hotato", "kind": "candidate_list",
+                          "candidates": cands, "count": len(cands),
+                          "note": "candidate MOMENTS, not labelled failures; a human must label."})
     finally:
         api.close()
+
+
+def mcp_candidate_inspect(home: Optional[str] = None, workspace_id: str = "default",
+                          candidate_id: str = "", agent_id: Optional[str] = None) -> dict:
+    """Single-candidate detail: onset, the stored measured components
+    (severity / input_health / recurrence / novelty / covered_by_contract), and
+    the trust findings recorded at discovery. Read-only; NEVER labels -- a
+    candidate stays an unlabelled MOMENT until a human decides."""
+    import json as _json
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+    api = FleetAPI(home=home or DEFAULT_HOME)
+    try:
+        # Query the registry the SAME way candidate_list does (review_queue),
+        # then select the requested candidate -- no raw-row escape hatch, so this
+        # is scoped to exactly the workspace/agent candidate_list can see.
+        rows = api.review_queue(workspace_id, agent_id=agent_id, limit=100000)
+    finally:
+        api.close()
+    match = next((r for r in rows if r.get("candidate_id") == candidate_id), None)
+    if match is None:
+        return _envelope({"tool": "hotato", "kind": "candidate_inspect",
+                          "found": False, "candidate_id": candidate_id})
+    try:
+        measured = _json.loads(match.get("measured_json") or "{}")
+    except (ValueError, TypeError):
+        measured = {}
+    components = measured.get("components") or {}
+    # Trust findings, all from stored data (this is a pure read; the audio is not
+    # re-opened): the input health recorded by the discover-time trust preflight,
+    # plus any echo caveat (an echo-correlated candidate's "caller" energy may be
+    # leaked agent TTS, not a real interruption).
+    trust = {"input_health": components.get("input_health"), "echo_caveat": None}
+    if measured.get("kind") == "echo_correlated_activity":
+        ar = measured.get("agent_reaction") or {}
+        trust["echo_caveat"] = {
+            "coherence": ar.get("coherence"),
+            "echo_suspected": ar.get("echo_suspected"),
+            "note": "caller energy may be leaked agent TTS, not a real interruption."}
+    onset = match.get("onset_sec")
+    if onset is None:
+        onset = measured.get("t_sec")
+    return _envelope({
+        "tool": "hotato", "kind": "candidate_inspect", "found": True,
+        "candidate_id": candidate_id,
+        "onset_sec": onset,
+        "cluster": match.get("cluster"),
+        "status": match.get("status"),
+        "components": {
+            "severity": components.get("severity"),
+            "input_health": components.get("input_health"),
+            "recurrence": components.get("recurrence"),
+            "novelty": components.get("novelty"),
+            "covered_by_contract": components.get("covered_by_contract"),
+        },
+        "trust": trust,
+        "durations": measured.get("durations"),
+        "note": "a candidate MOMENT, not a labelled failure; a human must label."})
 
 
 def mcp_contract_list(home: Optional[str] = None, workspace_id: str = "default") -> dict:
@@ -367,8 +456,10 @@ def mcp_contract_list(home: Optional[str] = None, workspace_id: str = "default")
         rows = api.registry._all(
             "SELECT contract_id, agent_id, policy_hash, canonical_digest, high_stakes "
             "FROM contracts WHERE workspace_id=? ORDER BY created_at DESC", (workspace_id,))
-        return {"tool": "hotato", "kind": "contract_list",
-                "contracts": rows, "count": len(rows)}
+        return _envelope({"tool": "hotato", "kind": "contract_list",
+                          "contracts": rows, "count": len(rows)},
+                         artifact_digests=[r["canonical_digest"] for r in rows
+                                           if r.get("canonical_digest")])
     finally:
         api.close()
 
@@ -386,17 +477,56 @@ def mcp_trial_explain(home: Optional[str] = None, workspace_id: str = "default",
             "SELECT recommendation, approved FROM decisions WHERE workspace_id=? AND trial_id=?",
             (workspace_id, trial_id))
         if row is None:
-            return {"tool": "hotato", "kind": "trial_explain", "found": False}
+            return _envelope({"tool": "hotato", "kind": "trial_explain", "found": False})
         row = dict(row)
-        return {"tool": "hotato", "kind": "trial_explain", "found": True,
-                "trial": row, "verdict": row.get("verdict"),
-                "evidence_tier": row.get("evidence_tier"),
-                "recommendation": (dict(dec).get("recommendation") if dec else None),
-                "pending_irreversible_action": (
-                    "deployment approval (human-gated)" if row.get("verdict") == "improved"
-                    else None)}
+        return _envelope(
+            {"tool": "hotato", "kind": "trial_explain", "found": True,
+             "trial": row, "verdict": row.get("verdict"),
+             "evidence_tier": row.get("evidence_tier"),
+             "recommendation": (dict(dec).get("recommendation") if dec else None),
+             "pending_irreversible_action": (
+                 "deployment approval (human-gated)" if row.get("verdict") == "improved"
+                 else None)},
+            evidence_status=row.get("evidence_tier"),
+            artifact_digests=([row["manifest_digest"]] if row.get("manifest_digest") else []))
     finally:
         api.close()
+
+
+def mcp_experiment_status(home: Optional[str] = None, workspace_id: str = "default",
+                          trial_id: str = "") -> dict:
+    """A trial's CURRENT state: verdict, evidence tier, recommendation, and
+    manifest hash from the trials + decisions tables, plus any pending
+    human-gated action. Read-only."""
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+    api = FleetAPI(home=home or DEFAULT_HOME)
+    try:
+        row = api.registry._one(
+            "SELECT * FROM trials WHERE workspace_id=? AND trial_id=?",
+            (workspace_id, trial_id))
+        dec = api.registry._one(
+            "SELECT recommendation, approved FROM decisions WHERE workspace_id=? AND trial_id=?",
+            (workspace_id, trial_id))
+    finally:
+        api.close()
+    if row is None:
+        return _envelope({"tool": "hotato", "kind": "experiment_status",
+                          "found": False, "trial_id": trial_id})
+    row = dict(row)
+    dec = dict(dec) if dec else None
+    verdict = row.get("verdict")
+    return _envelope(
+        {"tool": "hotato", "kind": "experiment_status", "found": True,
+         "trial_id": trial_id, "verdict": verdict,
+         "evidence_tier": row.get("evidence_tier"),
+         "manifest_hash": row.get("manifest_hash"),
+         "recommendation": (dec.get("recommendation") if dec else None),
+         "approved": (dec.get("approved") if dec else None)},
+        evidence_status=row.get("evidence_tier"),
+        artifact_digests=([row["manifest_digest"]] if row.get("manifest_digest") else []),
+        pending_irreversible_action=(
+            "deployment approval (human-gated)" if verdict == "improved" else None))
 
 
 def mcp_artifact_verify(report_path: str) -> dict:
@@ -409,15 +539,19 @@ def mcp_artifact_verify(report_path: str) -> dict:
     try:
         v = _contract.verify_contracts(target)
     except Exception as exc:  # noqa: BLE001
-        return {"tool": "hotato", "kind": "artifact_verify", "ok": False, "error": str(exc)}
+        return _envelope({"tool": "hotato", "kind": "artifact_verify", "ok": False,
+                          "error": str(exc)}, refusal_reason=str(exc))
     results = v.get("results", [])
     first = results[0] if results else {}
-    return {"tool": "hotato", "kind": "artifact_verify", "ok": True,
-            "authenticity": first.get("authenticity"),
-            "authenticated": first.get("authenticated"),
-            "passed": first.get("passed"),
-            "summary": v.get("summary"),
-            "note": "unsigned bundles are internally consistent, NOT authenticated."}
+    return _envelope(
+        {"tool": "hotato", "kind": "artifact_verify", "ok": True,
+         "authenticity": first.get("authenticity"),
+         "authenticated": first.get("authenticated"),
+         "passed": first.get("passed"),
+         "summary": v.get("summary"),
+         "note": "unsigned bundles are internally consistent, NOT authenticated."},
+        evidence_status=first.get("authenticity"),
+        artifact_digests=([first["canonical_digest"]] if first.get("canonical_digest") else []))
 
 
 def mcp_experiment_propose(home: Optional[str] = None, workspace_id: str = "default",
@@ -432,13 +566,14 @@ def mcp_experiment_propose(home: Optional[str] = None, workspace_id: str = "defa
         {"variant": "higher_one_step", "delta": {parameter: "+1 documented step"},
          "expected": "fewer false stops; slower yield on true interruptions"},
     ]
-    return {"tool": "hotato", "kind": "experiment_propose",
-            "workspace_id": workspace_id, "agent_id": agent_id,
-            "contract_id": contract_id, "parameter": parameter,
-            "variants": variants,
-            "pending_irreversible_action": None,
-            "note": ("a proposal only; run under a pinned trial manifest with a "
-                     "fresh recapture. Production deployment stays human-gated.")}
+    return _envelope(
+        {"tool": "hotato", "kind": "experiment_propose",
+         "workspace_id": workspace_id, "agent_id": agent_id,
+         "contract_id": contract_id, "parameter": parameter,
+         "variants": variants,
+         "pending_irreversible_action": None,
+         "note": ("a proposal only; run under a pinned trial manifest with a "
+                  "fresh recapture. Production deployment stays human-gated.")})
 
 
 def mcp_experiment_run(home: Optional[str] = None, workspace_id: str = "default",
@@ -462,7 +597,8 @@ def mcp_experiment_run(home: Optional[str] = None, workspace_id: str = "default"
         after_env = _load(after_path)
         battery_env = _load(battery_path) if battery_path else before_env
     except Exception as exc:  # noqa: BLE001
-        return {"tool": "hotato", "kind": "experiment_run", "ok": False, "error": str(exc)}
+        return _envelope({"tool": "hotato", "kind": "experiment_run", "ok": False,
+                          "error": str(exc)}, refusal_reason=str(exc))
     before_dir = before_path if _os.path.isdir(before_path) else _os.path.dirname(before_path)
     after_dir = after_path if _os.path.isdir(after_path) else _os.path.dirname(after_path)
     api = FleetAPI(home=home or DEFAULT_HOME)
@@ -473,11 +609,58 @@ def mcp_experiment_run(home: Optional[str] = None, workspace_id: str = "default"
                                  after_dir=after_dir, min_n=min_n)
     finally:
         api.close()
-    return {"tool": "hotato", "kind": "experiment_run", "ok": True,
-            "verdict": res["verdict"], "evidence_tier": res["evidence_tier"],
-            "recommendation": res["recommendation"], "refusal": res["refusal"],
-            "pending_irreversible_action": (
-                "deployment approval (human-gated)" if res["verdict"] == "improved" else None)}
+    refusal = res.get("refusal")
+    return _envelope(
+        {"tool": "hotato", "kind": "experiment_run", "ok": True,
+         "verdict": res["verdict"], "evidence_tier": res["evidence_tier"],
+         "recommendation": res["recommendation"], "refusal": refusal,
+         "pending_irreversible_action": (
+             "deployment approval (human-gated)" if res["verdict"] == "improved" else None)},
+        evidence_status=res.get("evidence_tier"),
+        refusal_reason=(refusal.get("reason") if isinstance(refusal, dict) else None),
+        artifact_digests=([res["manifest_hash"]] if res.get("manifest_hash") else []))
+
+
+def mcp_experiment_create(home: Optional[str] = None, workspace_id: str = "default",
+                          agent_id: str = "", trial_id: str = "",
+                          battery_path: str = "", min_n: int = 1) -> dict:
+    """Clone-scoped action: PRECOMMIT a trial manifest from a committed battery
+    BEFORE any after-side capture, so the pinned fixture universe is fixed ahead
+    of the results and cannot be cherry-picked later. Never captures, never
+    deploys. Wraps ``FleetAPI.experiment_create``; ``experiment run --manifest``
+    then consumes exactly this manifest."""
+    import json as _json, os as _os
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+
+    def _load(path):
+        safe = _guard_input_path(path, "battery_path")
+        if _os.path.isdir(safe):
+            safe = _os.path.join(safe, "run.json")
+        return _json.load(open(safe, encoding="utf-8"))
+
+    try:
+        battery_env = _load(battery_path)
+    except Exception as exc:  # noqa: BLE001
+        return _envelope({"tool": "hotato", "kind": "experiment_create", "ok": False,
+                          "error": str(exc)}, refusal_reason=str(exc))
+    api = FleetAPI(home=home or DEFAULT_HOME)
+    try:
+        res = api.experiment_create(workspace_id, agent_id, trial_id=trial_id,
+                                    battery_env=battery_env, min_n=min_n)
+    finally:
+        api.close()
+    return _envelope(
+        {"tool": "hotato", "kind": "experiment_create", "ok": True,
+         "trial_id": res["trial_id"], "manifest_hash": res["manifest_hash"],
+         "manifest_digest": res["manifest_digest"], "fixtures": res["fixtures"],
+         "min_n": res["min_n"], "next": res["next"]},
+        evidence_status=None,
+        artifact_digests=[res["manifest_digest"]],
+        # A precommitted manifest carries no verdict yet, so no deployment is
+        # pending. The gate arrives downstream: experiment_run may reach
+        # "improved", and only then does human-gated deployment approval apply.
+        pending_irreversible_action=None)
 
 
 def mcp_clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = ".") -> dict:
@@ -486,13 +669,16 @@ def mcp_clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = 
     from .fleet import adapters as _ad
     adapter = _ad.get_adapter(stack, work_dir=work_dir)
     if not adapter.supports("delete_clone"):
-        return {"tool": "hotato", "kind": "clone_cleanup", "ok": False,
-                "error": f"{stack} adapter does not support delete_clone"}
+        reason = f"{stack} adapter does not support delete_clone"
+        return _envelope({"tool": "hotato", "kind": "clone_cleanup", "ok": False,
+                          "error": reason}, refusal_reason=reason)
     try:
         result = adapter.delete_clone(clone_ref)
     except Exception as exc:  # noqa: BLE001
-        return {"tool": "hotato", "kind": "clone_cleanup", "ok": False, "error": str(exc)}
-    return {"tool": "hotato", "kind": "clone_cleanup", "ok": True, "result": result}
+        return _envelope({"tool": "hotato", "kind": "clone_cleanup", "ok": False,
+                          "error": str(exc)}, refusal_reason=str(exc))
+    return _envelope({"tool": "hotato", "kind": "clone_cleanup", "ok": True,
+                      "result": result})
 
 
 def build_server():
@@ -549,6 +735,11 @@ def build_server():
                        agent_id: Optional[str] = None, limit: int = 10) -> dict:
         return mcp_candidate_list(home, workspace_id, agent_id, limit)
 
+    @server.tool(name="candidate_inspect", description="Inspect one candidate moment: onset, measured components (severity/input_health/recurrence/novelty/covered_by_contract), and trust findings. Read-only; never labels.")
+    def candidate_inspect(home: Optional[str] = None, workspace_id: str = "default",
+                          candidate_id: str = "", agent_id: Optional[str] = None) -> dict:
+        return mcp_candidate_inspect(home, workspace_id, candidate_id, agent_id)
+
     @server.tool(name="contract_list", description="List contracts in a workspace. Read-only.")
     def contract_list(home: Optional[str] = None, workspace_id: str = "default") -> dict:
         return mcp_contract_list(home, workspace_id)
@@ -557,6 +748,11 @@ def build_server():
     def trial_explain(home: Optional[str] = None, workspace_id: str = "default",
                       trial_id: str = "") -> dict:
         return mcp_trial_explain(home, workspace_id, trial_id)
+
+    @server.tool(name="experiment_status", description="Report a trial's current verdict, evidence tier, recommendation, manifest hash, and any pending human-gated action. Read-only.")
+    def experiment_status(home: Optional[str] = None, workspace_id: str = "default",
+                          trial_id: str = "") -> dict:
+        return mcp_experiment_status(home, workspace_id, trial_id)
 
     @server.tool(name="artifact_verify", description="Verify a contract bundle's authenticity + evidence without trusting it. Read-only.")
     def artifact_verify(report_path: str) -> dict:
@@ -567,6 +763,13 @@ def build_server():
                            agent_id: str = "", contract_id: str = "",
                            parameter: str = "interrupt_sensitivity") -> dict:
         return mcp_experiment_propose(home, workspace_id, agent_id, contract_id, parameter)
+
+    @server.tool(name="experiment_create", description="Clone-scoped: precommit a trial manifest from a committed battery BEFORE any capture, so the fixture universe is fixed ahead of the results. Never captures, never deploys.")
+    def experiment_create(home: Optional[str] = None, workspace_id: str = "default",
+                          agent_id: str = "", trial_id: str = "",
+                          battery_path: str = "", min_n: int = 1) -> dict:
+        return mcp_experiment_create(home, workspace_id, agent_id, trial_id,
+                                     battery_path, min_n)
 
     @server.tool(name="experiment_run", description="Clone-scoped: recompute a before/after trial (offline, no network, no production mutation) and record a recommendation. Names any pending human-gated action.")
     def experiment_run(home: Optional[str] = None, workspace_id: str = "default",

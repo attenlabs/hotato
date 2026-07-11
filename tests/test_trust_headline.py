@@ -221,15 +221,15 @@ def test_dynamic_leakage_cautions_earlier_than_fixed_bar(tmp_path):
     assert r["recommendation"] != SAFE_RECOMMENDATION
 
 
-def test_faint_leakage_from_quiet_source_stays_safe(tmp_path):
-    # The SAME faint ratio (~ -46 dB) from a NORMAL-level source: the absolute copy
-    # sits below the receiver gate, so neither the fixed nor the dynamic rule fires.
-    # The dynamic rule only ADDS caution cases; it does not flag every faint copy.
-    p = _write_bleed(tmp_path / "faint.wav", gain=0.005)
+def test_below_report_faint_leak_stays_clean(tmp_path):
+    # A bleed too faint to be reliably ESTIMATED (below LEAKAGE_REPORT_DB): no
+    # consistent copy is reported, so the mask test never runs and nothing is
+    # fabricated as a warning. The don't-cry-wolf guard: caution is only ever ADDED
+    # to a reported, mask-altering leak, never invented for a copy we cannot measure.
+    p = _write_bleed(tmp_path / "veryfaint.wav", gain=0.004)
     r = trust_report(p)
     ct = r["crosstalk_risk"]
-    assert ct["leakage_db"] is not None
-    assert ct["leakage_db"] < LEAKAGE_WARN_DB
+    assert ct["leakage_db"] is None
     assert ct["suspected"] is False
     assert r["input_health"] == "clean"
     assert r["recommendation"] == SAFE_RECOMMENDATION

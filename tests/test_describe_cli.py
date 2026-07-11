@@ -31,14 +31,14 @@ _ALL_SUBCOMMANDS = [
     "fixture promote", "contract", "contract create", "contract verify",
     "contract inspect", "contract pack", "contract unpack",
     "trace", "trace ingest", "trace attach", "trace export",
-    "compare", "scan", "trust",
+    "compare", "scan", "synth", "trust",
     "ingest", "analyze", "verify", "fix", "fix trial", "loop", "describe",
     "init", "init webhook", "init starter",
     "issue", "issue create",
     "pr", "pr create",
     "fleet", "fleet init", "fleet agent", "fleet agent add", "fleet agent list",
     "fleet ingest", "fleet discover", "fleet review", "fleet label", "fleet status",
-    "fleet benchmark", "fleet experiment", "fleet experiment create", "fleet experiment run", "fleet canary", "fleet canary start",
+    "fleet benchmark", "fleet experiment", "fleet experiment create", "fleet experiment run", "fleet experiment propose", "fleet experiment approve", "fleet run", "fleet contract", "fleet contract create", "fleet retention", "fleet delete", "fleet redact", "fleet canary", "fleet canary start",
     "fleet canary rollback", "fleet export",
 ]
 

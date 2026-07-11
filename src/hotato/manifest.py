@@ -19,7 +19,9 @@ re-run is reproducible; a fleet runner supplies a real random nonce).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import os
 from dataclasses import asdict, is_dataclass
 from typing import Optional
 
@@ -38,6 +40,22 @@ def canonical_json(obj) -> str:
 
 def _sha256_str(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def wheel_hash() -> str:
+    """Best-effort content hash pinning the exact installed scorer wheel: the
+    sha256 of the hotato package ``__init__``. Deterministic and network-free.
+    Returns the documented literal ``"unverified"`` when the package file cannot
+    be located (so a manifest never fabricates a wheel identity it cannot back)."""
+    try:
+        import hotato as _pkg
+        path = getattr(_pkg, "__file__", None)
+        if path and os.path.exists(path):
+            with open(path, "rb") as fh:
+                return hashlib.sha256(fh.read()).hexdigest()
+    except Exception:
+        pass
+    return "unverified"
 
 
 def _config_to_dict(cfg: ScoreConfig) -> dict:
@@ -123,6 +141,9 @@ def build_manifest(
     source_config_hash: Optional[str] = None,
     candidate_config_hash: Optional[str] = None,
     contract_set_hash: Optional[str] = None,
+    adapter_name: Optional[str] = None,
+    adapter_version: Optional[str] = None,
+    permitted_transformations: Optional[list] = None,
 ) -> dict:
     """Build an immutable trial manifest from a battery envelope.
 
@@ -158,6 +179,22 @@ def build_manifest(
             "label_authority": label_authority,
         })
     fixtures.sort(key=lambda f: f["fixture_id"])
+    # Derived, deterministic from the (sorted) fixture universe:
+    #  * required_yield_targets  -- scorable yield fixtures capable of a scorable
+    #    fail (every manifest fixture is scorable by construction, so a yield
+    #    fixture here can produce a fail); the paired proof must move these.
+    #  * required_hold_guards    -- the opposite-risk hold fixtures that must not
+    #    regress (a fix must never trade talk-over for a false yield).
+    required_yield_targets = [f["fixture_id"] for f in fixtures if f["expected_yield"]]
+    required_hold_guards = [f["fixture_id"] for f in fixtures if not f["expected_yield"]]
+    # Capture plan: the scripted caller-side stimulus PCM identity per fixture,
+    # best-effort from each event's audio_provenance, plus one combined hash so a
+    # recapture that replays the same stimuli is bound to this manifest.
+    per_fixture_stimulus = {f["fixture_id"]: f["stimulus_pcm_sha256"] for f in fixtures}
+    capture_plan = {
+        "scenario_stimulus_hash": _sha256_str(canonical_json(per_fixture_stimulus)),
+        "per_fixture": per_fixture_stimulus,
+    }
     body = {
         "schema_version": SCHEMA_VERSION,
         "trial_id": trial_id,
@@ -172,12 +209,19 @@ def build_manifest(
             "package_version": __version__,
             "config_hash": cfg_hash,
             "config": cfg_dict,
+            "wheel_hash": wheel_hash(),
         },
         "policy": {"policy_hash": policy_hash(pol), **pol},
         "fixtures": fixtures,
+        "required_yield_targets": required_yield_targets,
+        "required_hold_guards": required_hold_guards,
+        "capture_plan": capture_plan,
         "min_n": int(min_n),
         "contract_set_hash": contract_set_hash,
-        "permitted_transformations": [],
+        # A real, documented list field (default empty): the transforms a
+        # recapture is ALLOWED to apply to the caller stimulus (e.g. codec
+        # conversion) without being treated as a different scenario.
+        "permitted_transformations": list(permitted_transformations or []),
         "hard_refusal_rules": [
             "same decoded PCM where fresh evidence is required",
             "stored verdict differs from recomputed verdict",
@@ -186,6 +230,10 @@ def build_manifest(
             "capture origin unknown when a machine-verified recapture is claimed",
         ],
     }
+    # Optional adapter identity: included ONLY when supplied (kept additive so an
+    # unspecified adapter does not inject a null field into the hashed body).
+    if adapter_name is not None:
+        body["adapter"] = {"name": adapter_name, "version": adapter_version}
     body["manifest_hash"] = compute_manifest_hash(body)
     return body
 
@@ -198,6 +246,50 @@ def compute_manifest_hash(manifest: dict) -> str:
 
 def verify_manifest_hash(manifest: dict) -> bool:
     return manifest.get("manifest_hash") == compute_manifest_hash(manifest)
+
+
+def _manifest_subject(manifest: dict) -> str:
+    """Canonical digest of the manifest body EXCLUDING the signature (it includes
+    ``manifest_hash``), so a signature cannot be lifted onto a different body."""
+    body = {k: v for k, v in manifest.items() if k != "signature"}
+    return _sha256_str(canonical_json(body))
+
+
+def sign_manifest(manifest: dict, key: bytes) -> dict:
+    """Return a COPY of ``manifest`` with an HMAC-SHA256 signature over its
+    canonical body (mirrors :mod:`hotato.receipt` signing). Optional: a built
+    manifest is unsigned by default; signing is a separate, explicit call and
+    leaves ``manifest_hash`` intact (that hash excludes the signature)."""
+    subject = _manifest_subject(manifest)
+    sig = hmac.new(key, subject.encode("ascii"), hashlib.sha256).hexdigest()
+    signed = dict(manifest)
+    signed["signature"] = {
+        "algorithm": "hmac-sha256",
+        "subject_digest": subject,
+        "value": sig,
+    }
+    return signed
+
+
+def verify_manifest_signature(manifest: dict, key: bytes) -> dict:
+    """Check a manifest's HMAC signature under ``key``.
+
+    Returns ``{ok, signed, reason}``. ``ok`` is True only when a signature is
+    present, its subject digest matches the current body, and the HMAC verifies
+    -- so any post-signing edit to the body fails verification."""
+    sig = manifest.get("signature")
+    if not sig or sig.get("algorithm") in (None, "none"):
+        return {"ok": False, "signed": False,
+                "reason": "unsigned manifest: no HMAC signature to verify"}
+    subject = _manifest_subject(manifest)
+    if subject != sig.get("subject_digest"):
+        return {"ok": False, "signed": True,
+                "reason": "manifest body was altered after signing (subject digest mismatch)"}
+    expected = hmac.new(key, subject.encode("ascii"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig.get("value", "")):
+        return {"ok": False, "signed": True,
+                "reason": "manifest signature does not verify under this key"}
+    return {"ok": True, "signed": True, "reason": "manifest signature verified"}
 
 
 def fixture_index(manifest: dict) -> dict:
@@ -226,6 +318,7 @@ def coverage(manifest: dict, env: dict) -> dict:
 
 __all__ = [
     "SCHEMA_VERSION", "canonical_json", "score_config_hash", "normalize_policy",
-    "policy_hash", "fixture_key", "build_manifest", "compute_manifest_hash",
-    "verify_manifest_hash", "fixture_index", "coverage",
+    "policy_hash", "fixture_key", "wheel_hash", "build_manifest",
+    "compute_manifest_hash", "verify_manifest_hash", "sign_manifest",
+    "verify_manifest_signature", "fixture_index", "coverage",
 ]

@@ -97,6 +97,29 @@ def observe(calls: List[dict]) -> dict:
             "note": "observational: uncontrolled real-traffic variation; not a controlled proof."}
 
 
+_RECEIPT_KINDS = ("clone", "canary", "rollback")
+
+
+def deployment_receipt(kind: str, *, agent_id: str, variant_id: Optional[str] = None,
+                       config_hash: Optional[str] = None,
+                       prior_revision: Optional[int] = None,
+                       detail: Optional[dict] = None) -> dict:
+    """Build a canonical, hashable clone/canary/rollback receipt so the FleetAPI
+    can persist deployment records uniformly (schema/deployment_receipt.v1.json).
+
+    Pure: it computes a ``receipt_digest`` (sha256 over the canonical JSON of the
+    receipt fields, before that key is inserted) but routes NO traffic and reads
+    no clock — a caller who wants a timestamp puts it inside ``detail``."""
+    if kind not in _RECEIPT_KINDS:
+        raise ValueError(f"kind must be one of {_RECEIPT_KINDS}, got {kind!r}")
+    body = {"schema_version": "1", "kind": kind, "agent_id": agent_id,
+            "variant_id": variant_id, "config_hash": config_hash,
+            "prior_revision": prior_revision, "detail": detail}
+    body["receipt_digest"] = hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return body
+
+
 def rollback(adapter, *, ref, revision, reason: str, actor: str, at: float) -> dict:
     """Restore a prior revision/routing through the adapter and emit a durable,
     hashable rollback receipt."""
@@ -109,4 +132,5 @@ def rollback(adapter, *, ref, revision, reason: str, actor: str, at: float) -> d
     return body
 
 
-__all__ = ["approval_policy", "evaluate_gate", "canary_plan", "observe", "rollback"]
+__all__ = ["approval_policy", "evaluate_gate", "canary_plan", "observe",
+           "deployment_receipt", "rollback"]

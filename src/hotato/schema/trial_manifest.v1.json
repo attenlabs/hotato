@@ -23,7 +23,17 @@
       "properties": {
         "package_version": { "type": "string" },
         "config_hash": { "type": "string", "description": "sha256 over the canonical ScoreConfig + VADParams." },
-        "config": { "type": "object", "additionalProperties": true }
+        "config": { "type": "object", "additionalProperties": true },
+        "wheel_hash": { "type": "string", "description": "Best-effort sha256 of the installed hotato package __init__ (the exact scorer wheel), or the literal 'unverified' when unavailable. Network-free and deterministic." }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "description": "Optional stack-adapter identity; present only when supplied at build time.",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "version": { "type": ["string", "null"] }
       }
     },
     "policy": {
@@ -57,9 +67,28 @@
         }
       }
     },
+    "required_yield_targets": {
+      "type": "array",
+      "description": "Fixture keys with expected_yield true (scorable and fail-capable): the paired proof must move these.",
+      "items": { "type": "string" }
+    },
+    "required_hold_guards": {
+      "type": "array",
+      "description": "Fixture keys with expected_yield false: opposite-risk guards that must not regress.",
+      "items": { "type": "string" }
+    },
+    "capture_plan": {
+      "type": "object",
+      "description": "Best-effort scripted-stimulus plan derived from the battery events' audio_provenance.",
+      "additionalProperties": true,
+      "properties": {
+        "scenario_stimulus_hash": { "type": "string", "description": "Combined deterministic hash over the per-fixture caller-side stimulus PCM hashes." },
+        "per_fixture": { "type": "object", "additionalProperties": true, "description": "fixture_id -> caller-side scripted-stimulus decoded-PCM hash (or null when unavailable)." }
+      }
+    },
     "min_n": { "type": "integer", "minimum": 1 },
     "contract_set_hash": { "type": ["string", "null"] },
-    "permitted_transformations": { "type": "array", "items": { "type": "string" } },
+    "permitted_transformations": { "type": "array", "items": { "type": "string" }, "description": "Transforms a recapture may apply to the caller stimulus without being treated as a different scenario (default empty)." },
     "hard_refusal_rules": { "type": "array", "items": { "type": "string" } },
     "manifest_hash": { "type": "string", "description": "sha256 over the canonical manifest body (all fields except manifest_hash and signature)." },
     "signature": { "type": ["object", "null"] }

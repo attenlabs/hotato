@@ -12,6 +12,10 @@ exclude .github/banner.png
 # sdist (here); they are rendered per stack into a generated worker project.
 recursive-include src/hotato/templates *.tmpl *.py
 
+# The claim-language contract (scripts/copy_lint.py + card.py read it at run
+# time) ships in the wheel (package-data) and the sdist (here).
+include src/hotato/data/evidence_language.json
+
 # Internal, gitignored demonstration artifacts (curated 2026-07-05 in
 # .gitignore): kept local, never published. MANIFEST.in reads the working
 # tree, not git, so without these excludes a locally-built sdist ships files
