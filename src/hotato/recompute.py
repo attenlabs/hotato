@@ -144,6 +144,14 @@ def _rescore_event(event: dict, base_dir: str, *, fixture: dict,
     ev = env["events"][0]
     verdict = ev.get("verdict") or {}
     recomputed_passed = bool(verdict.get("passed"))
+    # audio IDENTITY comes from the FRESH provenance run_single decoded off disk,
+    # never the stored envelope hash: same_pcm and audio_identity must reflect
+    # what is on disk now. A stored pcm_sha256 that disagrees with the freshly
+    # decoded one means the envelope's provenance does not match its audio.
+    fresh_sides = ((ev.get("audio_provenance") or {}).get("sides")) or []
+    fresh_pcm = _side_pcm(fresh_sides)
+    stored_pcm = _side_pcm(sides)
+    pcm_mismatch = bool(stored_pcm and fresh_pcm and stored_pcm != fresh_pcm)
     return {
         "status": "recomputed",
         "stored_passed": stored_passed,
@@ -152,7 +160,9 @@ def _rescore_event(event: dict, base_dir: str, *, fixture: dict,
         "measurements": ev.get("measurements"),
         "scorable": ev.get("scorable", True) is not False,
         "not_scorable_reason": ev.get("not_scorable_reason"),
-        "pcm_sha256": _side_pcm(sides),
+        "pcm_sha256": fresh_pcm,          # authoritative: decoded off disk now
+        "stored_pcm_sha256": stored_pcm,
+        "pcm_mismatch": pcm_mismatch,
     }
 
 
@@ -232,6 +242,8 @@ def recompute_trial(
     same_pcm_any = False
     stimulus_mismatch = False
     unrecomputable = False
+    pcm_mismatch_any = False
+    label_authorities = []
 
     for key, fixture in fidx.items():
         bev = b_events.get(key)
@@ -250,6 +262,12 @@ def recompute_trial(
                 score_mismatch = True
             if ra["status"] in ("missing", "unverifiable", "error"):
                 unrecomputable = True
+        # a stored provenance hash that disagrees with the freshly decoded one
+        if (per_before.get(key) or {}).get("pcm_mismatch") or \
+           (per_after.get(key) or {}).get("pcm_mismatch"):
+            pcm_mismatch_any = True
+        # per-fixture label authority pinned by the manifest (M1: never assumed)
+        label_authorities.append(fixture.get("label_authority", "none"))
         # same decoded PCM across sides (a re-scored old call, not a fresh one)
         if bev is not None and aev is not None:
             b_pcm = (per_before.get(key) or {}).get("pcm_sha256")
@@ -279,8 +297,10 @@ def recompute_trial(
         vector["score_integrity"] = "envelope_only"
     else:
         vector["score_integrity"] = "recomputed"
-    # audio identity across the pair
-    if same_pcm_any:
+    # audio identity across the pair (decoded off disk, not stored)
+    if pcm_mismatch_any:
+        vector["audio_identity"] = "mismatch"
+    elif same_pcm_any:
         vector["audio_identity"] = "same_pcm"
     elif unrecomputable:
         vector["audio_identity"] = "missing"
@@ -318,7 +338,15 @@ def recompute_trial(
     # recompute-only tier reads MEASURED, and trust can lift it to confirmed.
     vector.setdefault("input_health", None)
     vector.setdefault("channel_mapping", "inferred" if not unrecomputable else None)
-    vector.setdefault("label_authority", "human")  # a contract label is human by construction
+    # label authority is the WEAKEST across fixtures, read from the manifest's
+    # pinned per-fixture label metadata -- never assumed. A fixture whose
+    # expectation was not an explicit human label caps the proof below PAIRED.
+    _lorder = {"none": 0, "suggested": 1, "human": 2}
+    if label_authorities:
+        vector["label_authority"] = min(
+            label_authorities, key=lambda a: _lorder.get(a, 0))
+    else:
+        vector.setdefault("label_authority", "none")
 
     classification = _evidence.classify(vector)
 
@@ -328,6 +356,11 @@ def recompute_trial(
         refusal = {"kind": "score_mismatch",
                    "reason": "a stored verdict disagrees with the score recomputed from audio; "
                              "the envelope was not produced by scoring this audio."}
+    elif pcm_mismatch_any:
+        refusal = {"kind": "provenance_mismatch",
+                   "reason": "a recording's decoded PCM does not match the pcm_sha256 recorded in "
+                             "its envelope provenance; the audio on disk is not the audio the "
+                             "envelope claims."}
     elif same_pcm_any:
         refusal = {"kind": "same_audio",
                    "reason": "before and after decode to the same PCM for at least one fixture; "

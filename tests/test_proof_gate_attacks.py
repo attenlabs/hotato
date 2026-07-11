@@ -127,3 +127,45 @@ def test_evidence_lattice_is_a_minimum_not_an_average():
     assert ev.evidence_tier(weak) == ev.TIER_ASSERTED   # one weak dim pulls it all the way down
     refuse = dict(strong); refuse["audio_identity"] = "same_pcm"
     assert ev.evidence_tier(refuse) == ev.TIER_NONE
+
+
+def test_fabricated_stored_pcm_is_refused(tmp_path):
+    """M2: the stored provenance pcm_sha256 that disagrees with the freshly
+    decoded audio is refused (identity is decoded off disk, not trusted)."""
+    import copy
+    before, bdir, after, adir, man = _build_trial(tmp_path)
+    tampered = copy.deepcopy(after)
+    tampered["events"][0]["audio_provenance"]["sides"][0]["pcm_sha256"] = "0" * 64
+    r = rc.recompute_trial(before, bdir, tampered, adir, man)
+    assert r["refusal"]["kind"] == "provenance_mismatch"
+    assert r["evidence"]["vector"]["audio_identity"] == "mismatch"
+
+
+def test_unlabeled_battery_cannot_reach_paired(tmp_path):
+    """M1: a battery whose expectations are not explicit human labels caps
+    label_authority below human, so the proof cannot reach PAIRED."""
+    import copy
+    before, bdir, after, adir, _man = _build_trial(tmp_path)
+    stripped = copy.deepcopy(before)
+    for e in stripped["events"]:
+        e.pop("expected_yield", None)          # no explicit human label
+    man = m.build_manifest(stripped, trial_id="t", nonce="n",
+                           policy={"max_talk_over_sec": 1.0, "max_time_to_yield_sec": 1.0}, min_n=1)
+    assert man["fixtures"][0]["label_authority"] == "none"
+    r = rc.recompute_trial(before, bdir, after, adir, man)
+    vec = dict(r["evidence"]["vector"]); vec["input_health"] = "clean"; vec["channel_mapping"] = "confirmed"
+    assert ev.classify(vec)["tier"] < ev.TIER_PAIRED
+    # while a legitimately-labelled battery still reaches PAIRED
+    r2 = rc.recompute_trial(before, bdir, after, adir,
+                            m.build_manifest(before, trial_id="t2", nonce="n",
+                                             policy={"max_talk_over_sec": 1.0, "max_time_to_yield_sec": 1.0}, min_n=1))
+    vec2 = dict(r2["evidence"]["vector"]); vec2["input_health"] = "clean"; vec2["channel_mapping"] = "confirmed"
+    assert vec2["label_authority"] == "human" and ev.classify(vec2)["tier"] >= ev.TIER_PAIRED
+
+
+def test_fixture_key_is_collision_free():
+    """Minor: an event_id containing the old '::' separator cannot forge
+    another fixture's key."""
+    a = m.fixture_key({"event_id": "a", "scenario_id": "b::c"})
+    b = m.fixture_key({"event_id": "a::b", "scenario_id": "c"})
+    assert a != b

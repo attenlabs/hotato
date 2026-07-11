@@ -85,7 +85,11 @@ def fixture_key(event: dict) -> str:
     pairing key)."""
     eid = str(event.get("event_id", ""))
     sid = event.get("scenario_id")
-    return f"{eid}::{sid}" if sid else eid
+    if not sid:
+        return eid
+    # collision-free: an event_id containing the separator can never forge
+    # another fixture's key (JSON-encodes both components unambiguously).
+    return json.dumps([eid, sid], separators=(",", ":"))
 
 
 def _stimulus_pcm(event: dict) -> Optional[str]:
@@ -132,7 +136,14 @@ def build_manifest(
     for ev in battery_env.get("events", []):
         if ev.get("scorable") is False:
             continue
+        # A human label is claimed ONLY when the expectation was EXPLICITLY
+        # present (a human authored it) -- never when defaulted. An explicit
+        # label_id upgrades nothing further here; its ABSENCE with an explicit
+        # expectation is still "human" (a scenario a human wrote), while an event
+        # missing expected_yield entirely cannot claim human authority.
+        explicit = "expected_yield" in ev
         expected_yield = bool(ev.get("expected_yield", True))
+        label_authority = "human" if explicit else "none"
         measurements = ev.get("measurements") or {}
         fixtures.append({
             "fixture_id": fixture_key(ev),
@@ -144,6 +155,7 @@ def build_manifest(
             "stimulus_pcm_sha256": _stimulus_pcm(ev),
             "label_id": ev.get("label_id"),
             "label_revision": ev.get("label_revision"),
+            "label_authority": label_authority,
         })
     fixtures.sort(key=lambda f: f["fixture_id"])
     body = {
