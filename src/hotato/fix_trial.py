@@ -282,20 +282,25 @@ def _trust_preflight(before_arg: str, after_arg: str, before_env: dict,
                   else os.path.dirname(after_arg)) or "."
 
     def _side_reports(base, env):
-        out = []
+        out, uninspected = [], 0
         for ev in env.get("events", []):
             if not isinstance(ev, dict) or ev.get("scorable") is False:
                 continue
-            for role, fp in _event_audio_files(base, ev):
-                # trust reads one stereo (or mono) file; a dual-mono side pair is
-                # not a single-file input, so it is skipped (leaves the floors).
-                if role != "stereo" or not os.path.isfile(fp):
-                    continue
+            files = list(_event_audio_files(base, ev))
+            stereo = [(role, fp) for role, fp in files
+                      if role == "stereo" and os.path.isfile(fp)]
+            if not stereo:
+                # a dual-mono / non-single-file fixture that recompute WILL still
+                # score: its input health was not inspected, so it must not let
+                # the proof claim "clean" over audio never health-checked.
+                uninspected += 1
+                continue
+            for role, fp in stereo:
                 try:
                     out.append(_trust.trust_report(fp))
                 except Exception:  # noqa: BLE001 - a bad file contributes nothing
-                    continue
-        return out
+                    uninspected += 1
+        return out, uninspected
 
     def _health_of(r, *, mapping_confirmed):
         ih = r.get("input_health")
@@ -320,8 +325,8 @@ def _trust_preflight(before_arg: str, after_arg: str, before_env: dict,
                 ih = "clean"
         return ih
 
-    before_reports = _side_reports(before_base, before_env)
-    after_reports = _side_reports(after_base, after_env)
+    before_reports, before_uninspected = _side_reports(before_base, before_env)
+    after_reports, after_uninspected = _side_reports(after_base, after_env)
     if not before_reports and not after_reports:
         return None, None
 
@@ -334,6 +339,10 @@ def _trust_preflight(before_arg: str, after_arg: str, before_env: dict,
     healths = [_health_of(r, mapping_confirmed=mapping_confirmed)
                for r in (before_reports + after_reports)]
     input_health = min(healths, key=lambda h: _TRUST_HEALTH_ORDER.get(h, 0)) if healths else None
+    # Any scorable fixture that could not be health-inspected (dual-mono) means
+    # the "clean" claim would cover audio never checked: cap at caution.
+    if (before_uninspected or after_uninspected) and input_health == "clean":
+        input_health = "caution"
     return input_health, channel_mapping
 
 

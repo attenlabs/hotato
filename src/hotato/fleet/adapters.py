@@ -37,6 +37,22 @@ class CapabilityError(RuntimeError):
     that requires credentials not present."""
 
 
+def _validated_source_id(source_id, stack: str) -> str:
+    """Guard a platform id before it is interpolated into a provider URL, using
+    the SAME rule the CLI apply path enforces (:data:`apply._ID_RE`). A source id
+    carrying a '/' or a URL fragment could otherwise smuggle an extra path
+    segment into the GET the clone/inspect path issues; this refuses a non-plain
+    id rather than building a tampered URL."""
+    from .. import apply as _apply
+    sid = str(source_id)
+    if not _apply._ID_RE.match(sid):
+        raise ValueError(
+            f"the source id {sid!r} is not a valid {stack} platform id "
+            "(allowed: letters, digits, '.', '-', '_'); refusing to build a "
+            "clone URL from it.")
+    return sid
+
+
 class Adapter:
     """Base adapter. Subclasses set ``stack`` and override ``capabilities()``."""
     stack = "generic"
@@ -92,10 +108,15 @@ class _CredentialGatedAdapter(Adapter):
         self.api_key = api_key
 
     def capabilities(self) -> Set[str]:
-        # declared regardless of creds; networked ones refuse at call time
+        # declared regardless of creds; networked ones refuse at call time.
+        # rollback/delete_clone are deliberately NOT declared: live rollback and
+        # delete are not wired for a hosted provider yet, so supports() reports
+        # them unavailable rather than advertising a capability the class cannot
+        # honor (they inherit Adapter.rollback/delete_clone, which raise). The
+        # MockAdapter, which implements the whole loop, keeps them.
         return {"inspect_config", "pull_recordings", "dual_channel_capture",
                 "clone_agent", "apply_variant", "run_scenario", "capture_result",
-                "snapshot_config", "rollback", "delete_clone"}
+                "snapshot_config"}
 
     def _need_key(self, cap):
         if not self.api_key:
@@ -113,9 +134,11 @@ class _CredentialGatedAdapter(Adapter):
         self._require("inspect_config"); self._need_key("inspect_config")
         from .. import apply as _apply
         endpoint = _apply._CLONE_ENDPOINTS[self.stack]
-        read_url = endpoint["read_url_template"].format(id=ref)
+        source_id = _validated_source_id(ref, self.stack)
+        read_url = endpoint["read_url_template"].format(id=source_id)
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        return _apply._http_json("GET", read_url, headers=headers)
+        return _apply._http_json("GET", read_url, headers=headers, body=None,
+                                 timeout=30)
 
     def clone_agent(self, ref, *, name):
         self._require("clone_agent"); self._need_key("clone_agent")
@@ -127,6 +150,7 @@ class _CredentialGatedAdapter(Adapter):
         self._require("apply_variant"); self._need_key("apply_variant")
         from .. import apply as _apply
         source_id = clone_ref["source_id"] if isinstance(clone_ref, dict) else clone_ref
+        source_id = _validated_source_id(source_id, self.stack)
         name = (clone_ref.get("name") if isinstance(clone_ref, dict) else None) or "hotato-staging"
         merge_patch = variant.get("config_delta", variant) or {}
         return _apply.create_clone(stack=self.stack, source_id=source_id, name=name,
