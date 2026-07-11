@@ -9,7 +9,7 @@
 > Some timing signatures map to a likely fix class; root cause may remain
 > unknown. Runs entirely on your machine. Built to be called by an AI agent
 > mid-task, as a CLI or an MCP server.
-> Version 0.10.0. This file is the machine-readable index; `hotato describe
+> Version 1.0.0. This file is the machine-readable index; `hotato describe
 > --format json` emits the same information generated straight from the CLI's
 > own argparse structure (every subcommand, its args, its exit codes, plus the
 > schema URLs and the version), so it can never drift from the real flags.
