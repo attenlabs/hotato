@@ -176,7 +176,13 @@ def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 30) 
     import urllib.error
     import urllib.request
 
-    req = urllib.request.Request(url, headers=headers or {})
+    _h = dict(headers or {})
+    try:
+        from . import __version__ as _v
+    except Exception:  # pragma: no cover
+        _v = "0"
+    _h.setdefault("User-Agent", f"hotato/{_v} (+https://hotato.dev)")
+    req = urllib.request.Request(url, headers=_h)
     if req.get_method() != "GET":  # pragma: no cover - Request with no data is GET
         raise ValueError("inspect only issues read-only GET requests")
     try:

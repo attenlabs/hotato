@@ -589,10 +589,17 @@ class FleetAPI:
             min_n=min_n, capture_receipts=receipts, capture_context="operator")
         result["clone"] = {"ref": clone, "config_hash": applied.get("config_hash"),
                            "cleaned_up": False, "attested": bool(receipts)}
-        # 5) clean up the test clone (best-effort; never leaves prod state)
+        # 5) clean up the test clone (best-effort; never leaves prod state).
+        # Live adapters return the created clone's id on the APPLIED dict (the
+        # clone_agent return is just a pending stage), so prefer that; and only
+        # report cleaned_up when the adapter says the delete happened -- a
+        # {"deleted": False} outcome is a leaked staging clone, not a success.
+        cleanup_ref = (applied if isinstance(applied, dict) and applied.get("clone_id")
+                       else clone)
         try:
-            adapter.delete_clone(clone)
-            result["clone"]["cleaned_up"] = True
+            outcome = adapter.delete_clone(cleanup_ref)
+            ok = outcome.get("deleted") if isinstance(outcome, dict) else outcome
+            result["clone"]["cleaned_up"] = bool(ok)
         except Exception:  # noqa: BLE001
             pass
         return result

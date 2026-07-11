@@ -66,13 +66,13 @@ def test_delete_clone_cleans_up(tmp_path):
 
 
 def test_live_adapter_does_not_declare_unwired_mutations(tmp_path):
-    # HONEST capabilities: live rollback/delete are not wired for a hosted
-    # provider, so a live adapter must NOT advertise them (supports() reports
-    # them unavailable). The mock, which implements the whole loop, DOES.
+    # HONEST capabilities: delete_clone is now implemented + verified against the
+    # live Vapi API, so Vapi advertises it. rollback (a PRODUCTION revert) is still
+    # not wired for a hosted provider, so it stays unavailable. The mock does all.
     v = adapters.get_adapter("vapi")
+    assert v.supports("delete_clone")            # wired + verified live
     assert "rollback" not in v.capabilities()
-    assert "delete_clone" not in v.capabilities()
-    assert not v.supports("rollback") and not v.supports("delete_clone")
+    assert not v.supports("rollback")
     mock = adapters.get_adapter("mock", work_dir=str(tmp_path))
     assert mock.supports("rollback") and mock.supports("delete_clone")
 
@@ -166,16 +166,20 @@ def test_describe_available_implies_not_a_stub(tmp_path):
 
 
 def test_live_and_source_adapters_do_not_advertise_scenario_ops(tmp_path):
-    # The specific audit finding: Vapi/Retell/LiveKit/Pipecat must NOT advertise
-    # run_scenario / capture_result, because invoking them raises. describe()
-    # reports them explicitly as available=False ("not implemented").
+    # run_scenario (a scripted barge-in call) needs a provisioned phone number +
+    # a scripted-caller harness, so NO hosted adapter advertises it -- invoking
+    # raises. capture_result (pull a dual-channel recording) IS wired + verified
+    # against the live API for Vapi; the others still do not implement it.
     for stack in ("vapi", "retell", "livekit", "pipecat"):
         adapter = adapters.get_adapter(stack)
-        for cap in ("run_scenario", "capture_result"):
-            assert not adapter.supports(cap)
-            assert cap not in adapter.capabilities()
-            rec = adapter.describe()[cap]
-            assert rec["available"] is False and rec["authorized"] is False
+        assert not adapter.supports("run_scenario")
+        assert "run_scenario" not in adapter.capabilities()
+        assert adapter.describe()["run_scenario"]["available"] is False
+    v = adapters.get_adapter("vapi")
+    assert v.supports("capture_result")  # implemented; describe() authorized=False w/o a key
+    assert v.describe()["capture_result"]["available"] is True
+    for stack in ("retell", "livekit", "pipecat"):
+        assert not adapters.get_adapter(stack).supports("capture_result")
 
 
 def test_describe_distinguishes_credentials_from_unimplemented():
