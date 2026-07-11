@@ -7,6 +7,15 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [1.0.0] - 2026-07-10
+
+First stable release. The evidence kernel and the Guardian/Fleet control plane are
+feature-complete, adversarially audited, and fix-verified; the envelope, contract,
+evidence-vector, trial-manifest, capture-receipt, and attestation schemas are
+stable and additive. Same surface as 0.10.0, promoted to 1.0.0 to commit to the
+public API. External, independently-attested proof is not yet published; the
+evidence a Hotato artifact claims is always bounded by its inputs.
+
 ## [0.10.0] - 2026-07-10
 
 ### Added
