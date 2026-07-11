@@ -2,6 +2,8 @@
 import json
 import os
 
+import pytest
+
 from hotato import core, evidence as ev, manifest as m, recompute as rc
 from hotato.fleet import adapters
 from tests import _trial_audio as ta
@@ -61,3 +63,27 @@ def test_delete_clone_cleans_up(tmp_path):
     adapter = adapters.get_adapter("mock", work_dir=str(tmp_path))
     clone = adapter.clone_agent("src", name="s")
     assert adapter.delete_clone(clone)["deleted"] == clone
+
+
+def test_live_adapter_does_not_declare_unwired_mutations(tmp_path):
+    # HONEST capabilities: live rollback/delete are not wired for a hosted
+    # provider, so a live adapter must NOT advertise them (supports() reports
+    # them unavailable). The mock, which implements the whole loop, DOES.
+    v = adapters.get_adapter("vapi")
+    assert "rollback" not in v.capabilities()
+    assert "delete_clone" not in v.capabilities()
+    assert not v.supports("rollback") and not v.supports("delete_clone")
+    mock = adapters.get_adapter("mock", work_dir=str(tmp_path))
+    assert mock.supports("rollback") and mock.supports("delete_clone")
+
+
+def test_source_id_path_injection_is_refused():
+    # a source id smuggling an extra path segment is refused before any URL is
+    # built or any network call is made -- on both the write (apply_variant) and
+    # read (inspect_config) paths.
+    v = adapters.get_adapter("vapi", api_key="sk-test-key")
+    with pytest.raises(ValueError):
+        v.apply_variant({"source_id": "asst/../x", "name": "staging"},
+                        {"config_delta": {"firstMessage": "x"}})
+    with pytest.raises(ValueError):
+        v.inspect_config("asst/../x")

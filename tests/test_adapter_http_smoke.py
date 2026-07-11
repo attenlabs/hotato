@@ -89,6 +89,34 @@ def test_vapi_adapter_clone_hits_mock_with_correct_shape(monkeypatch):
     assert result.get("clone_id") == "clone-abc123" or result.get("created")
 
 
+def test_vapi_adapter_inspect_config_reads_and_parses(monkeypatch):
+    # inspect_config must call the SAME _http_json primitive with the required
+    # body/timeout kwargs (a missing-kwarg call would TypeError before reaching
+    # the wire) and return the parsed source config dict.
+    recorder = _Recorder()
+    source_config = {"id": "asst_src", "name": "prod", "orgId": "o1",
+                     "model": {"messages": []}, "firstMessage": "hi"}
+    server = HTTPServer(("127.0.0.1", 0), _make_handler(recorder, source_config))
+    port = server.server_address[1]
+    t = threading.Thread(target=server.serve_forever, daemon=True); t.start()
+    try:
+        ep = dict(_apply._CLONE_ENDPOINTS["vapi"])
+        ep["read_url_template"] = f"http://127.0.0.1:{port}/assistant/{{id}}"
+        monkeypatch.setitem(_apply._CLONE_ENDPOINTS, "vapi", ep)
+
+        adapter = adapters.get_adapter("vapi", api_key="sk-test-key")
+        cfg = adapter.inspect_config("asst_src")
+    finally:
+        server.shutdown()
+
+    # returned the parsed dict from the mock 200 response
+    assert cfg == source_config
+    # a single GET, bearer key carried, read by id
+    assert [r["method"] for r in recorder.requests] == ["GET"]
+    assert recorder.requests[0]["auth"] == "Bearer sk-test-key"
+    assert recorder.requests[0]["path"] == "/assistant/asst_src"
+
+
 def test_no_put_or_patch_is_ever_issued():
     # structural guarantee: the HTTP primitive refuses anything but GET/POST
     with pytest.raises(ValueError):

@@ -1,4 +1,6 @@
 """Approval-gated canary + tested rollback (plan §10)."""
+import pytest
+
 from hotato.fleet import canary, adapters
 
 
@@ -25,6 +27,34 @@ def test_gate_requires_improved_paired_and_all_hard_gates():
                               input_health_degraded=False,
                               parameter_family="interrupt_sensitivity", within_bounds=True)
     assert not hs["eligible"]
+
+
+# The all-pass baseline every hard-gate case is derived from (asserts eligible).
+_GATE_BASELINE = dict(trial_verdict="improved", evidence_tier=3, full_battery_ran=True,
+                      high_stakes_all_pass=True, input_health_degraded=False,
+                      parameter_family="interrupt_sensitivity", within_bounds=True)
+
+
+def test_gate_baseline_all_pass_is_eligible():
+    ok = canary.evaluate_gate(_policy(), **_GATE_BASELINE)
+    assert ok["eligible"] and ok["reasons"] == []
+
+
+@pytest.mark.parametrize("override, expected_reason_substring", [
+    ({"trial_verdict": "regressed"}, "not 'improved'"),
+    ({"parameter_family": "something-else"}, "not permitted"),
+    ({"within_bounds": False}, "documented bounds"),
+    ({"full_battery_ran": False}, "not run"),
+    ({"input_health_degraded": True}, "input health"),
+])
+def test_each_hard_gate_blocks_when_flipped(override, expected_reason_substring):
+    """Flip exactly ONE input from the all-pass baseline and confirm that single
+    gate makes the variant ineligible and names itself in `reasons`. Without a
+    per-gate negative case any of these gates could break silently."""
+    kwargs = {**_GATE_BASELINE, **override}
+    result = canary.evaluate_gate(_policy(), **kwargs)
+    assert not result["eligible"]
+    assert any(expected_reason_substring in r for r in result["reasons"])
 
 
 def test_canary_plan_routes_no_traffic_and_is_observational():
