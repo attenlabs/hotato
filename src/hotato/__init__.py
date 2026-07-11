@@ -56,6 +56,6 @@ _register_diarizer_backend("pyannoteai", _build_pyannoteai_backend)
 # absent or can describe a DIFFERENT installed copy than the code executing.
 # tests/test_version_lockstep.py enforces the match; 0.4.0 shipped
 # self-reporting 0.3.1 because nothing did.
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 __all__ = ["run_single", "run_suite", "LIMITS", "SUITE_ID", "__version__"]

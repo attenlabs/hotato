@@ -1,7 +1,7 @@
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.1.0, offline. The rows
+Every block below is verbatim CLI output from hotato 1.1.1, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean case starts from the bundled example `01-hard-interruption.example.wav`
