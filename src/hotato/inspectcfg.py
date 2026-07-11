@@ -54,6 +54,8 @@ Field-name basis (recorded per result in ``fetched_at_provenance``):
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import ast
 import json
 
@@ -402,7 +404,7 @@ def _collect_calls(source: str, path: str) -> list:
 def _read_config(path: str) -> str:
     if not os.path.exists(path):
         raise FileNotFoundError(f"--config file not found: {path}")
-    with open(path, encoding="utf-8") as fh:
+    with _open_regular(path, "r", encoding="utf-8") as fh:
         return fh.read()
 
 

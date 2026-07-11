@@ -57,6 +57,8 @@ so "print to PDF" from any browser produces the document.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import base64
 import html
 import math
@@ -860,7 +862,7 @@ def _audio_block(model: dict) -> str:
                 f'</span></div>'
             )
             continue
-        with open(path, "rb") as fh:
+        with _open_regular(path) as fh:
             b64 = base64.b64encode(fh.read()).decode("ascii")
         rows.append(
             f'<div class="audrow"><span class="audk">{_esc(src["label"])}</span>'

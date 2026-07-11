@@ -30,6 +30,8 @@ decisions -- which moment is a real bug, and whether to apply the fix.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 from datetime import datetime, timezone
@@ -54,7 +56,7 @@ def load_state(path: str) -> Optional[dict]:
     if not os.path.exists(path):
         return None
     try:
-        with open(path, encoding="utf-8") as fh:
+        with _open_regular(path, "r", encoding="utf-8") as fh:
             obj = json.load(fh)
     except (OSError, ValueError) as exc:
         raise ValueError(

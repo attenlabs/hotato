@@ -44,6 +44,8 @@ timing correlation, never intent.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 import tempfile
@@ -135,7 +137,7 @@ def load_voice_trace_jsonl(path: str) -> dict:
     :func:`ingest_otel` writes) back into the full ``hotato.voice_trace.v1``
     object shape (``{"schema", ..., "spans": [...]}``)."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with _open_regular(path, "r", encoding="utf-8") as fh:
             raw_lines = [ln for ln in (l.strip() for l in fh) if ln]
     except OSError as exc:
         raise ValueError(f"{path!r} is not a readable voice trace: {exc}") from exc
@@ -393,7 +395,7 @@ def ingest_otel(
             "choose a new --out"
         )
     try:
-        with open(otel_path, encoding="utf-8") as fh:
+        with _open_regular(otel_path, "r", encoding="utf-8") as fh:
             text = fh.read()
     except OSError as exc:
         raise ValueError(f"{otel_path!r} is not readable: {exc}") from exc
@@ -471,7 +473,7 @@ def _load_bundle_frames(bundle_dir: str) -> tuple:
     path)."""
     path = os.path.join(bundle_dir, "evidence", "frames.jsonl")
     try:
-        with open(path, encoding="utf-8") as fh:
+        with _open_regular(path, "r", encoding="utf-8") as fh:
             lines = [ln for ln in (l.strip() for l in fh) if ln]
     except OSError as exc:
         raise ValueError(f"{bundle_dir!r}: unreadable evidence/frames.jsonl: {exc}") from exc

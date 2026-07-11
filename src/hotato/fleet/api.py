@@ -148,10 +148,21 @@ class FleetAPI:
                 "novelty": None,
                 "covered_by_contract": False,
             }
-            self.registry.add_candidate(workspace_id, cid, recording_id=recording_id,
-                                        agent_id=agent_id, onset_sec=onset,
-                                        measured_json=json.dumps({**c, "components": components}),
-                                        severity=salience, cluster=c.get("kind"))
+            # Idempotency gate (mirrors the _has_recording gate in
+            # ingest_recording): candidate_id is deterministic from the
+            # recording, so a rescan of an already-processed recording (fleet
+            # run re-invoked, a retried job) would otherwise regenerate the
+            # SAME candidate_id and, since add_candidate always passes
+            # status="new", silently reset an already-reviewed/labeled/
+            # dismissed candidate back onto the active review queue. Skip the
+            # write entirely when the candidate already exists; a human
+            # decision on it is never clobbered by a rescan.
+            if not self.registry.has_candidate(workspace_id, cid):
+                self.registry.add_candidate(
+                    workspace_id, cid, recording_id=recording_id,
+                    agent_id=agent_id, onset_sec=onset,
+                    measured_json=json.dumps({**c, "components": components}),
+                    severity=salience, cluster=c.get("kind"))
             out.append({"candidate_id": cid, "onset_sec": onset,
                         "severity": salience, "components": components})
         self.jobs.record_done(job["job_id"], output_hashes=[c["candidate_id"] for c in out])

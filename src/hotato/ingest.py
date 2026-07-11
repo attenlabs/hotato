@@ -59,6 +59,8 @@ field could not be confirmed from the live docs it is parsed DEFENSIVELY:
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 
 from . import errors as _errors
@@ -93,7 +95,7 @@ def _read_payload(event_path: str) -> dict:
     falls back to form-encoded bodies (Twilio's recordingStatusCallback posts
     ``application/x-www-form-urlencoded``). Never executes anything in the file."""
     try:
-        with open(event_path, encoding="utf-8") as fh:
+        with _open_regular(event_path, "r", encoding="utf-8") as fh:
             raw = fh.read()
     except (OSError, UnicodeDecodeError) as exc:
         raise IngestError(f"cannot read --event {event_path!r}: {exc}") from exc
@@ -105,6 +107,17 @@ def _read_payload(event_path: str) -> dict:
         )
     try:
         payload = json.loads(raw)
+    except RecursionError as exc:
+        # A pathologically deeply nested payload (thousands of nested JSON
+        # arrays/objects): CPython's json decoder recurses once per nesting
+        # level and raises a bare RecursionError, not a JSONDecodeError.
+        # Caught right here (closest to the source, before any further work
+        # runs on a possibly-ragged interpreter stack) and turned into a
+        # clean IngestError instead of falling into the form-encoded
+        # fallback below, which would not help and is not what happened.
+        raise IngestError(
+            f"--event {event_path!r} is too deeply nested to parse safely."
+        ) from exc
     except json.JSONDecodeError as exc:
         # Form-encoded fallback (Twilio posts application/x-www-form-urlencoded).
         # Only attempt it on a body that actually looks form-encoded (has a
@@ -265,8 +278,13 @@ def _validate_recording_url(url: str, stack: str) -> str:
         )
     allow = os.environ.get("HOTATO_INGEST_ALLOWED_HOSTS", "").strip()
     if allow:
-        hosts = {h.strip().lower() for h in allow.split(",") if h.strip()}
-        if parsed.hostname.lower() not in hosts:
+        # Canonicalize both sides (via capture's helper) so textually-different
+        # but equal IPv6 forms (``[::1]`` vs ``[0:0:0:0:0:0:0:1]``) compare
+        # equal instead of spuriously failing the allowlist. See
+        # capture._canonical_host for the full rationale; the fail-closed
+        # SSRF guard below is unaffected either way.
+        hosts = {_capture._canonical_host(h) for h in allow.split(",") if h.strip()}
+        if _capture._canonical_host(parsed.hostname) not in hosts:
             raise IngestError(
                 f"recording_url host {parsed.hostname!r} is not in "
                 "HOTATO_INGEST_ALLOWED_HOSTS; refusing to fetch it."

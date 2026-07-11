@@ -28,6 +28,8 @@ deployment approval, or null) -- so an autonomous caller parses one shape.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import os
 import sys
 from typing import Optional
@@ -137,7 +139,7 @@ def _guard_report_path(report_path: str) -> str:
                 f"report_path {report_path!r} is a directory; pass a file path."
             )
         try:
-            with open(real, "r", encoding="utf-8", errors="ignore") as fh:
+            with _open_regular(real, "r", encoding="utf-8", errors="ignore") as fh:
                 head = fh.read(4096)
         except OSError as exc:
             raise ValueError(
@@ -590,7 +592,7 @@ def mcp_experiment_run(home: Optional[str] = None, workspace_id: str = "default"
         safe = _guard_input_path(path, "path")
         if _os.path.isdir(safe):
             safe = _os.path.join(safe, "run.json")
-        return _json.load(open(safe, encoding="utf-8"))
+        return _json.load(_open_regular(safe, "r", encoding="utf-8"))
 
     try:
         before_env = _load(before_path)
@@ -637,7 +639,7 @@ def mcp_experiment_create(home: Optional[str] = None, workspace_id: str = "defau
         safe = _guard_input_path(path, "battery_path")
         if _os.path.isdir(safe):
             safe = _os.path.join(safe, "run.json")
-        return _json.load(open(safe, encoding="utf-8"))
+        return _json.load(_open_regular(safe, "r", encoding="utf-8"))
 
     try:
         battery_env = _load(battery_path)

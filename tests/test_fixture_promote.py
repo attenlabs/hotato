@@ -433,6 +433,57 @@ def test_not_scorable_candidate_refused_with_reason_and_cleaned_up(tmp_path,
                 / "gap-as-yield-001.example.wav").exists()
 
 
+def test_candidate_missing_source_is_a_clean_usage_error(tmp_path, capsys):
+    """A candidate dict with no 'source' field (valid JSON, right envelope
+    shape, but a malformed candidate) must be refused with a clean ValueError
+    (exit 2) -- not an uncaught KeyError -- naming the ref that does not look
+    like a real sweep/analyze result."""
+    doc = {
+        "tool": "hotato", "kind": "analyze", "schema_version": "1",
+        "total_candidates": 1,
+        "candidates": [{"t_sec": 5.5, "kind": "long_response_gap",
+                        "salience": 2.0}],
+    }
+    ref_file = tmp_path / "analyze.json"
+    ref_file.write_text(json.dumps(doc), encoding="utf-8")
+    rc = cli.main([
+        "fixture", "promote", f"{ref_file}#1",
+        "--expect", "yield", "--id", "no-source-001",
+        "--out", str(tmp_path / "fx"),
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "no 'source' field" in err
+    assert not (tmp_path / "fx" / "scenarios" / "no-source-001.json").exists()
+
+
+def test_candidate_missing_t_sec_is_a_clean_usage_error(tmp_path, capsys):
+    """A candidate dict with a real 'source' but no 't_sec' (onset position)
+    must be refused with a clean ValueError (exit 2) -- not an uncaught
+    KeyError from ``float(cand['t_sec'])``."""
+    calls = tmp_path / "calls"
+    calls.mkdir()
+    shutil.copy(_bundled("01-hard-interruption"), calls / "call_abc123.wav")
+    doc = {
+        "tool": "hotato", "kind": "analyze", "schema_version": "1",
+        "folder": "calls", "folder_path": str(calls),
+        "total_candidates": 1,
+        "candidates": [{"source": "call_abc123.wav",
+                        "kind": "long_response_gap", "salience": 2.0}],
+    }
+    ref_file = tmp_path / "analyze.json"
+    ref_file.write_text(json.dumps(doc), encoding="utf-8")
+    rc = cli.main([
+        "fixture", "promote", f"{ref_file}#1",
+        "--expect", "yield", "--id", "no-t-sec-001",
+        "--out", str(tmp_path / "fx"),
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "no 't_sec'" in err
+    assert not (tmp_path / "fx" / "scenarios" / "no-t-sec-001.json").exists()
+
+
 def test_overwrite_refused_without_force(analyze_json, tmp_path, capsys):
     argv = [
         "fixture", "promote", f"{analyze_json}#1",

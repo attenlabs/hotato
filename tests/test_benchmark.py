@@ -23,9 +23,12 @@ accuracy percentage. These tests assert:
 import json
 import os
 
+import pytest
+
 from hotato.benchmark import (
     ERROR_SIGNALS,
     default_fixture_sets,
+    main,
     measure_fixture,
     render_markdown,
     rendered_references,
@@ -223,3 +226,85 @@ def test_measure_fixture_shape():
     assert row["confusion_cell"] in (
         "correct_yield", "missed_yield", "false_yield", "correct_hold",
     )
+
+
+# --- hostile input: a malformed BYO WAV must be a clean refusal, never a raw
+# --- wave.Error/struct.error traceback or an uncaught exit-1 crash ---------
+
+def test_measure_fixture_raises_clean_valueerror_on_malformed_wav(tmp_path):
+    """Before the fix, measure_fixture() called the vendored engine's raw
+    ``_engine.read_wav`` directly, so a non-WAV file escaped as an uncaught
+    ``wave.Error`` traceback instead of the same actionable ``ValueError``
+    every other entry point produces."""
+    bad_wav = tmp_path / "not-a-wav.example.wav"
+    bad_wav.write_text("this is plainly not a WAV file\n" * 4)
+    sc = {"id": "not-a-wav"}
+    with pytest.raises(ValueError, match="not a readable PCM WAV"):
+        measure_fixture(sc, str(bad_wav))
+
+
+def _write_byo_set(tmp_path, *, wav_bytes: bytes):
+    scen_dir = tmp_path / "scenarios"
+    audio_dir = tmp_path / "audio"
+    scen_dir.mkdir()
+    audio_dir.mkdir()
+    (scen_dir / "bad-1.json").write_text(json.dumps({"id": "bad-1"}))
+    (audio_dir / "bad-1.example.wav").write_bytes(wav_bytes)
+    return scen_dir, audio_dir
+
+
+def test_main_exits_2_on_malformed_byo_wav_never_a_traceback(tmp_path, capsys):
+    """Reproduces the original defect at the ``python -m hotato.benchmark
+    --scenarios ... --audio ...`` call site: a malformed WAV in a BYO audio dir
+    used to propagate an uncaught wave.Error out of main() (default Python exit
+    code 1, a raw traceback on stderr). main() must instead return the same
+    exit-2 usage-error contract the real hotato CLI guarantees, with a clean
+    one-line ``error: ...`` message and no traceback."""
+    scen_dir, audio_dir = _write_byo_set(tmp_path, wav_bytes=b"garbage, not a RIFF/WAVE file")
+    out_dir = tmp_path / "out"
+
+    rc = main([
+        "--scenarios", str(scen_dir),
+        "--audio", str(audio_dir),
+        "--out", str(out_dir),
+        "--quiet",
+    ])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error: ")
+    assert "Traceback" not in captured.err
+    assert "Traceback" not in captured.out
+    # no partial/bogus report should have been written on a failed run
+    assert not os.path.exists(os.path.join(str(out_dir), "measurement-error.json"))
+
+
+def test_main_exits_2_on_truncated_byo_wav(tmp_path, capsys):
+    """A header that declares more frames than the data chunk actually holds
+    (a truncated recording) must also be a clean exit 2, not a raw
+    struct.error/EOFError traceback."""
+    import struct
+    import wave
+
+    full = tmp_path / "full.wav"
+    with wave.open(str(full), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        n_frames = 1600
+        w.writeframes(struct.pack("<" + "h" * (n_frames * 2), *([0] * (n_frames * 2))))
+    truncated = full.read_bytes()[:100]  # header intact, data chunk cut off
+
+    scen_dir, audio_dir = _write_byo_set(tmp_path, wav_bytes=truncated)
+
+    rc = main([
+        "--scenarios", str(scen_dir),
+        "--audio", str(audio_dir),
+        "--out", str(tmp_path / "out"),
+        "--quiet",
+    ])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error: ")
+    assert "Traceback" not in captured.err

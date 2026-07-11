@@ -20,13 +20,23 @@ never embeds raw customer audio by default (privacy reversal, plan §4/§14).
 """
 from __future__ import annotations
 
+from ..errors import open_regular as _open_regular
+
 import hashlib
 import json
 import os
 import shutil
+import tempfile
+import time
 from typing import Optional
 
 SCHEMA_VERSION = "1"
+
+# How old an orphaned "*.tmp" write must be before the startup sweep will
+# remove it. Age-gated (not "any .tmp we see") so we never race a slower
+# writer's still-in-flight tmp file that just happens to be open when a
+# second ArtifactStore opens the same root.
+_STALE_TMP_AGE_SECONDS = 3600
 
 
 class ArtifactStore:
@@ -35,6 +45,12 @@ class ArtifactStore:
         self.blobs = os.path.join(self.root, "blobs")
         self.lineage_path = os.path.join(self.root, "lineage.jsonl")
         os.makedirs(self.blobs, exist_ok=True)
+        try:
+            self._cleanup_stale_tmp()
+        except OSError:
+            # Best-effort GC; a permissions hiccup on some blob subdir must
+            # never block store startup.
+            pass
 
     # --- addressing -----------------------------------------------------
     @staticmethod
@@ -49,6 +65,37 @@ class ArtifactStore:
         return os.path.isfile(self._blob_path(digest))
 
     # --- writes ---------------------------------------------------------
+    def _write_via_tmp(self, dest: str, writer) -> None:
+        """Publish ``dest`` atomically via a PRIVATE, unique tmp file.
+
+        ``writer(tmp_path)`` must populate ``tmp_path`` with the final bytes.
+        Every call gets its own ``tempfile.mkstemp`` path (never a shared
+        ``dest + ".tmp"``), so two concurrent writers of the SAME
+        content-addressed digest never share an inode/path. That sharing was
+        the defect: a faster writer's ``os.replace`` could rename the slower
+        writer's still-open tmp file out from under it, so the slower writer's
+        own later ``os.replace`` raised an unhandled ``FileNotFoundError`` --
+        or, worse, both writers' in-flight fds kept writing into whichever
+        inode ended up at ``dest``, racing bytes into it with no guarantee the
+        result matched either writer's content (silent CAS corruption).
+        ``os.replace(tmp, dest)`` is still atomic and ``dest`` is content
+        addressed, so whichever writer wins the replace is correct by
+        construction -- no locking needed, only tmp-path uniqueness.
+        """
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=os.path.basename(dest) + ".",
+                                   suffix=".tmp", dir=os.path.dirname(dest))
+        os.close(fd)
+        try:
+            writer(tmp)
+            os.replace(tmp, dest)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
     def put_bytes(self, data: bytes, *, kind: str = "blob",
                   workspace_id: Optional[str] = None,
                   parents: Optional[list] = None,
@@ -56,11 +103,10 @@ class ArtifactStore:
         digest = self._digest_bytes(data)
         dest = self._blob_path(digest)
         if not os.path.isfile(dest):
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            tmp = dest + ".tmp"
-            with open(tmp, "wb") as fh:
-                fh.write(data)
-            os.replace(tmp, dest)
+            def _write(tmp_path: str) -> None:
+                with open(tmp_path, "wb") as fh:
+                    fh.write(data)
+            self._write_via_tmp(dest, _write)
         self._record_lineage(digest, kind=kind, workspace_id=workspace_id,
                              parents=parents or [], meta=meta or {})
         return digest
@@ -71,16 +117,15 @@ class ArtifactStore:
                  meta: Optional[dict] = None) -> str:
         """Stream a file into the store without a second in-memory copy."""
         h = hashlib.sha256()
-        with open(path, "rb") as fh:
+        with _open_regular(path) as fh:
             for chunk in iter(lambda: fh.read(1 << 20), b""):
                 h.update(chunk)
         digest = h.hexdigest()
         dest = self._blob_path(digest)
         if not os.path.isfile(dest):
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            tmp = dest + ".tmp"
-            shutil.copyfile(path, tmp)
-            os.replace(tmp, dest)
+            def _copy(tmp_path: str) -> None:
+                shutil.copyfile(path, tmp_path)
+            self._write_via_tmp(dest, _copy)
         m = dict(meta or {}); m.setdefault("source_name", os.path.basename(path))
         self._record_lineage(digest, kind=kind, workspace_id=workspace_id,
                              parents=parents or [], meta=m)
@@ -95,6 +140,8 @@ class ArtifactStore:
     # no workspace_id parameter here -- cross-workspace isolation is a property
     # of the registry/reference layer that hands out digests, not of this CAS.
     def get_bytes(self, digest: str) -> bytes:
+        # open-ok: content-addressed blob path derived from a digest this store minted,
+        # not a user-supplied path; blobs are regular files this store wrote
         with open(self._blob_path(digest), "rb") as fh:
             return fh.read()
 
@@ -110,6 +157,41 @@ class ArtifactStore:
     def path_for(self, digest: str) -> str:
         return self._blob_path(digest)
 
+    # --- maintenance ------------------------------------------------------
+    def _cleanup_stale_tmp(self, max_age_seconds: int = _STALE_TMP_AGE_SECONDS) -> None:
+        """Best-effort sweep of orphaned ``*.tmp`` files.
+
+        A writer killed (SIGKILL / OOM / power loss) between creating its tmp
+        file and the ``os.replace`` that publishes it leaves a permanent
+        orphan with no lineage record, since there is no periodic GC pass
+        elsewhere in the repo. Content addressing stays sound even with
+        orphans present -- ``get_bytes``/``has``/``verify`` all resolve
+        through ``_blob_path``, which never carries the ``.tmp`` suffix, so an
+        orphan can never be read as a valid blob or corrupt a real entry. This
+        is disk-space hygiene only, run once per store open, age-gated so it
+        never races a slower writer's still-in-flight tmp file.
+        """
+        now = time.time()
+        for entry in os.scandir(self.blobs):
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            try:
+                sub = list(os.scandir(entry.path))
+            except OSError:
+                continue
+            for f in sub:
+                if not f.name.endswith(".tmp"):
+                    continue
+                try:
+                    age = now - f.stat().st_mtime
+                except OSError:
+                    continue
+                if age > max_age_seconds:
+                    try:
+                        os.unlink(f.path)
+                    except OSError:
+                        pass
+
     # --- lineage --------------------------------------------------------
     def _record_lineage(self, digest, *, kind, workspace_id, parents, meta):
         rec = {"digest": digest, "kind": kind, "workspace_id": workspace_id,
@@ -122,6 +204,7 @@ class ArtifactStore:
         out = []
         if not os.path.isfile(self.lineage_path):
             return out
+        # open-ok: the store's own lineage file at a path this store controls
         with open(self.lineage_path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()

@@ -24,6 +24,8 @@ Honesty is the design constraint, stated here and enforced below:
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import getpass
 import json
 import os
@@ -80,7 +82,7 @@ def _load_scenarios(scenarios_dir: Optional[str]) -> list:
     scenarios = []
     for name in sorted(os.listdir(scenarios_dir)):
         if name.endswith(".json") and name != "manifest.json":
-            with open(os.path.join(scenarios_dir, name), encoding="utf-8") as fh:
+            with _open_regular(os.path.join(scenarios_dir, name), "r", encoding="utf-8") as fh:
                 scenarios.append(json.load(fh))
     if not scenarios:
         raise ValueError(f"no scenario JSONs found in {scenarios_dir!r}")
@@ -263,7 +265,7 @@ _MEASUREMENT_NOTE = (
 def load_result(path: str) -> dict:
     """Load one benchmark result JSON. Anything that is not a stack-benchmark
     result is a clean usage error (exit 2), never a silent zero-row compare."""
-    with open(path, encoding="utf-8") as fh:
+    with _open_regular(path, "r", encoding="utf-8") as fh:
         data = json.load(fh)
     if not (isinstance(data, dict) and data.get("tool") == "hotato"
             and data.get("kind") == KIND

@@ -371,7 +371,13 @@ class VapiAdapter(_CredentialGatedAdapter):
             current = _apply._http_json("GET", url, headers=headers, body=None,
                                         timeout=30)
         except ValueError as e:
-            if "404" in str(e):
+            # Branch on the real numeric HTTP status apply._http_json attaches
+            # (.status_code), never on a substring of the message: the message
+            # embeds the caller id and up to 300 raw vendor-response bytes, and
+            # either can incidentally contain the digits "404" for an unrelated
+            # (and possibly non-404) status -- e.g. a genuine 500/auth/rate-limit
+            # error would then be silently reported as a successful delete.
+            if getattr(e, "status_code", None) == 404:
                 return {"deleted": True, "clone_id": cid, "already_gone": True}
             raise
         name = str((current or {}).get("name") or "")

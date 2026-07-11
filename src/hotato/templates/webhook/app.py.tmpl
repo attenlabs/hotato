@@ -43,6 +43,14 @@ app = FastAPI(title="hotato webhook worker ({{STACK}})")
 # Where the JSON + HTML candidate reports land (read-only monitor output).
 REPORT_DIR = Path(os.environ.get("HOTATO_REPORT_DIR", "reports"))
 
+# Hard cap on an accepted webhook body, in bytes. Webhook payloads are JSON (or
+# form-encoded) call metadata, not audio, so this is generous for any real
+# payload while still bounding memory use from an oversized or infinite
+# (chunked-transfer-encoding, which never declares Content-Length) POST body.
+# Override with HOTATO_MAX_BODY_BYTES if a stack's payload legitimately needs
+# more.
+MAX_BODY_BYTES = int(os.environ.get("HOTATO_MAX_BODY_BYTES", str(2 * 1024 * 1024)))
+
 # Optional Slack summary: set SLACK_WEBHOOK_URL to post one message per call
 # that surfaced candidate moments. Unset -> no Slack call.
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
@@ -53,6 +61,36 @@ SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
 # and opens nothing.
 GITHUB_NOTIFY = os.environ.get("HOTATO_GITHUB_NOTIFY", "") not in ("", "0", "false")
 GITHUB_CREATE_ISSUES = os.environ.get("HOTATO_GITHUB_CREATE_ISSUES", "") not in ("", "0", "false")
+
+
+async def read_bounded_body(request: Request) -> bytes:
+    """Read the request body with a hard size cap, BEFORE verify/parse/scan.
+
+    Starlette's ``Request.body()`` has no built-in size limit: it loops on the
+    ASGI receive channel and buffers every chunk into memory until the body is
+    exhausted, no matter how large it is, and a chunked-transfer-encoding
+    request never declares a Content-Length at all so a length check alone
+    would not catch it. This reads the same bytes ``Request.body()`` would,
+    but (1) rejects early on a declared oversized Content-Length, and (2)
+    streams the body and re-checks the running total after every chunk, so an
+    oversized body -- declared or chunked -- is rejected with a clean 413
+    before a single byte reaches ``verify_webhook``, the parser, or disk."""
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            declared_size = int(declared)
+        except ValueError:
+            declared_size = None
+        if declared_size is not None and declared_size > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="request body too large")
+    chunks = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="request body too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 {{VERIFY_FUNCTION}}
@@ -169,9 +207,11 @@ def notify_github(result: dict, report_html: Path) -> None:
 
 @app.post("/webhook")
 async def handle_webhook(request: Request):
-    # Read the raw bytes first (the secret check needs them), then VERIFY. No
-    # parse, fetch, or scan happens until the secret check passes.
-    raw_body = await request.body()
+    # Read the raw bytes first (the secret check needs them), bounded so an
+    # oversized or chunked-infinite body cannot be buffered into memory before
+    # VERIFY ever runs, then VERIFY. No parse, fetch, or scan happens until the
+    # secret check passes.
+    raw_body = await read_bounded_body(request)
     verify_webhook(request, raw_body)
 
     payload = parse_payload(raw_body)

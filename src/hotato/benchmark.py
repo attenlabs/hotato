@@ -33,6 +33,8 @@ It scores with the vendored engine (``hotato._engine``) unchanged.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import argparse
 import json
 import os
@@ -42,8 +44,8 @@ from dataclasses import dataclass, field
 from importlib import resources
 from typing import List, Optional, Tuple
 
-from . import _engine
 from ._engine.score import ScoreConfig, score_stereo
+from .core import _read_wav
 
 __all__ = [
     "rendered_references",
@@ -193,7 +195,9 @@ def measure_fixture(sc: dict, wav_path: str, *, cfg: Optional[ScoreConfig] = Non
     sid = sc.get("id", os.path.basename(wav_path))
     label_onset = sc.get("caller_onset_sec")
     refs = rendered_references(sc)
-    signal = _engine.read_wav(wav_path)
+    # Hardened wrapper (never the vendored engine's raw wave.Error/struct.error/
+    # RuntimeError on a malformed BYO recording -- see docs/BENCHMARK.md).
+    signal = _read_wav(wav_path)
 
     # DETECT mode: measure the onset detector.
     detected = score_stereo(signal, 0, 1, caller_onset_sec=None, cfg=cfg)
@@ -351,6 +355,7 @@ def load_bundled_set() -> FixtureSet:
     for entry in sorted(scen_dir.iterdir(), key=lambda p: p.name):
         if not entry.name.endswith(".json") or entry.name == "manifest.json":
             continue
+        # open-ok: bundled importlib resource (installed package data, not a user path)
         sc = json.loads(entry.read_text(encoding="utf-8"))
         wav = str(
             resources.files("hotato").joinpath("data", "audio", sc["id"] + ".example.wav")
@@ -386,7 +391,7 @@ def load_set_from_dirs(
     for fname in sorted(os.listdir(scenarios_dir)):
         if not fname.endswith(".json") or fname == "manifest.json":
             continue
-        with open(os.path.join(scenarios_dir, fname), encoding="utf-8") as fh:
+        with _open_regular(os.path.join(scenarios_dir, fname), "r", encoding="utf-8") as fh:
             sc = json.load(fh)
         wav = os.path.join(audio_dir, sc["id"] + suffix)
         if not os.path.exists(wav):
@@ -611,25 +616,33 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     args = _build_argparser().parse_args(argv)
 
-    if args.scenarios:
-        if not args.audio:
-            print("error: --scenarios requires --audio", file=sys.stderr)
-            return 2
-        fixture_sets = [
-            load_set_from_dirs(
-                args.name,
-                args.scenarios,
-                args.audio,
-                kind="byo",
-                note="Bring-your-own labelled recordings. Reference timings are the contributor's; nothing here is fabricated.",
-                suffix=args.suffix,
-            )
-        ]
-    else:
-        fixture_sets = default_fixture_sets()
+    # Same exit-2 usage-error contract the real `hotato` CLI guarantees
+    # (errors.HANDLED): a malformed BYO WAV, an unreadable/missing scenarios or
+    # audio directory, or an unwritable --out surfaces as a clean one-line
+    # refusal here too, never a raw traceback with Python's default exit 1.
+    try:
+        if args.scenarios:
+            if not args.audio:
+                print("error: --scenarios requires --audio", file=sys.stderr)
+                return 2
+            fixture_sets = [
+                load_set_from_dirs(
+                    args.name,
+                    args.scenarios,
+                    args.audio,
+                    kind="byo",
+                    note="Bring-your-own labelled recordings. Reference timings are the contributor's; nothing here is fabricated.",
+                    suffix=args.suffix,
+                )
+            ]
+        else:
+            fixture_sets = default_fixture_sets()
 
-    report = run_benchmark(fixture_sets)
-    json_path, md_path = write_artifacts(report, args.out)
+        report = run_benchmark(fixture_sets)
+        json_path, md_path = write_artifacts(report, args.out)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     if not args.quiet:
         print(render_markdown(report))

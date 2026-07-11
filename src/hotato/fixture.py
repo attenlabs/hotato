@@ -27,6 +27,8 @@ meaningless verdict. Everything runs offline; no audio leaves the machine.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 import re
@@ -379,7 +381,7 @@ def _load_result(path: str) -> dict:
     file raises FileNotFoundError (exit 2, file_not_found); a file that is
     not an analyze-kind envelope with a candidates list raises ValueError
     with the honest reason."""
-    with open(path, encoding="utf-8") as fh:
+    with _open_regular(path, "r", encoding="utf-8") as fh:
         try:
             doc = json.load(fh)
         except json.JSONDecodeError as exc:
@@ -449,6 +451,11 @@ def _resolve_source_audio(doc: dict, cand: dict, *, ref_path: str,
     result file recorded is tried (absolute ``folder_path`` first, then the
     ``folder`` name relative to the working directory and to the result
     file), then the source path itself. The error names every path tried."""
+    if not isinstance(cand, dict) or not cand.get("source"):
+        raise ValueError(
+            f"the candidate has no 'source' field; {ref_path!r} does not "
+            "look like a hotato sweep/analyze result"
+        )
     source = str(cand["source"])
     if folder:
         p = os.path.join(folder, source)
@@ -509,6 +516,11 @@ def promote_candidate(
     doc = _load_result(path)
     cand = _resolve_candidate(doc, path=path, call=call, number=number)
     audio = _resolve_source_audio(doc, cand, ref_path=path, folder=folder)
+    if cand.get("t_sec") is None:
+        raise ValueError(
+            f"the candidate at {ref!r} has no 't_sec' (onset position); "
+            f"{path!r} does not look like a hotato sweep/analyze result"
+        )
     result = create_fixture(
         stereo=audio,
         fixture_id=fixture_id,

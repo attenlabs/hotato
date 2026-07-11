@@ -44,6 +44,12 @@ does not produce) is honestly reported as unavailable rather than fabricated.
 
 from __future__ import annotations
 
+from .errors import require_regular_file as _require_regular_file
+
+from .errors import open_regular as _open_regular
+
+from .errors import wav_read as _wav_read
+
 import hashlib
 import json
 import os
@@ -167,7 +173,7 @@ def _now_iso() -> str:
 
 def _sha256_file(path: str) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as fh:
+    with _open_regular(path) as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
@@ -179,7 +185,7 @@ def _decoded_pcm_sha256(path: str) -> str:
     subject so `contract verify` can detect a bundle whose audio was replaced
     after signing even if the new file re-encodes to different raw bytes."""
     h = hashlib.sha256()
-    with wave.open(path, "rb") as wf:
+    with _wav_read(path) as wf:
         while True:
             chunk = wf.readframes(1 << 16)
             if not chunk:
@@ -1020,9 +1026,9 @@ def discover_bundles(path: str) -> list:
 def _load_contract(bundle_dir: str) -> dict:
     cpath = os.path.join(bundle_dir, "contract.json")
     try:
-        with open(cpath, encoding="utf-8") as fh:
+        with _open_regular(cpath, "r", encoding="utf-8") as fh:
             contract = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError(f"{cpath!r} is not a readable hotato contract: {exc}") from exc
     if contract.get("schema") != SCHEMA:
         raise ValueError(
@@ -1032,10 +1038,72 @@ def _load_contract(bundle_dir: str) -> dict:
     return contract
 
 
+def _require_shape(contract: dict, cpath: str, *required: tuple) -> None:
+    """Shape-check nested fields a caller is ABOUT to dereference directly,
+    BEFORE any of that access happens: a contract bundle is untrusted
+    third-party input (docs/SUBMITTING.md), and valid JSON with the right
+    schema string but a missing/mistyped nested field must fail closed with a
+    clean ``ValueError`` (CLI exit 2, structured MCP error) rather than an
+    uncaught ``KeyError``/``TypeError`` breaking a caller's documented "never
+    an exception" contract. Scoped to just the fields a caller actually
+    needs (not enforced blanket in :func:`_load_contract`) so a minimal, but
+    otherwise valid, contract -- e.g. a not-scorable one ``inspect``/
+    ``explain`` only reads the label/measurement off of -- is not refused for
+    fields nothing in that path reads."""
+    for keys, expected_type in required:
+        node = contract
+        for key in keys:
+            if not isinstance(node, dict) or key not in node:
+                raise ValueError(
+                    f"{cpath!r} is missing required field "
+                    f"{'.'.join(keys)!r}; not a valid hotato contract"
+                )
+            node = node[key]
+        if not isinstance(node, expected_type):
+            raise ValueError(
+                f"{cpath!r} is missing required field "
+                f"{'.'.join(keys)!r}; not a valid hotato contract"
+            )
+
+
 def _verify_one(bundle_dir: str) -> dict:
     contract = _load_contract(bundle_dir)
+    cpath = os.path.join(bundle_dir, "contract.json")
+    _require_shape(
+        contract, cpath,
+        (("bundle", "paths", "audio"), str),
+        (("source", "recording_type"), str),
+        (("label", "expected_behavior"), str),
+        (("policy", "pass_conditions"), dict),
+        (("event",), dict),
+    )
     audio_rel = contract["bundle"]["paths"]["audio"]
-    audio_path = os.path.join(bundle_dir, audio_rel)
+    # audio_rel is untrusted (a contract bundle is third-party input to
+    # `contract verify`: a hand-built bundle, or one unpacked from a
+    # `.hotato` archive before its OWN authenticity check even runs). An
+    # absolute path or a `..` escape here must never be opened: `os.path.join`
+    # silently DISCARDS `bundle_dir` when the second argument is absolute, so
+    # an unchecked join is a path-traversal / arbitrary-file-read bug, not
+    # just a corruption case. Reuse the same member-name safety check
+    # `contract pack/unpack` already applies to archive paths, then verify
+    # the resolved path is still CONTAINED inside bundle_dir (the same
+    # realpath/commonpath containment `_load_bundled_scenarios` uses in
+    # core.py) as defense in depth against a symlink planted inside the
+    # bundle.
+    try:
+        audio_parts = _safe_member_parts(audio_rel)
+    except ValueError as exc:
+        raise ValueError(
+            f"{bundle_dir!r}: contract.json audio path {audio_rel!r} is "
+            f"unsafe ({exc}); refusing to read it"
+        ) from exc
+    bundle_real = os.path.realpath(bundle_dir)
+    audio_path = os.path.realpath(os.path.join(bundle_dir, *audio_parts))
+    if os.path.commonpath([bundle_real, audio_path]) != bundle_real:
+        raise ValueError(
+            f"{bundle_dir!r}: contract.json audio path {audio_rel!r} "
+            "resolves outside the bundle directory; refusing to read it"
+        )
     if not os.path.isfile(audio_path):
         raise ValueError(
             f"{bundle_dir!r}: contract.json points at missing audio "
@@ -1406,6 +1474,7 @@ def pack_contract(bundle_dir: str, *, out_path: Optional[str] = None,
 
     tmp_out = out_path + ".part"
     try:
+        # open-ok: write mode to a temp path this function just created
         with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED,
                              compresslevel=6) as zf:
             zi = zipfile.ZipInfo(MANIFEST_NAME, date_time=(1980, 1, 1, 0, 0, 0))
@@ -1416,7 +1485,7 @@ def pack_contract(bundle_dir: str, *, out_path: Optional[str] = None,
                 zi = zipfile.ZipInfo(rel, date_time=(1980, 1, 1, 0, 0, 0))
                 zi.external_attr = 0o644 << 16
                 zi.create_system = 3  # pin to Unix; see the determinism note above
-                with open(fp, "rb") as fh:
+                with _open_regular(fp) as fh:
                     zf.writestr(zi, fh.read())
         os.replace(tmp_out, out_path)
     except BaseException:
@@ -1602,6 +1671,8 @@ def unpack_contract(archive_path: str, out_dir: str, *,
     tmp_out = tempfile.mkdtemp(prefix=".hotato-unpack-tmp-", dir=parent)
     try:
         try:
+            _require_regular_file(archive_path)
+            # open-ok: _require_regular_file(archive_path) guards on the line above
             zf_ctx = zipfile.ZipFile(archive_path)
         except zipfile.BadZipFile as exc:
             # Not a valid zip at all (truncated / corrupt / wrong file):
@@ -1724,7 +1795,7 @@ def unpack_contract(archive_path: str, out_dir: str, *,
         cpath = os.path.join(tmp_out, "contract.json")
         if os.path.isfile(cpath):
             try:
-                with open(cpath, encoding="utf-8") as fh:
+                with _open_regular(cpath, "r", encoding="utf-8") as fh:
                     _unpacked_contract = json.load(fh)
             except (OSError, json.JSONDecodeError):
                 _unpacked_contract = None

@@ -21,9 +21,10 @@
         "unknown_suite",
         "not_scorable",
         "backend_unavailable",
-        "usage_error"
+        "usage_error",
+        "input_too_deeply_nested"
       ],
-      "description": "Stable machine slug for the failure class. Append-only: a consumer may branch on these and an existing slug never changes meaning. missing_input: no input mode, or an incomplete single (caller without agent). mode_conflict: more than one input mode supplied (for example a suite together with a single recording). mono_as_stereo: a single-channel file was given where a two-channel recording is required. sample_rate_mismatch: the caller and agent channels differ in sample rate. file_not_found: an input path does not exist. unknown_suite: a suite name that is not shipped. not_scorable: the input is well formed but carries no scorable event (for example no detectable caller speech, or the agent silent at the caller onset under a should-yield expectation). backend_unavailable: an optional VAD backend was requested without its extra installed. usage_error: any other clean usage or input error."
+      "description": "Stable machine slug for the failure class. Append-only: a consumer may branch on these and an existing slug never changes meaning. missing_input: no input mode, or an incomplete single (caller without agent). mode_conflict: more than one input mode supplied (for example a suite together with a single recording). mono_as_stereo: a single-channel file was given where a two-channel recording is required. sample_rate_mismatch: the caller and agent channels differ in sample rate. file_not_found: an input path does not exist. unknown_suite: a suite name that is not shipped. not_scorable: the input is well formed but carries no scorable event (for example no detectable caller speech, or the agent silent at the caller onset under a should-yield expectation). backend_unavailable: an optional VAD backend was requested without its extra installed. usage_error: any other clean usage or input error. input_too_deeply_nested: the input JSON is nested too deeply to parse safely (a pathological or adversarial payload)."
     },
     "message": {
       "type": "string",

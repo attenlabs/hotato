@@ -20,6 +20,38 @@ from typing import Optional
 DEFAULT_HOME = os.path.expanduser("~/.hotato/fleet")
 SCHEMA_VERSION = 1
 
+# Primary-key columns per table, used to build a real ON CONFLICT upsert in
+# _insert(replace=True) instead of the old INSERT OR REPLACE (which SQLite
+# implements as DELETE-then-INSERT and therefore nulls every column the caller
+# did not mention). Keep in sync with the PRIMARY KEY clauses in _SCHEMA.
+TABLE_PK = {
+    "workspaces": ("workspace_id",),
+    "connections": ("workspace_id", "connection_id"),
+    "agents": ("workspace_id", "agent_id"),
+    "deployments": ("workspace_id", "deployment_id"),
+    "calls": ("workspace_id", "call_id"),
+    "recordings": ("workspace_id", "recording_id"),
+    "candidates": ("workspace_id", "candidate_id"),
+    "labels": ("workspace_id", "label_id"),
+    "contracts": ("workspace_id", "contract_id"),
+    "trials": ("workspace_id", "trial_id"),
+    "decisions": ("workspace_id", "decision_id"),
+    "contract_sets": ("workspace_id", "set_id"),
+    "deployment_receipts": ("workspace_id", "receipt_id"),
+    "attestations": ("workspace_id", "attestation_id"),
+    "variants": ("workspace_id", "variant_id"),
+    "watermarks": ("workspace_id", "agent_id", "source"),
+}
+
+
+class RegistrySchemaVersionError(ValueError):
+    """The on-disk fleet registry's meta.schema_version is missing/unparseable
+    or newer than this install's SCHEMA_VERSION. A ValueError subclass so it
+    free-rides on the existing errors.HANDLED contract (exit 2, clean
+    structured error) with no plumbing changes needed in cli.py/mcp_server.py.
+    Fails closed: an install must never silently read or write a store shaped
+    by a schema version it does not understand."""
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
@@ -230,26 +262,73 @@ class Registry:
         self.home = os.path.abspath(home)
         os.makedirs(self.home, exist_ok=True)
         self.db_path = os.path.join(self.home, "fleet.db")
-        self.conn = sqlite3.connect(self.db_path)
+        # A generous, overridable busy window instead of sqlite3's implicit
+        # 5.0s default connect timeout. Concurrent multi-process writers are an
+        # in-spec shape here (JobQueue.claim's BEGIN IMMEDIATE, every CLI/MCP
+        # call opening its own Registry), so 5s is an undocumented ceiling that
+        # surfaces as a raw sqlite3.OperationalError. `timeout=` sets SQLite's
+        # own internal busy-retry window; PRAGMA busy_timeout below restates it
+        # explicitly for clarity/consistency with the other PRAGMA calls.
+        timeout_sec = float(os.environ.get("HOTATO_FLEET_DB_TIMEOUT_SEC", "30"))
+        self.conn = sqlite3.connect(self.db_path, timeout=timeout_sec)
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA foreign_keys=ON")
-        self.conn.executescript(_SCHEMA)
-        # Additive column migrations. A fresh DB already has these from the
-        # CREATE TABLE above (IF NOT EXISTS never rewrites an existing table),
-        # so this backfills only older DB files. Each is guarded by table_info.
-        self._ensure_column("recordings", "retention_policy_json", "TEXT")
-        self._ensure_column("recordings", "pii_class", "TEXT")
-        self._ensure_column("variants", "agent_id", "TEXT")
-        self._ensure_column("variants", "expected_json", "TEXT")
-        self._ensure_column("variants", "observed_json", "TEXT")
-        self._ensure_column("variants", "rank", "INTEGER")
-        cur = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'")
-        row = cur.fetchone()
-        if row is None:
-            self.conn.execute("INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
-                              (str(SCHEMA_VERSION),))
-        self.conn.commit()
+        # The WHOLE schema-init sequence below (any of these statements can be
+        # the one that actually contends for the write lock, not just the
+        # final commit) runs under one try/except so a busy-database
+        # OperationalError is translated to the shared errors.HANDLED OSError
+        # contract, and the connection is always closed on any failure path.
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA foreign_keys=ON")
+            self.conn.execute(f"PRAGMA busy_timeout={int(timeout_sec * 1000)}")
+            self.conn.executescript(_SCHEMA)
+            # Additive column migrations. A fresh DB already has these from the
+            # CREATE TABLE above (IF NOT EXISTS never rewrites an existing
+            # table), so this backfills only older DB files. Each is guarded
+            # by table_info.
+            self._ensure_column("recordings", "retention_policy_json", "TEXT")
+            self._ensure_column("recordings", "pii_class", "TEXT")
+            self._ensure_column("variants", "agent_id", "TEXT")
+            self._ensure_column("variants", "expected_json", "TEXT")
+            self._ensure_column("variants", "observed_json", "TEXT")
+            self._ensure_column("variants", "rank", "INTEGER")
+            cur = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'")
+            row = cur.fetchone()
+            if row is None:
+                self.conn.execute("INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
+                                  (str(SCHEMA_VERSION),))
+            else:
+                try:
+                    stored = int(row["value"])
+                except (TypeError, ValueError):
+                    stored = None
+                # Fail closed on any parse ambiguity (garbage/non-numeric
+                # value): treat it the same as "newer/unknown" rather than
+                # proceeding.
+                if stored is None or stored > SCHEMA_VERSION:
+                    raise RegistrySchemaVersionError(
+                        f"fleet registry at {self.db_path} was written by a "
+                        f"newer hotato (schema {row['value']!r}) than this "
+                        f"install understands (schema {SCHEMA_VERSION}); "
+                        "upgrade hotato (`pip install -U hotato`) or point "
+                        "--home at a fresh directory.")
+                if stored < SCHEMA_VERSION:
+                    # Additive migrations above already ran; record that the
+                    # store now tracks the current schema instead of staying
+                    # stale.
+                    self.conn.execute(
+                        "UPDATE meta SET value=? WHERE key='schema_version'",
+                        (str(SCHEMA_VERSION),))
+            self.conn.commit()
+        except sqlite3.OperationalError as exc:
+            self.conn.close()
+            raise OSError(
+                f"fleet database busy (concurrent writers): {exc}. "
+                "Retry the command."
+            ) from exc
+        except Exception:
+            self.conn.close()
+            raise
 
     def close(self):
         self.conn.close()
@@ -261,13 +340,50 @@ class Registry:
         self.close()
 
     # --- generic helpers ------------------------------------------------
+    def _busy_wrap(self, fn):
+        """Run a write and translate a busy-database sqlite3.OperationalError
+        (lock contention past the busy_timeout window) into the shared
+        errors.HANDLED OSError contract, so the CLI and every MCP fleet tool
+        emit the existing clean, structured, exit-code-2 error envelope
+        instead of leaking a raw traceback. The write never partially applies:
+        SQLite raises before any bytes are committed."""
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            raise OSError(
+                f"fleet database busy (concurrent writers): {exc}. "
+                "Retry the command."
+            ) from exc
+
     def _insert(self, table: str, row: dict, *, replace: bool = False):
-        cols = ",".join(row.keys())
-        marks = ",".join("?" for _ in row)
-        verb = "INSERT OR REPLACE" if replace else "INSERT"
-        self.conn.execute(f"{verb} INTO {table} ({cols}) VALUES ({marks})",
-                          tuple(row.values()))
-        self.conn.commit()
+        cols = list(row.keys())
+        col_list = ",".join(cols)
+        marks = ",".join("?" for _ in cols)
+        if not replace:
+            sql = f"INSERT INTO {table} ({col_list}) VALUES ({marks})"
+        else:
+            # A real UPSERT keyed on the table's primary key, NOT the old
+            # INSERT OR REPLACE (SQLite implements that as DELETE-then-INSERT,
+            # which reverts every column absent from `row` to NULL/default).
+            # Only columns present in `row` appear in the SET clause, so a
+            # column the caller did not mention (e.g. retention_policy_json on
+            # a re-add_recording) is left untouched on conflict.
+            pk = TABLE_PK.get(table)
+            if not pk:
+                raise ValueError(f"_insert(replace=True) needs a TABLE_PK entry for {table!r}")
+            update_cols = [c for c in cols if c not in pk]
+            conflict = ",".join(pk)
+            if update_cols:
+                set_clause = ", ".join(f"{c}=excluded.{c}" for c in update_cols)
+                sql = (f"INSERT INTO {table} ({col_list}) VALUES ({marks}) "
+                      f"ON CONFLICT({conflict}) DO UPDATE SET {set_clause}")
+            else:
+                # every passed column IS a PK column: nothing to update on
+                # conflict, so a plain idempotent insert-or-ignore.
+                sql = (f"INSERT INTO {table} ({col_list}) VALUES ({marks}) "
+                      f"ON CONFLICT({conflict}) DO NOTHING")
+        self._busy_wrap(lambda: (self.conn.execute(sql, tuple(row.values())),
+                                 self.conn.commit()))
 
     def _now(self):
         # time.time() is allowed here (registry is runtime state, not a
@@ -368,9 +484,11 @@ class Registry:
             (workspace_id, candidate_id)) is not None
 
     def set_candidate_status(self, workspace_id, candidate_id, status):
-        self.conn.execute("UPDATE candidates SET status=? WHERE workspace_id=? AND candidate_id=?",
-                          (status, workspace_id, candidate_id))
-        self.conn.commit()
+        self._busy_wrap(lambda: (
+            self.conn.execute(
+                "UPDATE candidates SET status=? WHERE workspace_id=? AND candidate_id=?",
+                (status, workspace_id, candidate_id)),
+            self.conn.commit()))
 
     def add_label(self, workspace_id, label_id, *, candidate_id=None, reviewer=None,
                   decision=None, rationale=None, revision=1):
@@ -415,10 +533,8 @@ class Registry:
         if not sets:
             return
         args.extend([workspace_id, recording_id])
-        self.conn.execute(
-            f"UPDATE recordings SET {', '.join(sets)} "
-            "WHERE workspace_id=? AND recording_id=?", tuple(args))
-        self.conn.commit()
+        sql = f"UPDATE recordings SET {', '.join(sets)} WHERE workspace_id=? AND recording_id=?"
+        self._busy_wrap(lambda: (self.conn.execute(sql, tuple(args)), self.conn.commit()))
 
     def add_contract_set(self, workspace_id, set_id, member_contract_hashes, *,
                          created_at=None):
@@ -541,4 +657,5 @@ class Registry:
         return [dict(r) for r in cur.fetchall()]
 
 
-__all__ = ["Registry", "DEFAULT_HOME", "SCHEMA_VERSION"]
+__all__ = ["Registry", "DEFAULT_HOME", "SCHEMA_VERSION", "TABLE_PK",
+          "RegistrySchemaVersionError"]

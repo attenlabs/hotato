@@ -29,6 +29,8 @@ recording's basename on a candidate card.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 from functools import lru_cache
@@ -544,7 +546,7 @@ def make_card(input_arg: str, *, include_identifiers: bool = False) -> str:
                                            number=number)
         return _render_candidate(cand, include_identifiers=include_identifiers)
 
-    with open(input_arg, encoding="utf-8") as fh:
+    with _open_regular(input_arg, "r", encoding="utf-8") as fh:
         try:
             doc = json.load(fh)
         except json.JSONDecodeError as exc:

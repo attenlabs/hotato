@@ -37,6 +37,8 @@ only (mirrors the manifest module's zero-dependency posture).
 """
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import hashlib
 import hmac
 import json
@@ -261,7 +263,7 @@ def load_attest_key() -> Optional[bytes]:
         return raw.encode("utf-8")
     path = os.path.expanduser(ATTEST_KEY_FILE)
     try:
-        with open(path, "rb") as fh:
+        with _open_regular(path) as fh:
             data = fh.read().strip()
     except OSError:
         return None
@@ -316,7 +318,7 @@ def load_detached_attestation(bundle_dir: str) -> Optional[dict]:
     """Read ``<bundle>/attestation.json`` if present, else ``None``."""
     path = os.path.join(bundle_dir, ATTESTATION_NAME)
     try:
-        with open(path, encoding="utf-8") as fh:
+        with _open_regular(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, json.JSONDecodeError):
         return None

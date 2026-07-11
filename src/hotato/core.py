@@ -15,12 +15,18 @@ the honest limits block. It introduces no new accuracy claim.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+from .errors import require_regular_file as _require_regular_file
+
+from .errors import wav_read as _wav_read
+
 import array
 import hashlib
 import json
 import math
 import os
 import re
+import stat
 import struct
 import sys
 import wave
@@ -149,6 +155,9 @@ _PCM_HASH_CHUNK_FRAMES = 1 << 16
 
 def _stream_sha256(path: str) -> str:
     h = hashlib.sha256()
+    _require_regular_file(path)
+    # open-ok: _require_regular_file(path) guards on the line above (kept as builtin
+    # open so tests can monkeypatch core.open to spy on chunked reads)
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
@@ -171,7 +180,7 @@ def _stream_pcm_sha256(path: str) -> str:
     length), while still changing on any edit to a sample value.
     """
     h = hashlib.sha256()
-    with wave.open(path, "rb") as wf:
+    with _wav_read(path) as wf:
         while True:
             chunk = wf.readframes(_PCM_HASH_CHUNK_FRAMES)
             if not chunk:
@@ -187,7 +196,7 @@ def _wav_identity(role: str, path: str) -> dict:
     ``_load_signal`` already does; no float decode here)."""
     sha256 = _stream_sha256(path)
     pcm_sha256 = _stream_pcm_sha256(path)
-    with wave.open(path, "rb") as wf:
+    with _wav_read(path) as wf:
         sample_rate = wf.getframerate()
         num_samples = wf.getnframes()
     duration_sec = (num_samples / sample_rate) if sample_rate else None
@@ -558,6 +567,17 @@ def _load_signal(path: str):
     exercise the pure-stdlib path), it delegates unchanged to the engine's own
     list-based ``read_wav`` so behaviour and published numbers are untouched.
     """
+    # Reject anything that is not a regular file BEFORE any open()/wave.open()
+    # call. os.stat() never blocks (unlike opening a FIFO for reading, which
+    # hangs at the OS level until a writer opens the other end); it is always
+    # safe to run first. This single check covers both branches below, since
+    # both eventually call wave.open() on ``path``. os.stat() follows symlinks,
+    # so a symlink to a FIFO is caught too. A missing/unreadable path still
+    # raises the normal OSError here (same as open() would), so file_not_found
+    # classification is unaffected -- only a non-regular file gets the new
+    # ValueError.
+    _require_regular_file(path)
+
     from ._engine import audio as _audio
 
     _np = _audio._np
@@ -566,7 +586,7 @@ def _load_signal(path: str):
         # numpy-vs-stdlib parity check stays honest.
         return _engine.read_wav(path)
 
-    with wave.open(path, "rb") as wf:
+    with _wav_read(path) as wf:
         n_channels = wf.getnchannels()
         sampwidth = wf.getsampwidth()
         sample_rate = wf.getframerate()
@@ -658,7 +678,7 @@ def _read_wav(path: str):
     # decodes fewer. Re-reading the header is best-effort and must never itself
     # fail the read.
     try:
-        with wave.open(path, "rb") as wf:
+        with _wav_read(path) as wf:
             declared = wf.getnframes()
     except Exception:  # pragma: no cover - header re-read is defensive only
         declared = signal.num_samples
@@ -1191,7 +1211,16 @@ def _load_bundled_scenarios() -> list:
     for entry in sorted(pkg.iterdir(), key=lambda p: p.name):
         if not entry.name.endswith(".json") or entry.name == "manifest.json":
             continue
-        scenarios.append(json.loads(entry.read_text(encoding="utf-8")))
+        try:
+            # open-ok: bundled importlib resource (installed package data, not a user path)
+            scenarios.append(json.loads(entry.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, RecursionError) as exc:
+            # Bundled data is trusted, but a clean exit-2 refusal here (same
+            # as the untrusted --scenarios-dir branch below) is still safer
+            # than a raw traceback if a packaged scenario is ever corrupt.
+            raise ValueError(
+                f"{entry.name!r} is not valid JSON: {exc}"
+            ) from exc
     return scenarios
 
 
@@ -1233,14 +1262,30 @@ def run_suite(
         scenarios = []
         for name in sorted(os.listdir(scenarios_dir)):
             if name.endswith(".json") and name != "manifest.json":
-                with open(os.path.join(scenarios_dir, name), encoding="utf-8") as fh:
-                    scenarios.append(json.load(fh))
+                path = os.path.join(scenarios_dir, name)
+                with _open_regular(path, "r", encoding="utf-8") as fh:
+                    try:
+                        scenarios.append(json.load(fh))
+                    except (json.JSONDecodeError, RecursionError) as exc:
+                        raise ValueError(
+                            f"{path!r} is not valid JSON: {exc}"
+                        ) from exc
     else:
         scenarios = _load_bundled_scenarios()
 
     events = []
     audio_base_real = os.path.realpath(audio_dir) if audio_dir else None
     for sc in scenarios:
+        # Shape-check BEFORE any field access: a scenarios pack is untrusted
+        # input (docs/SUBMITTING.md invites third-party scenario submissions),
+        # and a scenario that is not a dict, or has no (or a non-string/empty)
+        # 'id', must fail closed with a clean ValueError -- not an uncaught
+        # KeyError/TypeError traceback that breaks the exit-2 contract.
+        if not isinstance(sc, dict) or not isinstance(sc.get("id"), str) or not sc["id"]:
+            raise ValueError(
+                f"a scenario in {scenarios_dir or 'the bundled battery'} is "
+                "missing a valid string 'id' field (see docs/SUBMITTING.md)"
+            )
         # Validate the id BEFORE it is turned into a path: a scenarios pack is
         # untrusted input (docs/SUBMITTING.md invites third-party scenario+audio
         # submissions), and an id like '../../secret/leaked' would otherwise read

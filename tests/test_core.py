@@ -9,6 +9,7 @@ import wave
 
 import pytest
 
+from hotato import core as _core
 from hotato.core import LIMITS, run_single, run_suite
 
 REQUIRED_TOP_LEVEL = {
@@ -33,6 +34,70 @@ def test_bundled_suite_all_pass():
     assert env["summary"]["passed"] == 8
     assert env["summary"]["regression"] is False
     assert env["exit_code"] == 0
+
+
+def test_run_suite_scenarios_dir_deeply_nested_json_raises_cleanly(tmp_path):
+    """A --scenarios-dir file that is pathologically deeply nested JSON makes
+    CPython's json decoder raise a bare RecursionError, not a
+    json.JSONDecodeError. run_suite must turn that into a clean ValueError
+    (-> exit 2 upstream), never let a RecursionError propagate raw."""
+    scen = tmp_path / "scen"
+    scen.mkdir()
+    (scen / "deep.json").write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
+    with pytest.raises(ValueError) as excinfo:
+        run_suite(scenarios_dir=str(scen), audio_dir=str(tmp_path / "audio"))
+    assert not isinstance(excinfo.value, RecursionError)
+    assert "not valid JSON" in str(excinfo.value)
+
+
+def test_load_bundled_scenarios_deeply_nested_json_raises_cleanly(monkeypatch):
+    """Same defense as the --scenarios-dir branch, applied for consistency to
+    the bundled-battery loader: a corrupt/deeply-nested bundled scenario file
+    must raise a clean ValueError, never propagate a raw RecursionError."""
+
+    class _FakeEntry:
+        name = "deep.json"
+
+        def read_text(self, encoding="utf-8"):
+            return "[" * 200000 + "]" * 200000
+
+    class _FakePkg:
+        def joinpath(self, *_parts):
+            return self
+
+        def iterdir(self):
+            return [_FakeEntry()]
+
+    def _fake_files(_name):
+        return _FakePkg()
+
+    import importlib.resources as importlib_resources
+    monkeypatch.setattr(importlib_resources, "files", _fake_files)
+
+    with pytest.raises(ValueError) as excinfo:
+        _core._load_bundled_scenarios()
+    assert not isinstance(excinfo.value, RecursionError)
+    assert "not valid JSON" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("bad_scenario", [
+    {},                                  # no 'id' at all
+    {"id": ""},                          # empty string id
+    {"id": 123},                         # non-string id
+    "not-a-dict",                        # scenario itself is not an object
+])
+def test_run_suite_scenario_missing_id_raises_cleanly(tmp_path, bad_scenario):
+    """A scenarios-dir JSON file with no (or a non-string/empty) 'id' field --
+    valid JSON, but not a valid scenario -- must raise a clean ValueError, not
+    an uncaught KeyError from ``sc["id"]`` breaking the exit-2 usage-error
+    contract (docs/SUBMITTING.md invites third-party scenario submissions)."""
+    scen = tmp_path / "scen"
+    scen.mkdir()
+    (scen / "bad.json").write_text(json.dumps(bad_scenario), encoding="utf-8")
+    with pytest.raises(ValueError) as excinfo:
+        run_suite(scenarios_dir=str(scen), audio_dir=str(tmp_path / "audio"))
+    assert not isinstance(excinfo.value, KeyError)
+    assert "valid string 'id' field" in str(excinfo.value)
 
 
 def test_envelope_schema_shape():

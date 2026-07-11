@@ -22,6 +22,52 @@ import json as _json
 from ._engine.vad import BackendUnavailable
 
 
+def require_regular_file(path) -> None:
+    """Refuse a non-regular file (FIFO/named pipe, device, socket) BEFORE any
+    ``open()``/``wave.open()`` on it.
+
+    Opening a FIFO for reading blocks at the OS level until a writer appears, so
+    a FIFO path (deliberate, or a stale half-written capture pipe) would hang the
+    whole process with no error. ``os.stat()`` never blocks and follows symlinks,
+    so a symlink to a FIFO is caught too. A missing/unreadable path still raises
+    the normal ``OSError`` here (same as ``open()`` would), so ``file_not_found``
+    classification is unaffected; only a non-regular file gets the ``ValueError``.
+    Every path that ultimately calls ``wave.open()`` should route through here.
+    """
+    import os as _os
+    import stat as _stat
+
+    st = _os.stat(path)
+    if not _stat.S_ISREG(st.st_mode):
+        raise ValueError(
+            f"{path!r} is not a regular file (found a named pipe/FIFO or other "
+            "special file); hotato can only read a plain PCM WAV file. If you "
+            "are streaming from a live process, write the finished recording "
+            "to a real file first, then pass that path."
+        )
+
+
+def wav_read(path):
+    """``wave.open(path, "rb")`` with :func:`require_regular_file` applied first,
+    so no read-mode WAV open anywhere can block forever on a writer-less FIFO.
+    Returns the same ``Wave_read`` object (usable as a context manager)."""
+    require_regular_file(path)
+    import wave as _wave
+
+    # open-ok: require_regular_file(path) ran above; this IS the guarded helper
+    return _wave.open(path, "rb")
+
+
+def open_regular(path, mode: str = "rb", **kwargs):
+    """``open(path, mode, **kwargs)`` with :func:`require_regular_file` applied
+    first, so a read on an externally supplied path (raw bytes for hashing, or a
+    JSON/text config/scenario/trace) can never block forever on a writer-less
+    FIFO. Read modes only. ``kwargs`` (e.g. ``encoding``) pass through to open."""
+    require_regular_file(path)
+    # open-ok: this IS the guarded helper; require_regular_file ran above
+    return open(path, mode, **kwargs)
+
+
 def safe_json_dumps(obj, **kwargs) -> str:
     """``json.dumps`` that refuses to emit RFC-8259-invalid output.
 
@@ -73,7 +119,21 @@ ERROR_EXIT_CODE = 2
 # wrong exit code. A directory passed where a file is expected, an unreadable
 # (chmod 000) input, or an existing --out that cannot be replaced are all input
 # errors, not bugs.
-HANDLED = (ValueError, OSError, BackendUnavailable)
+#
+# ``MemoryError`` is included so that an oversized recording (the decode funnel
+# fully materializes a WAV's PCM bytes in one ``readframes`` call, with no
+# pre-flight size cap) is refused cleanly -- exit 2, structured error -- instead
+# of a raw traceback and the uncaught-exception default exit code.
+#
+# ``RecursionError`` is included so a pathologically deeply nested JSON input
+# (e.g. thousands of nested arrays in a webhook payload, a --scenarios-dir
+# scenario file, or a contract.json) gets the same clean exit-2 treatment
+# instead of a bare traceback: CPython's stdlib ``json`` decoder recurses once
+# per nesting level and raises a bare ``RecursionError`` (not a
+# ``json.JSONDecodeError``) on deeply nested input. Neither MemoryError nor
+# RecursionError is a subclass of ValueError or OSError, so both must be
+# listed explicitly.
+HANDLED = (ValueError, OSError, BackendUnavailable, MemoryError, RecursionError)
 
 # Stable error_code slugs. Append-only: a consumer may branch on these, so an
 # existing slug never changes meaning. Kept in sync with the enum in
@@ -88,6 +148,7 @@ ERROR_CODES = (
     "not_scorable",
     "backend_unavailable",
     "usage_error",
+    "input_too_deeply_nested",
 )
 
 # CLI flag -> MCP parameter name, for rewriting a surfaced message so it
@@ -124,6 +185,23 @@ def classify(exc: Exception) -> tuple[str, str]:
     surface to a model rewrite it with :func:`rewrite_flags`."""
     if isinstance(exc, BackendUnavailable):
         return "backend_unavailable", str(exc)
+    if isinstance(exc, RecursionError):
+        # RecursionError's own str() names the innermost recursive call
+        # (interpreter-internal, not useful to a caller), so it needs its own
+        # branch ahead of the generic ``msg = str(exc)`` fallback below.
+        return (
+            "input_too_deeply_nested",
+            "input JSON is too deeply nested to parse safely.",
+        )
+    if isinstance(exc, MemoryError):
+        # MemoryError's own str() is usually empty, so it needs its own
+        # branch ahead of the generic ``msg = str(exc)`` fallback below --
+        # otherwise the surfaced message would be blank.
+        return (
+            "usage_error",
+            "the recording is too large to decode in memory. Score a "
+            "shorter clip, or run on a machine with more RAM.",
+        )
     if isinstance(exc, FileNotFoundError):
         name = getattr(exc, "filename", None)
         if name:

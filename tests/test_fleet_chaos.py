@@ -3,8 +3,13 @@
 Real production hits duplicate webhooks, concurrent workers, crashes, retry
 storms, and partial uploads. These prove the leased job table converges on ONE
 logical result and the content-addressed store never yields a torn artifact."""
+import hashlib
+import os
 import sqlite3
 import threading
+import time
+
+import pytest
 
 from hotato.fleet.registry import Registry
 from hotato.fleet.jobs import JobQueue
@@ -104,3 +109,102 @@ def test_store_partial_write_never_yields_torn_blob(tmp_path):
     assert st.verify(digest)                      # content addressing holds
     # writing identical content again is idempotent and still verifies
     assert st.put_bytes(data) == digest and st.verify(digest)
+
+
+def test_concurrent_duplicate_writes_never_share_tmp_path(tmp_path):
+    """Regression for finding #9. Drives TWO racing writers of the SAME
+    digest through the exact stall/finish pattern that reproduced the
+    original defect: writer A opens its tmp file, writes half, stalls;
+    writer B opens, writes, and replaces first while A is stalled; A then
+    resumes and replaces too.
+
+    Before the fix, both writers built `tmp = dest + ".tmp"` -- a path
+    derived only from the digest, with no per-writer uniqueness -- so they
+    shared one inode. B's os.replace silently stole A's still-open tmp file
+    out from under it, and A's own later os.replace raised an unhandled
+    FileNotFoundError once B had already renamed the shared path away (this
+    exact scenario: hotato.fleet.api.ingest_recording() calls put_file() on
+    every call and documents duplicate webhook / re-pull delivery as an
+    expected case). After the fix each writer gets a unique tempfile.mkstemp
+    path, so the two can never collide regardless of scheduling: neither
+    raises, and the published blob's bytes still hash to its own digest."""
+    st = ArtifactStore(str(tmp_path))
+    data = (b"A" * (1 << 16)) + (b"B" * (1 << 16))
+    digest = hashlib.sha256(data).hexdigest()
+    dest = st._blob_path(digest)
+    half = len(data) // 2
+
+    errors = []
+
+    def make_writer(stall):
+        def _writer(tmp_path_):
+            with open(tmp_path_, "wb") as fh:
+                fh.write(data[:half])
+                if stall:
+                    time.sleep(0.05)
+                fh.write(data[half:])
+        return _writer
+
+    def run(stall):
+        try:
+            st._write_via_tmp(dest, make_writer(stall))
+        except Exception as exc:  # pragma: no cover - failure path under test
+            errors.append(exc)
+
+    t_slow = threading.Thread(target=run, args=(True,))   # stalls mid-write
+    t_fast = threading.Thread(target=run, args=(False,))  # finishes and replaces first
+    t_slow.start()
+    time.sleep(0.01)  # let the slow writer open its tmp file first, like the repro
+    t_fast.start()
+    t_slow.join()
+    t_fast.join()
+
+    assert errors == []  # neither writer raised (was: unhandled FileNotFoundError)
+    with open(dest, "rb") as fh:
+        assert hashlib.sha256(fh.read()).hexdigest() == digest  # never corrupted
+
+
+def test_write_failure_cleans_up_its_own_tmp_file(tmp_path):
+    """Part of the #9/#12 fix: a failure mid-write (disk full, permission
+    error, ...) must not leak a `.tmp` fragment. The tmp file created for
+    that attempt is removed before the exception propagates, and the
+    original exception is still raised (fail closed, not swallowed)."""
+    st = ArtifactStore(str(tmp_path))
+    dest = st._blob_path("cafebabe")
+
+    def _boom(tmp_path_):
+        assert os.path.exists(tmp_path_)
+        raise OSError("disk full (simulated)")
+
+    with pytest.raises(OSError):
+        st._write_via_tmp(dest, _boom)
+
+    blob_dir = os.path.dirname(dest)
+    leftovers = [f for f in os.listdir(blob_dir) if f.endswith(".tmp")]
+    assert leftovers == []
+
+
+def test_stale_tmp_orphan_is_swept_on_store_open(tmp_path):
+    """Regression for finding #12. A writer killed (SIGKILL / OOM / power
+    loss) after its tmp file is created but before os.replace publishes it
+    leaves a permanent orphan with no lineage record (the crash happens
+    before _record_lineage runs), and nothing else in the repo ever cleans
+    it up. Opening a new ArtifactStore on the same root must sweep old
+    orphans so they cannot accumulate forever on a long-running fleet node,
+    while leaving a recent tmp file (a genuinely in-flight writer) alone."""
+    ArtifactStore(str(tmp_path))  # first open: creates blobs/
+    blob_dir = os.path.join(str(tmp_path), "blobs", "de")
+    os.makedirs(blob_dir, exist_ok=True)
+    stale = os.path.join(blob_dir, "deadbeef.stale.tmp")
+    fresh = os.path.join(blob_dir, "deadbeef.fresh.tmp")
+    for p in (stale, fresh):
+        with open(p, "wb") as fh:
+            fh.write(b"orphan")
+    two_hours_ago = time.time() - 7200
+    os.utime(stale, (two_hours_ago, two_hours_ago))
+    # `fresh` keeps its just-now mtime, well under the sweep's age threshold.
+
+    ArtifactStore(str(tmp_path))  # re-open: triggers the startup sweep
+
+    assert not os.path.exists(stale)  # old orphan reclaimed
+    assert os.path.exists(fresh)      # recent tmp file spared (might be in-flight)
