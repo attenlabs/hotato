@@ -267,3 +267,59 @@ def test_doctor_embeds_audio_for_a_recording_but_not_for_self_test(tmp_path):
     code = cli.main(["doctor", "--demo", "--no-open", "--out", str(demo)])
     assert code == 0
     assert "<audio" not in demo.read_text(encoding="utf-8")
+
+
+# --- audio_reference (fleet) vs self_contained (local) export split ---------
+
+def test_audio_reference_references_audio_and_never_inlines_pcm():
+    # The fleet-safe mode: name the content-addressed audio, inline none of it.
+    html, _ = report.build_report_html(stereo=_bundled_wav(),
+                                       audio_mode="audio_reference")
+    # No PCM anywhere: no data: URI, no native player.
+    assert "data:audio" not in html
+    assert "<audio" not in html
+    # A stable content-addressed reference IS present: pcm_sha256 + a locator.
+    assert "pcm_sha256" in html
+    assert "locator" in html
+    # The page says playback needs the fleet store, so a shared copy leaks no PII.
+    assert "fleet store" in html.lower()
+    # Still one self-contained page: nothing is fetched.
+    assert "http://" not in html and "https://" not in html
+
+
+def test_self_contained_mode_equals_embed_audio_and_keeps_data_uri():
+    # Both spellings of "inline the audio" still produce a base64 data URI.
+    a, _ = report.build_report_html(stereo=_bundled_wav(), embed_audio=True)
+    b, _ = report.build_report_html(stereo=_bundled_wav(),
+                                    audio_mode="self_contained")
+    assert "data:audio/wav;base64," in a
+    assert "data:audio/wav;base64," in b
+
+
+def test_audio_mode_none_is_the_unchanged_small_default():
+    default, _ = report.build_report_html(suite="barge-in")
+    explicit, _ = report.build_report_html(suite="barge-in", audio_mode="none")
+    for html in (default, explicit):
+        assert "<audio" not in html and "data:audio" not in html
+
+
+def test_audio_reference_over_the_bundled_suite_leaks_no_pcm():
+    html, env = report.build_report_html(suite="barge-in",
+                                         audio_mode="audio_reference")
+    assert "data:audio" not in html
+    assert "<audio" not in html
+    # every scored source is referenced by its content-address hash
+    assert html.count("pcm_sha256") == env["summary"]["events"]
+
+
+def test_audio_mode_wins_over_embed_audio_when_both_given():
+    # audio_mode is explicit intent; it overrides the legacy bool.
+    html, _ = report.build_report_html(stereo=_bundled_wav(), embed_audio=True,
+                                       audio_mode="audio_reference")
+    assert "data:audio" not in html
+    assert "pcm_sha256" in html
+
+
+def test_unknown_audio_mode_is_a_clean_value_error():
+    with pytest.raises(ValueError):
+        report.build_report_html(suite="barge-in", audio_mode="bogus")

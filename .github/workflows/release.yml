@@ -99,6 +99,32 @@ jobs:
           /tmp/release-venv/bin/hotato run --suite barge-in --format json > /dev/null
           /tmp/release-venv/bin/hotato --version
 
+      # CycloneDX SBOM(s), generated offline straight from pyproject.toml (no
+      # network, no pip) by scripts/gen_sbom.py: one whole-surface document plus
+      # one per dependency profile (core + each declared extra). Each is
+      # validated with --check before it can be attached to the GitHub release.
+      - name: Generate and validate SBOMs (whole surface + per profile)
+        run: |
+          python scripts/gen_sbom.py --out dist/hotato.sbom.cdx.json
+          python scripts/gen_sbom.py --check dist/hotato.sbom.cdx.json
+          for profile in $(python scripts/gen_sbom.py --list-profiles); do
+            python scripts/gen_sbom.py --profile "$profile" --out "dist/hotato.sbom.$profile.cdx.json"
+            python scripts/gen_sbom.py --check "dist/hotato.sbom.$profile.cdx.json"
+          done
+          ls -1 dist/*.cdx.json
+
+      # Publish the built artifacts + SBOMs so an operator can attach them to the
+      # GitHub release (see docs/RELEASE-CHECKLIST.md). Upload-only: this does
+      # not publish to PyPI or anywhere else.
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dac343f # v4.3.6
+        with:
+          name: hotato-release-dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.cdx.json
+          if-no-files-found: error
+
   # OPERATOR-GATED. Read the block at the top of this file before touching
   # the `if:` line. Left in place, intentionally inert, so the registry
   # publish wiring exists and is reviewable ahead of the first real publish.

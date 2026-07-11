@@ -309,15 +309,33 @@ def test_clean_dual_channel_has_no_leakage_and_stays_safe(tmp_path):
     assert r["recommendation"] == SAFE_RECOMMENDATION
 
 
-def test_faint_leakage_is_reported_but_below_the_warn_bar_stays_safe(tmp_path):
-    # A quieter bleed (~ -46 dB) is measured and reported for transparency, but it
-    # sits below the level that breaks a verdict, so it is NOT flagged: reporting a
-    # number is not the same as raising an alarm.
+def test_leak_below_fixed_bar_that_alters_mask_cautions(tmp_path):
+    # A bleed whose RATIO (~ -46 dB) is below the fixed LEAKAGE_WARN_DB bar, yet the
+    # leaked agent copy still crosses the caller channel's VAD gate and would move the
+    # measured caller onset. The mask-alteration test flags it regardless of the
+    # absolute/ratio dB -- this is the ~6-11 dB gap the fixed bar used to leave open,
+    # where a verdict-changing leak read clean. Disclosed, never silently rescored.
     p = _bleed_stereo(tmp_path / "faint.wav", gain=0.005)
     r = trust_report(p)
     ct = r["crosstalk_risk"]
     assert ct["leakage_db"] is not None
-    assert ct["leakage_db"] < trust_mod.LEAKAGE_WARN_DB
+    assert ct["leakage_db"] < trust_mod.LEAKAGE_WARN_DB   # BELOW the fixed bar...
+    assert ct["suspected"] is True                        # ...yet flagged (mask altered)
+    assert r["recommendation"].startswith(trust_mod.CAUTION_RECOMMENDATION)
+    assert r["recommendation"] != SAFE_RECOMMENDATION
+    assert r["scorable"] is True
+    assert r["exit_code"] == 0
+
+
+def test_below_report_faint_leak_stays_clean(tmp_path):
+    # A bleed too faint to be reliably estimated at all (below LEAKAGE_REPORT_DB):
+    # no consistent copy is reported, so nothing is fabricated as a warning and the
+    # recording stays eligible. The mask test only ever ADDS caution to a REPORTED
+    # leak; it never invents one.
+    p = _bleed_stereo(tmp_path / "veryfaint.wav", gain=0.004)
+    r = trust_report(p)
+    ct = r["crosstalk_risk"]
+    assert ct["leakage_db"] is None
     assert ct["suspected"] is False
     assert r["recommendation"] == SAFE_RECOMMENDATION
 

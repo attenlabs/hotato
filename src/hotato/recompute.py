@@ -307,8 +307,16 @@ def recompute_trial(
         vector["audio_identity"] = "missing"
     else:
         vector["audio_identity"] = "recomputed"
-    # policy: pinned by the manifest and applied to both sides
-    vector["policy_integrity"] = "manifest_pinned" if _manifest.verify_manifest_hash(man) else "changed"
+    # policy: pinned by the manifest and applied to both sides. A manifest whose
+    # canonical body is HMAC-signed (and verifies under the attest key) is 'signed'
+    # -- the strongest policy-integrity state; a pinned-but-unsigned manifest is
+    # 'manifest_pinned'; a body that no longer matches its hash is 'changed'.
+    if not _manifest.verify_manifest_hash(man):
+        vector["policy_integrity"] = "changed"
+    elif man.get("signature") and _manifest.verify_manifest_signature(man, _receipt.load_key()):
+        vector["policy_integrity"] = "signed"
+    else:
+        vector["policy_integrity"] = "manifest_pinned"
     # fixture universe completeness (both sides must cover the pinned set)
     if before_cov["complete"] and after_cov["complete"]:
         vector["fixture_set_integrity"] = "manifest_complete"

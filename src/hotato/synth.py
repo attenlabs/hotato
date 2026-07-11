@@ -132,6 +132,42 @@ def _apply(chans, rate, recipe: dict, seed: int):
     elif kind == "clip":
         ceil = int(32767 * float(recipe.get("ceiling", 0.5)))
         out = [[max(-ceil, min(ceil, s)) for s in c] for c in out]
+    elif kind == "backchannel":
+        # add a short caller-side utterance (backchannel) of a swept duration:
+        # a fixed tone burst on the caller channel (out[0]) so a scorer sees a
+        # brief overlap of the declared length. Deterministic (no PRNG).
+        dur = float(recipe["duration_sec"]); at = float(recipe.get("at_sec", 0.0))
+        freq = float(recipe.get("freq", 300.0)); amp = float(recipe.get("amp", 8000))
+        caller = out[0]
+        start = int(at * rate); length = int(dur * rate)
+        for k in range(length):
+            i = start + k
+            if 0 <= i < len(caller):
+                caller[i] = int(max(-32768, min(32767,
+                    caller[i] + amp * math.sin(2 * math.pi * freq * k / rate))))
+    elif kind == "agent_gap":
+        # sweep a silence gap into the AGENT channel around a hangover boundary:
+        # zero a window of the declared length so the agent goes briefly quiet.
+        gap = float(recipe["gap_sec"]); at = float(recipe.get("at_sec", 0.0))
+        agent = out[-1]
+        start = int(at * rate); length = int(gap * rate)
+        for k in range(length):
+            i = start + k
+            if 0 <= i < len(agent):
+                agent[i] = 0
+    elif kind == "packet_gap":
+        # simulate periodic packet loss: zero a ``gap_ms`` window every
+        # ``period_ms`` across every channel. Deterministic, length-preserving.
+        gap_ms = float(recipe["gap_ms"]); period_ms = float(recipe.get("period_ms", 200.0))
+        gap_n = int(gap_ms * rate / 1000.0)
+        period_n = max(1, int(period_ms * rate / 1000.0))
+        for c in out:
+            i = 0
+            while i < len(c):
+                for k in range(gap_n):
+                    if i + k < len(c):
+                        c[i + k] = 0
+                i += period_n
     else:
         raise ValueError(f"unknown transform {kind!r}")
     return out, out_rate
@@ -147,6 +183,7 @@ def perturb(source_wav: str, recipe: dict, *, out_path: str, seed: int = 1) -> d
     return {
         "schema_version": SCHEMA_VERSION,
         "synthetic": True,                 # explicit: NEVER a real recording
+        "axis": "synthetic",               # a SEPARATE report axis, never blended
         "designation": "synthetic-derived",
         "tool": TOOL,
         "seed": seed,
@@ -173,10 +210,44 @@ def default_matrix() -> List[dict]:
     m.append({"transform": "invert_channels"})
     for s in (0.5, 2.0):
         m.append({"transform": "leading_silence", "seconds": s})
+    for s in (0.5, 2.0):
+        m.append({"transform": "trailing_silence", "seconds": s})
     for s in (0.01, 0.02):
         m.append({"transform": "onset_offset", "seconds": s})
     m.append({"transform": "clip", "ceiling": 0.5})
+    # backchannel duration sweep (caller-side brief utterances).
+    for d in (0.1, 0.3, 0.6):
+        m.append({"transform": "backchannel", "duration_sec": d, "at_sec": 2.0})
+    # agent silence-gap sweep around hangover boundaries.
+    for g in (0.05, 0.1, 0.2):
+        m.append({"transform": "agent_gap", "gap_sec": g, "at_sec": 2.0})
+    # packet-gap simulation (periodic loss).
+    for gm in (20, 40):
+        m.append({"transform": "packet_gap", "gap_ms": gm, "period_ms": 200})
     return m
 
 
-__all__ = ["perturb", "default_matrix", "SCHEMA_VERSION", "TOOL"]
+def synth_battery(source_wav: str, out_dir: str, *, seed: int = 1) -> List[dict]:
+    """Run the full :func:`default_matrix` over ONE real fixture and return a list
+    of derived-clip provenance records.
+
+    Each record is explicitly tagged ``axis="synthetic"`` and designation
+    ``"synthetic-derived"`` so a caller can render these on a SEPARATE report axis
+    -- never blended with real-call results (a thousand generated perturbations
+    must never raise the evidentiary confidence of one real recapture, plan §11).
+    Every record keeps the parent PCM hash, the transform recipe, the seed, the
+    tool+version, and the derived output hashes. Fully deterministic (the LCG PRNG
+    plus a fixed matrix and fixed clip names; no ``os.urandom``)."""
+    os.makedirs(out_dir, exist_ok=True)
+    records: List[dict] = []
+    for i, recipe in enumerate(default_matrix()):
+        name = f"synthetic-{i:03d}-{recipe['transform']}.wav"
+        prov = perturb(source_wav, recipe, out_path=os.path.join(out_dir, name),
+                       seed=seed)
+        prov["axis"] = "synthetic"            # explicit separate axis
+        prov["designation"] = "synthetic-derived"
+        records.append(prov)
+    return records
+
+
+__all__ = ["perturb", "default_matrix", "synth_battery", "SCHEMA_VERSION", "TOOL"]

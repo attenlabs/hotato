@@ -1,7 +1,7 @@
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.0.1, offline. The rows
+Every block below is verbatim CLI output from hotato 1.1.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean case starts from the bundled example `01-hard-interruption.example.wav`
@@ -26,10 +26,10 @@ hotato trust: 01-hard-interruption.example.wav
   leading silence: 0.19s
   crosstalk: coherence 0.306 (low) at 0.5s lag
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => safe to scan
+  => eligible for scan
 ```
 
-**Verdict:** `safe to scan`, exit 0. Score it. This is the only condition where
+**Verdict:** `eligible for scan`, exit 0. Score it. This is the only condition where
 a full turn-taking verdict is trustworthy without a caveat.
 
 ---
@@ -93,10 +93,10 @@ hotato trust: swapped-warn.wav
   leading silence: 0.00s
   possible channel swap: channel 0 (mapped as caller) holds the floor 2.71s vs 1.05s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => safe to scan
+  => eligible for scan
 ```
 
-**Verdict:** `safe to scan`, exit 0, with a swap warning. This is the most
+**Verdict:** `eligible for scan`, exit 0, with a swap warning. This is the most
 dangerous condition, because scoring proceeds. A swap silently inverts every
 yield into a hold. Confirm the mapping (or set `--caller-channel` /
 `--agent-channel`) before you trust the verdict.
@@ -117,10 +117,10 @@ hotato trust: 07-echo-bleed.example.wav
   leading silence: 0.19s
   crosstalk: coherence 1.0 (HIGH) at 0.12s lag
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => safe to scan
+  => eligible for scan
 ```
 
-**Verdict:** `safe to scan`, exit 0, with a **HIGH crosstalk** warning. Scoring
+**Verdict:** `eligible for scan`, exit 0, with a **HIGH crosstalk** warning. Scoring
 proceeds, but the "caller" activity may be leaked TTS, so every candidate here is
 lower confidence. The scan step (example 8) names the specific moment.
 

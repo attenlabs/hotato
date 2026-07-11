@@ -65,7 +65,7 @@ of one hundreds of milliseconds inside the limit.
 
 ### Honest trust headline
 Any verdict-changing warning (low signal, possible channel swap, VAD-relevant
-leakage) forces `scan with caution`, never `safe to scan`. `input_health` is an
+leakage) forces `scan with caution`, never `eligible for scan`. `input_health` is an
 explicit three-state field (`clean` / `caution` / `not_scorable`). Leakage is
 judged both against the fixed −40 dB bar and dynamically against the receiving
 channel's effective VAD gate.

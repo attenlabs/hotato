@@ -7,6 +7,70 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [1.1.0] - 2026-07-11
+
+Guardian/Fleet build-out. Completes the self-hosted control plane over the
+evidence kernel per the definitive overhaul plan: the automatic
+failure-to-fix loop, capture-receipt attestation, batch discovery, privacy
+controls, and an honest trust headline are now wired end to end. Always
+recommends, never auto-deploys.
+
+### Added
+- **Bounded experiment engine.** `hotato fleet experiment propose` generates a
+  catalogue-driven, bounded variant set (baseline + lower/higher/adjacent/
+  two-parameter, capped ~6), each with an expected-effects block stated before
+  execution; `FleetAPI.experiment_run_all` runs each as a manifest-bound clone
+  trial and Pareto-ranks the eligible ones over visible components (no blended
+  "Hotato score"). A unified, versioned typed parameter catalogue backs it.
+- **Capture-receipt attestation is emitted, not just verified.** The clone
+  runner signs a per-fixture capture receipt bound to the trial nonce + decoded
+  PCM; with a signing key present a clean fresh recapture now reaches the
+  ATTESTED tier ("PAIRED FRESH-RECAPTURE IMPROVED"). Without a key it stays
+  operator-asserted, never silently upgraded.
+- **Batch discovery + cross-call clustering.** `hotato fleet run` ingests and
+  discovers a set of recordings, clusters candidate shapes across calls to fill
+  the recurrence / novelty / covered-by-contract ranking components, and
+  advances a durable watermark. Never auto-labels.
+- **Idempotent jobs.** ingest / discover / experiment now record leased,
+  idempotent jobs, so a duplicate webhook, scheduler retry, or worker crash
+  converges on one logical result.
+- **One-click contracts + high-stakes.** `hotato fleet contract create
+  --from-candidate` labels a reviewed candidate and mints + registers a real
+  failure contract; `--high-stakes` marks it, making the canary gate and the
+  private benchmark's high-stakes counts real.
+- **Privacy controls, wired.** `hotato fleet retention` attaches a retention/
+  consent policy; `hotato fleet delete` removes audio and leaves a durable
+  deletion receipt (a legal hold blocks it); `hotato fleet redact` produces a
+  DERIVED redacted copy (new PCM hash + parent lineage), never the original
+  evidence. Reports gained an audio-reference mode that references audio by
+  hash instead of inlining PCM.
+- **`hotato fleet experiment approve`** records a human approval decision
+  (recorded only; never deploys). **`hotato synth`** generates deterministic
+  synthetic perturbations of a real recording as a SEPARATE synthetic axis.
+- **Optional label-suggestion review assistant** (plan §12): abstains on any
+  uncertainty and is advisory only; a human label is always required to promote
+  a contract.
+- **MCP** gained `candidate_inspect`, `experiment_status`, and
+  `experiment_create`; every fleet-tool response now carries a uniform
+  evidence-status / refusal / artifact-digest / pending-action envelope.
+- **New registry entities** (contract sets, deployment receipts, attestations,
+  variants, watermarks, per-recording retention/PII) and a signed trial
+  manifest (wheel hash, adapter identity, required yield/hold lists, capture
+  plan).
+- **Supply chain**: SBOM generation (per-extra profiles) wired into release CI,
+  build-provenance attestation, and a reproducible-build hash check; PyPI
+  Trusted Publishing documented as the default path.
+
+### Changed
+- **Trust headline is honest under leakage.** Cross-channel leakage now cautions
+  whenever the suspected leaked component would alter the receiving channel's
+  activity mask (onset / active frames / talk-over), closing a gap where a
+  verdict-changing leak still read clean. "safe to scan" is now
+  "eligible for scan" (eligibility, not a safety guarantee).
+- **Claim contracts.** A machine-readable evidence-language table governs public
+  claim phrases; cards fail closed if a rendered claim exceeds the evidence tier
+  it earned, and the copy lint enforces the same table.
+
 ## [1.0.1] - 2026-07-11
 
 Evidence-integrity hotfix. An external audit of 0.10.0 found several paths where a

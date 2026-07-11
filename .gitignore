@@ -66,3 +66,6 @@ hotato-analyze*.html
 hotato-fixplan*.json
 hotato-pull-*/
 hotato-sweep-*/
+dist_101/
+hotato-review.html
+*.review.html

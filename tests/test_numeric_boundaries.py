@@ -1,7 +1,7 @@
 """Permanent numeric-boundary gates (plan Mission 2 / §3).
 
 Turns the audit's measured boundaries into regression tests: rate invariance,
-low-signal -> caution (not 'safe to scan'), channel inversion -> possible-swap
+low-signal -> caution (not 'eligible for scan'), channel inversion -> possible-swap
 caution, and hop-grid boundary-sensitivity. Uses deterministic synthetic
 perturbations of a real fixture.
 """
@@ -43,9 +43,9 @@ def test_low_signal_forces_caution_not_safe(tmp_path):
     rep = trust.trust_report(out)
     if rep.get("scorable"):
         rec = rep["recommendation"]
-        # any verdict-changing warning present -> not the strongest safe headline
+        # any verdict-changing warning present -> not the strongest clean headline
         if rep.get("warnings"):
-            assert rec != "safe to scan", rec
+            assert rec != trust.SAFE_RECOMMENDATION, rec
         # input_health is one of the three explicit states
         assert rep.get("input_health") in ("clean", "caution", "not_scorable")
 

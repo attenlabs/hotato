@@ -1,13 +1,21 @@
 # MCP: the hotato server
 
 hotato ships an MCP server, `hotato-mcp`, that speaks MCP over stdio and
-exposes nine tools: one scoring tool, `voice_eval_run`, which returns the
-identical JSON envelope (`schema_version` "1") the CLI emits, plus eight fleet
-tools that read, verify, and propose over a local fleet workspace
-(`fleet_status`, `candidate_list`, `contract_list`, `trial_explain`,
-`artifact_verify`, `experiment_propose`) and run clone-scoped experiments
-(`experiment_run`, `clone_cleanup`). None of them deploys to production.
+exposes twelve tools: one scoring tool, `voice_eval_run`, which returns the
+identical JSON envelope (`schema_version` "1") the CLI emits, plus eleven fleet
+tools. Eight read, verify, and propose over a local fleet workspace
+(`fleet_status`, `candidate_list`, `candidate_inspect`, `contract_list`,
+`trial_explain`, `experiment_status`, `artifact_verify`, `experiment_propose`);
+three are clone-scoped actions that recompute, never deploy (`experiment_create`,
+`experiment_run`, `clone_cleanup`). None of them deploys to production.
 Everything runs locally; no audio leaves the machine.
+
+Every tool response carries a uniform control envelope: four keys ride on every
+response (pure reads included) so an autonomous caller parses one shape:
+`evidence_status` (or null for a pure read with no verdict), `refusal_reason`
+(or null), `artifact_digests` (a list, or `[]`), and
+`pending_irreversible_action` (the exact human-gated action still pending, e.g.
+deployment approval, or null).
 
 ## Run it (zero-install)
 
@@ -111,7 +119,7 @@ surfaces.
 
 ## The fleet tools
 
-Eight tools drive the local, self-hosted fleet control plane
+Eleven tools drive the local, self-hosted fleet control plane
 ([`GUARDIAN-FLEET.md`](GUARDIAN-FLEET.md)). They read and reason over a
 workspace; they never auto-label and never deploy to production.
 
@@ -119,10 +127,13 @@ workspace; they never auto-label and never deploy to production.
 | --- | --- | --- |
 | `fleet_status` | read-only | workspace counts + job-queue stats |
 | `candidate_list` | read-only | top candidate moments awaiting a human label |
+| `candidate_inspect` | read-only | one candidate's detail: onset, measured components (severity/input_health/recurrence/novelty/covered_by_contract), and trust findings |
 | `contract_list` | read-only | contracts in a workspace |
 | `trial_explain` | read-only | a recorded trial's verdict, evidence tier, and any pending human-gated action |
+| `experiment_status` | read-only | a trial's current verdict, evidence tier, recommendation, and manifest hash |
 | `artifact_verify` | read-only | a contract bundle's authenticity + evidence, without trusting it |
 | `experiment_propose` | read-only | a bounded variant set with expected effects; does not clone, apply, or deploy |
+| `experiment_create` | clone-scoped | precommit a trial manifest from a committed battery BEFORE any capture; never captures, never deploys |
 | `experiment_run` | clone-scoped | recompute a before/after trial offline (no network, no production mutation) and record a recommendation |
 | `clone_cleanup` | clone-scoped | delete a STAGING clone an experiment created; never touches production |
 

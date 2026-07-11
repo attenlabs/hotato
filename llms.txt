@@ -9,7 +9,7 @@
 > Some timing signatures map to a likely fix class; root cause may remain
 > unknown. Runs entirely on your machine. Built to be called by an AI agent
 > mid-task, as a CLI or an MCP server.
-> Version 1.0.1. This file is the machine-readable index; `hotato describe
+> Version 1.1.0. This file is the machine-readable index; `hotato describe
 > --format json` emits the same information generated straight from the CLI's
 > own argparse structure (every subcommand, its args, its exit codes, plus the
 > schema URLs and the version), so it can never drift from the real flags.
@@ -300,7 +300,7 @@ it, never whether the policy itself was right.
   dashboard with the hear-the-bug audio playhead.
 - docs/TRUST.md: `hotato trust`, the input-health "trust doctor" pre-scan check
   (per-channel activity, channel-swap flag, clipping, leading silence, crosstalk
-  risk, scorability) that says "safe to scan" or "NOT SCORABLE" with the reason
+  risk, scorability) that says "eligible for scan" or "NOT SCORABLE" with the reason
   and the next step. Never a turn-taking verdict.
 - docs/CONNECT.md: `hotato connect` / `pull` / `sweep`, the connect-once bulk
   pull-and-analyze recipe across your real calls, with per-stack credentials.

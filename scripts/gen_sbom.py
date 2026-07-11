@@ -13,6 +13,16 @@ Usage
   python3 scripts/gen_sbom.py                       # -> dist/hotato.sbom.cdx.json
   python3 scripts/gen_sbom.py --out /tmp/sbom.json  # custom output path
   python3 scripts/gen_sbom.py --check dist/hotato.sbom.cdx.json  # validate one
+  python3 scripts/gen_sbom.py --profile core        # -> dist/hotato.sbom.core.cdx.json
+  python3 scripts/gen_sbom.py --profile neural      # -> dist/hotato.sbom.neural.cdx.json
+  python3 scripts/gen_sbom.py --list-profiles       # core + each declared extra
+
+Profiles scope the dependency surface: with no ``--profile`` the SBOM covers the
+whole surface (core plus every extra); ``core`` is the zero-dependency core
+alone; any extra name is core plus that one ``[project.optional-dependencies]``
+group. Each profile gets a deterministic serialNumber, so re-running on the same
+tree+profile always yields the same document. ``--list-profiles`` prints ``core``
+then every declared extra, one per line, so CI can emit one SBOM per profile.
 
 Exit codes: 0 on success, 1 on a validation failure (in --check mode) or a
 parse error.
@@ -70,7 +80,15 @@ def _purl(name, version=None):
     return f"{base}@{version}" if version else base
 
 
-def build_sbom(pyproject):
+def build_sbom(pyproject, profile=None):
+    """Build a CycloneDX document for the given dependency ``profile``.
+
+    ``profile`` selects which optional-dependency groups are included:
+      * ``None``     -- the whole surface (core deps plus every extra); default.
+      * ``"core"``   -- none (the zero-dependency core alone).
+      * ``"<extra>"``-- core deps plus that one declared extra group.
+    Core (required) ``[project].dependencies`` are always included.
+    """
     project = pyproject.get("project")
     if not project:
         raise SystemExit("pyproject.toml has no [project] table")
@@ -78,6 +96,19 @@ def build_sbom(pyproject):
     version = project.get("version")
     if not name or not version:
         raise SystemExit("pyproject.toml [project] is missing name or version")
+
+    optional = project.get("optional-dependencies") or {}
+    if profile is None:
+        groups = list(optional.keys())
+    elif profile == "core":
+        groups = []
+    elif profile in optional:
+        groups = [profile]
+    else:
+        raise SystemExit(
+            f"unknown profile {profile!r}; expected 'core' or one of the "
+            f"declared extras: {', '.join(sorted(optional)) or '(none)'}"
+        )
 
     components = []
     seen = set()  # dedupe by (name) -- a dep can appear in several extra groups
@@ -124,16 +155,17 @@ def build_sbom(pyproject):
     for req in project.get("dependencies", []) or []:
         add_dep(req, "runtime")
 
-    # Every optional-dependencies group, scope-tagged by group name.
-    for group, reqs in (project.get("optional-dependencies") or {}).items():
-        for req in reqs or []:
+    # The selected optional-dependencies groups, scope-tagged by group name.
+    for group in groups:
+        for req in optional.get(group) or []:
             add_dep(req, f"optional:{group}")
 
+    profile_label = profile or "all"
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
-        "serialNumber": f"urn:uuid:{_uuid_from(name, version)}",
+        "serialNumber": f"urn:uuid:{_uuid_from(name, version, profile_label)}",
         "version": 1,
         "metadata": {
             "timestamp": now,
@@ -144,18 +176,24 @@ def build_sbom(pyproject):
                 "version": version,
                 "bom-ref": _purl(name, version),
                 "purl": _purl(name, version),
+                "properties": [{"name": "hotato:profile", "value": profile_label}],
             },
         },
         "components": components,
     }
 
 
-def _uuid_from(name, version):
+def _uuid_from(name, version, profile="all"):
     """Deterministic UUIDv5 in the URL namespace, so re-running on the same
-    tree yields the same serialNumber (no random reruns churning the file)."""
+    tree+profile yields the same serialNumber (no random reruns churning the
+    file). The whole-surface default keeps its historical seed; a scoped profile
+    folds its name in so each profile gets its own stable serialNumber."""
     import uuid
 
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"hotato-sbom:{name}:{version}"))
+    seed = f"hotato-sbom:{name}:{version}"
+    if profile and profile != "all":
+        seed += f":{profile}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
 
 
 def check_sbom(path):
@@ -218,7 +256,30 @@ def main(argv=None):
         default=os.path.join(ROOT, "pyproject.toml"),
         help="path to pyproject.toml (default: repo root)",
     )
+    parser.add_argument(
+        "--profile",
+        metavar="NAME",
+        default=None,
+        help="scope the SBOM to a dependency profile: 'core' (zero-dependency "
+        "core only), an extra name (core plus that optional-dependencies "
+        "group), or omit for the whole surface (core plus every extra). "
+        "With a profile and no --out, writes dist/hotato.sbom.<profile>.cdx.json. "
+        "See --list-profiles.",
+    )
+    parser.add_argument(
+        "--list-profiles",
+        action="store_true",
+        help="print the available profiles ('core' plus each declared extra), "
+        "one per line, and exit -- lets CI emit one SBOM per profile.",
+    )
     args = parser.parse_args(argv)
+
+    if args.list_profiles:
+        project = _load_pyproject(args.pyproject).get("project") or {}
+        print("core")
+        for group in sorted((project.get("optional-dependencies") or {})):
+            print(group)
+        return 0
 
     if args.check:
         problems = check_sbom(args.check)
@@ -230,16 +291,22 @@ def main(argv=None):
         print(f"SBOM OK: {args.check}")
         return 0
 
-    sbom = build_sbom(_load_pyproject(args.pyproject))
-    out_dir = os.path.dirname(os.path.abspath(args.out))
+    sbom = build_sbom(_load_pyproject(args.pyproject), profile=args.profile)
+    out = args.out
+    # A profile with the default --out gets a per-profile filename so the
+    # profiles never clobber each other or the whole-surface SBOM.
+    if args.profile and out == DEFAULT_OUT:
+        out = os.path.join(ROOT, "dist", f"hotato.sbom.{args.profile}.cdx.json")
+    out_dir = os.path.dirname(os.path.abspath(out))
     os.makedirs(out_dir, exist_ok=True)
-    with open(args.out, "w", encoding="utf-8") as fh:
+    with open(out, "w", encoding="utf-8") as fh:
         json.dump(sbom, fh, indent=2, sort_keys=False)
         fh.write("\n")
     print(
-        f"wrote {args.out}: {len(sbom['components'])} components "
+        f"wrote {out}: {len(sbom['components'])} components "
         f"({sbom['metadata']['component']['name']} "
-        f"{sbom['metadata']['component']['version']})"
+        f"{sbom['metadata']['component']['version']}, "
+        f"profile={args.profile or 'all'})"
     )
     return 0
 

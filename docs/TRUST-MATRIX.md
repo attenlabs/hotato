@@ -13,11 +13,11 @@ Worked examples with real CLI output for every row are in
 
 | Input condition | `trust` behavior | Exit | Scoring downstream |
 |---|---|---|---|
-| **Clean dual-channel (stereo)** | `safe to scan` | 0 | **Full scoring.** `scan`, `run`, `compare`, `verify` all run normally. |
+| **Clean dual-channel (stereo)** | `eligible for scan` | 0 | **Full scoring.** `scan`, `run`, `compare`, `verify` all run normally. |
 | **Silent caller channel** | `NOT SCORABLE: caller channel has no detected speech` | 2 | **Refused.** There is no caller to measure a yield against. |
 | **Silent agent channel** | `NOT SCORABLE: agent channel has no detected speech` | 2 | **Refused.** There is no agent floor to interrupt. |
-| **Channel swap risk** | `safe to scan` **plus** `possible channel swap` **warning** | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
-| **High crosstalk / echo bleed** | `safe to scan` **plus** high `crosstalk: coherence` **warning** | 0 | Scores at **lower confidence.** `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
+| **Channel swap risk** | `eligible for scan` **plus** `possible channel swap` **warning** | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
+| **High crosstalk / echo bleed** | `eligible for scan` **plus** high `crosstalk: coherence` **warning** | 0 | Scores at **lower confidence.** `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
 | **Mixed mono (single channel)** | `NOT SCORABLE: single channel, caller and agent cannot be told apart` | 2 | **Refused by default.** Export dual-channel, or take one of the two opt-in escapes (below). |
 | **Mono, opt-in `--allow-mono`** | accepted in **degraded mode**, results **indicative only** | 0 | On `capture` / `pull` / `sweep` for a mono-only stack. Talk-over cannot be attributed, so no SLA gate fires. Never equivalent to dual-channel. |
 | **Mono, opt-in `--diarize`** | separability **tier**: `high` / `low` / `refuse` | 0 (high/low), 2 (refuse) | The separation front-end. `hotato run --mono call.wav --diarize` scores it; at `low` the verdict is stamped `indicative_only`. Never equivalent to dual-channel. |
@@ -25,7 +25,7 @@ Worked examples with real CLI output for every row are in
 | **Noisy / false-positive candidate** | `trust` warns (clipping, crosstalk, hot capture); `scan` still lists the candidate | 0 | Surfaced **with** the warning. A candidate you inspect and label `hold`, not a bug Hotato asserts. |
 
 **Reading the two axes.** `trust` answers one question: is this audio good enough
-to score? The exit code is the machine contract, `0` = safe to scan (possibly
+to score? The exit code is the machine contract, `0` = eligible for scan (possibly
 with warnings), `2` = not scorable (with the reason and the next step). Warnings
 (swap, crosstalk, clipping, leading silence) do **not** by themselves make a
 recording unscorable; the three hard refusals do (mono, identical channels, a

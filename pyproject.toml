@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.0.1"
+version = "1.1.0"
 description = "Offline turn-taking analysis and regression evidence for dual-channel voice-agent recordings, MIT."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -92,6 +92,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 hotato = [
+    "data/evidence_language.json",
     "data/scenarios/*.json",
     "data/audio/*.wav",
     "data/demo/failing/scenarios/*.json",

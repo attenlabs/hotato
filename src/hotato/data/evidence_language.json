@@ -1,0 +1,72 @@
+{
+  "schema_version": "1",
+  "note": "Claim-language contract. Maps every PUBLIC claim phrase a renderer (card, report, CLI, JSON, site) may emit to the machine evidence dimension that must support it and the highest evidence tier it is allowed to assert. `max_tier` uses the same 0-4 ladder as hotato.evidence (NONE=0, ASSERTED=1, MEASURED=2, PAIRED=3, ATTESTED=4). A renderer must never emit a phrase whose `max_tier` exceeds the classification tier its evidence vector actually earns; scripts/copy_lint.py and card.py enforce this from THIS table, so the phrasing and its evidence bar have one source of truth.",
+  "claims": {
+    "PAIRED FRESH-RECAPTURE IMPROVED": {
+      "machine_field": "capture_origin",
+      "required_state": "runner_attested",
+      "max_tier": 4,
+      "surface": "card_headline"
+    },
+    "PAIRED FRESH-RECAPTURE": {
+      "machine_field": "capture_origin",
+      "required_state": "runner_attested",
+      "max_tier": 4,
+      "surface": "card_title"
+    },
+    "ATTESTED PAIRED": {
+      "machine_field": "capture_origin",
+      "required_state": "runner_attested",
+      "max_tier": 4,
+      "surface": "card_kind_tag"
+    },
+    "PAIRED IMPROVED": {
+      "machine_field": "capture_origin",
+      "required_state": "runner_attested",
+      "max_tier": 3,
+      "surface": "card_headline"
+    },
+    "PAIRED IMPROVED (RECAPTURE OPERATOR-ASSERTED)": {
+      "machine_field": "capture_origin",
+      "required_state": "operator_asserted",
+      "max_tier": 3,
+      "surface": "card_headline"
+    },
+    "PAIRED (OPERATOR-ASSERTED)": {
+      "machine_field": "capture_origin",
+      "required_state": "operator_asserted",
+      "max_tier": 3,
+      "surface": "card_title"
+    },
+    "MEASURED FROM AUDIO": {
+      "machine_field": "score_integrity",
+      "required_state": "recomputed",
+      "max_tier": 2,
+      "surface": "card_headline"
+    },
+    "ASSERTED (UNVERIFIED)": {
+      "machine_field": "score_integrity",
+      "required_state": "envelope_only",
+      "max_tier": 1,
+      "surface": "card_headline"
+    },
+    "NO EVIDENCE": {
+      "machine_field": null,
+      "required_state": null,
+      "max_tier": 0,
+      "surface": "card_headline"
+    },
+    "eligible for scan": {
+      "machine_field": "input_health",
+      "required_state": "clean",
+      "max_tier": 4,
+      "surface": "trust_recommendation"
+    },
+    "scan with caution": {
+      "machine_field": "input_health",
+      "required_state": "caution",
+      "max_tier": 2,
+      "surface": "trust_recommendation"
+    }
+  }
+}

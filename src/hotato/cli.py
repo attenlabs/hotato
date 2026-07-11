@@ -293,7 +293,7 @@ _EXIT_CODES: dict = {
         (2, "usage error or unreadable input"),
     ),
     "trust": (
-        (0, "the recording is safe to scan (the input-health report is printed; "
+        (0, "the recording is eligible for scan (the input-health report is printed; "
             "never a turn-taking verdict)"),
         (2, "NOT SCORABLE (mono, identical channels, or a silent required "
             "channel -- the report names the reason and the next step), a usage "
@@ -472,6 +472,42 @@ _EXIT_CODES: dict = {
         (0, "the trial manifest was precommitted from the battery (its fixture "
             "universe is now pinned before any capture)"),
         (2, "usage error or unreadable battery/policy input"),
+    ),
+    "fleet experiment propose": (
+        (0, "a bounded variant set was generated and persisted"),
+        (2, "usage error or no catalogue entry for the stack/intent"),
+    ),
+    "fleet experiment approve": (
+        (0, "the human approval was recorded (no deployment is performed)"),
+        (2, "usage error or unknown trial"),
+    ),
+    "fleet run": (
+        (0, "recordings were ingested + discovered and candidates reclustered"),
+        (2, "usage error or unreadable recording input"),
+    ),
+    "fleet contract": (
+        (2, "no subcommand given (see hotato fleet contract create --help)"),
+    ),
+    "fleet contract create": (
+        (0, "a failure contract was minted from the candidate and registered"),
+        (2, "usage error, unknown candidate, or a not-scorable recording"),
+    ),
+    "fleet retention": (
+        (0, "a retention/consent policy was attached to the recording"),
+        (2, "usage error or unknown recording"),
+    ),
+    "fleet delete": (
+        (0, "the recording audio was deleted and a receipt recorded"),
+        (1, "deletion was blocked by a legal hold"),
+        (2, "usage error or unknown recording"),
+    ),
+    "fleet redact": (
+        (0, "a derived redacted copy was written and registered"),
+        (2, "usage error or unknown recording"),
+    ),
+    "synth": (
+        (0, "synthetic-derived perturbations were written as a separate axis"),
+        (2, "usage error or unreadable source audio"),
     ),
     "fleet experiment run": (
         (0, "the before/after battery improved under the pinned manifest "
@@ -1786,6 +1822,131 @@ def _cmd_fleet_experiment_run(args) -> int:
         api.close()
 
 
+def _cmd_fleet_run(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.run(args.workspace, args.agent, recordings=list(args.recordings or []),
+                      caller_channel=args.caller_channel, agent_channel=args.agent_channel)
+        lines = [f"agent:          {res['agent_id']}",
+                 f"ingested:       {len(res['ingested'])} recording(s)",
+                 f"clusters:       {res['clusters']}",
+                 f"top candidates: {len(res['top_candidates'])} (hotato fleet review)"]
+        _fleet_emit(args, res, lines)
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_contract_create(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.contract_from_candidate(
+            args.workspace, args.from_candidate, reviewer=args.reviewer,
+            decision=args.decision, high_stakes=args.high_stakes,
+            max_talk_over_sec=args.max_talk_over_sec,
+            max_time_to_yield_sec=args.max_time_to_yield_sec, rationale=args.rationale)
+        _fleet_emit(args, res, [f"contract:    {res['contract_id']}",
+                                f"decision:    {res['decision']}",
+                                f"high_stakes: {res['high_stakes']}",
+                                f"dir:         {res['dir']}"])
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_experiment_propose(args) -> int:
+    api = _fleet_open(args)
+    try:
+        cfg = None
+        if args.current_config:
+            with open(args.current_config, encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        res = api.experiment_propose(args.workspace, args.agent, intent=args.intent,
+                                     current_config=cfg, max_variants=args.max_variants)
+        lines = [f"agent:    {res['agent_id']}", f"stack:    {res['stack']}",
+                 f"intent:   {res['intent']}", f"variants: {res['count']}"]
+        for v in res["variants"]:
+            lines.append(f"  - {v['variant_id']} ({v.get('kind')})")
+        _fleet_emit(args, res, lines)
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_experiment_approve(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.approve_trial(args.workspace, args.trial_id, approver=args.approver,
+                                note=args.note)
+        _fleet_emit(args, res, [f"trial:    {res['trial_id']}",
+                                f"approved: {res['approved']} by {res['approver']}",
+                                f"note:     {res['note']}"])
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_retention(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.set_retention(
+            args.workspace, args.recording_id, consent_basis=args.consent_basis,
+            allowed_purposes=list(args.purpose or []), retention_days=args.retention_days,
+            pii_class=args.pii_class, legal_hold=args.legal_hold)
+        _fleet_emit(args, res, [f"recording: {res['recording_id']}",
+                                f"policy:    {json.dumps(res['policy'])}"])
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_delete(args) -> int:
+    api = _fleet_open(args)
+    try:
+        res = api.delete_recording(args.workspace, args.recording_id, reason=args.reason,
+                                   actor=args.actor)
+        if res.get("deleted"):
+            _fleet_emit(args, res, [f"recording: {res['recording_id']} DELETED",
+                                    f"receipt:   {res['receipt']['receipt_digest']}"])
+            return 0
+        _fleet_emit(args, res, [f"recording: {res['recording_id']} NOT deleted "
+                                "(blocked by legal hold)"])
+        return 1
+    finally:
+        api.close()
+
+
+def _cmd_fleet_redact(args) -> int:
+    api = _fleet_open(args)
+    try:
+        spans = []
+        for sp in (args.span or []):
+            a, b = sp.split(":")
+            spans.append((float(a), float(b)))
+        res = api.redact_recording(args.workspace, args.recording_id, spans, actor=args.actor)
+        _fleet_emit(args, res, [f"parent:  {res['parent_recording_id']}",
+                                f"derived: {res.get('derived_digest')}",
+                                "note:    DERIVED redacted copy; not the original evidence"])
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_synth(args) -> int:
+    from . import synth as _synth
+    res = _synth.synth_battery(args.source, args.out, seed=args.seed)
+    payload = {"tool": "hotato", "kind": "synth-battery", "source": args.source,
+               "out": args.out, "axis": "synthetic", "count": len(res), "items": res}
+    if getattr(args, "format", "text") == "json":
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(f"synth: {len(res)} synthetic-derived clip(s) from {args.source} -> "
+              f"{args.out}")
+        print("  kept as a SEPARATE 'synthetic' axis; never blended with real-call "
+              "evidence.")
+    return 0
+
+
 def _cmd_fleet_canary(args) -> int:
     # Deliberately does NOT touch a live stack: routing/rollback need connected
     # credentials and a tested rollback path, absent in this release.
@@ -2055,7 +2216,7 @@ def _cmd_trust(args) -> int:
         print(_errors.safe_json_dumps(report, indent=2))
     else:
         print(_trust.render_text(report))
-    # 0 when safe to scan, 2 when not scorable (the report's own exit_code, which
+    # 0 when eligible for scan, 2 when not scorable (the report's own exit_code, which
     # matches the CLI's unusable-input convention).
     return int(report["exit_code"])
 
@@ -2505,6 +2666,7 @@ def _cmd_start(args) -> int:
         label=getattr(args, "label", None), onset_sec=getattr(args, "onset", None),
         caller_channel=getattr(args, "caller_channel", 0),
         agent_channel=getattr(args, "agent_channel", 1),
+        confirm_channels=getattr(args, "confirm_channels", False),
     )
 
 
@@ -3175,9 +3337,10 @@ def build_parser() -> argparse.ArgumentParser:
             "portable contract, and contract verify catches it); then prints "
             "the exact next commands: promote a candidate into a permanent "
             "fixture, run those fixtures in CI, re-verify the demo contract, "
-            "and render a card. The --stack/--folder/--stereo modes are "
-            "placeholders in this build and route you to hotato sweep / "
-            "analyze / run."
+            "and render a card. hotato start --stereo <call.wav> runs the fully-"
+            "wired guided own-call flow (trust -> scan -> review -> human label "
+            "-> contract + evidence-tier card). --stack/--folder route you to "
+            "hotato sweep / analyze."
         ),
         epilog=(
             _exit_codes_epilog("start") + "\n\n"
@@ -3195,8 +3358,14 @@ def build_parser() -> argparse.ArgumentParser:
                          "--stack")
     st.add_argument("--folder", default=None,
                     help="[not yet in this build] route to hotato analyze")
-    st.add_argument("--stereo", default=None,
-                    help="[not yet in this build] route to hotato run --stereo")
+    st.add_argument("--stereo", default=None, metavar="CALL_WAV",
+                    help="guided own-call flow on a dual-channel recording: trust "
+                         "preflight, candidate scan, local review page, (with "
+                         "--label) a human-labelled contract + evidence-tier card")
+    st.add_argument("--confirm-channels", action="store_true",
+                    help="confirm the caller/agent channel mapping when --stereo "
+                         "trust flags a possible swap (required to mint a contract "
+                         "from a swap-suspect recording)")
     st.add_argument("--dir", default=None, metavar="DIR",
                     help="directory to write the outputs into (default: the "
                          "current directory)")
@@ -4089,6 +4258,32 @@ def build_parser() -> argparse.ArgumentParser:
                          "the stdout listing)")
     sc.set_defaults(func=_cmd_scan)
 
+    syn = sub.add_parser(
+        "synth",
+        help="generate deterministic synthetic perturbations of a REAL recording "
+             "(a separate synthetic axis; never blended with real evidence)",
+        description=(
+            "Apply the deterministic transform matrix (sample rate, gain, additive "
+            "noise at a declared SNR, delayed cross-channel leakage, channel "
+            "inversion, silence, onset offsets, clipping, backchannel/agent-gap/"
+            "packet-gap sweeps) to a real fixture, writing derived clips that each "
+            "carry parent hash, transform recipe, seed, tool+version, output hashes, "
+            "and an explicit SYNTHETIC designation. A thousand synthetic clips never "
+            "raise the evidence of one real recapture (plan section 11)."
+        ),
+        epilog=_exit_codes_epilog("synth"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    syn.add_argument("source", metavar="SOURCE_WAV",
+                     help="the real recording to derive perturbations from")
+    syn.add_argument("--out", required=True, metavar="DIR",
+                     help="directory to write the synthetic-derived clips into")
+    syn.add_argument("--seed", type=int, default=1, metavar="N",
+                     help="deterministic seed (default 1)")
+    syn.add_argument("--format", default="text", choices=["text", "json"],
+                     help="output format (default text)")
+    syn.set_defaults(func=_cmd_synth)
+
     # --- trust: input-health check (is this recording even scorable?) --------
     tr = sub.add_parser(
         "trust",
@@ -4102,7 +4297,7 @@ def build_parser() -> argparse.ArgumentParser:
             "0, agent on channel 1), a possible channel-swap flag, sample rate, "
             "duration, clipping, leading silence, crosstalk risk, and the three "
             "scorability checks (separated tracks, enough caller activity, "
-            "enough agent activity), then recommends 'safe to scan' or 'NOT "
+            "enough agent activity), then recommends 'eligible for scan' or 'NOT "
             "SCORABLE' with the specific reason AND the next step. It NEVER "
             "labels intent and NEVER emits a yield/hold or pass/fail verdict: "
             "that is what `hotato scan` / `hotato run` are for. Offline; no "
@@ -4940,7 +5135,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     flsub = fl.add_subparsers(
         dest="fleet_command", required=True,
-        metavar="init|agent|ingest|discover|review|label|status|experiment|canary|export")
+        metavar="init|agent|ingest|discover|review|label|status|experiment|canary|export|run|contract|retention|delete|redact")
 
     fi = _fleet_parser(flsub, "init", "fleet init",
                        "create/ensure a workspace in the fleet home")
@@ -5076,6 +5271,97 @@ def build_parser() -> argparse.ArgumentParser:
                      help="optional JSON policy "
                           "{max_talk_over_sec, max_time_to_yield_sec}")
     fer.set_defaults(func=_cmd_fleet_experiment_run)
+
+    fep = _fleet_parser(fesub, "propose", "fleet experiment propose",
+                        "generate a bounded set of config variants (baseline + "
+                        "lower/higher/adjacent/two-param, capped ~6) from the typed "
+                        "catalogue, each with an expected-effects block; runs nothing")
+    _fleet_common(fep)
+    fep.add_argument("--agent", required=True, metavar="ID", help="the agent under test")
+    fep.add_argument("--intent", required=True, metavar="INTENT",
+                     help="the fix intent (a catalogue key, e.g. more_sensitive)")
+    fep.add_argument("--current-config", default=None, metavar="CONFIG.json",
+                     help="optional current turn-taking config JSON (from hotato inspect)")
+    fep.add_argument("--max-variants", type=int, default=6, metavar="N",
+                     help="cap on proposed variants (default 6)")
+    fep.set_defaults(func=_cmd_fleet_experiment_propose)
+
+    fea = _fleet_parser(fesub, "approve", "fleet experiment approve",
+                        "record a HUMAN approval decision on a trial recommendation "
+                        "(recorded only; never deploys in this release)")
+    _fleet_common(fea)
+    fea.add_argument("--trial-id", required=True, metavar="ID", help="the trial to approve")
+    fea.add_argument("--approver", required=True, metavar="WHO",
+                     help="the human approving (recorded in the decision)")
+    fea.add_argument("--note", default=None, metavar="TEXT", help="optional approval note")
+    fea.set_defaults(func=_cmd_fleet_experiment_approve)
+
+    frun = _fleet_parser(flsub, "run", "fleet run",
+                         "batch discovery: ingest + discover a set of dual-channel "
+                         "recordings, cluster candidates across calls, and surface the "
+                         "top-5 review queue (plan §9.1/§16). Never auto-labels")
+    _fleet_common(frun)
+    frun.add_argument("--agent", required=True, metavar="ID", help="the agent id")
+    frun.add_argument("--recordings", nargs="*", default=None, metavar="WAV",
+                      help="dual-channel recordings to ingest+discover (offline; live "
+                           "pull from a connection needs credentials)")
+    frun.add_argument("--caller-channel", type=int, default=0, metavar="N")
+    frun.add_argument("--agent-channel", type=int, default=1, metavar="N")
+    frun.set_defaults(func=_cmd_fleet_run)
+
+    fct = _fleet_parser(flsub, "contract", "fleet contract",
+                        "create a failure contract from a reviewed candidate "
+                        "(hotato fleet contract create)")
+    fctsub = fct.add_subparsers(dest="fleet_contract_command", required=True,
+                                metavar="create")
+    fctc = _fleet_parser(fctsub, "create", "fleet contract create",
+                         "one-click: label a reviewed candidate and mint + register a "
+                         "real failure contract from its recording (plan §9.2/§14)")
+    _fleet_common(fctc)
+    fctc.add_argument("--from-candidate", required=True, metavar="ID",
+                      help="the reviewed candidate id to build the contract from")
+    fctc.add_argument("--decision", required=True, choices=["yield", "hold"],
+                      help="the HUMAN label for the moment")
+    fctc.add_argument("--reviewer", required=True, metavar="WHO", help="the human reviewer")
+    fctc.add_argument("--high-stakes", action="store_true",
+                      help="mark this a high-stakes contract (stricter gates apply)")
+    fctc.add_argument("--rationale", default=None, metavar="TEXT")
+    fctc.add_argument("--max-talk-over-sec", type=float, default=None, metavar="S")
+    fctc.add_argument("--max-time-to-yield-sec", type=float, default=None, metavar="S")
+    fctc.set_defaults(func=_cmd_fleet_contract_create)
+
+    fret = _fleet_parser(flsub, "retention", "fleet retention",
+                         "attach a retention/consent policy to a recording (plan §14)")
+    _fleet_common(fret)
+    fret.add_argument("--recording-id", required=True, metavar="ID")
+    fret.add_argument("--consent-basis", required=True, metavar="BASIS",
+                      help="the lawful/consent basis for retaining this recording")
+    fret.add_argument("--purpose", nargs="*", default=None, metavar="P",
+                      help="allowed purposes")
+    fret.add_argument("--retention-days", type=int, default=None, metavar="N")
+    fret.add_argument("--pii-class", default="unknown", choices=["none", "pii", "phi", "unknown"])
+    fret.add_argument("--legal-hold", action="store_true",
+                      help="block expiry/deletion until the hold is lifted")
+    fret.set_defaults(func=_cmd_fleet_retention)
+
+    fdel = _fleet_parser(flsub, "delete", "fleet delete",
+                         "delete a recording's stored audio, leaving a durable "
+                         "deletion receipt (plan §14). A legal hold blocks it")
+    _fleet_common(fdel)
+    fdel.add_argument("--recording-id", required=True, metavar="ID")
+    fdel.add_argument("--reason", required=True, metavar="TEXT")
+    fdel.add_argument("--actor", required=True, metavar="WHO")
+    fdel.set_defaults(func=_cmd_fleet_delete)
+
+    frd = _fleet_parser(flsub, "redact", "fleet redact",
+                        "produce a DERIVED redacted copy (silenced spans) with new "
+                        "PCM hash + parent lineage; never the original evidence (§14)")
+    _fleet_common(frd)
+    frd.add_argument("--recording-id", required=True, metavar="ID")
+    frd.add_argument("--span", nargs="*", default=None, metavar="START:END",
+                     help="second spans to silence, e.g. 3.2:4.0 7.1:7.5")
+    frd.add_argument("--actor", required=True, metavar="WHO")
+    frd.set_defaults(func=_cmd_fleet_redact)
 
     fca = _fleet_parser(flsub, "canary", "fleet canary",
                         "canary routing (recommendation-only in this release; "

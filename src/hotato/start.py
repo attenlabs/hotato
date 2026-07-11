@@ -168,7 +168,7 @@ def run_start(*, demo: bool = False, stack: Optional[str] = None,
               folder: Optional[str] = None, stereo: Optional[str] = None,
               out_dir: Optional[str] = None, fmt: str = "text",
               label: Optional[str] = None, onset_sec: Optional[float] = None,
-              caller_channel: int = 0, agent_channel: int = 1) -> int:
+              caller_channel: int = 0, agent_channel: int = 1, confirm_channels: bool = False) -> int:
     """``hotato start``. Only ``--demo`` fully runs in this build; the other
     modes are stubbed and route to the shipped command that does the job."""
     modes = [m for m, on in (("--demo", demo), ("--stack", stack),
@@ -176,14 +176,16 @@ def run_start(*, demo: bool = False, stack: Optional[str] = None,
     if not modes:
         raise ValueError(
             "choose a mode: hotato start --demo (the guided, credential-less "
-            "first run). --stack/--folder/--stereo are placeholders in this "
-            "build; use hotato sweep / hotato analyze / hotato run for those."
+            "first run) or hotato start --stereo <call.wav> (the guided own-call "
+            "review-and-contract flow). --stack/--folder are placeholders; use "
+            "hotato sweep / hotato analyze for those."
         )
     if stereo:
         return _run_stereo_flow(
             stereo, out_dir=out_dir or ".", fmt=fmt,
             label=label, onset_sec=onset_sec,
-            caller_channel=caller_channel, agent_channel=agent_channel)
+            caller_channel=caller_channel, agent_channel=agent_channel,
+            confirm_channels=confirm_channels)
     if not demo:
         # --stack / --folder still route to the shipped primitive.
         route = {"--stack": "hotato sweep --stack <stack>",
@@ -292,7 +294,7 @@ _STEREO_CONTRACTS = "contracts"
 
 
 def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
-                     caller_channel, agent_channel):
+                     caller_channel, agent_channel, confirm_channels=False):
     """The guided own-call flow: trust preflight -> channel-mapping check ->
     candidate scan -> local review page -> (human label) -> contract + a result
     card, ending with one sentence on what the result proves and one on what it
@@ -365,7 +367,8 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
     # 4) optional human label -> contract + evidence-tier card
     contract_info = None
     card_written = False
-    if label in ("yield", "hold") and top_onset is not None:
+    swap_blocked = bool(possible_swap and not confirm_channels and label in ("yield", "hold"))
+    if label in ("yield", "hold") and top_onset is not None and not swap_blocked:
         cdir = os.path.join(out_dir, _STEREO_CONTRACTS)
         os.makedirs(cdir, exist_ok=True)
         res = _contract.create_contract(

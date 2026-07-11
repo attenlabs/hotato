@@ -30,6 +30,21 @@ by roughly the audio size. Any file over ``_EMBED_MAX_BYTES`` (~8 MB) is noted
 in plain text and skipped, never truncated. Default off, so plain reports stay
 small.
 
+Audio has three modes, selected by ``audio_mode``:
+
+  * ``none`` (the default) writes no audio at all -- the small, portable report.
+  * ``self_contained`` is the ``--embed-audio`` behaviour above: the PCM is
+    inlined as a base64 data URI, for LOCAL sharing where playback should work
+    with no other files.
+  * ``audio_reference`` (the mode a FLEET-shared report uses) NEVER inlines the
+    PCM. It renders a stable, content-addressed reference to each source -- its
+    ``pcm_sha256`` and a relative locator (and a ``recording_id`` when the
+    caller supplies one) -- plus a note that playback requires the fleet store.
+    A copy of the page shared outside the store therefore leaks no spoken PII.
+
+``embed_audio=True`` is kept as the shorthand for ``audio_mode="self_contained"``
+so existing callers are unchanged; passing ``audio_mode`` wins when both appear.
+
 ``build_report_md`` mirrors the same content as plain Markdown (tables instead
 of SVG). A future PDF needs no new renderer: the HTML already ships print CSS,
 so "print to PDF" from any browser produces the document.
@@ -54,7 +69,32 @@ from .core import (
     run_suite,
 )
 
-__all__ = ["build_report_html", "build_report_md", "write_report"]
+__all__ = ["build_report_html", "build_report_md", "write_report",
+           "AUDIO_NONE", "AUDIO_SELF_CONTAINED", "AUDIO_REFERENCE"]
+
+# --- audio modes ----------------------------------------------------------
+# The three ways a report treats the scored audio. ``none`` writes nothing;
+# ``self_contained`` inlines the PCM (local sharing); ``audio_reference`` names
+# the content-addressed audio by hash + locator and inlines NOTHING, so a
+# fleet-shared page carries no spoken PII.
+AUDIO_NONE = "none"
+AUDIO_SELF_CONTAINED = "self_contained"
+AUDIO_REFERENCE = "audio_reference"
+_AUDIO_MODES = (AUDIO_NONE, AUDIO_SELF_CONTAINED, AUDIO_REFERENCE)
+
+
+def _resolve_audio_mode(embed_audio: bool, audio_mode: Optional[str]) -> str:
+    """Reconcile the legacy ``embed_audio`` bool with the explicit ``audio_mode``.
+
+    ``audio_mode`` wins when given (and must be one of the three modes);
+    otherwise ``embed_audio`` maps to ``self_contained`` (True) or ``none``
+    (False), so every existing caller behaves exactly as before."""
+    if audio_mode is not None:
+        if audio_mode not in _AUDIO_MODES:
+            raise ValueError(
+                f"unknown audio_mode {audio_mode!r}; use one of {_AUDIO_MODES}")
+        return audio_mode
+    return AUDIO_SELF_CONTAINED if embed_audio else AUDIO_NONE
 
 # --- warm charcoal / cream / ember theme ----------------------------------
 _C = {
@@ -656,7 +696,7 @@ def _stat(label: str, value: str, color: Optional[str] = None) -> str:
     )
 
 
-def _event_card(model: dict, embed_audio: bool = False) -> str:
+def _event_card(model: dict, audio_mode: str = AUDIO_NONE) -> str:
     e = model["event"]
     v = e["verdict"]
     status = _event_status(model)
@@ -705,9 +745,12 @@ def _event_card(model: dict, embed_audio: bool = False) -> str:
         parts.append('<div class="tl novad">no frame data for this event '
                      '(fixture audio not present)</div>')
 
-    # the scored audio itself, embedded (opt-in; keeps plain reports small)
-    if embed_audio:
+    # the scored audio itself: inlined (self_contained), referenced by hash
+    # (audio_reference), or absent (none -- keeps plain reports small).
+    if audio_mode == AUDIO_SELF_CONTAINED:
         parts.append(_audio_block(model))
+    elif audio_mode == AUDIO_REFERENCE:
+        parts.append(_audio_reference_block(model))
 
     # measured stats (all real)
     parts.append('<div class="stats">')
@@ -831,6 +874,66 @@ def _audio_block(model: dict) -> str:
     )
 
 
+def _source_pcm_sha256(path: str) -> Optional[str]:
+    """The content address (decoded-PCM sha256) of a source recording -- the
+    SAME digest the fleet store keys audio by (``api.ingest_recording``), so a
+    reference here resolves to the stored artifact. None if it cannot be read."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        from .core import _audio_provenance
+        prov = _audio_provenance(("stereo", path))
+        return prov["sides"][0]["pcm_sha256"]
+    except Exception:  # noqa: BLE001 - a missing hash still leaves a locator
+        return None
+
+
+def _audio_reference_block(model: dict) -> str:
+    """Render a STABLE, content-addressed reference to the scored audio instead
+    of inlining it. For a fleet-shared report this is the PII-safe default: the
+    page names each source by its ``pcm_sha256`` (and a ``recording_id`` when the
+    caller passes one) plus a relative locator, and says playback needs the fleet
+    store. No ``data:`` URI, no PCM, so a copy shared outside the store leaks no
+    spoken audio.
+
+    Each ``audio_sources`` entry may already carry ``recording_id`` / ``pcm_sha256``
+    / ``locator`` (a fleet caller has them); anything missing is derived from the
+    file (the hash is computed, the locator falls back to the basename)."""
+    sources = model.get("audio_sources") or []
+    rows = []
+    for src in sources:
+        path = src.get("path")
+        rec_id = src.get("recording_id")
+        pcm = src.get("pcm_sha256") or _source_pcm_sha256(path)
+        locator = src.get("locator") or (os.path.basename(path) if path else None)
+        if not (rec_id or pcm or locator):
+            continue
+        ref = []
+        if rec_id:
+            ref.append('<span class="audk">recording_id</span>'
+                       f'<span class="audref mono">{_esc(rec_id)}</span>')
+        if pcm:
+            ref.append('<span class="audk">pcm_sha256</span>'
+                       f'<span class="audref mono">{_esc(pcm)}</span>')
+        if locator:
+            ref.append('<span class="audk">locator</span>'
+                       f'<span class="audref mono">{_esc(locator)}</span>')
+        rows.append(
+            f'<div class="audrow"><span class="audk">{_esc(src.get("label", ""))}</span>'
+            + "".join(ref) + "</div>"
+        )
+    if not rows:
+        return ""
+    return (
+        '<div class="audio audioref">'
+        '<div class="audcap">Audio reference only. The spoken audio is NOT in '
+        'this file: it stays content-addressed in the fleet store, named here by '
+        'hash and locator. Playback requires that store, so a copy of this page '
+        'shared outside it carries no caller audio.</div>'
+        + "".join(rows) + "</div>"
+    )
+
+
 # --- thresholds table (exact ScoreConfig used) ----------------------------
 
 def _thresholds(cfg: ScoreConfig) -> str:
@@ -944,6 +1047,7 @@ header.top{display:flex;align-items:flex-start;gap:14px;
 .audrow audio{flex:1 1 200px;min-width:0;height:34px}
 .audnote{color:%(muted)s;font-size:11.5px;
  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.audref{color:%(mono)s;font-size:11.5px;word-break:break-all;margin-right:6px}
 .stats{display:flex;flex-wrap:wrap;gap:10px 20px;margin-top:12px;
  border-top:1px solid %(line)s;padding-top:12px}
 .stat{display:flex;flex-direction:column;gap:2px}
@@ -1014,7 +1118,7 @@ table.frames td{text-align:right;padding:1px 12px;color:%(mono)s;
 def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  base_env: Optional[dict] = None,
                  base_label: Optional[str] = None,
-                 embed_audio: bool = False) -> str:
+                 audio_mode: str = AUDIO_NONE) -> str:
     s = env["summary"]
     # A real failure always dominates: REGRESSION beats NOT SCORABLE beats
     # ALL PASS. NOT SCORABLE appears only when nothing failed but at least one
@@ -1034,7 +1138,7 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     else:
         mode_label = mode
 
-    cards = "".join(_event_card(m, embed_audio=embed_audio) for m in models)
+    cards = "".join(_event_card(m, audio_mode=audio_mode) for m in models)
 
     legend = (
         f'<div class="legend">'
@@ -1438,7 +1542,8 @@ def _score_and_model(
 
 def build_report_html(*, base: Optional[dict] = None,
                       base_label: Optional[str] = None,
-                      embed_audio: bool = False, **kwargs):
+                      embed_audio: bool = False,
+                      audio_mode: Optional[str] = None, **kwargs):
     """Score the input and return ``(html_str, envelope)``.
 
     Pass ``suite`` for the labelled battery, or a single recording via
@@ -1453,10 +1558,17 @@ def build_report_html(*, base: Optional[dict] = None,
     file with zero external requests; it just grows by roughly the audio size.
     Files over ~8 MB are noted in plain text and skipped. Default False keeps
     plain reports small.
+
+    ``audio_mode`` selects the audio treatment explicitly (``none`` /
+    ``self_contained`` / ``audio_reference``) and, when given, wins over
+    ``embed_audio``. ``audio_reference`` renders a content-addressed reference
+    (``pcm_sha256`` + locator) instead of the PCM, so a fleet-shared page leaks
+    no caller audio.
     """
     env, models, cfg = _score_and_model(**kwargs)
+    mode = _resolve_audio_mode(embed_audio, audio_mode)
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
-                        embed_audio=embed_audio)
+                        audio_mode=mode)
     return page, env
 
 
@@ -1473,14 +1585,20 @@ def build_report_md(*, base: Optional[dict] = None,
 
 
 def write_report(path: str, fmt: str = "html", embed_audio: bool = False,
-                 **kwargs):
+                 audio_mode: Optional[str] = None, **kwargs):
     """Build the report in ``fmt`` ('html' or 'md') and write it to ``path``.
     Returns the envelope. For PDF, print the HTML from any browser: the page
-    ships print CSS, so no separate renderer is needed."""
+    ships print CSS, so no separate renderer is needed.
+
+    ``audio_mode`` (``none`` / ``self_contained`` / ``audio_reference``) picks
+    the audio treatment for the HTML report; it wins over ``embed_audio`` and is
+    HTML-only, exactly like ``embed_audio``."""
+    embeds_audio = _resolve_audio_mode(embed_audio, audio_mode) != AUDIO_NONE
     if fmt == "html":
-        text, env = build_report_html(embed_audio=embed_audio, **kwargs)
+        text, env = build_report_html(embed_audio=embed_audio,
+                                      audio_mode=audio_mode, **kwargs)
     elif fmt == "md":
-        if embed_audio:
+        if embeds_audio:
             # Rejected up front (clean usage error -> exit 2 in the CLI):
             # silently writing an md file without the requested audio would mislead.
             raise ValueError(

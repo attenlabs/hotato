@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/deployment_receipt.v1.json",
+  "title": "hotato deployment receipt, schema_version 1",
+  "description": "A durable, hashable record of a clone, canary, or rollback in the fleet control plane. Deployment stays approval-gated and recommendation-only: a receipt records what was prepared or restored, it does not itself route traffic.",
+  "type": "object",
+  "required": ["schema_version", "kind", "agent_id", "receipt_digest"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "kind": { "enum": ["clone", "canary", "rollback"] },
+    "agent_id": { "type": "string" },
+    "variant_id": { "type": ["string", "null"] },
+    "config_hash": { "type": ["string", "null"] },
+    "prior_revision": { "type": ["integer", "string", "null"],
+      "description": "The revision restored (rollback) or superseded (clone/canary)." },
+    "detail": { "type": ["object", "null"],
+      "description": "Free-form record of what was prepared or restored (e.g. canary plan, adapter result, actor, timestamp). Not a traffic-routing instruction." },
+    "receipt_digest": { "type": "string",
+      "description": "sha256 over the canonical JSON of the receipt fields, computed before this key is inserted." }
+  }
+}

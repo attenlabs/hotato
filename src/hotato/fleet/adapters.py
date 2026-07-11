@@ -38,7 +38,6 @@ import os
 from typing import Dict, List, Optional, Set
 
 from .. import manifest as _manifest
-from .. import synth as _synth
 
 CAPABILITIES = (
     "inspect_config", "pull_recordings", "dual_channel_capture", "clone_agent",
