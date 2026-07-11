@@ -1,7 +1,8 @@
-"""The one-tool MCP surface must return the EXACT same envelope as the core, and
-must register exactly one tool. The envelope-parity check needs no MCP SDK
-(``_run_tool`` does not import mcp); the one-tool check is skipped if the SDK is
-absent.
+"""The MCP scoring tool must return the EXACT same envelope as the core, and the
+server must register the expected tool set: the ``voice_eval_run`` scorer plus
+the eight read/verify/propose and clone-scoped fleet tools. The envelope-parity
+check needs no MCP SDK (``_run_tool`` does not import mcp); the registration
+check is skipped if the SDK is absent.
 """
 
 import json
@@ -20,11 +21,11 @@ def test_run_tool_envelope_matches_core():
     assert via_tool == via_core
 
 
-def test_exactly_one_tool_registered():
+def test_expected_tools_registered():
     try:
         import mcp  # noqa: F401
     except Exception:
-        pytest.skip("MCP SDK not installed; one-tool registration check skipped")
+        pytest.skip("MCP SDK not installed; tool-registration check skipped")
 
     server = mcp_server.build_server()
     # FastMCP exposes registered tools via an async list_tools(); fall back to the
@@ -41,4 +42,20 @@ def test_exactly_one_tool_registered():
             listed = mgr.list_tools()
             names = [getattr(t, "name", None) for t in listed]
     assert names is not None, "could not introspect registered MCP tools"
-    assert names == ["voice_eval_run"], names
+
+    # One scoring tool + eight fleet tools (read/verify/propose plus the
+    # clone-scoped experiment_run/clone_cleanup; no production deployment).
+    fleet_tools = {
+        "fleet_status",
+        "candidate_list",
+        "contract_list",
+        "trial_explain",
+        "artifact_verify",
+        "experiment_propose",
+        "experiment_run",
+        "clone_cleanup",
+    }
+    expected = {"voice_eval_run"} | fleet_tools
+    assert "voice_eval_run" in names, names
+    assert fleet_tools.issubset(set(names)), names
+    assert set(names) == expected, names

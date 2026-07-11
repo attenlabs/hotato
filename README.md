@@ -28,7 +28,7 @@
 uvx hotato start --demo
 ```
 
-That sweeps two bundled recorded calls a provider's default agent failed, writes the dashboard, and turns one real missed-interruption candidate into a demo failure contract it immediately verifies:
+That sweeps two bundled recorded calls a provider's default agent failed, writes the dashboard, and turns one missed-interruption candidate into a demo failure contract it immediately verifies:
 
 ```
 [start] demo: swept 2 bundled calls, 5 candidate moments;
@@ -42,7 +42,7 @@ Open `hotato-sweep.html` for the ranked candidate moments with a hear-the-bug pl
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/no-single-threshold-card.svg" alt="Hotato threshold-funnel card: no single threshold can fix this. Missed a real interruption; false-stopped on a backchannel. One sensitivity dial cannot satisfy both axes at once." width="760">
 </p>
 
-A real failure became a candidate, became a portable `.hotato` contract, and `contract verify` catches it. Hotato prints the exact next commands to promote it into a permanent fixture, run it in CI, and re-verify.
+A failure became a candidate, became a portable `.hotato` contract, and `contract verify` catches it. Hotato prints the exact next commands to promote it into a permanent fixture, run it in CI, and re-verify.
 
 Point it at your own recording to walk the same loop end to end:
 
@@ -63,7 +63,7 @@ hotato start --stereo my-call.wav          # trust -> scan -> review -> label ->
 | Attach observability traces to a contract | `hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl` ([`docs/TRACE.md`](docs/TRACE.md)) |
 | Test a candidate fix, before/after, fail-closed | `hotato fix trial patch.json --name staging-x --before before/ --after after/` ([`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md)) |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |
-| Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` (one tool, `voice_eval_run`; configs in [`docs/MCP.md`](docs/MCP.md)) |
+| Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` (the `voice_eval_run` scorer + eight fleet tools; configs in [`docs/MCP.md`](docs/MCP.md)) |
 
 Every command above takes a two-channel recording (caller on one channel, agent on the other). A mono file or a bad export is marked NOT SCORABLE, never turned into a confident but meaningless verdict.
 
@@ -122,8 +122,9 @@ re-scoring the recordings, under one pinned policy, every time. Full guide:
 ## What Hotato is not
 
 - **Not a full QA platform.** It does not grade the whole conversation, task
-  success, or content. See [`docs/COMPARE.md`](docs/COMPARE.md) for where
-  Hamming, Cekura, Coval, Bluejay, Roark, Vapi, and Retell fit instead.
+  success, or content -- it isolates turn-taking timing and pins it to
+  reproducible evidence. See [`docs/COMPARE.md`](docs/COMPARE.md) for how it
+  fits alongside broader voice-agent testing tools.
 - **Not transcript scoring.** It measures audio timing, not what was said.
 - **Not speaker ID.** Channels are anonymous; nothing identifies who a person is.
 - **Not semantic intent detection.** It produces candidate timing evidence.
@@ -156,7 +157,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **Proving the CURRENT agent, not just the frozen recording**: the recapture walkthrough: [`docs/RECAPTURE.md`](docs/RECAPTURE.md)
 - **Egress**: a per-command network table derived from the code -- what's local, what reaches your vendor, what optional extras add a hosted call: [`docs/EGRESS.md`](docs/EGRESS.md)
 - **Root-cause evidence and a before/after fix trial**: `hotato explain` turns a failing result into root-cause-by-layer evidence, and `hotato fix trial` tests a candidate change before/after, fail-closed: [`docs/EXPLAIN.md`](docs/EXPLAIN.md) · [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md) · [`docs/APPLY.md`](docs/APPLY.md) · [`docs/FIX-LOOP.md`](docs/FIX-LOOP.md)
-- **Evidence**: what Hotato validates, the input-condition trust matrix, every card and CLI block reproducible, and where Hotato does and doesn't fit next to Hamming/Cekura/Coval/Bluejay/Roark/Vapi/Retell: [`docs/VALIDATION.md`](docs/VALIDATION.md) · [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) · [`docs/GALLERY.md`](docs/GALLERY.md) · [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) · [`docs/COMPARE.md`](docs/COMPARE.md)
+- **Evidence**: what Hotato validates, the input-condition trust matrix, every card and CLI block reproducible, and where Hotato fits alongside broader voice-agent testing tools: [`docs/VALIDATION.md`](docs/VALIDATION.md) · [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) · [`docs/GALLERY.md`](docs/GALLERY.md) · [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) · [`docs/COMPARE.md`](docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](AGENTS.md) · [`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt) · MCP server [`docs/MCP.md`](docs/MCP.md) · Security [`SECURITY.md`](SECURITY.md)
 - **Contributing**: the highest-value PR is a labelled call fixture: [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
 

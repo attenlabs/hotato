@@ -23,8 +23,10 @@ production audio path.
 - **`--format json`** on the scoring commands emits a machine envelope
   (`https://hotato.dev/schema/envelope.v1.json`); errors follow
   `error.v1.json`. Prefer these over the human text output.
-- **MCP:** `uvx --from "hotato[mcp]" hotato-mcp` exposes one tool, `voice_eval_run`,
-  for driving a score mid-task. Client configs: [`docs/MCP.md`](docs/MCP.md).
+- **MCP:** `uvx --from "hotato[mcp]" hotato-mcp` exposes nine tools: the
+  `voice_eval_run` scorer for driving a score mid-task, plus eight fleet tools
+  that read/verify/propose over a local fleet workspace and run clone-scoped
+  experiments (never a production deploy). Client configs: [`docs/MCP.md`](docs/MCP.md).
 - Deeper machine index: [`llms.txt`](llms.txt) and [`llms-full.txt`](llms-full.txt).
 
 ## Recipe: add Hotato to a voice-agent repo

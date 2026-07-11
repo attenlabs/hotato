@@ -41,6 +41,7 @@ import os
 import pytest
 
 from hotato import apply as _apply
+from hotato import manifest as _manifest
 from hotato import cli
 from hotato import core as _core
 from hotato import evidence as _evidence
@@ -337,7 +338,8 @@ def test_after_drops_a_fixture_refuses_incomplete_fixture_set(
     assert payload["verdict"] == "refused"
     assert payload["refusal_kind"] == "incomplete_fixture_set"
     assert payload["recompute"]["coverage"]["after"]["complete"] is False
-    assert "f1::f1" in payload["recompute"]["coverage"]["after"]["missing"]
+    assert _manifest.fixture_key({"event_id": "f1", "scenario_id": "f1"}) \
+        in payload["recompute"]["coverage"]["after"]["missing"]
 
 
 def test_unrelated_caller_audio_is_never_improved(tmp_path, config_patch, capsys):

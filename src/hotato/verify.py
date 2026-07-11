@@ -695,7 +695,7 @@ def render_html(v: dict) -> str:
         '<h1 class="h1">hotato verify</h1>'
         '<div class="tagline">Battery-scale before/after proof that a fix '
         'held.</div>'
-        '<div class="subtle">Every value below is a real measurement pooled '
+        '<div class="subtle">Every value below is a measurement pooled '
         'from the before and after run envelopes. Nothing is re-scored here.</div>'
         '<div class="metarow">'
         f'<span class="pill">paired <b>{v["paired"]}</b></span>'

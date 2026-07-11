@@ -15,6 +15,7 @@ the wheel/sdist version, it ships in the sdist, and the other lockstep
 tests already anchor on it.
 """
 
+import glob
 import json
 import os
 import re
@@ -145,4 +146,36 @@ def test_citation_cff_version_matches_pyproject():
     assert _citation_cff_version() == _pyproject_version(), (
         "CITATION.cff 'version:' is out of lockstep with pyproject.toml -- this "
         "is what citation tooling reports. Bump it (and date-released)."
+    )
+
+
+# --- Prose version pins in docs/*.md ------------------------------------------
+# Human-facing docs that pin a concrete "hotato X.Y.Z" version drift silently:
+# docs/TRUST-GALLERY.md still said "hotato 0.5.0" at the 0.10.0 release because
+# no test ever compared a prose version claim to the packaged version.
+
+_DOCS_VERSION_RE = re.compile(r"hotato\s+v?(\d+\.\d+\.\d+)")
+
+
+def _docs_version_claims():
+    """Every ``hotato X.Y.Z`` version pin in docs/*.md, as
+    (relative_path, line_number, version) tuples."""
+    claims = []
+    for path in sorted(glob.glob(os.path.join(ROOT, "docs", "*.md"))):
+        with open(path, encoding="utf-8") as fh:
+            for lineno, line in enumerate(fh, 1):
+                for m in _DOCS_VERSION_RE.finditer(line):
+                    claims.append((os.path.relpath(path, ROOT), lineno, m.group(1)))
+    return claims
+
+
+def test_docs_hotato_version_claims_match_pyproject():
+    """Any 'hotato X.Y.Z' version claim in docs/*.md must equal the packaged
+    version, so a doc's prose version pin can't drift the way TRUST-GALLERY.md
+    did (it said 0.5.0 while the package was 0.10.0)."""
+    pv = _pyproject_version()
+    stale = [c for c in _docs_version_claims() if c[2] != pv]
+    assert not stale, (
+        f"docs/*.md pin a 'hotato X.Y.Z' version that disagrees with "
+        f"pyproject.toml ({pv}) -- update each prose version claim: {stale}"
     )

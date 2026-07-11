@@ -279,3 +279,67 @@ def test_measured_tier_is_still_not_green(tmp_path):
     svg = _card.make_card(str(p))
     assert "PAIRED EVIDENCE IMPROVED" not in svg
     assert _evidence.TIER_HEADLINE[_evidence.TIER_MEASURED] in svg  # MEASURED FROM AUDIO
+
+
+# --- (d) a FORGED input tier cannot mint green: the renderer re-derives it ---
+
+def test_forged_input_tier_with_weak_vector_is_not_green(tmp_path):
+    """A hand-written evidence block claiming tier PAIRED (3) but backed by a
+    vector that only supports ASSERTED (envelope-only score, missing audio
+    identity) must NOT render the green paired card. The renderer re-derives the
+    tier from the VECTOR and never trusts an input tier the vector cannot back --
+    otherwise a forged {"evidence": {"tier": 3}} would unlock the green pass with
+    no audio recompute."""
+    forged = {
+        "schema_version": "1",
+        "tier": _evidence.TIER_PAIRED,                     # forged upward
+        "headline": _evidence.TIER_HEADLINE[_evidence.TIER_PAIRED],
+        "vector": {
+            "score_integrity": "envelope_only",            # caps at ASSERTED
+            "audio_identity": "missing",                   # caps at ASSERTED
+            "policy_integrity": "unsigned",
+            "fixture_set_integrity": "unknown",
+            "input_health": "clean",
+            "channel_mapping": "confirmed",
+            "label_authority": "human",
+            "pairing_integrity": "id_only",
+            "capture_origin": "unknown",
+        },
+    }
+    doc = {
+        "tool": "hotato", "kind": "verify", "schema_version": "1",
+        "claim": {"supported": True, "statement": "synthetic"},
+        "regression_axis": {"now_pass": 2, "used_to_fail": 3},
+        "hold_axis": {"hold_guards": 2, "still_pass": 2, "regressed": 0},
+        "evidence": forged,
+    }
+    p = tmp_path / "forged.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    svg = _card.make_card(str(p))
+    # the forged tier does NOT mint the green flagship card
+    assert "PAIRED EVIDENCE IMPROVED" not in svg
+    assert _card._C["green"] not in svg
+    # the honest RE-DERIVED tier (ASSERTED) is shown instead, in words
+    assert _evidence.TIER_HEADLINE[_evidence.TIER_ASSERTED] in svg
+    # the counts are still reported honestly
+    assert "2 of 3" in svg
+
+
+def test_forged_input_tier_without_vector_is_not_green(tmp_path):
+    """An evidence block with a forged tier but NO inspectable vector to back it
+    is treated as ASSERTED: a bare tier number is not evidence, so it can never
+    mint the green pass."""
+    doc = {
+        "tool": "hotato", "kind": "verify", "schema_version": "1",
+        "claim": {"supported": True, "statement": "synthetic"},
+        "regression_axis": {"now_pass": 2, "used_to_fail": 3},
+        "hold_axis": {"hold_guards": 2, "still_pass": 2, "regressed": 0},
+        "evidence": {"tier": _evidence.TIER_PAIRED,
+                     "headline": _evidence.TIER_HEADLINE[_evidence.TIER_PAIRED]},
+    }
+    p = tmp_path / "forged-novec.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    svg = _card.make_card(str(p))
+    assert "PAIRED EVIDENCE IMPROVED" not in svg
+    assert _card._C["green"] not in svg
+    assert _evidence.TIER_HEADLINE[_evidence.TIER_ASSERTED] in svg
