@@ -176,7 +176,8 @@ def _run(args, **kw):
 
 
 @pytest.mark.skipif(
-    not os.path.exists(GEN_SBOM), reason="scripts/gen_sbom.py not present"
+    not os.path.exists(GEN_SBOM) or sys.version_info < (3, 11),
+    reason="gen_sbom.py is release tooling that needs Python 3.11+ (tomllib)",
 )
 def test_gen_sbom_generate_then_check_passes(tmp_path):
     out = str(tmp_path / "hotato.sbom.cdx.json")
@@ -189,7 +190,8 @@ def test_gen_sbom_generate_then_check_passes(tmp_path):
 
 
 @pytest.mark.skipif(
-    not os.path.exists(GEN_SBOM), reason="scripts/gen_sbom.py not present"
+    not os.path.exists(GEN_SBOM) or sys.version_info < (3, 11),
+    reason="gen_sbom.py is release tooling that needs Python 3.11+ (tomllib)",
 )
 def test_gen_sbom_profile_generate_then_check_passes(tmp_path):
     # A scoped profile ("core") must also produce a valid, --check-clean SBOM.
@@ -202,7 +204,8 @@ def test_gen_sbom_profile_generate_then_check_passes(tmp_path):
 
 
 @pytest.mark.skipif(
-    not os.path.exists(GEN_SBOM), reason="scripts/gen_sbom.py not present"
+    not os.path.exists(GEN_SBOM) or sys.version_info < (3, 11),
+    reason="gen_sbom.py is release tooling that needs Python 3.11+ (tomllib)",
 )
 def test_gen_sbom_list_profiles_includes_core():
     res = _run(["--list-profiles"])
