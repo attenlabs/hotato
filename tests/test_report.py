@@ -21,9 +21,27 @@ _VENDORS = [
     "vapi", "retell", "twilio", "livekit", "pipecat",
 ]
 
+# The report's one intentional absolute reference (the out-of-scope doc link
+# folded into the footer's Method line). It is a plain anchor, never fetched
+# by the page itself, so it coexists with "self-contained, zero requests".
+_SCOPE_LINK = "https://hotato.dev/docs/how-it-works.html#scope"
+
 
 def _fmt(x):
     return None if x is None else f"{x:.2f}s"
+
+
+def _assert_no_fetched_assets(html: str) -> None:
+    """Zero external requests of any kind: no plain http://, no linked
+    stylesheet/script, no @import, no CSS url(). The single https:// on the
+    page is the scope doc link -- a plain anchor, not a loaded resource."""
+    assert "http://" not in html
+    assert html.count("https://") == 1
+    assert f'href="{_SCOPE_LINK}"' in html
+    assert "<link" not in html
+    assert "<script" not in html
+    assert "@import" not in html
+    assert "url(" not in html
 
 
 def test_report_generates_for_bundled_suite():
@@ -36,14 +54,11 @@ def test_report_generates_for_bundled_suite():
 
 def test_report_is_single_self_contained_file():
     html, _ = report.build_report_html(suite="barge-in")
-    # No external requests of ANY kind: no absolute URLs, no linked/loaded assets.
-    assert "http://" not in html
-    assert "https://" not in html
-    assert "<link" not in html
-    assert "<script" not in html
+    # No fetched/loaded assets of ANY kind. The one absolute reference on the
+    # page is the plain scope doc link folded into the footer; a hyperlink is
+    # not a request the page itself makes.
+    _assert_no_fetched_assets(html)
     assert "src=" not in html
-    assert "@import" not in html
-    assert "url(" not in html
     # Inline SVG must not reintroduce a namespace URL.
     assert "xmlns" not in html
 
@@ -85,6 +100,17 @@ def test_thresholds_are_shown_for_reproducibility():
     assert "noise_percentile" in html
 
 
+def test_thresholds_are_one_collapsed_details_block():
+    html, _ = report.build_report_html(suite="barge-in")
+    # The full parameter table is real, but collapsed by default into a single
+    # <details> block instead of an always-open section.
+    assert '<details class="card thresholds">' in html
+    assert '<summary>Thresholds used</summary>' in html
+    assert '<section class="card thresholds">' not in html
+    # Collapsed means no `open` attribute forcing it visible.
+    assert '<details class="card thresholds" open>' not in html
+
+
 def test_no_accuracy_percentage_anywhere():
     html, _ = report.build_report_html(suite="barge-in")
     # The strongest form of "no accuracy score": there is no percent sign at all.
@@ -93,6 +119,35 @@ def test_no_accuracy_percentage_anywhere():
     assert re.search(r"\d\s*%", html) is None
     # The honest disclaimer is stated positively.
     assert "No accuracy score" in html
+
+
+def test_determinism_boilerplate_is_one_method_line():
+    html, _ = report.build_report_html(suite="barge-in")
+    # The header's separate determinism restatement is gone.
+    assert "Deterministic offline timing. Every value below is a real " \
+           "measurement from the scorer." not in html
+    # The footer's Reproducible / Ceiling paragraphs and closing tagline are
+    # folded into the single Method line; only one "Method." label remains.
+    assert html.count("<b>Method.</b>") == 1
+    assert "<b>Reproducible.</b>" not in html
+    assert "<b>Ceiling.</b>" not in html
+    # The Method line still carries the honest reproducibility/ceiling/no-
+    # accuracy story, just once.
+    assert "Deterministic given the same audio and config" in html
+    assert "No accuracy score" in html
+
+
+def test_out_of_scope_is_one_link_not_a_bullet_list():
+    html, _ = report.build_report_html(suite="barge-in")
+    # The stamped negation bullets are gone...
+    assert "<b>Out of scope.</b>" not in html
+    assert '<ul class="does">' not in html
+    assert "no speaker identification" not in html
+    assert "no diarization" not in html
+    assert "no emotion or intent detection" not in html
+    # ...replaced by exactly one link to the canonical explanation.
+    assert html.count(_SCOPE_LINK) == 1
+    assert f'href="{_SCOPE_LINK}"' in html
 
 
 def test_no_vendor_name_leaks_in_generic_report():
@@ -120,7 +175,7 @@ def test_report_single_recording_fail_path(tmp_path):
     assert code == 1
     html = out.read_text(encoding="utf-8")
     assert ">FAIL<" in html
-    assert "http://" not in html and "https://" not in html
+    _assert_no_fetched_assets(html)
     assert "%" not in html
     assert html.count('<svg class="tl-svg"') == 1
 
@@ -131,7 +186,8 @@ def test_report_cli_writes_self_contained_file(tmp_path):
     assert code == 0
     assert out.exists()
     html = out.read_text(encoding="utf-8")
-    assert "http" not in html and "%" not in html
+    _assert_no_fetched_assets(html)
+    assert "%" not in html
     assert html.count('<svg class="tl-svg"') == 8
 
 
@@ -143,7 +199,7 @@ def test_doctor_demo_runs_end_to_end_and_exits_zero(tmp_path):
     assert out.exists()
     html = out.read_text(encoding="utf-8")
     assert html.count('<svg class="tl-svg"') == 8
-    assert "http://" not in html and "https://" not in html
+    _assert_no_fetched_assets(html)
     assert "%" not in html
 
 
@@ -206,11 +262,9 @@ def test_embed_audio_one_player_per_event_still_zero_external_requests():
     assert html.count("<audio") == env["summary"]["events"]
     assert html.count("data:audio/wav;base64,") == env["summary"]["events"]
     assert "controls" in html
-    # Still one self-contained file: nothing fetched from anywhere.
-    assert "http://" not in html
-    assert "https://" not in html
-    assert "<link" not in html
-    assert "<script" not in html
+    # Still one self-contained file: nothing fetched from anywhere (the
+    # embedded audio is a data: URI, never a network src).
+    _assert_no_fetched_assets(html)
     # The bundled fixtures are synthetic and the page says so.
     assert "synthetic fixture" in html
 
@@ -223,7 +277,7 @@ def test_embed_audio_single_recording_via_cli(tmp_path):
     html = out.read_text(encoding="utf-8")
     assert html.count("<audio") == 1
     assert "data:audio/wav;base64," in html
-    assert "http://" not in html and "https://" not in html
+    _assert_no_fetched_assets(html)
 
 
 def test_embed_audio_oversize_file_is_noted_and_skipped(monkeypatch):
@@ -284,7 +338,7 @@ def test_audio_reference_references_audio_and_never_inlines_pcm():
     # The page says playback needs the fleet store, so a shared copy leaks no PII.
     assert "fleet store" in html.lower()
     # Still one self-contained page: nothing is fetched.
-    assert "http://" not in html and "https://" not in html
+    _assert_no_fetched_assets(html)
 
 
 def test_self_contained_mode_equals_embed_audio_and_keeps_data_uri():

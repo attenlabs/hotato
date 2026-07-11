@@ -7,6 +7,42 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Added
+- **`--notify URL` webhook on `sweep` and `hotato fleet run`.** Opt-in,
+  repeatable, off by default: when the run finishes it POSTs one JSON summary
+  (counts, the top candidate moments -- id, kind, timing numbers only -- and
+  local artifact paths, plus a one-line `text` field a Slack incoming webhook
+  renders directly) to each URL. No audio, no credentials, no transcript text
+  ever leaves the machine through it. A non-http(s) URL is refused before any
+  network attempt (exit 2); once sent, delivery is fail-open -- a down or slow
+  webhook logs one stderr warning and never breaks the run. New module
+  `src/hotato/notify.py`; documented in `docs/EGRESS.md` and the README.
+- **`hotato fleet trend`.** Reads the local fleet SQLite registry and writes
+  one self-contained HTML page: per-agent talk-over and time-to-yield trend
+  lines (p50/p95 per day), candidate moments discovered over time, and
+  experiment outcomes (improved/inconclusive/refused). Offline, zero external
+  assets, hand-rendered inline SVG in the same house style as the sweep
+  dashboard. A day with no measurements gets no point; a series with fewer
+  than two days of history is reported plainly as "not enough history to
+  trend" rather than a faked or interpolated line. New module
+  `src/hotato/fleet/trend.py`; documented in the README.
+
+### Changed
+- **HTML report template: deduped boilerplate, no scoring change.** The same
+  determinism/reproducibility/ceiling/no-accuracy-score story used to be
+  restated 4-5 times across a header line and three separate footer
+  paragraphs; it is now one Method line. The stamped out-of-scope negation
+  bullet list (no speaker ID, no diarization, no STT, no emotion) is now one
+  link to the canonical explanation instead. The thresholds table is now a
+  single collapsed `<details>` block rather than an always-open section. The
+  analytics rollup now renders after the per-event cards it aggregates
+  (previously before them), and only once a page has at least 3 events --
+  a rollup over one or two cards had nothing to add. Every measured number
+  and event datum on the page is unchanged; this is layout and copy only.
+  `src/hotato/report.py`, `docs/REPORTS.md`.
+
 ## [1.1.1] - 2026-07-11
 
 Documentation consistency patch.

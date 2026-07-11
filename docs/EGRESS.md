@@ -50,6 +50,7 @@ makes a network call").
 | `hotato[neural]` | Nothing network -- a local Silero VAD cross-check model, run offline | N/A |
 | `hotato[livekit]` / `hotato[pipecat]` | Nothing from Hotato directly -- these SDKs run YOUR live capture infra; Hotato scores the file that infra writes | N/A |
 | `--diarizer pyannoteai` (`contract create --mono --diarize`, `run --mono --diarize`) | Uploads the mono audio to `pyannote.ai` for diarization | Refused (exit 2) unless `--egress-opt-in` is passed; the default diarizer (`pyannote`, local) never uploads. See `diarize.py`: `build_pyannoteai_backend`. |
+| `--notify URL` (`sweep`, `fleet run`) | POSTs one JSON summary -- counts, top candidate moments (id, kind, timing numbers only), local artifact paths. No audio, no credentials, no transcript text. Plus a `text` line for Slack incoming webhooks. | Off by default; only fires with an explicit, repeatable `--notify URL`. A non-http(s) scheme is refused (exit 2) before any network attempt; once sent, delivery is fail-open -- a down or slow webhook logs one stderr warning and never breaks the run. See `notify.py`: `post_notification`. |
 
 ## The one credential-safety detail worth knowing
 

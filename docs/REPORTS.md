@@ -52,11 +52,11 @@ recording.
 
 Per event it draws a to-scale caller/agent activity timeline from the
 frame data: the overlap shaded, the caller-onset and yield markers, the
-measured talk-over seconds, expected vs actual, a PASS or FAIL chip, and the
-exact `ScoreConfig` thresholds used.
+measured talk-over seconds, expected vs actual, and a PASS or FAIL chip.
 
-Above the per-event cards sits an analytics block computed from the same
-measurements:
+After the per-event cards, once the page has at least three of them, sits an
+analytics rollup computed from the same measurements (a page with fewer
+events skips it -- there is nothing left for a rollup to say):
 
 - a **time-to-yield distribution** strip, one dot per measured yield, with
   mean, median, and p90 (definitions in `METHODOLOGY.md`);
@@ -66,7 +66,10 @@ measurements:
 
 Every timeline carries a collapsible **frame inspector**: the full frame dump
 behind that event as a table (`t_sec`, per-channel dBFS, active flags,
-thresholds), so any pixel on the page can be re-derived by hand.
+thresholds), so any pixel on the page can be re-derived by hand. The exact
+`ScoreConfig` thresholds used sit in one collapsed "Thresholds used" panel at
+the end of the page, so the run is reproducible without stamping the
+parameter table above every render.
 
 ### Regression deltas with `--base`
 

@@ -78,16 +78,30 @@ def test_report_html_not_scorable(silent_caller_wav, tmp_path):
     assert "(failed=0, not_scorable=1)" in html
 
 
-def test_report_html_not_scorable_excluded_from_analytics(silent_caller_wav, tmp_path):
-    out = tmp_path / "ns.html"
-    rc = cli.main(["report", "--stereo", silent_caller_wav, "--out", str(out)])
-    assert rc == 2
-    html = out.read_text(encoding="utf-8")
+def test_report_html_not_scorable_excluded_from_analytics(silent_caller_wav):
+    # The analytics rollup only renders once a page has >= 3 events, so pair
+    # the not-scorable input with two real, passing, yield-measured events
+    # (from the bundled suite) to exercise the exclusion.
+    ns_event = core.run_single(stereo=silent_caller_wav)["events"][0]
+    assert ns_event["scorable"] is False
+
+    suite_env = core.run_suite(suite="barge-in")
+    passing = [e for e in suite_env["events"] if e["verdict"]["passed"]
+               and e["verdict"]["seconds_to_yield"] is not None][:2]
+    assert len(passing) == 2
+
+    env = core._envelope(mode="suite", stack=None, events=[ns_event] + passing)
+    cfg = ScoreConfig()
+    models = [report._event_model(e, [], cfg.hop_ms / 1000.0, cfg)
+              for e in env["events"]]
+    html = report._render_page(env, models, cfg)
+
+    assert "Analytics" in html  # 3 events: the rollup renders
     # failure clusters must not count it (it used to land in "unclassified")
     assert "unclassified" not in html
     assert "No failures to cluster" in html
-    # its null measurements stay out of the latency distribution
-    assert "No yields measured in this run." in html
+    # its null measurements stay out of the latency distribution; both real
+    # events yielded, so nothing is missing either
     assert "no yield measured:" not in html
 
 

@@ -10,13 +10,18 @@ to-scale timeline from the REAL frame data the scorer already produced:
   * expected-vs-actual (should yield / did yield) and a PASS/FAIL chip; an
     event whose input cannot be judged gets a NOT SCORABLE chip with its
     reason, never a normal verdict
-  * the exact ScoreConfig thresholds used, so the page is reproducible
+  * the exact ScoreConfig thresholds used, collapsed into one closed
+    ``<details>`` block so the page is reproducible without stamping the same
+    parameter table above every render
 
-On top of the per-event cards the page carries an analytics block computed from
-the same real measurements: a time-to-yield distribution strip, a talk-over
-histogram, failure clustering by fix class, and a collapsible per-event frame
-inspector (the full frame dump as a table). Pass ``base`` (a previous envelope)
-to render per-scenario regression deltas with worse/better marks.
+After the per-event cards, once there are at least three of them, the page
+carries an analytics rollup computed from the same real measurements: a
+time-to-yield distribution strip, a talk-over histogram, failure clustering by
+fix class, and a collapsible per-event frame inspector (the full frame dump as
+a table). A page with fewer than three events skips the rollup entirely --
+there is nothing for it to say that the cards themselves do not already show.
+Pass ``base`` (a previous envelope) to render per-scenario regression deltas
+with worse/better marks.
 
 Every number on the page is a measurement the scorer emitted (verdict,
 measurements, signals) or a frame from ``frame_dump``. Nothing is invented and
@@ -964,30 +969,38 @@ def _thresholds(cfg: ScoreConfig) -> str:
         for k, c, a in vad_rows
     )
     return (
-        '<section class="card thresholds">'
-        '<div class="ctitle">Thresholds used</div>'
+        '<details class="card thresholds">'
+        '<summary>Thresholds used</summary>'
         '<div class="tnote">Every value the scorer read. Same audio and config '
         'reproduce every number above.</div>'
         f'<div class="thgrid">{cells}</div>'
         '<table class="vadtab"><thead><tr><th>VAD parameter</th>'
         '<th>caller</th><th>agent</th></tr></thead>'
         f'<tbody>{vad_cells}</tbody></table>'
-        '</section>'
+        '</details>'
     )
 
 
 # --- footer (honest limits, from LIMITS) ----------------------------------
 
+# One canonical destination for "what this does not measure", linked once
+# instead of stamping the same negation bullets on every generated report.
+_HOW_IT_WORKS_SCOPE_URL = "https://hotato.dev/docs/how-it-works.html#scope"
+
+
 def _footer() -> str:
-    does = "".join(f"<li>{_esc(x)}</li>" for x in LIMITS["does_not_do"])
+    """One Method line carries the whole determinism / reproducibility /
+    ceiling / no-accuracy-score story that used to be restated across a
+    header line and three separate footer paragraphs. The out-of-scope
+    bullet list is folded into a single link to the canonical explanation."""
     return (
         '<footer class="foot">'
-        f'<div class="fline"><b>Method.</b> {_esc(LIMITS["method"])}</div>'
-        f'<div class="fline"><b>Reproducible.</b> {_esc(LIMITS["reproducible"])}</div>'
-        f'<div class="fline"><b>Ceiling.</b> {_esc(LIMITS["ceiling"])}</div>'
-        f'<div class="fline"><b>Out of scope.</b><ul class="does">{does}</ul></div>'
-        '<div class="fline dim">Reproducible timing measurements with an exposed '
-        'method and an explicit ceiling. No accuracy score.</div>'
+        f'<div class="fline"><b>Method.</b> {_esc(LIMITS["method"])} '
+        'Deterministic given the same audio and config, with an explicit '
+        'ceiling; every threshold above is an exposed parameter and every '
+        'frame is inspectable. No accuracy score. '
+        f'<a href="{_esc(_HOW_IT_WORKS_SCOPE_URL)}">What this measures, and '
+        'what it does not</a>.</div>'
         '</footer>'
     )
 
@@ -1059,7 +1072,9 @@ header.top{display:flex;align-items:flex-start;gap:14px;
  border-left:3px solid %(ember)s;border-radius:10px;padding:10px 13px;font-size:13.5px}
 .fix b{color:%(ember)s}
 .fixd{color:%(muted)s;margin-top:3px;font-size:12.5px}
-.thresholds .tnote{color:%(muted)s;font-size:12.5px;margin:2px 0 12px}
+details.thresholds summary{cursor:pointer;color:%(cream)s;font-size:16.5px;
+ font-weight:650}
+.thresholds .tnote{color:%(muted)s;font-size:12.5px;margin:8px 0 12px}
 .thgrid{display:flex;flex-wrap:wrap;gap:8px 10px;margin-bottom:14px}
 .th{display:flex;flex-direction:column;gap:2px;background:%(card2)s;
  border:1px solid %(line)s;border-radius:9px;padding:7px 11px;min-width:150px}
@@ -1153,8 +1168,6 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         '<header class="top"><div class="logo"></div><div>'
         '<h1 class="h1">hotato</h1>'
         '<div class="tagline">Open, offline turn-taking eval for voice agents.</div>'
-        '<div class="subtle">Deterministic offline timing. Every value below is a '
-        'real measurement from the scorer.</div>'
         '<div class="metarow">'
         f'<span class="pill"><b>{_esc(mode_label)}</b></span>'
         f'<span class="pill">stack <b>{_esc(stack)}</b></span>'
@@ -1187,11 +1200,17 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
 
     base_html = _base_section(env, base_env, base_label) if base_env else ""
 
+    # The analytics rollup reads AFTER the event cards it aggregates (a reader
+    # sees the individual moments before the summary of them), and only when
+    # there are enough events for a rollup to say anything a single card
+    # doesn't already: fewer than 3 events, and it is skipped entirely.
+    analytics_html = _analytics_section(env, models) if len(models) >= 3 else ""
+
     body = (
         f'<div class="wrap">{head}<main>{summary}'
-        f'{_analytics_section(env, models)}{_not_scorable_section_html(env)}'
+        f'{_not_scorable_section_html(env)}'
         f'{base_html}{cards}'
-        f'{_thresholds(cfg)}</main>{_footer()}</div>'
+        f'{analytics_html}{_thresholds(cfg)}</main>{_footer()}</div>'
     )
 
     # Distinguishing title + description built only from measured counts.
