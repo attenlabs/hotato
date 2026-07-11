@@ -116,6 +116,11 @@ def canonical_contract_digest(contract: dict) -> Tuple[str, list]:
         "policy": contract.get("policy"),
         "source.source_audio_sha256": _get(contract, "source", "source_audio_sha256"),
         "source.decoded_pcm_sha256": _get(contract, "source", "decoded_pcm_sha256"),
+        # The BUNDLED clip's raw + decoded-PCM identity: signing these binds the
+        # actual audio/event.wav that ships in the bundle to the signature, so
+        # verify can refuse a bundle whose audio was replaced after creation.
+        "source.bundle_audio_sha256": _get(contract, "source", "bundle_audio_sha256"),
+        "source.bundle_pcm_sha256": _get(contract, "source", "bundle_pcm_sha256"),
         "source.recording_type": _get(contract, "source", "recording_type"),
         "source.channels": _get(contract, "source", "channels"),
         "scorer.package_version": _scorer_version(contract),

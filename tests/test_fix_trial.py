@@ -50,7 +50,7 @@ from hotato import fixplan as _fixplan
 from hotato import patch as _patch
 from hotato.diagnose import OPPOSITE_RISK
 
-import _trial_audio as ta
+from tests import _trial_audio as ta
 
 HARD = None
 try:
@@ -627,7 +627,11 @@ def test_evidence_line_and_caution_appear_in_text(tmp_path, config_patch, capsys
     rc = _run(config_patch, before, after)
     assert rc == 0
     text_out = capsys.readouterr().out
-    assert "Evidence: PAIRED EVIDENCE IMPROVED (tier 3)" in text_out
+    # Honest headline: a real fix trial with no capture receipt is operator-
+    # asserted (not machine-verified fresh recapture), and this battery ships no
+    # previously-passing hold guard -- both are disclosed on the evidence line.
+    assert "Evidence: PAIRED IMPROVED (RECAPTURE OPERATOR-ASSERTED)" in text_out
+    assert "(tier 3)" in text_out
     assert _fix_trial._PROVENANCE_CAUTION in text_out
 
 

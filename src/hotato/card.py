@@ -265,12 +265,15 @@ def _render_funnel(plan: dict) -> str:
 # A ``hotato verify`` result is paired before/after evidence, never a claim
 # about the CURRENT agent in isolation. This card must never render the word
 # "VERIFIED": per the words-to-reserve table, the honest status for a genuine
-# paired improvement is "PAIRED EVIDENCE IMPROVED", not "verified fix" or
-# "fix verified". Hotato reports coincidence, never causation, and never
-# claims a hold guard was "protected" -- only that it did not regress.
+# paired improvement names its origin -- "PAIRED FRESH-RECAPTURE IMPROVED" only
+# when the recapture is runner-attested, "PAIRED (OPERATOR-ASSERTED)" otherwise
+# -- never "verified fix" or "fix verified". Hotato reports coincidence, never
+# causation, and never claims a hold guard was "protected" -- only that it did
+# not regress.
 #
-# The green "PAIRED EVIDENCE IMPROVED" card is the strongest visual claim a
-# card can make, so it is gated on the EVIDENCE tier, not just on the
+# The green fresh-recapture card is the strongest visual claim a card can make,
+# so it is gated on the EVIDENCE tier (green + "fresh-recapture" reserved for the
+# ATTESTED tier), not just on the
 # (hand-writable) claim/counts fields: it renders only when the result carries
 # an evidence classification that reaches the paired tier (a fix-trial recompute
 # from audio). That tier is RE-DERIVED here from the evidence vector -- the
@@ -333,7 +336,8 @@ def _render_verify(v: dict) -> str:
     else:
         tier = min(int(ev.get("tier", _evidence.TIER_ASSERTED)),
                    _evidence.TIER_ASSERTED)
-    ev_headline = _evidence.TIER_HEADLINE[tier]
+    ev_headline = _evidence.headline_for(
+        tier, vector if isinstance(vector, dict) else {})
 
     text_equiv = (
         f"{now} of {used} failing fixtures now pass; {still} of {guards} hold "
@@ -341,12 +345,22 @@ def _render_verify(v: dict) -> str:
     )
 
     if tier >= _evidence.TIER_PAIRED:
-        body = [_kind_tag("PAIRED EVIDENCE")]
-        body += _headline(_wrap("PAIRED EVIDENCE IMPROVED", 26), top=200)
-        body.append(_text(_M, 250, "no submitted hold guard regressed",
+        _attested = tier >= _evidence.TIER_ATTESTED
+        _card_title = ("PAIRED FRESH-RECAPTURE" if _attested
+                       else "PAIRED (OPERATOR-ASSERTED)")
+        _kind = "ATTESTED PAIRED" if _attested else "PAIRED (OPERATOR-ASSERTED)"
+        _guard_line = ("no submitted hold guard regressed" if guards
+                       else "no hold guard was submitted")
+        body = [_kind_tag(_kind)]
+        body += _headline(_wrap(_card_title, 26), top=200)
+        body.append(_text(_M, 250, _guard_line,
                           size=23, fill=_C["muted"], weight="500"))
+        # Green accent is reserved for ATTESTED (runner-verified) fresh recapture.
+        # An operator-asserted pair reports its real counts in cream, never the
+        # fresh-fix green it did not earn.
+        _accent = _C["green"] if _attested else _C["cream"]
         rows = [
-            (f"{now} of {used}", "failing fixtures now pass", _C["green"]),
+            (f"{now} of {used}", "failing fixtures now pass", _accent),
             (f"{still} of {guards}", "hold fixtures still pass", _C["cream"]),
         ]
         for i, (num, label, col) in enumerate(rows):
@@ -356,7 +370,7 @@ def _render_verify(v: dict) -> str:
             body.append(_text(_M + 210, y, label, size=28, fill=_C["muted"],
                               weight="500"))
         body.append(_footer("Hotato reports coincidence, not causation."))
-        return _frame(body, title="Paired evidence improved", desc=text_equiv)
+        return _frame(body, title=ev_headline, desc=text_equiv)
 
     # tier < PAIRED: a muted, explicitly-unverified card. The WORDS carry the
     # status (no green), so it reads the same in monochrome. The caveat is

@@ -144,6 +144,9 @@ def _verify_json(tmp_path, *, supported=True, now_pass=2, used_to_fail=3,
 
 # A paired-tier evidence block (as a fix-trial recompute-from-audio produces):
 # every required dimension caps at PAIRED or above. Only this may render green.
+# What a real fix trial WITHOUT a capture receipt produces: paired before/after,
+# but the recapture origin is only operator-asserted -> a qualified PAIRED card,
+# never the fresh-recapture green.
 _PAIRED_EVIDENCE = _evidence.classify({
     "score_integrity": "recomputed",
     "audio_identity": "recomputed",
@@ -154,24 +157,54 @@ _PAIRED_EVIDENCE = _evidence.classify({
     "label_authority": "human",
     "pairing_integrity": "contract_bound",
     "capture_origin": "operator_asserted",
+    "opposite_risk_guard": "present_passing",
+})
+
+# The only vector that earns the green fresh-recapture card: a runner-attested,
+# signed, hold-guarded pair (evidence tier ATTESTED).
+_ATTESTED_EVIDENCE = _evidence.classify({
+    "score_integrity": "recomputed",
+    "audio_identity": "recomputed",
+    "policy_integrity": "signed",
+    "fixture_set_integrity": "manifest_complete",
+    "input_health": "clean",
+    "channel_mapping": "confirmed",
+    "label_authority": "human",
+    "pairing_integrity": "contract_bound",
+    "capture_origin": "runner_attested",
+    "opposite_risk_guard": "present_passing",
 })
 
 
-def test_card_from_verify_reads_paired_evidence_improved(tmp_path):
-    # The green card renders ONLY when the evidence classification reaches the
-    # paired tier; a genuine fix-trial result carries exactly this block.
+def test_card_from_attested_evidence_renders_fresh_recapture_green(tmp_path):
+    # The green fresh-recapture card renders ONLY when the evidence reaches the
+    # ATTESTED tier (runner-verified capture receipt + hold guard).
+    v = _verify_json(tmp_path, now_pass=2, used_to_fail=3,
+                      still_pass=2, hold_guards=2, evidence=_ATTESTED_EVIDENCE)
+    rc, svg = _card_cli(tmp_path, str(v))
+    assert rc == 0
+    _assert_is_card_svg(svg)
+    assert "PAIRED FRESH-RECAPTURE" in svg
+    assert _card._C["green"] in svg
+    assert "2 of 3" in svg  # failing fixtures now pass
+    assert "2 of 2" in svg  # hold fixtures still pass
+    assert "Hotato reports coincidence, not causation." in svg
+    assert "VERIFIED" not in svg
+    assert "FIX VERIFIED" not in svg
+
+
+def test_card_from_operator_asserted_pair_is_qualified_not_green(tmp_path):
+    # Operator-asserted paired evidence renders a QUALIFIED card: it names the
+    # origin, does NOT claim fresh recapture, and does NOT use the green accent.
     v = _verify_json(tmp_path, now_pass=2, used_to_fail=3,
                       still_pass=2, hold_guards=2, evidence=_PAIRED_EVIDENCE)
     rc, svg = _card_cli(tmp_path, str(v))
     assert rc == 0
     _assert_is_card_svg(svg)
-    assert "PAIRED EVIDENCE IMPROVED" in svg
-    assert "2 of 3" in svg  # failing fixtures now pass
-    assert "2 of 2" in svg  # hold fixtures still pass
-    assert "Hotato reports coincidence, not causation." in svg
-    # never the bare status word or the retired phrase
-    assert "VERIFIED" not in svg
-    assert "FIX VERIFIED" not in svg
+    assert "PAIRED (OPERATOR-ASSERTED)" in svg
+    assert "PAIRED FRESH-RECAPTURE" not in svg
+    assert _card._C["green"] not in svg
+    assert "2 of 3" in svg
 
 
 def test_card_from_verify_unsupported_claim_refused(tmp_path):

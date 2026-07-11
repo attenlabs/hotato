@@ -121,7 +121,8 @@ def test_evidence_lattice_is_a_minimum_not_an_average():
     strong = {"score_integrity": "recomputed", "audio_identity": "recomputed",
               "policy_integrity": "signed", "fixture_set_integrity": "manifest_complete",
               "input_health": "clean", "channel_mapping": "confirmed", "label_authority": "human",
-              "pairing_integrity": "contract_bound", "capture_origin": "runner_attested"}
+              "pairing_integrity": "contract_bound", "capture_origin": "runner_attested",
+              "opposite_risk_guard": "present_passing"}
     assert ev.evidence_tier(strong) == ev.TIER_ATTESTED
     weak = dict(strong); weak["score_integrity"] = "envelope_only"
     assert ev.evidence_tier(weak) == ev.TIER_ASSERTED   # one weak dim pulls it all the way down

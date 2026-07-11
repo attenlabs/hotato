@@ -338,19 +338,29 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
     top_onset = onset_sec if onset_sec is not None else (
         top.get("t_sec") if top else None)
 
-    # 3) measure the top candidate (onset frame + decision margin + boundary)
+    # 3) measure the top candidate. WITHOUT a human label a candidate is a timing
+    # MOMENT for review, never a yield/hold verdict: emit only the raw timing
+    # (onset frame, decision margin, boundary sensitivity) and add a verdict ONLY
+    # once a human supplies --label yield|hold. `expect` is needed to run the
+    # scorer, but its verdict is withheld from the output until then.
     measured = None
     if top_onset is not None:
-        expect = label if label in ("yield", "hold") else "yield"
-        env = run_single(stereo=stereo, onset_sec=top_onset, expect=expect,
+        labeled = label in ("yield", "hold")
+        env = run_single(stereo=stereo, onset_sec=top_onset,
+                         expect=(label if labeled else "yield"),
                          caller_channel=caller_channel, agent_channel=agent_channel)
         ev = env["events"][0]
         measured = {"onset_sec": top_onset,
-                    "verdict": ev["verdict"],
                     "measurements": {k: ev["measurements"].get(k) for k in (
                         "onset_frame_index", "onset_effective_sec",
                         "decision_margin_sec", "decision_margin_hops",
                         "boundary_sensitive", "hop_sec")}}
+        if labeled:
+            measured["verdict"] = ev["verdict"]
+        else:
+            measured["needs_label"] = (
+                "a candidate is a timing moment for review, not a verdict; "
+                "label it with --label yield|hold to score it")
 
     # 4) optional human label -> contract + evidence-tier card
     contract_info = None
@@ -377,7 +387,7 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
         # paired/attested proof. Cap the tier and use measured-tier language.
         capped = min(classification["tier"], _evidence.TIER_MEASURED)
         classification["tier"] = capped
-        classification["headline"] = _evidence.TIER_HEADLINE[capped]
+        classification["headline"] = _evidence.headline_for(capped, vector)
         contract_info["evidence_tier"] = classification["tier"]
         contract_info["evidence_headline"] = classification["headline"]
         # Render the result card for this labelled own-call and write it next to
@@ -393,8 +403,13 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
             card_written = False
 
     # 5) assemble output
-    proves = ("This measures whether THIS recording met the yield/hold policy "
-              "you labelled, under the recorded conditions.")
+    if label in ("yield", "hold"):
+        proves = ("This measures whether THIS recording met the yield/hold policy "
+                  "you labelled, under the recorded conditions.")
+    else:
+        proves = ("This surfaces candidate timing MOMENTS (onset, overlap, boundary "
+                  "sensitivity) for you to review. It assigns no yield/hold verdict "
+                  "until you label a moment.")
     not_proves = ("It does not prove the call was fresh, that any change caused "
                   "the result, or that future calls will pass. A paired "
                   "fresh-recapture proof needs a before/after trial "
@@ -422,12 +437,19 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
              f"  recommendation:  {report.get('recommendation')}",
              f"  candidates:      {scanned.get('total_candidates')} moments -> {_STEREO_REVIEW_HTML}"]
     if measured:
-        m = measured["measurements"]; v = measured["verdict"]
+        m = measured["measurements"]
         bs = " [BOUNDARY-SENSITIVE]" if m.get("boundary_sensitive") else ""
-        lines += [f"  top candidate:   onset {measured['onset_sec']:.2f}s "
-                  f"(frame {m.get('onset_frame_index')}), "
-                  f"time-to-yield {v.get('seconds_to_yield')}, "
-                  f"talk-over {v.get('talk_over_sec')}s{bs}"]
+        if "verdict" in measured:
+            v = measured["verdict"]
+            lines += [f"  top candidate:   onset {measured['onset_sec']:.2f}s "
+                      f"(frame {m.get('onset_frame_index')}), "
+                      f"time-to-yield {v.get('seconds_to_yield')}, "
+                      f"talk-over {v.get('talk_over_sec')}s{bs}"]
+        else:
+            dm = m.get("decision_margin_sec")
+            lines += [f"  top candidate:   onset {measured['onset_sec']:.2f}s "
+                      f"(frame {m.get('onset_frame_index')}), decision margin "
+                      f"{dm}s{bs} -- unlabeled (a timing moment, not a verdict)"]
     if contract_info:
         lines += [f"  contract:        {contract_info['dir']} "
                   f"(evidence: {contract_info['evidence_headline']}, tier "

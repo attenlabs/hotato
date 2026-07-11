@@ -87,3 +87,120 @@ def test_source_id_path_injection_is_refused():
                         {"config_delta": {"firstMessage": "x"}})
     with pytest.raises(ValueError):
         v.inspect_config("asst/../x")
+
+
+# --- honest capability discovery (regression: adapters must not over-declare) --
+
+def _invoke_op(adapter, cap):
+    """Invoke an operation-backed capability with representative args, staging a
+    fresh clone first when the op needs one. Returns the result; the caller
+    asserts on any exception. (No network: live ops without creds refuse before
+    any request is made.)"""
+    clone_ref = "staging-ref"
+    try:
+        if adapter.supports("clone_agent"):
+            clone_ref = adapter.clone_agent("asst_1", name="staging")
+    except adapters.CapabilityError:
+        clone_ref = "staging-ref"  # live adapter without creds refuses; fine
+    scenario = {"id": "s1", "caller_onset_sec": 2.0}
+    dispatch = {
+        "snapshot_config": lambda: adapter.snapshot_config({"turn_taking": {"x": 1}}),
+        "inspect_config": lambda: adapter.inspect_config("asst_1"),
+        "clone_agent": lambda: adapter.clone_agent("asst_1", name="staging"),
+        "apply_variant": lambda: adapter.apply_variant(
+            clone_ref, {"config_delta": {"interrupt_min_words": 1}}),
+        "run_scenario": lambda: adapter.run_scenario(clone_ref, scenario),
+        "capture_result": lambda: adapter.capture_result(clone_ref, scenario),
+        "rollback": lambda: adapter.rollback("asst_1", "rev-1"),
+        "delete_clone": lambda: adapter.delete_clone(clone_ref),
+    }
+    return dispatch[cap]()
+
+
+def _all_adapters(tmp_path):
+    return {
+        "vapi": adapters.get_adapter("vapi"),        # no creds
+        "retell": adapters.get_adapter("retell"),    # no creds
+        "livekit": adapters.get_adapter("livekit"),
+        "pipecat": adapters.get_adapter("pipecat"),
+        "mock": adapters.get_adapter("mock", work_dir=str(tmp_path / "work")),
+    }
+
+
+def test_no_adapter_advertises_a_capability_that_raises_notimplemented(tmp_path):
+    # THE regression: every ADVERTISED operation must actually be implemented --
+    # invoking it returns a result or refuses for missing credentials
+    # (CapabilityError), but NEVER raises NotImplementedError. Covers every
+    # adapter and every operation-backed capability it advertises.
+    for stack, adapter in _all_adapters(tmp_path).items():
+        for cap in sorted(adapter.capabilities()):
+            if cap not in adapters._OPERATION_METHODS:
+                continue  # feature capability: no adapter method to invoke
+            try:
+                result = _invoke_op(adapter, cap)
+            except adapters.CapabilityError:
+                pass  # implemented-but-needs-credentials surfaced as a refusal
+            except NotImplementedError as exc:  # pragma: no cover - the bug
+                pytest.fail(
+                    f"{stack} advertises {cap!r} but invoking it raises "
+                    f"NotImplementedError: {exc}")
+            else:
+                assert result is not None
+
+
+def test_describe_available_implies_not_a_stub(tmp_path):
+    # available=True must never be reported for an operation whose method is only
+    # an @_unimplemented stub, and capabilities() must equal the available subset.
+    for adapter in _all_adapters(tmp_path).values():
+        desc = adapter.describe()
+        assert adapter.capabilities() == {c for c, r in desc.items() if r["available"]}
+        for cap, rec in desc.items():
+            method = adapters._OPERATION_METHODS.get(cap)
+            if method is None:
+                continue
+            fn = getattr(type(adapter), method)
+            is_stub = getattr(fn, "_hotato_unimplemented", False)
+            assert rec["available"] is (not is_stub)
+            if is_stub:
+                assert not adapter.supports(cap)
+
+
+def test_live_and_source_adapters_do_not_advertise_scenario_ops(tmp_path):
+    # The specific audit finding: Vapi/Retell/LiveKit/Pipecat must NOT advertise
+    # run_scenario / capture_result, because invoking them raises. describe()
+    # reports them explicitly as available=False ("not implemented").
+    for stack in ("vapi", "retell", "livekit", "pipecat"):
+        adapter = adapters.get_adapter(stack)
+        for cap in ("run_scenario", "capture_result"):
+            assert not adapter.supports(cap)
+            assert cap not in adapter.capabilities()
+            rec = adapter.describe()[cap]
+            assert rec["available"] is False and rec["authorized"] is False
+
+
+def test_describe_distinguishes_credentials_from_unimplemented():
+    # HONEST discovery contract: implemented-but-needs-credentials
+    # (available=True, authorized=False) is distinct from not-implemented
+    # (available=False), and neither answer crashes.
+    v = adapters.get_adapter("vapi")  # no creds
+    d = v.describe()
+    assert d["clone_agent"] == {
+        "available": True, "authorized": False,
+        "reason": "implemented; requires credentials (connect a stack and supply an API key)"}
+    assert d["snapshot_config"] == {"available": True, "authorized": True, "reason": "ready"}
+    assert d["run_scenario"]["available"] is False
+    # supplying a key flips authorization on the implemented op (still no crash)
+    vk = adapters.get_adapter("vapi", api_key="sk-test-key")
+    assert vk.describe()["clone_agent"]["authorized"] is True
+
+
+def test_mock_reports_full_loop_available_and_every_op_returns(tmp_path):
+    # The mock DOES implement the whole loop, so it honestly advertises the full
+    # capability set and every operation-backed capability returns a real result.
+    mock = adapters.get_adapter("mock", work_dir=str(tmp_path / "m"))
+    assert mock.capabilities() == set(adapters.CAPABILITIES)
+    for cap in sorted(adapters.CAPABILITIES):
+        rec = mock.describe()[cap]
+        assert rec["available"] is True and rec["authorized"] is True
+        if cap in adapters._OPERATION_METHODS:
+            assert _invoke_op(mock, cap) is not None

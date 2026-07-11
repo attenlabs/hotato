@@ -71,7 +71,8 @@ a clean exit-2 usage error (it is not one of the four kinds).
 A supported `hotato verify` before/after rollup where at least one previously-failing
 fixture now passes and no hold/backchannel fixture regressed. This is paired
 evidence, not a claim about the current agent standing alone -- the card
-reads "PAIRED EVIDENCE IMPROVED", never "verified" or "fix verified", and
+reads "PAIRED FRESH-RECAPTURE IMPROVED" only when the recapture is runner-
+attested and "PAIRED (OPERATOR-ASSERTED)" otherwise, never "verified" or "fix verified", and
 closes with "Hotato reports coincidence, not causation." A verify result that
 does not support that claim (too few previously-failing fixtures, nothing now
 passing, or a regressed hold fixture) is refused with exit 2 rather than

@@ -50,6 +50,7 @@ import os
 import re
 import shutil
 import tempfile
+import wave
 import zipfile
 from datetime import datetime, timezone
 from typing import Optional
@@ -168,6 +169,21 @@ def _sha256_file(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _decoded_pcm_sha256(path: str) -> str:
+    """sha256 over the DECODED PCM samples of a WAV (all channels, interleaved),
+    independent of container/codec framing. Bound into a contract's signed
+    subject so `contract verify` can detect a bundle whose audio was replaced
+    after signing even if the new file re-encodes to different raw bytes."""
+    h = hashlib.sha256()
+    with wave.open(path, "rb") as wf:
+        while True:
+            chunk = wf.readframes(1 << 16)
+            if not chunk:
+                break
             h.update(chunk)
     return h.hexdigest()
 
@@ -684,6 +700,10 @@ def _create_from_fixture_path(
         audio_dest = os.path.join(tmp_dir, _REL["audio"])
         _mkparents(audio_dest)
         shutil.copyfile(clipped_audio, audio_dest)
+        # Hash the BUNDLED clip (what actually ships as audio/event.wav), not just
+        # the pre-clip source: verify recomputes these and refuses a swapped clip.
+        bundle_audio_sha = _sha256_file(audio_dest)
+        bundle_pcm_sha = _decoded_pcm_sha256(audio_dest)
 
         _write_text(os.path.join(tmp_dir, _REL["evidence"]["frames"]),
                    _frame_lines(dump))
@@ -722,6 +742,8 @@ def _create_from_fixture_path(
             "recording_type": recording_type,
             "channels": 2,
             "source_audio_sha256": source_sha,
+            "bundle_audio_sha256": bundle_audio_sha,
+            "bundle_pcm_sha256": bundle_pcm_sha,
             "candidate_ref": candidate_ref if include_identifiers else
                             (candidate_ref and "(redacted; --include-identifiers to show)"),
             "candidate_kind": candidate_kind,
@@ -791,6 +813,8 @@ def _create_diarized_mono(
     audio_dest = os.path.join(tmp_dir, _REL["audio"])
     _mkparents(audio_dest)
     shutil.copyfile(mono, audio_dest)
+    bundle_audio_sha = _sha256_file(audio_dest)
+    bundle_pcm_sha = _decoded_pcm_sha256(audio_dest)
 
     reason = (
         "frame-level evidence is not produced for the diarized-mono path in "
@@ -834,6 +858,8 @@ def _create_diarized_mono(
             "recording_type": "diarized-mono",
             "channels": 1,
             "source_audio_sha256": source_sha,
+            "bundle_audio_sha256": bundle_audio_sha,
+            "bundle_pcm_sha256": bundle_pcm_sha,
             "candidate_ref": None,
             "candidate_kind": None,
         },
@@ -1046,6 +1072,26 @@ def _verify_one(bundle_dir: str) -> dict:
     scorable = event.get("scorable") is not False
     v = event.get("verdict") or {}
     passed = scorable and bool(v.get("passed"))
+    # MEDIA BINDING: the signed subject records the bundled clip's raw + decoded
+    # PCM identity. Recompute them from the audio/event.wav ON DISK NOW and refuse
+    # if either differs from what was signed -- a bundle whose audio was replaced
+    # after creation (fail -> pass by swapping the wav) is a tampered bundle even
+    # though contract.json (and thus its signature) is untouched. A legacy bundle
+    # created before media binding has no stored bundle hash; it simply cannot be
+    # media-verified (its authenticity is decided by the digest axis alone).
+    src = contract.get("source") or {}
+    want_raw = src.get("bundle_audio_sha256")
+    want_pcm = src.get("bundle_pcm_sha256")
+    media_tampered = False
+    media_reason = None
+    if want_raw or want_pcm:
+        got_raw = _sha256_file(audio_path)
+        got_pcm = _decoded_pcm_sha256(audio_path)
+        if (want_raw and got_raw != want_raw) or (want_pcm and got_pcm != want_pcm):
+            media_tampered = True
+            media_reason = ("the bundled audio does not match the signed source: the "
+                            "recording in audio/event.wav was replaced after the "
+                            "contract was created")
     # Authenticity is an ADDITIONAL axis, orthogonal to the pass/fail re-scoring
     # above: recompute the canonical digest and compare to the one embedded at
     # creation. A body edited after creation (a loosened policy re-packed with a
@@ -1053,6 +1099,22 @@ def _verify_one(bundle_dir: str) -> dict:
     # that matches but carries no verifying signature is "unsigned, internally
     # consistent evidence", NEVER "authenticated".
     auth = _attest.assess_contract(contract, bundle_dir=bundle_dir)
+    if media_tampered:
+        # A swapped recording cannot be certified: force tampered + non-passing,
+        # so a fail->pass audio swap can never report an authenticated pass.
+        return {
+            "id": contract.get("id") or os.path.basename(bundle_dir),
+            "dir": bundle_dir,
+            "expect": expect,
+            "passed": False,
+            "scorable": scorable,
+            "not_scorable_reason": event.get("not_scorable_reason"),
+            "measurement": {"did_yield": None, "seconds_to_yield": None,
+                            "talk_over_sec": None},
+            "authenticity": "tampered",
+            "authenticated": False,
+            "authenticity_reason": media_reason,
+        }
     return {
         "id": contract.get("id") or os.path.basename(bundle_dir),
         "dir": bundle_dir,
