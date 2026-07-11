@@ -1,12 +1,19 @@
 """Workspace isolation + secret scope (plan §7.1 / Wave 3 security).
 
-Every registry row carries workspace_id; no global path or provider call id may
-reach another workspace's artifact. A scoring worker holds no provider secret."""
+What IS isolated, stated honestly: every REGISTRY row carries workspace_id, and
+every registry query is workspace-scoped, so no workspace-scoped query, guessed
+id, provider call id, or path reaches another workspace's rows. The
+content-addressed ArtifactStore is a SHARED CAS keyed by digest (a digest is a
+capability); its reads are not workspace-scoped by design. Isolation of blobs is
+therefore enforced at the registry/reference layer that hands out digests, not at
+the blob layer -- the tests below assert exactly that boundary, without
+overclaiming blob-layer isolation. A scoring worker holds no provider secret."""
 import json
 
 from hotato.fleet.registry import Registry
 from hotato.fleet.api import FleetAPI
 from hotato.fleet.jobs import JobQueue, idempotency_key
+from hotato.fleet.store import ArtifactStore
 from hotato.fleet import adapters
 from tests import _trial_audio as ta
 
@@ -39,6 +46,22 @@ def test_idempotency_key_is_workspace_scoped():
     assert a != b
 
 
+def test_idempotency_key_join_is_collision_free():
+    """A field's contents can never be mistaken for a field boundary. Under a
+    bare '|' join these two inputs BOTH produced 'a|b|c|score|...', so two
+    DIFFERENT workspaces' jobs deduped to ONE global job_id (job_id is the
+    primary key). The serialized join keeps them distinct."""
+    k1 = idempotency_key(workspace_id="a|b", agent_id="c", operation="score")
+    k2 = idempotency_key(workspace_id="a", agent_id="b|c", operation="score")
+    assert k1 != k2
+    # the same guarantee holds when the delimiter straddles the operation field
+    k3 = idempotency_key(workspace_id="ws", agent_id="a|b", operation="c",
+                         source_pcm_hash="")
+    k4 = idempotency_key(workspace_id="ws", agent_id="a", operation="b|c",
+                         source_pcm_hash="")
+    assert k3 != k4
+
+
 def test_ingest_is_scoped_and_does_not_leak_across_workspaces(tmp_path):
     api = FleetAPI(home=str(tmp_path / "home"))
     api.init_workspace("wsA"); api.init_workspace("wsB")
@@ -55,13 +78,104 @@ def test_ingest_is_scoped_and_does_not_leak_across_workspaces(tmp_path):
     api.close()
 
 
+def test_partial_ingest_reingest_recreates_lost_recording(tmp_path):
+    """put_file -> add_call -> add_recording are separately committed. A crash
+    between add_call and add_recording leaves an orphan call row with no
+    recording. Re-ingest must SELF-HEAL (create the recording), not treat the
+    orphan call as a completed duplicate and lose the recording forever."""
+    api = FleetAPI(home=str(tmp_path / "home"))
+    api.init_workspace("wsA")
+    api.agent_add("wsA", "bot", stack="vapi")
+    wav = str(tmp_path / "c.wav"); ta.talkover_call(wav)
+
+    ing = api.ingest_recording("wsA", "bot", wav)          # full, clean ingest
+    assert ing["deduped"] is False
+    call_id, rec_id = ing["call_id"], ing["recording_id"]
+
+    # reproduce the crash aftermath exactly: the recording row is gone, the call
+    # row remains. (Under the old has_call dedup, has_call is now True, so the
+    # retry would return deduped=True and the recording would never come back.)
+    api.registry.conn.execute("DELETE FROM recordings WHERE workspace_id='wsA'")
+    api.registry.conn.commit()
+    assert api.registry.has_call("wsA", call_id)            # orphan call present
+    assert api.registry._all(
+        "SELECT * FROM recordings WHERE workspace_id='wsA'") == []  # recording lost
+
+    out = api.ingest_recording("wsA", "bot", wav)           # re-ingest self-heals
+    assert out["deduped"] is False
+    assert out["recording_id"] == rec_id
+    recs = api.registry._all("SELECT * FROM recordings WHERE workspace_id='wsA'")
+    assert len(recs) == 1 and recs[0]["recording_id"] == rec_id
+
+    # a FULLY-ingested recording still dedups: idempotent, no duplicate row
+    again = api.ingest_recording("wsA", "bot", wav)
+    assert again["deduped"] is True
+    assert len(api.registry._all(
+        "SELECT * FROM recordings WHERE workspace_id='wsA'")) == 1
+    api.close()
+
+
+def test_isolation_is_registry_layer_not_blob_layer(tmp_path):
+    """Honest scope of the guarantee: the content-addressed store is a SHARED CAS
+    keyed by digest -- get_bytes takes no workspace_id, so identical bytes from
+    two workspaces collapse to ONE blob that either can read given the digest.
+    Workspace isolation lives at the REGISTRY/reference layer: the row that NAMES
+    a digest is workspace-scoped, so a workspace that never received a digest
+    cannot obtain it through any workspace-scoped query. We assert exactly this
+    boundary and do NOT overclaim blob-layer isolation."""
+    store = ArtifactStore(str(tmp_path / "art"))
+    same = b"identical recording bytes across two workspaces"
+    dA = store.put_bytes(same, kind="recording", workspace_id="wsA")
+    dB = store.put_bytes(same, kind="recording", workspace_id="wsB")
+    # CAS: identical content -> one shared blob (NOT isolated at the blob layer),
+    # readable from the digest alone with no workspace scoping.
+    assert dA == dB
+    assert store.get_bytes(dA) == same
+
+    reg = Registry(home=str(tmp_path / "reg"))
+    reg.add_recording("wsA", "rec-A", artifact_digest=dA)
+    # the REFERENCE (which digest belongs to which workspace) is scoped:
+    row = reg._one("SELECT artifact_digest FROM recordings "
+                   "WHERE workspace_id=? AND recording_id=?", ("wsA", "rec-A"))
+    assert row["artifact_digest"] == dA
+    # wsB never received the digest and cannot discover it via a scoped query
+    assert reg._all("SELECT artifact_digest FROM recordings "
+                    "WHERE workspace_id='wsB'") == []
+    reg.close()
+
+
 def test_scoring_path_carries_no_provider_credentials():
-    """A scoring/mock adapter declares no credential and refuses nothing on the
-    offline path; live adapters keep their key private (never returned)."""
+    """The scoring/offline path carries no provider secret. Asserted against
+    ACTUAL capability OUTPUTS (not the capability NAME strings, which trivially
+    can never contain a key): the mock adapter has no credential and its outputs
+    carry none, and a live adapter never surfaces its api_key through any public
+    method's return value nor through the no-credential refusal message."""
+    SECRET = "sk-secret-live-key-9f3a"
+
+    # 1) mock (offline scoring) path: no credential field at all, and the real
+    #    capability outputs (clone/apply) carry no secret.
     mock = adapters.get_adapter("mock", work_dir=".")
-    assert not hasattr(mock, "api_key") or getattr(mock, "api_key", None) is None
-    live = adapters.get_adapter("vapi", api_key="sk-secret")
-    # the key is not exposed through any capability output
-    staged = live.__dict__
-    assert "sk-secret" not in json.dumps({k: str(v) for k, v in
-                                          {"caps": sorted(live.capabilities())}.items()})
+    assert getattr(mock, "api_key", None) is None
+    clone = mock.clone_agent("ref", name="staging")
+    applied = mock.apply_variant(clone, {"config_delta": {"interrupt_min_words": 5}})
+    assert SECRET not in json.dumps({"clone": clone, "applied": applied})
+
+    # 2) live adapter WITH a key: the key is held privately but is never returned
+    #    by any public method that could carry it.
+    live = adapters.get_adapter("vapi", api_key=SECRET)
+    assert live.api_key == SECRET                    # held privately...
+    surfaces = {
+        "capabilities": sorted(live.capabilities()),
+        "supports_clone": live.supports("clone_agent"),
+        "snapshot": live.snapshot_config({"turn_taking": {"interrupt_min_words": 3}}),
+        "clone_agent": live.clone_agent("asst_123", name="staging"),
+    }
+    assert SECRET not in json.dumps(surfaces)        # ...never surfaced
+
+    # 3) the no-credential refusal names the REQUIREMENT, never any secret.
+    live_nokey = adapters.get_adapter("vapi")
+    try:
+        live_nokey.clone_agent("asst_123", name="staging")
+        assert False, "clone_agent without credentials must refuse"
+    except adapters.CapabilityError as e:
+        assert SECRET not in str(e)

@@ -44,10 +44,17 @@ CREATE INDEX IF NOT EXISTS idx_jobs_claimable ON jobs (capability, state, lease_
 def idempotency_key(*, workspace_id, agent_id, operation, source_pcm_hash="",
                     policy_hash="", scorer_hash="", contract_set_hash="") -> str:
     """Deterministic key: the same logical work always maps to the same job
-    (plan §7.3 basis). No timestamps/randomness enter the key."""
-    basis = "|".join([workspace_id or "", agent_id or "", operation or "",
-                      source_pcm_hash or "", policy_hash or "", scorer_hash or "",
-                      contract_set_hash or ""])
+    (plan §7.3 basis). No timestamps/randomness enter the key.
+
+    The field list is JSON-serialized rather than joined on a bare delimiter:
+    a delimiter character living INSIDE a field can never masquerade as a field
+    boundary. A bare '|' join collided -- workspace_id='a|b',agent_id='c' and
+    workspace_id='a',agent_id='b|c' both produced 'a|b|c|...', so two different
+    workspaces' jobs deduped to one global job_id. JSON quoting keeps them
+    distinct (["a|b","c",...] != ["a","b|c",...])."""
+    basis = json.dumps([workspace_id or "", agent_id or "", operation or "",
+                        source_pcm_hash or "", policy_hash or "", scorer_hash or "",
+                        contract_set_hash or ""], separators=(",", ":"))
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()
 
 

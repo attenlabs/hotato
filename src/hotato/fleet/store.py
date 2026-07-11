@@ -5,6 +5,16 @@ under a sha256 of their bytes, so identical content is stored once and every
 reference is verifiable. Lineage (which artifact derived from which) is recorded
 alongside, giving the trace spine the plan asks for without a database.
 
+Scope of workspace isolation (honest by construction): this is a SHARED,
+content-addressed blob store keyed by digest -- a digest IS a capability. The
+reads (get_bytes/get_json/verify/path_for) take only a digest and are NOT
+workspace-scoped; identical bytes from two workspaces collapse to one blob that
+either can read given its digest. ``workspace_id`` recorded at write time is
+lineage metadata, not a read-access boundary. Workspace isolation is enforced at
+the REGISTRY/reference layer (the row that NAMES a digest is workspace-scoped),
+so a workspace that never received a digest cannot obtain it through any
+workspace-scoped query -- see tests/test_fleet_security.py.
+
 Zero-dependency. Audio is stored SEPARATELY from any HTML/UI so a fleet report
 never embeds raw customer audio by default (privacy reversal, plan §4/§14).
 """
@@ -81,6 +91,9 @@ class ArtifactStore:
         return self.put_bytes(data, **kw)
 
     # --- reads ----------------------------------------------------------
+    # Reads are by digest only: a digest is a capability. There is deliberately
+    # no workspace_id parameter here -- cross-workspace isolation is a property
+    # of the registry/reference layer that hands out digests, not of this CAS.
     def get_bytes(self, digest: str) -> bytes:
         with open(self._blob_path(digest), "rb") as fh:
             return fh.read()
