@@ -972,6 +972,45 @@ def _run_diarized_mono(
     return env
 
 
+# --- optional, NON-REFERENCE transcript CONTEXT layer (faster-whisper) -----
+#
+# Read-only with respect to the score: this attaches transcript text as CONTEXT
+# on the envelope, strictly AFTER scoring is final. It never touches, reads, or
+# recomputes ``events`` -- did_yield / talk_over_sec / time_to_yield / any
+# verdict or measurement field is untouched, byte-for-byte -- see
+# hotato/transcribe.py's module docstring for the full contract. A single `run`
+# scores exactly one event, so the whole-recording transcript IS the context
+# for that event; there is nothing to align it against. (``align_transcript_to_
+# events`` stays available in ``hotato.transcribe`` for a caller with several
+# independently timed sub-events, e.g. ``trace.py`` spans -- not needed here.)
+
+def _attach_transcript_context(
+    env: dict, path: str, model: str, device: str
+) -> dict:
+    """Transcribe ``path`` and attach the result as a top-level ``transcript``
+    block: the whole-recording text, timed segments, and provenance (model,
+    device, compute_type, language). A missing/broken ``[transcribe]`` extra
+    raises a clean ``BackendUnavailable`` (imported lazily, exactly like the
+    diarize/neural seams) -- it never falls back to skipping the transcript
+    silently. Purely additive: ``env["events"]`` is never read or written by
+    this function, so the timing/verdict fields on every event are the exact
+    same object, untouched."""
+    from .transcribe import transcribe as _transcribe
+
+    t = _transcribe(path, model=model, device=device)
+    env["transcript"] = {
+        "text": t.text,
+        "segments": [
+            {"start": s.start, "end": s.end, "text": s.text} for s in t.segments
+        ],
+        "model": t.model,
+        "device": t.device,
+        "compute_type": t.compute_type,
+        "language": t.language,
+    }
+    return env
+
+
 # --- single recording -----------------------------------------------------
 
 def run_single(
@@ -994,6 +1033,9 @@ def run_single(
     caller_speaker: Optional[str] = None,
     agent_speaker: Optional[str] = None,
     egress_opt_in: bool = False,
+    transcribe: bool = False,
+    transcribe_model: str = "base.en",
+    transcribe_device: str = "auto",
 ) -> dict:
     """Score ONE recording and return the standard envelope.
 
@@ -1014,13 +1056,24 @@ def run_single(
     file is not scorable (exit 2). Default (no ``mono``/``diarize``) is
     byte-identical -- this path is never reached, and a mono file passed as
     ``stereo`` stays rejected exactly as before.
+
+    ``transcribe`` (opt-in, default off; the ``[transcribe]`` extra) runs
+    faster-whisper over the single input file (``stereo``, or ``mono`` when
+    diarizing) and attaches the result as CONTEXT ONLY: a top-level
+    ``transcript`` block (whole-recording text, timed segments, and
+    model/device/compute_type/language provenance). It is computed strictly
+    AFTER the score is final and never reads or writes ``events`` -- did_yield
+    / talk_over_sec / time_to_yield / any verdict or measurement field is
+    byte-identical to the same run with ``transcribe=False``. Requires a
+    single audio file: ``caller``+``agent`` (two separate files) is not
+    supported and raises a clean usage error naming ``--stereo`` instead.
     """
     if cfg is None:
         cfg = ScoreConfig()
     _check_onset(onset_sec)
 
     if mono or diarize:
-        return _run_diarized_mono(
+        env = _run_diarized_mono(
             mono=mono,
             diarize=diarize,
             diarizer=diarizer,
@@ -1034,6 +1087,11 @@ def run_single(
             egress_opt_in=egress_opt_in,
             cfg=cfg,
         )
+        if transcribe:
+            env = _attach_transcript_context(
+                env, mono, transcribe_model, transcribe_device
+            )
+        return env
 
     if stereo:
         signal = _read_wav(stereo)
@@ -1096,7 +1154,16 @@ def run_single(
         resume=resume,
         audio_provenance=audio_provenance,
     )
-    return _envelope(mode="single", stack=stack, events=[event])
+    env = _envelope(mode="single", stack=stack, events=[event])
+    if transcribe:
+        if not stereo:
+            raise ValueError(
+                "--transcribe needs a single audio file to run ASR over; pass "
+                "--stereo FILE (or --mono FILE --diarize). Separate --caller/"
+                "--agent files are not supported by --transcribe."
+            )
+        env = _attach_transcript_context(env, stereo, transcribe_model, transcribe_device)
+    return env
 
 
 # --- frame-level evidence dump --------------------------------------------

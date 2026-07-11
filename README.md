@@ -187,6 +187,7 @@ A contract bundle contains call audio. Do not commit a raw customer contract to 
 ```bash
 pip install hotato                 # core: stdlib-only, zero dependencies
 pip install 'hotato[neural]'       # optional Silero VAD cross-check
+pip install 'hotato[transcribe]'   # optional ASR transcript, context only -- never scored
 pip install 'hotato[livekit]'      # LiveKit live capture
 pip install 'hotato[pipecat]'      # Pipecat live capture
 ```
@@ -194,7 +195,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 ## What Hotato is not
 
 - **Not a full QA platform.** It does not grade the whole conversation, task success, or content -- it isolates turn-taking timing and pins it to reproducible evidence. See [`docs/COMPARE.md`](docs/COMPARE.md) for how it fits alongside broader voice-agent testing tools.
-- **Not transcript scoring.** It measures audio timing, not what was said.
+- **Not transcript scoring.** It measures audio timing, not what was said. The opt-in `--transcribe` flag attaches an ASR transcript purely as context to read next to the verdict; it never changes the timing score. See [`docs/TRANSCRIBE.md`](docs/TRANSCRIBE.md).
 - **Not speaker ID.** Channels are anonymous; nothing identifies who a person is.
 - **Not semantic intent detection.** It produces candidate timing evidence. Humans label intent. CI enforces confirmed contracts.
 - **Not a hand on production config.** It never sits in the live audio path and never changes a running agent.

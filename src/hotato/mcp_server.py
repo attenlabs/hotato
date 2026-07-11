@@ -62,6 +62,22 @@ report (per-event timelines + analytics, offline, zero external requests) to
 that path. The returned envelope then carries `report_path` (absolute path);
 everything else in the envelope is unchanged. Purely additive.
 
+TRANSCRIPT (optional, opt-in, default off): set `transcribe=true` on a single
+recording (`stereo`, or `caller`+`agent`) to attach a plain-text transcript as
+CONTEXT -- so a reader can see WHAT was said next to WHEN the timing engine
+says it was said. This requires the optional `[transcribe]` extra
+(faster-whisper); when it is not installed, the call cleanly refuses
+(`error_code: "backend_unavailable"`, naming `pip install 'hotato[transcribe]'`)
+instead of crashing. A transcript is an aid, never an accuracy improvement: it
+NEVER changes did_yield / seconds_to_yield / talk_over_sec or any other
+timing/verdict field -- the energy VAD stays the pinned reference, and running
+the same recording with `transcribe=true` produces byte-identical timing
+numbers to the same run without it. Not yet supported with `suite`. On success
+the envelope additionally carries a top-level `transcript` block (text,
+segments, model/device provenance) and each event gains a `transcript_context`
+key (the overlapping transcript text for that event's window); both are purely
+additive.
+
 FIX MAP: every failing event carries a fix. fix_class is one of:
   * "config"            - a concrete knob for the named `stack`
                           (livekit|pipecat|vapi|generic), with the direction to
@@ -214,6 +230,137 @@ def _guard_input_path(path: str, param: str) -> str:
     return path
 
 
+# The little slack (seconds) padded onto each side of an event's onset/yield
+# window before overlapping it against transcript segments -- see
+# _event_window. Purely a context-surfacing convenience; it plays no part in
+# any timing/verdict computation.
+_TRANSCRIPT_CONTEXT_PAD_SEC = 1.0
+
+_TRANSCRIPT_NOTE = (
+    "optional CONTEXT only: text next to a timestamp for a human/agent reading "
+    "the report. It is NEVER used to compute did_yield, seconds_to_yield, "
+    "talk_over_sec, or any other timing/verdict field -- the energy VAD stays "
+    "the pinned reference, and this makes no accuracy claim of its own."
+)
+
+
+def _event_window(event: dict) -> dict:
+    """Build a ``{start_sec, end_sec}`` (or ``{}``) window for one scored event,
+    for :func:`hotato.transcribe.align_transcript_to_events` to overlap against.
+
+    Real envelope events carry their timing nested (``measurements.
+    caller_onset_sec``, ``verdict.seconds_to_yield``), not the top-level
+    ``start_sec``/``end_sec``/``time_sec`` shape that function expects (that
+    convention belongs to ``trace.py`` spans) -- so this adapts one shape to the
+    other. READ-ONLY: it only reads ``measurements``/``verdict``, never writes
+    them, and returns a brand-new dict the real event is never mutated through.
+
+    The window is padded by :data:`_TRANSCRIPT_CONTEXT_PAD_SEC` on each side (a
+    little slack around the onset/yield so nearby speech is still surfaced as
+    context) and clamped to a non-negative start. An event with no detected
+    caller onset (e.g. a not-scorable placeholder) gets ``{}``, which
+    ``align_transcript_to_events`` turns into an empty context rather than a
+    crash."""
+    m = event.get("measurements") or {}
+    onset = m.get("caller_onset_sec")
+    if onset is None:
+        return {}
+    v = event.get("verdict") or {}
+    yield_sec = v.get("seconds_to_yield")
+    end = onset + (yield_sec if yield_sec is not None else 0.0)
+    pad = _TRANSCRIPT_CONTEXT_PAD_SEC
+    return {"start_sec": max(0.0, onset - pad), "end_sec": end + pad}
+
+
+def _attach_transcript(
+    env: dict,
+    *,
+    stereo: Optional[str],
+    caller: Optional[str],
+    agent: Optional[str],
+    suite: Optional[str],
+) -> dict:
+    """Attach a transcript as pure, additive CONTEXT to an already-scored
+    envelope. Never called for ``suite`` (raises a clean ``ValueError`` instead
+    -- per-scenario transcript attachment is not implemented yet, and staying
+    silent about a requested-but-missing transcript would be dishonest).
+
+    Lazily imports :mod:`hotato.transcribe` (which itself only imports
+    faster-whisper inside its own ``transcribe()``, never at module import
+    time), so requesting ``transcribe=False`` (the default) costs nothing and
+    never touches the optional extra. Absent the extra, the underlying
+    ``transcribe()`` call raises ``BackendUnavailable`` (in ``errors.HANDLED``),
+    which the caller (:func:`_run_tool`) turns into the SAME clean refusal
+    envelope every other optional-extra failure uses -- never a crash.
+
+    Returns a NEW envelope dict: the input ``env`` is not mutated. Every
+    existing key (timing, verdict, summary, funnel, ...) passes through
+    unchanged; only two keys are added -- a top-level ``transcript`` block and,
+    on each event, a ``transcript_context`` key -- so this is additive with
+    respect to ``schema/envelope.v1.json``."""
+    if suite:
+        raise ValueError(
+            "transcribe currently supports only a single recording (stereo, or "
+            "caller+agent); it does not yet attach a per-scenario transcript "
+            "for suite. Omit transcribe=true, or drop suite and pass "
+            "stereo (or caller+agent) instead."
+        )
+    from . import transcribe as _transcribe
+
+    tagged_segments = []
+    if stereo:
+        t = _transcribe.transcribe(stereo)
+        for seg in t.segments:
+            tagged_segments.append((seg.start, seg.end, seg.text, None))
+        language, model, device, compute_type = (
+            t.language, t.model, t.device, t.compute_type,
+        )
+    else:
+        tc = _transcribe.transcribe(caller)
+        ta = _transcribe.transcribe(agent)
+        for seg in tc.segments:
+            tagged_segments.append((seg.start, seg.end, seg.text, "caller"))
+        for seg in ta.segments:
+            tagged_segments.append((seg.start, seg.end, seg.text, "agent"))
+        tagged_segments.sort(key=lambda s: s[0])
+        language = tc.language or ta.language
+        model, device, compute_type = tc.model, tc.device, tc.compute_type
+
+    transcript = _transcribe.Transcript(
+        text=" ".join(s[2] for s in tagged_segments if s[2]).strip(),
+        segments=[
+            _transcribe.TranscriptSegment(start=s[0], end=s[1], text=s[2])
+            for s in tagged_segments
+        ],
+        language=language, model=model, device=device, compute_type=compute_type,
+    )
+
+    events = env.get("events") or []
+    windows = [_event_window(e) for e in events]
+    aligned = _transcribe.align_transcript_to_events(transcript, windows)
+    new_events = []
+    for e, a in zip(events, aligned):
+        ne = dict(e)
+        ne["transcript_context"] = a["transcript_context"]
+        new_events.append(ne)
+
+    new_env = dict(env)
+    new_env["events"] = new_events
+    new_env["transcript"] = {
+        "text": transcript.text,
+        "language": transcript.language,
+        "model": transcript.model,
+        "device": transcript.device,
+        "compute_type": transcript.compute_type,
+        "segments": [
+            {"start": s[0], "end": s[1], "text": s[2], "role": s[3]}
+            for s in tagged_segments
+        ],
+        "note": _TRANSCRIPT_NOTE,
+    }
+    return new_env
+
+
 def _run_tool(
     stereo: Optional[str] = None,
     caller: Optional[str] = None,
@@ -227,6 +374,7 @@ def _run_tool(
     max_talk_over_sec: Optional[float] = None,
     max_time_to_yield_sec: Optional[float] = None,
     report_path: Optional[str] = None,
+    transcribe: bool = False,
 ) -> dict:
     """The single MCP tool. Returns the success envelope, or the SAME structured
     error object the CLI emits (schema/error.v1.json) for a bad input, so the
@@ -239,6 +387,11 @@ def _run_tool(
     scorable event surfaces as ``error_code: not_scorable`` rather than an
     envelope whose frozen ``exit_code`` reads 0. On success the envelope is
     byte-identical to the core; ``report_path`` remains purely additive.
+
+    ``transcribe`` (opt-in, default off) attaches a transcript as CONTEXT ONLY
+    (see :func:`_attach_transcript`); it never changes any timing/verdict field,
+    and a missing ``[transcribe]`` extra is the same clean refusal envelope as
+    any other optional-extra failure, never a crash.
     """
     try:
         # Structurally enforce EXACTLY ONE input mode (the oneOf / root-validator
@@ -268,6 +421,10 @@ def _run_tool(
             max_time_to_yield_sec=max_time_to_yield_sec,
             report_path=report_path,
         )
+        if transcribe:
+            env = _attach_transcript(
+                env, stereo=stereo, caller=caller, agent=agent, suite=suite
+            )
     except _errors.HANDLED as exc:
         return _errors.mcp_error(exc)
     # Unusable-input parity with the CLI: an all-not-scorable single recording is
@@ -712,6 +869,7 @@ def build_server():
         max_talk_over_sec: Optional[float] = None,
         max_time_to_yield_sec: Optional[float] = None,
         report_path: Optional[str] = None,
+        transcribe: bool = False,
     ) -> dict:
         return _run_tool(
             stereo=stereo,
@@ -726,6 +884,7 @@ def build_server():
             max_talk_over_sec=max_talk_over_sec,
             max_time_to_yield_sec=max_time_to_yield_sec,
             report_path=report_path,
+            transcribe=transcribe,
         )
 
     @server.tool(name="fleet_status", description="Read the local fleet workspace rollup (counts + jobs). Read-only.")

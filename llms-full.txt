@@ -191,6 +191,7 @@ A contract bundle contains call audio. Do not commit a raw customer contract to 
 ```bash
 pip install hotato                 # core: stdlib-only, zero dependencies
 pip install 'hotato[neural]'       # optional Silero VAD cross-check
+pip install 'hotato[transcribe]'   # optional ASR transcript, context only -- never scored
 pip install 'hotato[livekit]'      # LiveKit live capture
 pip install 'hotato[pipecat]'      # Pipecat live capture
 ```
@@ -198,7 +199,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 ## What Hotato is not
 
 - **Not a full QA platform.** It does not grade the whole conversation, task success, or content -- it isolates turn-taking timing and pins it to reproducible evidence. See [`docs/COMPARE.md`](docs/COMPARE.md) for how it fits alongside broader voice-agent testing tools.
-- **Not transcript scoring.** It measures audio timing, not what was said.
+- **Not transcript scoring.** It measures audio timing, not what was said. The opt-in `--transcribe` flag attaches an ASR transcript purely as context to read next to the verdict; it never changes the timing score. See [`docs/TRANSCRIBE.md`](docs/TRANSCRIBE.md).
 - **Not speaker ID.** Channels are anonymous; nothing identifies who a person is.
 - **Not semantic intent detection.** It produces candidate timing evidence. Humans label intent. CI enforces confirmed contracts.
 - **Not a hand on production config.** It never sits in the live audio path and never changes a running agent.
@@ -5089,6 +5090,7 @@ makes a network call").
 | Extra | Adds | Gate |
 | --- | --- | --- |
 | `hotato[neural]` | Nothing network -- a local Silero VAD cross-check model, run offline | N/A |
+| `hotato[transcribe]` (`run --transcribe`) | Nothing at inference -- a local `faster-whisper` ASR pass over the same recording, fully offline once the chosen model is cached. The first use of a model name not already cached downloads its weights from its public host (a one-time fetch, like installing any pip package with model weights); every run after that opens no socket. Context only -- never fed back into the score. | N/A |
 | `hotato[livekit]` / `hotato[pipecat]` | Nothing from Hotato directly -- these SDKs run YOUR live capture infra; Hotato scores the file that infra writes | N/A |
 | `--diarizer pyannoteai` (`contract create --mono --diarize`, `run --mono --diarize`) | Uploads the mono audio to `pyannote.ai` for diarization | Refused (exit 2) unless `--egress-opt-in` is passed; the default diarizer (`pyannote`, local) never uploads. See `diarize.py`: `build_pyannoteai_backend`. |
 | `--notify URL` (`sweep`, `fleet run`) | POSTs one JSON summary -- counts, top candidate moments (id, kind, timing numbers only), local artifact paths. No audio, no credentials, no transcript text. Plus a `text` line for Slack incoming webhooks. | Off by default; only fires with an explicit, repeatable `--notify URL`. A non-http(s) scheme is refused (exit 2) before any network attempt; once sent, delivery is fail-open -- a down or slow webhook logs one stderr warning and never breaks the run. See `notify.py`: `post_notification`. |
