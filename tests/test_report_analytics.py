@@ -15,6 +15,7 @@ from importlib import resources
 
 from hotato import cli, report
 from hotato.core import run_suite
+from tests.test_report import _assert_no_fetched_assets
 
 
 def _bundled(sid):
@@ -34,6 +35,40 @@ def test_analytics_block_present_with_all_charts():
     # analytics charts are inline SVG with their own class, separate from the
     # per-event timelines
     assert html.count('<svg class="an-svg"') == 2
+
+
+def test_analytics_renders_after_the_event_cards_it_aggregates():
+    html, env = report.build_report_html(suite="barge-in")
+    assert env["summary"]["events"] == 8
+    analytics_idx = html.index('<section class="card an">')
+    last_timeline_idx = html.rindex('<svg class="tl-svg"')
+    assert analytics_idx > last_timeline_idx, (
+        "the analytics rollup must render after every per-event card, not before"
+    )
+
+
+def test_analytics_skipped_below_three_events():
+    # A single-recording report (one event) has nothing for a rollup to add
+    # over the card itself, so the analytics section is skipped entirely.
+    html, _ = report.build_report_html(stereo=_bundled("01-hard-interruption"))
+    assert "Analytics" not in html
+    assert '<svg class="an-svg"' not in html
+    assert "Failure clusters" not in html
+
+
+def test_analytics_present_at_exactly_three_events():
+    env = run_suite(suite="barge-in")
+    env = copy.deepcopy(env)
+    env["events"] = env["events"][:3]
+    env["summary"]["events"] = 3
+    from hotato._engine.score import ScoreConfig
+
+    cfg = ScoreConfig()
+    models = [report._event_model(e, [], cfg.hop_ms / 1000.0, cfg)
+              for e in env["events"]]
+    html = report._render_page(env, models, cfg)
+    assert "Analytics" in html
+    assert '<svg class="an-svg"' in html
 
 
 def test_latency_strip_uses_real_measurements():
@@ -73,8 +108,8 @@ def test_frame_inspector_rows_match_frame_dump():
 def test_analytics_keeps_report_self_contained_and_honest():
     html, _ = report.build_report_html(suite="barge-in")
     assert "%" not in html
-    assert "http://" not in html and "https://" not in html
-    assert "<script" not in html and "xmlns" not in html
+    _assert_no_fetched_assets(html)
+    assert "xmlns" not in html
     assert "–" not in html and "—" not in html
 
 

@@ -2059,22 +2059,31 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
               min_gap=2.0, no_open=False, demo=False, api_key=None,
               account_sid=None, auth_token=None, model_id=None, agent_id=None,
               base_url=None, caller_channel=0, agent_channel=1,
-              fmt="html") -> int:
+              fmt="html", notify=None) -> int:
     """`hotato sweep`: pull recent recordings, then run the P1 analyze over them
     -- the 'connect once, see every turn-taking problem across your real calls'
     flow. The analyze step is reused wholesale. With ``demo=True`` the pull is
     replaced by the two bundled real demo calls (the same recordings `hotato
     demo` scores), so the first sweep works with no account, no credentials and
-    no network; everything from analyze onward is the identical code path."""
+    no network; everything from analyze onward is the identical code path.
+
+    ``notify`` is an optional list of webhook URLs (``--notify``, repeatable):
+    off by default. When given, a JSON summary (counts, top candidate timing,
+    local artifact paths -- no audio, no credentials, no transcript) is POSTed
+    to each once the sweep finishes; see ``hotato.notify``."""
     from . import analyze as _analyze
+    from . import notify as _notify
 
     # Validate the global scan flags BEFORE the (slow, network) pull, so a typo'd
     # --min-gap / bad channel is an immediate exit-2 usage error, never a pull
-    # followed by a false clean 'found nothing'.
+    # followed by a false clean 'found nothing'. The --notify URLs get the same
+    # treatment: a bad scheme is a usage mistake, caught here, not after the
+    # sweep already ran.
     _analyze.validate_scan_args(
         caller_channel=caller_channel, agent_channel=agent_channel,
         min_gap_sec=min_gap,
     )
+    notify_urls = _notify.validate_notify_urls(notify)
 
     overrides = _overrides_from(api_key, account_sid, auth_token, model_id,
                                 agent_id, base_url)
@@ -2138,6 +2147,10 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
             "pulled": len(res["pulled"]), "skipped": len(res["skipped"]),
         }
         print(_errors.safe_json_dumps(capped, indent=2))
+        if notify_urls:
+            payload = _notify.sweep_payload(stack=stack, aggregate=aggregate,
+                                            pull_dir=pull_dir)
+            _notify.notify_all(notify_urls, payload)
         return 0
 
     out_file = out or f"hotato-sweep-{stack}.html"
@@ -2162,6 +2175,10 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
         f"{aggregate['total_candidates']} candidate moments, {size / 1048576.0:.1f} MB]",
         file=sys.stderr,
     )
+    if notify_urls:
+        payload = _notify.sweep_payload(stack=stack, aggregate=aggregate,
+                                        out_file=out_file, pull_dir=pull_dir)
+        _notify.notify_all(notify_urls, payload)
     if not no_open:
         try:
             from .cli import _try_open

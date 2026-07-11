@@ -532,6 +532,11 @@ _EXIT_CODES: dict = {
         (0, "wrote (or printed) the status + agents/trials manifest"),
         (2, "usage error or an unwritable --out"),
     ),
+    "fleet trend": (
+        (0, "wrote the self-contained trend dashboard (possibly zero agents "
+            "or zero history: honest-empty states, never a crash)"),
+        (2, "usage error or an unwritable --out"),
+    ),
 }
 
 
@@ -802,6 +807,7 @@ def _cmd_sweep(args) -> int:
         caller_channel=args.caller_channel,
         agent_channel=args.agent_channel,
         fmt=args.format,
+        notify=args.notify,
     )
 
 
@@ -1823,6 +1829,12 @@ def _cmd_fleet_experiment_run(args) -> int:
 
 
 def _cmd_fleet_run(args) -> int:
+    from . import notify as _notify
+
+    # Validate --notify URLs BEFORE the run (same discipline as sweep's
+    # --min-gap / channel validation): a bad scheme is an immediate exit-2
+    # usage error, never a surprise after ingest+discover already ran.
+    notify_urls = _notify.validate_notify_urls(getattr(args, "notify", None))
     api = _fleet_open(args)
     try:
         res = api.run(args.workspace, args.agent, recordings=list(args.recordings or []),
@@ -1832,6 +1844,11 @@ def _cmd_fleet_run(args) -> int:
                  f"clusters:       {res['clusters']}",
                  f"top candidates: {len(res['top_candidates'])} (hotato fleet review)"]
         _fleet_emit(args, res, lines)
+        if notify_urls:
+            payload = _notify.fleet_run_payload(
+                workspace_id=args.workspace, agent_id=args.agent, res=res,
+                home=api.home)
+            _notify.notify_all(notify_urls, payload)
         return 0
     finally:
         api.close()
@@ -1979,6 +1996,29 @@ def _cmd_fleet_export(args) -> int:
                 print(f"wrote {path}")
         else:
             print(_errors.safe_json_dumps(manifest, indent=2))
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_trend(args) -> int:
+    from .fleet import trend as _trend
+
+    api = _fleet_open(args)
+    try:
+        data = _trend.collect(api.registry, args.workspace)
+        html = _trend.build_trend_html(data)
+        out = args.out or _trend.DEFAULT_OUT
+        _atomic_write_text(out, html)
+        agents = data["agents"]
+        total_candidates = sum(a["candidates_total"] for a in agents)
+        total_trials = sum(a["trials_total"] for a in agents)
+        line = (f"wrote {out}: {len(agents)} agent(s), {total_candidates} "
+                f"candidate moment(s), {total_trials} experiment trial(s) trended")
+        if args.format == "json":
+            print(_errors.safe_json_dumps({"out": out, **data}, indent=2))
+        else:
+            print(line)
         return 0
     finally:
         api.close()
@@ -3001,6 +3041,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "hotato-sweep-<stack>.html)")
     sw.add_argument("--no-open", action="store_true",
                     help="do not launch a browser for the HTML dashboard")
+    sw.add_argument("--notify", action="append", default=None, metavar="URL",
+                    help="POST a JSON summary (counts, top candidate timing, "
+                         "local artifact paths -- no audio, no credentials, no "
+                         "transcript) to this webhook URL when the sweep "
+                         "finishes; repeatable. Off by default; fails open (a "
+                         "down webhook never breaks the sweep). "
+                         "See docs/EGRESS.md")
     sw.set_defaults(func=_cmd_sweep)
 
     # --- report: one self-contained, offline HTML page with per-event timelines
@@ -5118,7 +5165,7 @@ def build_parser() -> argparse.ArgumentParser:
         "fleet",
         help="the local Guardian control plane over the evidence kernel "
              "(hotato fleet init/agent/ingest/discover/review/label/status/"
-             "experiment/canary/export)",
+             "experiment/canary/export/trend)",
         description=(
             "A private, self-hosted control plane that registers voice "
             "agents (no product-level cap), ingests completed calls, "
@@ -5135,7 +5182,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     flsub = fl.add_subparsers(
         dest="fleet_command", required=True,
-        metavar="init|agent|ingest|discover|review|label|status|experiment|canary|export|run|contract|retention|delete|redact")
+        metavar="init|agent|ingest|discover|review|label|status|experiment|canary|export|trend|run|contract|retention|delete|redact")
 
     fi = _fleet_parser(flsub, "init", "fleet init",
                        "create/ensure a workspace in the fleet home")
@@ -5307,6 +5354,13 @@ def build_parser() -> argparse.ArgumentParser:
                            "pull from a connection needs credentials)")
     frun.add_argument("--caller-channel", type=int, default=0, metavar="N")
     frun.add_argument("--agent-channel", type=int, default=1, metavar="N")
+    frun.add_argument("--notify", action="append", default=None, metavar="URL",
+                      help="POST a JSON summary (counts, top candidate timing, "
+                           "local artifact paths -- no audio, no credentials, "
+                           "no transcript) to this webhook URL when the run "
+                           "finishes; repeatable. Off by default; fails open "
+                           "(a down webhook never breaks the run). "
+                           "See docs/EGRESS.md")
     frun.set_defaults(func=_cmd_fleet_run)
 
     fct = _fleet_parser(flsub, "contract", "fleet contract",
@@ -5384,6 +5438,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="write DIR/fleet-export.json (default: print json to "
                          "stdout)")
     fx.set_defaults(func=_cmd_fleet_export)
+
+    ft = _fleet_parser(flsub, "trend", "fleet trend",
+                       "a self-contained HTML page of turn-taking trend "
+                       "lines across every agent in the workspace")
+    _fleet_common(ft)
+    ft.add_argument("--out", default=None, metavar="FILE",
+                    help="where to write the dashboard (default "
+                         "hotato-fleet-trend.html)")
+    ft.set_defaults(func=_cmd_fleet_trend)
 
     return p
 

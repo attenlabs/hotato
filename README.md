@@ -130,6 +130,16 @@ hotato sweep --stack vapi --since 7d --out hotato-sweep.html    # cron, CI, wher
 
 Run `sweep` on a timer and it becomes a scheduled batch scanner. Your audio stays on your machine unless you explicitly pull it from your stack. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) &middot; runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md).
 
+### Get notified
+
+`sweep` and `hotato fleet run` can POST a one-line JSON summary to a webhook when they finish -- off by default, opt in with `--notify` (repeatable for more than one URL):
+
+```bash
+hotato sweep --stack vapi --since 7d --notify https://hooks.slack.com/services/...
+```
+
+The payload carries counts, the top candidate moments (id, kind, timing numbers only), and local artifact paths -- never audio, a credential, or transcript text -- plus a `text` field a Slack incoming webhook renders directly, no template work needed. A down or slow webhook never breaks the run: a delivery failure is one warning line on stderr. Egress details: [`docs/EGRESS.md`](docs/EGRESS.md).
+
 ## Fleet -- private, self-hosted
 
 `hotato fleet` runs the loop across every agent from one local workspace: ingest calls, surface candidates, label them, and run a before/after experiment that recomputes both sides from audio under a pinned manifest. It recommends a change; it never deploys one. Local mode is stdlib-only (SQLite plus a content-addressed store) with no account and no hosted dependency, and no product limit on how many agents you register.
@@ -143,6 +153,8 @@ hotato fleet review   -w acme
 ```
 
 A before/after experiment refuses a proof built from an edited verdict, a re-encoded old call, a dropped fixture, or unrelated audio: the number comes from re-scoring the recordings, under one pinned policy, every time. Full guide: [`docs/GUARDIAN-FLEET.md`](docs/GUARDIAN-FLEET.md).
+
+Once a workspace has some history, `hotato fleet trend -w acme` reads the same local SQLite registry and writes one self-contained HTML page: per-agent talk-over and time-to-yield trend lines (p50/p95 per day), candidate moments discovered over time, and experiment outcomes (improved/inconclusive/refused) -- offline, no external assets, hand-rendered inline SVG in the same house style as the sweep dashboard. A day with no measurements gets no point, and a series with fewer than two days of history is reported plainly as "not enough history to trend" instead of a faked or interpolated line.
 
 ## Choose your path
 
