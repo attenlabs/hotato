@@ -68,8 +68,18 @@ neural = ["silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
 diarize = ["pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "numpy>=1.21"]  # default (needs system ffmpeg)
 diarize-sortformer = ["nemo-toolkit[asr]>=2.7", "torch>=2.8", "numpy>=1.21"]        # best self-hostable on phone, GPU
 diarize-hosted = ["pyannoteai-sdk>=0.3"]                                            # hosted, egress opt-in
+# OPTIONAL, NON-REFERENCE transcript CONTEXT layer (faster-whisper / CTranslate2).
+# Strictly opt-in via `--transcribe`; the zero-dependency energy core stays the
+# reference for every published/golden number and is never affected by this
+# extra -- a transcript is context alongside the timing verdict, never an input
+# to it. Runs fully offline/local once the chosen model is cached; no token
+# needed (unlike [diarize]'s gated weights). Absent this extra, `--transcribe`
+# errors cleanly and never skips silently or substitutes another backend.
+# Licenses: faster-whisper MIT (code), CTranslate2 MIT (inference runtime),
+# Whisper model weights MIT (OpenAI).
+transcribe = ["faster-whisper>=1.0"]
 # Everything a contributor might want to exercise the live capture paths locally.
-all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8"]
+all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "faster-whisper>=1.0"]
 
 [project.scripts]
 hotato = "hotato.cli:main"

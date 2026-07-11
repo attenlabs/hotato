@@ -621,6 +621,8 @@ def _emit(env: dict, fmt: str) -> None:
     if env.get("funnel"):
         print("  note: no single sensitivity threshold satisfies this battery; "
               "see funnel pointer in --format json.")
+    if env.get("transcript"):
+        _print_transcript_panel(env["transcript"])
     # The envelope exit_code is schema-frozen to 0|1 and reflects scorable
     # failures only. When the process-level code differs (a single run whose
     # every event is not scorable maps to the CLI's exit-2 unusable-input
@@ -632,6 +634,38 @@ def _emit(env: dict, fmt: str) -> None:
         print(f"  process_exit_code={pec}")
     else:
         print(f"  exit_code={env['exit_code']}")
+
+
+# --------------------------------------------------------------------------- #
+# --transcribe: the --format text panel for the ``transcript`` envelope key
+# core.run_single attaches (opt-in, CONTEXT ONLY -- see
+# core._attach_transcript_context / hotato.transcribe for the seam itself and
+# its honesty invariants). Nothing here touches scoring; this only renders a
+# key that is already present in ``env`` by the time ``_emit`` sees it.
+# --------------------------------------------------------------------------- #
+
+_TRANSCRIPT_PANEL_MAX_CHARS = 400
+
+
+def _print_transcript_panel(block: dict) -> None:
+    """The --format text panel: short, clearly labelled 'context, not scored'
+    so it can never be mistaken for a verdict. Full text/segments are always
+    available in --format json; this is a terminal-sized preview."""
+    print()
+    print("  Transcript (context, not scored):")
+    text = block.get("text") or ""
+    if not text:
+        print("    (no speech detected)")
+    else:
+        shown = text if len(text) <= _TRANSCRIPT_PANEL_MAX_CHARS else (
+            text[:_TRANSCRIPT_PANEL_MAX_CHARS].rstrip() + "..."
+        )
+        print(f"    {shown}")
+    print(
+        f"    model={block.get('model')} device={block.get('device')} "
+        "-- never affects the verdict above; see --format json for the full "
+        "transcript"
+    )
 
 
 def _cmd_run(args) -> int:
@@ -650,6 +684,11 @@ def _cmd_run(args) -> int:
             "--suite (or --scenarios/--audio together) runs a labelled battery "
             "and cannot be combined with a single recording (--stereo / --caller "
             "/ --agent / --mono). Run one or the other."
+        )
+    if suite_mode and getattr(args, "transcribe", False):
+        raise ValueError(
+            "--transcribe works on a single recording; drop --suite (and/or "
+            "--scenarios/--audio) and pass --stereo (or --mono --diarize)"
         )
     if args.dump_frames:
         if suite_mode:
@@ -719,6 +758,9 @@ def _cmd_run(args) -> int:
             caller_speaker=getattr(args, "caller_speaker", None),
             agent_speaker=getattr(args, "agent_speaker", None),
             egress_opt_in=getattr(args, "egress_opt_in", False),
+            transcribe=getattr(args, "transcribe", False),
+            transcribe_model=getattr(args, "transcribe_model", "base.en"),
+            transcribe_device=getattr(args, "transcribe_device", "auto"),
         )
     _emit(env, args.format)
     if args.no_fail:
@@ -2798,6 +2840,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="permit the HOSTED --diarizer pyannoteai to upload your "
                         "audio off this machine (audio leaves this machine); local "
                         "backends never need this")
+    # optional, non-reference transcript CONTEXT layer (faster-whisper)
+    r.add_argument("--transcribe", action="store_true",
+                   help="attach a transcript as CONTEXT next to the score (opt-in "
+                        "[transcribe] extra, faster-whisper, fully offline). It NEVER "
+                        "changes did_yield / talk_over_sec / time_to_yield / the "
+                        "verdict -- the same run without --transcribe is byte-identical "
+                        "on timing. Needs a single audio file (--stereo, or --mono "
+                        "--diarize); not supported with separate --caller/--agent. "
+                        "Absent the extra, errors cleanly and never skips silently.")
+    r.add_argument("--transcribe-model", default="base.en", metavar="NAME",
+                   help="faster-whisper model name or local path (default base.en)")
+    r.add_argument("--transcribe-device", default="auto", choices=["auto", "cpu", "cuda"],
+                   help="device for --transcribe (default auto: cuda if available, else cpu)")
     r.add_argument("--caller-channel", type=int, default=0)
     r.add_argument("--agent-channel", type=int, default=1)
     r.add_argument("--format", default="text", choices=["json", "text"],

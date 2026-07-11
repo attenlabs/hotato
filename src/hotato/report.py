@@ -53,6 +53,21 @@ so existing callers are unchanged; passing ``audio_mode`` wins when both appear.
 ``build_report_md`` mirrors the same content as plain Markdown (tables instead
 of SVG). A future PDF needs no new renderer: the HTML already ships print CSS,
 so "print to PDF" from any browser produces the document.
+
+Pass ``transcript`` (optional, default ``None``) to attach an ASR transcript as
+CONTEXT next to an event: either one ``hotato.transcribe.Transcript`` (applied
+to the single scored recording, or to every event alike), or a ``dict`` mapping
+each event's ``scenario_id``/``event_id`` to its own ``Transcript`` (a suite
+with one audio file per event). This module never imports ``hotato.transcribe``
+and never runs any speech-to-text itself -- the caller produces the
+``Transcript`` (through the strictly opt-in ``[transcribe]`` extra) and hands
+it here purely as data to render; report.py stays zero-dependency regardless.
+The transcript is rendered as a collapsed, clearly-labelled "Transcript
+(context, not a score)" panel per event and folded into the machine envelope
+as an additive ``transcript_context`` key on that event -- it NEVER touches
+``did_yield``, ``talk_over_sec``, ``seconds_to_yield``, or any other
+scoring/verdict field, and a report built without ``transcript`` is
+byte-identical to one built before this existed.
 """
 
 from __future__ import annotations
@@ -63,7 +78,7 @@ import base64
 import html
 import math
 import os
-from typing import Optional
+from typing import Any, Optional
 
 from ._engine.score import ScoreConfig
 from ._stats import dist_summary
@@ -693,6 +708,149 @@ def _base_section(env: dict, base_env: dict, base_label: Optional[str]) -> str:
     )
 
 
+# --- transcript context (opt-in aid; never a scoring input) ---------------
+#
+# report.py never imports hotato.transcribe and never runs any speech-to-text:
+# the caller already has a Transcript (produced through the strictly opt-in
+# [transcribe] extra) and hands it here purely as data. Everything below is
+# duck-typed against hotato.transcribe.Transcript / TranscriptSegment (``.text``
+# / ``.segments`` / ``.start`` / ``.end`` / ``.model`` / ``.device`` /
+# ``.compute_type`` / ``.language``) so this module stays dependency-free, and
+# a plain equivalent dict (same keys) works too.
+
+TranscriptLike = Any  # a Transcript-like object or dict; never imported here
+
+
+def _normalize_segment(seg: Any) -> dict:
+    if isinstance(seg, dict):
+        return {
+            "start": float(seg["start"]),
+            "end": float(seg["end"]),
+            "text": seg.get("text") or "",
+        }
+    return {
+        "start": float(seg.start),
+        "end": float(seg.end),
+        "text": getattr(seg, "text", "") or "",
+    }
+
+
+def _normalize_transcript(t: TranscriptLike) -> dict:
+    """Reduce a Transcript-like object (or an equivalent dict) to the small,
+    JSON-safe, purely-additive payload the report renders: ``text``,
+    ``segments`` (each ``{start, end, text}``), and provenance (``model``,
+    ``device``, ``compute_type``, ``language``). Nothing here is a timing or
+    verdict field; nothing computed here is read by the scorer."""
+    if isinstance(t, dict):
+        segments = t.get("segments") or []
+        return {
+            "text": t.get("text") or "",
+            "segments": [_normalize_segment(s) for s in segments],
+            "model": t.get("model") or "unknown",
+            "device": t.get("device") or "unknown",
+            "compute_type": t.get("compute_type") or "unknown",
+            "language": t.get("language"),
+        }
+    segments = getattr(t, "segments", None) or []
+    return {
+        "text": getattr(t, "text", "") or "",
+        "segments": [_normalize_segment(s) for s in segments],
+        "model": getattr(t, "model", "unknown"),
+        "device": getattr(t, "device", "unknown"),
+        "compute_type": getattr(t, "compute_type", "unknown"),
+        "language": getattr(t, "language", None),
+    }
+
+
+def _is_per_event_mapping(transcript: dict) -> bool:
+    """Tell a per-event mapping (``{scenario_id: Transcript-like, ...}``) apart
+    from a single Transcript-like dict (``{"text": ..., "segments": ...}``).
+
+    A Transcript-like payload always has a top-level ``"text"`` and/or
+    ``"segments"`` key (the dataclass's own fields); a per-event mapping's
+    keys are scenario/event ids, which are never those two literal strings in
+    practice. This is a heuristic, documented on ``build_report_html``: pass a
+    single Transcript-like object (or a dict shaped like one) to apply it to
+    every event, or a dict keyed by scenario_id/event_id for one per event."""
+    return "text" not in transcript and "segments" not in transcript
+
+
+def _transcript_for_event(transcript: Optional[TranscriptLike], event: dict) -> Optional[dict]:
+    """Resolve the transcript payload (if any) for ONE event.
+
+    ``transcript`` may be a single Transcript-like object -- a
+    ``hotato.transcribe.Transcript`` or an equivalent dict shaped like one
+    (applied to every event alike -- the natural case for a single-recording
+    report) -- or a dict keyed by ``scenario_id`` (falling back to
+    ``event_id``) so a suite with one audio file per event can hand each event
+    its own transcript (see ``_is_per_event_mapping``). Returns ``None``
+    (never a fabricated empty payload) when nothing matches, so an event with
+    no transcript stays untouched."""
+    if transcript is None:
+        return None
+    if isinstance(transcript, dict) and _is_per_event_mapping(transcript):
+        key = event.get("scenario_id") or event.get("event_id")
+        t = transcript.get(key) if key is not None else None
+        return _normalize_transcript(t) if t is not None else None
+    return _normalize_transcript(transcript)
+
+
+def _with_transcript_context(event: dict, transcript: Optional[TranscriptLike]) -> dict:
+    """Attach transcript CONTEXT to a shallow copy of one envelope event.
+
+    Pure and additive, exactly like ``hotato.transcribe.align_transcript_to_events``:
+    returns the SAME event object (untouched) when no transcript matches, or a
+    NEW dict (a shallow copy plus exactly one added key, ``transcript_context``)
+    when one does. Every existing key -- every timing/verdict field -- passes
+    through unchanged; this never mutates the input and never feeds back into
+    scoring."""
+    payload = _transcript_for_event(transcript, event)
+    if payload is None:
+        return event
+    return dict(event, transcript_context=payload)
+
+
+def _transcript_panel(model: dict) -> str:
+    """Collapsed, clearly-labelled transcript CONTEXT panel for one event.
+    Present only when the event actually carries a ``transcript_context``
+    (strictly opt-in, attached by the caller via ``transcript=``); absent by
+    default, so a plain report renders none of this. States up front, every
+    time, that this is context and never a scoring input."""
+    ctx = model["event"].get("transcript_context")
+    if not ctx:
+        return ""
+    text = ctx.get("text") or ""
+    segs = ctx.get("segments") or []
+    if not text and not segs:
+        return ""
+    if segs:
+        rows = "".join(
+            '<div class="trow"><span class="tt mono">'
+            f'{s["start"]:.2f}-{s["end"]:.2f}s</span>'
+            f'<span class="tx">{_esc(s["text"])}</span></div>'
+            for s in segs
+        )
+    else:
+        rows = f'<div class="trow"><span class="tx">{_esc(text)}</span></div>'
+    prov = []
+    if ctx.get("model") and ctx["model"] != "unknown":
+        prov.append(f'model {ctx["model"]}')
+    if ctx.get("language"):
+        prov.append(f'language {ctx["language"]}')
+    prov_line = (f'<div class="tprov mono">{_esc(", ".join(prov))}</div>'
+                if prov else "")
+    return (
+        '<details class="transcript"><summary>Transcript '
+        '(context, not a score)</summary>'
+        '<div class="tnote">Optional speech-to-text aid, aligned next to the '
+        'timeline for a human or agent to read. It is NEVER fed back into the '
+        'measurement above: did_yield, talk-over, time to yield, and the '
+        'PASS/FAIL verdict are unaffected whether or not a transcript is '
+        'attached.</div>'
+        f'{prov_line}<div class="trows">{rows}</div></details>'
+    )
+
+
 # --- event card -----------------------------------------------------------
 
 def _stat(label: str, value: str, color: Optional[str] = None) -> str:
@@ -783,6 +941,9 @@ def _event_card(model: dict, audio_mode: str = AUDIO_NONE) -> str:
             f'<div class="fix"><b>fix</b> [{_esc(fix.get("fix_class"))}] '
             f'{_esc(fix.get("title"))}<div class="fixd">{_esc(detail)}</div></div>'
         )
+
+    # transcript context: opt-in, present only when the caller attached one
+    parts.append(_transcript_panel(model))
 
     # frame inspector: the full frame dump behind the timeline, collapsible
     parts.append(_frame_inspector(model))
@@ -1131,6 +1292,22 @@ table.frames td{text-align:right;padding:1px 12px;color:%(mono)s;
 }
 """ % _C
 
+# Appended to the page's <style> ONLY when at least one event actually carries
+# a transcript_context (see _render_page): a report built without a transcript
+# must stay byte-identical to one built before this feature existed, so these
+# rules are never baked into the always-present _CSS above.
+_TRANSCRIPT_CSS = """
+details.transcript{margin-top:12px;border-top:1px solid %(line)s;padding-top:10px}
+details.transcript summary{cursor:pointer;color:%(cream)s;font-size:13px;
+ font-weight:600}
+.transcript .tnote{color:%(muted)s;font-size:12px;margin:8px 0 10px}
+.tprov{color:%(muted)s;font-size:11.5px;margin-bottom:6px}
+.trows{display:flex;flex-direction:column;gap:6px}
+.trow{display:flex;align-items:baseline;gap:10px;font-size:13px}
+.tt{color:%(muted)s;font-size:11.5px;white-space:nowrap}
+.tx{color:%(cream)s}
+""" % _C
+
 
 def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  base_env: Optional[dict] = None,
@@ -1156,6 +1333,12 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         mode_label = mode
 
     cards = "".join(_event_card(m, audio_mode=audio_mode) for m in models)
+
+    # Extra CSS is appended ONLY when a transcript panel actually rendered (an
+    # empty transcript_context, e.g. {"text": "", "segments": []}, renders no
+    # panel and needs none), so a plain report stays byte-identical to before
+    # this feature existed -- nothing about the stylesheet changes otherwise.
+    style_css = (_CSS + _TRANSCRIPT_CSS) if 'details class="transcript"' in cards else _CSS
 
     legend = (
         f'<div class="legend">'
@@ -1233,7 +1416,7 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         f"<title>{title}</title>"
         f"<meta name=\"description\" content=\"{_esc(desc)}\">"
-        f"<style>{_CSS}</style></head><body>{body}</body></html>\n"
+        f"<style>{style_css}</style></head><body>{body}</body></html>\n"
     )
 
 
@@ -1359,6 +1542,29 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
             sid = e.get("scenario_id") or e.get("event_id") or "event"
             L.append(f"- {sid}: {e.get('not_scorable_reason') or ''}")
         L.append("")
+
+    # transcripts: opt-in ASR context, present only on events that carry one
+    with_transcript = [e for e in env["events"] if e.get("transcript_context")]
+    if with_transcript:
+        L.append("## Transcripts (context, not a score)")
+        L.append("")
+        L.append("Optional speech-to-text aid, never fed back into the "
+                 "measurement above: did_yield, talk-over, time to yield, "
+                 "and the PASS/FAIL verdict are unaffected whether or not a "
+                 "transcript is attached.")
+        L.append("")
+        for e in with_transcript:
+            sid = e.get("scenario_id") or e.get("event_id") or "event"
+            ctx = e["transcript_context"]
+            L.append(f"### {sid}")
+            L.append("")
+            segs = ctx.get("segments") or []
+            if segs:
+                for s in segs:
+                    L.append(f"- {s['start']:.2f}-{s['end']:.2f}s: {s['text']}")
+            elif ctx.get("text"):
+                L.append(f"- {ctx['text']}")
+            L.append("")
 
     # analytics: same aggregates as the HTML charts, as tables
     a = _analytics_data(env, models)
@@ -1500,10 +1706,17 @@ def _score_and_model(
     suffix: str = ".example.wav",
     max_talk_over_sec: Optional[float] = None,
     max_time_to_yield_sec: Optional[float] = None,
+    transcript: Optional[TranscriptLike] = None,
     cfg: Optional[ScoreConfig] = None,
 ):
     """Score the input and return ``(envelope, models, cfg)``: everything both
-    renderers (HTML and Markdown) need, all from real measurements."""
+    renderers (HTML and Markdown) need, all from real measurements.
+
+    ``transcript`` (default ``None``) attaches optional ASR CONTEXT: a single
+    Transcript-like object (applied to every event alike) or a dict keyed by
+    ``scenario_id``/``event_id`` (one transcript per suite event). It is
+    additive only -- ``env["events"]`` is byte-identical to before whenever
+    ``transcript`` is ``None`` or does not match a given event."""
     cfg = cfg or ScoreConfig()
 
     if suite:
@@ -1517,6 +1730,9 @@ def _score_and_model(
             agent_channel=agent_channel,
             cfg=cfg,
         )
+        if transcript is not None:
+            env["events"] = [_with_transcript_context(e, transcript)
+                             for e in env["events"]]
         models = []
         for e in env["events"]:
             frames, hop = _frames_for_suite_event(
@@ -1541,6 +1757,9 @@ def _score_and_model(
             max_time_to_yield_sec=max_time_to_yield_sec,
             cfg=cfg,
         )
+        if transcript is not None:
+            env["events"] = [_with_transcript_context(e, transcript)
+                             for e in env["events"]]
         dump = dump_frames_for_input(
             stereo=stereo,
             caller=caller,
@@ -1564,7 +1783,8 @@ def _score_and_model(
 def build_report_html(*, base: Optional[dict] = None,
                       base_label: Optional[str] = None,
                       embed_audio: bool = False,
-                      audio_mode: Optional[str] = None, **kwargs):
+                      audio_mode: Optional[str] = None,
+                      transcript: Optional[TranscriptLike] = None, **kwargs):
     """Score the input and return ``(html_str, envelope)``.
 
     Pass ``suite`` for the labelled battery, or a single recording via
@@ -1585,8 +1805,23 @@ def build_report_html(*, base: Optional[dict] = None,
     ``embed_audio``. ``audio_reference`` renders a content-addressed reference
     (``pcm_sha256`` + locator) instead of the PCM, so a fleet-shared page leaks
     no caller audio.
+
+    ``transcript`` (default ``None``) attaches an optional ASR transcript as
+    CONTEXT: a single ``hotato.transcribe.Transcript`` (or an equivalent dict
+    shaped like one, i.e. carrying a top-level ``"text"`` and/or ``"segments"``
+    key -- applied to every event alike), or a dict keyed by
+    ``scenario_id``/``event_id`` whose VALUES are Transcript-like (one per
+    suite event; distinguished from the single-object dict by NOT having a
+    top-level ``"text"``/``"segments"`` key). It renders as a collapsed
+    "Transcript (context, not a score)" panel per event and is folded into the
+    returned envelope as an additive ``transcript_context`` key; it never
+    touches any timing/verdict field, and a report built with
+    ``transcript=None`` (the default) is byte-identical to one built before
+    this parameter existed. This function never imports
+    ``hotato.transcribe`` -- the caller produces the ``Transcript`` (through
+    the strictly opt-in ``[transcribe]`` extra) and hands it here as data.
     """
-    env, models, cfg = _score_and_model(**kwargs)
+    env, models, cfg = _score_and_model(transcript=transcript, **kwargs)
     mode = _resolve_audio_mode(embed_audio, audio_mode)
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
                         audio_mode=mode)
@@ -1594,14 +1829,21 @@ def build_report_html(*, base: Optional[dict] = None,
 
 
 def build_report_md(*, base: Optional[dict] = None,
-                    base_label: Optional[str] = None, **kwargs):
+                    base_label: Optional[str] = None,
+                    transcript: Optional[TranscriptLike] = None, **kwargs):
     """Score the input and return ``(markdown_str, envelope)``.
 
     Mirrors the HTML report's content with tables instead of SVG: summary,
     per-event measurements, failures with fixes, analytics aggregates, the
     optional base comparison, thresholds, and the honest limits.
+
+    ``transcript`` is the same optional ASR-context parameter as
+    ``build_report_html`` (see there): a collapsed "Transcripts (context, not a
+    score)" section per event that carries one, additive to the envelope,
+    never touching any timing/verdict field. ``None`` (the default) leaves the
+    Markdown byte-identical to before this parameter existed.
     """
-    env, models, cfg = _score_and_model(**kwargs)
+    env, models, cfg = _score_and_model(transcript=transcript, **kwargs)
     return _render_md(env, models, cfg, base_env=base, base_label=base_label), env
 
 
@@ -1613,7 +1855,9 @@ def write_report(path: str, fmt: str = "html", embed_audio: bool = False,
 
     ``audio_mode`` (``none`` / ``self_contained`` / ``audio_reference``) picks
     the audio treatment for the HTML report; it wins over ``embed_audio`` and is
-    HTML-only, exactly like ``embed_audio``."""
+    HTML-only, exactly like ``embed_audio``. ``transcript`` (optional ASR
+    context; see ``build_report_html``) passes through via ``**kwargs`` to
+    either renderer."""
     embeds_audio = _resolve_audio_mode(embed_audio, audio_mode) != AUDIO_NONE
     if fmt == "html":
         text, env = build_report_html(embed_audio=embed_audio,
