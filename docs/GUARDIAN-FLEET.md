@@ -92,7 +92,7 @@ directory (both stdlib).
 ### CLI
 
 ```
-hotato fleet init --local -w acme
+hotato fleet init -w acme
 hotato fleet agent add -w acme --agent-id support-bot --stack vapi --assistant-id asst_123
 hotato fleet ingest -w acme --agent support-bot call.wav
 hotato fleet discover -w acme --agent support-bot call.wav

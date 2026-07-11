@@ -273,10 +273,13 @@ def _render_funnel(plan: dict) -> str:
 # card can make, so it is gated on the EVIDENCE tier, not just on the
 # (hand-writable) claim/counts fields: it renders only when the result carries
 # an evidence classification that reaches the paired tier (a fix-trial recompute
-# from audio). A standalone verify (an envelope comparison, tier ASSERTED) or a
-# legacy input with no evidence block renders a MUTED, explicitly-unverified
-# card whose headline names the real tier ("ASSERTED (UNVERIFIED)" /
-# "MEASURED FROM AUDIO"), never the green pass.
+# from audio). That tier is RE-DERIVED here from the evidence vector -- the
+# input ``tier`` field is itself hand-writable, so a forged {"tier": 3} with a
+# weak/absent vector is capped back down to what the vector supports and can
+# never mint the green pass. A standalone verify (an envelope comparison, tier
+# ASSERTED) or a legacy input with no evidence block renders a MUTED,
+# explicitly-unverified card whose headline names the real tier
+# ("ASSERTED (UNVERIFIED)" / "MEASURED FROM AUDIO"), never the green pass.
 
 def _render_verify(v: dict) -> str:
     claim = v.get("claim") or {}
@@ -316,8 +319,21 @@ def _render_verify(v: dict) -> str:
             "capture_origin": "unknown", "input_health": None,
             "channel_mapping": None,
         })
-    tier = ev.get("tier", _evidence.TIER_ASSERTED)
-    ev_headline = ev.get("headline", _evidence.TIER_HEADLINE[tier])
+    # RE-DERIVE the tier from the evidence VECTOR: the input ``tier`` field is
+    # hand-writable, so a forged {"evidence": {"tier": 3}} must never mint the
+    # green paired card on its own. With an inspectable vector we cap the tier
+    # at what that vector actually supports (never trust an input tier the
+    # vector cannot back); with no vector at all the tier is ASSERTED, because
+    # a bare tier number is not evidence of anything.
+    vector = ev.get("vector")
+    if isinstance(vector, dict):
+        real_tier = _evidence.evidence_tier(
+            vector, _evidence.REQUIRED_FOR_PAIRED_PROOF)
+        tier = min(int(ev.get("tier", 0)), real_tier)
+    else:
+        tier = min(int(ev.get("tier", _evidence.TIER_ASSERTED)),
+                   _evidence.TIER_ASSERTED)
+    ev_headline = _evidence.TIER_HEADLINE[tier]
 
     text_equiv = (
         f"{now} of {used} failing fixtures now pass; {still} of {guards} hold "
@@ -343,8 +359,9 @@ def _render_verify(v: dict) -> str:
         return _frame(body, title="Paired evidence improved", desc=text_equiv)
 
     # tier < PAIRED: a muted, explicitly-unverified card. The WORDS carry the
-    # status (no green), so it reads the same in monochrome.
-    caveat = _evidence.one_sentence(ev)
+    # status (no green), so it reads the same in monochrome. The caveat is
+    # keyed off the RE-DERIVED tier, never the (hand-writable) input tier.
+    caveat = _evidence.one_sentence({"tier": tier})
     body = [_kind_tag("ENVELOPE COMPARISON")]
     body += _headline(_wrap(ev_headline, 26), top=196)
     for i, ln in enumerate(_wrap(caveat, 62)):

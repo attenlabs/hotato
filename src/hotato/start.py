@@ -269,7 +269,7 @@ def run_start(*, demo: bool = False, stack: Optional[str] = None,
             print(f"  demo contract:   {contract_info['bundle_rel']}")
             if contract_info["passed"] is False:
                 print("  verified contract: FAIL as expected -- the demo "
-                      "call really did miss the interruption; a CI gate on "
+                      "call missed the interruption; a CI gate on "
                       "this contract catches any change to the evidence or "
                       "policy -- catching the AGENT regressing requires a "
                       "fresh recapture (see docs/RECAPTURE.md)")
@@ -294,14 +294,14 @@ _STEREO_CONTRACTS = "contracts"
 def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
                      caller_channel, agent_channel):
     """The guided own-call flow: trust preflight -> channel-mapping check ->
-    candidate scan -> local review page -> (human label) -> contract + an
-    evidence-tier-aware card, ending with one sentence on what the result proves
-    and one on what it does not. No credential, no network.
+    candidate scan -> local review page -> (human label) -> contract + a result
+    card, ending with one sentence on what the result proves and one on what it
+    does not. No credential, no network.
 
     Without ``--label`` it stops at the review page and prints the exact command
     to finish; with ``--label yield|hold`` (a HUMAN decision) it creates the
-    contract and card. A single recording is MEASURED evidence, never a paired
-    fresh-recapture proof -- the flow says so explicitly."""
+    contract and writes its result card. A single recording is MEASURED evidence,
+    never a paired fresh-recapture proof -- the flow says so explicitly."""
     from . import trust as _trust
     from . import scan as _scan
     from . import ingest as _ingest
@@ -364,7 +364,7 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
             agent_channel=agent_channel,
             max_time_to_yield_sec=None, max_talk_over_sec=None)
         contract_info = {"id": "own-call-001", "dir": os.path.relpath(
-            res.get("path", cdir), out_dir)}
+            res.get("dir", cdir), out_dir)}
         # evidence tier for ONE measured recording (never paired here)
         vector = {"input_health": input_health,
                   "channel_mapping": "suspect" if possible_swap else "confirmed",
@@ -378,14 +378,19 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
         capped = min(classification["tier"], _evidence.TIER_MEASURED)
         classification["tier"] = capped
         classification["headline"] = _evidence.TIER_HEADLINE[capped]
-        try:
-            from . import card as _card2
-            verify_like = _contract.inspect_contract(
-                os.path.join(res.get("path", cdir), "contract.json"))                 if os.path.isfile(os.path.join(res.get("path", cdir), "contract.json")) else None
-        except Exception:
-            verify_like = None
         contract_info["evidence_tier"] = classification["tier"]
         contract_info["evidence_headline"] = classification["headline"]
+        # Render the result card for this labelled own-call and write it next to
+        # the review page: the MEASURED-tier artifact the flow promises. Uses
+        # card.py's public contract-card path on the freshly-written bundle.
+        # Defensive like the demo flow -- a card hiccup must not sink the run.
+        try:
+            svg = _card.make_card(res["paths"]["contract"])
+            _write_text(os.path.join(out_dir, _STEREO_CARD), svg)
+            card_written = True
+            contract_info["card"] = _STEREO_CARD
+        except Exception:  # pragma: no cover - the own-call contract always renders
+            card_written = False
 
     # 5) assemble output
     proves = ("This measures whether THIS recording met the yield/hold policy "
@@ -401,6 +406,7 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
         "recommendation": report.get("recommendation"),
         "total_candidates": scanned.get("total_candidates"),
         "review_page": _STEREO_REVIEW_HTML,
+        "card": _STEREO_CARD if card_written else None,
         "top_candidate": measured,
         "contract": contract_info,
         "proves": proves, "does_not_prove": not_proves,
@@ -426,6 +432,8 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
         lines += [f"  contract:        {contract_info['dir']} "
                   f"(evidence: {contract_info['evidence_headline']}, tier "
                   f"{contract_info['evidence_tier']})"]
+    if card_written:
+        lines += [f"  card:            {_STEREO_CARD}"]
     lines += ["", f"  What this proves:     {proves}",
               f"  What it does NOT:     {not_proves}", ""]
     lines += _stereo_next(label, contract_info)
@@ -443,7 +451,7 @@ def _stereo_next(label, contract_info):
         ]
     return [
         "Next: connect your stack and recapture to build a paired proof:",
-        "  hotato connect --stack vapi --api-key <key>",
+        "  hotato connect vapi --api-key <key>",
         "  hotato fix trial <patch.json> --before <before/> --after <after/> --battery <before/>",
     ]
 

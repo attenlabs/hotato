@@ -1,9 +1,13 @@
-# MCP: the one-tool server
+# MCP: the hotato server
 
-hotato ships a one-tool MCP server, `hotato-mcp`, that speaks MCP over stdio
-and exposes exactly one tool, `voice_eval_run`, returning the identical JSON
-envelope (`schema_version` "1") the CLI emits. Everything runs locally; no
-audio leaves the machine.
+hotato ships an MCP server, `hotato-mcp`, that speaks MCP over stdio and
+exposes nine tools: one scoring tool, `voice_eval_run`, which returns the
+identical JSON envelope (`schema_version` "1") the CLI emits, plus eight fleet
+tools that read, verify, and propose over a local fleet workspace
+(`fleet_status`, `candidate_list`, `contract_list`, `trial_explain`,
+`artifact_verify`, `experiment_propose`) and run clone-scoped experiments
+(`experiment_run`, `clone_cleanup`). None of them deploys to production.
+Everything runs locally; no audio leaves the machine.
 
 ## Run it (zero-install)
 
@@ -65,7 +69,7 @@ command = "uvx"
 args = ["--from", "hotato[mcp]", "hotato-mcp"]
 ```
 
-## The one tool: `voice_eval_run`
+## The scoring tool: `voice_eval_run`
 
 Same two input modes as the CLI, all parameters optional beyond the mode you
 pick:
@@ -104,6 +108,23 @@ stable `error_code` and an actionable `message`, schema at
 -- never a raw uncaught exception. The MCP tool and the CLI share this one
 error shape, so a caller (human or agent) parses one contract across both
 surfaces.
+
+## The fleet tools
+
+Eight tools drive the local, self-hosted fleet control plane
+([`GUARDIAN-FLEET.md`](GUARDIAN-FLEET.md)). They read and reason over a
+workspace; they never auto-label and never deploy to production.
+
+| Tool | Scope | Does |
+| --- | --- | --- |
+| `fleet_status` | read-only | workspace counts + job-queue stats |
+| `candidate_list` | read-only | top candidate moments awaiting a human label |
+| `contract_list` | read-only | contracts in a workspace |
+| `trial_explain` | read-only | a recorded trial's verdict, evidence tier, and any pending human-gated action |
+| `artifact_verify` | read-only | a contract bundle's authenticity + evidence, without trusting it |
+| `experiment_propose` | read-only | a bounded variant set with expected effects; does not clone, apply, or deploy |
+| `experiment_run` | clone-scoped | recompute a before/after trial offline (no network, no production mutation) and record a recommendation |
+| `clone_cleanup` | clone-scoped | delete a STAGING clone an experiment created; never touches production |
 
 ## More
 

@@ -1,4 +1,4 @@
-"""One-tool MCP server exposing the identical evaluation as a single tool.
+"""MCP server exposing the hotato evaluation and its local fleet control plane.
 
 Run it (zero-install) with the MCP extra:
 
@@ -8,9 +8,14 @@ or, if installed:
 
     python -m hotato.mcp_server
 
-It speaks MCP over stdio and exposes exactly one tool, ``voice_eval_run``, whose
-schema states the honest scope and ceiling. The tool returns the same JSON
-envelope as the CLI. Everything runs locally; no audio leaves the machine.
+It speaks MCP over stdio and exposes nine tools: one scoring tool,
+``voice_eval_run`` (whose schema states the honest scope and ceiling and which
+returns the same JSON envelope as the CLI), plus eight fleet tools that
+read/verify/propose over a local fleet workspace (``fleet_status``,
+``candidate_list``, ``contract_list``, ``trial_explain``, ``artifact_verify``,
+``experiment_propose``) and run clone-scoped experiments (``experiment_run``,
+``clone_cleanup``). None of them deploys to production. Everything runs locally;
+no audio leaves the machine.
 """
 
 from __future__ import annotations
@@ -491,7 +496,7 @@ def mcp_clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = 
 
 
 def build_server():
-    """Construct the FastMCP server with the single tool registered."""
+    """Construct the FastMCP server with the scoring tool and the fleet tools registered."""
     try:
         from mcp.server.fastmcp import FastMCP
     except Exception as exc:  # pragma: no cover - only when extra not installed

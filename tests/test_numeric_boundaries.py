@@ -51,18 +51,21 @@ def test_low_signal_forces_caution_not_safe(tmp_path):
 
 
 def test_channel_inversion_is_flagged(tmp_path):
-    """Swapping caller/agent channels must be detectable (possible swap /
-    not 'safe to scan' with the default mapping)."""
-    # a call where the agent clearly holds the floor longer, then invert
+    """Swapping caller/agent channels must be detected DIRECTLY as a possible
+    swap.
+
+    Build a call where the agent clearly holds the floor and the caller only
+    interjects briefly, then invert the channels: the channel mapped as the
+    caller now dominates talk time, which is exactly the reversal the swap
+    heuristic exists to catch. Asserting ``possible_swap`` directly (rather than
+    over the always-true input_health enum) makes this a real regression gate."""
     p = str(tmp_path / "asym.wav")
-    ta.talkover_call(p, onset=2.0, total=6.0)   # agent talks throughout
+    ta.write_stereo(p, caller_windows=[(2.0, 2.6)],
+                    agent_windows=[(0.2, 6.0)], total_sec=6.0)
     out = str(tmp_path / "swapped.wav")
     synth.perturb(p, {"transform": "invert_channels"}, out_path=out, seed=1)
     rep = trust.trust_report(out)
-    # either flagged as possible swap, or at least not silently 'safe' if a
-    # verdict-changing warning fired
-    swap = rep.get("channels", {}).get("possible_swap") or rep.get("possible_swap")
-    assert swap or rep.get("input_health") in ("clean", "caution", "not_scorable")
+    assert rep["channels"]["possible_swap"]
 
 
 def test_boundary_sensitive_flag_is_exposed(tmp_path):

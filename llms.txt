@@ -8,7 +8,7 @@
 > (talk-over).
 > Some timing signatures map to a likely fix class; root cause may remain
 > unknown. Runs entirely on your machine. Built to be called by an AI agent
-> mid-task, as a CLI or a one-tool MCP server.
+> mid-task, as a CLI or an MCP server.
 > Version 0.10.0. This file is the machine-readable index; `hotato describe
 > --format json` emits the same information generated straight from the CLI's
 > own argparse structure (every subcommand, its args, its exit codes, plus the
@@ -182,12 +182,16 @@
   `hotato_score` fixture, plus `pytest --hotato-suite` to fail the session on
   a regression (`--hotato-suite-scenarios DIR --hotato-suite-audio DIR` for
   your own sets). Detail: `docs/PYTEST.md`.
-- As a one-tool MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp`
-  exposes exactly one tool, `voice_eval_run`, returning the identical JSON
-  envelope. Optional `report_path` also writes the HTML report; the envelope
-  carries the path. NOTE (avoid the footgun): `uvx hotato-mcp` (no `--from`)
-  FAILS -- uv then looks for a package literally named `hotato-mcp` on PyPI,
-  which does not exist. Copy-paste client configs (Claude Desktop, Cursor,
+- As an MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes nine
+  tools -- one scoring tool, `voice_eval_run`, returning the identical JSON
+  envelope, plus eight fleet tools that read/verify/propose over a local fleet
+  workspace (fleet_status, candidate_list, contract_list, trial_explain,
+  artifact_verify, experiment_propose) and run clone-scoped experiments
+  (experiment_run, clone_cleanup); none deploys to production. On
+  `voice_eval_run`, optional `report_path` also writes the HTML report; the
+  envelope carries the path. NOTE (avoid the footgun): `uvx hotato-mcp` (no
+  `--from`) FAILS -- uv then looks for a package literally named `hotato-mcp` on
+  PyPI, which does not exist. Copy-paste client configs (Claude Desktop, Cursor,
   Codex CLI): `docs/MCP.md`.
 - Tiered corpus suites (silver, silver-defects, gold, gold-defects; the defect
   suites fail on purpose and exit 1):
@@ -314,9 +318,9 @@ it, never whether the policy itself was right.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.
 - docs/CI.md: the GitHub PR check and the sticky results comment.
-- docs/MCP.md: the one-tool MCP server, copy-paste client configs (Claude
-  Desktop, Cursor, Codex CLI), and the `uvx --from "hotato[mcp]" hotato-mcp`
-  footgun to avoid.
+- docs/MCP.md: the hotato MCP server (the voice_eval_run scorer plus eight
+  fleet tools), copy-paste client configs (Claude Desktop, Cursor, Codex CLI),
+  and the `uvx --from "hotato[mcp]" hotato-mcp` footgun to avoid.
 - docs/API.md: the Python API and the shared success/error schema reference.
 - docs/SUBMITTING.md: contribute a consented, labelled real call.
 - CONTRIBUTING.md, docs/CORPUS-GOVERNANCE.md: contribute real labelled fixtures.
