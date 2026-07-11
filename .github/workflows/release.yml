@@ -116,7 +116,7 @@ jobs:
       # Publish the built artifacts + SBOMs so an operator can attach them to the
       # GitHub release (see docs/RELEASE-CHECKLIST.md). Upload-only: this does
       # not publish to PyPI or anywhere else.
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dac343f # v4.3.6
+      - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
         with:
           name: hotato-release-dist
           path: |
