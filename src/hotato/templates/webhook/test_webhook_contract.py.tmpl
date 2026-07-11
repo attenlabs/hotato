@@ -199,6 +199,45 @@ def test_invariant_4_recording_fetch_is_read_only():
         )
 
 
+# --- robustness: the request body is size-capped before verify/parse -------
+
+def test_body_size_is_capped_before_verify():
+    """The webhook body is read through a bounded, cap-checked reader, never a
+    bare ``request.body()`` (which has no size limit and would buffer an
+    oversized or chunked-transfer-encoding-infinite body into memory before
+    the secret check, the parser, or the report-dir write ever run)."""
+    tree = _tree()
+    handler = _find_function(tree, "handle_webhook")
+    assert handler is not None, "no handle_webhook endpoint found"
+    for node in ast.walk(handler):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            assert node.func.attr != "body", (
+                "handle_webhook must not call request.body() directly; it has "
+                "no size cap -- read through the bounded reader instead"
+            )
+    src = APP.read_text(encoding="utf-8")
+    assert "MAX_BODY_BYTES" in src, "app.py must define a body-size cap"
+    assert "HOTATO_MAX_BODY_BYTES" in src, (
+        "the body-size cap must be env-configurable via HOTATO_MAX_BODY_BYTES"
+    )
+    reader = _find_function(tree, "read_bounded_body")
+    assert reader is not None, "app.py must define a bounded body reader"
+    assert _raises_httpexception(reader), (
+        "the bounded reader must reject an oversized body with HTTPException, "
+        "not a raw exception"
+    )
+    found_413 = any(
+        isinstance(n, ast.Constant) and n.value == 413 for n in ast.walk(reader)
+    )
+    assert found_413, "an oversized body must be rejected with a 413"
+    read_line = _first_call_line(handler, "read_bounded_body")
+    verify_line = _first_call_line(handler, "verify_webhook")
+    assert read_line is not None, "handle_webhook must call read_bounded_body"
+    assert verify_line is not None and read_line < verify_line, (
+        "the bounded read must happen before verify_webhook"
+    )
+
+
 # --- hotato.yaml matches the worker schema ----------------------------------
 
 def test_hotato_yaml_matches_schema():

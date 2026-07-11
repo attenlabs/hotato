@@ -38,6 +38,8 @@ with their reason; a bad file never crashes the run.
 
 from __future__ import annotations
 
+from .errors import wav_read as _wav_read
+
 import base64
 import io
 import os
@@ -404,7 +406,7 @@ def _clip_wav_bytes(path: str, w0: float, w1: float) -> Optional[bytes]:
     resampling, no re-quantization: the same input yields the same bytes every
     run. Returns None if the range is empty or the file cannot be framed."""
     try:
-        with wave.open(path, "rb") as wf:
+        with _wav_read(path) as wf:
             sr = wf.getframerate()
             nch = wf.getnchannels()
             sw = wf.getsampwidth()

@@ -196,6 +196,31 @@ def test_read_json_array_rejected(tmp_path):
         ing._read_payload(str(p))
 
 
+def test_read_deeply_nested_payload_raises_cleanly(tmp_path):
+    """A pathologically deeply nested JSON body (e.g. a hostile webhook
+    payload) makes CPython's json decoder raise a bare RecursionError, not a
+    json.JSONDecodeError. _read_payload must turn that into a clean
+    IngestError, never let it propagate as a raw RecursionError."""
+    p = tmp_path / "deep.json"
+    p.write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
+    with pytest.raises(ing.IngestError):
+        ing._read_payload(str(p))
+
+
+def test_cli_ingest_deeply_nested_payload_exit_2(tmp_path, capsys):
+    """End-to-end repro: 'hotato ingest --event <file>' on an untrusted,
+    pathologically nested webhook payload must exit 2 with the standard
+    structured error, never crash with an uncaught RecursionError traceback
+    and exit code 1."""
+    p = tmp_path / "deep.json"
+    p.write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
+    rc = cli.main(["ingest", "--stack", "vapi", "--event", str(p), "--format", "json"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 2
+    assert out["ok"] is False
+    assert out["exit_code"] == 2
+
+
 # --- pipeline: vapi --call-id (mocked fetch) --------------------------------
 
 def test_ingest_vapi_call_id_mocked(tmp_path, monkeypatch, capsys):

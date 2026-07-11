@@ -45,6 +45,8 @@ a proof of root cause.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 from datetime import datetime, timezone
@@ -122,7 +124,7 @@ def explain(source: str) -> dict:
 # --- run envelope --------------------------------------------------------------
 
 def _load_run_envelope(path: str) -> dict:
-    with open(path, encoding="utf-8") as fh:
+    with _open_regular(path, "r", encoding="utf-8") as fh:
         try:
             env = json.load(fh)
         except json.JSONDecodeError as exc:

@@ -12,6 +12,10 @@ Zero-dependency: stdlib ``wave``/``struct``/``math`` only, mirroring the numeric
 """
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
+from .errors import wav_read as _wav_read
+
 import hashlib
 import math
 import os
@@ -27,7 +31,7 @@ TOOL = f"hotato-synth/{__version__}"
 
 # --- WAV read/write (stdlib) ----------------------------------------------
 def _read(path: str):
-    with wave.open(path, "rb") as wf:
+    with _wav_read(path) as wf:
         nch, width, rate, n = (wf.getnchannels(), wf.getsampwidth(),
                                wf.getframerate(), wf.getnframes())
         raw = wf.readframes(n)
@@ -55,7 +59,7 @@ def _write(path: str, chans: List[List[int]], rate: int):
 
 def _pcm_sha256(path: str) -> str:
     h = hashlib.sha256()
-    with wave.open(path, "rb") as wf:
+    with _wav_read(path) as wf:
         while True:
             chunk = wf.readframes(1 << 16)
             if not chunk:
@@ -66,7 +70,7 @@ def _pcm_sha256(path: str) -> str:
 
 def _raw_sha256(path: str) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as fh:
+    with _open_regular(path) as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()

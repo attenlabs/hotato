@@ -16,6 +16,8 @@ claim that the original was preserved.
 """
 from __future__ import annotations
 
+from ..errors import wav_read as _wav_read
+
 import hashlib
 import json
 import os
@@ -110,7 +112,7 @@ def redact_audio(src_wav: str, spans_sec: List[tuple], out_wav: str, *,
     derivation record: a NEW PCM hash, the parent's hash, the redacted spans, and
     an explicitly DOWNGRADED evidence statement. The original is never touched;
     the derived copy must never be presented as the original evidence."""
-    with wave.open(src_wav, "rb") as wf:
+    with _wav_read(src_wav) as wf:
         nch, width, rate, n = (wf.getnchannels(), wf.getsampwidth(),
                                wf.getframerate(), wf.getnframes())
         raw = wf.readframes(n)
@@ -146,7 +148,7 @@ def redact_audio(src_wav: str, spans_sec: List[tuple], out_wav: str, *,
 
 def _pcm_sha256(path: str) -> str:
     h = hashlib.sha256()
-    with wave.open(path, "rb") as wf:
+    with _wav_read(path) as wf:
         while True:
             chunk = wf.readframes(1 << 16)
             if not chunk:

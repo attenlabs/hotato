@@ -15,6 +15,8 @@ uses.
 """
 from __future__ import annotations
 
+from .errors import wav_read as _wav_read
+
 import hashlib
 import os
 import wave
@@ -42,7 +44,7 @@ def _channel_pcm_sha256(path: str, channel: int) -> Optional[str]:
     channel -- still match its before-side stimulus, while unrelated caller
     audio does not."""
     try:
-        with wave.open(path, "rb") as wf:
+        with _wav_read(path) as wf:
             nch = wf.getnchannels()
             width = wf.getsampwidth()
             if channel >= nch:

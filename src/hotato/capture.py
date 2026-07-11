@@ -31,6 +31,8 @@ vendored MIT engine). This module adds only capture plumbing.
 
 from __future__ import annotations
 
+from .errors import wav_read as _wav_read
+
 import base64
 import json
 
@@ -175,6 +177,7 @@ def _scenario_meta(scenario_id: str) -> Tuple[Optional[float], str, str]:
     label = resources.files("hotato").joinpath(
         "data", "scenarios", scenario_id + ".json"
     )
+    # open-ok: bundled importlib resource (installed package data, not a user path)
     sc = json.loads(label.read_text(encoding="utf-8"))
     onset = sc.get("caller_onset_sec")
     expect = "yield" if sc.get("expected", {}).get("yield", True) else "hold"
@@ -367,15 +370,32 @@ def _ensure_safe_opener() -> None:
     strips credentials on a cross-host redirect. Installed lazily on the first
     network call so importing the module has no global side effect. Tests that
     monkeypatch ``urllib.request.urlopen`` replace the call entirely and are
-    unaffected; the real ``urlopen`` uses this opener in production."""
+    unaffected; the real ``urlopen`` uses this opener in production.
+
+    ``build_opener()`` always installs a default ``ProxyHandler``, which honors
+    the standard ``HTTP_PROXY``/``HTTPS_PROXY``/``NO_PROXY`` env-var convention
+    (like curl/pip/git) so hotato works behind a corporate proxy. TLS
+    certificate verification is never disabled, so a proxy cannot silently
+    read or alter a credentialed request without also controlling a CA the
+    machine already trusts. See docs/THREAT-MODEL.md's "Network trust"
+    section for the full reasoning. A caller who does not trust the ambient
+    proxy environment can set ``HOTATO_NO_PROXY=1`` to force this opener to
+    ignore ``HTTP_PROXY``/``HTTPS_PROXY`` for every request in this process,
+    or unset those env vars before running the command."""
     global _SAFE_OPENER_INSTALLED
     if _SAFE_OPENER_INSTALLED:
         return
     import urllib.request
 
-    urllib.request.install_opener(
-        urllib.request.build_opener(_CredentialSafeRedirectHandler())
-    )
+    handlers: list = [_CredentialSafeRedirectHandler()]
+    if os.environ.get("HOTATO_NO_PROXY", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    ):
+        # An empty proxies dict REPLACES the default (env-derived) ProxyHandler
+        # that build_opener() would otherwise install, forcing every request
+        # through this opener to ignore HTTP_PROXY/HTTPS_PROXY.
+        handlers.append(urllib.request.ProxyHandler({}))
+    urllib.request.install_opener(urllib.request.build_opener(*handlers))
     _SAFE_OPENER_INSTALLED = True
 
 
@@ -388,6 +408,8 @@ def _version() -> str:
 
 
 def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> bytes:
+    import http.client
+    import socket
     import urllib.error
     import urllib.request
 
@@ -414,6 +436,8 @@ def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> by
         ) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - live path
         raise ValueError(f"network error fetching {url}: {exc.reason}") from exc
+    except (TimeoutError, socket.timeout, ConnectionError, http.client.IncompleteRead) as exc:
+        raise ValueError(f"connection interrupted while reading {url}: {exc}") from exc
 
 
 def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 60):
@@ -474,6 +498,35 @@ def _require_url_str(value, what: str) -> str:
 
 
 _ALLOWED_DOWNLOAD_SCHEMES = ("http", "https")
+
+
+def _canonical_host(h: str) -> str:
+    """Canonicalize a hostname for HOTATO_INGEST_ALLOWED_HOSTS comparison.
+
+    ``urlparse`` lowercases an IPv6 literal but does NOT canonicalize it, so
+    ``http://[::1]/x`` and ``http://[0:0:0:0:0:0:0:1]/x`` yield the
+    textually-different hostnames ``::1`` and ``0:0:0:0:0:0:0:1`` even though
+    they are the same address. Comparing those raw strings against the
+    operator's allowlist makes an allowed IPv6 host spuriously fail the
+    allowlist check depending on which form the vendor or the operator
+    happened to write. Route both the allowlist entries and the incoming
+    hostname through ``ipaddress.ip_address`` first so equal addresses always
+    compare equal, regardless of literal form (zero-padded, expanded,
+    bracketed, or shorthand); a non-IP hostname (a DNS name) falls back to a
+    plain lowercase compare, unchanged from before.
+
+    This only affects which hosts are treated as MATCHING the allowlist; the
+    default-deny SSRF guard (``_reject_private_host``) resolves and checks
+    every hostname independently afterward regardless of the allowlist
+    outcome, so this helper cannot widen what is ultimately fetchable -- it
+    only fixes false-negative (spurious deny) allowlist comparisons."""
+    stripped = h.strip().strip("[]")
+    try:
+        import ipaddress
+
+        return str(ipaddress.ip_address(stripped))
+    except ValueError:
+        return h.strip().lower()
 
 
 def _resolve_host_addresses(hostname: str):
@@ -554,8 +607,8 @@ def _validate_download_url(url: str) -> str:
         )
     allow = os.environ.get("HOTATO_INGEST_ALLOWED_HOSTS", "").strip()
     if allow:
-        hosts = {h.strip().lower() for h in allow.split(",") if h.strip()}
-        if parsed.hostname.lower() not in hosts:
+        hosts = {_canonical_host(h) for h in allow.split(",") if h.strip()}
+        if _canonical_host(parsed.hostname) not in hosts:
             raise ValueError(
                 f"recording download host {parsed.hostname!r} is not in "
                 "HOTATO_INGEST_ALLOWED_HOSTS; refusing to fetch it."
@@ -635,7 +688,7 @@ def _wav_channels(path: str) -> Optional[int]:
     import wave
 
     try:
-        with wave.open(path, "rb") as wf:
+        with _wav_read(path) as wf:
             return wf.getnchannels()
     except (wave.Error, EOFError, OSError, RuntimeError):
         # RuntimeError: stdlib ``wave`` raises it for a well-formed RIFF/WAVE

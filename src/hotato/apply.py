@@ -54,6 +54,8 @@ them), verified 2026-07-06:
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import copy
 import json
 import os
@@ -174,7 +176,7 @@ def load_referenced_plan(patch: dict, patch_source: Optional[str]) -> Optional[d
         candidates.insert(0, os.path.join(os.path.dirname(os.path.abspath(patch_source)), ref))
     for path in candidates:
         try:
-            with open(path, encoding="utf-8") as fh:
+            with _open_regular(path, "r", encoding="utf-8") as fh:
                 plan = json.load(fh)
         except (OSError, ValueError):
             continue
@@ -281,7 +283,7 @@ def battery_classes(path: str) -> dict:
     single = os.path.isfile(path)
     for fp in files:
         try:
-            with open(fp, encoding="utf-8") as fh:
+            with _open_regular(fp, "r", encoding="utf-8") as fh:
                 obj = json.load(fh)
         except (OSError, ValueError) as exc:
             if single:
@@ -572,8 +574,13 @@ def _http_json(method: str, url: str, *, headers: dict, body: Optional[dict],
             "hotato apply only issues GET (read the source) and POST (create a "
             f"new assistant); refusing {method} (it would mutate the source)."
         )
+    import http.client
+    import socket
     import urllib.error
     import urllib.request
+
+    from . import capture as _capture
+    _capture._ensure_safe_opener()
 
     data = None
     if body is not None:
@@ -592,12 +599,23 @@ def _http_json(method: str, url: str, *, headers: dict, body: Optional[dict],
             detail = exc.read().decode("utf-8", "replace")[:300]
         except Exception:
             pass
-        raise ValueError(
+        err = ValueError(
             f"HTTP {exc.code} from {method} {url}: {exc.reason}. {detail}".strip()
-        ) from exc
+        )
+        # Carry the real numeric status on the exception so callers can branch
+        # on it (e.g. "was this a 404") without substring-matching the message,
+        # which can false-positive on a "404" that only appears incidentally in
+        # the id/URL or in vendor-controlled response text for an unrelated
+        # status (a real 500/401/etc would then be misreported as a 404).
+        err.status_code = exc.code
+        raise err from exc
     except urllib.error.URLError as exc:  # pragma: no cover - live network path
         raise ValueError(
             f"network error on {method} {url}: {exc.reason}"
+        ) from exc
+    except (TimeoutError, socket.timeout, ConnectionError, http.client.IncompleteRead) as exc:
+        raise ValueError(
+            f"connection interrupted while reading the response from {method} {url}: {exc}"
         ) from exc
     if not raw.strip():
         return {}

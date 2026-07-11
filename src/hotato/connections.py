@@ -23,6 +23,8 @@ The stored shape is ``{stack: {field: value, ...}, ...}`` -- e.g.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 import tempfile
@@ -52,15 +54,45 @@ def connections_path() -> str:
     return os.path.join(home_dir(), "connections.json")
 
 
+def _refuse_if_insecure_mode(path: str) -> None:
+    """Fail closed if the file at ``path`` is readable or writable by group
+    or other. POSIX only -- Windows has no equivalent permission bits, so
+    this is a no-op there, mirroring the os.fchmod guard used on the write
+    path. Never includes any credential value in the raised message."""
+    if os.name != "posix":
+        return
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except OSError:
+        # Can't stat it here; the normal open()/exists() handling below deals
+        # with a genuinely missing or inaccessible path.
+        return
+    if mode & 0o077:
+        raise ValueError(
+            f"{path!r} is group/world-accessible (mode {oct(mode)}); "
+            f"refusing to load credentials. Run `chmod 600 {path}` "
+            "and re-run the command."
+        )
+
+
 def load_all() -> Dict[str, dict]:
     """Return the whole store as a dict. Missing file -> ``{}``. A corrupt or
     non-object file is a clean, explicit error (never a silent reset that would
-    drop a working connection)."""
+    drop a working connection). A group/world-readable file is refused rather
+    than silently trusted, so permission drift on a live-credential store is
+    never read without warning.
+
+    Note: only the file itself is checked, not its containing directory --
+    ``_ensure_home`` sets the directory to ``0700`` on every write, but a
+    caller may legitimately point ``HOTATO_HOME`` at a directory it does not
+    own the permissions of (e.g. a shared/read-only mount) as long as the
+    connections file inside it is properly locked down."""
     path = connections_path()
     if not os.path.exists(path):
         return {}
+    _refuse_if_insecure_mode(path)
     try:
-        with open(path, encoding="utf-8") as fh:
+        with _open_regular(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError) as exc:
         raise ValueError(

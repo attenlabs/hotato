@@ -67,6 +67,44 @@ Notify surfaces (Slack, GitHub) are used only through credentials you configured
 (`gh`, a Slack token) and only for actions you invoked. Hotato ships no default
 integrations that fire on their own.
 
+## Network trust: proxies and TLS
+
+Every networked command above (`pull`, `capture`, `sweep`, `inspect`, `apply`,
+and the credential probe in `connect`) makes its HTTP calls through Python's
+standard `urllib`, which honors the `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`
+environment-variable convention, the same convention `curl`, `pip`, `git`, and
+`docker` follow. That is deliberate: it is what lets Hotato work behind a
+corporate proxy with no extra flags. It also means an environment variable set
+for the Hotato process controls where its outbound credentialed requests are
+routed, and that is a trust decision worth stating plainly instead of leaving
+implicit.
+
+Two things bound how far that ambient trust reaches:
+
+- **TLS certificate validation is never disabled.** Every credentialed base
+  URL in `capture.py` and `apply.py` is hardcoded `https://` (`api.vapi.ai`,
+  `api.retellai.com`, `api.twilio.com`, and the other supported stacks), and
+  Hotato never turns off certificate checking. A proxy set via
+  `HTTP_PROXY`/`HTTPS_PROXY` can see the `CONNECT` target host and port, and
+  can refuse or stall the connection (a denial of service), but it cannot
+  read or rewrite the `Authorization` header or the response body without
+  also presenting a certificate the machine's own trust store already
+  accepts for that vendor's domain, a much larger compromise (a rogue
+  trusted root CA already installed) outside `HTTP_PROXY`'s reach and
+  outside Hotato's control.
+- **The threat prerequisite is already a compromised local environment.** An
+  attacker able to set environment variables for the Hotato process can
+  already read `VAPI_API_KEY` / `RETELL_API_KEY` / etc. straight out of the
+  environment, or read the `0600` credentials file `connect` wrote, both
+  strictly easier than standing up a TLS-valid proxy.
+
+If you do not trust the ambient proxy environment a command will run in, set
+`HOTATO_NO_PROXY=1` to make Hotato's HTTP opener ignore `HTTP_PROXY` /
+`HTTPS_PROXY` for that run, or unset those variables before invoking the
+command. The default is unchanged: proxy env vars are honored, matching
+curl/pip/git, so a legitimate corporate-proxy setup keeps working with no
+configuration.
+
 ## What an attacker cannot do through Hotato
 
 - **Cannot exfiltrate recordings by default.** With no `pull`/`capture`/`sweep`

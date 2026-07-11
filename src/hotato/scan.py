@@ -145,7 +145,13 @@ def windowed_frame_rms(
     The frame values equal the reference ``frame_rms`` over the whole file
     (same 20 ms window, 10 ms hop, same partial tail frames).
     """
+    # Refuse a FIFO/non-regular file before wave.open (which would block forever
+    # on a writer-less pipe). Covers scan/analyze/loop, which open WAVs here and
+    # bypass core._read_wav's guard.
+    from .errors import require_regular_file as _require_regular_file
+    _require_regular_file(path)
     try:
+        # open-ok: _require_regular_file(path) guards a few lines above
         wf = wave.open(path, "rb")
     except (wave.Error, EOFError, struct.error, RuntimeError) as exc:
         # stdlib ``wave`` raises a bare ``RuntimeError`` from Chunk.skip()/seek()

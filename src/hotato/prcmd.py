@@ -34,6 +34,8 @@ lands the fixtures and the command that scores them read the same files.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 import re
@@ -110,7 +112,7 @@ def load_fixtures(fixtures_dir: str) -> List[dict]:
         if not name.endswith(".json"):
             continue
         scenario_path = os.path.join(scenarios_dir, name)
-        with open(scenario_path, encoding="utf-8") as fh:
+        with _open_regular(scenario_path, "r", encoding="utf-8") as fh:
             try:
                 scenario = json.load(fh)
             except json.JSONDecodeError as exc:

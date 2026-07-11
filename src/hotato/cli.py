@@ -11,6 +11,8 @@ Everything runs offline; no audio leaves the machine.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import argparse
 import json
 import os
@@ -814,7 +816,7 @@ def _cmd_sweep(args) -> int:
 def _load_base_envelope(path: str) -> dict:
     """Load a previous envelope JSON for --base. Anything that is not a hotato
     envelope is a clean usage error (exit 2), never a silent no-op diff."""
-    with open(path, encoding="utf-8") as fh:
+    with _open_regular(path, "r", encoding="utf-8") as fh:
         base = json.load(fh)
     if not (isinstance(base, dict) and base.get("tool") == "hotato"
             and base.get("kind") != "frame-dump"
@@ -1193,7 +1195,7 @@ def _load_envelope_for(path: str, flag: str) -> dict:
     """Load an envelope JSON for diagnose/plan; anything else (a frame dump,
     a benchmark result, a compare result, arbitrary JSON) is a clean usage
     error (exit 2). A run envelope carries no ``kind`` key."""
-    with open(path, encoding="utf-8") as fh:
+    with _open_regular(path, "r", encoding="utf-8") as fh:
         env = json.load(fh)
     if not (isinstance(env, dict) and env.get("tool") == "hotato"
             and env.get("kind") is None
@@ -1327,7 +1329,7 @@ def _cmd_patch(args) -> int:
     # A fix plan JSON (hotato.fixplan.v1), not a run envelope. A missing file
     # (FileNotFoundError), malformed JSON (ValueError), or a non-plan document
     # (ValueError from build_patch) all surface as the clean exit-2 usage error.
-    with open(args.fixplan, encoding="utf-8") as fh:
+    with _open_regular(args.fixplan, "r", encoding="utf-8") as fh:
         plan = json.load(fh)
     result = _patch.build_patch(plan, source=args.fixplan)
     if args.out:
@@ -1346,7 +1348,7 @@ def _cmd_apply(args) -> int:
     # Load the patch artifact (a hotato patch JSON). A missing file
     # (FileNotFoundError), malformed JSON (ValueError), or a non-patch document
     # (ValueError from build_apply) all surface as the clean exit-2 usage error.
-    with open(args.patch_json, encoding="utf-8") as fh:
+    with _open_regular(args.patch_json, "r", encoding="utf-8") as fh:
         patch = json.load(fh)
     # Best-effort read of the referenced plan (offline; the patch is
     # self-describing, so a moved/absent plan is not an error).
@@ -1453,7 +1455,7 @@ def _cmd_fix_trial(args) -> int:
     # Load the patch artifact exactly like `hotato apply` does: a missing
     # file, malformed JSON, or a non-patch document all surface as the clean
     # exit-2 usage error via build_apply's own validation.
-    with open(args.patch_json, encoding="utf-8") as fh:
+    with _open_regular(args.patch_json, "r", encoding="utf-8") as fh:
         patch = json.load(fh)
     plan = _apply.load_referenced_plan(patch, args.patch_json)
 
@@ -1603,7 +1605,7 @@ def _fleet_emit(args, payload, text_lines):
 def _fleet_load_run_json(directory):
     """A before/after trial arg is a DIRECTORY holding run.json (the suite
     envelope) plus its wavs; load the envelope."""
-    with open(os.path.join(directory, "run.json"), encoding="utf-8") as fh:
+    with _open_regular(os.path.join(directory, "run.json"), "r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -1773,11 +1775,11 @@ def _cmd_fleet_benchmark(args) -> int:
 def _cmd_fleet_experiment_create(args) -> int:
     api = _fleet_open(args)
     try:
-        with open(args.battery, encoding="utf-8") as fh:
+        with _open_regular(args.battery, "r", encoding="utf-8") as fh:
             battery_env = json.load(fh)
         policy = None
         if args.policy:
-            with open(args.policy, encoding="utf-8") as fh:
+            with _open_regular(args.policy, "r", encoding="utf-8") as fh:
                 policy = json.load(fh)
         res = api.experiment_create(
             args.workspace, args.agent, trial_id=args.trial_id,
@@ -1802,13 +1804,13 @@ def _cmd_fleet_experiment_run(args) -> int:
                 raise ValueError(
                     "hotato fleet experiment run needs --battery, or --manifest "
                     "from a prior `hotato fleet experiment create`")
-            with open(args.battery, encoding="utf-8") as fh:
+            with _open_regular(args.battery, "r", encoding="utf-8") as fh:
                 battery_env = json.load(fh)
         before_env = _fleet_load_run_json(args.before)
         after_env = _fleet_load_run_json(args.after)
         policy = None
         if args.policy:
-            with open(args.policy, encoding="utf-8") as fh:
+            with _open_regular(args.policy, "r", encoding="utf-8") as fh:
                 policy = json.load(fh)
         res = api.experiment_run(
             args.workspace, args.agent, trial_id=args.trial_id,
@@ -1876,7 +1878,7 @@ def _cmd_fleet_experiment_propose(args) -> int:
     try:
         cfg = None
         if args.current_config:
-            with open(args.current_config, encoding="utf-8") as fh:
+            with _open_regular(args.current_config, "r", encoding="utf-8") as fh:
                 cfg = json.load(fh)
         res = api.experiment_propose(args.workspace, args.agent, intent=args.intent,
                                      current_config=cfg, max_variants=args.max_variants)

@@ -27,6 +27,8 @@ fractions of real verdicts.
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 from typing import Optional
@@ -75,7 +77,7 @@ def load_run_dir(dirpath: str, order: str = "name") -> dict:
             continue
         path = os.path.join(dirpath, name)
         try:
-            with open(path, encoding="utf-8") as fh:
+            with _open_regular(path, "r", encoding="utf-8") as fh:
                 obj = json.load(fh)
         except (OSError, ValueError) as exc:
             skipped.append({"file": name, "why": f"unreadable JSON ({exc})"})

@@ -18,6 +18,8 @@ re-run is reproducible; a fleet runner supplies a real random nonce).
 """
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import hashlib
 import hmac
 import json
@@ -51,7 +53,7 @@ def wheel_hash() -> str:
         import hotato as _pkg
         path = getattr(_pkg, "__file__", None)
         if path and os.path.exists(path):
-            with open(path, "rb") as fh:
+            with _open_regular(path) as fh:
                 return hashlib.sha256(fh.read()).hexdigest()
     except Exception:
         pass

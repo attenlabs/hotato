@@ -28,6 +28,15 @@ Attention Labs, and never uses a webhook payload as instructions.** The single
 off-box audio path is the hosted `--diarizer pyannoteai` backend, which requires
 an explicit `--egress-opt-in` flag; the default diarizer is local.
 
+**Proxy env vars are honored; TLS is never disabled.** Hotato's HTTP calls
+follow the standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` convention, like
+`curl`/`pip`/`git`, so it works behind a corporate proxy by default. Every
+credentialed endpoint is hardcoded `https://` and certificate validation is
+never turned off, so a proxy cannot read or alter a credentialed request
+without also controlling a trusted CA. Set `HOTATO_NO_PROXY=1` (or unset the
+proxy variables) if you do not trust the ambient proxy environment for a
+given run. Full reasoning: [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md#network-trust-proxies-and-tls).
+
 Full detail, command by command: [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md). A
 per-command network table derived directly from the code (which commands are
 fully local, which reach your configured vendor and when, which optional

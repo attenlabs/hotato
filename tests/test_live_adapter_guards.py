@@ -83,10 +83,40 @@ def test_delete_clone_deletes_marked_staging_clone(monkeypatch):
 
 def test_delete_clone_404_on_fetch_is_a_noop(monkeypatch):
     def _gone(*a, **k):
-        raise ValueError("clone read failed: HTTP 404 for that id")
+        err = ValueError("clone read failed: HTTP 404 for that id")
+        err.status_code = 404
+        raise err
     monkeypatch.setattr(apply_mod, "_http_json", _gone)
     out = _vapi().delete_clone("abc123")
     assert out["deleted"] is True and out["already_gone"] is True
+
+
+def test_delete_clone_non_404_error_with_404_in_text_is_not_a_noop(monkeypatch):
+    # A genuine non-404 failure (e.g. a real 500, auth failure, or outage) whose
+    # message text happens to CONTAIN the substring "404" -- via the id embedded
+    # in the URL or via vendor response detail -- must NOT be treated as an
+    # already-gone no-op. Only the real numeric status_code decides that.
+    def _real_error(*a, **k):
+        err = ValueError(
+            "HTTP 500 from GET https://api.vapi.ai/assistant/id-with-404-in-it: "
+            "Internal Server Error. some vendor detail mentioning 404 by accident"
+        )
+        err.status_code = 500
+        raise err
+    monkeypatch.setattr(apply_mod, "_http_json", _real_error)
+    with pytest.raises(ValueError, match="HTTP 500"):
+        _vapi().delete_clone("abc123")
+
+
+def test_delete_clone_error_without_status_code_is_not_a_noop(monkeypatch):
+    # A ValueError with no .status_code attribute at all (e.g. a network/URLError
+    # path, or any future raiser that forgets to set it) must fail closed --
+    # never silently treated as an already-gone delete.
+    def _no_status(*a, **k):
+        raise ValueError("clone read failed: HTTP 404 for that id")
+    monkeypatch.setattr(apply_mod, "_http_json", _no_status)
+    with pytest.raises(ValueError, match="404"):
+        _vapi().delete_clone("abc123")
 
 
 # --- capture_result download validation ---------------------------------------

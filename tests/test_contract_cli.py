@@ -438,6 +438,55 @@ def test_verify_corrupt_contract_json_is_a_usage_error(tmp_path):
     assert cli.main(["contract", "verify", str(tmp_path)]) == 2
 
 
+@pytest.mark.parametrize("drop_path", [
+    ("bundle", "paths", "audio"),
+    ("source", "recording_type"),
+    ("label", "expected_behavior"),
+    ("policy", "pass_conditions"),
+    ("event",),
+])
+def test_verify_contract_missing_required_field_is_a_usage_error(
+        tmp_path, capsys, drop_path):
+    """A contract.json that is valid JSON with the right schema string, but is
+    missing a nested field _verify_one dereferences directly (bundle.paths.audio,
+    source.recording_type, label.expected_behavior, policy.pass_conditions,
+    event), must be refused as a clean usage error (exit 2) -- not an uncaught
+    KeyError breaking verify_contracts's documented "never an exception"
+    contract (docs/SUBMITTING.md invites third-party contract submissions)."""
+    assert _create(tmp_path) == 0
+    cpath = _bundle(tmp_path, "ct-created-001") / "contract.json"
+    doc = json.loads(cpath.read_text(encoding="utf-8"))
+    node = doc
+    for key in drop_path[:-1]:
+        node = node[key]
+    del node[drop_path[-1]]
+    cpath.write_text(json.dumps(doc), encoding="utf-8")
+    capsys.readouterr()  # drop the `contract create` text output
+    rc = cli.main(["contract", "verify", str(tmp_path), "--format", "json"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 2
+    assert out["ok"] is False
+    assert out["exit_code"] == 2
+    assert ".".join(drop_path) in out["message"]
+
+
+def test_verify_deeply_nested_contract_json_is_a_usage_error(tmp_path, capsys):
+    """A pathologically deeply nested contract.json makes CPython's json
+    decoder raise a bare RecursionError, not a json.JSONDecodeError.
+    _load_contract must turn that into a clean usage error (exit 2), never
+    let a RecursionError propagate as a raw traceback."""
+    assert _create(tmp_path) == 0
+    (_bundle(tmp_path, "ct-created-001") / "contract.json").write_text(
+        "[" * 200000 + "]" * 200000
+    )
+    capsys.readouterr()  # drop the `contract create` text output
+    rc = cli.main(["contract", "verify", str(tmp_path), "--format", "json"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 2
+    assert out["ok"] is False
+    assert out["exit_code"] == 2
+
+
 # --- inspect -----------------------------------------------------------
 
 def test_inspect_text(tmp_path, capsys):

@@ -205,3 +205,60 @@ def test_save_works_without_os_fchmod(tmp_path, monkeypatch):
                         or not (tmp_path / ".hotato").mkdir(parents=True) else str(tmp_path / ".hotato"))
     connections.save("vapi", {"api_key": "k"})
     assert connections.load_all()["vapi"]["api_key"] == "k"
+
+
+# --- #16: load path must refuse a group/world-readable connections file ----
+
+@pytest.mark.skipif(sys.platform == "win32",
+                     reason="POSIX mode bits have no Windows equivalent")
+def test_load_all_refuses_world_readable_file(monkeypatch):
+    """The read path must enforce the same 0600 invariant the write path
+    creates. Reproduces the original defect: chmod 644 on connections.json
+    used to be read back with zero warning."""
+    connections.save("vapi", {"api_key": "sk-test-12345"})
+    path = connections.connections_path()
+    os.chmod(path, 0o644)
+    with pytest.raises(ValueError, match=r"group/world-accessible"):
+        connections.load_all()
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                     reason="POSIX mode bits have no Windows equivalent")
+def test_load_all_refusal_never_leaks_the_secret_value(monkeypatch):
+    connections.save("vapi", {"api_key": "sk-test-12345"})
+    os.chmod(connections.connections_path(), 0o644)
+    with pytest.raises(ValueError) as excinfo:
+        connections.load_all()
+    assert "sk-test-12345" not in str(excinfo.value)
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                     reason="POSIX mode bits have no Windows equivalent")
+def test_get_and_connected_stacks_inherit_the_permission_refusal(monkeypatch):
+    """get() and connected_stacks() both call load_all() internally, so they
+    must refuse too rather than silently returning stale/insecure data."""
+    connections.save("vapi", {"api_key": "sk-test-12345"})
+    os.chmod(connections.connections_path(), 0o640)
+    with pytest.raises(ValueError, match=r"group/world-accessible"):
+        connections.get("vapi")
+    with pytest.raises(ValueError, match=r"group/world-accessible"):
+        connections.connected_stacks()
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                     reason="POSIX mode bits have no Windows equivalent")
+def test_load_all_still_works_for_a_properly_permissioned_file(monkeypatch):
+    """No false positive: the normal 0600 file saved by save() must keep
+    loading without complaint."""
+    connections.save("vapi", {"api_key": "sk-test-12345"})
+    assert connections.load_all()["vapi"]["api_key"] == "sk-test-12345"
+
+
+def test_load_all_skips_the_mode_check_on_non_posix(monkeypatch):
+    """The refusal is gated to POSIX, mirroring the existing os.fchmod guard,
+    so Windows (no meaningful mode bits) behavior is unchanged."""
+    connections.save("vapi", {"api_key": "sk-test-12345"})
+    if sys.platform != "win32":
+        os.chmod(connections.connections_path(), 0o644)
+    monkeypatch.setattr(os, "name", "nt")
+    assert connections.load_all()["vapi"]["api_key"] == "sk-test-12345"

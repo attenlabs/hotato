@@ -37,6 +37,8 @@ Fixtures pair by ``event_id`` (falling back to ``scenario_id``).
 
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import json
 import os
 from typing import Optional, Tuple
@@ -106,7 +108,7 @@ def _load_side(path: str, label: str) -> Tuple[list, list]:
                 continue
             fp = os.path.join(path, name)
             try:
-                with open(fp, encoding="utf-8") as fh:
+                with _open_regular(fp, "r", encoding="utf-8") as fh:
                     obj = json.load(fh)
             except (OSError, ValueError) as exc:
                 raise ValueError(
@@ -116,7 +118,7 @@ def _load_side(path: str, label: str) -> Tuple[list, list]:
                 envelopes.append((name, obj))
     elif os.path.isfile(path):
         try:
-            with open(path, encoding="utf-8") as fh:
+            with _open_regular(path, "r", encoding="utf-8") as fh:
                 obj = json.load(fh)
         except (OSError, ValueError) as exc:
             raise ValueError(f"--{label} {path!r} is not readable JSON: {exc}") from exc
@@ -1080,7 +1082,7 @@ def load_policy(path: str) -> dict:
     """Read and validate a ``hotato.verify.yaml`` policy file. Raises ValueError
     (exit 2) for an unreadable or invalid policy."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with _open_regular(path, "r", encoding="utf-8") as fh:
             text = fh.read()
     except OSError as exc:
         raise ValueError(f"--policy {path!r} is not readable: {exc}") from exc

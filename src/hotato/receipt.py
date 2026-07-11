@@ -12,6 +12,8 @@ unsigned receipt still records origin metadata but is labelled unsigned.
 """
 from __future__ import annotations
 
+from .errors import open_regular as _open_regular
+
 import hashlib
 import hmac
 import os
@@ -125,7 +127,7 @@ def load_key() -> Optional[bytes]:
         return env.encode("utf-8")
     path = os.path.expanduser("~/.hotato/attest.key")
     try:
-        with open(path, "rb") as fh:
+        with _open_regular(path) as fh:
             data = fh.read().strip()
             return data or None
     except OSError:

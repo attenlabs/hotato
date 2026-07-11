@@ -15,9 +15,14 @@ The honesty invariants and the frozen golden are covered elsewhere; these tests
 only guard the input surface.
 """
 
+import os
 import struct
+import subprocess
+import sys
 import wave
 from importlib import resources
+
+import pytest
 
 from hotato import cli
 from hotato.core import run_suite
@@ -74,6 +79,109 @@ def test_exit_2_on_odd_byte_wav(tmp_path):
     odd = tmp_path / "odd.wav"
     odd.write_bytes(raw[:-1])  # drop one byte -> odd-length data chunk
     assert cli.main(["run", "--stereo", str(odd)]) == 2
+
+
+# --- FIFO / named-pipe input (must refuse, never hang) --------------------
+#
+# Opening a FIFO for reading blocks at the OS level until a writer opens the
+# other end. Every test here uses a subprocess with an explicit ``timeout``
+# (mirroring how the original defect was reproduced: `timeout 5 hotato run
+# --stereo fifo.wav` hung with exit code 124) so that if the fix ever
+# regresses, the test FAILS with a clear TimeoutExpired instead of hanging
+# the whole suite forever.
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"),
+                    reason="FIFOs are POSIX-only")
+def test_fifo_stereo_input_is_refused_not_hung(tmp_path):
+    """`hotato run --stereo` on a FIFO must exit 2 immediately (a clean,
+    actionable ValueError), never hang inside wave.open()."""
+    fifo = tmp_path / "x.wav"
+    os.mkfifo(str(fifo))
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "hotato", "run", "--stereo", str(fifo),
+             "--format", "json"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(
+            "hotato hung reading a FIFO instead of refusing it cleanly "
+            "(reproduces the original defect: mkfifo + `hotato run` blocks "
+            "forever with zero output, zero error, zero traceback)"
+        )
+    assert proc.returncode == 2
+    assert "not a regular file" in proc.stdout
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"),
+                    reason="FIFOs are POSIX-only")
+def test_fifo_via_symlink_is_also_refused_not_hung(tmp_path):
+    """A symlink pointing at a FIFO must be caught too: os.stat() follows
+    symlinks, so this is refused the same way as a direct FIFO path."""
+    fifo = tmp_path / "real.wav"
+    os.mkfifo(str(fifo))
+    link = tmp_path / "link.wav"
+    os.symlink(str(fifo), str(link))
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "hotato", "run", "--stereo", str(link),
+             "--format", "json"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("hotato hung reading a symlink-to-FIFO instead of refusing it")
+    assert proc.returncode == 2
+    assert "not a regular file" in proc.stdout
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"),
+                    reason="FIFOs are POSIX-only")
+def test_fifo_core_load_signal_raises_valueerror_directly(tmp_path):
+    """Unit-level check (in-process, no subprocess needed since the fix makes
+    this return immediately): ``core._load_signal`` -- reached by every
+    `_read_wav` caller (run, capture --stereo, fixture create, verify,
+    compare, trust, and the MCP voice_eval_run tool) -- refuses a FIFO with a
+    clean ValueError naming the problem, before ever calling wave.open()."""
+    from hotato import core as _core
+
+    fifo = tmp_path / "x.wav"
+    os.mkfifo(str(fifo))
+    with pytest.raises(ValueError, match="not a regular file"):
+        _core._load_signal(str(fifo))
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"),
+                    reason="FIFOs are POSIX-only")
+def test_fifo_scan_recording_raises_valueerror_not_hung(tmp_path):
+    """scan.py opens WAVs via its own wave.open (windowed_frame_rms), bypassing
+    core._read_wav -- the path `hotato scan` / `analyze` / `loop` funnel through.
+    It must refuse a FIFO with the same clean ValueError, in-process and fast
+    (a hang here would block the test run, reproducing the original defect)."""
+    from hotato import scan as _scan
+
+    fifo = tmp_path / "x.wav"
+    os.mkfifo(str(fifo))
+    with pytest.raises(ValueError, match="not a regular file"):
+        _scan.windowed_frame_rms(str(fifo))
+    with pytest.raises(ValueError, match="not a regular file"):
+        _scan.scan_recording(str(fifo))
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"),
+                    reason="FIFOs are POSIX-only")
+def test_fifo_scan_cli_is_refused_not_hung(tmp_path):
+    """`hotato scan --stereo <fifo>` must return exit 2 with the clean message,
+    not hang (the scan/analyze/loop commands bypassed core's guard before)."""
+    fifo = tmp_path / "x.wav"
+    os.mkfifo(str(fifo))
+    proc = subprocess.run(
+        [sys.executable, "-m", "hotato", "scan", "--stereo", str(fifo),
+         "--format", "json"],
+        capture_output=True, text=True, timeout=20)
+    assert proc.returncode == 2, (
+        "hotato scan on a FIFO should exit 2, not hang "
+        f"(rc={proc.returncode}, out={proc.stdout[:200]!r})")
+    assert "not a regular file" in proc.stdout
 
 
 # --- out-of-range / negative channel indices ------------------------------
@@ -170,3 +278,58 @@ def test_numpy_absent_matches_numpy_present():
     finally:
         _audio._np = saved
     assert pure == baseline
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"),
+                    reason="FIFOs are POSIX-only")
+def test_fifo_fleet_ingest_is_refused_not_hung(tmp_path):
+    """`hotato fleet ingest <fifo>` hashes the recording via a raw open() before
+    any wave.open; it must refuse a FIFO (exit 2), not hang (was exit 124)."""
+    fifo = tmp_path / "rec.wav"
+    os.mkfifo(str(fifo))
+    proc = subprocess.run(
+        [sys.executable, "-m", "hotato", "fleet", "ingest",
+         "--home", str(tmp_path / "home"), "-w", "ws1", "--agent", "a1",
+         str(fifo)],
+        capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 2, (
+        f"fleet ingest on a FIFO should exit 2, not hang (rc={proc.returncode})")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"),
+                    reason="FIFOs are POSIX-only")
+def test_fifo_contract_pack_is_refused_not_hung(tmp_path):
+    """`hotato contract pack` hashes each bundle member via a raw open(); a bundle
+    whose audio is a FIFO (not a symlink) must refuse, not hang (was exit 124)."""
+    out = tmp_path / "out"
+    rc = cli.main(["contract", "create", "--stereo",
+                   _bundled("01-hard-interruption"), "--onset", "2.0",
+                   "--expect", "yield", "--id", "t1", "--out", str(out)])
+    assert rc == 0
+    bundle = out / "t1.hotato"
+    import glob
+    wavs = glob.glob(str(bundle / "**" / "*.wav"), recursive=True)
+    assert wavs, "expected a bundled wav to replace with a FIFO"
+    os.remove(wavs[0])
+    os.mkfifo(wavs[0])
+    proc = subprocess.run(
+        [sys.executable, "-m", "hotato", "contract", "pack", str(bundle)],
+        capture_output=True, text=True, timeout=30)
+    assert proc.returncode != 124 and "not a regular file" in (
+        proc.stdout + proc.stderr), (
+        f"contract pack on a FIFO-audio bundle should refuse, not hang "
+        f"(rc={proc.returncode})")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"),
+                    reason="FIFOs are POSIX-only")
+def test_fifo_scenario_json_is_refused_not_hung(tmp_path):
+    """A scenarios dir containing a FIFO .json must refuse, not hang, since
+    run_suite reads each scenario via a text open()."""
+    from hotato import core as _core
+
+    scen = tmp_path / "scen"
+    scen.mkdir()
+    os.mkfifo(str(scen / "s.json"))
+    with pytest.raises(ValueError, match="not a regular file"):
+        _core.run_suite(scenarios_dir=str(scen), audio_dir=str(tmp_path))

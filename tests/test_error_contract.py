@@ -135,6 +135,35 @@ def test_cli_unknown_suite(capsys):
     _assert_error_shape(obj, "unknown_suite")
 
 
+def test_recursion_error_is_handled_and_classified():
+    """RecursionError is not a ValueError or OSError subclass, so it must be
+    listed explicitly in errors.HANDLED (the CLI/MCP catch boundary) and
+    classified to a clean, stable error_code -- never left to propagate as a
+    raw traceback and the uncaught-exception default exit code (1)."""
+    exc = RecursionError("maximum recursion depth exceeded")
+    assert isinstance(exc, errors.HANDLED)
+    obj = errors.cli_error(exc)
+    _assert_error_shape(obj, "input_too_deeply_nested")
+    assert "too deeply nested" in obj["message"]
+
+
+def test_cli_memory_error_on_oversized_decode(tmp_path, capsys, monkeypatch):
+    """An oversized recording whose PCM decode raises MemoryError (both the
+    numpy-accelerated ``_load_signal`` path and the vendored engine's
+    ``read_wav`` fallback call ``wave.Wave_read.readframes`` to materialize
+    the data chunk) must be refused with the clean exit-2 / ok:false contract,
+    not an uncaught traceback and the wrong (1) exit code."""
+    wav = _write_wav(tmp_path / "big.wav", n_channels=2, tone=True)
+
+    def _boom(self, nframes=-1):
+        raise MemoryError
+
+    monkeypatch.setattr(wave.Wave_read, "readframes", _boom)
+    obj = _cli_json_error(["run", "--stereo", wav, "--format", "json"], capsys)
+    _assert_error_shape(obj, "usage_error")
+    assert "too large" in obj["message"]
+
+
 # --- CLI text path is unchanged: a plain "error:" line, no JSON -------------
 
 def test_cli_text_still_prints_error_line(tmp_path, capsys):
@@ -178,6 +207,18 @@ def test_mcp_file_not_found(tmp_path):
 
 def test_mcp_unknown_suite():
     _assert_error_shape(mcp_server._run_tool(suite="no-such-suite"), "unknown_suite")
+
+
+def test_mcp_memory_error_on_oversized_decode(tmp_path, monkeypatch):
+    wav = _write_wav(tmp_path / "big.wav", n_channels=2, tone=True)
+
+    def _boom(self, nframes=-1):
+        raise MemoryError
+
+    monkeypatch.setattr(wave.Wave_read, "readframes", _boom)
+    obj = mcp_server._run_tool(stereo=wav)
+    _assert_error_shape(obj, "usage_error")
+    assert "too large" in obj["message"]
 
 
 def test_mcp_not_scorable(tmp_path):
