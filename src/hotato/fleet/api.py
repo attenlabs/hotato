@@ -74,19 +74,35 @@ class FleetAPI:
         pcm = prov["sides"][0]["pcm_sha256"]
         raw = prov["sides"][0]["sha256"]
         call_id = call_id or f"call-{_short(pcm)}"
-        if self.registry.has_call(workspace_id, call_id):
-            return {"call_id": call_id, "deduped": True}
+        recording_id = f"rec-{_short(pcm)}"
+        # Dedup on the RECORDING, not the call. put_file -> add_call ->
+        # add_recording are three separately-committed writes; a crash between
+        # add_call and add_recording leaves an orphan call row with no recording.
+        # Gating on has_call would then treat the retry as a completed duplicate
+        # and the recording would be lost forever. Gating on the recording makes
+        # re-ingest self-healing: the recording is created idempotently, and a
+        # fully-ingested recording still dedups (add_call/add_recording are
+        # INSERT OR REPLACE, so replaying the writes is a no-op).
+        if self._has_recording(workspace_id, recording_id):
+            return {"call_id": call_id, "recording_id": recording_id, "deduped": True}
         # store audio SEPARATELY (content-addressed); never embedded in a report
         digest = self.store.put_file(wav_path, kind="recording", workspace_id=workspace_id,
                                      meta={"call_id": call_id, "pcm_sha256": pcm})
         self.registry.add_call(workspace_id, call_id, deployment_id=deployment_id,
                                agent_id=agent_id, provider_locator=os.path.basename(wav_path))
-        recording_id = f"rec-{_short(pcm)}"
         self.registry.add_recording(workspace_id, recording_id, call_id=call_id,
                                     raw_sha256=raw, pcm_sha256=pcm, artifact_digest=digest,
                                     channel_layout="stereo")
         return {"call_id": call_id, "recording_id": recording_id, "artifact_digest": digest,
                 "deduped": False}
+
+    def _has_recording(self, workspace_id, recording_id) -> bool:
+        """Recording-existence check, workspace-scoped (mirrors registry.has_call
+        for the recordings table). Kept here so ingest self-heals after a partial
+        write without widening the Registry surface."""
+        return self.registry._one(
+            "SELECT 1 FROM recordings WHERE workspace_id=? AND recording_id=?",
+            (workspace_id, recording_id)) is not None
 
     # --- discover -------------------------------------------------------
     def discover(self, workspace_id, agent_id, wav_path, *, recording_id=None,
