@@ -7,6 +7,19 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [1.1.1] - 2026-07-11
+
+Documentation consistency patch.
+
+### Fixed
+- Corrected the MCP tool count in the README and llms.txt: the MCP server
+  exposes the `voice_eval_run` scorer plus eleven fleet tools (twelve total);
+  the README/llms.txt still said "eight fleet tools" after three read tools
+  (`candidate_inspect`, `experiment_status`, `experiment_create`) were added in
+  1.1.0. `docs/MCP.md` was already correct.
+- Added a release-guard test that fails on any wrong spelled tool count in a
+  human doc, not only the "one tool" undercount.
+
 ## [1.1.0] - 2026-07-11
 
 Guardian/Fleet build-out. Completes the self-hosted control plane over the
