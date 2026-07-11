@@ -42,6 +42,11 @@ Open `hotato-sweep.html` for the ranked candidate moments with a hear-the-bug pl
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/no-single-threshold-card.svg" alt="Hotato threshold-funnel card: no single threshold can fix this. Missed a real interruption; false-stopped on a backchannel. One sensitivity dial cannot satisfy both axes at once." width="760">
 </p>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo-report.png" alt="The hotato HTML report: one self-contained file with the scored timeline, per-event verdicts, the trust preflight, and the embedded audio for each candidate moment." width="820">
+</p>
+<p align="center"><sub>One self-contained HTML file: the scored timeline, each verdict, the trust preflight, and the audio it measured.</sub></p>
+
 A failure became a candidate, became a portable `.hotato` contract, and `contract verify` catches it. Hotato prints the exact next commands to promote it into a permanent fixture, run it in CI, and re-verify.
 
 Point it at your own recording to walk the same loop end to end:
@@ -118,6 +123,20 @@ A before/after experiment refuses a proof built from an edited verdict, a
 re-encoded old call, a dropped fixture, or unrelated audio: the number comes from
 re-scoring the recordings, under one pinned policy, every time. Full guide:
 [`docs/GUARDIAN-FLEET.md`](docs/GUARDIAN-FLEET.md).
+
+## Five levels of evidence
+
+Hotato never calls the weakest level a verdict. Every card, report, and CLI result names its level; the public tier is the weakest one its inputs support, never a blended score.
+
+| Level | Name | What it means |
+| --- | --- | --- |
+| 1 | Candidate | A timing moment worth human review. Not a bug yet. |
+| 2 | Human-labeled failure | A reviewer confirmed this recording broke an explicit yield-or-hold expectation. |
+| 3 | Stored-evidence check | The historical audio still produces the expected result under the pinned policy and scorer. |
+| 4 | Fresh-recapture comparison | A newly captured call passed the same contract, and no submitted paired guard regressed. |
+| 5 | External proof | An independent team confirmed a caught regression or a fresh recapture. Not yet published. |
+
+A before/after experiment (`hotato fix trial`, and the fleet loop) re-derives every verdict from the on-disk audio under one pinned trial manifest. It refuses a proof built from an edited verdict, a re-encoded old call, a dropped fixture, or unrelated audio. The number comes from re-scoring the recordings every time, never from a stored field.
 
 ## What Hotato is not
 
