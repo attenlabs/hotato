@@ -379,12 +379,27 @@ def _ensure_safe_opener() -> None:
     _SAFE_OPENER_INSTALLED = True
 
 
+def _version() -> str:
+    try:
+        from . import __version__
+        return __version__
+    except Exception:  # pragma: no cover
+        return "0"
+
+
 def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> bytes:
     import urllib.error
     import urllib.request
 
     _ensure_safe_opener()
-    req = urllib.request.Request(url, headers=headers or {})
+    # Provider APIs (Vapi, Retell, ...) sit behind Cloudflare, which 403s (error
+    # 1010) the DEFAULT urllib User-Agent as a bot signature -- the request never
+    # reaches the vendor and a valid key looks like an auth failure. Send an
+    # explicit hotato UA (honest, not a spoofed browser) so the credential probe
+    # and every pull actually reach the API. Callers may still override it.
+    hdrs = dict(headers or {})
+    hdrs.setdefault("User-Agent", f"hotato/{_version()} (+https://hotato.dev)")
+    req = urllib.request.Request(url, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user-supplied API
             return resp.read()
