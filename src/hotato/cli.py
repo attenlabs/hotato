@@ -468,6 +468,11 @@ _EXIT_CODES: dict = {
     "fleet experiment": (
         (2, "no subcommand given (see hotato fleet experiment run --help)"),
     ),
+    "fleet experiment create": (
+        (0, "the trial manifest was precommitted from the battery (its fixture "
+            "universe is now pinned before any capture)"),
+        (2, "usage error or unreadable battery/policy input"),
+    ),
     "fleet experiment run": (
         (0, "the before/after battery improved under the pinned manifest "
             "(recommendation recorded; never auto-deployed)"),
@@ -1723,11 +1728,40 @@ def _cmd_fleet_benchmark(args) -> int:
         api.close()
 
 
-def _cmd_fleet_experiment_run(args) -> int:
+def _cmd_fleet_experiment_create(args) -> int:
     api = _fleet_open(args)
     try:
         with open(args.battery, encoding="utf-8") as fh:
             battery_env = json.load(fh)
+        policy = None
+        if args.policy:
+            with open(args.policy, encoding="utf-8") as fh:
+                policy = json.load(fh)
+        res = api.experiment_create(
+            args.workspace, args.agent, trial_id=args.trial_id,
+            battery_env=battery_env, policy=policy, min_n=args.min_n)
+        lines = [f"trial:          {res['trial_id']}",
+                 f"manifest:       {res['manifest_digest']}",
+                 f"fixtures:       {len(res['fixtures'])} pinned (before any capture)",
+                 f"next:           {res['next']}"]
+        _fleet_emit(args, res, lines)
+        return 0
+    finally:
+        api.close()
+
+
+def _cmd_fleet_experiment_run(args) -> int:
+    api = _fleet_open(args)
+    try:
+        manifest_ref = getattr(args, "manifest", None)
+        battery_env = None
+        if not manifest_ref:
+            if not args.battery:
+                raise ValueError(
+                    "hotato fleet experiment run needs --battery, or --manifest "
+                    "from a prior `hotato fleet experiment create`")
+            with open(args.battery, encoding="utf-8") as fh:
+                battery_env = json.load(fh)
         before_env = _fleet_load_run_json(args.before)
         after_env = _fleet_load_run_json(args.after)
         policy = None
@@ -1738,6 +1772,7 @@ def _cmd_fleet_experiment_run(args) -> int:
             args.workspace, args.agent, trial_id=args.trial_id,
             battery_env=battery_env, before_env=before_env, before_dir=args.before,
             after_env=after_env, after_dir=args.after, policy=policy, min_n=args.min_n,
+            manifest_ref=manifest_ref,
         )
         lines = [f"trial:          {res['trial_id']}",
                  f"verdict:        {res['verdict']}",
@@ -4999,7 +5034,25 @@ def build_parser() -> argparse.ArgumentParser:
                        "run a manifest-bound before/after trial (hotato fleet "
                        "experiment run)")
     fesub = fe.add_subparsers(dest="fleet_experiment_command", required=True,
-                              metavar="run")
+                              metavar="create|run")
+    fec = _fleet_parser(fesub, "create", "fleet experiment create",
+                        "precommit the trial manifest from the COMPLETE battery "
+                        "BEFORE any after-side capture, so the pinned fixture "
+                        "universe cannot be cherry-picked to the results")
+    _fleet_common(fec)
+    fec.add_argument("--agent", required=True, metavar="ID",
+                     help="the agent under test")
+    fec.add_argument("--trial-id", required=True, metavar="ID",
+                     help="a stable id for this trial")
+    fec.add_argument("--battery", required=True, metavar="BATTERY_RUN.json",
+                     help="the COMPLETE battery run.json to pin now (a hotato suite result)")
+    fec.add_argument("--min-n", type=int, default=1, metavar="N",
+                     help="minimum paired fixtures required (default 1)")
+    fec.add_argument("--policy", default=None, metavar="POLICY.json",
+                     help="optional JSON policy "
+                          "{max_talk_over_sec, max_time_to_yield_sec}")
+    fec.set_defaults(func=_cmd_fleet_experiment_create)
+
     fer = _fleet_parser(fesub, "run", "fleet experiment run",
                         "recompute a before/after battery under an immutable "
                         "manifest and record a recommendation (never deploys)")
@@ -5008,8 +5061,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="the agent under test")
     fer.add_argument("--trial-id", required=True, metavar="ID",
                      help="a stable id for this trial")
-    fer.add_argument("--battery", required=True, metavar="BATTERY_RUN.json",
-                     help="the battery run.json envelope (a hotato suite result)")
+    fer.add_argument("--battery", default=None, metavar="BATTERY_RUN.json",
+                     help="the battery run.json envelope (required unless --manifest is given)")
+    fer.add_argument("--manifest", default=None, metavar="DIGEST",
+                     help="consume a manifest precommitted by `experiment create` "
+                          "(its digest); the pinned universe was fixed before capture")
     fer.add_argument("--before", required=True, metavar="BEFORE_DIR",
                      help="a directory holding the BEFORE run.json + its wavs")
     fer.add_argument("--after", required=True, metavar="AFTER_DIR",

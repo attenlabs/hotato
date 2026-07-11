@@ -356,10 +356,14 @@ and `--hotato-suite-audio DIR` point it at your own labelled set. Detail:
 ## MCP tool
 
 `hotato-mcp` (or `python -m hotato.mcp_server`) speaks MCP over stdio and
-exposes exactly one tool, `voice_eval_run`, returning the identical envelope.
-Install: `uvx --from "hotato[mcp]" hotato-mcp`.
+exposes nine tools. Its scoring tool, `voice_eval_run`, returns the identical
+envelope the CLI emits; the other eight read, verify, and propose over a local
+fleet workspace (`fleet_status`, `candidate_list`, `contract_list`,
+`trial_explain`, `artifact_verify`, `experiment_propose`, `experiment_run`,
+`clone_cleanup`) and are documented in [`MCP.md`](MCP.md). Install:
+`uvx --from "hotato[mcp]" hotato-mcp`.
 
-Parameters, all optional:
+The parameters below are `voice_eval_run`'s, all optional:
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |

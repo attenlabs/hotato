@@ -23,6 +23,7 @@ from typing import Optional
 from . import core as _core
 from . import evidence as _evidence
 from . import manifest as _manifest
+from . import receipt as _receipt
 from ._engine.score import ScoreConfig
 
 
@@ -313,23 +314,88 @@ def recompute_trial(
         vector["fixture_set_integrity"] = "manifest_complete"
     else:
         vector["fixture_set_integrity"] = "subset"
-    # pairing / capture origin
+    # pairing / capture origin. A capture receipt is a MACHINE attestation that
+    # the after-side recording is a fresh call. It is only honoured after
+    # verify_receipt confirms it against the after-side decoded PCM (and, when a
+    # signing key is present, its HMAC signature) AND it binds to this trial's
+    # manifest id + nonce. A missing / forged / wrong-trial / wrong-PCM receipt
+    # never grants runner-attested origin. Because SUPPLYING receipts is an
+    # explicit attestation claim, a supplied-but-unverifiable receipt is a hard
+    # refusal below, not a silent downgrade.
     receipts = capture_receipts or {}
+    receipt_attested = False
+    receipt_problems = []
     if receipts:
-        # a signed/attested capture runner vouches origin for every fixture
+        _key = _receipt.load_key()
+        _pinned = list(fidx.keys())
+        _ok_all = bool(_pinned)
+        for _fkey in _pinned:
+            _rcpt = receipts.get(_fkey)
+            _after_pcm = (per_after.get(_fkey) or {}).get("pcm_sha256")
+            if not isinstance(_rcpt, dict):
+                _ok_all = False
+                receipt_problems.append(f"{_fkey}: no capture receipt supplied")
+                continue
+            if not _after_pcm:
+                _ok_all = False
+                receipt_problems.append(
+                    f"{_fkey}: after side is not recomputable, so no receipt can bind it")
+                continue
+            _tid, _non = man.get("trial_id"), man.get("nonce")
+            if (_tid is not None and _rcpt.get("trial_id") != _tid) or \
+               (_non is not None and _rcpt.get("nonce") != _non):
+                _ok_all = False
+                receipt_problems.append(
+                    f"{_fkey}: receipt trial_id/nonce does not bind this trial manifest")
+                continue
+            _res = _receipt.verify_receipt(_rcpt, pcm_sha256=_after_pcm, key=_key)
+            if not _res.get("attested"):
+                _ok_all = False
+                receipt_problems.append(f"{_fkey}: {_res.get('reason')}")
+                continue
+        receipt_attested = _ok_all
+
+    if receipt_attested:
+        # every pinned fixture has a receipt that machine-verifies as a fresh
+        # recapture bound to this trial.
         vector["pairing_integrity"] = "contract_bound"
         vector["capture_origin"] = "runner_attested"
     elif not stimulus_mismatch:
         # the after side replayed the same scripted caller stimulus: the pair is
-        # the same scenario recaptured. Origin is whoever ran the trial.
+        # the same scenario recaptured. Origin is only whoever ran the trial --
+        # asserted, not machine-verified fresh.
         vector["pairing_integrity"] = "contract_bound"
         vector["capture_origin"] = (
             "operator_asserted" if capture_context == "operator" else "unknown"
         )
     else:
-        # caller stimulus differs and no receipt: cannot certify the pair.
+        # caller stimulus differs and no attested receipt: cannot certify the pair.
         vector["pairing_integrity"] = "id_only"
         vector["capture_origin"] = "unknown"
+
+    # opposite-risk (hold) guard, read from the recomputed verdicts of the pinned
+    # HOLD fixtures (expected_yield is False). A yield-directed fix that ships
+    # without a previously-passing hold guard cannot be a clean attested-green
+    # (it may have traded a false-hold for the yield); a hold guard that
+    # regressed pulls the tier to NONE.
+    _hold_pass_before = _hold_pass_both = _hold_regressed = 0
+    for _key, _fixture in fidx.items():
+        if bool(_fixture.get("expected_yield", True)):
+            continue
+        _b_ok = (per_before.get(_key) or {}).get("recomputed_passed") is True
+        _a_ok = (per_after.get(_key) or {}).get("recomputed_passed") is True
+        if _b_ok:
+            _hold_pass_before += 1
+            if _a_ok:
+                _hold_pass_both += 1
+            else:
+                _hold_regressed += 1
+    if _hold_regressed:
+        vector["opposite_risk_guard"] = "regressed"
+    elif _hold_pass_both:
+        vector["opposite_risk_guard"] = "present_passing"
+    else:
+        vector["opposite_risk_guard"] = "none"
     # input health / mapping / label default to their honest unknowns unless a
     # caller supplies better (fix_trial fills these from trust + labels).
     # trust-derived dimensions are left for the caller (fix_trial runs a trust
@@ -370,7 +436,13 @@ def recompute_trial(
                    "reason": "before and after must each cover the complete pinned fixture "
                              f"universe; missing before={before_cov['missing']} "
                              f"after={after_cov['missing']}."}
-    elif stimulus_mismatch and not receipts:
+    elif receipts and not receipt_attested:
+        refusal = {"kind": "invalid_receipt",
+                   "reason": "capture receipt(s) were supplied but did not verify as a machine-"
+                             "attested fresh recapture bound to this trial: "
+                             + "; ".join(receipt_problems[:4])
+                             + ("; ..." if len(receipt_problems) > 4 else "") + "."}
+    elif stimulus_mismatch and not receipt_attested:
         refusal = {"kind": "stimulus_mismatch",
                    "reason": "the after-side caller stimulus differs from the before side and "
                              "no capture receipt binds this recording to the scenario; the pair "

@@ -7,6 +7,53 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [1.0.1] - 2026-07-11
+
+Evidence-integrity hotfix. An external audit of 0.10.0 found several paths where a
+green artifact could be produced from an input that was not what it claimed. Each
+is now closed and covered by a release-blocking adversarial test
+(`tests/test_audit_evidence_integrity.py`):
+
+### Fixed
+- **Contract media binding.** A signed contract stayed `authenticated` after its
+  bundled `audio/event.wav` was replaced (fail could become pass). The bundled
+  clip's raw and decoded-PCM hashes are now bound into the signed subject and
+  rechecked at `contract verify`; a swapped recording is `tampered`,
+  not authenticated, and not passing.
+- **Capture receipts are verified.** `fix trial` / `fleet experiment` no longer
+  treat any nonempty receipts object as runner-attested. Each receipt is verified
+  against the after-side decoded PCM and bound to the trial id + nonce; a missing,
+  forged, wrong-key, wrong-trial, or wrong-PCM receipt is refused, never a silent
+  downgrade to green.
+- **Operator-asserted is not fresh recapture.** A paired before/after whose
+  recapture origin is only operator-asserted renders a qualified headline and no
+  green accent; the "fresh-recapture" green is reserved for a runner-attested,
+  signed, hold-guarded result.
+- **Fleet requires a real improvement and honors `--min-n`.** `experiment run`
+  now uses the same fail-closed comparison `fix trial` uses: at least `--min-n`
+  previously-failing fixtures, at least one now passing, no regression. An
+  all-pass-before/all-pass-after battery is inconclusive, never improved.
+- **Precommitted trial manifests.** New `hotato fleet experiment create` pins the
+  complete fixture universe from the committed battery before any after-side
+  capture; `experiment run --manifest <digest>` consumes it and refuses a
+  before/after that drops a fixture, so the universe cannot be cherry-picked to
+  the results.
+- **Opposite-risk (hold) guard.** A yield-directed improvement with no
+  previously-passing hold guard is disclosed on the headline ("no hold guard
+  submitted") and cannot reach the attested tier; a hold guard that regressed
+  caps the evidence at none.
+- **Fleet label integrity.** Label ids derive from the full candidate id (two
+  candidates from one recording no longer collide and overwrite a human
+  decision); a label for a nonexistent candidate is rejected (exit 2).
+- **`start --stereo` shows no verdict before a human label.** An unlabeled
+  candidate reports only raw timing (onset, frame, boundary sensitivity); a
+  yield/hold verdict appears only after `--label`.
+- **Adapter capability honesty.** Adapters no longer advertise `run_scenario` /
+  `capture_result` capabilities that raise `NotImplementedError`; discovery
+  distinguishes "needs credentials" from "not implemented."
+- Documentation and test-collection consistency (MCP tool inventory; installed
+  `pytest` entry point).
+
 ## [1.0.0] - 2026-07-10
 
 First stable release. The evidence kernel and the Guardian/Fleet control plane are

@@ -291,6 +291,13 @@ class Registry:
         args.append(limit)
         return self._all(q, tuple(args))
 
+    def has_candidate(self, workspace_id, candidate_id) -> bool:
+        """Whether a candidate exists in this workspace (labels must reference a
+        real candidate; an orphan label is rejected upstream)."""
+        return self._one(
+            "SELECT 1 FROM candidates WHERE workspace_id=? AND candidate_id=?",
+            (workspace_id, candidate_id)) is not None
+
     def set_candidate_status(self, workspace_id, candidate_id, status):
         self.conn.execute("UPDATE candidates SET status=? WHERE workspace_id=? AND candidate_id=?",
                           (status, workspace_id, candidate_id))

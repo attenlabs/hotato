@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.0.0"
+version = "1.0.1"
 description = "Offline turn-taking analysis and regression evidence for dual-channel voice-agent recordings, MIT."
 readme = "README.md"
 requires-python = ">=3.9"

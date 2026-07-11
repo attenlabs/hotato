@@ -23,6 +23,7 @@ from .. import evidence as _evidence
 from .. import manifest as _manifest
 from .. import recompute as _recompute
 from .. import scan as _scan
+from .. import verify as _verify
 from .. import trust as _trust
 from .registry import Registry, DEFAULT_HOME
 from .store import ArtifactStore
@@ -150,7 +151,17 @@ class FleetAPI:
         failure; not_a_useful_event/bad_input dismiss it. No model may do this."""
         if decision not in ("yield", "hold", "not_a_useful_event", "bad_input"):
             raise ValueError("decision must be yield|hold|not_a_useful_event|bad_input")
-        label_id = f"label-{_short(candidate_id)}"
+        # Reject an orphan label: a label must reference a real candidate in this
+        # workspace, or a review decision would attach to nothing (and a typo'd
+        # candidate id would silently create fleet data).
+        if not self.registry.has_candidate(workspace_id, candidate_id):
+            raise ValueError(
+                f"no candidate {candidate_id!r} in workspace {workspace_id!r}; "
+                "label a candidate surfaced by `hotato fleet discover`")
+        # label_id is derived from the FULL candidate id, never a truncation: two
+        # candidates from the same recording (cand-...-0, cand-...-1) must not
+        # collapse to one label_id and overwrite each other's human decision.
+        label_id = f"label-{candidate_id}"
         self.registry.add_label(workspace_id, label_id, candidate_id=candidate_id,
                                 reviewer=reviewer, decision=decision, rationale=rationale)
         status = "labeled" if decision in ("yield", "hold") else "dismissed"
@@ -159,20 +170,67 @@ class FleetAPI:
                 "status": status}
 
     # --- experiment (manifest-bound; recommendation-only) --------------
-    def experiment_run(self, workspace_id, agent_id, *, trial_id, battery_env, before_env,
+    def _build_trial_manifest(self, workspace_id, agent_id, *, trial_id, battery_env,
+                              policy=None, min_n=1) -> dict:
+        """Deterministic manifest for a trial: one scorer, one policy, the complete
+        ordered fixture universe of the committed battery, each onset + stimulus."""
+        nonce = hashlib.sha256(
+            (_manifest.canonical_json(
+                [m_ev.get("event_id") for m_ev in battery_env.get("events", [])])
+             + trial_id).encode("utf-8")).hexdigest()
+        return _manifest.build_manifest(battery_env, trial_id=trial_id, nonce=nonce,
+                                        policy=policy, min_n=min_n, agent_id=agent_id,
+                                        workspace_id=workspace_id)
+
+    def experiment_create(self, workspace_id, agent_id, *, trial_id, battery_env,
+                          policy=None, min_n=1) -> dict:
+        """PRECOMMIT the trial manifest from the committed battery BEFORE any after-
+        side capture, so the pinned fixture universe is fixed ahead of time and
+        cannot be reduced once the results are in. ``experiment run --manifest`` then
+        consumes exactly this manifest and refuses any before/after that does not
+        cover it. Never captures, never deploys."""
+        man = self._build_trial_manifest(workspace_id, agent_id, trial_id=trial_id,
+                                          battery_env=battery_env, policy=policy, min_n=min_n)
+        man_digest = self.store.put_json(man, kind="trial_manifest", workspace_id=workspace_id)
+        self.registry.add_trial(workspace_id, trial_id, agent_id=agent_id,
+                                manifest_hash=man["manifest_hash"], manifest_digest=man_digest,
+                                verdict="created", evidence_tier=None)
+        fixtures = list(_manifest.fixture_index(man).keys())
+        return {"trial_id": trial_id, "manifest_hash": man["manifest_hash"],
+                "manifest_digest": man_digest, "fixtures": fixtures, "min_n": min_n,
+                "next": ("capture the after side against the applied clone, then: "
+                         f"hotato fleet experiment run --agent {agent_id} "
+                         f"--trial-id {trial_id} --manifest {man_digest} "
+                         "--before <dir> --after <dir>")}
+
+    def experiment_run(self, workspace_id, agent_id, *, trial_id, battery_env=None, before_env,
                        before_dir, after_env, after_dir, policy=None, min_n=1,
-                       capture_receipts=None, capture_context="operator") -> dict:
+                       manifest_ref=None, capture_receipts=None, capture_context="operator") -> dict:
         """Recompute a before/after trial under an immutable manifest and record a
         recommendation. Hard gates (score mismatch, same audio, dropped fixtures,
-        unrelated audio) refuse; a green paired proof also requires evidence tier
-        >= PAIRED. NEVER deploys."""
-        nonce = hashlib.sha256(
-            (_manifest.canonical_json([m_ev.get("event_id") for m_ev in battery_env.get("events", [])])
-             + trial_id).encode("utf-8")).hexdigest()
-        man = _manifest.build_manifest(battery_env, trial_id=trial_id, nonce=nonce,
-                                       policy=policy, min_n=min_n, agent_id=agent_id,
-                                       workspace_id=workspace_id)
-        man_digest = self.store.put_json(man, kind="trial_manifest", workspace_id=workspace_id)
+        unrelated audio) refuse; a green paired proof also requires the same
+        fail-closed verdict `fix trial` uses. NEVER deploys.
+
+        With ``manifest_ref`` (a digest from ``experiment_create``) the pinned
+        universe was committed BEFORE capture and is loaded here verbatim -- the
+        fixture set cannot be cherry-picked to the results. Without it the manifest
+        is pinned at RUN time from ``battery_env`` (lower assurance: the universe is
+        only fixed once the results already exist)."""
+        if manifest_ref is not None:
+            man = self.store.get_json(manifest_ref)
+            if not man or man.get("trial_id") != trial_id:
+                raise ValueError(
+                    f"manifest {manifest_ref!r} does not exist or is not the "
+                    f"committed manifest for trial {trial_id!r}")
+            man_digest = manifest_ref
+        else:
+            if battery_env is None:
+                raise ValueError("experiment_run needs either battery_env or a committed manifest_ref")
+            man = self._build_trial_manifest(workspace_id, agent_id, trial_id=trial_id,
+                                             battery_env=battery_env, policy=policy, min_n=min_n)
+            man_digest = self.store.put_json(man, kind="trial_manifest", workspace_id=workspace_id)
+        # min_n from a committed manifest wins over any run-time argument.
+        min_n = int((man.get("min_n") if isinstance(man.get("min_n"), int) else None) or min_n)
         rc = _recompute.recompute_trial(before_env, before_dir, after_env, after_dir, man,
                                         capture_receipts=capture_receipts,
                                         capture_context=capture_context)
@@ -193,17 +251,50 @@ class FleetAPI:
         except Exception:  # noqa: BLE001 - enrichment is best-effort
             pass
         tier = rc["evidence"]["tier"]
+        # Verdict predicate: the SAME fail-closed comparison `hotato fix trial`
+        # uses -- NOT merely "the after side has no failures". verdict_model
+        # requires >= min_n previously-failing fixtures, at least one now passing,
+        # and no regression, all recomputed from audio. An all-pass-before /
+        # all-pass-after battery has zero fail->pass transitions and is
+        # inconclusive, never "improved"; --min-n is ENFORCED here, not merely
+        # recorded in the manifest.
+        import tempfile as _tempfile, shutil as _shutil
+        vm = None
+        _tmpd = _tempfile.mkdtemp(prefix="hotato-fleet-trial-")
+        try:
+            _tb = os.path.join(_tmpd, "before.json")
+            _ta = os.path.join(_tmpd, "after.json")
+            with open(_tb, "w", encoding="utf-8") as _fh:
+                json.dump(rc["before_rebuilt"], _fh)
+            with open(_ta, "w", encoding="utf-8") as _fh:
+                json.dump(rc["after_rebuilt"], _fh)
+            _v = _verify.verify_sides(_tb, _ta, min_n=min_n)
+            vm = _verify.verdict_model(_v)
+        except Exception:  # noqa: BLE001 - a compare failure is inconclusive, never a soft pass
+            vm = None
+        finally:
+            _shutil.rmtree(_tmpd, ignore_errors=True)
+
         if rc["refusal"]:
             verdict = "refused"
             recommendation = f"refused: {rc['refusal']['reason']}"
-        elif tier >= _evidence.TIER_PAIRED and rc["after_rebuilt"]["summary"]["failed"] == 0:
+        elif vm is None:
+            verdict = "inconclusive"
+            recommendation = "inconclusive: the before/after pair could not be compared."
+        elif vm["passed"] and tier >= _evidence.TIER_PAIRED:
             verdict = "improved"
-            recommendation = ("passed the pinned fresh-recapture battery; approval is required "
-                              "before any deployment (no auto-deploy in this release).")
+            recommendation = (
+                f"{vm['now_pass']} of {vm['used_to_fail']} previously-failing fixture(s) now pass "
+                f"(min-n {min_n}), {vm['hold_still_pass']} of {vm['hold_guards']} hold guard(s) still "
+                "pass; approval is required before any deployment (no auto-deploy in this release).")
+        elif vm["passed"]:
+            limited = ", ".join(d["dimension"] for d in rc["evidence"]["limited_by"])
+            verdict = "inconclusive"
+            recommendation = (f"inconclusive: the paired comparison passed but the evidence tier is "
+                              f"{tier} (limited by {limited}).")
         else:
             verdict = "inconclusive"
-            limited = ", ".join(d["dimension"] for d in rc["evidence"]["limited_by"])
-            recommendation = f"inconclusive: evidence tier {tier} (limited by {limited})."
+            recommendation = f"inconclusive: {vm['conclusion']}"
         self.registry.add_trial(workspace_id, trial_id, agent_id=agent_id,
                                 manifest_hash=man["manifest_hash"], manifest_digest=man_digest,
                                 verdict=verdict, evidence_tier=tier)

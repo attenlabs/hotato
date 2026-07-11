@@ -94,6 +94,22 @@ _PAIRED_EVIDENCE = _evidence.classify({
     "label_authority": "human",
     "pairing_integrity": "contract_bound",
     "capture_origin": "operator_asserted",
+    "opposite_risk_guard": "present_passing",
+})
+
+# The only vector that earns the green fresh-recapture card: runner-attested,
+# signed, hold-guarded (evidence tier ATTESTED).
+_ATTESTED_EVIDENCE = _evidence.classify({
+    "score_integrity": "recomputed",
+    "audio_identity": "recomputed",
+    "policy_integrity": "signed",
+    "fixture_set_integrity": "manifest_complete",
+    "input_health": "clean",
+    "channel_mapping": "confirmed",
+    "label_authority": "human",
+    "pairing_integrity": "contract_bound",
+    "capture_origin": "runner_attested",
+    "opposite_risk_guard": "present_passing",
 })
 
 
@@ -232,7 +248,25 @@ def test_contract_card_also_accessible(tmp_path):
 
 # --- (c) an injected paired-tier evidence block DOES render green -----------
 
-def test_injected_paired_evidence_renders_green_card(tmp_path):
+def test_injected_attested_evidence_renders_green_card(tmp_path):
+    doc = {
+        "tool": "hotato", "kind": "verify", "schema_version": "1",
+        "claim": {"supported": True, "statement": "synthetic"},
+        "regression_axis": {"now_pass": 2, "used_to_fail": 3},
+        "hold_axis": {"hold_guards": 2, "still_pass": 2, "regressed": 0},
+        "evidence": _ATTESTED_EVIDENCE,
+    }
+    p = tmp_path / "verify.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    svg = _card.make_card(str(p))
+    # only an ATTESTED block earns the green fresh-recapture headline + accent
+    assert "PAIRED FRESH-RECAPTURE" in svg
+    assert _card._C["green"] in svg
+    assert "2 of 3" in svg
+    assert "VERIFIED" not in svg
+
+
+def test_injected_operator_asserted_pair_is_qualified_not_green(tmp_path):
     doc = {
         "tool": "hotato", "kind": "verify", "schema_version": "1",
         "claim": {"supported": True, "statement": "synthetic"},
@@ -243,12 +277,11 @@ def test_injected_paired_evidence_renders_green_card(tmp_path):
     p = tmp_path / "verify.json"
     p.write_text(json.dumps(doc), encoding="utf-8")
     svg = _card.make_card(str(p))
-    # a paired-tier block earns the green flagship headline and the green accent
-    assert "PAIRED EVIDENCE IMPROVED" in svg
-    assert _card._C["green"] in svg
+    # operator-asserted: qualified card, no fresh-recapture claim, no green accent
+    assert "PAIRED (OPERATOR-ASSERTED)" in svg
+    assert "PAIRED FRESH-RECAPTURE" not in svg
+    assert _card._C["green"] not in svg
     assert "2 of 3" in svg
-    # the retired / reserved words never appear
-    assert "VERIFIED" not in svg
 
 
 def test_measured_tier_is_still_not_green(tmp_path):

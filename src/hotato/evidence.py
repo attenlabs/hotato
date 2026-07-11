@@ -36,17 +36,23 @@ TIER_LABEL = {
     TIER_NONE: "no evidence",
     TIER_ASSERTED: "asserted (not verified from audio)",
     TIER_MEASURED: "measured from audio",
-    TIER_PAIRED: "paired fresh-recapture evidence",
-    TIER_ATTESTED: "attested paired evidence",
+    # PAIRED is a real before/after recompute, but the RECAPTURE origin is only
+    # the operator's word -- not a machine-verified fresh capture. Only ATTESTED
+    # earns the "fresh-recapture" language.
+    TIER_PAIRED: "paired before/after (recapture operator-asserted)",
+    TIER_ATTESTED: "attested paired fresh-recapture evidence",
 }
 
-# Short, renderer-facing headline word per tier (used on cards/CLI).
+# Short, renderer-facing headline per tier. This is the TIER-ONLY default;
+# renderers that carry the full vector should call ``headline_for(tier, vector)``
+# so a PAIRED result never borrows the fresh-recapture green it did not earn and
+# a missing opposite-risk guard is disclosed on the headline itself.
 TIER_HEADLINE = {
     TIER_NONE: "NO EVIDENCE",
     TIER_ASSERTED: "ASSERTED (UNVERIFIED)",
     TIER_MEASURED: "MEASURED FROM AUDIO",
-    TIER_PAIRED: "PAIRED EVIDENCE IMPROVED",
-    TIER_ATTESTED: "ATTESTED EVIDENCE IMPROVED",
+    TIER_PAIRED: "PAIRED IMPROVED (RECAPTURE OPERATOR-ASSERTED)",
+    TIER_ATTESTED: "PAIRED FRESH-RECAPTURE IMPROVED",
 }
 
 
@@ -116,6 +122,16 @@ _DIMENSIONS: Dict[str, Dict[Optional[str], int]] = {
         "unpaired": TIER_ASSERTED,
         None: TIER_ASSERTED,
     },
+    # Opposite-risk (hold) guard: a yield-directed fix that ships without a
+    # previously-passing hold fixture cannot be a clean attested-green -- it may
+    # have traded a false-hold for the yield. A hold guard that REGRESSED is an
+    # outright refusal (the change broke the opposite risk).
+    "opposite_risk_guard": {
+        "present_passing": TIER_ATTESTED,   # >=1 hold guard passed before AND after
+        "none": TIER_PAIRED,                # no hold guard submitted: qualify, never green-attested
+        "regressed": TIER_NONE,             # a passing hold guard now fails: refuse
+        None: TIER_PAIRED,
+    },
     "deployment_identity": {
         "config_hash_bound": TIER_ATTESTED,
         "operator_asserted": TIER_PAIRED,
@@ -152,6 +168,7 @@ REQUIRED_FOR_PAIRED_PROOF: Tuple[str, ...] = (
     "label_authority",
     "pairing_integrity",
     "capture_origin",
+    "opposite_risk_guard",
 )
 
 # The dimensions that gate a single measured recording (a `run`/`contract`
@@ -204,6 +221,34 @@ def limiting_dimensions(
     return out
 
 
+def headline_for(tier: int, vector: Dict[str, Optional[str]]) -> str:
+    """Renderer-facing headline that respects capture ORIGIN and the opposite-
+    risk guard, so a paired result never over-claims:
+
+    * Only a runner-attested origin (ATTESTED tier) earns the generic
+      "PAIRED FRESH-RECAPTURE IMPROVED" green.
+    * A PAIRED tier whose recapture origin is merely operator-asserted says so.
+    * A paired improvement with NO hold guard submitted is disclosed on the
+      headline itself, never rendered as a clean green.
+    """
+    origin = vector.get("capture_origin")
+    guard = vector.get("opposite_risk_guard")
+    if tier >= TIER_ATTESTED:
+        head = "PAIRED FRESH-RECAPTURE IMPROVED"
+    elif tier >= TIER_PAIRED:
+        head = ("PAIRED IMPROVED" if origin == "runner_attested"
+                else "PAIRED IMPROVED (RECAPTURE OPERATOR-ASSERTED)")
+    elif tier >= TIER_MEASURED:
+        return "MEASURED FROM AUDIO"
+    elif tier >= TIER_ASSERTED:
+        return "ASSERTED (UNVERIFIED)"
+    else:
+        return "NO EVIDENCE"
+    if guard == "none":
+        head += " -- NO HOLD GUARD SUBMITTED"
+    return head
+
+
 def classify(
     vector: Dict[str, Optional[str]],
     required: Iterable[str] = REQUIRED_FOR_PAIRED_PROOF,
@@ -217,7 +262,7 @@ def classify(
         "required": list(required),
         "tier": tier,
         "tier_name": TIER_LABEL[tier],
-        "headline": TIER_HEADLINE[tier],
+        "headline": headline_for(tier, vector),
         "limited_by": limiting_dimensions(vector, required),
         "allows_positive_paired": tier >= TIER_PAIRED,
         "allows_positive_measured": tier >= TIER_MEASURED,
@@ -258,4 +303,5 @@ __all__ = [
     "TIER_LABEL", "TIER_HEADLINE",
     "REQUIRED_FOR_PAIRED_PROOF", "REQUIRED_FOR_MEASURED",
     "evidence_tier", "limiting_dimensions", "classify", "one_sentence",
+    "headline_for",
 ]
