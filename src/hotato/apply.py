@@ -122,7 +122,7 @@ _CLONE_ENDPOINTS = {
         "auth": "Bearer $VAPI_API_KEY",
         "env": "VAPI_API_KEY",
         "id_result_key": "id",
-        "strip": ("id", "orgId", "createdAt", "updatedAt"),
+        "strip": ("id", "orgId", "createdAt", "updatedAt", "isServerUrlSecretSet"),
         "provenance": (
             "POST /assistant (create a new assistant) + GET /assistant/{id} "
             "(read the source, read-only), verified against "
@@ -554,6 +554,14 @@ def _refusal_result(patch: dict, stack: str, patch_source: Optional[str]) -> dic
 
 # --- the ONLY networked function (create the staging clone) -----------------
 
+def _ua_version() -> str:
+    try:
+        from . import __version__
+        return __version__
+    except Exception:  # pragma: no cover
+        return "0"
+
+
 def _http_json(method: str, url: str, *, headers: dict, body: Optional[dict],
                timeout: int) -> dict:
     """The one HTTP primitive apply uses. Only GET (read the source) and POST
@@ -570,7 +578,11 @@ def _http_json(method: str, url: str, *, headers: dict, body: Optional[dict],
     data = None
     if body is not None:
         data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    # Provider APIs are Cloudflare-fronted and 403 (error 1010) urllib's default
+    # User-Agent; send an explicit hotato UA so clone/inspect actually reach Vapi.
+    _hdrs = dict(headers or {})
+    _hdrs.setdefault("User-Agent", f"hotato/{_ua_version()} (+https://hotato.dev)")
+    req = urllib.request.Request(url, data=data, headers=_hdrs, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user API host
             raw = resp.read().decode("utf-8")

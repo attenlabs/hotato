@@ -96,6 +96,30 @@ def _validated_source_id(source_id, stack: str) -> str:
     return sid
 
 
+def _nest_dotted(patch: dict) -> dict:
+    """Turn a flat patch that may use dotted paths ("stopSpeakingPlan.numWords": 0)
+    or a {field,to} pair into a nested JSON merge-patch ({stopSpeakingPlan:{numWords:0}}).
+    A plain nested dict passes through unchanged."""
+    if isinstance(patch, dict) and "field" in patch and "to" in patch:
+        patch = {patch["field"]: patch["to"]}
+
+    def _merge(dst: dict, src: dict) -> None:
+        for k2, v2 in src.items():
+            if isinstance(v2, dict) and isinstance(dst.get(k2), dict):
+                _merge(dst[k2], v2)
+            else:
+                dst[k2] = v2
+
+    out = {}
+    for k, v in (patch or {}).items():
+        piece = v
+        for seg in reversed(str(k).split(".")):
+            piece = {seg: piece}
+        # merge, don't clobber: {"a.b": 1, "a": {"c": 2}} keeps both b and c
+        _merge(out, piece)
+    return out
+
+
 class Adapter:
     """Base adapter. Subclasses set ``stack``, declare their intended capabilities
     via ``_offered()``, and implement the ops they make available."""
@@ -219,11 +243,11 @@ class _CredentialGatedAdapter(Adapter):
     _OFFERED = frozenset({
         "inspect_config", "pull_recordings", "dual_channel_capture",
         "clone_agent", "apply_variant", "run_scenario", "capture_result",
-        "snapshot_config",
+        "snapshot_config", "delete_clone",
     })
     # implemented ops/features that require credentials to be authorized.
     _CREDENTIALED = frozenset({
-        "inspect_config", "clone_agent", "apply_variant",
+        "inspect_config", "clone_agent", "apply_variant", "delete_clone", "capture_result",
         "pull_recordings", "dual_channel_capture",
     })
 
@@ -273,29 +297,127 @@ class _CredentialGatedAdapter(Adapter):
         source_id = clone_ref["source_id"] if isinstance(clone_ref, dict) else clone_ref
         source_id = _validated_source_id(source_id, self.stack)
         name = (clone_ref.get("name") if isinstance(clone_ref, dict) else None) or "hotato-staging"
-        merge_patch = variant.get("config_delta", variant) or {}
-        return _apply.create_clone(stack=self.stack, source_id=source_id, name=name,
-                                   merge_patch=merge_patch, api_key=self.api_key)
+        if not str(name).lower().startswith("hotato"):
+            # stamp the staging marker delete_clone requires before it deletes
+            name = f"hotato-{name}"
+        merge_patch = _nest_dotted(variant.get("config_delta", variant) or {})
+        created = _apply.create_clone(stack=self.stack, source_id=source_id, name=name,
+                                      merge_patch=merge_patch, api_key=self.api_key)
+        # normalise: expose the created clone id so run_scenario/delete_clone can use it
+        cid = created.get("clone_id") or created.get("id")
+        if not cid:
+            nested = created.get("created")
+            if isinstance(nested, dict):
+                cid = nested.get("id")
+        created["clone_id"] = cid
+        return created
 
     # run_scenario / capture_result are NOT implemented for a hosted provider.
     # Marked @_unimplemented -> discovery reports them available=False; calling
     # one raises with guidance rather than pretending to run. Credentials are
     # irrelevant: the operation does not exist regardless of the key.
+    # delete_clone / capture_result are implemented + verified only where the
+    # provider's endpoints are proven (VapiAdapter). The base stays honestly
+    # @_unimplemented so a provider whose API differs (e.g. Retell) never
+    # advertises an op that was never tested against it.
     @_unimplemented
-    def run_scenario(self, clone_ref, scenario):
+    def delete_clone(self, clone_ref):
         raise NotImplementedError(
-            f"{self.stack} scripted scenario execution requires a connected capture "
-            "runner; use hotato capture against the clone, then hotato fix trial")
+            f"{self.stack} delete_clone is not wired for this provider; only "
+            "stacks with a verified delete endpoint implement it")
 
     @_unimplemented
-    def capture_result(self, clone_ref, scenario):
+    def run_scenario(self, clone_ref, scenario):
+        # A scored barge-in recapture needs a SCRIPTED caller (interrupt the agent
+        # at a known onset) recorded in dual channel. That requires a provisioned
+        # phone number + a caller harness (a second agent or a Twilio-driven
+        # interruption), which is deployment, not code -- so this stays honestly
+        # unavailable rather than placing an unscripted call that cannot be scored.
         raise NotImplementedError(
-            f"{self.stack} result capture requires a connected capture runner; use "
-            "hotato pull / hotato capture against the clone")
+            f"{self.stack} scripted scenario execution needs a provisioned phone "
+            "number + a scripted-caller harness; capture existing calls with "
+            "capture_result / hotato pull, or connect a caller runner")
+
+    @_unimplemented
+    def capture_result(self, clone_ref, scenario=None, *, call_id=None, out_path=None):
+        raise NotImplementedError(
+            f"{self.stack} capture_result is not wired for this provider; only "
+            "stacks with a verified recording endpoint implement it")
 
 
 class VapiAdapter(_CredentialGatedAdapter):
     stack = "vapi"
+
+    # Both verified against the live Vapi API (clone lifecycle + stereo pull).
+    def delete_clone(self, clone_ref):
+        """Delete a STAGING clone (never the source). Two TECHNICAL guards, not a
+        docstring promise: (1) the id must be a plain platform id (same rule as
+        every id-to-URL path here, so nothing can smuggle an extra URL segment);
+        (2) the assistant is FETCHED first and must carry the "hotato" staging
+        name marker apply_variant stamps at create time -- an id that points at a
+        production assistant (which never carries the marker) REFUSES instead of
+        deleting. Idempotent-ish: a 404 (already gone) is a no-op."""
+        self._require("delete_clone"); self._need_key("delete_clone")
+        cid = clone_ref.get("clone_id") if isinstance(clone_ref, dict) else clone_ref
+        if not cid:
+            return {"deleted": False, "reason": "no clone id"}
+        import urllib.request, urllib.error
+        from .. import apply as _apply
+        cid = _validated_source_id(cid, self.stack)
+        url = _apply._CLONE_ENDPOINTS[self.stack]["read_url_template"].format(id=cid)
+        headers = {"Authorization": f"Bearer {self.api_key}",
+                   "User-Agent": f"hotato/{_apply._ua_version()} (+https://hotato.dev)"}
+        try:
+            current = _apply._http_json("GET", url, headers=headers, body=None,
+                                        timeout=30)
+        except ValueError as e:
+            if "404" in str(e):
+                return {"deleted": True, "clone_id": cid, "already_gone": True}
+            raise
+        name = str((current or {}).get("name") or "")
+        if not name.lower().startswith("hotato"):
+            raise ValueError(
+                f"refusing to delete {cid}: its name {name!r} does not carry the "
+                "hotato staging marker, so it may be a production assistant. "
+                "delete_clone only removes staging clones this tool created.")
+        req = urllib.request.Request(url, method="DELETE", headers=headers)
+        try:
+            urllib.request.urlopen(req, timeout=30).read()
+            return {"deleted": True, "clone_id": cid}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {"deleted": True, "clone_id": cid, "already_gone": True}
+            raise ValueError(f"delete_clone HTTP {e.code} for {cid}: {e.reason}") from e
+
+    def capture_result(self, clone_ref, scenario=None, *, call_id=None, out_path=None):
+        """Pull a call's DUAL-CHANNEL recording to a WAV (real, works today). Given
+        a ``call_id`` (or the most recent call for the agent), fetch the call,
+        take its stereo recording url, and download it. Returns
+        {recording, call_id, stereo}."""
+        self._require("capture_result"); self._need_key("capture_result")
+        from .. import capture as _cap
+        import os, tempfile
+        h = {"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"}
+        if call_id is None:
+            calls = _cap._http_get_json("https://api.vapi.ai/call?limit=1", headers=h, timeout=30)
+            cl = calls if isinstance(calls, list) else calls.get("results", [])
+            if not cl:
+                raise ValueError("no calls on the account to capture")
+            call = cl[0]
+        else:
+            call = _cap._http_get_json(f"https://api.vapi.ai/call/{call_id}", headers=h, timeout=30)
+        art = call.get("artifact") or {}
+        rec = art.get("recording") or {}
+        url = rec.get("stereoUrl") or art.get("stereoRecordingUrl")
+        if not url:
+            raise ValueError(f"call {call.get('id')} has no stereo recording")
+        out_path = out_path or os.path.join(tempfile.mkdtemp(prefix="hotato-cap-"),
+                                            f"{call.get('id','call')}.wav")
+        # the URL comes from the vendor's JSON response (untrusted): fetch it
+        # through capture's validated download (scheme allowlist, private-host
+        # refusal, HOTATO_INGEST_ALLOWED_HOSTS pin, atomic write) -- never raw.
+        _cap._download(url, out_path, timeout=90)
+        return {"recording": out_path, "call_id": call.get("id"), "stereo": True}
 
 
 class RetellAdapter(_CredentialGatedAdapter):
