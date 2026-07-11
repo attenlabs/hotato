@@ -161,7 +161,7 @@ A before/after experiment refuses a proof built from an edited verdict, a re-enc
 | Attach observability traces to a contract | `hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl` ([`docs/TRACE.md`](docs/TRACE.md)) |
 | Test a candidate fix, before/after, fail-closed | `hotato fix trial patch.json --name staging-x --before before/ --after after/` ([`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md)) |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |
-| Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` (the `voice_eval_run` scorer + eight fleet tools; configs in [`docs/MCP.md`](docs/MCP.md)) |
+| Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` (the `voice_eval_run` scorer + eleven fleet tools; configs in [`docs/MCP.md`](docs/MCP.md)) |
 
 `contract verify` and a promoted fixture in CI are two different guarantees, depending on which recording goes in:
 

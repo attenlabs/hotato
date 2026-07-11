@@ -112,3 +112,39 @@ def test_no_human_doc_undercounts_the_tools():
         f"single tool: {offenders}. Update the prose to describe the full tool "
         f"set (the scorer plus the fleet tools)."
     )
+
+
+_NUMWORD = {"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,"seven":7,
+            "eight":8,"nine":9,"ten":10,"eleven":11,"twelve":12,"thirteen":13,
+            "fourteen":14,"fifteen":15}
+
+
+def test_no_human_doc_states_a_wrong_tool_count():
+    """A human doc that spells out a fleet-tool count (\"eleven fleet tools\") or a
+    total count (\"twelve tools\") must match what mcp_server.py registers -- so a
+    newly added tool cannot leave README/MCP.md/llms.txt silently understating it.
+    """
+    import re
+    names = _registered_tool_names()
+    total = len(names)
+    fleet = total - 1  # every tool except the voice_eval_run scorer
+    docs = [REPO_ROOT / "README.md", REPO_ROOT / "docs" / "MCP.md",
+            REPO_ROOT / "llms.txt"]
+    wrong = []
+    for d in docs:
+        if not d.exists():
+            continue
+        text = d.read_text(encoding="utf-8")
+        for m in re.finditer(r"\b([a-z]+)\s+fleet tools\b", text, re.I):
+            n = _NUMWORD.get(m.group(1).lower())
+            if n is not None and n != fleet:
+                wrong.append(f"{d.name}: '{m.group(0)}' but {fleet} fleet tools registered")
+        for m in re.finditer(r"\b([a-z]+)\s+tools\b", text, re.I):
+            n = _NUMWORD.get(m.group(1).lower())
+            # only flag a spelled total that is clearly the tool inventory count
+            if n is not None and n not in (fleet, total) and "fleet" not in m.group(0).lower():
+                # allow unrelated "N tools" prose; only flag near an MCP context line
+                line = text[max(0, m.start()-80):m.end()+20]
+                if "mcp" in line.lower() or "voice_eval_run" in line.lower():
+                    wrong.append(f"{d.name}: '{m.group(0)}' but {total} tools registered")
+    assert not wrong, "MCP tool-count drift:\n  " + "\n  ".join(wrong)
