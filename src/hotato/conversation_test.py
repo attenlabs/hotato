@@ -48,6 +48,7 @@ __all__ = [
     "validate_conversation_test_doc",
     "parse_conversation_test",
     "load_conversation_test_file",
+    "build_scenario_starter",
     "SUITE_KIND",
     "SUITE_VERSION",
     "validate_suite",
@@ -249,6 +250,132 @@ def load_conversation_test_file(path: str) -> Dict[str, Any]:
     with _open_regular(path, "r", encoding="utf-8") as fh:
         text = fh.read()
     return validate_conversation_test_doc(parse_conversation_test(text))
+
+
+# =========================================================================
+# `hotato scenario init`: a starter conversation-test.yaml
+# =========================================================================
+
+# A word-shaped token (snake_case / dotted / hyphenated) is rendered bare; any
+# other scalar is quoted so the small YAML subset (parse_assertions_yaml) reads
+# it back verbatim. Mirrors assert_._is_safe_bare_token's intent; kept local so
+# this module needs no import back into assert_'s emitter internals.
+import re as _re
+
+_SAFE_BARE_RE = _re.compile(r"^[A-Za-z0-9_.\-]+$")
+
+
+def _scalar(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    s = str(value)
+    if _SAFE_BARE_RE.match(s) and s.lower() not in ("true", "false", "null", "~", ""):
+        return s
+    return '"' + s.replace('"', "") + '"'
+
+
+def _flow(value: Any) -> str:
+    """Render a list/dict as a one-line flow collection (the shape the YAML
+    subset's flow parser reads), else a bare/quoted scalar."""
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{k}: {_flow(v)}" for k, v in value.items()) + "}"
+    if isinstance(value, list):
+        return "[" + ", ".join(_flow(v) for v in value) + "]"
+    return _scalar(value)
+
+
+def _render_assertion(item: Dict[str, Any], dash_col: int) -> list:
+    """One assertion as a block-mapping SEQUENCE item (``- id: ..`` then its
+    remaining keys indented to the first key's column) -- the exact block shape
+    :func:`hotato.assert_.render_assertions_yaml` emits and
+    :func:`parse_conversation_test` reads back (a flow-dict ``- {..}`` item is
+    NOT in the subset). Flow collections are fine as VALUES."""
+    lines: list = []
+    first = True
+    for k, v in item.items():
+        val = _flow(v) if isinstance(v, (dict, list)) else _scalar(v)
+        if first:
+            lines.append(" " * dash_col + f"- {k}: {val}")
+            first = False
+        else:
+            lines.append(" " * (dash_col + 2) + f"{k}: {val}")
+    return lines
+
+
+def build_scenario_starter(name: str = "example-scenario", agent: str = "my-agent-v1") -> str:
+    """Return a starter ``conversation-test.yaml`` (validated-shape) TEXT the
+    user edits: one testable conversation with a simulated caller, the two
+    SEPARATE assertion lanes (deterministic tagged across the report dimensions;
+    one quarantined rubric ref), a boolean ``success`` over named conditions
+    (never a score), and a commented ``# inconclusive_policy: fail`` line a
+    CI/compliance suite uncomments. The text round-trips through
+    :func:`parse_conversation_test` + :func:`validate_conversation_test_doc`."""
+    safe = name if _SAFE_BARE_RE.match(name or "") else "example-scenario"
+    deterministic = [
+        {"id": "disclosure-said", "kind": "phrase",
+         "regex": "recorded for quality", "role": "agent", "dimension": "policy"},
+        {"id": "refund-tool-called", "kind": "tool_call",
+         "name": "issue_refund", "dimension": "outcome"},
+        {"id": "lookup-then-refund", "kind": "sequence",
+         "steps": [{"tool": "lookup_order"}, {"tool": "issue_refund"}],
+         "dimension": "conversation"},
+        {"id": "refund-latency", "kind": "latency",
+         "tool": "issue_refund", "max_ms": 1500, "dimension": "speech"},
+    ]
+    rubric = [
+        {"id": "was-empathetic", "kind": "judge_rubric", "dimension": "conversation"},
+    ]
+    lines = [
+        "# conversation-test.yaml -- STARTER written by `hotato scenario init`.",
+        "# ONE testable conversation: the agent under test, the simulated caller,",
+        "# the two SEPARATE assertion lanes, and a BOOLEAN success condition",
+        "# (a conjunction of named conditions -- never a blended score). Edit the",
+        "# ids/agent/checks, then evaluate a real call through it:",
+        "#   hotato test run <this file> --agent <agent-id> \\",
+        "#       --audio call.wav --trace voice_trace.jsonl \\",
+        "#       --transcript call.transcript.json --out ./conv-artifact --format html",
+        "kind: hotato.conversation-test",
+        "version: 1",
+        f"id: {_scalar(safe)}",
+        f"agent: {_scalar(agent)}",
+        "caller:",
+        "  persona: a customer whose order arrived damaged and wants a refund",
+        "  goal: get a refund for order A-1001",
+        "  facts: {order_id: A-1001}",
+        "environment:",
+        "  locale: en-US",
+        "  route: phone",
+        "assertions:",
+        "  # DETERMINISTIC lane: pure, offline, no model. Each result is TAGGED with",
+        "  # one of the five report dimensions (a grouping key, never a weight).",
+        "  deterministic:",
+    ]
+    for item in deterministic:
+        lines.extend(_render_assertion(item, dash_col=4))
+    lines.append(
+        "  # RUBRIC (model-judged) lane lands in Phase 3. In Phase 1 each is"
+    )
+    lines.append(
+        "  # INCONCLUSIVE (no model runs); it never counts toward the exit code."
+    )
+    lines.append("  rubric:")
+    for item in rubric:
+        lines.extend(_render_assertion(item, dash_col=4))
+    lines.append("repetitions: 1")
+    lines.append(
+        "# inconclusive_policy: fail  # CI/compliance suites should set fail or refuse"
+    )
+    lines.append("success:")
+    lines.append(
+        "  # Success is the conjunction of these named conditions -- never a score."
+    )
+    lines.append("  required: [all_deterministic_assertions_pass, no_rubric_failure]")
+    lines.append(
+        "  report_dimensions: [outcome, policy, conversation, speech, reliability]"
+    )
+    return "\n".join(lines) + "\n"
 
 
 # =========================================================================

@@ -314,6 +314,42 @@ _EXIT_CODES: dict = {
             "recording, or --transcribe without --stereo (or combined with "
             "--transcript)"),
     ),
+    "test": (
+        (2, "no subcommand given (see hotato test run --help)"),
+    ),
+    "test run": (
+        (0, "the deterministic lane passed (or, under --inconclusive-policy "
+            "report, at most INCONCLUSIVE) AND every success.required condition "
+            "held"),
+        (1, "a success.required condition failed, a deterministic assertion "
+            "FAILed, or -- under --inconclusive-policy fail -- an INCONCLUSIVE "
+            "(missing required input) result gated"),
+        (2, "under --inconclusive-policy refuse an INCONCLUSIVE result withheld "
+            "the verdict (takes precedence over a FAIL); OR a usage error / "
+            "unusable input: a malformed conversation-test file, an "
+            "unreadable --transcript/--trace/--state file, an unscorable "
+            "--audio recording, or html/md without --out and --audio"),
+    ),
+    "scenario": (
+        (2, "no subcommand given (see hotato scenario init/validate --help)"),
+    ),
+    "scenario init": (
+        (0, "a starter conversation-test.yaml was written"),
+        (2, "usage error, or an existing --out without --force"),
+    ),
+    "scenario validate": (
+        (0, "every conversation-test file validated"),
+        (2, "at least one file is malformed, or a usage error (no file/dir, or "
+            "a directory with no conversation-test files)"),
+    ),
+    "conversation": (
+        (2, "no subcommand given (see hotato conversation verify --help)"),
+    ),
+    "conversation verify": (
+        (0, "every bound artifact re-hashed to its recorded digest"),
+        (2, "REFUSED: a tampered (digest-mismatched) or missing child, a "
+            "malformed manifest, or a usage error (no such directory/manifest)"),
+    ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
         (1, "with --fail-on-worse, the result is regressed or worse"),
@@ -2408,6 +2444,229 @@ def _cmd_assert_run(args) -> int:
     else:
         print(A.render_run_text(env_out), end="")
     return env_out["exit_code"]
+
+
+def _load_state_adapter(path: str):
+    """A :class:`hotato.state_adapter.MockStateAdapter` from ``--state``: a
+    SQLite file by extension (``.db``/``.sqlite``/``.sqlite3``), else a JSON
+    sandbox. The post-call system of record the ``state``/``state_change``
+    (Authority 2) kinds query; a query is a plain lookup, no model/network."""
+    from .state_adapter import MockStateAdapter
+
+    low = path.lower()
+    if low.endswith((".db", ".sqlite", ".sqlite3")):
+        return MockStateAdapter.from_sqlite_file(path)
+    return MockStateAdapter.from_json_file(path)
+
+
+def _cmd_test_run(args) -> int:
+    from . import assert_ as A
+    from . import conversation_test as CT
+    from . import test_run as TR
+
+    fmt = args.format
+    audio = args.audio or []
+    if len(audio) > 2:
+        raise ValueError(
+            "--audio takes ONE dual-channel recording, or TWO mono files "
+            "(caller agent)"
+        )
+    # html/md render the unified TIMING report, which needs a recording to score
+    # and a directory to write into; refuse cleanly rather than emit a page with
+    # no timeline. json/text need neither.
+    if fmt in ("html", "md"):
+        if not args.out:
+            raise ValueError(
+                f"--format {fmt} writes report.{fmt} into --out DIR; pass --out"
+            )
+        if not audio:
+            raise ValueError(
+                f"--format {fmt} renders the timing report, which needs --audio "
+                "(a recording to score); pass --audio, or use --format json/text"
+            )
+
+    doc = CT.load_conversation_test_file(args.test_file)
+
+    # Score the supplied recording for the timing context (and the report's
+    # timeline). No audio -> timing stays None -> timing-reading assertions are
+    # INCONCLUSIVE (missing input), never guessed.
+    timing = None
+    stereo = caller = agent = None
+    if len(audio) == 1:
+        stereo = audio[0]
+        timing = run_single(stereo=stereo)["events"]
+    elif len(audio) == 2:
+        caller, agent = audio
+        timing = run_single(caller=caller, agent=agent)["events"]
+
+    state_adapter = _load_state_adapter(args.state) if args.state else None
+
+    ctx = A.build_context(
+        transcript_path=args.transcript,
+        trace_path=args.trace,
+        timing=timing,
+        state_adapter=state_adapter,
+    )
+
+    result = TR.evaluate_conversation_test(
+        doc, ctx, agent_id=args.agent, repetitions=args.repetitions,
+    )
+
+    manifest = None
+    if args.out:
+        import datetime as _dt
+
+        created_at = args.created_at or _dt.datetime.now(
+            _dt.timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # The manifest's single 'audio' slot binds a dual-channel recording; two
+        # mono files score but are not partially bound (an incomplete audio child
+        # would misrepresent the evidence).
+        audio_bind = audio[0] if len(audio) == 1 else None
+        manifest = TR.assemble_conversation_artifact(
+            args.out,
+            conversation_id=doc["id"],
+            agent_id=args.agent,
+            origin=TR._origin_from_doc(doc),
+            created_at=created_at,
+            assertions_env=result["assertions"],
+            audio_path=audio_bind,
+            transcript_path=args.transcript,
+            trace_path=args.trace,
+            timing=timing,
+        )
+        result["conversation"] = manifest
+
+    report_path = None
+    if fmt in ("html", "md"):
+        from . import report as _report
+        from . import trace as _trace
+
+        trace_obj = _trace.load_voice_trace_jsonl(args.trace) if args.trace else None
+        build = _report.build_report_html if fmt == "html" else _report.build_report_md
+        page, _env = build(
+            stereo=stereo, caller=caller, agent=agent,
+            trace=trace_obj, assertions=result["assertions"],
+            conversation=manifest,
+        )
+        report_path = os.path.join(args.out, f"report.{fmt}")
+        _atomic_write_text(report_path, page)
+
+    if fmt == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(TR.render_summary_text(result), end="")
+        if args.out:
+            print(f"wrote conversation artifact to {args.out}/", file=sys.stderr)
+        if report_path:
+            print(f"wrote report to {report_path}", file=sys.stderr)
+    return result["exit_code"]
+
+
+def _cmd_scenario_init(args) -> int:
+    from . import conversation_test as CT
+
+    name = args.name or "example-scenario"
+    text = CT.build_scenario_starter(name, agent=args.agent)
+    if os.path.exists(args.out) and not args.force:
+        raise ValueError(
+            f"{args.out!r} already exists; pass --force to overwrite it, or "
+            "choose a new --out"
+        )
+    _atomic_write_text(args.out, text)
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "scenario-init", "path": args.out, "scenario_id": name,
+            "agent": args.agent,
+        }
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(f"wrote a starter conversation-test file: {args.out}")
+        print(
+            f"next: hotato test run {args.out} --agent {args.agent} \\\n"
+            "        --audio call.wav --trace voice_trace.jsonl \\\n"
+            "        --transcript call.transcript.json --out ./conv-artifact"
+        )
+    return 0
+
+
+def _cmd_scenario_validate(args) -> int:
+    from . import conversation_test as CT
+
+    path = args.path
+    if os.path.isdir(path):
+        files = sorted(
+            os.path.join(path, f)
+            for f in os.listdir(path)
+            if f.endswith((".yaml", ".yml", ".json"))
+        )
+        if not files:
+            raise ValueError(
+                f"{path!r} contains no conversation-test files "
+                "(*.yaml / *.yml / *.json)"
+            )
+    else:
+        files = [path]
+
+    results = []
+    all_ok = True
+    for f in files:
+        try:
+            doc = CT.load_conversation_test_file(f)
+            results.append(
+                {"path": f, "ok": True, "id": doc["id"], "agent": doc["agent"]}
+            )
+        except (ValueError, OSError) as exc:
+            all_ok = False
+            results.append({"path": f, "ok": False, "error": str(exc)})
+
+    if args.format == "json":
+        print(_errors.safe_json_dumps(
+            {"tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+             "kind": "scenario-validate", "ok": all_ok, "results": results},
+            indent=2,
+        ))
+    else:
+        for r in results:
+            if r["ok"]:
+                print(f"OK    {r['path']}  (id={r['id']}, agent={r['agent']})")
+            else:
+                print(f"BAD   {r['path']}  -- {r['error']}")
+        print(f"{sum(1 for r in results if r['ok'])}/{len(results)} valid")
+    # exit 2 (unusable input) when any file is malformed -- mirrors the CLI's
+    # usage-error convention and `assert`'s up-front validation posture.
+    return 0 if all_ok else 2
+
+
+def _render_conversation_verify_text(v: dict) -> str:
+    head = "VERIFIED" if v["ok"] else "REFUSED"
+    lines = [f"conversation {v['conversation_id']}: {head}"]
+    if v["verified"]:
+        lines.append(f"  verified: {', '.join(v['verified'])}")
+    for m in v["mismatches"]:
+        lines.append(
+            f"  MISMATCH {m['artifact']} ({m['path']}): expected "
+            f"{m['expected'][:12]}..., got {m['actual'][:12]}..."
+        )
+    for m in v["missing"]:
+        loc = f" ({m['path']})" if m.get("path") else ""
+        lines.append(f"  MISSING  {m['artifact']}{loc}: {m.get('reason', '')}")
+    lines.append(f"  {v['reason']}")
+    return "\n".join(lines) + "\n"
+
+
+def _cmd_conversation_verify(args) -> int:
+    from . import conversation as CV
+
+    verdict = CV.verify(args.dir)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(verdict, indent=2))
+    else:
+        print(_render_conversation_verify_text(verdict), end="")
+    # A digest mismatch / missing child is a REFUSAL (exit 2): a tampered or
+    # absent artifact is refused, never silently accepted.
+    return 2 if verdict["refused"] else 0
 
 
 def _cmd_compare(args) -> int:
@@ -4612,6 +4871,203 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     ar.set_defaults(func=_cmd_assert_run)
+
+    # --- test: the Phase-1 EXIT -- one conversation-test file end to end -----
+    tst = sub.add_parser(
+        "test",
+        help="evaluate a conversation-test file against a supplied call and "
+             "emit the per-dimension scorecard + conversation artifact",
+        description=(
+            "The Phase-1 conversation-QA entry point: one conversation-test "
+            "file drives a deterministic evaluation of a supplied call, "
+            "producing a per-dimension scorecard and a digest-bound "
+            "conversation artifact. Success is a boolean over named conditions "
+            "-- never a blended score."
+        ),
+        epilog=_exit_codes_epilog("test"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tstsub = tst.add_subparsers(dest="test_command", required=True, metavar="run")
+    tr_ = tstsub.add_parser(
+        "run",
+        help="evaluate one conversation-test.yaml against a supplied "
+             "transcript/trace/state/audio",
+        description=(
+            "Load + validate a conversation-test file, build a Context from "
+            "the supplied --transcript / --trace / --state / --audio (scored "
+            "for timing), evaluate the DETERMINISTIC assertion lane (the "
+            "model-judged rubric lane is quarantined until Phase 3 -> "
+            "INCONCLUSIVE), evaluate the file's success.required conditions, "
+            "bind the evidence into a hotato.conversation.v1 artifact (--out), "
+            "and render the unified report + per-dimension scorecard. There is "
+            "NO overall_score anywhere. Missing input leaves a check "
+            "INCONCLUSIVE, never guessed. The exit code honors the file's "
+            "inconclusive_policy (report/fail/refuse) exactly as `assert run`, "
+            "raised to non-zero when a success.required condition fails. "
+            "--repetitions N runs the deterministic lane N times and reports a "
+            "plain run count (reliability pass^k lands in Phase 2, never "
+            "fabricated here)."
+        ),
+        epilog=(
+            _exit_codes_epilog("test run") + "\n\n"
+            "Examples:\n"
+            "  hotato test run refund.yaml --agent support-v3 \\\n"
+            "      --audio call.wav --trace voice_trace.jsonl \\\n"
+            "      --transcript call.transcript.json --out ./conv-artifact\n"
+            "  hotato test run refund.yaml --agent support-v3 \\\n"
+            "      --trace voice_trace.jsonl --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tr_.add_argument("test_file", metavar="conversation-test.yaml",
+                     help="the conversation-test.v1 file to evaluate")
+    tr_.add_argument("--agent", required=True, metavar="ID",
+                     help="agent_id under test (recorded on the conversation "
+                          "artifact)")
+    tr_.add_argument("--transcript", default=None, metavar="FILE",
+                     help="a transcript JSON (a {role,text,start,end} array or "
+                          "the {\"segments\": [...]} shape); phrase/pii/count "
+                          "checks read it, absent -> those are INCONCLUSIVE")
+    tr_.add_argument("--trace", default=None, metavar="FILE",
+                     help="a hotato.voice_trace.v1 JSONL (from `hotato trace "
+                          "ingest`); tool_call/tool_result/sequence/latency "
+                          "checks read only these spans, absent -> INCONCLUSIVE")
+    tr_.add_argument("--state", default=None, metavar="FILE",
+                     help="a mock state-adapter sandbox (JSON, or SQLite by "
+                          "extension) the state/state_change (Authority 2) "
+                          "checks query; absent -> those are INCONCLUSIVE")
+    tr_.add_argument("--audio", nargs="+", default=None,
+                     metavar="WAV",
+                     help="ONE dual-channel recording, or TWO mono files "
+                          "(caller agent), scored for the timing context and "
+                          "the report timeline; the single dual-channel form is "
+                          "bound into the artifact's audio slot")
+    tr_.add_argument("--repetitions", type=int, default=None, metavar="N",
+                     help="run the deterministic lane N times (default: the "
+                          "file's repetitions, else 1); reports a plain run "
+                          "count -- reliability (pass^k) is Phase 2")
+    tr_.add_argument("--out", default=None, metavar="DIR",
+                     help="write the conversation artifact (conversation.json + "
+                          "bound children) here; required for --format html/md")
+    tr_.add_argument("--created-at", default=None, metavar="ISO8601",
+                     help="the artifact's created_at (default: now, UTC); set "
+                          "it for a byte-reproducible manifest")
+    tr_.add_argument("--format", default="text",
+                     choices=["text", "html", "md", "json"],
+                     help="text (default: the per-dimension summary), html/md "
+                          "(the unified report into --out, needs --audio), or "
+                          "json (the full machine result)")
+    tr_.set_defaults(func=_cmd_test_run)
+
+    # --- scenario: author + validate conversation-test files ----------------
+    scn = sub.add_parser(
+        "scenario",
+        help="write a starter conversation-test.yaml, or validate one/many",
+        description=(
+            "Author and validate conversation-test files. `init` writes a "
+            "starter you edit; `validate` structurally validates one file or a "
+            "directory of them (exit 2 on any malformed file) -- mirrors "
+            "`assert init` / a validation pass."
+        ),
+        epilog=_exit_codes_epilog("scenario"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    scnsub = scn.add_subparsers(dest="scenario_command", required=True,
+                                metavar="init|validate")
+    si = scnsub.add_parser(
+        "init",
+        help="write a starter conversation-test.yaml",
+        description=(
+            "Write a starter conversation-test.yaml: a simulated caller, the "
+            "two SEPARATE assertion lanes (deterministic checks tagged across "
+            "the report dimensions, plus one quarantined rubric ref), a boolean "
+            "success over named conditions (never a score), and a commented "
+            "`# inconclusive_policy: fail` line a CI suite uncomments. A starter "
+            "you edit, never a claim these are the RIGHT checks for your call."
+        ),
+        epilog=(
+            _exit_codes_epilog("scenario init") + "\n\n"
+            "Examples:\n"
+            "  hotato scenario init refund-flow --out refund.yaml\n"
+            "  hotato scenario init --agent support-v3"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    si.add_argument("name", nargs="?", default="example-scenario",
+                    help="the scenario id (default example-scenario)")
+    si.add_argument("--agent", default="my-agent-v1", metavar="ID",
+                    help="agent_id under test to seed the file with (default "
+                         "my-agent-v1)")
+    si.add_argument("--out", default="conversation-test.yaml", metavar="PATH",
+                    help="path to write (default conversation-test.yaml)")
+    si.add_argument("--force", action="store_true",
+                    help="overwrite an existing --out file")
+    si.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    si.set_defaults(func=_cmd_scenario_init)
+
+    sv = scnsub.add_parser(
+        "validate",
+        help="structurally validate one conversation-test file or a directory "
+             "of them",
+        description=(
+            "Validate a conversation-test file (or every *.yaml/*.yml/*.json in "
+            "a directory) against the conversation-test.v1 shape and honesty "
+            "wall (no overall_score, closed success/dimension vocabularies, "
+            "separate lanes). Exit 2 if any file is malformed."
+        ),
+        epilog=(
+            _exit_codes_epilog("scenario validate") + "\n\n"
+            "Examples:\n"
+            "  hotato scenario validate refund.yaml\n"
+            "  hotato scenario validate ./scenarios --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sv.add_argument("path", metavar="PATH",
+                    help="a conversation-test file, or a directory of them")
+    sv.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    sv.set_defaults(func=_cmd_scenario_validate)
+
+    # --- conversation: verify a conversation artifact -----------------------
+    cvp = sub.add_parser(
+        "conversation",
+        help="verify a conversation artifact's bound evidence by digest",
+        description=(
+            "Operate on hotato.conversation.v1 artifacts. `verify` re-hashes "
+            "every bound child and REFUSES on any tamper or missing file -- a "
+            "tampered or absent artifact is refused, never silently accepted."
+        ),
+        epilog=_exit_codes_epilog("conversation"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cvsub = cvp.add_subparsers(dest="conversation_command", required=True,
+                               metavar="verify")
+    cvv = cvsub.add_parser(
+        "verify",
+        help="re-hash a conversation artifact's bound children; REFUSE on tamper",
+        description=(
+            "Digest-verify a conversation artifact directory (containing "
+            "conversation.json): re-hash every bound child against its recorded "
+            "sha256 and REFUSE (exit 2) on any mismatch or missing child. The "
+            "evidence-kernel posture: refuse, never silently accept a tampered "
+            "or absent artifact."
+        ),
+        epilog=(
+            _exit_codes_epilog("conversation verify") + "\n\n"
+            "Examples:\n"
+            "  hotato conversation verify ./conv-artifact\n"
+            "  hotato conversation verify ./conv-artifact --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cvv.add_argument("dir", metavar="DIR",
+                     help="a conversation artifact directory (or a "
+                          "conversation.json path)")
+    cvv.add_argument("--format", default="text", choices=["text", "json"],
+                     help="output format (default text)")
+    cvv.set_defaults(func=_cmd_conversation_verify)
 
     # --- compare: the shareable before/after on one fixed moment ------------
     cp = sub.add_parser(

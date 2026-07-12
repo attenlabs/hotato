@@ -1,0 +1,3 @@
+{"_meta": true, "schema": "hotato.voice_trace.v1", "created_at": "2026-07-12T00:00:00Z", "call_id": null, "deployment": {"stack": "generic", "agent_id": "support-v3"}, "source": {"format": "handwritten-fixture"}}
+{"type": "tool_call", "start_sec": 1.0, "end_sec": 1.3, "name": "lookup_order", "latency_ms": 300, "result": {"status": "found", "order_id": "A-1001"}}
+{"type": "tool_call", "start_sec": 2.0, "end_sec": 2.4, "name": "issue_refund", "latency_ms": 420, "result": {"status": "ok", "amount": 49.99}}
