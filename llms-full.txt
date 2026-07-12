@@ -5562,6 +5562,102 @@ verdict. A refused file is `scorable: false` with `not_scorable_reason` and exit
 
 
 ================================================================================
+FILE: docs/DRIVE-A-CALL.md
+================================================================================
+
+# Drive-a-call: originate a call against a live agent, then score it
+
+`hotato capture` scores a call you already ran. Drive-a-call closes the other
+half: it PLACES the call against a live voice agent, waits for it to finish, and
+feeds the recording into the same validated pull -> score pipeline. The produced
+conversation is a REAL agent conversation, so it flows through scoring unchanged.
+
+It lives in `src/hotato/drive.py` and is wired into the fleet experiment loop as
+the `run_scenario` step of the Vapi and Twilio adapters
+(`src/hotato/fleet/adapters.py`).
+
+## The one honesty note that matters: the caller side is scripted, not human
+
+The agent's half of the conversation is real. The CALLER's half is a script, and
+the origin records that plainly (`origin.caller`), never claiming a human called.
+
+- **Twilio** renders your `scenario.v1` caller script into TwiML: one `<Say>`
+  per `say`-turn, `<Pause>` between them. TwiML `<Say>` speaks at **fixed
+  offsets and cannot react to what the agent says** -- so this is a
+  FIXED-TIMELINE regression driver: deterministic, good for catching a
+  regression on a scripted turn sequence, not a reactive caller that barges in
+  the instant the agent starts talking. A turn's reactive `when_agent_asks` /
+  `after` label is therefore NOT honored here (it is spoken unconditionally, in
+  order). A reactive caller is later work. `origin.caller = "scripted-twiml"`.
+- **Vapi** originates the call FROM the assistant (the agent under test -- a
+  staging clone) TO a customer number. The direction is
+  outbound-from-assistant: the assistant is the party being measured, and
+  whoever/whatever answers the customer number is the other side. There is no
+  scripted-TwiML caller on this path. `origin.caller = "assistant-originated"`.
+
+Either way `origin.kind = "real"`, with `origin.provider` and
+`origin.provider_call_id` (the provider's own call id). This is the invariant-5
+axis: a real driven call is never conflated with a simulated one, and the origin
+never overstates what drove the caller side.
+
+## The endpoints implemented
+
+| Provider | Originate | Poll until | Then pull |
+| --- | --- | --- | --- |
+| Twilio | `POST /2010-04-01/Accounts/{sid}/Calls.json` with `To`/`From`/`Twiml` + `Record=true`, `RecordingChannels=dual` (the REST equivalent of `<Dial record="record-from-answer-dual">`) | `GET .../Calls/{CallSid}.json` -> `status == completed` | `GET .../Recordings.json?CallSid=...` -> `RecordingSid` -> existing `capture_twilio` (`?RequestedChannels=2`) |
+| Vapi | `POST https://api.vapi.ai/call` `{assistantId, phoneNumberId, customer:{number}}` | `GET /call/{id}` -> `status == ended` | existing `capture_vapi` -> `artifact.recording.stereoUrl` |
+
+Only `POST` (create) and `GET` (poll + pull) are ever issued -- there is no
+PUT/PATCH/DELETE surface, so drive-a-call can create a call but can NEVER mutate
+a provider config (an assistant, a number) in place. For Vapi the call is driven
+FROM the staging CLONE, so production is untouched.
+
+A non-`completed` Twilio call (busy / failed / no-answer / canceled) is an honest
+dead-end with no recording to score -- it raises, never a fabricated verdict.
+
+## Credentials and the egress opt-in (both required)
+
+Placing a call reaches the provider's REST API and **costs a real phone call**.
+So `run_scenario` refuses unless BOTH are present:
+
+1. **Credentials** -- `VAPI_API_KEY`, or `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN`
+   (via `hotato connect` or the environment).
+2. **An explicit egress opt-in** -- set `HOTATO_DRIVE_OPT_IN=1`, or pass
+   `egress_opt_in: true` on the scenario. Absent it, `run_scenario` raises the
+   same clean structured refusal a hosted op has always given, and dials nothing.
+
+The drive parameters ride on the scenario (inline or under a `drive:` block) or
+the environment:
+
+- Twilio: `to_number` (the agent's number, `HOTATO_DRIVE_TO_NUMBER`),
+  `from_number` (your Twilio number, `HOTATO_DRIVE_FROM_NUMBER`).
+- Vapi: `phone_number_id` (`VAPI_PHONE_NUMBER_ID`), `customer_number`
+  (`HOTATO_DRIVE_CUSTOMER_NUMBER`).
+
+The recording download reuses `capture`'s validated path: http(s)-only scheme
+allowlist, default-deny SSRF (a `127.0.0.1` local test recording server needs
+`HOTATO_ALLOW_PRIVATE_URLS=1`, same as every other download), cross-host
+credential strip, and atomic write. See [`docs/EGRESS.md`](EGRESS.md) and
+[`docs/THREAT-MODEL.md`](THREAT-MODEL.md) for the per-command rows.
+
+## What it costs and what it does not claim
+
+- It costs one real outbound phone call per scenario run, billed by your
+  provider. There is no way to drive a real agent for free; the fixed-timeline
+  Twilio caller is deterministic but still a billed call.
+- It does not claim the caller was human, that the scripted caller reacted to the
+  agent, or that the agent "passed" -- scoring is the separate assert layer's job
+  over the produced real recording.
+
+## Retell / LiveKit / Pipecat
+
+Retell has no confirmed create-call API, so `run_scenario` stays honestly
+unadvertised for it (capture existing Retell calls with `hotato pull` instead).
+LiveKit and Pipecat capture inside your own infra and have no vendor origination
+API, so they are likewise not wired for drive-a-call.
+
+
+================================================================================
 FILE: docs/EGRESS.md
 ================================================================================
 
@@ -5616,6 +5712,14 @@ Ollama endpoint, or `--judge-provider hosted`.
 | `issue create --yes` | GitHub, through your local `gh` CLI's existing auth | Only with `--yes` | `issuecmd.py`: `subprocess.run(["gh", "issue", "create", ...])` |
 | `pr create` (default, no `--yes`) | Nothing | Dry run: prints the PR body and the `git`/`gh` argv it would run | `prcmd.py` |
 | `pr create --yes` | Git remote + GitHub, through your local `gh` CLI's existing auth | Only with `--yes` | `prcmd.py`: `subprocess.run([...git...])` then `subprocess.run(["gh", "pr", "create", ...])` |
+| `test run --state F` (state-config with `adapter: http`) | Your configured system-of-record REST API | Per `state`/`state_change` assertion, and ONLY when the config sets `egress_opt_in: true`. What leaves: the mapped filter VALUES for that one query (in the URL or a JSON body); never audio, transcript, or the config. | `state_adapter.py`: `HttpStateAdapter.query` via `urllib.request` (credential-safe redirects reused from `capture.py`) |
+| `test run --state F` (state-config with `adapter: sql` + a `dsn`) | Your database, over the network via the driver you install | Per assertion, and ONLY with `egress_opt_in: true`. A parameterized read-only SELECT; the filter VALUES are bound as data, never interpolated. A local `sqlite_path` opens no socket. | `state_adapter.py`: `SqlStateAdapter.query` (stdlib `sqlite3`, or a caller-installed DBAPI driver) |
+
+Without `egress_opt_in: true`, `load_state_adapter` REFUSES an `http` adapter or
+a `sql` adapter over a `dsn` (raises before any connection -- the CLI's exit-2
+usage-error path). The default `--state` adapters -- the local mock JSON/SQLite
+sandbox and a local `sqlite_path` SQL DB -- open no socket and need no opt-in.
+Full config format: [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md).
 
 ## Optional extras that add a hosted call
 
@@ -5643,6 +5747,23 @@ applies to every fetch path in the table above that goes through
 - Posture summary and reporting a vulnerability: [`SECURITY.md`](../SECURITY.md)
 - Command-by-command threat model: [`docs/THREAT-MODEL.md`](THREAT-MODEL.md)
 - Ingest's untrusted-payload handling: [`docs/INGEST.md`](INGEST.md)
+
+## Drive-a-call -- originates a real call, so it is double-gated
+
+`run_scenario` (the fleet experiment step; `src/hotato/drive.py`) ORIGINATES a
+real, billable call against a live agent and pulls its recording. It is the one
+path here that both reaches a vendor AND places an outbound call, so it carries a
+gate on top of the usual credential requirement.
+
+| Op | Reaches | When | Gate |
+| --- | --- | --- | --- |
+| `run_scenario` (Vapi adapter) | `POST https://api.vapi.ai/call`, then polls `GET /call/{id}`, then the existing `capture_vapi` download | Only when driven | Refused unless real credentials AND an explicit egress opt-in (`HOTATO_DRIVE_OPT_IN=1` or `egress_opt_in: true` on the scenario) are BOTH present. Never PUT/PATCHes a config; the call is driven from the staging CLONE, never production. |
+| `run_scenario` (Twilio adapter) | `POST .../Calls.json`, then polls `GET .../Calls/{sid}.json` + `GET .../Recordings.json`, then the existing `capture_twilio` download | Only when driven | Same double gate. TwiML `<Say>` is a fixed-timeline scripted caller; recording is dual-channel via `Record=true`/`RecordingChannels=dual`. GET/POST only -- no config mutation. |
+
+The recording download reuses `capture.py`'s validated fetch (scheme allowlist,
+default-deny SSRF, cross-host credential strip, atomic write); a local test
+recording server on `127.0.0.1` needs `HOTATO_ALLOW_PRIVATE_URLS=1` like every
+other download. Full walkthrough: [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md).
 
 
 ================================================================================
@@ -6352,6 +6473,109 @@ still attach the generated `dist/*.cdx.json` SBOMs to the GitHub release.
 
 
 ================================================================================
+FILE: docs/RUBRIC.md
+================================================================================
+
+# Rubric evaluation: the model-judged lane (`rubric.v1`)
+
+`hotato rubric` scores a call against a **user-authored rubric** with a pinned
+**local** model, in a lane kept structurally separate from the deterministic
+`assert.v1` wall. Every rubric result carries `deterministic: false` with full
+provenance and lives on its own report shelf; it is never an `assert.v1` result,
+never merged into a deterministic count, and never part of an overall number.
+
+- `assert.v1`'s kinds stay `deterministic: {const: true}` forever. A model
+  verdict physically cannot be an `assert.v1` result -- it lives in `rubric.v1`.
+- The default judge is a **local Ollama** model (`http://localhost:11434`) reached
+  with only the stdlib. Zero egress. A hosted judge is opt-in (see below).
+- **Advisory by default**: a rubric FAIL is reported but never gates CI. `--gate`
+  (or `--gate-judge` on `test run`) opts a team into failing on a rubric FAIL.
+- Missing/insufficient evidence -> `INCONCLUSIVE`, never a fabricated verdict. A
+  `human_rubric` is never model-scored -- it stays `INCONCLUSIVE`, human-required.
+
+## The rubric object
+
+```yaml
+version: 1
+rubrics:
+  - id: acknowledged-frustration
+    kind: judge_rubric            # or human_rubric (never model-scored)
+    dimension: conversation       # optional report-dimension tag
+    criterion: "Did the agent acknowledge the caller's frustration before proposing a fix?"
+    evidence: [transcript]        # transcript and/or tool_trace; absent -> INCONCLUSIVE
+    examples: {pass: "...", fail: "..."}      # optional
+    evaluation:
+      model: qwen2.5vl:3b         # optional; else --judge-model / the default
+      repetitions: 1              # N model calls, aggregated
+      aggregation: unanimous_or_inconclusive
+      confidence_required: 0.85
+    review:
+      human_required_on: [fail, disagreement, confidence_below_threshold]
+```
+
+## Run it
+
+```bash
+# advisory (exit 0 regardless of verdicts)
+hotato rubric run --rubrics rubrics.yaml --transcript call.json --trace trace.jsonl
+
+# opt into CI gating on a rubric FAIL
+hotato rubric run --rubrics rubrics.yaml --transcript call.json --gate
+
+# re-query the model and DIFF against the cached verdict (surface drift)
+hotato rubric run --rubrics rubrics.yaml --transcript call.json --no-cache
+```
+
+Inside a conversation-test, author the rubric in the `assertions.rubric` lane;
+`hotato test run` scores it inline (advisory; `--gate-judge` to gate) and the
+unified report shows a populated **Model-assisted (advisory)** shelf beside the
+deterministic one -- two counts side by side, never merged.
+
+## Result provenance (`rubric.v1`)
+
+Every result records: the pinned `model` + its content `model_digest`, `provider`,
+`prompt_id` / `prompt_version` / `prompt_sha256`, `temperature: 0`, the
+`input_sha256`, the `cache_key`, `cached`, the raw `votes`, `disagreement`,
+`confidence`, and `citations` to the exact transcript turns / trace events. No
+`overall_score`, ever.
+
+## Reproducibility (stated precisely, not oversold)
+
+The model call is **not** claimed deterministic. What **is** deterministic is
+**replay**: every verdict is content-addressed by
+`sha256(provider:model + prompt_sha256 + input_sha256)` and cached (reusing the
+content-addressed artifact store). A cache hit is byte-identical forever (same
+`verdict_sha256`). `--no-cache` re-queries and **diffs** against the cached
+verdict, surfacing drift instead of hiding it. `--sign` optionally signs a
+cached verdict as a "judge-record" (Ed25519 `human` tier via the `[sign]` extra,
+else HMAC `human-shared`), so a stored verdict is provably unmutated.
+
+## Egress
+
+The default local judge never leaves the box. A **hosted** judge
+(`--judge-provider hosted --judge-endpoint URL`) or a **non-local**
+`--judge-endpoint` sends the transcript off-box and is refused (exit 2) unless
+`--judge-egress-opt-in` is passed -- the same posture as `--diarizer pyannoteai
+--egress-opt-in`. See [`docs/EGRESS.md`](EGRESS.md) and
+[`docs/THREAT-MODEL.md`](THREAT-MODEL.md).
+
+## Calibration (credibility, never a marketing number)
+
+```bash
+hotato rubric calibrate --labeled ./labeled --out agreement.json
+```
+
+Each `*.json` item is `{rubric, transcript, trace?, label: pass|fail|inconclusive,
+split?: train|held_out}`. Human labels are **mandatory** here -- the model is
+scored *against* them, never used to create them. The command computes
+**agreement** (held-out items where the model verdict equals the human label) and
+**selective accuracy** (agreement restricted to items where the model did not
+abstain) and writes a reproducible artifact of raw counts + method + provenance.
+Re-running on the same corpus with the same model reproduces the same split and
+verdicts -- it is an artifact, not a headline percentage.
+
+
+================================================================================
 FILE: docs/SET-AND-FORGET.md
 ================================================================================
 
@@ -6651,6 +6875,184 @@ and `verified_fail_as_expected`) for an agent to drive.
 
 
 ================================================================================
+FILE: docs/STATE-ADAPTERS.md
+================================================================================
+
+# State adapters: grounding a `state` assertion in your system of record
+
+The `state` and `state_change` assertion kinds are **Authority 2** (post-call
+state verification). They never trust what the agent *said* ("I issued the
+refund"); they query a **system of record** after the call and compare the
+actual state. A state adapter is the small, pluggable seam that does the query.
+
+`hotato test run --state FILE` loads a state adapter from `FILE`. Three adapters
+ship, and the same one method backs all of them:
+
+```
+query(resource, **filters) -> dict | None
+```
+
+Return the record for `resource` matching every `filters` key, or `None` when
+the system of record can be read and holds no such record.
+
+## The honesty boundary (why this exists)
+
+A `state` query verifies post-call system state. It has three outcomes, and the
+distinction is the whole point:
+
+- **The record is present and matches** -> `PASS`.
+- **The system of record was read and genuinely holds no such record** (or a
+  field does not match) -> a grounded `FAIL`. The agent claimed something the
+  record does not confirm.
+- **The system of record could not be reached or read** (network error,
+  timeout, a 5xx, a non-JSON response, a DB error) -> `INCONCLUSIVE`, with a
+  reason. Hotato never guesses a verdict from a state it could not observe.
+
+An LLM verdict can never satisfy a `state` assertion; there is no model path in
+a state adapter. The query is a lookup plus a dict comparison, deterministic.
+
+## The three adapters
+
+### 1. `mock` — the local sandbox (default, offline)
+
+A JSON or SQLite fixture: `{resource: rows}`. No network, byte-stable, no
+opt-in. Use it for regression suites and for a captured before/after snapshot
+(`state_change` reads a `{"before": [...], "after": [...]}` shape). This is the
+adapter `--state some_sandbox.json` and `--state some.sqlite3` select today.
+
+### 2. `http` — a REST system of record
+
+Queries your API over stdlib `urllib`. A **resource map** turns a query into one
+request:
+
+```json
+{
+  "adapter": "http",
+  "egress_opt_in": true,
+  "base_url": "https://api.yourcompany.com/v1",
+  "auth": { "type": "bearer", "token_env": "RECORDS_API_TOKEN" },
+  "timeout": 30,
+  "resources": {
+    "appointment": {
+      "path_template": "/patients/{patient_id}/appointment",
+      "method": "GET",
+      "params_map": { "status": "appt_status" },
+      "response_pointer": "data/appointment"
+    }
+  }
+}
+```
+
+`query("appointment", patient_id="P1", status="booked")` fills `{patient_id}`
+into the path (URL-encoded), sends the remaining filters as query params (GET) or
+a JSON body (POST) under their `params_map` wire names, then extracts the record
+dict at `response_pointer` from the JSON response.
+
+- `response_pointer` is a JSON-pointer-ish path (`/`- or `.`-separated; digits
+  index a list; empty means the whole body is the record). A pointer that
+  resolves to nothing on a well-formed response means "no such record" -> `None`.
+- `method` is `GET` (default) or `POST`.
+- **HTTPS is required by default.** A plain `http://` base URL is refused unless
+  you set `"allow_http": true` (only for a trusted local endpoint) — a state
+  query would otherwise send filter values and the auth header in cleartext.
+- A 404 means the addressed record does not exist -> `None` -> grounded FAIL.
+  Every other non-2xx, and any network/timeout/non-JSON failure, is
+  INCONCLUSIVE (`query` raises `StateAdapterError`, which the assertion engine
+  turns into an INCONCLUSIVE result; the structured cause is on the adapter's
+  `last_error`).
+
+### 3. `sql` — a SQL system of record
+
+Queries a database with a **parameterized, read-only** SELECT.
+
+```json
+{
+  "adapter": "sql",
+  "sqlite_path": "records.sqlite3",
+  "resources": {
+    "refund": {
+      "query": "SELECT order_id, status, amount FROM refunds WHERE order_id = ? AND status = ?",
+      "params_order": ["order_id", "status"]
+    }
+  }
+}
+```
+
+`query("refund", order_id="O1", status="issued")` binds `[order_id, status]` as
+the statement's parameters and returns the first row as a `{column: value}` dict,
+or `None` when no row matches.
+
+- Connection source (exactly one): `sqlite_path` (a local file DB — fully local,
+  no egress), a `dsn` + `driver` (a DBAPI module to import and `connect`, e.g.
+  `psycopg2` for PostgreSQL — a network DB, so it needs `egress_opt_in: true`;
+  the driver is imported lazily and is never a hard dependency of hotato), or a
+  caller-supplied `connection` object (Python API only).
+- Use the placeholder style your driver expects (`?` for sqlite3, `%s` for
+  psycopg2). Hotato only passes the bound value sequence through.
+- A DB/driver error is INCONCLUSIVE (never a guessed FAIL).
+
+## Injection safety and read-only discipline (enforced + tested)
+
+- **Injection-safe by construction.** Filter values are ALWAYS bound as query
+  parameters; they are never string-interpolated into the SQL. A filter value
+  carrying SQL (`"O1'; DROP TABLE refunds; --"`) is treated as a literal — it
+  matches no row and the table is untouched. Tested in
+  `tests/test_state_adapters_real.py`.
+- **Read-only.** Every mapped SQL query is validated at construction (and
+  re-checked before each execute): it must begin with `SELECT` (or a
+  `WITH ... SELECT` CTE), carry no second statement after a `;`, and contain no
+  data-modifying keyword. A `DELETE`/`UPDATE`/`DROP`/… mapped query is rejected.
+
+## Egress opt-in (the network adapters are refused without it)
+
+The `http` adapter, and a `sql` adapter over a `dsn`, are **network paths** (see
+[`docs/EGRESS.md`](EGRESS.md) and [`docs/THREAT-MODEL.md`](THREAT-MODEL.md)).
+`load_state_adapter` **refuses** them unless the config sets
+`"egress_opt_in": true` — an explicit, per-config opt-in, the same discipline
+`--egress-opt-in` applies to the hosted diarizer and `--notify`. Without it, you
+get a clear usage error (the CLI's exit-2 path) before any connection is made.
+A local `sqlite_path` SQL DB and the mock sandbox open no socket and need no
+opt-in.
+
+When an `http` / non-local-`sql` query does fire, only the mapped filter VALUES
+leave the machine (in the URL, query string, or JSON body). Audio, transcript,
+and the config file itself never leave.
+
+## Credentials
+
+Adapters take environment-variable **names**, never inline secrets, so a config
+file can be committed or shared without a credential in it. Supply the secret at
+run time from the environment (for example, `source` a `0600` file that exports
+it):
+
+- `bearer`: `{ "type": "bearer", "token_env": "RECORDS_API_TOKEN" }`
+- `basic`: `{ "type": "basic", "username_env": "DB_USER", "password_env": "DB_PASS" }`
+  (`username` may be inline since it is not a secret).
+- `header`: `{ "type": "header", "headers": { "X-Api-Key": { "env": "API_KEY" }, "X-Tenant": { "value": "acme" } } }`
+  — each header value is either `{ "env": NAME }` (a secret from the environment)
+  or `{ "value": LITERAL }` (a non-secret constant).
+
+A missing credential env var fails fast at construction with a message naming the
+variable (never the value). Credential values are never logged and never placed
+in `last_error`.
+
+## `state_change` and before/after snapshots
+
+`state_change` reads a `before` and an `after` snapshot to measure a delta. Only
+the **mock** adapter provides both (from a captured `{"before": ..., "after":
+...}` fixture, or `<table>__before` / `<table>__after` SQLite tables). The `http`
+and `sql` adapters answer point-in-time `state` queries — a live API/DB exposes
+only "now" — so their `before` snapshot is reported absent, and a `state_change`
+against them is honestly INCONCLUSIVE rather than a fabricated "no change".
+
+## See also
+
+- [`docs/ASSERTIONS.md`](ASSERTIONS.md) — the `state` / `state_change` assertion kinds.
+- [`docs/EGRESS.md`](EGRESS.md), [`docs/THREAT-MODEL.md`](THREAT-MODEL.md) — the network rows.
+- `src/hotato/state_adapter.py` — the adapters; `tests/test_state_adapters_real.py` — the tests.
+
+
+================================================================================
 FILE: docs/THREAT-MODEL.md
 ================================================================================
 
@@ -6721,6 +7123,19 @@ job. Each requires you to name a stack, a repository, or a webhook you configure
 | `apply` | a git clone you point it at | Applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel. |
 | `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only AUDIO path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
 | `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | Sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a LOCAL Ollama model and never leaves the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md). |
+| `test run --state` **http adapter** | your system-of-record's REST API | Only when the state-config names `adapter: http`, and only with `egress_opt_in: true` in that config. Sends the mapped filter VALUES for one `state`/`state_change` query; never audio, transcript, or the config itself. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md). |
+| `test run --state` **sql adapter over a `dsn`** | your database, over the network | Only when the state-config names `adapter: sql` with a `dsn`, and only with `egress_opt_in: true`. A parameterized, read-only SELECT with the mapped filter values bound as data. A local `sqlite_path` opens no socket. |
+
+The state adapters read a post-call **system of record** to ground an Authority-2
+`state` assertion (did the refund/appointment actually get written?). A record
+the system of record can be read and does not hold is a grounded FAIL; a system
+of record Hotato could **not** reach or read (network error, timeout, 5xx,
+non-JSON) is INCONCLUSIVE, never a fabricated verdict. Credentials come from
+environment-variable names in the config (never inline secrets), and the HTTP
+adapter refuses a plain-`http://` base URL unless `allow_http: true` is set for a
+trusted local endpoint. The default `--state` path is the local mock sandbox
+(a JSON/SQLite fixture) and a local `sqlite_path` SQL DB, both of which open no
+socket and need no opt-in.
 
 Notify surfaces (Slack, GitHub) are used only through credentials you configured
 (`gh`, a Slack token) and only for actions you invoked. Hotato ships no default
@@ -6789,6 +7204,39 @@ You can confirm the posture directly, without trusting this page:
   wrote them.
 - **Egress is opt-in.** The only off-box audio path is `--diarizer pyannoteai`
   guarded by `--egress-opt-in`; without that flag, no audio leaves the machine.
+
+## Drive-a-call (`run_scenario`): originating a real call
+
+`run_scenario` (`src/hotato/drive.py`, wired into the Vapi and Twilio adapters)
+places a REAL outbound call against a live agent and pulls the recording. Its
+threat surface and the controls on it:
+
+- **A real, billable call is never placed silently.** `run_scenario` refuses
+  unless BOTH real credentials AND an explicit egress opt-in
+  (`HOTATO_DRIVE_OPT_IN=1` or `egress_opt_in: true` on the scenario) are present.
+  Absent either, it raises a clean structured refusal and dials nothing --
+  matching the opt-in posture of `--allow-mono` / `HOTATO_ALLOW_PRIVATE_URLS` /
+  `--egress-opt-in`.
+- **Production config is never mutated.** The only verbs issued are `POST`
+  (create the call) and `GET` (poll status, list the recording, download it) --
+  there is no `PUT`/`PATCH`/`DELETE` surface, so a driven call can never alter an
+  assistant, a phone number, or any other provider resource in place. For Vapi
+  the call is originated FROM the staging clone the experiment created, not the
+  production source.
+- **The caller side is honestly labelled, never overstated.** The produced
+  conversation carries `origin.kind == "real"` with the provider and its call id,
+  and `origin.caller` (`scripted-twiml` for the fixed-timeline Twilio caller,
+  `assistant-originated` for a Vapi call the assistant placed) -- it never claims
+  a human placed the call or that the scripted caller reacted to the agent.
+- **The recording download inherits every capture-side control.** The vendor
+  URL (`stereoUrl` / `RecordingSid` media) flows through the same validated
+  download as `capture`: http(s)-only scheme allowlist, default-deny SSRF
+  (loopback/private/metadata refused unless `HOTATO_ALLOW_PRIVATE_URLS=1`),
+  cross-host `Authorization`-strip on redirect, and atomic write. The API key is
+  never attached to a pre-signed media URL from the vendor's JSON response.
+
+See [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md) and the drive-a-call rows in
+[`docs/EGRESS.md`](EGRESS.md).
 
 Security policy and reporting: [SECURITY.md](../SECURITY.md).
 
