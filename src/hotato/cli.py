@@ -2460,16 +2460,17 @@ def _cmd_assert_run(args) -> int:
 
 
 def _load_state_adapter(path: str):
-    """A :class:`hotato.state_adapter.MockStateAdapter` from ``--state``: a
-    SQLite file by extension (``.db``/``.sqlite``/``.sqlite3``), else a JSON
-    sandbox. The post-call system of record the ``state``/``state_change``
-    (Authority 2) kinds query; a query is a plain lookup, no model/network."""
-    from .state_adapter import MockStateAdapter
+    """The post-call system of record the ``state``/``state_change`` (Authority
+    2) kinds query, built from ``--state``. Delegates to
+    :func:`hotato.state_adapter.load_state_adapter`, which selects: a local
+    mock SANDBOX (a SQLite file by extension, or a bare ``{resource: rows}``
+    JSON -- offline, no opt-in), or a REAL adapter when the file is a
+    state-config naming ``adapter: mock|http|sql``. A network adapter
+    (``http``, or ``sql`` over a ``dsn``) is refused unless the config sets
+    ``egress_opt_in: true`` (raised as the usual exit-2 usage error)."""
+    from .state_adapter import load_state_adapter
 
-    low = path.lower()
-    if low.endswith((".db", ".sqlite", ".sqlite3")):
-        return MockStateAdapter.from_sqlite_file(path)
-    return MockStateAdapter.from_json_file(path)
+    return load_state_adapter(path)
 
 
 def _cmd_test_run(args) -> int:
