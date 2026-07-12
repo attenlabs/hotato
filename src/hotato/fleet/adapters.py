@@ -24,12 +24,18 @@ Capabilities:
 Live provider adapters (Vapi, Retell) implement the offline capabilities
 (config normalization + hashing) plus the clone/apply path, and REFUSE those
 networked capabilities without credentials (``authorized=False``) so production
-mutation is never silent. Scripted scenario execution and result capture are NOT
-implemented for a hosted provider, so those are reported ``available=False``
-rather than advertised. A MockAdapter implements the whole loop locally (using
-synthetic recapture) so the clone -> apply -> scenario -> capture -> recompute
-path is exercisable and tested without any live account; it alone reports the
-full loop available.
+mutation is never silent. DRIVE-A-CALL: the Vapi and Twilio adapters implement
+``run_scenario`` -- they ORIGINATE a real call against a live agent
+(:mod:`hotato.drive`) and feed its recording into the normal capture -> score
+pipeline. That op refuses without BOTH credentials AND an explicit egress opt-in,
+so a real, billable call is never placed silently, and it never mutates
+production config (a Vapi call is driven FROM the staging CLONE; nothing
+PUT/PATCHes a live assistant). Retell has no confirmed create-call API and
+LiveKit/Pipecat are capture-in-your-infra, so those stay honestly unadvertised
+for ``run_scenario`` (``available=False``). A MockAdapter implements the whole
+loop locally (using synthetic recapture) so the clone -> apply -> scenario ->
+capture -> recompute path is exercisable and tested without any live account; it
+alone reports the full loop available.
 """
 from __future__ import annotations
 
@@ -118,6 +124,67 @@ def _nest_dotted(patch: dict) -> dict:
         # merge, don't clobber: {"a.b": 1, "a": {"c": 2}} keeps both b and c
         _merge(out, piece)
     return out
+
+
+# --- drive-a-call gating (a real, billable phone call is never placed silently) ---
+# run_scenario ORIGINATES a real call against a live agent. Two independent gates,
+# mirroring the existing opt-in posture (HOTATO_ALLOW_MONO / HOTATO_ALLOW_PRIVATE_URLS
+# / --egress-opt-in): (1) real credentials must be present, and (2) egress must be
+# explicitly opted into. Absent either, run_scenario raises the same clean, structured
+# CapabilityError refusal a hosted adapter has always given -- it never quietly dials.
+_DRIVE_OPT_IN_ENV = "HOTATO_DRIVE_OPT_IN"
+_TRUTHY = ("1", "true", "yes", "on")
+
+_DRIVE_REFUSAL = (
+    "run_scenario originates a REAL, billable phone call against a live agent, so "
+    "it requires an explicit egress opt-in in addition to credentials. Set "
+    f"{_DRIVE_OPT_IN_ENV}=1 or pass egress_opt_in=true in the scenario to authorize "
+    "placing the call; this build never dials a real number silently."
+)
+
+
+def _drive_egress_opt_in(scenario) -> bool:
+    """True only on an EXPLICIT opt-in: the ``HOTATO_DRIVE_OPT_IN`` env var, or an
+    ``egress_opt_in`` truthy flag carried on the scenario. Default is off."""
+    if os.environ.get(_DRIVE_OPT_IN_ENV, "").strip().lower() in _TRUTHY:
+        return True
+    if isinstance(scenario, dict):
+        v = scenario.get("egress_opt_in")
+        if v is True or (isinstance(v, str) and v.strip().lower() in _TRUTHY):
+            return True
+    return False
+
+
+def _drive_param(scenario, *keys, env=None, default=None):
+    """Resolve a drive parameter from the scenario (top-level or a nested
+    ``drive`` block) or an environment variable, in that order. Lets a caller pass
+    ``to_number`` / ``phone_number_id`` / ``customer_number`` / ``base_url`` /
+    poll knobs either inline on the scenario or via the environment."""
+    if isinstance(scenario, dict):
+        drive = scenario.get("drive")
+        drive = drive if isinstance(drive, dict) else {}
+        for k in keys:
+            for src in (scenario, drive):
+                if src.get(k) not in (None, ""):
+                    return src[k]
+    if env:
+        val = os.environ.get(env, "").strip()
+        if val:
+            return val
+    return default
+
+
+def _drive_poll_kwargs(scenario) -> Dict[str, object]:
+    """Pass-through poll knobs (``poll_interval``/``max_wait``/``timeout``) a
+    caller set on the scenario -- so a test can drive with ``poll_interval=0`` and
+    an operator can widen ``max_wait`` for a slow agent without a code change."""
+    kw: Dict[str, object] = {}
+    if isinstance(scenario, dict):
+        for k in ("poll_interval", "max_wait", "timeout"):
+            v = scenario.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                kw[k] = v
+    return kw
 
 
 class Adapter:
@@ -246,9 +313,12 @@ class _CredentialGatedAdapter(Adapter):
         "snapshot_config", "delete_clone",
     })
     # implemented ops/features that require credentials to be authorized.
+    # run_scenario is credentialed too: where a subclass IMPLEMENTS it (VapiAdapter),
+    # describe() reports authorized=False without a key; where it stays
+    # @_unimplemented (Retell), available=False short-circuits before this check.
     _CREDENTIALED = frozenset({
         "inspect_config", "clone_agent", "apply_variant", "delete_clone", "capture_result",
-        "pull_recordings", "dual_channel_capture",
+        "pull_recordings", "dual_channel_capture", "run_scenario",
     })
 
     def __init__(self, api_key: Optional[str] = None):
@@ -328,15 +398,17 @@ class _CredentialGatedAdapter(Adapter):
 
     @_unimplemented
     def run_scenario(self, clone_ref, scenario):
-        # A scored barge-in recapture needs a SCRIPTED caller (interrupt the agent
-        # at a known onset) recorded in dual channel. That requires a provisioned
-        # phone number + a caller harness (a second agent or a Twilio-driven
-        # interruption), which is deployment, not code -- so this stays honestly
-        # unavailable rather than placing an unscripted call that cannot be scored.
+        # Drive-a-call IS implemented -- but only where the provider has a
+        # confirmed create-call API the pull path was verified against. VapiAdapter
+        # OVERRIDES this with a real implementation (POST /call -> poll ->
+        # capture_vapi); Twilio drives via a separate transport adapter. This base
+        # stays honestly @_unimplemented so a provider WITHOUT a confirmed
+        # create-call endpoint (Retell) never advertises an origination it cannot
+        # perform. Capture existing calls with capture_result / hotato pull instead.
         raise NotImplementedError(
-            f"{self.stack} scripted scenario execution needs a provisioned phone "
-            "number + a scripted-caller harness; capture existing calls with "
-            "capture_result / hotato pull, or connect a caller runner")
+            f"{self.stack} has no confirmed create-call API to originate a scored "
+            "call; capture existing calls with capture_result / hotato pull, or "
+            "use a provider whose create-call endpoint is verified (vapi/twilio)")
 
     @_unimplemented
     def capture_result(self, clone_ref, scenario=None, *, call_id=None, out_path=None):
@@ -425,9 +497,141 @@ class VapiAdapter(_CredentialGatedAdapter):
         _cap._download(url, out_path, timeout=90)
         return {"recording": out_path, "call_id": call.get("id"), "stereo": True}
 
+    def run_scenario(self, clone_ref, scenario):
+        """DRIVE a real call FROM the (clone) assistant, then pull its stereo
+        recording -- a real agent conversation scored through the normal pipeline.
+        Two gates before any dial: credentials (``_need_key``) AND an explicit
+        egress opt-in (``_drive_egress_opt_in``); absent either, refuses with the
+        same clean structured CapabilityError a hosted op has always given, and
+        never places the call. Production is untouched: the call is originated
+        FROM the CLONE assistant (``clone_ref``), and drive.place_call_vapi only
+        POSTs a new call + GETs status -- it never PUT/PATCHes an assistant config.
+
+        The scenario carries the drive parameters (inline or under a ``drive``
+        block, or via env): ``phone_number_id`` (VAPI_PHONE_NUMBER_ID) and
+        ``customer_number`` (HOTATO_DRIVE_CUSTOMER_NUMBER). Returns
+        drive.place_call_vapi's ``{recording, provider, provider_call_id, status,
+        origin}`` -- ``origin.kind == "real"``, ``origin.caller ==
+        "assistant-originated"`` (the assistant places the call; the caller was
+        NOT a scripted human)."""
+        self._require("run_scenario"); self._need_key("run_scenario")
+        if not _drive_egress_opt_in(scenario):
+            raise CapabilityError(_DRIVE_REFUSAL)
+        from .. import drive as _drive
+        phone_number_id = _drive_param(
+            scenario, "phone_number_id", "phoneNumberId", env="VAPI_PHONE_NUMBER_ID")
+        customer_number = _drive_param(
+            scenario, "customer_number", env="HOTATO_DRIVE_CUSTOMER_NUMBER")
+        if not phone_number_id or not customer_number:
+            raise CapabilityError(
+                "vapi run_scenario needs a phone_number_id (VAPI_PHONE_NUMBER_ID) "
+                "and a customer_number (HOTATO_DRIVE_CUSTOMER_NUMBER) to originate "
+                "the call FROM the assistant; set them on the scenario or the "
+                "environment")
+        base_url = _drive_param(
+            scenario, "base_url", env="VAPI_BASE_URL", default="https://api.vapi.ai")
+        return _drive.place_call_vapi(
+            clone_ref, phone_number_id=phone_number_id,
+            customer_number=customer_number, api_key=self.api_key,
+            base_url=base_url, **_drive_poll_kwargs(scenario))
+
 
 class RetellAdapter(_CredentialGatedAdapter):
     stack = "retell"
+
+
+class TwilioAdapter(Adapter):
+    """Telephony-transport adapter for DRIVE-A-CALL. Twilio has no hosted
+    'assistant config' to clone/apply/inspect, so it offers only the offline
+    config hash plus the two drive ops, both real and both credential-gated:
+
+    * ``run_scenario`` -- render the scenario.v1 caller script to TwiML and place
+      a FIXED-TIMELINE scripted call AT the agent, recorded dual-channel, then
+      pull it (:func:`hotato.drive.place_call_twilio`). Additionally requires an
+      explicit egress opt-in so a real, billable call is never dialled silently.
+    * ``capture_result`` -- pull a Twilio dual-channel recording by its
+      ``recording_sid`` (reuses :func:`hotato.capture.capture_twilio`).
+
+    Credentials are the Twilio ``account_sid`` + ``auth_token`` (Basic auth), not
+    a single Bearer key, so this subclasses ``Adapter`` directly rather than the
+    Bearer-key ``_CredentialGatedAdapter``. It never clones/mutates anything."""
+    stack = "twilio"
+
+    _OFFERED = frozenset({
+        "snapshot_config", "run_scenario", "capture_result",
+        "pull_recordings", "dual_channel_capture",
+    })
+    _CREDENTIALED = frozenset({
+        "run_scenario", "capture_result", "pull_recordings", "dual_channel_capture",
+    })
+
+    def __init__(self, account_sid: Optional[str] = None,
+                 auth_token: Optional[str] = None):
+        self.account_sid = account_sid
+        self.auth_token = auth_token
+
+    def _offered(self) -> Set[str]:
+        return set(self._OFFERED)
+
+    def _has_credentials(self) -> bool:
+        return bool(self.account_sid and self.auth_token)
+
+    def _needs_credentials(self, cap: str) -> bool:
+        return cap in self._CREDENTIALED
+
+    def _need_creds(self, cap):
+        if not (self.account_sid and self.auth_token):
+            raise CapabilityError(
+                f"twilio {cap} requires credentials (TWILIO_ACCOUNT_SID + "
+                "TWILIO_AUTH_TOKEN); this build never places a call silently")
+
+    def run_scenario(self, clone_ref, scenario):
+        """DRIVE a real, FIXED-TIMELINE scripted call at the agent and pull its
+        dual-channel recording. Two gates before any dial: credentials AND an
+        explicit egress opt-in; absent either, refuses (CapabilityError) without
+        placing the call. The scenario is BOTH the caller script (rendered to
+        TwiML) and the drive-parameter carrier: ``to_number`` (the agent's number,
+        HOTATO_DRIVE_TO_NUMBER) and ``from_number`` (your Twilio number,
+        HOTATO_DRIVE_FROM_NUMBER). Returns drive.place_call_twilio's
+        ``{recording, provider, provider_call_id, recording_sid, status,
+        origin}`` -- ``origin.kind == "real"``, ``origin.caller ==
+        "scripted-twiml"`` (a fixed-timeline caller, honestly not a human)."""
+        self._require("run_scenario"); self._need_creds("run_scenario")
+        if not _drive_egress_opt_in(scenario):
+            raise CapabilityError(_DRIVE_REFUSAL)
+        from .. import drive as _drive
+        to_number = _drive_param(scenario, "to_number", env="HOTATO_DRIVE_TO_NUMBER")
+        from_number = _drive_param(scenario, "from_number", env="HOTATO_DRIVE_FROM_NUMBER")
+        if not to_number or not from_number:
+            raise CapabilityError(
+                "twilio run_scenario needs a to_number (the agent's phone number, "
+                "HOTATO_DRIVE_TO_NUMBER) and a from_number (your Twilio number, "
+                "HOTATO_DRIVE_FROM_NUMBER); set them on the scenario or the "
+                "environment")
+        base_url = _drive_param(
+            scenario, "base_url", env="TWILIO_BASE_URL",
+            default="https://api.twilio.com")
+        return _drive.place_call_twilio(
+            scenario, to_number=to_number, from_number=from_number,
+            sid=self.account_sid, token=self.auth_token, base_url=base_url,
+            **_drive_poll_kwargs(scenario))
+
+    def capture_result(self, clone_ref=None, scenario=None, *, recording_sid=None,
+                       out_path=None, allow_mono=False):
+        """Pull a Twilio DUAL-CHANNEL recording by ``recording_sid`` (RE...) and
+        return {recording, recording_sid, provider}. Reuses the verified
+        capture_twilio path; requires the sid (there is no single 'most recent'
+        recording per agent to guess at)."""
+        self._require("capture_result"); self._need_creds("capture_result")
+        if not recording_sid:
+            raise ValueError(
+                "twilio capture_result needs a recording_sid (RE...) to pull")
+        from .. import capture as _cap
+        rec = _cap.capture_twilio(
+            recording_sid=recording_sid, account_sid=self.account_sid,
+            auth_token=self.auth_token, out_path=out_path, allow_mono=allow_mono)
+        return {"recording": rec, "recording_sid": recording_sid,
+                "provider": "twilio"}
 
 
 class LiveKitAdapter(Adapter):
@@ -508,9 +712,15 @@ class MockAdapter(Adapter):
 def get_adapter(stack: str, **kw) -> Adapter:
     stack = (stack or "").lower()
     if stack == "vapi":
-        return VapiAdapter(**kw)
+        return VapiAdapter(api_key=kw.get("api_key"))
     if stack == "retell":
-        return RetellAdapter(**kw)
+        return RetellAdapter(api_key=kw.get("api_key"))
+    if stack == "twilio":
+        # explicit extraction (Twilio uses account_sid+auth_token, not api_key);
+        # a stray kwarg like work_dir from a generic caller is ignored, not passed
+        # into the constructor.
+        return TwilioAdapter(account_sid=kw.get("account_sid"),
+                             auth_token=kw.get("auth_token"))
     if stack == "livekit":
         return LiveKitAdapter()
     if stack == "pipecat":
@@ -521,5 +731,5 @@ def get_adapter(stack: str, **kw) -> Adapter:
 
 
 __all__ = ["Adapter", "MockAdapter", "VapiAdapter", "RetellAdapter",
-           "LiveKitAdapter", "PipecatAdapter", "get_adapter", "CapabilityError",
-           "CAPABILITIES"]
+           "TwilioAdapter", "LiveKitAdapter", "PipecatAdapter", "get_adapter",
+           "CapabilityError", "CAPABILITIES"]
