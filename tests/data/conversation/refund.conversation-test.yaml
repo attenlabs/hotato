@@ -1,0 +1,53 @@
+# conversation-test.yaml -- STARTER written by `hotato scenario init`.
+# ONE testable conversation: the agent under test, the simulated caller,
+# the two SEPARATE assertion lanes, and a BOOLEAN success condition
+# (a conjunction of named conditions -- never a blended score). Edit the
+# ids/agent/checks, then evaluate a real call through it:
+#   hotato test run <this file> --agent <agent-id> \
+#       --audio call.wav --trace voice_trace.jsonl \
+#       --transcript call.transcript.json --out ./conv-artifact --format html
+kind: hotato.conversation-test
+version: 1
+id: refund-flow
+agent: support-v3
+caller:
+  persona: a customer whose order arrived damaged and wants a refund
+  goal: get a refund for order A-1001
+  facts: {order_id: A-1001}
+environment:
+  locale: en-US
+  route: phone
+assertions:
+  # DETERMINISTIC lane: pure, offline, no model. Each result is TAGGED with
+  # one of the five report dimensions (a grouping key, never a weight).
+  deterministic:
+    - id: disclosure-said
+      kind: phrase
+      regex: "recorded for quality"
+      role: agent
+      dimension: policy
+    - id: refund-tool-called
+      kind: tool_call
+      name: issue_refund
+      dimension: outcome
+    - id: lookup-then-refund
+      kind: sequence
+      steps: [{tool: lookup_order}, {tool: issue_refund}]
+      dimension: conversation
+    - id: refund-latency
+      kind: latency
+      tool: issue_refund
+      max_ms: 1500
+      dimension: speech
+  # RUBRIC (model-judged) lane lands in Phase 3. In Phase 1 each is
+  # INCONCLUSIVE (no model runs); it never counts toward the exit code.
+  rubric:
+    - id: was-empathetic
+      kind: judge_rubric
+      dimension: conversation
+repetitions: 1
+# inconclusive_policy: fail  # CI/compliance suites should set fail or refuse
+success:
+  # Success is the conjunction of these named conditions -- never a score.
+  required: [all_deterministic_assertions_pass, no_rubric_failure]
+  report_dimensions: [outcome, policy, conversation, speech, reliability]

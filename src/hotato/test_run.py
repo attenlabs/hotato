@@ -1,0 +1,380 @@
+"""``hotato.test-run``: the Phase-1 EXIT -- evaluate ONE conversation-test file
+against a supplied conversation and emit the per-dimension scorecard.
+
+This is the tie-together slice (Phase-1 design H). It takes a validated
+``hotato.conversation-test.v1`` doc plus an :class:`hotato.assert_.Context`
+built from the supplied transcript/trace/state/timing, and produces a single
+``hotato.test-run.v1`` result. The honesty wall is kept STRUCTURAL, not
+documented-and-hoped:
+
+* The two assertion lanes stay SEPARATE. Only the ``deterministic`` lane is
+  evaluated (through :func:`hotato.assert_.run_assertions`, so its exit code
+  honors ``inconclusive_policy`` exactly as Phase 0 does). The ``rubric`` lane
+  is quarantined: every rubric assertion becomes an INCONCLUSIVE record with
+  the note that no model judged it, never folded into the deterministic
+  summary or the exit code. No LLM path is built here.
+* Success is a BOOLEAN over the closed :data:`hotato.conversation_test.SUCCESS_CONDITIONS`
+  vocabulary -- a conjunction of named conditions, NEVER a weight or a blended
+  ``overall_score``. The per-dimension breakdown groups the SAME deterministic
+  results by their optional ``dimension`` tag; each dimension keeps its own
+  counts and nothing is blended.
+* Missing transcript/trace/state leaves the depending assertions INCONCLUSIVE
+  (the evaluators' own posture) -- never a guessed PASS/FAIL.
+* Reliability (pass^k) is NOT computed in Phase 1: ``repetitions > 1`` runs the
+  deterministic lane N times and reports the per-run results plus a plain run
+  COUNT, with an explicit "pass^k in Phase 2" note -- never a fabricated
+  reliability number.
+
+The exit code is the deterministic envelope's own ``exit_code`` (which already
+honors ``inconclusive_policy``), raised to a non-zero when the file's
+``success.required`` conjunction fails -- a refuse (exit 2) is never downgraded.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from typing import Any, Dict, List, Optional
+
+from . import assert_ as A
+from . import conversation as CV
+from . import conversation_test as CT
+
+__all__ = [
+    "KIND",
+    "VERSION",
+    "evaluate_success",
+    "dimension_breakdown",
+    "evaluate_conversation_test",
+    "assemble_conversation_artifact",
+    "render_summary_text",
+]
+
+KIND = "hotato.test-run"
+VERSION = 1
+
+
+def _lane(doc: Dict[str, Any], name: str) -> List[Dict[str, Any]]:
+    """The ``deterministic`` or ``rubric`` assertion list from a validated
+    conversation-test doc (an absent lane is an empty list)."""
+    return list((doc.get("assertions") or {}).get(name) or [])
+
+
+def _run_deterministic(
+    det_list: List[Dict[str, Any]], ctx: A.Context, policy: str, reps: int
+) -> List[Dict[str, Any]]:
+    """Evaluate the deterministic lane ``reps`` times, returning the per-run
+    ``assert.v1`` envelopes. An EMPTY deterministic lane is a valid, honest run
+    (no deterministic assertion to check) -- :func:`hotato.assert_.run_assertions`
+    rejects an empty ``assertions`` list, so that case is served directly by
+    :func:`hotato.assert_.envelope_from_results` with no results. Every run is
+    over the SAME context, so in Phase 1 the runs are identical by construction
+    (the deterministic lane has zero variance); the per-run list exists so
+    Phase 2's simulator-driven variance drops in without changing the shape."""
+    if not det_list:
+        return [A.envelope_from_results([], inconclusive_policy=policy)
+                for _ in range(reps)]
+    assert_doc = {"version": 1, "assertions": det_list, "inconclusive_policy": policy}
+    return [A.run_assertions(assert_doc, ctx, inconclusive_policy=policy)
+            for _ in range(reps)]
+
+
+def _quarantine_rubric(rubric_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Turn the rubric lane into INCONCLUSIVE quarantine records (Phase 3). Each
+    carries ``deterministic: False`` so it can never be mistaken for a
+    deterministic result, and no model ever scored it."""
+    out: List[Dict[str, Any]] = []
+    for a in rubric_list:
+        rec = {
+            "id": a["id"],
+            "kind": a["kind"],
+            "status": "INCONCLUSIVE",
+            "deterministic": False,
+            "reason": ("the model-judged (rubric) lane is quarantined until "
+                       "Phase 3; no model judged this assertion"),
+        }
+        if a.get("dimension"):
+            rec["dimension"] = a["dimension"]
+        out.append(rec)
+    return out
+
+
+def evaluate_success(
+    required: List[str],
+    det_results: List[Dict[str, Any]],
+    rubric_results: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Evaluate the ``success.required`` conjunction over the two lanes and
+    return ``{"required": [...], "conditions": {name: bool}, "passed": bool}``.
+
+    Each condition is a plain boolean predicate over the results -- there is no
+    weighting and no score. The deterministic conditions read the deterministic
+    lane; ``no_rubric_failure`` reads the rubric lane (which, quarantined, never
+    carries a FAIL -- so the condition holds without a model ever running).
+    ``no_inconclusive`` is scoped to the deterministic lane: a quarantined
+    rubric INCONCLUSIVE reflects an unbuilt capability, not missing INPUT, and
+    must not silently fail a deterministic run."""
+    det_status = [r["status"] for r in det_results]
+    rubric_status = [r["status"] for r in rubric_results]
+    available = {
+        "all_deterministic_assertions_pass": all(s == "PASS" for s in det_status),
+        "no_deterministic_fail": not any(s == "FAIL" for s in det_status),
+        "no_rubric_failure": not any(s == "FAIL" for s in rubric_status),
+        "no_inconclusive": not any(s == "INCONCLUSIVE" for s in det_status),
+    }
+    # ``required`` is drawn from the CLOSED vocabulary (validated upstream by
+    # validate_conversation_test_doc), so every name resolves; a default of an
+    # empty list means "no explicit condition", which is vacuously satisfied.
+    conditions = {name: available[name] for name in required}
+    return {
+        "required": list(required),
+        "conditions": conditions,
+        "passed": all(conditions.values()),
+    }
+
+
+def dimension_breakdown(det_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Group the deterministic results by their optional ``dimension`` tag into
+    the five report dimensions plus an ``ungrouped`` bucket -- each with its OWN
+    pass/fail/inconclusive counts and the ids that landed there. A GROUPING
+    VIEW, never a blend: there is no combined number across dimensions or within
+    one, and no ``overall_score``. Untagged results go to ``ungrouped`` and are
+    never dropped."""
+    def _empty() -> Dict[str, Any]:
+        return {"pass": 0, "fail": 0, "inconclusive": 0, "ids": []}
+
+    dims: Dict[str, Any] = {d: _empty() for d in CT.REPORT_DIMENSIONS}
+    ungrouped = _empty()
+    for r in det_results:
+        dim = r.get("dimension")
+        bucket = dims[dim] if dim in dims else ungrouped
+        bucket[r["status"].lower()] += 1
+        bucket["ids"].append(r["id"])
+    out: Dict[str, Any] = {"dimensions": dims}
+    if ungrouped["ids"]:
+        out["ungrouped"] = ungrouped
+    return out
+
+
+def evaluate_conversation_test(
+    doc: Dict[str, Any],
+    ctx: A.Context,
+    *,
+    agent_id: str,
+    repetitions: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Evaluate one validated conversation-test ``doc`` against ``ctx`` and
+    return a ``hotato.test-run.v1`` result dict (carrying its own ``exit_code``).
+
+    ``repetitions`` overrides the doc's own ``repetitions`` (already defaulted
+    to 1 by :func:`hotato.conversation_test.validate_conversation_test_doc`).
+    The returned dict never contains an ``overall_score`` or any blended number;
+    the deterministic and rubric lanes stay separate, and the exit code honors
+    the doc's ``inconclusive_policy`` exactly as ``envelope_from_results`` does
+    (raised to non-zero only when ``success.required`` fails)."""
+    policy = doc["inconclusive_policy"]
+    reps = repetitions if repetitions is not None else doc.get("repetitions", 1)
+    if isinstance(reps, bool) or not isinstance(reps, int) or reps < 1:
+        raise ValueError(f"repetitions must be an integer >= 1, got {reps!r}")
+
+    det_list = _lane(doc, "deterministic")
+    rubric_list = _lane(doc, "rubric")
+
+    per_run = _run_deterministic(det_list, ctx, policy, reps)
+    det_env = per_run[0]
+    rubric_results = _quarantine_rubric(rubric_list)
+
+    required = list((doc.get("success") or {}).get("required") or [])
+    success = evaluate_success(required, det_env["results"], rubric_results)
+
+    # Exit code: start from the deterministic envelope's own code (which honors
+    # inconclusive_policy -- report/fail/refuse -- exactly as Phase 0). A
+    # success.required failure raises a passing (0) run to 1; a refuse (2) or an
+    # already-failing (1) run is never downgraded.
+    exit_code = det_env["exit_code"]
+    if not success["passed"] and exit_code == 0:
+        exit_code = 1
+
+    breakdown = dimension_breakdown(det_env["results"])
+
+    result: Dict[str, Any] = {
+        "kind": KIND,
+        "version": VERSION,
+        "test_id": doc["id"],
+        "agent": agent_id,
+        "inconclusive_policy": policy,
+        "exit_code": exit_code,
+        "success": success,
+        "assertions": det_env,
+        "rubric": {
+            "quarantined": True,
+            "note": ("the model-judged (rubric) lane lands in Phase 3; each "
+                     "rubric assertion is INCONCLUSIVE here and no model ran"),
+            "results": rubric_results,
+        },
+        "dimensions": breakdown["dimensions"],
+        # Reliability (pass^k) is a Phase-2 capability. Report the plain run
+        # count and the per-run outcomes; never a fabricated reliability number.
+        "reliability": {
+            "runs": reps,
+            "note": f"reliability: {reps} runs; pass^k in Phase 2 (not computed)",
+        },
+        "repetitions": {
+            "runs": reps,
+            "per_run": [
+                {"run": i + 1, "exit_code": env["exit_code"],
+                 "summary": env["summary"]["deterministic"]}
+                for i, env in enumerate(per_run)
+            ],
+        },
+    }
+    if "ungrouped" in breakdown:
+        result["ungrouped"] = breakdown["ungrouped"]
+    return result
+
+
+# =========================================================================
+# The Conversation Artifact (conversation.v1): bind the supplied evidence by
+# digest into --out so `hotato conversation verify` can re-check it.
+# =========================================================================
+
+def _origin_from_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """``origin`` for the conversation artifact: REAL by default (Phase 1
+    evaluates a supplied real recording), SIMULATED only when the test file
+    carries an explicit ``simulator`` block. Synthetic is never conflated with
+    real (invariant 5): a simulated origin must declare its model/scenario/seed,
+    which :func:`hotato.conversation.build_manifest` enforces."""
+    sim = doc.get("simulator")
+    if isinstance(sim, dict) and sim:
+        return {"kind": "simulated", "simulator": sim}
+    return {"kind": "real"}
+
+
+def _write_json(path: str, obj: Any) -> None:
+    # open-ok: path is inside the --out directory this run created/owns.
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+
+
+def assemble_conversation_artifact(
+    out_dir: str,
+    *,
+    conversation_id: str,
+    agent_id: str,
+    origin: Dict[str, Any],
+    created_at: str,
+    assertions_env: Dict[str, Any],
+    audio_path: Optional[str] = None,
+    transcript_path: Optional[str] = None,
+    trace_path: Optional[str] = None,
+    timing: Any = None,
+    scenario_digest: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Copy/write the supplied evidence into ``out_dir`` and bind it by sha256
+    into a ``hotato.conversation.v1`` manifest (written as
+    ``<out_dir>/conversation.json``), returning the manifest.
+
+    Each child lands under ``out_dir`` (so the manifest travels with the
+    directory and :func:`hotato.conversation.verify` re-hashes it there): the
+    audio copied under ``audio/``, the transcript/trace copied verbatim, and the
+    scored ``timing`` + the evaluated ``assertions`` envelope written as JSON.
+    ``created_at`` is caller-supplied (never ``Date.now()`` on this
+    deterministic path). Only the children actually supplied are bound."""
+    os.makedirs(out_dir, exist_ok=True)
+    artifact_files: Dict[str, str] = {}
+
+    if audio_path is not None:
+        audio_dir = os.path.join(out_dir, "audio")
+        os.makedirs(audio_dir, exist_ok=True)
+        dst = os.path.join(audio_dir, os.path.basename(audio_path))
+        shutil.copy2(audio_path, dst)
+        artifact_files["audio"] = dst
+    if transcript_path is not None:
+        dst = os.path.join(out_dir, "transcript.json")
+        shutil.copy2(transcript_path, dst)
+        artifact_files["transcript"] = dst
+    if trace_path is not None:
+        dst = os.path.join(out_dir, "trace.jsonl")
+        shutil.copy2(trace_path, dst)
+        artifact_files["trace"] = dst
+    if timing is not None:
+        dst = os.path.join(out_dir, "timing.json")
+        _write_json(dst, timing)
+        artifact_files["timing"] = dst
+    # The evaluated deterministic envelope is always bound: it IS the evidence of
+    # what was checked and how it came out.
+    assertions_dst = os.path.join(out_dir, "assertions.json")
+    _write_json(assertions_dst, assertions_env)
+    artifact_files["assertions"] = assertions_dst
+
+    manifest = CV.build_manifest(
+        conversation_id=conversation_id,
+        agent_id=agent_id,
+        origin=origin,
+        created_at=created_at,
+        artifact_files=artifact_files,
+        base_dir=out_dir,
+        scenario_digest=scenario_digest,
+    )
+    CV.write_conversation(manifest, out_dir)
+    return manifest
+
+
+# =========================================================================
+# Human-readable per-dimension summary (text). Prints the deterministic and the
+# quarantined judge tallies SEPARATELY -- never one merged number.
+# =========================================================================
+
+def render_summary_text(result: Dict[str, Any]) -> str:
+    """The ``hotato test run`` per-dimension summary: the success verdict, each
+    dimension's own pass/fail/inconclusive counts (never blended), the plain
+    reliability run count, and the deterministic vs judge tallies printed
+    separately -- the same structural honesty the JSON output carries."""
+    lines = [
+        f"hotato test run: {result['test_id']} (agent {result['agent']}) "
+        f"-- exit_code={result['exit_code']}"
+    ]
+    lines.append(f"inconclusive_policy: {result['inconclusive_policy']}")
+
+    success = result["success"]
+    verdict = "PASS" if success["passed"] else "FAIL"
+    req = ", ".join(success["required"]) or "(none required)"
+    lines.append(f"success: {verdict}  (required: {req})")
+    for name, ok in success["conditions"].items():
+        lines.append(f"  [{'ok' if ok else 'X '}] {name}")
+
+    lines.append("per-dimension (grouped view; never blended):")
+    dims = result["dimensions"]
+    for name in CT.REPORT_DIMENSIONS:
+        b = dims[name]
+        lines.append(
+            f"  {name:<13} {b['pass']} pass / {b['fail']} fail / "
+            f"{b['inconclusive']} inconclusive"
+        )
+    ung = result.get("ungrouped")
+    if ung:
+        lines.append(
+            f"  {'ungrouped':<13} {ung['pass']} pass / {ung['fail']} fail / "
+            f"{ung['inconclusive']} inconclusive"
+        )
+
+    lines.append(result["reliability"]["note"])
+
+    rubric = result["rubric"]["results"]
+    if rubric:
+        lines.append(
+            f"rubric lane: {len(rubric)} assertion(s) INCONCLUSIVE "
+            "(quarantined, Phase 3 -- no model ran)"
+        )
+
+    det = result["assertions"]["summary"]["deterministic"]
+    lines.append(
+        f"deterministic: {det['pass']} pass, {det['fail']} fail, "
+        f"{det['inconclusive']} inconclusive"
+    )
+    lines.append(
+        "judge: 0 pass, 0 fail (no judge/rubric kind is built in this release)"
+    )
+    return "\n".join(lines) + "\n"
