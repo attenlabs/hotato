@@ -300,6 +300,17 @@ def recompute_trial(
         vector["score_integrity"] = "envelope_only"
     else:
         vector["score_integrity"] = "recomputed"
+    # Scorer pin (K1): the recompute above ran under the CURRENTLY installed
+    # scorer. If the manifest pinned a different scorer identity (its source
+    # bytes changed since the trial was committed), this is not a recompute under
+    # the pinned scorer -- the same audio could now yield a different verdict, so
+    # it cannot be a clean 'recomputed'. Only downgrade; a real pin ('unverified'
+    # or absent = the old regime, left untouched).
+    _pinned_scorer = (man.get("scorer") or {}).get("wheel_hash")
+    if (vector["score_integrity"] == "recomputed"
+            and _pinned_scorer and _pinned_scorer != "unverified"
+            and _pinned_scorer != _manifest.wheel_hash()):
+        vector["score_integrity"] = "scorer_changed"
     # audio identity across the pair (decoded off disk, not stored)
     if pcm_mismatch_any:
         vector["audio_identity"] = "mismatch"
@@ -315,10 +326,30 @@ def recompute_trial(
     # 'manifest_pinned'; a body that no longer matches its hash is 'changed'.
     if not _manifest.verify_manifest_hash(man):
         vector["policy_integrity"] = "changed"
-    elif man.get("signature") and _manifest.verify_manifest_signature(man, _receipt.load_key()):
-        vector["policy_integrity"] = "signed"
     else:
-        vector["policy_integrity"] = "manifest_pinned"
+        _sig = man.get("signature")
+        _claims_sig = bool(_sig) and _sig.get("algorithm") not in (None, "none")
+        if not _claims_sig:
+            vector["policy_integrity"] = "manifest_pinned"
+        else:
+            _key = _receipt.load_key()
+            if not _key:
+                # a signature is CLAIMED but there is no key to verify it: it
+                # cannot be trusted as signed (K7), and it is not proven tampered.
+                vector["policy_integrity"] = "signature_unverified"
+            else:
+                # verify_manifest_signature returns a dict {ok, signed, reason};
+                # test its .ok, never the dict's truthiness (a {ok: False} dict is
+                # still truthy, which previously upgraded a FORGED/ALTERED
+                # signature to 'signed' -- the strongest tier). K2.
+                _sig_result = _manifest.verify_manifest_signature(man, _key)
+                if _sig_result.get("ok") is True:
+                    vector["policy_integrity"] = "signed"
+                else:
+                    # a claimed signature that FAILS to verify is tampering or a
+                    # wrong key: strictly worse than an honestly-unsigned manifest,
+                    # so it caps at the refuse tier, never 'manifest_pinned'. K7.
+                    vector["policy_integrity"] = "signature_invalid"
     # fixture universe completeness (both sides must cover the pinned set)
     if before_cov["complete"] and after_cov["complete"]:
         vector["fixture_set_integrity"] = "manifest_complete"
