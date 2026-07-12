@@ -76,6 +76,7 @@ __all__ = [
     "KINDS",
     "RUBRIC_KINDS",
     "ALL_KINDS",
+    "RESULT_DIMENSIONS",
     "DETECTOR_NAMES",
     "DETECTORS",
     "DEFAULT_POLICY_PACK",
@@ -136,6 +137,16 @@ RUBRIC_KINDS = ("human_rubric", "judge_rubric")
 # Every recognized assertion kind -- what ``validate_assertions_doc`` accepts
 # and what the schema's ``result.kind`` enum lists.
 ALL_KINDS = KINDS + RUBRIC_KINDS
+
+# The five report DIMENSIONS a result may be TAGGED with (a grouping key for
+# the per-dimension scorecard the report renders -- never a weight, never part
+# of a blended score). The ``dimension`` on an assertion is OPTIONAL and
+# propagates verbatim onto its result (see :func:`_base_result`), so an untagged
+# assertion's result is byte-identical to before this existed. Defined here --
+# and mirrored in ``hotato.conversation_test.REPORT_DIMENSIONS`` and
+# ``hotato.report`` -- rather than imported: ``conversation_test`` imports FROM
+# this module, so importing it back would close an import cycle.
+RESULT_DIMENSIONS = ("outcome", "policy", "conversation", "speech", "reliability")
 
 # The Authority 1 & 2 kinds: their evaluators are STRUCTURALLY unable to be
 # satisfied by an agent's spoken claim, because they read the authenticated
@@ -1097,6 +1108,16 @@ def validate_assertions_doc(doc: Any) -> Tuple[int, List[Dict[str, Any]]]:
                 f"assertion {aid!r}: 'kind' must be one of {ALL_KINDS}, got {kind!r}"
             )
         _validate_kind_fields(aid, kind, item)
+        # An OPTIONAL report-dimension TAG, validated up front so it can never
+        # propagate an out-of-vocabulary value onto a result (which the
+        # assert.v1 schema constrains to the same enum). Absent = untagged,
+        # exactly as before this existed.
+        dim = item.get("dimension")
+        if dim is not None and dim not in RESULT_DIMENSIONS:
+            raise ValueError(
+                f"assertion {aid!r}: 'dimension' (optional) must be one of "
+                f"{RESULT_DIMENSIONS}, got {dim!r}"
+            )
         out.append(item)
 
     return version, out
@@ -1261,7 +1282,16 @@ def load_policy_pack(
 # =========================================================================
 
 def _base_result(a: Dict[str, Any]) -> Dict[str, Any]:
-    return {"id": a["id"], "kind": a["kind"], "deterministic": True}
+    result = {"id": a["id"], "kind": a["kind"], "deterministic": True}
+    # Propagate an OPTIONAL ``dimension`` TAG verbatim onto the result, so the
+    # report can group results into the per-dimension scorecard without
+    # inventing a scorer. Additive: an assertion with no dimension yields a
+    # result with no dimension (byte-identical to before this existed), never a
+    # fabricated or defaulted one.
+    dim = a.get("dimension")
+    if dim is not None:
+        result["dimension"] = dim
+    return result
 
 
 def _eval_phrase(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
