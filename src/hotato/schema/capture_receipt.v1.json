@@ -10,6 +10,7 @@
     "schema_version": { "const": "1" },
     "trial_id": { "type": "string" },
     "nonce": { "type": "string" },
+    "challenge": { "type": ["string", "null"], "description": "The unpredictable value committed BEFORE capture by hotato.ledger.commit_challenge (Evidence Kernel v2, K4). Optional; when present, hotato.ledger.bind_receipt binds this receipt to that precommit and refuses replay." },
     "agent_id": { "type": ["string", "null"] },
     "deployment_id": { "type": ["string", "null"] },
     "provider_call_id": { "type": ["string", "null"] },

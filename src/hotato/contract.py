@@ -250,6 +250,7 @@ def create_contract(
     caller_channel: int = 0,
     agent_channel: int = 1,
     include_identifiers: bool = False,
+    confirm_channels: bool = False,
 ) -> dict:
     """Create one ``<id>.hotato`` failure-contract bundle under ``out_dir``.
 
@@ -268,6 +269,19 @@ def create_contract(
     kill mid-write never leaves a half-written bundle at the final path.
 
     Returns a result dict: ``{"id", "dir", "contract", "paths", "next"}``.
+
+    ``confirm_channels`` (K6): a HUMAN explicit confirmation that the caller/
+    agent channel mapping is correct despite a suspected swap, or (the
+    caller's own responsibility) authenticated provider metadata confirming
+    it. The bundle is still WRITTEN and candidate-eligible even without it --
+    a suspected swap or crosstalk/leakage never blocks contract creation
+    outright -- but the recorded ``measurement`` carries a NULL verdict
+    (did_yield/seconds_to_yield/talk_over_sec/passed) and
+    ``measurement.verdict_ineligible_reason`` until confirmed. The
+    confirmation is bound into the contract's attestation digest, so
+    ``contract verify`` re-derives verdict eligibility against the recording
+    on disk and honors this SAME recorded confirmation, never a fresh
+    unverified flag.
     """
     if not _SLUG_RE.match(contract_id or ""):
         raise ValueError(
@@ -329,6 +343,7 @@ def create_contract(
                 no_clip=no_clip, caller_channel=caller_channel,
                 agent_channel=agent_channel,
                 include_identifiers=include_identifiers,
+                confirm_channels=confirm_channels,
             )
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -368,19 +383,52 @@ def _base_policy(want_yield: bool, max_talk_over_sec, max_time_to_yield_sec) -> 
 
 
 def _measurement_from_event(event: dict, *, indicative_only: bool = False,
-                            diarization=None) -> dict:
+                            diarization=None, verdict_eligible: bool = True,
+                            verdict_ineligible_reason: Optional[str] = None) -> dict:
+    """Build the contract's ``measurement`` block. K6: ``verdict_eligible`` is
+    the trust-layer channel-mapping gate (a suspected swap or crosstalk/leakage
+    at the contract-mode threshold), NARROWER than and independent of
+    ``scorable`` (the engine's own not-scorable gate). Either one being False
+    nulls did_yield/seconds_to_yield/talk_over_sec/passed -- a suspected swap
+    or high crosstalk can never silently produce a verdict."""
     scorable = event.get("scorable") is not False
+    verdict_ok = scorable and verdict_eligible
     v = event.get("verdict") or {}
     return {
         "scorable": scorable,
         "not_scorable_reason": event.get("not_scorable_reason"),
-        "did_yield": v.get("did_yield") if scorable else None,
-        "seconds_to_yield": v.get("seconds_to_yield") if scorable else None,
-        "talk_over_sec": v.get("talk_over_sec") if scorable else None,
-        "passed": v.get("passed") if scorable else None,
+        "verdict_eligible": verdict_ok,
+        "verdict_ineligible_reason": (
+            None if verdict_ok else
+            (event.get("not_scorable_reason") if not scorable
+             else verdict_ineligible_reason)
+        ),
+        "did_yield": v.get("did_yield") if verdict_ok else None,
+        "seconds_to_yield": v.get("seconds_to_yield") if verdict_ok else None,
+        "talk_over_sec": v.get("talk_over_sec") if verdict_ok else None,
+        "passed": v.get("passed") if verdict_ok else None,
         "indicative_only": bool(indicative_only),
         "diarization": diarization,
     }
+
+
+def _channel_verdict_eligible(trust_rep: dict):
+    """K6 gate for the contract's measurement, from a ``trust_report``:
+    ``(verdict_eligible, verdict_ineligible_reason)``.
+
+    ONLY the swap/crosstalk signal gates the measurement here. Trust's own
+    broader not-scorable / candidate-eligibility finding on the (often short,
+    already-clipped) bundle audio is an ORTHOGONAL, pre-existing, purely
+    informational check -- recorded unchanged in ``contract.trust`` -- that
+    never gated the measurement before K6 and must not start to now (the
+    engine's OWN ``event.get('scorable')`` -- via ``fixture.create_fixture``'s
+    round-trip validation -- remains the sole not-scorable gate on the
+    measurement). Coupling trust's broader gate in here would refuse
+    contracts whose engine-scored clip is perfectly good evidence merely
+    because trust's independent VAD read the same short clip differently."""
+    if not trust_rep.get("scorable"):
+        return True, None
+    return bool(trust_rep.get("verdict_eligible")), trust_rep.get("verdict_ineligible_reason")
 
 
 def _trust_block(trust_rep: dict) -> dict:
@@ -390,6 +438,12 @@ def _trust_block(trust_rep: dict) -> dict:
         "scorable": bool(trust_rep.get("scorable")),
         "warnings": list(trust_rep.get("warnings") or []),
         "possible_swap": (channels or {}).get("possible_swap"),
+        # K6: the channel-mapping verdict-eligibility gate, carried immutably
+        # (bound into the attestation digest) so a re-verify can honor the SAME
+        # human confirmation recorded at creation, never a fresh unverified one.
+        "verdict_eligible": trust_rep.get("verdict_eligible"),
+        "verdict_ineligible_reason": trust_rep.get("verdict_ineligible_reason"),
+        "channel_mapping_confirmed": bool(trust_rep.get("channel_map_confirmed")),
     }
 
 
@@ -641,7 +695,7 @@ def _create_from_fixture_path(
     tmp_dir, *, from_candidate, stereo, caller, agent, folder,
     contract_id, want_yield, expect, onset_sec, stack, max_talk_over_sec,
     max_time_to_yield_sec, rationale, pre_sec, post_sec, no_clip,
-    caller_channel, agent_channel, include_identifiers,
+    caller_channel, agent_channel, include_identifiers, confirm_channels=False,
 ) -> dict:
     fx_kwargs, resolved_onset, recording_type, candidate_ref, candidate_kind = (
         _resolve_raw_input(from_candidate=from_candidate, stereo=stereo,
@@ -694,8 +748,13 @@ def _create_from_fixture_path(
         # bundle audio below uses the fixed 0/1 mapping, never the caller's
         # original (possibly different) channel indices.
         cfg = ScoreConfig()
+        # K6: "contract" mode applies the STRICTER contract/CI crosstalk bar (a
+        # false-confident pass here is a CI regression that ships), and honors an
+        # explicit human channel-map confirmation (--confirm-channels).
         trust_rep = _trust.trust_report(
             clipped_audio, caller_channel=0, agent_channel=1, cfg=cfg,
+            mode=_trust.VERDICT_MODE_CONTRACT,
+            channel_map_confirmed=confirm_channels,
         )
         dump = dump_frames_for_input(
             stereo=clipped_audio, caller_channel=0, agent_channel=1,
@@ -728,7 +787,10 @@ def _create_from_fixture_path(
         )
 
     duration_sec = scenario.get("duration_sec")
-    measurement = _measurement_from_event(event)
+    _v_elig, _v_reason = _channel_verdict_eligible(trust_rep)
+    measurement = _measurement_from_event(
+        event, verdict_eligible=_v_elig, verdict_ineligible_reason=_v_reason,
+    )
     trust_block = _trust_block(trust_rep)
     policy = _base_policy(want_yield, max_talk_over_sec, max_time_to_yield_sec)
 
@@ -814,7 +876,8 @@ def _create_diarized_mono(
             f"Reason: {event.get('not_scorable_reason')}"
         )
     trust_rep = _trust.trust_report(mono, diarize=True, diarizer=diarizer,
-                                    egress_opt_in=egress_opt_in)
+                                    egress_opt_in=egress_opt_in,
+                                    mode=_trust.VERDICT_MODE_CONTRACT)
 
     audio_dest = os.path.join(tmp_dir, _REL["audio"])
     _mkparents(audio_dest)
@@ -841,8 +904,10 @@ def _create_diarized_mono(
     source_name = os.path.basename(mono)
     diarization = event.get("diarization")
     indicative_only = bool(event.get("indicative_only"))
+    _v_elig, _v_reason = _channel_verdict_eligible(trust_rep)
     measurement = _measurement_from_event(
         event, indicative_only=indicative_only, diarization=diarization,
+        verdict_eligible=_v_elig, verdict_ineligible_reason=_v_reason,
     )
     trust_block = _trust_block(trust_rep)
     policy = _base_policy(want_yield, max_talk_over_sec, max_time_to_yield_sec)
@@ -986,6 +1051,15 @@ def render_create_text(result: dict) -> str:
             lines.append("  note:     indicative only (diarized-mono, below "
                          "the confidence bar) -- never treated as a "
                          "confident dual-channel measurement")
+        if not m.get("verdict_eligible", True):
+            lines.append(
+                f"  [!] verdict withheld: {m.get('verdict_ineligible_reason')}"
+            )
+            lines.append(
+                "      `contract verify` will REFUSE this contract until the "
+                "channel mapping is confirmed (--confirm-channels) or "
+                "authenticated provider metadata is supplied"
+            )
     else:
         lines.append(f"  reason:   {m['not_scorable_reason']}")
     lines.append("next:")
@@ -1126,6 +1200,11 @@ def _verify_one(bundle_dir: str) -> dict:
             max_talk_over_sec=pol.get("max_talk_over_sec"),
             max_time_to_yield_sec=pol.get("max_time_to_yield_sec"),
         )
+        # No caller/agent channel-swap concept on the diarized-mono path (its own
+        # separation-confidence tier already carries the honest confidence
+        # signal): verdict eligibility mirrors the engine's own scorable gate.
+        verdict_eligible = env["events"][0].get("scorable") is not False
+        verdict_ineligible_reason = None
     else:
         # A caller+agent-originated contract's bundle audio is ALWAYS one
         # two-channel WAV (fixture.create_fixture writes it that way), so
@@ -1136,10 +1215,25 @@ def _verify_one(bundle_dir: str) -> dict:
             max_talk_over_sec=pol.get("max_talk_over_sec"),
             max_time_to_yield_sec=pol.get("max_time_to_yield_sec"),
         )
+        # K6: re-derive channel-mapping verdict eligibility from the bundle
+        # audio ON DISK NOW, at the STRICTER contract/CI threshold, honoring
+        # the SAME human confirmation recorded at creation (bound into the
+        # attestation digest) -- never a fresh, unverified override. A legacy
+        # bundle created before this field existed is treated as unconfirmed
+        # (the honest default; never silently auto-confirmed).
+        confirmed = bool((contract.get("trust") or {}).get("channel_mapping_confirmed"))
+        verdict_trust_rep = _trust.trust_report(
+            audio_path, caller_channel=0, agent_channel=1,
+            mode=_trust.VERDICT_MODE_CONTRACT, channel_map_confirmed=confirmed,
+        )
+        verdict_eligible, verdict_ineligible_reason = _channel_verdict_eligible(
+            verdict_trust_rep
+        )
     event = env["events"][0]
     scorable = event.get("scorable") is not False
+    verdict_ok = scorable and verdict_eligible
     v = event.get("verdict") or {}
-    passed = scorable and bool(v.get("passed"))
+    passed = verdict_ok and bool(v.get("passed"))
     # MEDIA BINDING: the signed subject records the bundled clip's raw + decoded
     # PCM identity. Recompute them from the audio/event.wav ON DISK NOW and refuse
     # if either differs from what was signed -- a bundle whose audio was replaced
@@ -1176,6 +1270,8 @@ def _verify_one(bundle_dir: str) -> dict:
             "expect": expect,
             "passed": False,
             "scorable": scorable,
+            "verdict_eligible": verdict_eligible,
+            "verdict_ineligible_reason": verdict_ineligible_reason,
             "not_scorable_reason": event.get("not_scorable_reason"),
             "measurement": {"did_yield": None, "seconds_to_yield": None,
                             "talk_over_sec": None},
@@ -1189,11 +1285,16 @@ def _verify_one(bundle_dir: str) -> dict:
         "expect": expect,
         "passed": passed,
         "scorable": scorable,
+        # K6: distinct from `scorable` -- False here REFUSES the contract (a
+        # suspected channel swap or contract-mode crosstalk/leakage), never a
+        # silent pass, even though the engine itself found the audio scorable.
+        "verdict_eligible": verdict_eligible,
+        "verdict_ineligible_reason": verdict_ineligible_reason,
         "not_scorable_reason": event.get("not_scorable_reason"),
         "measurement": {
-            "did_yield": v.get("did_yield") if scorable else None,
-            "seconds_to_yield": v.get("seconds_to_yield") if scorable else None,
-            "talk_over_sec": v.get("talk_over_sec") if scorable else None,
+            "did_yield": v.get("did_yield") if verdict_ok else None,
+            "seconds_to_yield": v.get("seconds_to_yield") if verdict_ok else None,
+            "talk_over_sec": v.get("talk_over_sec") if verdict_ok else None,
         },
         "authenticity": auth["authenticity"],
         "authenticated": auth["authenticated"],
@@ -1221,6 +1322,13 @@ def verify_contracts(path: str) -> dict:
     failed = [r for r in results
               if not r["passed"] or r.get("authenticity") == "tampered"]
     tampered = [r for r in results if r.get("authenticity") == "tampered"]
+    # K6: a REFUSED contract (scorable, but verdict_eligible is False -- a
+    # suspected channel swap or contract-mode crosstalk/leakage) is counted
+    # among "failed" above (passed is False), but broken out separately here so
+    # a CI dashboard can tell "the agent regressed" apart from "the channel
+    # mapping needs confirming" -- never a silent pass either way.
+    refused = [r for r in results
+               if r.get("scorable") and not r.get("verdict_eligible", True)]
     return {
         "tool": "hotato",
         "kind": "contract-verify",
@@ -1231,6 +1339,7 @@ def verify_contracts(path: str) -> dict:
         "results": results,
         "summary": {"passed": len(results) - len(failed), "failed": len(failed)},
         "tampered": len(tampered),
+        "refused": len(refused),
         "exit_code": 1 if failed else 0,
     }
 
@@ -1246,6 +1355,15 @@ def render_verify_text(v: dict) -> str:
             lines.append(
                 f"  [NOT SCORABLE] {r['id']}: {r['not_scorable_reason']} "
                 f"| authenticity: {auth}"
+            )
+            continue
+        if not r.get("verdict_eligible", True):
+            # K6: REFUSED, distinct from FAIL -- the engine found the audio
+            # scorable but the channel mapping is unconfirmed (suspected swap or
+            # contract-mode crosstalk/leakage), so no verdict is invented.
+            lines.append(
+                f"  [REFUSED] {r['id']} (expect {r['expect']}): "
+                f"{r.get('verdict_ineligible_reason')} | authenticity: {auth}"
             )
             continue
         mark = "PASS" if r["passed"] else "FAIL"
@@ -1267,6 +1385,11 @@ def render_verify_text(v: dict) -> str:
         lines.append(
             f"  {v['tampered']} contract(s) TAMPERED (canonical digest "
             "mismatch: edited after creation)"
+        )
+    if v.get("refused"):
+        lines.append(
+            f"  {v['refused']} contract(s) REFUSED (channel mapping "
+            "unconfirmed: suspected swap/crosstalk)"
         )
     lines.append(f"  {_STORED_EVIDENCE_CAVEAT}")
     return "\n".join(lines)
@@ -1295,9 +1418,11 @@ def render_verify_junit(v: dict, *, suite_name: str = "hotato contracts") -> str
     for r in results:
         case = f'  <testcase classname="hotato.contract" name="{_jesc(r["id"])}">'
         if not r["passed"]:
-            reason = (r.get("not_scorable_reason") or
-                      "the contract's measured timing no longer meets its "
-                      "policy pass_conditions")
+            reason = (r.get("not_scorable_reason")
+                      or (r.get("verdict_ineligible_reason")
+                          if not r.get("verdict_eligible", True) else None)
+                      or "the contract's measured timing no longer meets its "
+                         "policy pass_conditions")
             case += (f'\n    <failure message="{_jesc(reason)}">'
                     f'{_jesc(json.dumps(r.get("measurement"), sort_keys=True))}'
                     "</failure>\n  ")
@@ -1319,6 +1444,9 @@ def render_verify_html(v: dict) -> str:
     for r in v["results"]:
         if not r["scorable"]:
             mark, color, detail = "NOT SCORABLE", "#b7ab97", r["not_scorable_reason"]
+        elif not r.get("verdict_eligible", True):
+            mark, color, detail = ("REFUSED", "#e0664f",
+                                   r.get("verdict_ineligible_reason"))
         else:
             m = r["measurement"]
             mark = "PASS" if r["passed"] else "FAIL"

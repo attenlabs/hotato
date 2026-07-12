@@ -375,7 +375,12 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
             stereo=stereo, expect=label, out_dir=cdir, onset_sec=top_onset,
             contract_id="own-call-001", caller_channel=caller_channel,
             agent_channel=agent_channel,
-            max_time_to_yield_sec=None, max_talk_over_sec=None)
+            max_time_to_yield_sec=None, max_talk_over_sec=None,
+            # K6: forward the SAME confirmation that already unblocked us above
+            # (or the honest False when there was no swap to confirm), so
+            # create_contract's own channel-mapping gate never re-refuses a
+            # verdict this flow already got a human confirmation for.
+            confirm_channels=confirm_channels)
         contract_info = {"id": "own-call-001", "dir": os.path.relpath(
             res.get("dir", cdir), out_dir)}
         # evidence tier for ONE measured recording (never paired here)

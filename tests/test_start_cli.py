@@ -21,9 +21,12 @@ Pinned here:
 """
 
 import json
+import math
 import os
 import socket
+import struct
 import urllib.request
+import wave
 from importlib import resources
 
 import pytest
@@ -238,3 +241,66 @@ def test_start_stub_mode_routes_to_the_shipped_command(capsys):
     out = capsys.readouterr().out
     assert "not yet in this build" in out
     assert "hotato sweep" in out
+
+
+# --- K6: --stereo --confirm-channels reaches create_contract's own gate -----
+
+def _write_swapped_stereo(path, *, duration_sec=6.0, sr=16000):
+    """A dual-channel call whose caller (ch0) dominates and agent (ch1) is
+    brief -- the reverse of the usual pattern, tripping the swap heuristic."""
+    n = int(duration_sec * sr)
+
+    def _on(segs, t):
+        return any(s <= t < e for s, e in segs)
+
+    caller_segments = [(0.2, 5.8)]
+    agent_segments = [(2.0, 2.5)]
+    frames = bytearray()
+    for i in range(n):
+        t = i / sr
+        c = int(0.35 * 32767 * math.sin(2 * math.pi * 220.0 * i / sr)) if _on(caller_segments, t) else 0
+        a = int(0.35 * 32767 * math.sin(2 * math.pi * 330.0 * i / sr)) if _on(agent_segments, t) else 0
+        frames += struct.pack("<hh", c, a)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(bytes(frames))
+    return str(path)
+
+
+def test_start_stereo_confirm_channels_reaches_a_real_verdict(tmp_path, capsys):
+    p = _write_swapped_stereo(tmp_path / "swapped.wav")
+    unconfirmed_dir = tmp_path / "unconfirmed"
+    confirmed_dir = tmp_path / "confirmed"
+    unconfirmed_dir.mkdir()
+    confirmed_dir.mkdir()
+
+    # Without --confirm-channels: start.py's own swap_blocked gate skips
+    # contract creation entirely (pre-existing behavior) -- no verdict either
+    # way, never silently invented.
+    rc = cli.main([
+        "start", "--stereo", p, "--dir", str(unconfirmed_dir), "--label", "hold",
+        "--onset", "2.0", "--format", "json",
+    ])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["possible_channel_swap"] is True
+    assert payload["contract"] is None
+
+    # With --confirm-channels: the SAME confirmation must reach
+    # create_contract's own K6 gate (not just unblock start.py's earlier
+    # check), so the contract carries a REAL, non-null verdict.
+    rc2 = cli.main([
+        "start", "--stereo", p, "--dir", str(confirmed_dir),
+        "--label", "hold", "--onset", "2.0", "--confirm-channels",
+        "--format", "json",
+    ])
+    assert rc2 == 0
+    payload2 = json.loads(capsys.readouterr().out)
+    assert payload2["contract"] is not None
+    contract_json = confirmed_dir / payload2["contract"]["dir"] / "contract.json"
+    doc = json.loads(contract_json.read_text())
+    m = doc["measurement"]
+    assert m["verdict_eligible"] is True
+    assert m["did_yield"] is not None

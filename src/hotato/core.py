@@ -282,6 +282,8 @@ def _event_from_result(
     echo_gate: bool = False,
     resume: Optional[dict] = None,
     audio_provenance: Optional[dict] = None,
+    expected_yield_explicit: bool = True,
+    label_record: Optional[dict] = None,
 ) -> dict:
     verdict = evaluate(result, expected)
     expected_yield = bool(expected.get("yield", True))
@@ -382,6 +384,20 @@ def _event_from_result(
     # reads is unchanged.
     if audio_provenance is not None:
         event["audio_provenance"] = audio_provenance
+    # Additive (K5): whether the underlying scenario's own "expected" mapping
+    # was EXPLICITLY authored (a human wrote this label) vs defaulted (no
+    # expectation given at all). This -- never the always-present
+    # expected_yield field below -- is what manifest.build_manifest reads to
+    # tell an explicit human expectation apart from a silent default; a
+    # caller that does not supply one (every existing path here always
+    # explicitly asserts its own expectation) keeps the True default.
+    event["expected_yield_explicit"] = bool(expected_yield_explicit)
+    # Additive (K5): a signed label-record (hotato.labelrecord) minted for
+    # this exact event, if one was made (e.g. `hotato fixture create`).
+    # Present only when supplied, so an envelope with no label-record stays
+    # byte-identical to before this field existed.
+    if label_record is not None:
+        event["label_record"] = label_record
     # A corpus label marking a NON-SPEECH ambient fixture (family "noise-hold" /
     # tag "non-speech"): a VAD/noise-floor sensitivity case, not a backchannel.
     # Recorded as a durable, additive marker ONLY when true, so a scored envelope
@@ -1373,6 +1389,13 @@ def run_suite(
             wav_path = _bundled_audio_path(sid, suffix)
 
         expected = sc.get("expected", {"yield": True})
+        # K5: whether THIS scenario explicitly authored its own "expected"
+        # mapping (a human wrote this label) vs silently defaulting to
+        # {"yield": True}. The always-present derived `expected_yield` field
+        # below can never answer this (every event gets one); this is the
+        # real, source-level signal manifest.build_manifest reads.
+        expected_yield_explicit = "expected" in sc
+        label_record = sc.get("label_record")
         if not os.path.exists(wav_path):
             # A missing audio file is an INPUT problem, not a measurement: there
             # is no recording to score, so we must not fabricate a
@@ -1394,6 +1417,7 @@ def run_suite(
                     "title": sc.get("title"),
                     "category": sc.get("category"),
                     "expected_yield": bool(expected.get("yield", True)),
+                    "expected_yield_explicit": expected_yield_explicit,
                     "scorable": False,
                     "not_scorable_reason": reason,
                     "verdict": {
@@ -1473,6 +1497,8 @@ def run_suite(
                 echo_gate=echo_gate,
                 resume=resume,
                 audio_provenance=_audio_provenance(("stereo", wav_path)),
+                expected_yield_explicit=expected_yield_explicit,
+                label_record=label_record,
             )
         )
 

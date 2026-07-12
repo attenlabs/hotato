@@ -71,6 +71,30 @@ def _contract_json(tmp_path, cid):
         return json.load(fh)
 
 
+def _write_stereo(path, caller_segments, agent_segments, *, duration_sec=6.0,
+                  sr=16000, caller_amp=0.35, agent_amp=0.35):
+    """Two-channel PCM WAV: caller on channel 0, agent on channel 1 (mirrors
+    tests/test_trust.py's fixture builder, so a swap-heuristic construction
+    there reproduces identically here)."""
+    n = int(duration_sec * sr)
+
+    def _on(segments, t):
+        return any(start <= t < end for start, end in segments)
+
+    frames = bytearray()
+    for i in range(n):
+        t = i / sr
+        c = int(caller_amp * 32767 * math.sin(2 * math.pi * 220.0 * i / sr)) if _on(caller_segments, t) else 0
+        a = int(agent_amp * 32767 * math.sin(2 * math.pi * 330.0 * i / sr)) if _on(agent_segments, t) else 0
+        frames += struct.pack("<hh", c, a)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(bytes(frames))
+    return str(path)
+
+
 def _write_mono(path, segments, *, duration_sec=6.0, sr=16000):
     n = int(duration_sec * sr)
 
@@ -954,3 +978,119 @@ def test_verify_re_scores_a_diarized_mono_contract(tmp_path, stub_diarizer):
     # policy already gave at creation time (nothing else changed).
     rc = cli.main(["contract", "verify", str(tmp_path)])
     assert rc == 0
+
+
+# --- K6: verdict eligibility (channel-mapping ambiguity never ships a verdict) --
+#
+# A suspected channel swap keeps the recording CANDIDATE-eligible (the contract
+# is still created; the clip/audio/candidates are still real evidence for
+# advisory review) but must refuse a YIELD/HOLD VERDICT: did_yield /
+# seconds_to_yield / talk_over_sec / passed are all null, `contract verify`
+# REFUSES (exit 1, distinct from a genuine FAIL), and an explicit
+# --confirm-channels flips it back to scoring normally.
+
+_SWAPPED_CALLER = [(0.2, 5.8)]   # dominant: mapped as caller, but the LONG speaker
+_SWAPPED_AGENT = [(2.0, 2.5)]    # brief: mapped as agent -- reverse of the usual pattern
+
+
+def test_swapped_channels_create_a_contract_with_a_null_verdict(tmp_path):
+    p = _write_stereo(tmp_path / "swapped.wav",
+                      caller_segments=_SWAPPED_CALLER, agent_segments=_SWAPPED_AGENT)
+    rc = cli.main([
+        "contract", "create", "--stereo", p, "--id", "ct-swap",
+        "--onset", "2.0", "--expect", "hold", "--out", str(tmp_path),
+    ])
+    # Candidate-eligible: the bundle is still created (advisory evidence
+    # preserved), never refused outright the way a not-scorable input is.
+    assert rc == 0
+    assert _bundle(tmp_path, "ct-swap").exists()
+    c = _contract_json(tmp_path, "ct-swap")
+    m = c["measurement"]
+    assert m["scorable"] is True
+    assert c["trust"]["possible_swap"] is True
+    # But the verdict itself is withheld -- distinct from and narrower than
+    # `scorable`.
+    assert m["verdict_eligible"] is False
+    assert m["verdict_ineligible_reason"] and "swap" in m["verdict_ineligible_reason"]
+    assert m["did_yield"] is None
+    assert m["seconds_to_yield"] is None
+    assert m["talk_over_sec"] is None
+    assert m["passed"] is None
+    assert c["trust"]["verdict_eligible"] is False
+    assert c["trust"]["channel_mapping_confirmed"] is False
+
+
+def test_swapped_channels_contract_is_refused_by_verify(tmp_path):
+    p = _write_stereo(tmp_path / "swapped.wav",
+                      caller_segments=_SWAPPED_CALLER, agent_segments=_SWAPPED_AGENT)
+    cdir = tmp_path / "contracts"
+    cdir.mkdir()
+    assert cli.main([
+        "contract", "create", "--stereo", p, "--id", "ct-swap",
+        "--onset", "2.0", "--expect", "hold", "--out", str(cdir),
+    ]) == 0
+    rc = cli.main(["contract", "verify", str(cdir)])
+    # A contract/CI gate must REFUSE (never silently pass) an unconfirmed swap.
+    assert rc == 1
+    v = _contract.verify_result_json(_contract.verify_contracts(str(cdir)))
+    assert v["exit_code"] == 1
+    assert v["refused"] == 1
+    assert v["summary"]["passed"] == 0
+    r = v["results"][0]
+    assert r["scorable"] is True
+    assert r["verdict_eligible"] is False
+    assert r["passed"] is False
+    assert r["measurement"]["did_yield"] is None
+    text = _contract.render_verify_text(v)
+    assert "[REFUSED]" in text
+    assert "ct-swap" in text
+
+
+def test_confirmed_channel_mapping_scores_normally(tmp_path):
+    p = _write_stereo(tmp_path / "swapped.wav",
+                      caller_segments=_SWAPPED_CALLER, agent_segments=_SWAPPED_AGENT)
+    cdir = tmp_path / "contracts"
+    cdir.mkdir()
+    assert cli.main([
+        "contract", "create", "--stereo", p, "--id", "ct-swap-confirmed",
+        "--onset", "2.0", "--expect", "hold", "--out", str(cdir),
+        "--confirm-channels",
+    ]) == 0
+    c = _contract_json(cdir, "ct-swap-confirmed")
+    m = c["measurement"]
+    assert m["verdict_eligible"] is True
+    assert m["verdict_ineligible_reason"] is None
+    # A REAL verdict is produced -- never null once the human confirms the
+    # channel mapping is correct despite the heuristic flag.
+    assert m["did_yield"] is not None
+    assert m["passed"] is not None
+    assert c["trust"]["channel_mapping_confirmed"] is True
+    # And it stays confirmed on re-verify (the confirmation travels with the
+    # bundle -- bound into the attestation digest -- not a fresh CLI flag).
+    v = _contract.verify_contracts(str(cdir))
+    assert v["refused"] == 0
+    r = v["results"][0]
+    assert r["verdict_eligible"] is True
+    assert r["measurement"]["did_yield"] is not None
+
+
+def test_clean_call_contract_is_unaffected_by_verdict_eligibility(tmp_path):
+    # A normal, correctly-mapped call (the existing HARD fixture) must be
+    # completely unaffected by the K6 gate: verdict_eligible True throughout.
+    assert _create(tmp_path) == 0
+    c = _contract_json(tmp_path, "ct-created-001")
+    assert c["measurement"]["verdict_eligible"] is True
+    assert c["measurement"]["verdict_ineligible_reason"] is None
+    assert c["trust"]["verdict_eligible"] is True
+
+
+def test_stricter_contract_mode_crosstalk_threshold_can_refuse_where_scan_warns():
+    # Direct mechanism check (contract.py delegates to trust.py's mode-aware
+    # bar; tests/test_trust.py covers the acoustic-fixture end-to-end case).
+    from hotato import trust as _trust
+    leakage = {"leakage_db": -43.0, "leakage_alters_mask": False,
+               "leakage_crosses_gate": False}
+    assert _trust.crosstalk_verdict_suspected(
+        0.5, leakage, mode=_trust.VERDICT_MODE_SCAN) is False
+    assert _trust.crosstalk_verdict_suspected(
+        0.5, leakage, mode=_trust.VERDICT_MODE_CONTRACT) is True

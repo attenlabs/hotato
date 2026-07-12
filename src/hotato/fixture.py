@@ -40,8 +40,10 @@ from .core import (
     _read_wav,
     _require_channel,
     _require_distinct_channels,
+    _stream_pcm_sha256,
     run_suite,
 )
+from . import labelrecord as _labelrecord
 
 __all__ = [
     "create_fixture",
@@ -109,6 +111,34 @@ def _parse_tags(tags: Optional[str]) -> list:
     return [t.strip() for t in tags.split(",") if t.strip()]
 
 
+def _default_reviewer_principal() -> str:
+    """The reviewer identity a label-record cites when the caller does not
+    supply one: whoever this machine's shell says ran the command."""
+    return (os.environ.get("HOTATO_REVIEWER")
+            or os.environ.get("USER")
+            or os.environ.get("USERNAME")
+            or "unknown-reviewer")
+
+
+def _mint_fixture_label_record(*, audio_path: str, want_yield: bool,
+                               reviewer_principal: Optional[str]) -> Optional[dict]:
+    """Mint a label-record for the fixture's audio (the human running this
+    workflow chose --expect, i.e. the decision), if SOME signing key is
+    configured. Returns ``None`` (never raises) when no key is configured at
+    all: the fixture still gets created, its label just stays an "asserted"
+    (operator-only) expectation rather than a signed "human"/"human-shared"
+    one -- never a crash on a machine that has not set up signing yet."""
+    event_pcm_sha256 = _stream_pcm_sha256(audio_path)
+    try:
+        return _labelrecord.mint_label_record(
+            reviewer_principal=reviewer_principal or _default_reviewer_principal(),
+            event_audio_pcm_sha256=event_pcm_sha256,
+            decision="yield" if want_yield else "hold",
+        )
+    except _labelrecord.NoSigningKeyConfigured:
+        return None
+
+
 def _validate_created(scenario: dict, audio_dir: str,
                       stack: Optional[str]) -> dict:
     """Score the created fixture through the SAME suite runner `hotato run
@@ -145,6 +175,7 @@ def create_fixture(
     agent_channel: int = 1,
     created_by: str = CREATED_BY,
     provenance_extra: Optional[dict] = None,
+    reviewer_principal: Optional[str] = None,
 ) -> dict:
     """Create one regression fixture and validate it. Returns a result dict:
     ``{"id", "paths", "scenario", "validation", "onset", "next"}``.
@@ -250,9 +281,12 @@ def create_fixture(
 
     scenarios_dir = os.path.join(out_dir, "scenarios")
     audio_dir = os.path.join(out_dir, "audio")
+    labels_dir = os.path.join(out_dir, "labels")
     scenario_path = os.path.join(scenarios_dir, fixture_id + ".json")
     audio_path = os.path.join(audio_dir, fixture_id + ".example.wav")
-    existing = [p for p in (scenario_path, audio_path) if os.path.exists(p)]
+    label_path = _labelrecord.label_record_path(labels_dir, fixture_id)
+    existing = [p for p in (scenario_path, audio_path, label_path)
+                if os.path.exists(p)]
     if existing and not force:
         raise ValueError(
             f"fixture {fixture_id!r} already exists ({', '.join(existing)}); "
@@ -266,6 +300,20 @@ def create_fixture(
     write_wav(audio_path, sample_rate,
               [caller_samples[start_idx:end_idx],
                agent_samples[start_idx:end_idx]])
+
+    # A human ran this workflow and chose --expect: mint a signed label-record
+    # bound to the EXACT decoded audio just written, if some signing key is
+    # configured (Ed25519 via sign.py, else the shared HMAC key). Absent a key,
+    # this stays None -- the fixture is still created, just with an honest
+    # "asserted" (not falsely "human") label authority downstream.
+    label_record = _mint_fixture_label_record(
+        audio_path=audio_path, want_yield=want_yield,
+        reviewer_principal=reviewer_principal)
+    if label_record is not None:
+        scenario["label_record"] = label_record
+        os.makedirs(labels_dir, exist_ok=True)
+        _labelrecord.save_label_record(label_path, label_record)
+
     with open(scenario_path, "w", encoding="utf-8") as fh:
         json.dump(scenario, fh, indent=2)
         fh.write("\n")
@@ -276,7 +324,7 @@ def create_fixture(
     if event.get("scorable") is False:
         reason = event.get("not_scorable_reason") or "not scorable"
         if not force:
-            for p in (scenario_path, audio_path):
+            for p in (scenario_path, audio_path, label_path):
                 try:
                     os.remove(p)
                 except OSError:
@@ -504,6 +552,7 @@ def promote_candidate(
     force: bool = False,
     caller_channel: int = 0,
     agent_channel: int = 1,
+    reviewer_principal: Optional[str] = None,
 ) -> dict:
     """Promote one sweep/analyze candidate into a permanent regression
     fixture. Resolves the ref to its candidate (source recording, onset,
@@ -539,6 +588,7 @@ def promote_candidate(
         caller_channel=caller_channel,
         agent_channel=agent_channel,
         created_by=PROMOTED_BY,
+        reviewer_principal=reviewer_principal,
         provenance_extra={
             "candidate_ref": ref,
             "candidate_kind": cand.get("kind"),

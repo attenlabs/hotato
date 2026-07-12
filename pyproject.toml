@@ -51,6 +51,15 @@ pipecat = ["pipecat-ai"]
 # on torch for its segmentation utilities, so this extra installs torch. Absent
 # this extra, `--backend neural` errors cleanly, never falling back to energy.
 neural = ["silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
+# OPTIONAL asymmetric Ed25519 signing layer (hotato.sign): provenance/
+# eligibility, never the reference scoring math, which this never touches.
+# Strictly opt-in: `cryptography` is imported lazily, only inside
+# keygen()/sign()/verify(), never at module import time, so a plain install
+# stays zero-dependency and offline. Absent this extra, signing/verification
+# raise a clean BackendUnavailable; nothing falls back silently to an
+# unsigned or shared-secret (HMAC, see attest.py) tier.
+# License: cryptography is dual-licensed Apache-2.0 OR BSD-3-Clause.
+sign = ["cryptography>=41"]
 # OPTIONAL, NON-REFERENCE mono-scorability front-end (speaker diarization).
 # Strictly opt-in via `hotato run --mono call.wav --diarize`; the zero-dependency
 # energy core AND the dual-channel path stay the gold reference and are never
@@ -79,7 +88,7 @@ diarize-hosted = ["pyannoteai-sdk>=0.3"]                                        
 # Whisper model weights MIT (OpenAI).
 transcribe = ["faster-whisper>=1.0"]
 # Everything a contributor might want to exercise the live capture paths locally.
-all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "faster-whisper>=1.0"]
+all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21", "cryptography>=41", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "faster-whisper>=1.0"]
 
 [project.scripts]
 hotato = "hotato.cli:main"

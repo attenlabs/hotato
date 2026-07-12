@@ -59,7 +59,9 @@
         "talk_over_sec": { "type": ["number", "null"] },
         "passed": { "type": ["boolean", "null"] },
         "indicative_only": { "type": "boolean" },
-        "diarization": { "type": ["object", "null"] }
+        "diarization": { "type": ["object", "null"] },
+        "verdict_eligible": { "type": "boolean", "description": "K6: narrower than scorable -- false (with verdict_ineligible_reason set) withholds did_yield/seconds_to_yield/talk_over_sec/passed (all null) even on scorable audio, when a channel swap or crosstalk/leakage is suspected and unconfirmed." },
+        "verdict_ineligible_reason": { "type": ["string", "null"] }
       }
     },
     "trust": {
@@ -70,7 +72,10 @@
         "status": { "type": "string" },
         "scorable": { "type": "boolean" },
         "warnings": { "type": "array", "items": { "type": "string" } },
-        "possible_swap": { "type": ["boolean", "null"] }
+        "possible_swap": { "type": ["boolean", "null"] },
+        "verdict_eligible": { "type": ["boolean", "null"] },
+        "verdict_ineligible_reason": { "type": ["string", "null"] },
+        "channel_mapping_confirmed": { "type": "boolean", "description": "K6: a human explicit confirmation (or the caller's own authenticated provider metadata) that the caller/agent channel mapping is correct despite a suspected swap; bound into the attestation digest, so contract verify re-derives eligibility and honors this SAME recorded confirmation." }
       }
     },
     "policy": {

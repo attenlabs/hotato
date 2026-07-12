@@ -61,6 +61,13 @@ __all__ = [
     "NOTE",
     "SAFE_RECOMMENDATION",
     "NEXT_STEP_CHANNEL_MAP",
+    "VERDICT_MODE_SCAN",
+    "VERDICT_MODE_CONTRACT",
+    "VERDICT_MODES",
+    "VERDICT_COHERENCE_THRESHOLD",
+    "VERDICT_LEAKAGE_DB",
+    "VERDICT_INELIGIBLE_REASON",
+    "crosstalk_verdict_suspected",
 ]
 
 NOTE = (
@@ -197,6 +204,68 @@ LEAKAGE_GATE_MARGIN_DB = 6.0
 LOW_SIGNAL_WARN_DBFS = -30.0
 
 CAUTION_RECOMMENDATION = "scan with caution"
+
+# --- K6: verdict eligibility, distinct from candidate/scan eligibility ------
+# ``scorable`` (aliased below as ``candidate_eligible``) says the audio is
+# usable at all: separated tracks, enough activity on each side -- the bar
+# ``scan`` needs to surface ADVISORY candidates + audio for human review.
+# ``verdict_eligible`` is a NARROWER, separate gate: a suspected channel swap,
+# or cross-channel crosstalk/leakage at or above a VERDICT threshold, refuses
+# a yield/hold VERDICT (did_yield / seconds_to_yield / talk_over_sec / verdict)
+# even though the input stays candidate-eligible. This is what stops a
+# suspected swap or high crosstalk from silently producing a confident-looking
+# verdict: candidate discovery (`scan`) never emitted one anyway, but `run` /
+# `contract create` / `contract verify` do, and they must check this field
+# before doing so.
+VERDICT_MODE_SCAN = "scan"
+VERDICT_MODE_CONTRACT = "contract"
+VERDICT_MODES = (VERDICT_MODE_SCAN, VERDICT_MODE_CONTRACT)
+
+# Whole-clip echo coherence bar used for VERDICT eligibility, by mode. "scan"
+# reuses the existing crosstalk-risk bar (DEFAULT_COHERENCE_THRESHOLD, the same
+# number `echo_suspected` uses); "contract" (contract create/verify, and any CI
+# gate) is STRICTER -- it trips at a lower coherence -- because a false-
+# confident CI pass is more costly than an advisory scan caution.
+VERDICT_COHERENCE_THRESHOLD = {
+    VERDICT_MODE_SCAN: DEFAULT_COHERENCE_THRESHOLD,
+    VERDICT_MODE_CONTRACT: 0.6,
+}
+# Leak-ratio dB bar used for VERDICT eligibility, by mode. "scan" reuses the
+# existing LEAKAGE_WARN_DB bar; "contract" is stricter at -46 dB -- the
+# documented "faint, safe" boundary the dynamic gate-crossing rule already
+# discusses above (LEAKAGE_GATE_MARGIN_DB) -- closing that gap for the
+# higher-stakes contract/CI gate.
+VERDICT_LEAKAGE_DB = {
+    VERDICT_MODE_SCAN: LEAKAGE_WARN_DB,
+    VERDICT_MODE_CONTRACT: -46.0,
+}
+
+# The reason a verdict-ineligible consumer emits in place of a real
+# did_yield/seconds_to_yield/talk_over_sec/verdict. Stable wording: consumers
+# (contract.py, core.py) rely on this exact string.
+VERDICT_INELIGIBLE_REASON = (
+    "channel mapping unconfirmed: suspected swap/crosstalk; confirm mapping "
+    "or supply provider metadata"
+)
+
+
+def crosstalk_verdict_suspected(coherence: float, leakage: dict, *, mode: str) -> bool:
+    """Is cross-channel crosstalk/leakage severe enough, at ``mode``'s VERDICT
+    bar, to refuse a yield/hold verdict? ``coherence`` is the whole-clip echo
+    cosine (mode-independent number); ``leakage`` is `_leakage_estimate`'s
+    return dict. The dB-free, honest checks (the leak alters the receiver's
+    activity mask, or crosses its VAD gate for a sustained run) are ALWAYS
+    additive regardless of mode -- only the numeric coherence/leak-ratio bars
+    vary by mode. For ``mode="scan"`` this is IDENTICAL to the existing
+    ``crosstalk_risk.suspected`` (echo_suspected OR leakage_suspected)."""
+    if mode not in VERDICT_MODES:
+        raise ValueError(f"mode must be one of {VERDICT_MODES!r}; got {mode!r}.")
+    if coherence >= VERDICT_COHERENCE_THRESHOLD[mode]:
+        return True
+    if leakage.get("leakage_alters_mask") or leakage.get("leakage_crosses_gate"):
+        return True
+    db = leakage.get("leakage_db")
+    return db is not None and db >= VERDICT_LEAKAGE_DB[mode]
 
 
 def _peak_and_clip(samples, clip_lin: float) -> Tuple[float, float]:
@@ -486,7 +555,8 @@ def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop,
             candidates.append((db, cons, lag, direction, crosses, alters))
     if not candidates:
         return {"leakage_db": None, "leakage_direction": None,
-                "leakage_lag_sec": None, "leakage_suspected": False}
+                "leakage_lag_sec": None, "leakage_suspected": False,
+                "leakage_alters_mask": False, "leakage_crosses_gate": False}
     # The loudest consistent copy (highest dB = most leaked energy) is the worst.
     db, cons, lag, direction, crosses, alters = max(candidates, key=lambda t: t[0])
     return {
@@ -497,6 +567,10 @@ def _leakage_estimate(rms_c, rms_a, caller_active, agent_active, hop,
         # The fixed -40 dB ratio bar and the gate-crossing rule are kept as additive
         # safety nets -- they only ADD suspected cases, never remove one.
         "leakage_suspected": alters or db >= LEAKAGE_WARN_DB or crosses,
+        # The two dB-free/gate signals broken out separately (additive to every
+        # mode's VERDICT bar in crosstalk_verdict_suspected -- see K6 above).
+        "leakage_alters_mask": bool(alters),
+        "leakage_crosses_gate": bool(crosses),
     }
 
 
@@ -509,6 +583,8 @@ def trust_report(
     diarize: bool = False,
     diarizer: str = "pyannote",
     egress_opt_in: bool = False,
+    mode: str = VERDICT_MODE_SCAN,
+    channel_map_confirmed: bool = False,
 ) -> dict:
     """Inspect one recording and return the input-health report.
 
@@ -522,9 +598,26 @@ def trust_report(
 
     ``exit_code`` in the returned dict is 0 when the recording is eligible for
     scan and 2 when it is not, matching the CLI's unusable-input convention.
+
+    ``candidate_eligible`` mirrors ``scorable``: the audio is usable enough for
+    ``scan`` to surface advisory candidates + audio for human review.
+    ``verdict_eligible`` is the NARROWER K6 gate: ``False`` (with
+    ``verdict_ineligible_reason`` set) when a possible channel swap or
+    crosstalk/leakage at or above ``mode``'s verdict threshold means a
+    yield/hold verdict cannot be trusted, even though the input stayed
+    candidate-eligible. ``mode="contract"`` applies a STRICTER crosstalk bar
+    than the default ``mode="scan"`` (see ``VERDICT_COHERENCE_THRESHOLD`` /
+    ``VERDICT_LEAKAGE_DB``), for contract/CI consumers where a false-confident
+    pass is more costly than an advisory scan caution. ``channel_map_confirmed``
+    is a HUMAN explicit confirmation (or the caller having verified authenticated
+    provider metadata) that the caller/agent channel mapping is correct despite
+    the heuristic flag; it flips ``verdict_eligible`` back on (never overrides
+    the not-scorable gate -- an unusable input still cannot carry a verdict).
     """
     from .core import _read_wav  # hardened WAV reader; reused, never reimplemented
 
+    if mode not in VERDICT_MODES:
+        raise ValueError(f"mode must be one of {VERDICT_MODES!r}; got {mode!r}.")
     if cfg is None:
         cfg = ScoreConfig()
 
@@ -554,7 +647,8 @@ def trust_report(
     if signal.num_channels < 2:
         if diarize:
             return _diarize_trust(
-                base, signal, diarizer=diarizer, egress_opt_in=egress_opt_in, cfg=cfg
+                base, signal, diarizer=diarizer, egress_opt_in=egress_opt_in, cfg=cfg,
+                mode=mode, channel_map_confirmed=channel_map_confirmed,
             )
         return _finalize(
             base,
@@ -572,6 +666,9 @@ def trust_report(
                 "cannot be told apart"
             ),
             next_step=NEXT_STEP_DUAL_CHANNEL,
+            verdict_eligible=False,
+            mode=mode,
+            channel_map_confirmed=channel_map_confirmed,
         )
 
     # A real two-channel file: bad channel flags are a usage error (exit 2),
@@ -661,6 +758,13 @@ def trust_report(
         "leakage_db": leakage["leakage_db"],
         "leakage_direction": leakage["leakage_direction"],
     }
+    # K6 VERDICT-level crosstalk suspicion, at mode's (scan vs contract) bar --
+    # independent of the caution/recommendation wording above, which stays on the
+    # existing scan-level bars. For mode="scan" this is identical to
+    # crosstalk_out["suspected"]; mode="contract" can trip where scan would not.
+    crosstalk_verdict_hit = crosstalk_verdict_suspected(
+        crosstalk["coherence"], leakage, mode=mode
+    )
 
     # Scorability: the three things a real score needs.
     separated = not _channels_identical(caller_samples, agent_samples)
@@ -769,16 +873,41 @@ def trust_report(
         )
         next_step = NEXT_STEP_CHANNEL_MAP
 
+    candidate_eligible = reason is None
+    # K6: verdict eligibility is a NARROWER, separate gate from candidate
+    # eligibility. A suspected swap or verdict-level crosstalk/leakage refuses a
+    # verdict even though the input stays candidate-eligible (advisory scan
+    # candidates + audio are still surfaced). An explicit human channel-map
+    # confirmation (or the caller's own authenticated provider metadata) flips
+    # it back on; it never overrides the not-scorable gate.
+    verdict_conflict = swap or crosstalk_verdict_hit
+    if not candidate_eligible:
+        verdict_eligible = False
+        verdict_ineligible_reason = None  # not_scorable_reason already explains
+    elif channel_map_confirmed:
+        verdict_eligible = True
+        verdict_ineligible_reason = None
+    elif verdict_conflict:
+        verdict_eligible = False
+        verdict_ineligible_reason = VERDICT_INELIGIBLE_REASON
+    else:
+        verdict_eligible = True
+        verdict_ineligible_reason = None
+
     return _finalize(
         base,
         channels=channels,
         crosstalk=crosstalk_out,
         scorability=scorability,
         warnings=warnings,
-        scorable=reason is None,
+        scorable=candidate_eligible,
         reason=reason,
         next_step=next_step,
         caution=caution,
+        verdict_eligible=verdict_eligible,
+        verdict_ineligible_reason=verdict_ineligible_reason,
+        mode=mode,
+        channel_map_confirmed=channel_map_confirmed,
     )
 
 
@@ -792,7 +921,9 @@ def _clip_block(peak: float, clipped_fraction: float) -> dict:
 
 
 def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
-              scorable: bool, reason, next_step, caution=None) -> dict:
+              scorable: bool, reason, next_step, caution=None,
+              verdict_eligible: bool = True, verdict_ineligible_reason=None,
+              mode: str = VERDICT_MODE_SCAN, channel_map_confirmed: bool = False) -> dict:
     """Attach the channel/crosstalk/scorability blocks and the recommendation,
     and set the process exit code (0 scorable, 2 not).
 
@@ -806,7 +937,12 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
     the report: "clean" (scorable, no verdict-changing warning), "caution" (scorable
     but a verdict-changing warning is present, i.e. ``caution`` is set), or
     "not_scorable" (a gate failed). It restates in one field what a machine reader
-    would otherwise have to infer from ``scorable`` + the recommendation prefix."""
+    would otherwise have to infer from ``scorable`` + the recommendation prefix.
+
+    ``verdict_eligible`` / ``verdict_ineligible_reason`` (K6): a NARROWER gate
+    than ``scorable``, additive to the report -- see ``trust_report``'s
+    docstring. ``candidate_eligible`` mirrors ``scorable`` under its K6 name.
+    """
     if channels is not None:
         base["channels"] = channels
     if crosstalk is not None:
@@ -814,6 +950,11 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
     base["scorability"] = scorability
     base["warnings"] = warnings
     base["scorable"] = scorable
+    base["candidate_eligible"] = scorable
+    base["verdict_eligible"] = verdict_eligible
+    base["verdict_ineligible_reason"] = verdict_ineligible_reason
+    base["verdict_mode"] = mode
+    base["channel_map_confirmed"] = bool(channel_map_confirmed)
     if scorable:
         base["recommendation"] = caution if caution else SAFE_RECOMMENDATION
         base["input_health"] = "caution" if caution else "clean"
@@ -830,7 +971,8 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
 
 
 def _diarize_trust(base: dict, signal, *, diarizer: str, egress_opt_in: bool,
-                   cfg: ScoreConfig) -> dict:
+                   cfg: ScoreConfig, mode: str = VERDICT_MODE_SCAN,
+                   channel_map_confirmed: bool = False) -> dict:
     """The --diarize path for a mono file: run the opt-in diarizer and report the
     separation confidence tier, WITHOUT scoring. A refused (non-separable) file is
     not scorable (exit 2); high/low tiers are scorable-via-diarized-mono with the
@@ -879,6 +1021,14 @@ def _diarize_trust(base: dict, signal, *, diarizer: str, egress_opt_in: bool,
         base["not_scorable_reason"] = None
         base["next_step"] = None
         base["exit_code"] = 0
+    # K6: the diarized-mono path has no caller/agent channel-swap concept (its
+    # own separation-confidence tier + indicative_only already carry the honest
+    # confidence signal), so verdict eligibility simply mirrors scorability here.
+    base["candidate_eligible"] = base["scorable"]
+    base["verdict_eligible"] = base["scorable"]
+    base["verdict_ineligible_reason"] = None
+    base["verdict_mode"] = mode
+    base["channel_map_confirmed"] = bool(channel_map_confirmed)
     return base
 
 
@@ -950,6 +1100,11 @@ def render_text(report: dict) -> str:
         )
     if report["scorable"]:
         lines.append(f"  => {report['recommendation']}")
+        if not report.get("verdict_eligible", True):
+            lines.append(
+                f"  [!] not verdict-eligible ({report.get('verdict_mode', 'scan')} "
+                f"mode): {report.get('verdict_ineligible_reason')}"
+            )
     else:
         lines.append(f"  => {report['recommendation']}")
         lines.append(f"     next step: {report['next_step']}")

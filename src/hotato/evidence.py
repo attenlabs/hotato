@@ -77,8 +77,23 @@ _DIMENSIONS: Dict[str, Dict[Optional[str], int]] = {
         None: TIER_ASSERTED,
     },
     "label_authority": {
+        # A valid Ed25519-signed label-record (hotato.labelrecord): only a
+        # verified signature bound to the exact decoded audio earns "human" --
+        # never inferred from a bare expectation field's presence (K5).
         "human": TIER_ATTESTED,
+        # A valid HMAC-signed label-record: signed, but a shared-secret
+        # (whoever can verify it could also have forged it) -- strictly below
+        # Ed25519, at the same cap as an unsigned-but-explicit expectation.
+        "human-shared": TIER_PAIRED,
+        # An explicit expectation with NO label-record: someone wrote a label,
+        # but nothing proves who, or that it was reviewed against this exact
+        # recording. Holds a paired proof at PAIRED, never ATTESTED.
+        "asserted": TIER_PAIRED,
         "suggested": TIER_MEASURED,
+        # A label-record was SUPPLIED but failed to verify (tampered body,
+        # wrong/untrusted key, or not bound to this event's decoded audio):
+        # refused outright, strictly below an honestly-absent record.
+        "invalid": TIER_NONE,
         "none": TIER_ASSERTED,
         None: TIER_ASSERTED,
     },

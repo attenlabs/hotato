@@ -2098,6 +2098,7 @@ def _cmd_contract_create(args) -> int:
         caller_channel=args.caller_channel,
         agent_channel=args.agent_channel,
         include_identifiers=args.include_identifiers,
+        confirm_channels=args.confirm_channels,
     )
     if args.format == "json":
         print(_errors.safe_json_dumps(_contract.create_result_json(result), indent=2))
@@ -3995,6 +3996,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="overwrite an existing contract with the same id")
     cc.add_argument("--caller-channel", type=int, default=0)
     cc.add_argument("--agent-channel", type=int, default=1)
+    cc.add_argument("--confirm-channels", action="store_true",
+                    help="human confirmation that the caller/agent channel "
+                         "mapping is correct despite a suspected swap or "
+                         "crosstalk/leakage; without it, such a contract's "
+                         "verdict is withheld (null did_yield/seconds_to_yield/"
+                         "talk_over/passed) and `contract verify` REFUSES it")
     cc.add_argument("--include-identifiers", action="store_true",
                     help="show the source recording's basename / candidate "
                          "ref in the bundle and the card instead of "
