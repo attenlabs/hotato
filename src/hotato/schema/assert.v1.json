@@ -70,6 +70,10 @@
           "const": true,
           "description": "HONESTY INVARIANT: always true for these five kinds -- no model call ever backs a result here, including an INCONCLUSIVE one (which reflects absent required input, not a non-deterministic judgment)."
         },
+        "dimension": {
+          "enum": ["outcome", "policy", "conversation", "speech", "reliability"],
+          "description": "OPTIONAL, additive. The report DIMENSION this result is grouped under in the per-dimension scorecard, copied verbatim from the assertion's `dimension` TAG. A grouping key only -- never a weight and never part of any blended or overall number (the scorecard shows each dimension's own pass/fail/inconclusive counts, never a merged score). Absent on an untagged assertion's result and on envelopes built before this field existed; a consumer must not require it. Reliability (pass^k) is not computed in Phase 1, so a Reliability dimension with no results renders as an explicit 'not yet measured (Phase 2)' placeholder, never a fabricated value."
+        },
         "reason": { "type": "string" },
         "met": { "type": "integer", "minimum": 0, "description": "outcome kind only: sub-predicates satisfied." },
         "of": { "type": "integer", "minimum": 0, "description": "outcome kind only: total sub-predicates evaluated." },

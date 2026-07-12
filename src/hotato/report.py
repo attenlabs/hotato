@@ -756,6 +756,25 @@ def _base_section(env: dict, base_env: dict, base_label: Optional[str]) -> str:
 # ``schema`` key, so it stays decoupled instead of importing across that cycle.
 _ASSERT_SCHEMA = "assert.v1"
 
+# The five report DIMENSIONS the per-dimension scorecard groups results into.
+# Defined here as a bare tuple -- mirroring ``hotato.assert_.RESULT_DIMENSIONS``
+# and ``hotato.conversation_test.REPORT_DIMENSIONS`` -- rather than imported:
+# report.py is imported (via ``hotato.contract``) by ``hotato.trace``, which
+# ``hotato.assert_`` imports, so ``import hotato.assert_`` here would close that
+# cycle (the same reason ``_ASSERT_SCHEMA`` is a bare literal). The scorecard is
+# an ADDITIONAL grouped VIEW of the SAME deterministic results -- each dimension
+# shows its own pass/fail/inconclusive counts, never a merged or overall number.
+_REPORT_DIMENSIONS = ("outcome", "policy", "conversation", "speech", "reliability")
+
+# Reliability (pass^k across repetitions) is NOT computed in Phase 1 -- it
+# arrives in Phase 2. The scorecard therefore shows an explicit placeholder for
+# the Reliability dimension rather than a fabricated value.
+_RELIABILITY_DIMENSION = "reliability"
+_RELIABILITY_PHASE2_NOTE = (
+    "Reliability (pass^k across repetitions) is not yet measured -- it arrives "
+    "in Phase 2. Shown as a placeholder here rather than a fabricated value."
+)
+
 _ASSERT_STATUS_COLORS = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember"}
 
 # A left-border accent per kind so the five assertion dimensions read as
@@ -903,18 +922,137 @@ def _assertion_card(r: dict) -> str:
     )
 
 
+# --- per-dimension scorecard (a grouped VIEW of the same results, no blend) --
+#
+# The scorecard groups the SAME deterministic results by their optional
+# ``dimension`` TAG into the five report dimensions plus an "Ungrouped" bucket.
+# It is an ADDITIONAL grouped view, never a replacement scorer: each dimension
+# shows its OWN pass/fail/inconclusive counts and its own typed cards -- there
+# is no blended or overall number across dimensions or within one, and no
+# untagged result is ever dropped. Absent unless at least one result carries a
+# dimension, so an envelope with no dimensions renders exactly as before.
+
+
+def _assertions_have_dimensions(assertions: Any) -> bool:
+    """True iff at least one result in the envelope carries a ``dimension`` tag.
+    The scorecard is rendered only then; otherwise the assertions section is
+    byte-identical to before this feature existed. Tolerant of a malformed input
+    (returns ``False``) because it is consulted for CSS gating BEFORE
+    ``_assertions_section`` validates the envelope -- a non-envelope still
+    raises the clean ValueError there, never here."""
+    if not isinstance(assertions, dict):
+        return False
+    results = assertions.get("results")
+    if not isinstance(results, list):
+        return False
+    return any(isinstance(r, dict) and r.get("dimension") for r in results)
+
+
+def _group_results_by_dimension(results: list):
+    """Group results by their optional ``dimension`` TAG into the five report
+    dimensions plus an untagged "Ungrouped" bucket. Returns
+    ``([(dimension, [results]), ...], [untagged results])`` where the first
+    list is always the five dimensions in :data:`_REPORT_DIMENSIONS` order.
+    Nothing is merged and nothing is dropped: an untagged result (or a result
+    tagged with an unknown dimension) always lands in Ungrouped, and every
+    dimension keeps its OWN results, hence its own counts."""
+    grouped: dict = {d: [] for d in _REPORT_DIMENSIONS}
+    ungrouped: list = []
+    for r in results:
+        dim = r.get("dimension")
+        if dim in grouped:
+            grouped[dim].append(r)
+        else:
+            ungrouped.append(r)
+    return [(d, grouped[d]) for d in _REPORT_DIMENSIONS], ungrouped
+
+
+def _status_counts(results: list) -> dict:
+    """A dimension's OWN PASS/FAIL/INCONCLUSIVE tally -- three separate counts,
+    never combined into a single score."""
+    counts = {"PASS": 0, "FAIL": 0, "INCONCLUSIVE": 0}
+    for r in results:
+        st = r.get("status", "INCONCLUSIVE")
+        counts[st] = counts.get(st, 0) + 1
+    return counts
+
+
+def _dim_counts_text(counts: dict) -> str:
+    return (f'{counts["PASS"]} pass / {counts["FAIL"]} fail / '
+            f'{counts["INCONCLUSIVE"]} inconclusive')
+
+
+def _scorecard_dim_block(title: str, results: list, *,
+                         reliability: bool = False) -> str:
+    """One dimension block: its name, its OWN counts, then its typed cards. The
+    Reliability dimension always carries the explicit Phase-2 placeholder (its
+    deterministic content is not measured until Phase 2); any other dimension
+    with no results shows an honest empty state -- never a fabricated value."""
+    counts = _status_counts(results)
+    parts = [
+        '<div class="scdim">'
+        f'<div class="schead"><span class="scname">{_esc(title)}</span>'
+        f'<span class="sccounts mono">{_dim_counts_text(counts)}</span></div>'
+    ]
+    if reliability:
+        parts.append(
+            f'<div class="scplaceholder">{_esc(_RELIABILITY_PHASE2_NOTE)}</div>'
+        )
+    if results:
+        cards = "".join(_assertion_card(r) for r in results)
+        parts.append(f'<div class="shelf">{cards}</div>')
+    elif not reliability:
+        parts.append(
+            '<div class="scempty">No results tagged to this dimension.</div>'
+        )
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def _assertions_scorecard(results: list) -> str:
+    """The per-dimension scorecard body: the five dimension blocks in order,
+    then an Ungrouped block for any untagged results. A grouped VIEW of the
+    same results -- no blended number anywhere."""
+    dims, ungrouped = _group_results_by_dimension(results)
+    blocks = [
+        _scorecard_dim_block(
+            dim.capitalize(), dim_results,
+            reliability=(dim == _RELIABILITY_DIMENSION),
+        )
+        for dim, dim_results in dims
+    ]
+    if ungrouped:
+        blocks.append(
+            _scorecard_dim_block("Ungrouped (no dimension tag)", ungrouped)
+        )
+    return '<div class="scorecard">' + "".join(blocks) + '</div>'
+
+
 def _assertions_section(assertions: dict) -> str:
     """The two-shelf ``assert.v1`` section: "Deterministic" (typed cards, one
-    per result) and "Model-assisted (advisory, quarantined)" (always empty in
-    this build, with a note explaining why). The headline never collapses
-    the deterministic pass/fail split and the judge count into one number."""
+    per result -- OR, when any result carries a ``dimension``, the same cards
+    grouped into the per-dimension scorecard) and "Model-assisted (advisory,
+    quarantined)" (always empty in this build, with a note explaining why). The
+    headline never collapses the deterministic pass/fail split and the judge
+    count into one number, and the scorecard never blends dimensions."""
     _validate_assertions_envelope(assertions)
     headline, d_inconclusive = _assertions_headline(assertions)
     results = assertions.get("results") or []
-    cards = "".join(_assertion_card(r) for r in results)
-    det_body = cards or (
-        '<div class="anempty">No deterministic assertions in this run.</div>'
-    )
+    if _assertions_have_dimensions(assertions):
+        # Grouped VIEW: the SAME cards, arranged into the five dimensions. Each
+        # dimension keeps its own counts; nothing is merged, nothing dropped.
+        det_body = (
+            '<div class="scnote">Grouped into the five report dimensions. Each '
+            'dimension keeps its OWN pass / fail / inconclusive counts -- there '
+            'is no blended or overall number across dimensions or within one. '
+            'Untagged results go to Ungrouped; nothing is dropped.</div>'
+            + _assertions_scorecard(results)
+        )
+    else:
+        cards = "".join(_assertion_card(r) for r in results)
+        det_body = cards or (
+            '<div class="anempty">No deterministic assertions in this run.</div>'
+        )
     inconclusive_note = (
         f'<div class="ancap mono">{d_inconclusive} inconclusive (required '
         'context absent; not a failure)</div>' if d_inconclusive else ""
@@ -1708,13 +1846,248 @@ table.tracetab td{text-align:left;color:%(mono)s;padding:3px 18px 3px 0;
  border-bottom:1px solid %(card2)s;vertical-align:top}
 """ % _C
 
+# Appended to the page's <style> ONLY when at least one assertion result carries
+# a ``dimension`` (see _render_page): an assertions envelope with no dimensions
+# renders the flat deterministic shelf exactly as before, so it needs none of
+# this and stays byte-identical to a report built before the scorecard existed.
+_SCORECARD_CSS = """
+.scnote{color:%(muted)s;font-size:12px;margin:8px 0 12px}
+.scorecard{display:flex;flex-direction:column;gap:14px}
+.scdim{border:1px solid %(line)s;border-radius:12px;padding:12px 14px;
+ background:%(card2)s}
+.schead{display:flex;align-items:baseline;justify-content:space-between;
+ gap:10px;flex-wrap:wrap}
+.scname{font-size:13.5px;font-weight:650;color:%(cream)s}
+.sccounts{font-size:12px;color:%(muted)s}
+.scdim .shelf{margin-top:10px}
+.scplaceholder,.scempty{color:%(muted)s;font-size:12.5px;font-style:italic;
+ margin-top:8px}
+""" % _C
+
+# Appended to the page's <style> ONLY when a ``conversation`` manifest was
+# actually passed in (see _render_page): a report built with the default
+# conversation=None must stay byte-identical to one built before this feature
+# existed, so these rules are never baked into the always-present _CSS above.
+_CONVERSATION_CSS = """
+section.card.conversation .cvorigin{font-size:14px;margin:6px 0 4px;
+ color:%(cream)s}
+.cvchip{color:#15110d;font-weight:800;font-size:11px;letter-spacing:0.06em;
+ padding:2px 9px;border-radius:6px;margin-left:4px;text-transform:uppercase}
+.cvline{color:%(muted)s;font-size:12px;margin:4px 0;word-break:break-all}
+.cvsub{font-size:12px;font-weight:650;color:%(muted)s;text-transform:uppercase;
+ letter-spacing:0.04em;margin:14px 0 8px}
+table.cvtab{border-collapse:collapse;width:auto;font-size:12px}
+table.cvtab th{text-align:left;color:%(muted)s;font-weight:600;font-size:11.5px;
+ padding:5px 18px 5px 0;border-bottom:1px solid %(line)s;white-space:nowrap}
+table.cvtab td{text-align:left;color:%(mono)s;padding:3px 18px 3px 0;
+ border-bottom:1px solid %(card2)s;vertical-align:top;word-break:break-all}
+""" % _C
+
+
+# --- conversation artifact (hotato.conversation.v1): provenance CONTEXT ------
+#
+# report.py never verifies or scores a conversation artifact: exactly like
+# ``base``, ``transcript``, ``assertions``, and ``trace``, the caller hands this
+# module an already-built ``hotato.conversation.v1`` manifest dict (build one
+# with ``hotato.conversation.build_manifest``; verify digests with
+# ``hotato.conversation.verify``) and this purely renders its ORIGIN
+# (real|simulated, invariant 5 -- synthetic is never conflated with real) and
+# the artifact digests it binds. It never re-hashes a child and never touches
+# any timing/verdict field.
+#
+# Duck-typed as data (never ``import hotato.conversation`` here), matching the
+# trace integration: the manifest is read structurally, and the origin-kind
+# vocabulary is a bare tuple mirroring ``hotato.conversation.ORIGIN_KINDS``.
+#
+# Absent by default: a report built with ``conversation=None`` (the default) is
+# byte-identical to one built before this feature existed -- no new markup, no
+# new CSS.
+
+ConversationLike = Any  # a hotato.conversation.v1 manifest dict; never imported
+
+_ORIGIN_KINDS = ("real", "simulated")  # mirrors hotato.conversation.ORIGIN_KINDS
+
+
+def _normalize_conversation(conversation: ConversationLike) -> dict:
+    """Reduce a ``hotato.conversation.v1`` manifest to the small, render-only
+    payload the report shows: origin (kind + provider/simulator), the bound
+    artifact digests, the ids, and the scenario/release digests. A shallow copy,
+    so the caller's manifest is never mutated; nothing here is a timing or
+    verdict field. Rejects a non-dict or a missing/invalid ``origin.kind`` up
+    front (a clean usage error, mirroring ``_normalize_trace``) -- invariant 5:
+    the real/simulated axis is required, synthetic never conflated with real."""
+    if not isinstance(conversation, dict):
+        raise ValueError(
+            "conversation must be a hotato.conversation.v1 manifest dict (build "
+            "one with hotato.conversation.build_manifest); got "
+            f"{conversation!r}"
+        )
+    origin = conversation.get("origin")
+    if not isinstance(origin, dict):
+        raise ValueError(
+            "conversation manifest is missing its 'origin' mapping (origin.kind "
+            "is required -- synthetic is never conflated with real)"
+        )
+    kind = origin.get("kind")
+    if kind not in _ORIGIN_KINDS:
+        raise ValueError(
+            f"conversation origin.kind is required and must be one of "
+            f"{_ORIGIN_KINDS} (synthetic is never conflated with real), got "
+            f"{kind!r}"
+        )
+    artifacts = {
+        k: dict(v)
+        for k, v in (conversation.get("artifacts") or {}).items()
+        if isinstance(v, dict)
+    }
+    return {
+        "conversation_id": conversation.get("conversation_id"),
+        "agent_id": conversation.get("agent_id"),
+        "created_at": conversation.get("created_at"),
+        "origin": dict(origin),
+        "artifacts": artifacts,
+        "scenario_digest": conversation.get("scenario_digest"),
+        "release_digest": conversation.get("release_digest"),
+    }
+
+
+def _origin_detail_html(origin: dict) -> str:
+    """The provider line and, for a SIMULATED origin, the simulator block -- so
+    a synthetic conversation always declares its model/scenario/seed and is
+    never mistaken for a real recording."""
+    parts = []
+    prov, call_id = origin.get("provider"), origin.get("provider_call_id")
+    if prov or call_id:
+        bits = []
+        if prov:
+            bits.append(f"provider {_esc(prov)}")
+        if call_id:
+            bits.append(f"call {_esc(call_id)}")
+        parts.append(f'<div class="cvline mono">{" &middot; ".join(bits)}</div>')
+    if origin.get("kind") == "simulated":
+        sim = origin.get("simulator") or {}
+        parts.append(
+            '<div class="cvline mono">simulator: model '
+            f'{_esc(sim.get("model_id"))}, scenario {_esc(sim.get("scenario_id"))}, '
+            f'seed {_esc(sim.get("seed"))}</div>'
+        )
+    return "".join(parts)
+
+
+def _conversation_digests_html(cv: dict) -> str:
+    artifacts = cv.get("artifacts") or {}
+    if not artifacts:
+        return '<div class="anempty">No artifacts bound in this manifest.</div>'
+    rows = []
+    for name in sorted(artifacts):
+        ref = artifacts[name]
+        nbytes = ref.get("bytes")
+        size = f"{nbytes} bytes" if isinstance(nbytes, int) else ""
+        rows.append(
+            '<tr>'
+            f'<td>{_esc(name)}</td>'
+            f'<td class="mono">{_esc(ref.get("sha256") or "")}</td>'
+            f'<td class="mono">{_esc(size)}</td>'
+            '</tr>'
+        )
+    return (
+        '<table class="cvtab mono"><thead><tr><th>artifact</th><th>sha256</th>'
+        '<th>size</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table>'
+    )
+
+
+def _conversation_section(cv: dict) -> str:
+    """One "Conversation artifact (provenance)" section: the source this report
+    was produced from (hotato.conversation.v1). It states whether the call was
+    REAL or SIMULATED (never conflated) and lists the evidence it binds by
+    sha256. Provenance, never a score; it changes no measurement above."""
+    origin = cv["origin"]
+    kind = origin.get("kind")
+    kind_c = _C["green"] if kind == "real" else _C["ember"]
+    meta = []
+    for label, key in (("conversation", "conversation_id"),
+                       ("agent", "agent_id"),
+                       ("created", "created_at")):
+        val = cv.get(key)
+        if val:
+            meta.append(f'<span class="pill">{label} <b>{_esc(val)}</b></span>')
+    meta_html = f'<div class="metarow">{"".join(meta)}</div>' if meta else ""
+    extra_digests = "".join(
+        f'<div class="cvline mono">{label}: {_esc(cv.get(key))}</div>'
+        for label, key in (("scenario_digest", "scenario_digest"),
+                           ("release_digest", "release_digest"))
+        if cv.get(key)
+    )
+    return (
+        '<section class="card conversation">'
+        '<div class="ctitle">Conversation artifact (provenance)</div>'
+        '<div class="tnote">The source this report was produced from '
+        '(hotato.conversation.v1). It states whether the call was a REAL '
+        'recording or a SIMULATED one -- the two are never conflated -- and '
+        'binds each piece of evidence by sha256. Provenance, never a score; it '
+        'changes no measurement above.</div>'
+        '<div class="cvorigin">origin '
+        f'<span class="cvchip" style="background:{kind_c}">{_esc(kind)}</span>'
+        '</div>'
+        f'{_origin_detail_html(origin)}'
+        f'{meta_html}'
+        '<div class="cvsub">Bound evidence (by digest)</div>'
+        f'{_conversation_digests_html(cv)}'
+        f'{extra_digests}'
+        '</section>'
+    )
+
+
+def _conversation_md(cv: dict) -> list:
+    """The Markdown mirror of ``_conversation_section``: origin (real|simulated,
+    with the simulator block when simulated) and the bound artifact digests."""
+    origin = cv["origin"]
+    kind = origin.get("kind")
+    L = ["## Conversation artifact (provenance)", ""]
+    L.append("The source this report was produced from (hotato.conversation.v1): "
+             "whether the call was a REAL recording or a SIMULATED one -- never "
+             "conflated -- plus each piece of evidence bound by sha256. "
+             "Provenance, never a score; it changes no measurement above.")
+    L.append("")
+    L.append(f"- origin: {kind}")
+    if origin.get("provider"):
+        L.append(f"- provider: {origin['provider']}")
+    if origin.get("provider_call_id"):
+        L.append(f"- provider_call_id: {origin['provider_call_id']}")
+    if kind == "simulated":
+        sim = origin.get("simulator") or {}
+        L.append(f"- simulator: model {sim.get('model_id')}, scenario "
+                 f"{sim.get('scenario_id')}, seed {sim.get('seed')}")
+    for label in ("conversation_id", "agent_id", "created_at"):
+        if cv.get(label):
+            L.append(f"- {label}: {cv[label]}")
+    for key in ("scenario_digest", "release_digest"):
+        if cv.get(key):
+            L.append(f"- {key}: {cv[key]}")
+    L.append("")
+    artifacts = cv.get("artifacts") or {}
+    if artifacts:
+        L.append(_md_row(["artifact", "sha256", "size"]))
+        L.append(_md_row(["---"] * 3))
+        for name in sorted(artifacts):
+            ref = artifacts[name]
+            nbytes = ref.get("bytes")
+            size = f"{nbytes} bytes" if isinstance(nbytes, int) else ""
+            L.append(_md_row([name, ref.get("sha256") or "", size]))
+    else:
+        L.append("No artifacts bound in this manifest.")
+    L.append("")
+    return L
+
 
 def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  base_env: Optional[dict] = None,
                  base_label: Optional[str] = None,
                  audio_mode: str = AUDIO_NONE,
                  assertions: Optional[dict] = None,
-                 trace: Optional[dict] = None) -> str:
+                 trace: Optional[dict] = None,
+                 conversation: Optional[dict] = None) -> str:
     s = env["summary"]
     # A real failure always dominates: REGRESSION beats NOT SCORABLE beats
     # ALL PASS. NOT SCORABLE appears only when nothing failed but at least one
@@ -1748,8 +2121,17 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         style_css += _TRANSCRIPT_CSS
     if assertions is not None:
         style_css += _ASSERTIONS_CSS
+    # The scorecard CSS is appended ONLY when a result actually carries a
+    # dimension, so an assertions envelope with no dimensions renders the flat
+    # deterministic shelf byte-identically to before the scorecard existed.
+    if assertions is not None and _assertions_have_dimensions(assertions):
+        style_css += _SCORECARD_CSS
     if trace is not None:
         style_css += _TRACE_CSS
+    # Conversation-provenance CSS is appended ONLY when a manifest was supplied,
+    # so conversation=None (the default) stays byte-identical.
+    if conversation is not None:
+        style_css += _CONVERSATION_CSS
 
     legend = (
         f'<div class="legend">'
@@ -1815,8 +2197,18 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     # default (trace=None), so a plain report carries none of this markup.
     trace_html = _trace_section(trace) if trace is not None else ""
 
+    # The conversation-artifact provenance (real|simulated + bound digests)
+    # reads right after the headline summary -- a reader sees WHAT the report
+    # was produced from (and whether it was a real or simulated call) before the
+    # per-event detail. Absent by default (conversation=None), so a plain report
+    # carries none of this markup.
+    conversation_html = (
+        _conversation_section(conversation) if conversation is not None else ""
+    )
+
     body = (
         f'<div class="wrap">{head}<main>{summary}'
+        f'{conversation_html}'
         f'{_not_scorable_section_html(env)}'
         f'{base_html}{cards}'
         f'{analytics_html}{assertions_html}{trace_html}'
@@ -1876,9 +2268,63 @@ def _md_row(cells) -> str:
     return "| " + " | ".join(str(c) for c in cells) + " |"
 
 
+def _assertion_md_row(r: dict) -> str:
+    """One result as a Markdown table row (id, kind, status, deterministic,
+    detail) -- the same cells used by the flat table and the scorecard."""
+    return _md_row([
+        r.get("id", ""), r.get("kind", ""), r.get("status", ""),
+        str(bool(r.get("deterministic", True))).lower(),
+        r.get("reason", ""),
+    ])
+
+
+def _assertions_scorecard_md(results: list) -> list:
+    """The Markdown mirror of ``_assertions_scorecard``: a per-dimension
+    subsection with its OWN counts and table, then an Ungrouped subsection for
+    untagged results. No blended number; nothing dropped."""
+    dims, ungrouped = _group_results_by_dimension(results)
+    L = ["Grouped into the five report dimensions. Each dimension keeps its OWN "
+         "pass / fail / inconclusive counts -- no blended or overall number "
+         "across dimensions or within one. Untagged results go to Ungrouped; "
+         "nothing is dropped.", ""]
+    for dim, dim_results in dims:
+        counts = _status_counts(dim_results)
+        L.append(f"#### {dim.capitalize()}")
+        L.append("")
+        L.append(_dim_counts_text(counts))
+        L.append("")
+        if dim == _RELIABILITY_DIMENSION:
+            L.append(_RELIABILITY_PHASE2_NOTE)
+            L.append("")
+        if dim_results:
+            L.append(_md_row(["id", "kind", "status", "deterministic", "detail"]))
+            L.append(_md_row(["---"] * 5))
+            for r in dim_results:
+                L.append(_assertion_md_row(r))
+            L.append("")
+        elif dim != _RELIABILITY_DIMENSION:
+            L.append("No results tagged to this dimension.")
+            L.append("")
+    if ungrouped:
+        counts = _status_counts(ungrouped)
+        L.append("#### Ungrouped (no dimension tag)")
+        L.append("")
+        L.append(_dim_counts_text(counts))
+        L.append("")
+        L.append(_md_row(["id", "kind", "status", "deterministic", "detail"]))
+        L.append(_md_row(["---"] * 5))
+        for r in ungrouped:
+            L.append(_assertion_md_row(r))
+        L.append("")
+    return L
+
+
 def _assertions_md(assertions: dict) -> list:
     """The Markdown mirror of ``_assertions_section``: same two shelves, same
-    headline, as tables instead of typed HTML cards."""
+    headline, as tables instead of typed HTML cards. When any result carries a
+    ``dimension``, the deterministic shelf is grouped into the per-dimension
+    scorecard (each dimension its own counts, no blend); otherwise it renders
+    exactly as before this feature existed."""
     _validate_assertions_envelope(assertions)
     headline, d_inconclusive = _assertions_headline(assertions)
     results = assertions.get("results") or []
@@ -1896,18 +2342,17 @@ def _assertions_md(assertions: dict) -> list:
     L.append("")
     L.append("### Deterministic (audio / timing / transcript / trace derived)")
     L.append("")
-    if results:
-        L.append(_md_row(["id", "kind", "status", "deterministic", "detail"]))
-        L.append(_md_row(["---"] * 5))
-        for r in results:
-            L.append(_md_row([
-                r.get("id", ""), r.get("kind", ""), r.get("status", ""),
-                str(bool(r.get("deterministic", True))).lower(),
-                r.get("reason", ""),
-            ]))
+    if _assertions_have_dimensions(assertions):
+        L.extend(_assertions_scorecard_md(results))
     else:
-        L.append("No deterministic assertions in this run.")
-    L.append("")
+        if results:
+            L.append(_md_row(["id", "kind", "status", "deterministic", "detail"]))
+            L.append(_md_row(["---"] * 5))
+            for r in results:
+                L.append(_assertion_md_row(r))
+        else:
+            L.append("No deterministic assertions in this run.")
+        L.append("")
     L.append("### Model-assisted (advisory, quarantined)")
     L.append("")
     L.append("No judge-scored assertions in this build. A judge (model-scored) "
@@ -1948,7 +2393,8 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
                base_env: Optional[dict] = None,
                base_label: Optional[str] = None,
                assertions: Optional[dict] = None,
-               trace: Optional[dict] = None) -> str:
+               trace: Optional[dict] = None,
+               conversation: Optional[dict] = None) -> str:
     s = env["summary"]
     eng = env.get("engine", {})
     mode_label = f"suite: {env['suite']}" if env.get("suite") else env.get("mode", "")
@@ -1983,6 +2429,11 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
     L.append(f"**{s['passed']} of {n_scorable} events pass{counts}.** "
              f"Verdict: {verdict}.")
     L.append("")
+    # Conversation-artifact provenance (real|simulated + bound digests) reads
+    # right after the headline summary, mirroring the HTML. Absent by default
+    # (conversation=None), so a plain report's Markdown is byte-identical.
+    if conversation is not None:
+        L.extend(_conversation_md(conversation))
     L.append(_md_row(["event", "category", "expected", "did yield", "time to yield",
                       "talk-over", "response gap", "premature start", "verdict"]))
     L.append(_md_row(["---"] * 9))
@@ -2303,7 +2754,9 @@ def build_report_html(*, base: Optional[dict] = None,
                       audio_mode: Optional[str] = None,
                       transcript: Optional[TranscriptLike] = None,
                       assertions: Optional[dict] = None,
-                      trace: Optional[TraceLike] = None, **kwargs):
+                      trace: Optional[TraceLike] = None,
+                      conversation: Optional[ConversationLike] = None,
+                      **kwargs):
     """Score the input and return ``(html_str, envelope)``.
 
     Pass ``suite`` for the labelled battery, or a single recording via
@@ -2366,13 +2819,30 @@ def build_report_html(*, base: Optional[dict] = None,
     the HTML byte-identical to a report built before this parameter existed.
     report.py never imports ``hotato.trace`` (a circular import); the trace is
     duck-typed as data. See ``docs/REPORTS.md`` and ``docs/TRACE.md``.
+
+    ``conversation`` (default ``None``) attaches an optional
+    ``hotato.conversation.v1`` manifest (build one with
+    ``hotato.conversation.build_manifest``) as provenance CONTEXT. It renders a
+    "Conversation artifact (provenance)" section stating whether the call was a
+    REAL recording or a SIMULATED one (invariant 5: the two are never conflated;
+    a simulated origin shows its model/scenario/seed) plus the artifact digests
+    the manifest binds by sha256, and is folded into the returned envelope as an
+    additive top-level ``conversation`` key. This function never verifies or
+    re-hashes a child and never touches any timing/verdict field; ``None`` (the
+    default) leaves the HTML byte-identical to a report built before this
+    parameter existed.
     """
     env, models, cfg = _score_and_model(transcript=transcript, trace=trace,
                                         **kwargs)
     mode = _resolve_audio_mode(embed_audio, audio_mode)
+    # Provenance CONTEXT only: normalized + folded into the envelope additively,
+    # never verified/re-hashed here and never fed into any measurement.
+    cv = _normalize_conversation(conversation) if conversation is not None else None
+    if cv is not None:
+        env["conversation"] = cv
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
                         audio_mode=mode, assertions=assertions,
-                        trace=env.get("trace_context"))
+                        trace=env.get("trace_context"), conversation=cv)
     return page, env
 
 
@@ -2380,7 +2850,9 @@ def build_report_md(*, base: Optional[dict] = None,
                     base_label: Optional[str] = None,
                     transcript: Optional[TranscriptLike] = None,
                     assertions: Optional[dict] = None,
-                    trace: Optional[TraceLike] = None, **kwargs):
+                    trace: Optional[TraceLike] = None,
+                    conversation: Optional[ConversationLike] = None,
+                    **kwargs):
     """Score the input and return ``(markdown_str, envelope)``.
 
     Mirrors the HTML report's content with tables instead of SVG: summary,
@@ -2404,12 +2876,23 @@ def build_report_md(*, base: Optional[dict] = None,
     top-level ``trace_context`` key, never touching any timing/verdict field,
     with the same ``[redacted]`` redaction wall. ``None`` (the default) leaves
     the Markdown byte-identical to before this parameter existed.
+
+    ``conversation`` is the same optional ``hotato.conversation.v1`` manifest
+    parameter as ``build_report_html`` (see there): a "Conversation artifact
+    (provenance)" section stating real|simulated origin and the bound artifact
+    digests, folded into the envelope as an additive top-level ``conversation``
+    key, never touching any timing/verdict field. ``None`` (the default) leaves
+    the Markdown byte-identical to before this parameter existed.
     """
     env, models, cfg = _score_and_model(transcript=transcript, trace=trace,
                                         **kwargs)
+    cv = _normalize_conversation(conversation) if conversation is not None else None
+    if cv is not None:
+        env["conversation"] = cv
     return (
         _render_md(env, models, cfg, base_env=base, base_label=base_label,
-                  assertions=assertions, trace=env.get("trace_context")),
+                  assertions=assertions, trace=env.get("trace_context"),
+                  conversation=cv),
         env,
     )
 

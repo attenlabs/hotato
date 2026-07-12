@@ -767,3 +767,57 @@ def test_full_result_shape_matches_schema_for_every_kind():
     # exercised in tests/test_assert_expanded_kinds.py; this test pins that the
     # five founding kinds each still produce a schema-valid result.
     assert kinds == {"phrase", "pii", "policy", "tool_call", "outcome"}
+
+
+# --- Phase-1: the optional `dimension` TAG propagates onto the result -------
+
+def test_dimension_tag_propagates_onto_result():
+    """An assertion's optional ``dimension`` (one of the five report dimensions)
+    is copied verbatim onto its assert.v1 result. An assertion with no dimension
+    yields a result with NO dimension -- additive, byte-identical to before."""
+    ctx = A.build_context(
+        transcript=[_turn("agent", "recorded for quality")],
+        spans=[_tc_span(0, "issue_refund")],
+    )
+    doc = _doc(
+        {"id": "p", "kind": "phrase", "regex": "recorded for quality",
+         "role": "agent", "dimension": "policy"},
+        {"id": "s", "kind": "tool_call", "name": "issue_refund",
+         "dimension": "outcome"},
+        {"id": "u", "kind": "phrase", "regex": "recorded for quality",
+         "role": "agent"},  # untagged
+    )
+    env = A.run_assertions(doc, ctx)
+    _validate(env)  # the result-level `dimension` enum is proven schema-valid
+    by_id = {r["id"]: r for r in env["results"]}
+    assert by_id["p"]["dimension"] == "policy"
+    assert by_id["s"]["dimension"] == "outcome"
+    assert "dimension" not in by_id["u"]
+
+
+def test_untagged_result_byte_identical_to_before_dimension_existed():
+    """A result for an assertion with no dimension is byte-for-byte what it was
+    before this feature -- the dimension key is only ever ADDED when present."""
+    ctx = A.build_context(transcript=[_turn("agent", "recorded for quality")])
+    tagged = A.evaluate_assertion(
+        {"id": "p", "kind": "phrase", "regex": "recorded for quality",
+         "role": "agent", "dimension": "policy"}, ctx)
+    untagged = A.evaluate_assertion(
+        {"id": "p", "kind": "phrase", "regex": "recorded for quality",
+         "role": "agent"}, ctx)
+    assert "dimension" not in untagged
+    assert tagged == dict(untagged, dimension="policy")
+
+
+def test_all_five_dimensions_accepted():
+    for dim in A.RESULT_DIMENSIONS:
+        doc = _doc({"id": "a", "kind": "phrase", "regex": "x", "dimension": dim})
+        version, items = A.validate_assertions_doc(doc)
+        assert items[0]["dimension"] == dim
+
+
+def test_bad_dimension_value_rejected():
+    with pytest.raises(ValueError, match="dimension"):
+        A.validate_assertions_doc(
+            _doc({"id": "a", "kind": "phrase", "regex": "x",
+                  "dimension": "vibes"}))
