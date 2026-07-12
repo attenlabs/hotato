@@ -31,6 +31,7 @@ _ALL_SUBCOMMANDS = [
     "fixture promote", "contract", "contract create", "contract verify",
     "contract inspect", "contract pack", "contract unpack",
     "trace", "trace ingest", "trace attach", "trace export",
+    "assert", "assert init", "assert run",
     "compare", "scan", "synth", "trust",
     "ingest", "analyze", "verify", "fix", "fix trial", "loop",
     "investigate", "investigate label", "describe",

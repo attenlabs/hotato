@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/assert.v1.json",
+  "title": "hotato assertion run, schema assert.v1",
+  "description": "The output of `hotato assert`: every assertion in an assertions.yaml, evaluated against a call's transcript/spans/timing. HONESTY INVARIANT, structural: every result carries `deterministic: true` -- all five assertion kinds (phrase, pii, policy, tool_call, outcome) are pure regex/checksum/span-lookup, never a model call. `summary` SPLITS deterministic from judge counts and NEVER emits a merged percentage or an overall_score field; a judge (model-scored) kind is a separate, quarantined capability not built here, so summary.judge is always {pass:0, fail:0}. Additive-only: new result fields and new kinds may appear without a version bump; a consumer must ignore unknown fields.",
+  "type": "object",
+  "required": ["schema", "exit_code", "results", "summary"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "assert.v1" },
+    "exit_code": {
+      "enum": [0, 1, 2],
+      "description": "1 if any result's status is FAIL; 2 for a malformed assertions file / bad input (raised before any result exists); 0 otherwise. An INCONCLUSIVE result never forces exit 1 by itself -- it reports missing required input, not a failure."
+    },
+    "results": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/result" }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["deterministic", "judge", "note"],
+      "additionalProperties": true,
+      "not": { "required": ["overall_score"] },
+      "properties": {
+        "overall_score": false,
+        "deterministic": {
+          "type": "object",
+          "required": ["pass", "fail", "inconclusive"],
+          "additionalProperties": true,
+          "properties": {
+            "pass": { "type": "integer", "minimum": 0 },
+            "fail": { "type": "integer", "minimum": 0 },
+            "inconclusive": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "judge": {
+          "type": "object",
+          "required": ["pass", "fail"],
+          "additionalProperties": true,
+          "description": "Always {pass: 0, fail: 0} in this build: a judge (model-scored) assertion kind is a separate, quarantined capability, not built here.",
+          "properties": {
+            "pass": { "const": 0 },
+            "fail": { "const": 0 }
+          }
+        },
+        "note": {
+          "type": "string",
+          "description": "Always states how many judge-scored assertions ran (0, in this build)."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "result": {
+      "type": "object",
+      "required": ["id", "kind", "status", "deterministic"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "enum": ["phrase", "pii", "policy", "tool_call", "outcome"],
+          "description": "phrase: regex over the transcript (role filter, first/last/any position, absent/compliance mode, case sensitivity). pii: deterministic regex/checksum detectors (ssn, card_luhn, email, phone) over the transcript; must_not_leak mode. policy: a named, versioned, offline banned-language/required-disclosure rule pack. tool_call: evaluated against ingested voice_trace.v1 spans only, never transcript text (name, args-subset-match, require_order, count bounds, never_before). outcome: task-success as all_of/any_of a list of deterministic sub-predicates, reported as a met/of fraction, never a vibe."
+        },
+        "status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+        "deterministic": {
+          "const": true,
+          "description": "HONESTY INVARIANT: always true for these five kinds -- no model call ever backs a result here, including an INCONCLUSIVE one (which reflects absent required input, not a non-deterministic judgment)."
+        },
+        "reason": { "type": "string" },
+        "met": { "type": "integer", "minimum": 0, "description": "outcome kind only: sub-predicates satisfied." },
+        "of": { "type": "integer", "minimum": 0, "description": "outcome kind only: total sub-predicates evaluated." },
+        "span_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "tool_call kind: the exact voice_trace.v1 span(s) (synthetic stable ids, s_<index>) the result is grounded in."
+        },
+        "hits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["detector", "turn", "role"],
+            "additionalProperties": true,
+            "properties": {
+              "detector": { "type": "string" },
+              "turn": { "type": "integer", "minimum": 0 },
+              "role": { "type": ["string", "null"] }
+            }
+          },
+          "description": "pii kind: which detector fired on which transcript turn. NEVER carries the matched raw text -- see redacted_transcript for the redacted artifact."
+        },
+        "redacted_transcript": {
+          "type": "array",
+          "description": "pii kind: the full transcript with every detector hit replaced by [REDACTED]. The raw PII text is never present anywhere in an assert.v1 result."
+        },
+        "matched_rules": {
+          "type": "array",
+          "description": "policy kind: which named rules matched (banned language present, or a required disclosure missing)."
+        },
+        "pack": {
+          "type": "object",
+          "description": "policy kind: the {name, version} of the rule pack evaluated, for byte-replayability."
+        }
+      }
+    }
+  }
+}

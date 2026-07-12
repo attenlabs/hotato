@@ -148,7 +148,9 @@ change, or a re-captured recording swapped into `audio/event.wav` -- and
 reports pass/fail per contract and overall.
 
 Exit codes are the CI contract: `0` every contract passes, `1` at least one
-regressed (or is no longer scorable), `2` a usage error, an empty directory,
+regressed (or is no longer scorable) OR at least one embedded assertion
+deterministically FAILed (see below -- reported separately, but it still
+contributes to this nonzero exit), `2` a usage error, an empty directory,
 or a corrupt `contract.json`. `--junit` writes one `<testcase>` per contract
 for a CI dashboard; the shipped `ci/github-action.yml` scaffold runs this on
 push, on PR, and weekly, and publishes the JUnit file as an artifact.
@@ -159,6 +161,25 @@ green CI run here means the evidence, policy, and scorer are still intact,
 not that today's deployed agent was re-checked. See
 [`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-honestly-say)
 for what each kind of evidence does and does not let you claim.
+
+### Embedded assertions (optional)
+
+A contract can carry its own `assertions` block (schema `hotato.contract.v1`
+-- see `schema/contract.v1.json`), the same `{version, assertions}` document
+`hotato assert` reads from an `assertions.yaml` file. When one is present,
+`contract verify` evaluates it through the SAME `assert.v1` engine and reports
+the result as a per-contract `assertions` field -- a SEPARATE dimension from
+the timing pass/fail above it, never blended into `summary`/`passed`. Pass
+`--transcript FILE` (a plain JSON array of `{role, text, start, end}` turns,
+or hotato's own `{"segments": [...]}` shape) to supply transcript context for
+`phrase`/`pii`/`policy` assertions; `tool_call` assertions read the bundle's
+own attached trace (`hotato trace attach`) if one exists. Missing context
+(no `--transcript`, no attached trace) reports `INCONCLUSIVE`, never a
+fabricated FAIL. A deterministic assertion FAIL contributes to the batch's
+nonzero exit code exactly like a timing regression; the batch result also
+carries a separate `assertions_failed` count. See
+[`schema/assert.v1.json`](../src/hotato/schema/assert.v1.json) for the result
+shape and `hotato.assert_` for the five deterministic kinds.
 
 ## Inspect
 

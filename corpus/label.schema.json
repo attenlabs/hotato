@@ -82,6 +82,28 @@
       "description": "Reader context only. Never consumed by the scorer, never used as a label. Must itself be free of PII."
     },
     "related_signals": { "type": "array", "items": { "type": "string" } },
+    "assertions": {
+      "type": ["object", "null"],
+      "description": "Optional deterministic assertions this scenario carries (schema/assert.v1.json's INPUT shape -- the same {version, assertions} document `hotato assert` reads from an assertions.yaml file, and a contract's own optional `assertions` block mirrors -- see schema/contract.v1.json). Not consumed by the turn-taking scorer itself; a fixture that carries this block is scored for timing exactly as before, and its assertions are evaluated separately wherever the scenario is promoted into a contract with `hotato assert`/`hotato contract verify`. Absent or null on a scenario that carries no assertions -- the common case today.",
+      "required": ["version", "assertions"],
+      "additionalProperties": true,
+      "properties": {
+        "version": { "const": 1 },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "kind"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "enum": ["phrase", "pii", "policy", "tool_call", "outcome"] }
+            }
+          }
+        }
+      }
+    },
     "license": {
       "const": "MIT",
       "description": "The corpus is redistributed under MIT. A clip that cannot be released under MIT with consent does not enter the corpus."

@@ -237,11 +237,15 @@ _EXIT_CODES: dict = {
             "a not-scorable moment; no bundle is written"),
     ),
     "contract verify": (
-        (0, "verified: every contract's re-scored timing passes its policy"),
+        (0, "verified: every contract's re-scored timing passes its policy, "
+            "and every embedded assertion (if any) is PASS/INCONCLUSIVE"),
         (1, "at least one contract regressed (its re-scored timing no longer "
-            "meets its policy pass_conditions) or is no longer scorable"),
-        (2, "usage error, a directory with no contracts, or a corrupt/"
-            "unreadable contract.json"),
+            "meets its policy pass_conditions) or is no longer scorable, OR "
+            "at least one embedded assertion deterministically FAILed "
+            "(reported as a separate dimension, never blended with timing)"),
+        (2, "usage error, a directory with no contracts, a corrupt/"
+            "unreadable contract.json, an unreadable --transcript file, or a "
+            "malformed embedded assertions block"),
     ),
     "contract inspect": (
         (0, "contract printed"),
@@ -284,6 +288,25 @@ _EXIT_CODES: dict = {
             "bridge JSONL"),
         (2, "usage error, no trace attached to the bundle, or an existing "
             "--out without --force"),
+    ),
+    "assert": (
+        (2, "no subcommand given (see hotato assert init/run --help)"),
+    ),
+    "assert init": (
+        (0, "a starter assertions.yaml was written"),
+        (2, "usage error, an unreadable/mismatched --from-trace file, "
+            "nothing could be inferred (no tool_call spans with a "
+            "renderable name and no --stereo timing), an unscorable "
+            "--stereo recording, or an existing --out without --force"),
+    ),
+    "assert run": (
+        (0, "every assertion's deterministic status was PASS or "
+            "INCONCLUSIVE"),
+        (1, "at least one assertion's deterministic status was FAIL"),
+        (2, "usage error or unusable input: a malformed --assertions file, "
+            "an unreadable --transcript/--trace file, an unscorable "
+            "--stereo recording, or --transcribe without --stereo (or "
+            "combined with --transcript)"),
     ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
@@ -2185,7 +2208,9 @@ def _cmd_contract_create(args) -> int:
 def _cmd_contract_verify(args) -> int:
     from . import contract as _contract
 
-    v = _contract.verify_contracts(args.dir)
+    v = _contract.verify_contracts(
+        args.dir, transcript_path=getattr(args, "transcript", None),
+    )
     if args.html:
         _atomic_write_text(args.html, _contract.render_verify_html(v))
         print(f"wrote {args.html}", file=sys.stderr)
@@ -2273,6 +2298,98 @@ def _cmd_trace_export(args) -> int:
     else:
         print(_trace.render_export_text(result))
     return 0
+
+
+def _cmd_assert_init(args) -> int:
+    from . import assert_ as A
+
+    spans = A.load_spans_file(args.from_trace)
+    timing = None
+    if args.stereo:
+        env = run_single(stereo=args.stereo)
+        timing = env["events"]
+    result = A.build_init_stub(spans, timing=timing, source_trace=args.from_trace)
+
+    if os.path.exists(args.out) and not args.force:
+        raise ValueError(
+            f"{args.out!r} already exists; pass --force to overwrite it, or "
+            "choose a new --out"
+        )
+    _atomic_write_text(args.out, result["yaml"])
+
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "assert-init", "path": args.out,
+            "tool_names": result["tool_names"],
+            "skipped_tool_names": result["skipped_tool_names"],
+            "used_timing": result["used_timing"],
+        }
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        lines = [f"wrote a starter assertions file: {args.out}"]
+        if result["tool_names"]:
+            lines.append(f"  tool_call checks: {', '.join(result['tool_names'])}")
+        if len(result["tool_names"]) >= 2:
+            lines.append(f"  call-order check: {' -> '.join(result['tool_names'])}")
+        if result["skipped_tool_names"]:
+            lines.append(
+                "  skipped (unsafe characters, add by hand if needed): "
+                + ", ".join(result["skipped_tool_names"])
+            )
+        if result["used_timing"]:
+            lines.append("  timing check: verdict.did_yield (from --stereo)")
+        next_cmd = f"hotato assert run --assertions {args.out} --trace {args.from_trace}"
+        if args.stereo:
+            next_cmd += f" --stereo {args.stereo}"
+        lines.append(f"next: {next_cmd}")
+        print("\n".join(lines))
+    return 0
+
+
+def _cmd_assert_run(args) -> int:
+    from . import assert_ as A
+
+    if args.transcribe and args.transcript:
+        raise ValueError(
+            "pass either --transcript FILE or --transcribe (with --stereo), "
+            "not both"
+        )
+    if args.transcribe and not args.stereo:
+        raise ValueError("--transcribe needs --stereo FILE to run ASR over")
+
+    transcript = None
+    transcript_path = None
+    if args.transcript:
+        transcript_path = args.transcript
+    elif args.transcribe:
+        from .transcribe import transcribe as _transcribe
+
+        t = _transcribe(
+            args.stereo, model=args.transcribe_model, device=args.transcribe_device,
+        )
+        transcript = [
+            {"role": None, "text": seg.text, "start": seg.start, "end": seg.end}
+            for seg in t.segments
+        ]
+
+    timing = None
+    if args.stereo:
+        env = run_single(stereo=args.stereo)
+        timing = env["events"]
+
+    ctx = A.build_context(
+        transcript=transcript,
+        transcript_path=transcript_path,
+        trace_path=args.trace,
+        timing=timing,
+    )
+    env_out = A.run_assertions_from_file(args.assertions, ctx)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(env_out, indent=2))
+    else:
+        print(A.render_run_text(env_out), end="")
+    return env_out["exit_code"]
 
 
 def _cmd_compare(args) -> int:
@@ -4115,6 +4232,13 @@ def build_parser() -> argparse.ArgumentParser:
     cv.add_argument("--format", default="text", choices=["text", "json"],
                     help="stdout format (default text; json prints the full "
                          "batch result)")
+    cv.add_argument("--transcript", default=None, metavar="FILE",
+                    help="a transcript JSON file (hotato assert's own "
+                         "--transcript shape: a plain array of {role, text, "
+                         "start, end} turns, or a {\"segments\": [...]} "
+                         "envelope) used as context for every contract's "
+                         "embedded `assertions` block, if any; works fully "
+                         "without the [transcribe] extra")
     cv.set_defaults(func=_cmd_contract_verify)
 
     ci_ = ctsub.add_parser(
@@ -4329,6 +4453,127 @@ def build_parser() -> argparse.ArgumentParser:
                          "(--format is already claimed by the export "
                          "format on this subcommand)")
     te.set_defaults(func=_cmd_trace_export)
+
+    # --- assert: the deterministic assertion engine (assert.v1) -------------
+
+    asrt = sub.add_parser(
+        "assert",
+        help="run a deterministic assertions.yaml against a call's "
+             "transcript/spans/timing (phrase/pii/policy/tool_call/outcome)",
+        description=(
+            "The honesty wall made structural: phrase, pii, policy, "
+            "tool_call, and outcome assertions -- every one of them pure "
+            "regex/checksum/span-lookup, never a model call. The summary "
+            "always splits deterministic pass/fail/inconclusive counts "
+            "from a separate judge count and never emits a merged score "
+            "(a judge kind is a separate, quarantined capability, not "
+            "built here)."
+        ),
+        epilog=_exit_codes_epilog("assert"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    asub = asrt.add_subparsers(dest="assert_command", required=True,
+                               metavar="init|run")
+
+    ai = asub.add_parser(
+        "init",
+        help="write a starter assertions.yaml inferred from a trace's "
+             "tool_call spans (+ timing, with --stereo)",
+        description=(
+            "Infer a starter assertions.yaml from --from-trace (a "
+            "hotato.voice_trace.v1 JSONL, from `hotato trace ingest`): one "
+            "tool_call 'was it called' assertion per distinct tool seen, "
+            "a require_order assertion when 2+ distinct tools were "
+            "observed, and -- only with --stereo -- one outcome "
+            "field_present starter grounded in that recording's own "
+            "scored verdict. A STARTER the user edits, never a claim "
+            "these are the RIGHT assertions for the call."
+        ),
+        epilog=(
+            _exit_codes_epilog("assert init") + "\n\n"
+            "Examples:\n"
+            "  hotato assert init --from-trace voice_trace.jsonl\n"
+            "  hotato assert init --from-trace voice_trace.jsonl "
+            "--stereo call.wav \\\n"
+            "      --out assertions.yaml"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ai.add_argument("--from-trace", required=True, metavar="FILE",
+                    help="a hotato.voice_trace.v1 JSONL (from `hotato "
+                         "trace ingest`)")
+    ai.add_argument("--stereo", default=None, metavar="WAV",
+                    help="also score this recording to seed a timing-based "
+                         "outcome starter (optional; the trace's tool_call "
+                         "spans alone are enough for the tool_call "
+                         "starters)")
+    ai.add_argument("--out", default="assertions.yaml", metavar="PATH",
+                    help="assertions.yaml path to write (default "
+                         "assertions.yaml)")
+    ai.add_argument("--force", action="store_true",
+                    help="overwrite an existing --out file")
+    ai.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    ai.set_defaults(func=_cmd_assert_init)
+
+    ar = asub.add_parser(
+        "run",
+        help="evaluate an assertions.yaml against a call's transcript/"
+             "spans/timing",
+        description=(
+            "Build a Context from --transcript (or --transcribe over "
+            "--stereo), --trace, and -- via --stereo -- a freshly scored "
+            "run's timing, then evaluate --assertions against it. Every "
+            "one of the 5 kinds here is deterministic; --format text "
+            "prints per-kind PASS/FAIL/INCONCLUSIVE counts, and the judge "
+            "count separately -- never one merged number."
+        ),
+        epilog=(
+            _exit_codes_epilog("assert run") + "\n\n"
+            "Examples:\n"
+            "  hotato assert run --transcript call.transcript.json \\\n"
+            "      --assertions assertions.yaml\n"
+            "  hotato assert run --stereo call.wav --trace "
+            "voice_trace.jsonl \\\n"
+            "      --assertions assertions.yaml\n"
+            "  hotato assert run --stereo call.wav --transcribe "
+            "--assertions assertions.yaml \\\n"
+            "      --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ar.add_argument("--assertions", required=True, metavar="FILE",
+                    help="the assertions.yaml (or equivalent JSON) file to "
+                         "evaluate")
+    ar.add_argument("--stereo", default=None, metavar="WAV",
+                    help="score this recording for timing context "
+                         "(outcome's field_present) and, with --transcribe, "
+                         "as the ASR input")
+    ar.add_argument("--transcript", default=None, metavar="FILE",
+                    help="a transcript JSON file (a plain array of {role, "
+                         "text, start, end} turns, or the {\"segments\": "
+                         "[...]} shape hotato.transcribe / the MCP surface "
+                         "write) -- lets assert run work fully without the "
+                         "[transcribe] extra; never combined with "
+                         "--transcribe")
+    ar.add_argument("--transcribe", action="store_true",
+                    help="transcribe --stereo with faster-whisper (the "
+                         "[transcribe] extra) instead of passing "
+                         "--transcript; requires --stereo")
+    ar.add_argument("--transcribe-model", default="base.en", metavar="NAME",
+                    help="faster-whisper model name for --transcribe "
+                         "(default base.en)")
+    ar.add_argument("--transcribe-device", default="auto",
+                    choices=["auto", "cpu", "cuda"],
+                    help="device for --transcribe (default auto: cuda if "
+                         "available, else cpu)")
+    ar.add_argument("--trace", default=None, metavar="FILE",
+                    help="a hotato.voice_trace.v1 JSONL (from `hotato "
+                         "trace ingest`); tool_call assertions read only "
+                         "these spans, never transcript text")
+    ar.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    ar.set_defaults(func=_cmd_assert_run)
 
     # --- compare: the shareable before/after on one fixed moment ------------
     cp = sub.add_parser(

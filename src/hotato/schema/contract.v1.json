@@ -106,6 +106,31 @@
       }
     },
     "fix": { "type": ["object", "null"] },
+    "assertions": {
+      "type": ["object", "null"],
+      "description": "Optional deterministic assertions this contract carries (schema/assert.v1.json's INPUT shape -- the same {version, assertions} document `hotato assert` already reads from an assertions.yaml file). When present, `hotato contract verify` evaluates every assertion here through the SAME assert.v1 engine and reports the result as a separate `assertions` dimension per contract, alongside (never blended into) the timing pass/fail re-score. Absent or null on a contract that carries no assertions -- the common case today.",
+      "required": ["version", "assertions"],
+      "additionalProperties": true,
+      "properties": {
+        "version": { "const": 1 },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "kind"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string" },
+              "kind": {
+                "enum": ["phrase", "pii", "policy", "tool_call", "outcome"],
+                "description": "All five kinds are 100% deterministic (regex/checksum/span-lookup); see schema/assert.v1.json for the per-kind fields."
+              }
+            }
+          }
+        }
+      }
+    },
     "replay": {
       "type": "object",
       "required": ["command", "ci_command"],
