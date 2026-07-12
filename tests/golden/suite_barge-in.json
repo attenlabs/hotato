@@ -24,6 +24,7 @@
       "category": "should_yield",
       "event_id": "01-hard-interruption",
       "expected_yield": true,
+      "expected_yield_explicit": true,
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
@@ -88,6 +89,7 @@
       "category": "should_not_yield",
       "event_id": "02-backchannel-mhm",
       "expected_yield": false,
+      "expected_yield_explicit": true,
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
@@ -147,6 +149,7 @@
       "category": "should_yield",
       "event_id": "03-filler-start",
       "expected_yield": true,
+      "expected_yield_explicit": true,
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
@@ -211,6 +214,7 @@
       "category": "should_yield",
       "event_id": "04-correction",
       "expected_yield": true,
+      "expected_yield_explicit": true,
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
@@ -275,6 +279,7 @@
       "category": "should_yield",
       "event_id": "05-telephony-8khz",
       "expected_yield": true,
+      "expected_yield_explicit": true,
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
@@ -339,6 +344,7 @@
       "category": "should_yield",
       "event_id": "06-double-talk",
       "expected_yield": true,
+      "expected_yield_explicit": true,
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
@@ -403,6 +409,7 @@
       "category": "should_not_yield",
       "event_id": "07-echo-bleed",
       "expected_yield": false,
+      "expected_yield_explicit": true,
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
@@ -462,6 +469,7 @@
       "category": "should_yield",
       "event_id": "08-rapid-turn-taking",
       "expected_yield": true,
+      "expected_yield_explicit": true,
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,

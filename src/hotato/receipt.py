@@ -9,6 +9,12 @@ machine-verified fresh recapture.
 
 Zero-dependency: stdlib ``hmac``/``hashlib`` only. Signing is OPTIONAL; an
 unsigned receipt still records origin metadata but is labelled unsigned.
+
+See :mod:`hotato.ledger` for the OPTIONAL temporal-precommit + replay-defense
+layer (Evidence Kernel v2, K4) that builds on top of this receipt: a fresh
+unpredictable challenge committed to a local Merkle-chained log BEFORE
+capture, and a refusal of any receipt that reuses a nonce or provider call id
+already bound in that log.
 """
 from __future__ import annotations
 
@@ -35,6 +41,7 @@ def build_receipt(
     *,
     trial_id: str,
     nonce: str,
+    challenge: Optional[str] = None,
     recording_locator: str,
     raw_sha256: str,
     pcm_sha256: str,
@@ -53,11 +60,21 @@ def build_receipt(
     key: Optional[bytes] = None,
 ) -> dict:
     """Build a capture receipt. If ``key`` is given, HMAC-sign the subject
-    digest; else leave it unsigned (still usable, labelled unsigned)."""
+    digest; else leave it unsigned (still usable, labelled unsigned).
+
+    ``challenge`` optionally carries the unpredictable value committed BEFORE
+    capture by :func:`hotato.ledger.commit_challenge` (Evidence Kernel v2,
+    K4): passing the same ``nonce``/``challenge`` here lets
+    :func:`hotato.ledger.bind_receipt` bind this finished receipt back to its
+    temporal precommit and refuse a duplicate ``provider_call_id`` or a reused
+    ``nonce`` (replay). Optional: a receipt built with no ``challenge`` is
+    unchanged from before -- this strengthens the receipt when the caller
+    opts in, it does not require it."""
     receipt = {
         "schema_version": SCHEMA_VERSION,
         "trial_id": trial_id,
         "nonce": nonce,
+        "challenge": challenge,
         "agent_id": agent_id,
         "deployment_id": deployment_id,
         "provider_call_id": provider_call_id,

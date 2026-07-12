@@ -186,18 +186,39 @@ def build_manifest(
     cfg = cfg or ScoreConfig()
     cfg_dict, cfg_hash = score_config_hash(cfg)
     pol = normalize_policy(policy)
+    # Deferred import (K5): labelrecord depends on receipt, which depends on
+    # this module (canonical_json) -- importing it at module top would be a
+    # cycle. By the time build_manifest is actually CALLED, hotato.manifest is
+    # already fully loaded, so this is safe.
+    from . import labelrecord as _labelrecord
     fixtures = []
     for ev in battery_env.get("events", []):
         if ev.get("scorable") is False:
             continue
-        # A human label is claimed ONLY when the expectation was EXPLICITLY
-        # present (a human authored it) -- never when defaulted. An explicit
-        # label_id upgrades nothing further here; its ABSENCE with an explicit
-        # expectation is still "human" (a scenario a human wrote), while an event
-        # missing expected_yield entirely cannot claim human authority.
-        explicit = "expected_yield" in ev
         expected_yield = bool(ev.get("expected_yield", True))
-        label_authority = "human" if explicit else "none"
+        stimulus_pcm = _stimulus_pcm(ev)
+        label_record = ev.get("label_record")
+        # label_authority is derived ONLY from a VALID signed label-record
+        # bound to this event's decoded audio, or -- absent one -- whether the
+        # scenario's own "expected" mapping was EXPLICITLY authored. NEVER
+        # inferred from expected_yield's mere presence (that field is written
+        # into every event unconditionally, human-authored or not -- the K5
+        # bug this replaces).
+        if label_record is not None:
+            verification = _labelrecord.verify_label_record_local(
+                label_record, event_pcm_sha256=stimulus_pcm)
+            if verification.get("ok") and verification.get("authority") in (
+                    "human", "human-shared"):
+                label_authority = verification["authority"]
+            else:
+                # A label-record was SUPPLIED (tampered, wrong/untrusted key,
+                # or not bound to this exact audio) but did not verify: a
+                # refusal, never a silent downgrade to "asserted".
+                label_authority = "invalid"
+        elif bool(ev.get("expected_yield_explicit", False)):
+            label_authority = "asserted"
+        else:
+            label_authority = "none"
         measurements = ev.get("measurements") or {}
         fixtures.append({
             "fixture_id": fixture_key(ev),
@@ -206,10 +227,14 @@ def build_manifest(
             "expect": "yield" if expected_yield else "hold",
             "expected_yield": expected_yield,
             "onset_sec": measurements.get("caller_onset_sec"),
-            "stimulus_pcm_sha256": _stimulus_pcm(ev),
+            "stimulus_pcm_sha256": stimulus_pcm,
             "label_id": ev.get("label_id"),
             "label_revision": ev.get("label_revision"),
             "label_authority": label_authority,
+            # Carried so a later verify can re-check the same label-record
+            # (bound to stimulus_pcm_sha256 above) independently of this
+            # manifest build's own trust resolution.
+            "label_record": label_record,
         })
     fixtures.sort(key=lambda f: f["fixture_id"])
     # Derived, deterministic from the (sorted) fixture universe:

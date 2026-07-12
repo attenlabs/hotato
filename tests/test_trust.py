@@ -214,6 +214,112 @@ def test_swapped_channels_are_flagged(tmp_path):
     assert any("reversed" in w for w in r["warnings"])
 
 
+# --- K6: verdict eligibility is a NARROWER, separate gate from scorability --
+
+def test_swapped_channels_are_candidate_eligible_but_not_verdict_eligible(tmp_path):
+    # A suspected swap keeps the input CANDIDATE-eligible (scan can still surface
+    # advisory candidates + audio) but must refuse a VERDICT: verdict_eligible is
+    # False with the honest reason, distinct from (and narrower than) scorable.
+    p = _write_stereo(tmp_path / "swapped.wav",
+                      caller_segments=[(0.2, 5.8)],
+                      agent_segments=[(2.0, 2.5)])
+    r = trust_report(p)
+    assert r["channels"]["possible_swap"] is True
+    assert r["scorable"] is True
+    assert r["candidate_eligible"] is True
+    assert r["verdict_eligible"] is False
+    assert r["verdict_ineligible_reason"] == trust_mod.VERDICT_INELIGIBLE_REASON
+    assert r["exit_code"] == 0  # candidate eligibility, NOT the verdict gate
+
+
+def test_confirmed_channel_mapping_flips_verdict_eligible_back_on(tmp_path):
+    # A human (or authenticated provider metadata) explicit channel-map
+    # confirmation overrides the swap-driven verdict refusal -- it scores
+    # normally again. It never touches candidate eligibility (already True).
+    p = _write_stereo(tmp_path / "swapped.wav",
+                      caller_segments=[(0.2, 5.8)],
+                      agent_segments=[(2.0, 2.5)])
+    r = trust_report(p, channel_map_confirmed=True)
+    assert r["channels"]["possible_swap"] is True
+    assert r["scorable"] is True
+    assert r["verdict_eligible"] is True
+    assert r["verdict_ineligible_reason"] is None
+    assert r["channel_map_confirmed"] is True
+
+
+def test_not_scorable_input_is_never_verdict_eligible(tmp_path):
+    # A confirmation cannot rescue an input that fails the not-scorable gate
+    # outright: verdict_eligible is False regardless.
+    p = _write_stereo(tmp_path / "silent-caller.wav",
+                      caller_segments=[],
+                      agent_segments=[(0.2, 5.8)])
+    r = trust_report(p, channel_map_confirmed=True)
+    assert r["scorable"] is False
+    assert r["candidate_eligible"] is False
+    assert r["verdict_eligible"] is False
+
+
+def test_clean_call_is_verdict_eligible(tmp_path):
+    p = _write_stereo(tmp_path / "clean.wav",
+                      caller_segments=[(3.0, 3.7)],
+                      agent_segments=[(0.2, 5.8)])
+    r = trust_report(p)
+    assert r["verdict_eligible"] is True
+    assert r["verdict_ineligible_reason"] is None
+    assert r["candidate_eligible"] is True
+    assert r["verdict_mode"] == trust_mod.VERDICT_MODE_SCAN
+
+
+def test_invalid_verdict_mode_is_rejected(tmp_path):
+    p = _write_stereo(tmp_path / "clean.wav",
+                      caller_segments=[(3.0, 3.7)],
+                      agent_segments=[(0.2, 5.8)])
+    with pytest.raises(ValueError, match="mode must be one of"):
+        trust_report(p, mode="bogus")
+
+
+def test_stricter_contract_mode_crosstalk_threshold_refuses_where_scan_warns():
+    # A synthetic leak/coherence reading that sits UNDER every scan-level bar
+    # (no mask alteration, no gate-crossing, coherence and ratio both below the
+    # scan bars) but AT/ABOVE the stricter contract-mode ratio bar: scan stays
+    # verdict-eligible, contract refuses. Exercises the exact mechanism
+    # `contract create`/`contract verify` rely on for the higher-stakes gate.
+    leakage = {"leakage_db": -43.0, "leakage_alters_mask": False,
+               "leakage_crosses_gate": False}
+    coherence = 0.5  # well under both DEFAULT_COHERENCE_THRESHOLD and the 0.6 contract bar
+    assert coherence < trust_mod.VERDICT_COHERENCE_THRESHOLD[trust_mod.VERDICT_MODE_CONTRACT]
+    assert -43.0 < trust_mod.VERDICT_LEAKAGE_DB[trust_mod.VERDICT_MODE_SCAN]  # under -40
+    assert -43.0 >= trust_mod.VERDICT_LEAKAGE_DB[trust_mod.VERDICT_MODE_CONTRACT]  # at/over -46
+    assert trust_mod.crosstalk_verdict_suspected(
+        coherence, leakage, mode=trust_mod.VERDICT_MODE_SCAN) is False
+    assert trust_mod.crosstalk_verdict_suspected(
+        coherence, leakage, mode=trust_mod.VERDICT_MODE_CONTRACT) is True
+
+
+def test_crosstalk_verdict_suspected_scan_mode_matches_existing_suspected_bar():
+    # For mode="scan", crosstalk_verdict_suspected must read IDENTICALLY to the
+    # existing crosstalk_risk.suspected computation (echo_suspected OR
+    # leakage_suspected) -- the new gate never silently changes scan behavior.
+    leakage_clean = {"leakage_db": None, "leakage_alters_mask": False,
+                      "leakage_crosses_gate": False}
+    assert trust_mod.crosstalk_verdict_suspected(
+        0.5, leakage_clean, mode=trust_mod.VERDICT_MODE_SCAN) is False
+    leakage_loud = {"leakage_db": -35.0, "leakage_alters_mask": False,
+                     "leakage_crosses_gate": False}
+    assert trust_mod.crosstalk_verdict_suspected(
+        0.5, leakage_loud, mode=trust_mod.VERDICT_MODE_SCAN) is True
+    assert trust_mod.crosstalk_verdict_suspected(
+        0.9, leakage_clean, mode=trust_mod.VERDICT_MODE_SCAN) is True
+
+
+def test_high_leakage_is_not_verdict_eligible(tmp_path):
+    p = _bleed_stereo(tmp_path / "bleed.wav", gain=0.03)
+    r = trust_report(p)
+    assert r["scorable"] is True
+    assert r["verdict_eligible"] is False
+    assert r["verdict_ineligible_reason"] == trust_mod.VERDICT_INELIGIBLE_REASON
+
+
 # --- clipping: warned, scorability unchanged --------------------------------
 
 def test_clipping_is_warned_without_blocking_scan(tmp_path):

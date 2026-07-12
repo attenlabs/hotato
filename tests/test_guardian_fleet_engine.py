@@ -57,7 +57,23 @@ def _stereo_wav(path, *, onset=3.0, agent_end=8.0, total=10.0, rate=16000):
 
 def test_clone_run_reaches_attested_tier_with_key(tmp_path, monkeypatch):
     monkeypatch.setenv("HOTATO_ATTEST_KEY", "k")
+    # K5: label_authority reaches "human"/TIER_ATTESTED ONLY behind a verified
+    # Ed25519 label-record bound to each fixture's decoded audio -- an explicit
+    # scenario expectation alone now caps at "asserted"/PAIRED. Mint + locally
+    # trust a real one for every fixture so this trial genuinely earns ATTESTED,
+    # isolated from the real machine's own key store.
+    monkeypatch.setenv("HOME", str(tmp_path / "sign-home"))
+    from hotato import labelrecord as _labelrecord, manifest as _manifest_mod, sign as _sign
+    _priv, _pub, _key_id = _sign.keygen()
+    _sign.save_signing_key(_key_id, _priv)
+    _sign.save_trust(_key_id, _pub)
+
     before, bdir, scenarios = _yield_hold_battery(str(tmp_path))
+    for _event in before["events"]:
+        _pcm = _manifest_mod._stimulus_pcm(_event)
+        _event["label_record"] = _labelrecord.mint_label_record(
+            reviewer_principal="qa-reviewer", event_audio_pcm_sha256=_pcm,
+            decision="yield" if _event.get("expected_yield", True) else "hold")
     with FleetAPI(str(tmp_path / "home")) as api:
         api.init_workspace("a"); api.agent_add("a", "ag", stack="vapi")
         r = api.experiment_clone_run(

@@ -447,11 +447,14 @@ def recompute_trial(
     vector.setdefault("channel_mapping", "inferred" if not unrecomputable else None)
     # label authority is the WEAKEST across fixtures, read from the manifest's
     # pinned per-fixture label metadata -- never assumed. A fixture whose
-    # expectation was not an explicit human label caps the proof below PAIRED.
-    _lorder = {"none": 0, "suggested": 1, "human": 2}
+    # expectation was not an explicit human label (or, since K5, not a valid
+    # signed label-record) caps the proof below PAIRED or ATTESTED. Ordered by
+    # evidence.py's own cap table (the single source of truth for label_authority
+    # strength) rather than a second hand-maintained ordering here.
     if label_authorities:
         vector["label_authority"] = min(
-            label_authorities, key=lambda a: _lorder.get(a, 0))
+            label_authorities,
+            key=lambda a: _evidence._cap_for("label_authority", a))
     else:
         vector.setdefault("label_authority", "none")
 
