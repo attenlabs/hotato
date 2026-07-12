@@ -71,6 +71,35 @@ thresholds), so any pixel on the page can be re-derived by hand. The exact
 the end of the page, so the run is reproducible without stamping the
 parameter table above every render.
 
+### Voice-trace context with `--trace`
+
+Pass `--trace voice_trace.jsonl` (a `hotato.voice_trace.v1` file, written by
+`hotato trace ingest`) to attach a voice trace as **context** next to the
+timing:
+
+```bash
+hotato trace ingest --otel spans.otel.jsonl --out voice_trace.jsonl
+hotato report --stereo call.wav --trace voice_trace.jsonl --out report.html
+```
+
+The report grows one collapsed, clearly-labelled "Trace (context, not a
+score)" section: the trace's discrete voice-pipeline events -- TTS
+cancel/stop, ASR partials, tool calls -- as a mono span table (type, name,
+start, end, detail). Exactly like `--base` and an attached `assert.v1`
+envelope, the report never **evaluates** or scores a trace; it renders the
+already-produced artifact as data. The section is context only: it never
+touches `did_yield`, `talk_over_sec`, `seconds_to_yield`, or the PASS/FAIL
+verdict, and it is folded into the machine envelope as an additive top-level
+`trace_context` key. A report built without `--trace` is byte-identical to one
+built before the flag existed.
+
+Redaction is respected: a span carrying `text_redacted: true` (e.g. an
+`asr_partial` ingested without `--include-text`) shows a `[redacted]`
+placeholder, never its text -- so a report shared outside the fleet leaks no
+spoken content the trace itself already withheld. The same `trace=` parameter
+is on `build_report_html` / `build_report_md`; see `docs/TRACE.md` for the
+trace format and `hotato trace ingest`.
+
 ### Regression deltas with `--base`
 
 Save an envelope, then compare a later run against it:

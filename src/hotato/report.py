@@ -68,6 +68,24 @@ as an additive ``transcript_context`` key on that event -- it NEVER touches
 ``did_yield``, ``talk_over_sec``, ``seconds_to_yield``, or any other
 scoring/verdict field, and a report built without ``transcript`` is
 byte-identical to one built before this existed.
+
+Pass ``trace`` (optional, default ``None``) to attach a voice trace as CONTEXT:
+a ``hotato.voice_trace.v1`` object as loaded by
+``hotato.trace.load_voice_trace_jsonl`` (a meta dict plus a list of span dicts)
+or the equivalent dict/list. Exactly like ``base``, ``transcript``, and
+``assertions``, this module never EVALUATES or scores a trace -- the caller
+hands it an already-produced observability artifact and this purely renders it.
+It is rendered as one collapsed, clearly-labelled call-level "Trace (context,
+not a score)" section (a mono span table in HTML, a Markdown table in MD) and
+folded into the machine envelope as an additive top-level ``trace_context``
+key. It respects the trace's own redaction: a span carrying
+``text_redacted: true`` (e.g. an ``asr_partial`` ingested without
+``--include-text``) shows a ``[redacted]`` placeholder, never its text. The
+section is context only; it NEVER touches ``did_yield``, ``talk_over_sec``,
+``seconds_to_yield``, or any other scoring/verdict field, and a report built
+without ``trace`` is byte-identical to one built before this existed. To avoid
+the circular import ``hotato.trace`` imports THIS module, report.py never
+imports ``hotato.trace`` at module scope -- the trace is duck-typed as data.
 """
 
 from __future__ import annotations
@@ -922,6 +940,131 @@ def _assertions_section(assertions: dict) -> str:
     )
 
 
+# --- trace context (voice_trace.v1): a pre-built observability artifact ----
+#
+# report.py never EVALUATES or scores a trace: exactly like ``base`` (a
+# previous run envelope), ``transcript`` (an already-produced ASR artifact),
+# and ``assertions`` (an already-evaluated assert.v1 envelope), the caller
+# hands this module a ``hotato.voice_trace.v1`` object -- the dict
+# ``hotato.trace.load_voice_trace_jsonl`` returns (meta keys plus a "spans"
+# list), or the equivalent dict/list -- and this purely renders it as data.
+#
+# This module NEVER does ``import hotato.trace`` at module scope: hotato.trace
+# imports hotato.contract, which imports THIS module -- an import across that
+# cycle would be circular (the same reason ``_ASSERT_SCHEMA`` is a bare literal
+# rather than an ``import hotato.assert_``). The trace is duck-typed instead.
+#
+# Absent by default: a report built with ``trace=None`` (the default) is
+# byte-identical to one built before this feature existed -- no new markup,
+# no new CSS.
+
+TraceLike = Any  # a voice_trace.v1 object / dict / span list; never imported here
+
+
+def _normalize_trace(trace: TraceLike) -> dict:
+    """Reduce a ``hotato.voice_trace.v1`` object (the dict
+    ``load_voice_trace_jsonl`` returns -- meta keys plus a ``spans`` list) OR a
+    bare list of span dicts to the small, JSON-safe, purely-additive payload
+    the report renders and folds into the envelope: a ``meta`` dict (every
+    top-level key that is not the span list) and a ``spans`` list (each span a
+    shallow copy, so the caller's data is never mutated). Nothing here is a
+    timing or verdict field; nothing computed here is read by the scorer."""
+    if isinstance(trace, dict):
+        spans = trace.get("spans") or []
+        meta = {k: v for k, v in trace.items() if k != "spans"}
+    elif isinstance(trace, (list, tuple)):
+        spans, meta = list(trace), {}
+    else:
+        raise ValueError(
+            "trace must be a hotato.voice_trace.v1 object (the dict "
+            "hotato.trace.load_voice_trace_jsonl returns -- meta keys plus a "
+            f"'spans' list) or a list of span dicts; got {trace!r}"
+        )
+    return {"meta": meta, "spans": [dict(s) for s in spans]}
+
+
+def _trace_span_times(span: dict):
+    """``(start_txt, end_txt)`` for one span: an interval span
+    (``start_sec``/``end_sec``) shows both; a point span (``time_sec``) shows
+    the time as the start and leaves the end blank. A missing value renders as
+    an empty cell, never a fabricated ``0.00s``."""
+    start = span.get("start_sec")
+    if start is None:
+        start = span.get("time_sec")
+    end = span.get("end_sec")
+
+    def _f(v) -> str:
+        return "" if v is None else f"{float(v):.2f}s"
+
+    return _f(start), _f(end)
+
+
+def _trace_span_detail(span: dict) -> str:
+    """The one place the trace redaction wall lives: a span flagged
+    ``text_redacted: true`` (e.g. an ``asr_partial`` ingested without
+    ``--include-text``) NEVER yields its transcript -- it returns the literal
+    ``[redacted]`` placeholder, and its ``attributes`` are skipped too (an
+    ingested redacted span can still carry the raw text inside ``attributes``,
+    so the flag is honored BEFORE anything else is read). A non-redacted span
+    shows its ``text`` if it carries one, else a compact ``k=v`` list of its
+    ``latency_ms`` and ``attributes``. Context only; nothing here is a score."""
+    if span.get("text_redacted"):
+        return "[redacted]"
+    text = span.get("text")
+    if text:
+        return str(text)
+    parts = []
+    if span.get("latency_ms") is not None:
+        parts.append(f"latency_ms={span['latency_ms']}")
+    attrs = span.get("attributes")
+    if isinstance(attrs, dict):
+        parts.extend(f"{k}={v}" for k, v in attrs.items())
+    return ", ".join(parts)
+
+
+def _trace_section(trace: dict) -> str:
+    """The one collapsed, clearly-labelled call-level "Trace (context, not a
+    score)" section: the caller-supplied voice trace rendered as tabular mono,
+    one row per span (type, name, start, end, detail). report.py never
+    evaluates or scores a trace; this purely renders the already-produced
+    artifact. Context only -- it never touches any timing/verdict field, and a
+    redacted span shows ``[redacted]`` in its detail cell, never its text."""
+    spans = trace.get("spans") or []
+    if spans:
+        rows = []
+        for s in spans:
+            start_txt, end_txt = _trace_span_times(s)
+            rows.append(
+                '<tr>'
+                f'<td>{_esc(s.get("type", "event"))}</td>'
+                f'<td>{_esc(s.get("name") or "")}</td>'
+                f'<td>{_esc(start_txt)}</td>'
+                f'<td>{_esc(end_txt)}</td>'
+                f'<td>{_esc(_trace_span_detail(s))}</td>'
+                '</tr>'
+            )
+        body = (
+            '<table class="tracetab mono"><thead><tr><th>span</th><th>name</th>'
+            '<th>start</th><th>end</th><th>detail</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table>'
+        )
+    else:
+        body = '<div class="anempty">No spans in this trace.</div>'
+    return (
+        '<details class="card trace">'
+        '<summary>Trace (context, not a score)</summary>'
+        '<div class="tnote">A caller-supplied voice trace '
+        '(hotato.voice_trace.v1): discrete voice-pipeline events -- TTS '
+        'cancel/stop, ASR partials, tool calls -- rendered as context '
+        'ALONGSIDE the timing above. It is never scored and never fed back '
+        'into any measurement: did_yield, talk-over, time to yield, and the '
+        'PASS/FAIL verdict are unaffected whether or not a trace is attached. '
+        'A redacted span shows [redacted], never its text.</div>'
+        f'{body}'
+        '</details>'
+    )
+
+
 # --- transcript context (opt-in aid; never a scoring input) ---------------
 #
 # report.py never imports hotato.transcribe and never runs any speech-to-text:
@@ -1548,12 +1691,30 @@ _ASSERTIONS_CSS = """
 .asrthit{color:%(muted)s;font-size:11.5px;margin-top:4px}
 """ % _C
 
+# Appended to the page's <style> ONLY when a ``trace`` was actually passed in
+# (see _render_page): a report built with the default trace=None must stay
+# byte-identical to one built before this feature existed, so these rules are
+# never baked into the always-present _CSS above.
+_TRACE_CSS = """
+details.trace summary{cursor:pointer;color:%(cream)s;font-size:16.5px;
+ font-weight:650}
+.trace .tnote{color:%(muted)s;font-size:12.5px;margin:8px 0 12px}
+.trace .anempty{color:%(muted)s;font-size:13px;font-style:italic}
+table.tracetab{border-collapse:collapse;width:auto;font-size:12px}
+table.tracetab th{text-align:left;color:%(muted)s;font-weight:600;
+ font-size:11.5px;padding:5px 18px 5px 0;border-bottom:1px solid %(line)s;
+ white-space:nowrap}
+table.tracetab td{text-align:left;color:%(mono)s;padding:3px 18px 3px 0;
+ border-bottom:1px solid %(card2)s;vertical-align:top}
+""" % _C
+
 
 def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  base_env: Optional[dict] = None,
                  base_label: Optional[str] = None,
                  audio_mode: str = AUDIO_NONE,
-                 assertions: Optional[dict] = None) -> str:
+                 assertions: Optional[dict] = None,
+                 trace: Optional[dict] = None) -> str:
     s = env["summary"]
     # A real failure always dominates: REGRESSION beats NOT SCORABLE beats
     # ALL PASS. NOT SCORABLE appears only when nothing failed but at least one
@@ -1587,6 +1748,8 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         style_css += _TRANSCRIPT_CSS
     if assertions is not None:
         style_css += _ASSERTIONS_CSS
+    if trace is not None:
+        style_css += _TRACE_CSS
 
     legend = (
         f'<div class="legend">'
@@ -1646,11 +1809,18 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     # report carries none of this markup.
     assertions_html = _assertions_section(assertions) if assertions is not None else ""
 
+    # The trace section (voice_trace.v1, one call-level table) reads after the
+    # assertion story: it is supplementary observability CONTEXT, never a score,
+    # so it sits last before the "Thresholds used" config panel. Absent by
+    # default (trace=None), so a plain report carries none of this markup.
+    trace_html = _trace_section(trace) if trace is not None else ""
+
     body = (
         f'<div class="wrap">{head}<main>{summary}'
         f'{_not_scorable_section_html(env)}'
         f'{base_html}{cards}'
-        f'{analytics_html}{assertions_html}{_thresholds(cfg)}</main>{_footer()}</div>'
+        f'{analytics_html}{assertions_html}{trace_html}'
+        f'{_thresholds(cfg)}</main>{_footer()}</div>'
     )
 
     # Distinguishing title + description built only from measured counts.
@@ -1747,10 +1917,38 @@ def _assertions_md(assertions: dict) -> list:
     return L
 
 
+def _trace_md(trace: dict) -> list:
+    """The Markdown mirror of ``_trace_section``: the same caller-supplied
+    voice trace as a table, one row per span, with the same redaction wall (a
+    ``text_redacted: true`` span shows ``[redacted]``, never its text)."""
+    spans = trace.get("spans") or []
+    L = ["## Trace (context, not a score)", ""]
+    L.append("A caller-supplied voice trace (hotato.voice_trace.v1): discrete "
+             "voice-pipeline events rendered as context alongside the timing "
+             "above. Never scored, never fed back into any measurement -- "
+             "did_yield, talk-over, time to yield, and the PASS/FAIL verdict "
+             "are unaffected. A redacted span shows [redacted], never its text.")
+    L.append("")
+    if spans:
+        L.append(_md_row(["span", "name", "start", "end", "detail"]))
+        L.append(_md_row(["---"] * 5))
+        for s in spans:
+            start_txt, end_txt = _trace_span_times(s)
+            L.append(_md_row([
+                s.get("type", "event"), s.get("name") or "",
+                start_txt, end_txt, _trace_span_detail(s),
+            ]))
+    else:
+        L.append("No spans in this trace.")
+    L.append("")
+    return L
+
+
 def _render_md(env: dict, models: list, cfg: ScoreConfig,
                base_env: Optional[dict] = None,
                base_label: Optional[str] = None,
-               assertions: Optional[dict] = None) -> str:
+               assertions: Optional[dict] = None,
+               trace: Optional[dict] = None) -> str:
     s = env["summary"]
     eng = env.get("engine", {})
     mode_label = f"suite: {env['suite']}" if env.get("suite") else env.get("mode", "")
@@ -1915,6 +2113,10 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
     if assertions is not None:
         L.extend(_assertions_md(assertions))
 
+    # trace (voice_trace.v1): absent by default, byte-identical without it
+    if trace is not None:
+        L.extend(_trace_md(trace))
+
     # base comparison
     if base_env:
         rows, unmatched = _base_rows(env, base_env)
@@ -2008,6 +2210,7 @@ def _score_and_model(
     max_talk_over_sec: Optional[float] = None,
     max_time_to_yield_sec: Optional[float] = None,
     transcript: Optional[TranscriptLike] = None,
+    trace: Optional[TraceLike] = None,
     cfg: Optional[ScoreConfig] = None,
 ):
     """Score the input and return ``(envelope, models, cfg)``: everything both
@@ -2017,7 +2220,13 @@ def _score_and_model(
     Transcript-like object (applied to every event alike) or a dict keyed by
     ``scenario_id``/``event_id`` (one transcript per suite event). It is
     additive only -- ``env["events"]`` is byte-identical to before whenever
-    ``transcript`` is ``None`` or does not match a given event."""
+    ``transcript`` is ``None`` or does not match a given event.
+
+    ``trace`` (default ``None``) attaches an optional call-level voice trace as
+    CONTEXT and is folded into the envelope as an additive top-level
+    ``trace_context`` key (``{"meta", "spans"}``). It is additive only -- the
+    envelope carries no ``trace_context`` at all whenever ``trace`` is
+    ``None``, so a plain report's envelope is byte-identical to before."""
     cfg = cfg or ScoreConfig()
 
     if suite:
@@ -2078,6 +2287,13 @@ def _score_and_model(
                                       {"label": "agent", "path": agent}]
         models = [model]
 
+    # Fold the call-level voice trace into the envelope as one additive
+    # top-level key (the trace is per-call, not per-event, so unlike
+    # transcript_context it lives on the envelope itself). Only when a trace
+    # was actually supplied, so a trace=None envelope stays byte-identical.
+    if trace is not None:
+        env["trace_context"] = _normalize_trace(trace)
+
     return env, models, cfg
 
 
@@ -2086,7 +2302,8 @@ def build_report_html(*, base: Optional[dict] = None,
                       embed_audio: bool = False,
                       audio_mode: Optional[str] = None,
                       transcript: Optional[TranscriptLike] = None,
-                      assertions: Optional[dict] = None, **kwargs):
+                      assertions: Optional[dict] = None,
+                      trace: Optional[TraceLike] = None, **kwargs):
     """Score the input and return ``(html_str, envelope)``.
 
     Pass ``suite`` for the labelled battery, or a single recording via
@@ -2135,18 +2352,35 @@ def build_report_html(*, base: Optional[dict] = None,
     ``overall_score`` anywhere. ``None`` (the default) leaves the HTML
     byte-identical to a report built before this parameter existed. See
     ``docs/ASSERTIONS.md``.
+
+    ``trace`` (default ``None``) attaches an optional voice trace as CONTEXT: a
+    ``hotato.voice_trace.v1`` object as loaded by
+    ``hotato.trace.load_voice_trace_jsonl`` (a meta dict plus a list of span
+    dicts) or the equivalent dict/list. This function never evaluates or scores
+    a trace itself, exactly like ``base`` and ``assertions``. It renders as a
+    collapsed, clearly-labelled call-level "Trace (context, not a score)"
+    section (a mono span table) and is folded into the returned envelope as an
+    additive top-level ``trace_context`` key; it never touches any timing/
+    verdict field, and a span carrying ``text_redacted: true`` shows a
+    ``[redacted]`` placeholder, never its text. ``None`` (the default) leaves
+    the HTML byte-identical to a report built before this parameter existed.
+    report.py never imports ``hotato.trace`` (a circular import); the trace is
+    duck-typed as data. See ``docs/REPORTS.md`` and ``docs/TRACE.md``.
     """
-    env, models, cfg = _score_and_model(transcript=transcript, **kwargs)
+    env, models, cfg = _score_and_model(transcript=transcript, trace=trace,
+                                        **kwargs)
     mode = _resolve_audio_mode(embed_audio, audio_mode)
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
-                        audio_mode=mode, assertions=assertions)
+                        audio_mode=mode, assertions=assertions,
+                        trace=env.get("trace_context"))
     return page, env
 
 
 def build_report_md(*, base: Optional[dict] = None,
                     base_label: Optional[str] = None,
                     transcript: Optional[TranscriptLike] = None,
-                    assertions: Optional[dict] = None, **kwargs):
+                    assertions: Optional[dict] = None,
+                    trace: Optional[TraceLike] = None, **kwargs):
     """Score the input and return ``(markdown_str, envelope)``.
 
     Mirrors the HTML report's content with tables instead of SVG: summary,
@@ -2163,11 +2397,19 @@ def build_report_md(*, base: Optional[dict] = None,
     ``build_report_html`` (see there): an "Assertions" section with the same
     two shelves, as Markdown tables. ``None`` (the default) leaves the
     Markdown byte-identical to before this parameter existed.
+
+    ``trace`` is the same optional ``hotato.voice_trace.v1`` context parameter
+    as ``build_report_html`` (see there): a "Trace (context, not a score)"
+    section as a Markdown span table, folded into the envelope as an additive
+    top-level ``trace_context`` key, never touching any timing/verdict field,
+    with the same ``[redacted]`` redaction wall. ``None`` (the default) leaves
+    the Markdown byte-identical to before this parameter existed.
     """
-    env, models, cfg = _score_and_model(transcript=transcript, **kwargs)
+    env, models, cfg = _score_and_model(transcript=transcript, trace=trace,
+                                        **kwargs)
     return (
         _render_md(env, models, cfg, base_env=base, base_label=base_label,
-                  assertions=assertions),
+                  assertions=assertions, trace=env.get("trace_context")),
         env,
     )
 
@@ -2181,7 +2423,8 @@ def write_report(path: str, fmt: str = "html", embed_audio: bool = False,
     ``audio_mode`` (``none`` / ``self_contained`` / ``audio_reference``) picks
     the audio treatment for the HTML report; it wins over ``embed_audio`` and is
     HTML-only, exactly like ``embed_audio``. ``transcript`` (optional ASR
-    context) and ``assertions`` (optional pre-built ``assert.v1`` envelope; see
+    context), ``assertions`` (optional pre-built ``assert.v1`` envelope), and
+    ``trace`` (optional ``hotato.voice_trace.v1`` context; see
     ``build_report_html``) pass through via ``**kwargs`` to either renderer."""
     embeds_audio = _resolve_audio_mode(embed_audio, audio_mode) != AUDIO_NONE
     if fmt == "html":
