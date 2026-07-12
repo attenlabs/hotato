@@ -18,7 +18,13 @@ import time
 from typing import Optional
 
 DEFAULT_HOME = os.path.expanduser("~/.hotato/fleet")
-SCHEMA_VERSION = 1
+# v2 (Phase-1 §F): the 8-entity conversation-QA model (releases, suites,
+# scenarios, runs, conversations, evaluations, reviews) + the assertion_runs
+# index, all ADDITIVE. A v1 store upgrades in place: the new CREATE TABLE IF NOT
+# EXISTS statements and the agents _ensure_column backfills run on open, then the
+# stored marker advances 1 -> 2 (the existing `stored < SCHEMA_VERSION` branch).
+# No existing table/column/behavior is dropped or rewritten.
+SCHEMA_VERSION = 2
 
 # Primary-key columns per table, used to build a real ON CONFLICT upsert in
 # _insert(replace=True) instead of the old INSERT OR REPLACE (which SQLite
@@ -41,6 +47,15 @@ TABLE_PK = {
     "attestations": ("workspace_id", "attestation_id"),
     "variants": ("workspace_id", "variant_id"),
     "watermarks": ("workspace_id", "agent_id", "source"),
+    # Phase-1 §F 8-entity conversation-QA model (additive).
+    "releases": ("workspace_id", "release_id"),
+    "suites": ("workspace_id", "suite_id"),
+    "scenarios": ("workspace_id", "scenario_id"),
+    "runs": ("workspace_id", "run_id"),
+    "conversations": ("workspace_id", "conversation_id"),
+    "evaluations": ("workspace_id", "evaluation_id"),
+    "reviews": ("workspace_id", "review_id"),
+    "assertion_runs": ("workspace_id", "assertion_run_id"),
 }
 
 
@@ -78,6 +93,8 @@ CREATE TABLE IF NOT EXISTS agents (
   connection_id TEXT,
   external_ref TEXT,          -- e.g. vapi assistant id
   created_at REAL,
+  current_release_id TEXT,    -- additive (§F Agent): the release currently under test
+  configuration_digest TEXT,  -- additive (§F Agent): digest of the agent's pinned config
   PRIMARY KEY (workspace_id, agent_id)
 );
 
@@ -250,10 +267,143 @@ CREATE TABLE IF NOT EXISTS watermarks (
   PRIMARY KEY (workspace_id, agent_id, source)
 );
 
+-- =====================================================================
+-- Phase-1 §F: the 8-entity conversation-QA model. ADDITIVE -- these are
+-- NEW tables alongside the existing ones; nothing is dropped or reshaped in
+-- place. Conversation/Review carry the lineage of recordings/calls and
+-- labels/decisions (§F) but are separate tables so no existing row/behavior
+-- moves. The DB only INDEXES evidence artifacts by digest + stores
+-- relationships; the immutable evidence system stays the source of truth. No
+-- overall_score column anywhere (honesty invariant 1); deterministic vs
+-- model-judged stay separate lanes (a `deterministic` flag, invariant 2);
+-- an absent input is recorded as INCONCLUSIVE, never a fabricated FAIL
+-- (invariant 3); nothing here phones home (invariant 4); origin real|simulated
+-- keeps synthetic distinct from real (invariant 5).
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS releases (
+  workspace_id TEXT NOT NULL,
+  release_id TEXT NOT NULL,
+  agent_id TEXT,
+  prompt_digest TEXT,             -- content-addressed SNAPSHOT of what was tested
+  model TEXT,
+  voice TEXT,
+  tool_schema_digest TEXT,
+  workflow_digest TEXT,
+  provider_config_digest TEXT,
+  created_at REAL,
+  PRIMARY KEY (workspace_id, release_id)
+);
+
+CREATE TABLE IF NOT EXISTS suites (
+  workspace_id TEXT NOT NULL,
+  suite_id TEXT NOT NULL,
+  name TEXT,
+  purpose TEXT,
+  required_for_release INTEGER DEFAULT 0,
+  inconclusive_policy TEXT DEFAULT 'report',  -- reuse the Phase-0 field semantics
+  created_at REAL,
+  PRIMARY KEY (workspace_id, suite_id)
+);
+
+CREATE TABLE IF NOT EXISTS scenarios (
+  workspace_id TEXT NOT NULL,
+  scenario_id TEXT NOT NULL,
+  suite_id TEXT,
+  goal TEXT,
+  facts_json TEXT,                -- caller's known ground truth
+  caller_policy_json TEXT,        -- persona / behavior
+  environment_matrix_json TEXT,
+  assertions_json TEXT,           -- indexed from the conversation-test file
+  rubrics_json TEXT,
+  created_at REAL,
+  PRIMARY KEY (workspace_id, scenario_id)
+);
+
+CREATE TABLE IF NOT EXISTS runs (
+  workspace_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  scenario_id TEXT,
+  release_id TEXT,
+  seed TEXT,
+  provider_route TEXT,
+  status TEXT DEFAULT 'created',  -- created | running | completed | refused
+  started_at REAL,
+  completed_at REAL,
+  created_at REAL,
+  PRIMARY KEY (workspace_id, run_id)
+);
+
+CREATE TABLE IF NOT EXISTS conversations (
+  workspace_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  run_id TEXT,
+  agent_id TEXT,
+  origin TEXT,                    -- real | simulated (invariant 5)
+  artifact_digest TEXT,           -- content-addressed conversation.v1 manifest
+  capture_receipt TEXT,
+  created_at REAL,
+  PRIMARY KEY (workspace_id, conversation_id)
+);
+
+CREATE TABLE IF NOT EXISTS evaluations (
+  workspace_id TEXT NOT NULL,
+  evaluation_id TEXT NOT NULL,
+  conversation_id TEXT,
+  evaluator_id TEXT,
+  dimension TEXT,                 -- outcome | policy | conversation | speech | reliability
+  status TEXT,                    -- PASS | FAIL | INCONCLUSIVE (never a blended score)
+  evidence_refs TEXT,             -- JSON: authenticated evidence digests/spans
+  provenance TEXT,
+  created_at REAL,
+  PRIMARY KEY (workspace_id, evaluation_id)
+);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  workspace_id TEXT NOT NULL,
+  review_id TEXT NOT NULL,
+  evaluation_id TEXT,
+  reviewer TEXT,
+  decision TEXT,
+  rationale TEXT,
+  revision INTEGER DEFAULT 1,
+  adjudication_state TEXT,
+  created_at REAL,
+  PRIMARY KEY (workspace_id, review_id)
+);
+
+-- assertion_runs: persist ONE assert.v1 result against a fleet-registered
+-- call/agent (closes the Phase-0 gap where an evaluation was computed but never
+-- indexed, so a dashboard could not read it back). Writes reuse the jobs.py
+-- leased-write + idempotency-key pattern: assertion_run_id is a deterministic
+-- key, so a duplicate CLI run / retried job dedups to ONE row.
+CREATE TABLE IF NOT EXISTS assertion_runs (
+  workspace_id TEXT NOT NULL,
+  assertion_run_id TEXT NOT NULL, -- deterministic idempotency key
+  agent_id TEXT,
+  call_id TEXT,                   -- the fleet-registered call this ran against
+  conversation_id TEXT,           -- optional link to a conversation artifact
+  assertion_id TEXT,
+  kind TEXT,                      -- assert.v1 kind
+  dimension TEXT,                 -- outcome | policy | conversation | speech | reliability
+  deterministic INTEGER DEFAULT 1,-- 1 deterministic lane, 0 model-judged lane (invariant 2)
+  status TEXT,                    -- PASS | FAIL | INCONCLUSIVE
+  reason TEXT,
+  evidence_refs TEXT,             -- JSON: authenticated trace/state refs consumed
+  result_json TEXT,               -- the full assert.v1 result envelope
+  created_at REAL,
+  PRIMARY KEY (workspace_id, assertion_run_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_calls_ws_deploy ON calls (workspace_id, deployment_id);
 CREATE INDEX IF NOT EXISTS idx_cand_ws_agent ON candidates (workspace_id, agent_id, status);
 CREATE INDEX IF NOT EXISTS idx_rec_ws_call ON recordings (workspace_id, call_id);
 CREATE INDEX IF NOT EXISTS idx_deprcpt_ws_agent ON deployment_receipts (workspace_id, agent_id, kind);
+CREATE INDEX IF NOT EXISTS idx_runs_ws_scenario ON runs (workspace_id, scenario_id);
+CREATE INDEX IF NOT EXISTS idx_conv_ws_run ON conversations (workspace_id, run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_ws_conv ON evaluations (workspace_id, conversation_id);
+CREATE INDEX IF NOT EXISTS idx_review_ws_eval ON reviews (workspace_id, evaluation_id);
+CREATE INDEX IF NOT EXISTS idx_arun_ws_agent ON assertion_runs (workspace_id, agent_id, call_id);
 """
 
 
@@ -313,6 +463,10 @@ class Registry:
                 self._ensure_column("variants", "expected_json", "TEXT")
                 self._ensure_column("variants", "observed_json", "TEXT")
                 self._ensure_column("variants", "rank", "INTEGER")
+                # v2 (§F Agent): extend the existing agents table in place on an
+                # older DB. A fresh DB already has these from CREATE TABLE above.
+                self._ensure_column("agents", "current_release_id", "TEXT")
+                self._ensure_column("agents", "configuration_digest", "TEXT")
                 cur = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'")
                 row = cur.fetchone()
                 if row is None:
@@ -683,6 +837,285 @@ class Registry:
                      {"workspace_id": workspace_id, "agent_id": agent_id, "source": source,
                       "last_watermark": last_watermark, "updated_at": self._now()},
                      replace=True)
+
+    # --- §F 8-entity conversation-QA model (additive) -------------------
+    def set_agent_release(self, workspace_id, agent_id, *, current_release_id=None,
+                          configuration_digest=None):
+        """Point an existing agent at the release it is currently testing and/or
+        pin its configuration digest (§F Agent). Only the fields passed are
+        updated -- the rest of the agent row is untouched."""
+        sets, args = [], []
+        if current_release_id is not None:
+            sets.append("current_release_id=?"); args.append(current_release_id)
+        if configuration_digest is not None:
+            sets.append("configuration_digest=?"); args.append(configuration_digest)
+        if not sets:
+            return
+        args.extend([workspace_id, agent_id])
+        sql = f"UPDATE agents SET {', '.join(sets)} WHERE workspace_id=? AND agent_id=?"
+        self._busy_wrap(lambda: (self.conn.execute(sql, tuple(args)), self.conn.commit()))
+
+    def add_release(self, workspace_id, release_id, *, agent_id=None, prompt_digest=None,
+                    model=None, voice=None, tool_schema_digest=None, workflow_digest=None,
+                    provider_config_digest=None, created_at=None):
+        """Record a content-addressed SNAPSHOT of what was tested (§E/§F Release):
+        the pinned prompt/tool/workflow/provider digests, so `release compare` is
+        digest-exact. The DB indexes the digests; it stores no config bytes."""
+        self.ensure_workspace(workspace_id)
+        self._insert("releases",
+                     {"workspace_id": workspace_id, "release_id": release_id,
+                      "agent_id": agent_id, "prompt_digest": prompt_digest, "model": model,
+                      "voice": voice, "tool_schema_digest": tool_schema_digest,
+                      "workflow_digest": workflow_digest,
+                      "provider_config_digest": provider_config_digest,
+                      "created_at": created_at if created_at is not None else self._now()},
+                     replace=True)
+
+    def get_release(self, workspace_id, release_id):
+        return self._one("SELECT * FROM releases WHERE workspace_id=? AND release_id=?",
+                         (workspace_id, release_id))
+
+    def list_releases(self, workspace_id, *, agent_id=None, limit=50):
+        q = "SELECT * FROM releases WHERE workspace_id=?"
+        args = [workspace_id]
+        if agent_id:
+            q += " AND agent_id=?"; args.append(agent_id)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return self._all(q, tuple(args))
+
+    def add_suite(self, workspace_id, suite_id, *, name=None, purpose=None,
+                  required_for_release=0, inconclusive_policy="report", created_at=None):
+        """Register a named suite of conversation-tests (§E Suite). Reuses the
+        Phase-0 inconclusive_policy semantics (report|fail|refuse)."""
+        self.ensure_workspace(workspace_id)
+        self._insert("suites",
+                     {"workspace_id": workspace_id, "suite_id": suite_id, "name": name,
+                      "purpose": purpose,
+                      "required_for_release": 1 if required_for_release else 0,
+                      "inconclusive_policy": inconclusive_policy,
+                      "created_at": created_at if created_at is not None else self._now()},
+                     replace=True)
+
+    def get_suite(self, workspace_id, suite_id):
+        return self._one("SELECT * FROM suites WHERE workspace_id=? AND suite_id=?",
+                         (workspace_id, suite_id))
+
+    def list_suites(self, workspace_id, *, limit=50):
+        return self._all("SELECT * FROM suites WHERE workspace_id=? "
+                         "ORDER BY created_at DESC LIMIT ?", (workspace_id, limit))
+
+    def add_scenario(self, workspace_id, scenario_id, *, suite_id=None, goal=None,
+                     facts_json=None, caller_policy_json=None, environment_matrix_json=None,
+                     assertions_json=None, rubrics_json=None, created_at=None):
+        """Index a conversation-test's scenario (§F Scenario): the goal, the caller's
+        known facts, its assertions/rubrics. The test FILE stays the source of
+        truth; this row is a queryable index over it, never a second copy of the
+        evidence."""
+        self.ensure_workspace(workspace_id)
+        self._insert("scenarios",
+                     {"workspace_id": workspace_id, "scenario_id": scenario_id,
+                      "suite_id": suite_id, "goal": goal, "facts_json": facts_json,
+                      "caller_policy_json": caller_policy_json,
+                      "environment_matrix_json": environment_matrix_json,
+                      "assertions_json": assertions_json, "rubrics_json": rubrics_json,
+                      "created_at": created_at if created_at is not None else self._now()},
+                     replace=True)
+
+    def get_scenario(self, workspace_id, scenario_id):
+        return self._one("SELECT * FROM scenarios WHERE workspace_id=? AND scenario_id=?",
+                         (workspace_id, scenario_id))
+
+    def list_scenarios(self, workspace_id, *, suite_id=None, limit=50):
+        q = "SELECT * FROM scenarios WHERE workspace_id=?"
+        args = [workspace_id]
+        if suite_id:
+            q += " AND suite_id=?"; args.append(suite_id)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return self._all(q, tuple(args))
+
+    def add_run(self, workspace_id, run_id, *, scenario_id=None, release_id=None, seed=None,
+                provider_route=None, status="created", started_at=None, completed_at=None,
+                created_at=None):
+        """Record one execution of a scenario against a release (§F Run)."""
+        self.ensure_workspace(workspace_id)
+        self._insert("runs",
+                     {"workspace_id": workspace_id, "run_id": run_id,
+                      "scenario_id": scenario_id, "release_id": release_id, "seed": seed,
+                      "provider_route": provider_route, "status": status,
+                      "started_at": started_at, "completed_at": completed_at,
+                      "created_at": created_at if created_at is not None else self._now()},
+                     replace=True)
+
+    def get_run(self, workspace_id, run_id):
+        return self._one("SELECT * FROM runs WHERE workspace_id=? AND run_id=?",
+                         (workspace_id, run_id))
+
+    def list_runs(self, workspace_id, *, scenario_id=None, release_id=None, limit=50):
+        q = "SELECT * FROM runs WHERE workspace_id=?"
+        args = [workspace_id]
+        if scenario_id:
+            q += " AND scenario_id=?"; args.append(scenario_id)
+        if release_id:
+            q += " AND release_id=?"; args.append(release_id)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return self._all(q, tuple(args))
+
+    def set_run_status(self, workspace_id, run_id, status, *, completed_at=None):
+        sets, args = ["status=?"], [status]
+        if completed_at is not None:
+            sets.append("completed_at=?"); args.append(completed_at)
+        args.extend([workspace_id, run_id])
+        sql = f"UPDATE runs SET {', '.join(sets)} WHERE workspace_id=? AND run_id=?"
+        self._busy_wrap(lambda: (self.conn.execute(sql, tuple(args)), self.conn.commit()))
+
+    def add_conversation(self, workspace_id, conversation_id, *, run_id=None, agent_id=None,
+                         origin=None, artifact_digest=None, capture_receipt=None,
+                         created_at=None):
+        """Index a conversation.v1 artifact by digest (§D/§F Conversation). ``origin``
+        (real|simulated) keeps synthetic distinct from real (invariant 5). The
+        immutable artifact directory is the evidence; this row only points at it."""
+        self.ensure_workspace(workspace_id)
+        self._insert("conversations",
+                     {"workspace_id": workspace_id, "conversation_id": conversation_id,
+                      "run_id": run_id, "agent_id": agent_id, "origin": origin,
+                      "artifact_digest": artifact_digest, "capture_receipt": capture_receipt,
+                      "created_at": created_at if created_at is not None else self._now()},
+                     replace=True)
+
+    def get_conversation(self, workspace_id, conversation_id):
+        return self._one("SELECT * FROM conversations WHERE workspace_id=? AND conversation_id=?",
+                         (workspace_id, conversation_id))
+
+    def list_conversations(self, workspace_id, *, run_id=None, agent_id=None, origin=None,
+                           limit=50):
+        q = "SELECT * FROM conversations WHERE workspace_id=?"
+        args = [workspace_id]
+        if run_id:
+            q += " AND run_id=?"; args.append(run_id)
+        if agent_id:
+            q += " AND agent_id=?"; args.append(agent_id)
+        if origin:
+            q += " AND origin=?"; args.append(origin)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return self._all(q, tuple(args))
+
+    def add_evaluation(self, workspace_id, evaluation_id, *, conversation_id=None,
+                       evaluator_id=None, dimension=None, status=None, evidence_refs=None,
+                       provenance=None, created_at=None):
+        """Persist one evaluator's verdict against a conversation (§F Evaluation):
+        a per-dimension PASS/FAIL/INCONCLUSIVE, never a blended score. Deterministic
+        and model-judged evaluators write to the same table but stay separable by
+        their evaluator_id/dimension -- there is no scorer path here."""
+        self.ensure_workspace(workspace_id)
+        self._insert("evaluations",
+                     {"workspace_id": workspace_id, "evaluation_id": evaluation_id,
+                      "conversation_id": conversation_id, "evaluator_id": evaluator_id,
+                      "dimension": dimension, "status": status,
+                      "evidence_refs": evidence_refs, "provenance": provenance,
+                      "created_at": created_at if created_at is not None else self._now()},
+                     replace=True)
+
+    def list_evaluations(self, workspace_id, *, conversation_id=None, dimension=None, limit=50):
+        q = "SELECT * FROM evaluations WHERE workspace_id=?"
+        args = [workspace_id]
+        if conversation_id:
+            q += " AND conversation_id=?"; args.append(conversation_id)
+        if dimension:
+            q += " AND dimension=?"; args.append(dimension)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return self._all(q, tuple(args))
+
+    def add_review(self, workspace_id, review_id, *, evaluation_id=None, reviewer=None,
+                   decision=None, rationale=None, revision=1, adjudication_state=None,
+                   created_at=None):
+        """Record a HUMAN review of an evaluation (§F Review). No model may write a
+        review -- the caller enforces that at the API layer, as label() already does."""
+        self.ensure_workspace(workspace_id)
+        self._insert("reviews",
+                     {"workspace_id": workspace_id, "review_id": review_id,
+                      "evaluation_id": evaluation_id, "reviewer": reviewer,
+                      "decision": decision, "rationale": rationale, "revision": revision,
+                      "adjudication_state": adjudication_state,
+                      "created_at": created_at if created_at is not None else self._now()},
+                     replace=True)
+
+    def list_reviews(self, workspace_id, *, evaluation_id=None, limit=50):
+        q = "SELECT * FROM reviews WHERE workspace_id=?"
+        args = [workspace_id]
+        if evaluation_id:
+            q += " AND evaluation_id=?"; args.append(evaluation_id)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return self._all(q, tuple(args))
+
+    def add_assertion_run(self, workspace_id, *, assertion_id, agent_id=None, call_id=None,
+                          conversation_id=None, kind=None, dimension=None, deterministic=True,
+                          status=None, reason=None, evidence_refs=None, result_json=None,
+                          assertion_run_id=None, created_at=None) -> dict:
+        """Persist ONE assert.v1 result against a fleet-registered call/agent
+        (closes the Phase-0 assertion_runs gap: an evaluation was computed but
+        never indexed, so a dashboard could not read it back).
+
+        Reuses the jobs.py leased-write + idempotency-key pattern: when the caller
+        does not supply ``assertion_run_id`` a DETERMINISTIC key is derived from
+        the logical work (workspace, agent, call/conversation, assertion, kind) via
+        :func:`hotato.fleet.jobs.idempotency_key`, so a duplicate CLI run / retried
+        job maps to the SAME row. The write is ``INSERT OR IGNORE`` and reports
+        ``deduped`` from the row-count: two concurrent writers with the identical
+        key both succeed (one inserts, the loser's duplicate is a no-op), never a
+        UNIQUE-constraint IntegrityError -- the same concurrency-safe posture the
+        schema_version seed uses. No overall_score is recorded; ``deterministic``
+        tags the lane (invariant 2) and an absent-input INCONCLUSIVE is stored
+        verbatim, never coerced to a FAIL (invariant 3)."""
+        self.ensure_workspace(workspace_id)
+        if assertion_run_id is None:
+            from .jobs import idempotency_key
+            assertion_run_id = idempotency_key(
+                workspace_id=workspace_id, agent_id=agent_id,
+                operation=f"assert:{assertion_id}",
+                source_pcm_hash=str(call_id or conversation_id or ""),
+                scorer_hash=str(kind or ""))
+        row = {"workspace_id": workspace_id, "assertion_run_id": assertion_run_id,
+               "agent_id": agent_id, "call_id": call_id, "conversation_id": conversation_id,
+               "assertion_id": assertion_id, "kind": kind, "dimension": dimension,
+               "deterministic": 1 if deterministic else 0, "status": status,
+               "reason": reason, "evidence_refs": evidence_refs, "result_json": result_json,
+               "created_at": created_at if created_at is not None else self._now()}
+        cols = ",".join(row.keys())
+        marks = ",".join("?" for _ in row)
+        sql = f"INSERT OR IGNORE INTO assertion_runs ({cols}) VALUES ({marks})"
+
+        def _write():
+            cur = self.conn.execute(sql, tuple(row.values()))
+            self.conn.commit()
+            return cur.rowcount
+        inserted = self._busy_wrap(_write)
+        return {"assertion_run_id": assertion_run_id, "deduped": inserted == 0}
+
+    def get_assertion_run(self, workspace_id, assertion_run_id):
+        return self._one("SELECT * FROM assertion_runs WHERE workspace_id=? AND assertion_run_id=?",
+                         (workspace_id, assertion_run_id))
+
+    def list_assertion_runs(self, workspace_id, *, agent_id=None, call_id=None,
+                            conversation_id=None, dimension=None, limit=50):
+        q = "SELECT * FROM assertion_runs WHERE workspace_id=?"
+        args = [workspace_id]
+        if agent_id:
+            q += " AND agent_id=?"; args.append(agent_id)
+        if call_id:
+            q += " AND call_id=?"; args.append(call_id)
+        if conversation_id:
+            q += " AND conversation_id=?"; args.append(conversation_id)
+        if dimension:
+            q += " AND dimension=?"; args.append(dimension)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return self._all(q, tuple(args))
 
     def counts(self, workspace_id) -> dict:
         out = {}
