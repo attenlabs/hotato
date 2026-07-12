@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/release.v1.json",
+  "title": "hotato release, schema release.v1",
+  "description": "A content-addressed SNAPSHOT of exactly what was tested (Phase-1 design E), so `release compare` is digest-exact. Additive schema; no overall_score.",
+  "type": "object",
+  "required": ["kind", "version", "release_id", "agent_id", "created_at"],
+  "additionalProperties": true,
+  "not": { "required": ["overall_score"] },
+  "properties": {
+    "kind": { "const": "hotato.release" },
+    "version": { "const": 1 },
+    "overall_score": false,
+    "release_id": { "type": "string", "minLength": 1 },
+    "agent_id": { "type": "string", "minLength": 1 },
+    "prompt_digest": { "type": ["string", "null"] },
+    "model": { "type": ["string", "null"] },
+    "voice": { "type": ["string", "null"] },
+    "tool_schema_digest": { "type": ["string", "null"] },
+    "workflow_digest": { "type": ["string", "null"] },
+    "provider_config_digest": { "type": ["string", "null"] },
+    "created_at": {
+      "type": "string",
+      "description": "Supplied by the caller. Never Date.now() on a deterministic path."
+    }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/conversation.v1.json",
+  "title": "hotato conversation artifact manifest, schema conversation.v1",
+  "description": "The canonical Conversation Artifact manifest (Phase-1 design D): binds every piece of evidence for one conversation by sha256, so `hotato.conversation.verify` re-hashes the referenced children and REFUSES on any digest mismatch (the evidence-kernel refuse-not-downgrade posture; a tampered child is refused, never silently accepted). HONESTY INVARIANTS: origin.kind ('real'|'simulated') is REQUIRED so synthetic is never conflated with real (invariant 5), and a simulated origin MUST carry its simulator block; no overall_score anywhere; created_at is supplied by the caller, never Date.now() on a deterministic path.",
+  "type": "object",
+  "required": ["kind", "version", "conversation_id", "agent_id", "origin", "created_at", "artifacts"],
+  "additionalProperties": true,
+  "not": { "required": ["overall_score"] },
+  "properties": {
+    "kind": { "const": "hotato.conversation" },
+    "version": { "const": 1 },
+    "overall_score": false,
+    "conversation_id": { "type": "string", "minLength": 1 },
+    "agent_id": { "type": "string", "minLength": 1 },
+    "origin": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": true,
+      "description": "The synthetic/real axis (invariant 5). `kind` is REQUIRED. A 'simulated' origin MUST carry a simulator block (enforced by the if/then below and by validate_conversation_doc).",
+      "properties": {
+        "kind": { "enum": ["real", "simulated"] },
+        "provider": { "type": ["string", "null"] },
+        "provider_call_id": { "type": ["string", "null"] },
+        "simulator": {
+          "type": "object",
+          "required": ["model_id", "scenario_id", "seed"],
+          "additionalProperties": true,
+          "properties": {
+            "model_id": { "type": "string" },
+            "scenario_id": { "type": "string" },
+            "seed": { "type": ["integer", "string"] }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "simulated" } }, "required": ["kind"] },
+          "then": { "required": ["simulator"] }
+        }
+      ]
+    },
+    "scenario_digest": { "type": ["string", "null"] },
+    "release_digest": { "type": ["string", "null"] },
+    "created_at": {
+      "type": "string",
+      "description": "Supplied by the caller (e.g. the capture receipt's time). Never Date.now() on a deterministic path."
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Evidence children bound by digest. Each entry is optional; the closed set is audio/transcript/trace/timing/assertions.",
+      "properties": {
+        "audio": { "$ref": "#/definitions/artifact_ref" },
+        "transcript": { "$ref": "#/definitions/artifact_ref" },
+        "trace": { "$ref": "#/definitions/artifact_ref" },
+        "timing": { "$ref": "#/definitions/artifact_ref" },
+        "assertions": { "$ref": "#/definitions/artifact_ref" }
+      }
+    }
+  },
+  "definitions": {
+    "artifact_ref": {
+      "type": "object",
+      "required": ["sha256"],
+      "additionalProperties": true,
+      "description": "A child bound by sha256 (the same content-addressing hotato.fleet.store uses). `path` locates the child relative to the conversation dir so `verify` can re-hash it; the sha256 is the binding -- verify refuses on mismatch.",
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "path": { "type": "string" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
