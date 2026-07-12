@@ -87,6 +87,16 @@ diarize-hosted = ["pyannoteai-sdk>=0.3"]                                        
 # Licenses: faster-whisper MIT (code), CTranslate2 MIT (inference runtime),
 # Whisper model weights MIT (OpenAI).
 transcribe = ["faster-whisper>=1.0"]
+# OPTIONAL model-judge (rubric.v1) lane (hotato.rubric). The DEFAULT judge is a
+# LOCAL Ollama daemon reached with only the stdlib (urllib) -- so `hotato rubric
+# run` and the conversation-test rubric lane need NOTHING extra; this extra is
+# intentionally empty and exists so the documented `uvx 'hotato[judge]'` install
+# still resolves and to name the capability. Zero egress on the default path;
+# the hosted judge (--judge-egress-opt-in) is also stdlib-only. Optionally
+# signing a cached verdict as a 'judge-record' reuses the [sign] extra's
+# cryptography (Ed25519); absent it, an HMAC 'human-shared' tier (stdlib) or an
+# unsigned verdict is used -- never a hollow signature.
+judge = []
 # Everything a contributor might want to exercise the live capture paths locally.
 all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21", "cryptography>=41", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "faster-whisper>=1.0"]
 

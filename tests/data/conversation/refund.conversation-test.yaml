@@ -39,12 +39,14 @@ assertions:
       tool: issue_refund
       max_ms: 1500
       dimension: speech
-  # RUBRIC (model-judged) lane lands in Phase 3. In Phase 1 each is
-  # INCONCLUSIVE (no model runs); it never counts toward the exit code.
+  # RUBRIC (model-judged) lane: scored by a pinned LOCAL model
+  # (deterministic:false, ADVISORY -- never gates unless --gate-judge).
   rubric:
     - id: was-empathetic
       kind: judge_rubric
       dimension: conversation
+      criterion: "Did the agent acknowledge the caller's frustration before proposing a fix?"
+      evidence: [transcript]
 repetitions: 1
 # inconclusive_policy: fail  # CI/compliance suites should set fail or refuse
 success:

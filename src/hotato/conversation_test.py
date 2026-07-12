@@ -325,7 +325,10 @@ def build_scenario_starter(name: str = "example-scenario", agent: str = "my-agen
          "tool": "issue_refund", "max_ms": 1500, "dimension": "speech"},
     ]
     rubric = [
-        {"id": "was-empathetic", "kind": "judge_rubric", "dimension": "conversation"},
+        {"id": "was-empathetic", "kind": "judge_rubric", "dimension": "conversation",
+         "criterion": "Did the agent acknowledge the caller's frustration before "
+                      "proposing a fix?",
+         "evidence": ["transcript"]},
     ]
     lines = [
         "# conversation-test.yaml -- STARTER written by `hotato scenario init`.",
@@ -355,10 +358,10 @@ def build_scenario_starter(name: str = "example-scenario", agent: str = "my-agen
     for item in deterministic:
         lines.extend(_render_assertion(item, dash_col=4))
     lines.append(
-        "  # RUBRIC (model-judged) lane lands in Phase 3. In Phase 1 each is"
+        "  # RUBRIC (model-judged) lane: each is scored by a pinned LOCAL model"
     )
     lines.append(
-        "  # INCONCLUSIVE (no model runs); it never counts toward the exit code."
+        "  # (deterministic:false, ADVISORY -- it never gates unless --gate-judge)."
     )
     lines.append("  rubric:")
     for item in rubric:

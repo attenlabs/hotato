@@ -459,13 +459,21 @@ def test_count_inconclusive_on_missing_input():
 def test_rubric_kinds_are_quarantined_inconclusive(kind):
     r = _ev({"id": "a", "kind": kind, "rubric": "was the agent polite?"},
             A.build_context(transcript=[_turn("agent", "hello")]))
+    # assert.v1 is the deterministic wall: a rubric kind is routed OUT of it as
+    # a deterministic INCONCLUSIVE pointing to the SEPARATE model-judged rubric
+    # lane (hotato.rubric) -- never a model call here, so summary.judge stays the
+    # {0,0} quarantine and deterministic:true is untouched.
     assert r["status"] == "INCONCLUSIVE"
-    assert r["reason"] == "rubric engine not built (Phase 3)"
+    assert r["deterministic"] is True
+    assert "rubric lane" in r["reason"]
 
 
 def test_rubric_stub_has_no_model_path():
+    # The rubric ENGINE (a real local model) lives in hotato.rubric; the
+    # assert.v1 evaluator that routes a rubric kind out must itself never call a
+    # model -- the deterministic wall stays model-free.
     src = inspect.getsource(A._eval_rubric_stub)
-    for banned in ("neural", "openai", "ollama", "requests", "http"):
+    for banned in ("neural", "openai", "ollama", "requests", "urllib", "http"):
         assert banned not in src.lower()
 
 

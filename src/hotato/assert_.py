@@ -126,12 +126,13 @@ KINDS = (
 )
 
 # The judge lane's kinds -- NAMED so a conversation-test / assert document may
-# reference them, but their evaluators are quarantined until Phase 3: in P1
-# each returns INCONCLUSIVE with the note "rubric engine not built (Phase 3)".
-# No LLM path is built anywhere in this release. The P1 stub IS deterministic
-# (it deterministically returns INCONCLUSIVE without a model), so the envelope's
-# ``summary.judge`` honestly stays ``{"pass": 0, "fail": 0}`` -- no model ever
-# scored anything.
+# reference them, but they do NOT run inside the deterministic assert.v1 lane:
+# the real model-judge lives in the SEPARATE rubric lane (hotato.rubric), which
+# emits deterministic:false rubric.v1 results with full provenance. When a
+# rubric kind appears in a raw assert.v1 document its evaluator here routes it
+# out honestly -- a deterministic INCONCLUSIVE pointing to the rubric lane,
+# WITHOUT ever calling a model, so assert.v1's ``summary.judge`` stays the
+# ``{"pass": 0, "fail": 0}`` quarantine and the deterministic guarantee holds.
 RUBRIC_KINDS = ("human_rubric", "judge_rubric")
 
 # Every recognized assertion kind -- what ``validate_assertions_doc`` accepts
@@ -1043,10 +1044,12 @@ def _validate_expanded_kind_fields(aid: str, kind: str, item: Dict[str, Any]) ->
         _validate_count_spec(aid, "count", item.get("count"))
 
     elif kind in RUBRIC_KINDS:
-        # Quarantined until Phase 3: the rubric-ref shape is validated by the
-        # rubric engine when it lands. Accepted here so a conversation-test /
-        # assert document may reference one; its P1 evaluator returns
-        # INCONCLUSIVE ("rubric engine not built (Phase 3)"), never a guess.
+        # The rubric-object shape is validated by the model-judge engine
+        # (hotato.rubric.validate_rubric_object) in the SEPARATE rubric lane.
+        # Accepted here so a conversation-test / assert document may reference
+        # one; inside the deterministic assert.v1 lane its evaluator routes it
+        # out as a deterministic INCONCLUSIVE pointing to the rubric lane, never
+        # a guess and never a model call.
         return
 
 
@@ -2148,14 +2151,27 @@ def _eval_count(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
 
 
 def _eval_rubric_stub(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
-    """The quarantined ``human_rubric``/``judge_rubric`` kinds (Phase 3). The
-    P1 evaluator is a deterministic STUB: it deterministically returns
-    INCONCLUSIVE without ever calling a model, so ``deterministic`` stays true
-    and the envelope's ``summary.judge`` honestly reports zero model-scored
-    assertions. No LLM path is built anywhere in this release."""
+    """The model-judged ``human_rubric``/``judge_rubric`` kinds do NOT run in the
+    deterministic ``assert.v1`` lane -- they run in the SEPARATE rubric lane
+    (``hotato.rubric`` / ``hotato rubric run`` / a conversation-test's
+    ``assertions.rubric``), which is where the real local-model judge lives and
+    emits ``deterministic:false`` ``rubric.v1`` results with full provenance.
+
+    ``assert.v1`` is the deterministic wall: its results are structurally
+    ``deterministic:true`` (schema ``const``), so a model-backed verdict
+    physically cannot be an ``assert.v1`` result. When a rubric kind is
+    referenced inside a raw ``assert.v1`` document this evaluator therefore
+    routes it out honestly -- a deterministic INCONCLUSIVE that points to the
+    rubric lane, WITHOUT ever calling a model (so ``summary.judge`` stays the
+    ``{pass:0, fail:0}`` quarantine and the deterministic guarantee is
+    untouched). The rubric ENGINE is built; it just does not run here."""
     result = _base_result(a)
     result["status"] = "INCONCLUSIVE"
-    result["reason"] = "rubric engine not built (Phase 3)"
+    result["reason"] = (
+        "rubric kinds run in the model-judged rubric lane (hotato rubric run / "
+        "a conversation-test's assertions.rubric), not the deterministic "
+        "assert.v1 lane"
+    )
     return result
 
 

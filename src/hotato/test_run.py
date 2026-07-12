@@ -7,12 +7,17 @@ built from the supplied transcript/trace/state/timing, and produces a single
 ``hotato.test-run.v1`` result. The honesty wall is kept STRUCTURAL, not
 documented-and-hoped:
 
-* The two assertion lanes stay SEPARATE. Only the ``deterministic`` lane is
-  evaluated (through :func:`hotato.assert_.run_assertions`, so its exit code
-  honors ``inconclusive_policy`` exactly as Phase 0 does). The ``rubric`` lane
-  is quarantined: every rubric assertion becomes an INCONCLUSIVE record with
-  the note that no model judged it, never folded into the deterministic
-  summary or the exit code. No LLM path is built here.
+* The two assertion lanes stay SEPARATE. The ``deterministic`` lane is
+  evaluated through :func:`hotato.assert_.run_assertions` (its exit code honors
+  ``inconclusive_policy`` exactly as Phase 0 does). The ``rubric`` lane is now
+  REALLY evaluated by the model-judge engine (:mod:`hotato.rubric`): each rubric
+  assertion is scored by a pinned LOCAL model into a ``rubric.v1`` result
+  (``deterministic: false`` + full provenance), never folded into the
+  deterministic summary. It is ADVISORY by default (a rubric FAIL does NOT gate
+  the exit code); ``gate_judge=True`` opts a team into failing on a rubric FAIL.
+  When the judge backend is unreachable, or a rubric's required evidence is
+  absent, the result is honestly ERROR/INCONCLUSIVE -- never a fabricated
+  verdict, and never a silent gate.
 * Success is a BOOLEAN over the closed :data:`hotato.conversation_test.SUCCESS_CONDITIONS`
   vocabulary -- a conjunction of named conditions, NEVER a weight or a blended
   ``overall_score``. The per-dimension breakdown groups the SAME deterministic
@@ -40,6 +45,13 @@ from typing import Any, Dict, List, Optional
 from . import assert_ as A
 from . import conversation as CV
 from . import conversation_test as CT
+from . import rubric as RUB
+
+# Success conditions that read the model-judged (rubric) lane. These are
+# ADVISORY by default: their boolean is reported honestly, but they only affect
+# the exit code when the run opts in with ``gate_judge=True`` (the CLI's
+# ``--gate-judge``). A model verdict never silently gates a release.
+_RUBRIC_SUCCESS_CONDITIONS = frozenset({"no_rubric_failure"})
 
 __all__ = [
     "KIND",
@@ -80,57 +92,75 @@ def _run_deterministic(
             for _ in range(reps)]
 
 
-def _quarantine_rubric(rubric_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Turn the rubric lane into INCONCLUSIVE quarantine records (Phase 3). Each
-    carries ``deterministic: False`` so it can never be mistaken for a
-    deterministic result, and no model ever scored it."""
-    out: List[Dict[str, Any]] = []
-    for a in rubric_list:
-        rec = {
-            "id": a["id"],
-            "kind": a["kind"],
-            "status": "INCONCLUSIVE",
-            "deterministic": False,
-            "reason": ("the model-judged (rubric) lane is quarantined until "
-                       "Phase 3; no model judged this assertion"),
-        }
-        if a.get("dimension"):
-            rec["dimension"] = a["dimension"]
-        out.append(rec)
-    return out
+def _evaluate_rubric_lane(
+    rubric_list: List[Dict[str, Any]],
+    ctx: A.Context,
+    *,
+    judge: Any = None,
+    cache: Any = None,
+    no_cache: bool = False,
+    gate_judge: bool = False,
+) -> Dict[str, Any]:
+    """REALLY evaluate the model-judged rubric lane through
+    :mod:`hotato.rubric`, returning a ``rubric.v1`` envelope
+    (``deterministic: false`` + full provenance per result). An empty lane is a
+    valid, honest run (an empty envelope). ``judge`` defaults to a LOCAL
+    :class:`hotato.rubric.OllamaJudge` (zero egress); tests inject a
+    deterministic fake. Advisory by default (``gate_judge`` opts into gating)."""
+    if not rubric_list:
+        return RUB.rubric_envelope([], gate=gate_judge)
+    if judge is None:
+        judge = RUB.OllamaJudge()
+    return RUB.evaluate_rubric_lane(
+        rubric_list,
+        transcript=ctx.transcript,
+        trace=ctx.spans,
+        judge=judge,
+        cache=cache,
+        no_cache=no_cache,
+        gate=gate_judge,
+    )
 
 
 def evaluate_success(
     required: List[str],
     det_results: List[Dict[str, Any]],
     rubric_results: List[Dict[str, Any]],
+    *,
+    gate_judge: bool = False,
 ) -> Dict[str, Any]:
     """Evaluate the ``success.required`` conjunction over the two lanes and
-    return ``{"required": [...], "conditions": {name: bool}, "passed": bool}``.
+    return ``{"required", "conditions": {name: bool}, "passed", "rubric_gated"}``.
 
     Each condition is a plain boolean predicate over the results -- there is no
     weighting and no score. The deterministic conditions read the deterministic
-    lane; ``no_rubric_failure`` reads the rubric lane (which, quarantined, never
-    carries a FAIL -- so the condition holds without a model ever running).
-    ``no_inconclusive`` is scoped to the deterministic lane: a quarantined
-    rubric INCONCLUSIVE reflects an unbuilt capability, not missing INPUT, and
-    must not silently fail a deterministic run."""
+    lane; ``no_rubric_failure`` reads the REAL model-judged rubric lane.
+
+    ``passed`` is the conjunction of the conditions that actually GATE this run:
+    the deterministic conditions always, plus the rubric condition
+    (``no_rubric_failure``) ONLY when ``gate_judge=True``. Every condition's
+    boolean is still reported in ``conditions`` (honest), but a model verdict is
+    advisory unless the run opts into ``--gate-judge`` -- so a rubric FAIL never
+    silently blocks a release. ``no_inconclusive`` is scoped to the
+    deterministic lane."""
     det_status = [r["status"] for r in det_results]
-    rubric_status = [r["status"] for r in rubric_results]
+    rubric_status = [r.get("status") for r in rubric_results]
     available = {
         "all_deterministic_assertions_pass": all(s == "PASS" for s in det_status),
         "no_deterministic_fail": not any(s == "FAIL" for s in det_status),
         "no_rubric_failure": not any(s == "FAIL" for s in rubric_status),
         "no_inconclusive": not any(s == "INCONCLUSIVE" for s in det_status),
     }
-    # ``required`` is drawn from the CLOSED vocabulary (validated upstream by
-    # validate_conversation_test_doc), so every name resolves; a default of an
-    # empty list means "no explicit condition", which is vacuously satisfied.
     conditions = {name: available[name] for name in required}
+    gating = {
+        name: val for name, val in conditions.items()
+        if name not in _RUBRIC_SUCCESS_CONDITIONS or gate_judge
+    }
     return {
         "required": list(required),
         "conditions": conditions,
-        "passed": all(conditions.values()),
+        "passed": all(gating.values()),
+        "rubric_gated": gate_judge,
     }
 
 
@@ -163,16 +193,23 @@ def evaluate_conversation_test(
     *,
     agent_id: str,
     repetitions: Optional[int] = None,
+    judge: Any = None,
+    cache: Any = None,
+    no_cache: bool = False,
+    gate_judge: bool = False,
 ) -> Dict[str, Any]:
     """Evaluate one validated conversation-test ``doc`` against ``ctx`` and
     return a ``hotato.test-run.v1`` result dict (carrying its own ``exit_code``).
 
-    ``repetitions`` overrides the doc's own ``repetitions`` (already defaulted
-    to 1 by :func:`hotato.conversation_test.validate_conversation_test_doc`).
-    The returned dict never contains an ``overall_score`` or any blended number;
-    the deterministic and rubric lanes stay separate, and the exit code honors
-    the doc's ``inconclusive_policy`` exactly as ``envelope_from_results`` does
-    (raised to non-zero only when ``success.required`` fails)."""
+    ``repetitions`` overrides the doc's own ``repetitions``. The two assertion
+    lanes stay separate: the deterministic lane produces an ``assert.v1``
+    envelope; the rubric lane is REALLY scored by :mod:`hotato.rubric` into a
+    ``rubric.v1`` envelope (``deterministic: false`` + provenance), ADVISORY by
+    default. ``judge`` defaults to a LOCAL Ollama judge (zero egress); tests
+    inject a fake. ``gate_judge`` opts into failing the exit code on a rubric
+    FAIL. The returned dict never contains an ``overall_score`` or any blended
+    number; the exit code honors the doc's ``inconclusive_policy`` and is raised
+    to non-zero only when a GATING ``success.required`` condition fails."""
     policy = doc["inconclusive_policy"]
     reps = repetitions if repetitions is not None else doc.get("repetitions", 1)
     if isinstance(reps, bool) or not isinstance(reps, int) or reps < 1:
@@ -183,17 +220,25 @@ def evaluate_conversation_test(
 
     per_run = _run_deterministic(det_list, ctx, policy, reps)
     det_env = per_run[0]
-    rubric_results = _quarantine_rubric(rubric_list)
+    rubric_env = _evaluate_rubric_lane(
+        rubric_list, ctx, judge=judge, cache=cache, no_cache=no_cache,
+        gate_judge=gate_judge,
+    )
+    rubric_results = rubric_env["results"]
 
     required = list((doc.get("success") or {}).get("required") or [])
-    success = evaluate_success(required, det_env["results"], rubric_results)
+    success = evaluate_success(required, det_env["results"], rubric_results,
+                              gate_judge=gate_judge)
 
     # Exit code: start from the deterministic envelope's own code (which honors
-    # inconclusive_policy -- report/fail/refuse -- exactly as Phase 0). A
+    # inconclusive_policy -- report/fail/refuse -- exactly as Phase 0). A GATING
     # success.required failure raises a passing (0) run to 1; a refuse (2) or an
-    # already-failing (1) run is never downgraded.
+    # already-failing (1) run is never downgraded. A rubric FAIL only gates when
+    # gate_judge=True (rubric_env's own advisory exit_code encodes that).
     exit_code = det_env["exit_code"]
     if not success["passed"] and exit_code == 0:
+        exit_code = 1
+    if gate_judge and rubric_env["exit_code"] == 1 and exit_code == 0:
         exit_code = 1
 
     breakdown = dimension_breakdown(det_env["results"])
@@ -207,12 +252,7 @@ def evaluate_conversation_test(
         "exit_code": exit_code,
         "success": success,
         "assertions": det_env,
-        "rubric": {
-            "quarantined": True,
-            "note": ("the model-judged (rubric) lane lands in Phase 3; each "
-                     "rubric assertion is INCONCLUSIVE here and no model ran"),
-            "results": rubric_results,
-        },
+        "rubric": rubric_env,
         "dimensions": breakdown["dimensions"],
         # Reliability (pass^k) is a Phase-2 capability. Report the plain run
         # count and the per-run outcomes; never a fabricated reliability number.
@@ -362,19 +402,23 @@ def render_summary_text(result: Dict[str, Any]) -> str:
 
     lines.append(result["reliability"]["note"])
 
-    rubric = result["rubric"]["results"]
-    if rubric:
-        lines.append(
-            f"rubric lane: {len(rubric)} assertion(s) INCONCLUSIVE "
-            "(quarantined, Phase 3 -- no model ran)"
-        )
-
     det = result["assertions"]["summary"]["deterministic"]
     lines.append(
         f"deterministic: {det['pass']} pass, {det['fail']} fail, "
         f"{det['inconclusive']} inconclusive"
     )
+
+    rubric_env = result["rubric"]
+    rs = rubric_env["summary"]
+    gated = "GATED" if rubric_env.get("gated") else "advisory"
     lines.append(
-        "judge: 0 pass, 0 fail (no judge/rubric kind is built in this release)"
+        f"rubric (model-judged, {gated}): {rs['pass']} pass, {rs['fail']} fail, "
+        f"{rs['inconclusive']} inconclusive, {rs['error']} error "
+        "(deterministic:false; never merged into the deterministic counts)"
     )
+    for r in rubric_env["results"]:
+        j = r.get("judge") or {}
+        cached = "cached" if j.get("cached") else "fresh"
+        model = j.get("model", "?")
+        lines.append(f"  [{r['status']:<12}] {r['id']}  ({model}, {cached})")
     return "\n".join(lines) + "\n"

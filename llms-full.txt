@@ -5590,6 +5590,13 @@ stores credentials at `~/.hotato/connections.json` (mode `0600`) without a
 network round trip (`src/hotato/connections.py`: "nothing in this module
 makes a network call").
 
+`rubric run`, `rubric calibrate`, and the `test run` rubric lane also belong
+here **on the default path**: the model judge is a **LOCAL Ollama** daemon
+(default `http://localhost:11434`), so nothing leaves the box. The verdict
+cache (`~/.hotato/rubric-cache`) is local. Two ways a rubric command DOES reach
+the network -- both explicit, both in the extras table below: a non-local
+Ollama endpoint, or `--judge-provider hosted`.
+
 ## Reaches your configured vendor -- only when the command's job is to
 
 | Command | Reaches | When | Code |
@@ -5618,6 +5625,9 @@ makes a network call").
 | `hotato[transcribe]` (`run --transcribe`) | Nothing at inference -- a local `faster-whisper` ASR pass over the same recording, fully offline once the chosen model is cached. The first use of a model name not already cached downloads its weights from its public host (a one-time fetch, like installing any pip package with model weights); every run after that opens no socket. Context only -- never fed back into the score. | N/A |
 | `hotato[livekit]` / `hotato[pipecat]` | Nothing from Hotato directly -- these SDKs run YOUR live capture infra; Hotato scores the file that infra writes | N/A |
 | `--diarizer pyannoteai` (`contract create --mono --diarize`, `run --mono --diarize`) | Uploads the mono audio to `pyannote.ai` for diarization | Refused (exit 2) unless `--egress-opt-in` is passed; the default diarizer (`pyannote`, local) never uploads. See `diarize.py`: `build_pyannoteai_backend`. |
+| `hotato[judge]` (`rubric run`, `rubric calibrate`, `test run` rubric lane) | Nothing on the default path -- the judge is a LOCAL Ollama model (`http://localhost:11434`), reached with only the stdlib (`urllib`). The transcript never leaves the box. | N/A on the default (local) path. `rubric.py`: `OllamaJudge`. |
+| `--judge-provider hosted --judge-endpoint URL` (any rubric command) | Sends the transcript + rubric criterion to a hosted OpenAI/Anthropic-compatible `/chat/completions` endpoint you name | Refused (exit 2) unless `--judge-egress-opt-in` is passed. NOT the default; the default local judge never leaves the box. `rubric.py`: `HostedJudge` (raises `EgressRefused` without the flag). |
+| A **non-local** `--judge-endpoint` (e.g. a remote Ollama host) | Reaches that host | Same gate: refused unless `--judge-egress-opt-in`. `localhost`/`127.0.0.1`/`::1` never need it. `rubric.py`: `OllamaJudge._is_local_endpoint`. |
 | `--notify URL` (`sweep`, `fleet run`) | POSTs one JSON summary -- counts, top candidate moments (id, kind, timing numbers only), local artifact paths. No audio, no credentials, no transcript text. Plus a `text` line for Slack incoming webhooks. | Off by default; only fires with an explicit, repeatable `--notify URL`. A non-http(s) scheme is refused (exit 2) before any network attempt; once sent, delivery is fail-open -- a down or slow webhook logs one stderr warning and never breaks the run. See `notify.py`: `post_notification`. |
 
 ## The one credential-safety detail worth knowing
@@ -6687,6 +6697,8 @@ open no sockets. This is the whole scoring, analysis, and fixture surface.
 | `demo` | Run the packaged two-call battery. Zero extra files. |
 | `team`, `export`, `benchmark` | Aggregate / export local run data. |
 | `setup`, `describe`, `init` | Print recording config, emit the CLI manifest, scaffold local integration files. |
+| `rubric run`, `rubric calibrate` | Score a local transcript against a rubric with a **LOCAL** model (Ollama at `localhost`). Default path opens no off-box socket; the verdict cache is local. Reaches the network only with an explicit hosted / non-local judge (see below). |
+| `test run` (rubric lane) | Same LOCAL model judge as `rubric run`, run inline on a conversation-test's `assertions.rubric` lane. Local by default. |
 
 Default retention is local-only: reports, envelopes, and exports are written
 where you point them and nowhere else.
@@ -6707,7 +6719,8 @@ job. Each requires you to name a stack, a repository, or a webhook you configure
 | `issue` | GitHub, via your local `gh` | File a sweep's candidates as an issue. Uses your existing `gh` auth. |
 | `pr` | GitHub, via your local `gh` | Open a PR adding promoted fixtures. Uses your existing `gh` auth. |
 | `apply` | a git clone you point it at | Applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel. |
-| `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
+| `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only AUDIO path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
+| `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | Sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a LOCAL Ollama model and never leaves the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md). |
 
 Notify surfaces (Slack, GitHub) are used only through credentials you configured
 (`gh`, a Slack token) and only for actions you invoked. Hotato ships no default
