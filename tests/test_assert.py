@@ -763,4 +763,7 @@ def test_full_result_shape_matches_schema_for_every_kind():
     env = A.run_assertions(doc, ctx)
     _validate(env)
     kinds = {r["kind"] for r in env["results"]}
-    assert kinds == set(A.KINDS)
+    # The original five deterministic kinds. The Phase-1 expanded kinds are
+    # exercised in tests/test_assert_expanded_kinds.py; this test pins that the
+    # five founding kinds each still produce a schema-valid result.
+    assert kinds == {"phrase", "pii", "policy", "tool_call", "outcome"}

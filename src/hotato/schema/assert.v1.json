@@ -62,8 +62,8 @@
       "properties": {
         "id": { "type": "string" },
         "kind": {
-          "enum": ["phrase", "pii", "policy", "tool_call", "outcome"],
-          "description": "phrase: regex over the transcript (role filter, first/last/any position, absent/compliance mode, case sensitivity). pii: deterministic regex/checksum detectors (ssn, card_luhn, email, phone) over the transcript; must_not_leak mode. policy: a named, versioned, offline banned-language/required-disclosure rule pack. tool_call: evaluated against ingested voice_trace.v1 spans only, never transcript text (name, args-subset-match, require_order, count bounds, never_before). outcome: task-success as all_of/any_of a list of deterministic sub-predicates, reported as a met/of fraction, never a vibe."
+          "enum": ["phrase", "pii", "policy", "tool_call", "outcome", "tool_result", "tool_error", "state", "state_change", "handoff", "dtmf", "termination", "latency", "timing_contract", "entity_accuracy", "sequence", "count", "human_rubric", "judge_rubric"],
+          "description": "The original five: phrase (regex over the transcript), pii (regex/checksum detectors, must_not_leak), policy (a named offline rule pack), tool_call (ingested voice_trace.v1 spans only, never transcript text), outcome (all_of/any_of deterministic sub-predicates as a met/of fraction). The Phase-1 expanded deterministic kinds -- additive, all deterministic:true, each reading the AUTHENTICATED trace spans / a post-call state adapter / numeric timing, never the agent's spoken claim: tool_result (Authority 1: a tool span's result matches expected fields), tool_error (Authority 1: a tool span errored), state (Authority 2: a post-call state-adapter record matches), state_change (Authority 2: a before/after state delta), handoff (a transfer span occurred), dtmf (expected DTMF digits in the trace), termination (the call ended in the expected way), latency (a span latency_ms or a timing field is <= a threshold), timing_contract (an embedded .hotato timing contract re-verifies via `contract verify`), entity_accuracy (critical entities present/correct vs a supplied reference by deterministic string match, NOT WER), sequence (matchers hold in trace order), count (a span/phrase occurs N times). human_rubric/judge_rubric are the model-judged lane -- NAMED but quarantined until Phase 3; in this build their evaluator deterministically returns INCONCLUSIVE ('rubric engine not built (Phase 3)') and no LLM path is built. INVARIANT: the Authority 1 & 2 kinds (tool_result, tool_error, state, state_change) have no transcript read and no model code path, so an agent's spoken claim can never satisfy one."
         },
         "status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
         "deterministic": {
@@ -103,6 +103,27 @@
         "pack": {
           "type": "object",
           "description": "policy kind: the {name, version} of the rule pack evaluated, for byte-replayability."
+        },
+        "measured_ms": {
+          "type": "number",
+          "description": "latency kind (trace source): the slowest matching span's latency_ms the threshold was checked against."
+        },
+        "measured": {
+          "type": "number",
+          "description": "latency kind (timing source): the numeric timing-field value the threshold was checked against."
+        },
+        "observed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "count kind: how many matching spans/phrase-turns were observed."
+        },
+        "delta": {
+          "type": "object",
+          "description": "state_change kind: the {field, before, after} values read from the before/after state-adapter snapshots."
+        },
+        "contracts": {
+          "type": "object",
+          "description": "timing_contract kind: the {total, passed} count from re-verifying the referenced .hotato bundle(s)."
         }
       }
     }

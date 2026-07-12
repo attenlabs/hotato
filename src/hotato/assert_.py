@@ -57,6 +57,7 @@ index, role).
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -73,6 +74,8 @@ __all__ = [
     "parse_assertions_yaml",
     "validate_assertions_doc",
     "KINDS",
+    "RUBRIC_KINDS",
+    "ALL_KINDS",
     "DETECTOR_NAMES",
     "DETECTORS",
     "DEFAULT_POLICY_PACK",
@@ -91,7 +94,56 @@ __all__ = [
 
 SCHEMA = "assert.v1"
 SUPPORTED_DOC_VERSION = 1
-KINDS = ("phrase", "pii", "policy", "tool_call", "outcome")
+# The deterministic assertion kinds -- the honesty wall. Every one of these is
+# pure regex / checksum / span-lookup / state-query / string-match arithmetic,
+# never a model call, so a result always carries ``deterministic: true`` and
+# an INCONCLUSIVE result reflects ABSENT input, never a non-deterministic
+# judgment. The original five (``phrase`` .. ``outcome``) are unchanged; the
+# Phase-1 expanded kinds are additive.
+#
+#   phrase/pii/policy/outcome     -- read the transcript / timing (as before)
+#   tool_call                     -- reads voice_trace.v1 tool spans (as before)
+#   tool_result / tool_error      -- Authority 1: read tool spans' result/error
+#   state / state_change          -- Authority 2: query a post-call state adapter
+#   handoff / dtmf / termination  -- read the authenticated trace's spans
+#   latency / timing_contract     -- numeric timing (trace latency_ms / a .hotato
+#                                    timing contract re-verified via `contract verify`)
+#   entity_accuracy               -- deterministic entity/string match vs a
+#                                    supplied reference (NOT WER)
+#   sequence / count              -- ordered / counted spans (or phrases)
+#
+# HONESTY INVARIANT (structural): tool_result / tool_error / state /
+# state_change (Authorities 1 & 2, listed in :data:`_AUTHORITY_1_2_KINDS`) read
+# ONLY the authenticated trace spans / the state adapter -- never the
+# transcript. An agent's spoken claim ("I issued the refund") can therefore
+# never satisfy one of them; there is no model/LLM code path anywhere here.
+KINDS = (
+    "phrase", "pii", "policy", "tool_call", "outcome",
+    "tool_result", "tool_error", "state", "state_change", "handoff", "dtmf",
+    "termination", "latency", "timing_contract", "entity_accuracy",
+    "sequence", "count",
+)
+
+# The judge lane's kinds -- NAMED so a conversation-test / assert document may
+# reference them, but their evaluators are quarantined until Phase 3: in P1
+# each returns INCONCLUSIVE with the note "rubric engine not built (Phase 3)".
+# No LLM path is built anywhere in this release. The P1 stub IS deterministic
+# (it deterministically returns INCONCLUSIVE without a model), so the envelope's
+# ``summary.judge`` honestly stays ``{"pass": 0, "fail": 0}`` -- no model ever
+# scored anything.
+RUBRIC_KINDS = ("human_rubric", "judge_rubric")
+
+# Every recognized assertion kind -- what ``validate_assertions_doc`` accepts
+# and what the schema's ``result.kind`` enum lists.
+ALL_KINDS = KINDS + RUBRIC_KINDS
+
+# The Authority 1 & 2 kinds: their evaluators are STRUCTURALLY unable to be
+# satisfied by an agent's spoken claim, because they read the authenticated
+# trace spans / the state adapter only, never the transcript, and never a
+# model verdict. Named here so the invariant is testable by name.
+_AUTHORITY_1_2_KINDS = frozenset(
+    {"tool_result", "tool_error", "state", "state_change"}
+)
 
 # How an INCONCLUSIVE result (a statement about ABSENT required input, never a
 # non-deterministic judgment) gates the run's exit code. The default,
@@ -142,12 +194,16 @@ class Context:
     :func:`build_context` (distinct from ``[]``, a transcript that WAS
     supplied and is genuinely empty -- e.g. a silent call). Same for
     ``spans``. ``timing`` defaults to ``None`` (no scored-events context).
+    ``state_adapter`` (Authority 2, the post-call system of record) defaults
+    to ``None`` -- a ``state``/``state_change`` assertion evaluated without
+    one reports ``INCONCLUSIVE`` (no way to query state), never a guess.
     An evaluator that needs a piece of context which is ``None`` reports
     ``INCONCLUSIVE``, never a guessed ``PASS``/``FAIL``."""
 
     transcript: Optional[List[Dict[str, Any]]] = None
     spans: Optional[List[Dict[str, Any]]] = None
     timing: Any = None
+    state_adapter: Any = None
 
 
 def _norm_turn(t: Dict[str, Any]) -> Dict[str, Any]:
@@ -228,6 +284,7 @@ def build_context(
     spans: Optional[Sequence[Dict[str, Any]]] = None,
     trace_path: Optional[str] = None,
     timing: Any = None,
+    state_adapter: Any = None,
 ) -> Context:
     """Build the :class:`Context` an assertion run is evaluated against.
 
@@ -238,6 +295,9 @@ def build_context(
     run's events (``envelope.v1``'s ``events`` list, or a single event dict)
     passed straight through as read-only context for the ``outcome`` kind's
     ``field_present`` sub-predicate; hotato never recomputes it here.
+    ``state_adapter`` (a :mod:`hotato.state_adapter` adapter, Authority 2) is
+    the post-call system of record the ``state``/``state_change`` kinds query;
+    omitting it leaves those kinds INCONCLUSIVE (no way to check state).
 
     Omitting BOTH members of a pair leaves that piece of context ``None``
     (absent), which every evaluator treats as INCONCLUSIVE rather than
@@ -268,7 +328,10 @@ def build_context(
     else:
         span_list = None
 
-    return Context(transcript=turns, spans=span_list, timing=timing)
+    return Context(
+        transcript=turns, spans=span_list, timing=timing,
+        state_adapter=state_adapter,
+    )
 
 
 # =========================================================================
@@ -752,6 +815,229 @@ def _validate_kind_fields(aid: str, kind: str, item: Dict[str, Any]) -> None:
             for p in preds:
                 _validate_outcome_predicate(aid, p)
 
+    else:
+        # The Phase-1 expanded kinds (and the quarantined rubric kinds). Kept in
+        # a separate function so the original five branches above stay exactly
+        # as they were.
+        _validate_expanded_kind_fields(aid, kind, item)
+
+
+def _is_number(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _validate_count_spec(aid: str, kind: str, c: Any) -> None:
+    if isinstance(c, bool) or (
+        not isinstance(c, int)
+        and not (isinstance(c, dict) and any(k in c for k in ("min", "max")))
+    ):
+        raise ValueError(
+            f"assertion {aid!r} ({kind}): 'count' must be an integer or a "
+            "{min, max} mapping"
+        )
+
+
+def _validate_expanded_kind_fields(aid: str, kind: str, item: Dict[str, Any]) -> None:
+    """Up-front field validation for the Phase-1 expanded deterministic kinds
+    (and a no-op accept for the quarantined ``human_rubric``/``judge_rubric``
+    kinds, whose shape is validated when the rubric engine lands in Phase 3).
+    A malformed field is the caller's usage error (``ValueError`` -> exit 2),
+    raised before any assertion is evaluated -- exactly like the original five
+    kinds."""
+    if kind in ("tool_result", "tool_error"):
+        if not isinstance(item.get("name"), str) or not item["name"]:
+            raise ValueError(
+                f"assertion {aid!r} ({kind}): 'name' is required and must be a "
+                "non-empty tool-name string"
+            )
+        if kind == "tool_result" and "result_subset" in item and not isinstance(
+            item["result_subset"], dict
+        ):
+            raise ValueError(
+                f"assertion {aid!r} (tool_result): 'result_subset' must be a mapping"
+            )
+        if kind == "tool_error" and "error_matches" in item:
+            em = item["error_matches"]
+            if not isinstance(em, str) or not em:
+                raise ValueError(
+                    f"assertion {aid!r} (tool_error): 'error_matches' must be a "
+                    "non-empty regex string"
+                )
+            try:
+                re.compile(em)
+            except re.error as exc:
+                raise ValueError(
+                    f"assertion {aid!r} (tool_error): invalid regex {em!r}: {exc}"
+                ) from exc
+        if "absent" in item and not isinstance(item["absent"], bool):
+            raise ValueError(f"assertion {aid!r} ({kind}): 'absent' must be a boolean")
+
+    elif kind == "state":
+        if not isinstance(item.get("resource"), str) or not item["resource"]:
+            raise ValueError(
+                f"assertion {aid!r} (state): 'resource' is required and must be "
+                "a non-empty string"
+            )
+        if not isinstance(item.get("expect"), dict) or not item["expect"]:
+            raise ValueError(
+                f"assertion {aid!r} (state): 'expect' is required and must be a "
+                "non-empty mapping of expected post-call fields"
+            )
+        if "filters" in item and not isinstance(item["filters"], dict):
+            raise ValueError(f"assertion {aid!r} (state): 'filters' must be a mapping")
+
+    elif kind == "state_change":
+        if not isinstance(item.get("resource"), str) or not item["resource"]:
+            raise ValueError(
+                f"assertion {aid!r} (state_change): 'resource' is required and "
+                "must be a non-empty string"
+            )
+        if not isinstance(item.get("field"), str) or not item["field"]:
+            raise ValueError(
+                f"assertion {aid!r} (state_change): 'field' is required and must "
+                "be a non-empty string"
+            )
+        if not any(k in item for k in ("from", "to", "changed")):
+            raise ValueError(
+                f"assertion {aid!r} (state_change): at least one of 'from', 'to', "
+                "'changed' is required (assert something about the delta)"
+            )
+        if "changed" in item and not isinstance(item["changed"], bool):
+            raise ValueError(
+                f"assertion {aid!r} (state_change): 'changed' must be a boolean"
+            )
+        if "filters" in item and not isinstance(item["filters"], dict):
+            raise ValueError(
+                f"assertion {aid!r} (state_change): 'filters' must be a mapping"
+            )
+
+    elif kind == "handoff":
+        if "to" in item and not isinstance(item["to"], str):
+            raise ValueError(f"assertion {aid!r} (handoff): 'to' must be a string")
+        if "absent" in item and not isinstance(item["absent"], bool):
+            raise ValueError(f"assertion {aid!r} (handoff): 'absent' must be a boolean")
+
+    elif kind == "dtmf":
+        d = item.get("digits")
+        if not isinstance(d, str) or not d:
+            raise ValueError(
+                f"assertion {aid!r} (dtmf): 'digits' is required and must be a "
+                "non-empty string of expected DTMF digits"
+            )
+        if "absent" in item and not isinstance(item["absent"], bool):
+            raise ValueError(f"assertion {aid!r} (dtmf): 'absent' must be a boolean")
+
+    elif kind == "termination":
+        for f in ("reason", "by"):
+            if f in item and not isinstance(item[f], str):
+                raise ValueError(
+                    f"assertion {aid!r} (termination): {f!r} must be a string"
+                )
+        if "absent" in item and not isinstance(item["absent"], bool):
+            raise ValueError(
+                f"assertion {aid!r} (termination): 'absent' must be a boolean"
+            )
+
+    elif kind == "latency":
+        sources = [k for k in ("tool", "span_type", "field") if k in item]
+        if len(sources) != 1:
+            raise ValueError(
+                f"assertion {aid!r} (latency): exactly one of 'tool', 'span_type', "
+                f"'field' is required, got {sources}"
+            )
+        if "field" in item:
+            if not isinstance(item["field"], str) or not item["field"]:
+                raise ValueError(
+                    f"assertion {aid!r} (latency): 'field' must be a non-empty "
+                    "dotted-path string into the timing context"
+                )
+            if not _is_number(item.get("max")):
+                raise ValueError(
+                    f"assertion {aid!r} (latency): 'max' (a numeric threshold in "
+                    "the field's own unit) is required with 'field'"
+                )
+        else:
+            key = "tool" if "tool" in item else "span_type"
+            if not isinstance(item[key], str) or not item[key]:
+                raise ValueError(
+                    f"assertion {aid!r} (latency): {key!r} must be a non-empty string"
+                )
+            if not _is_number(item.get("max_ms")):
+                raise ValueError(
+                    f"assertion {aid!r} (latency): 'max_ms' (a numeric millisecond "
+                    f"threshold) is required with {key!r}"
+                )
+
+    elif kind == "timing_contract":
+        if not isinstance(item.get("bundle"), str) or not item["bundle"]:
+            raise ValueError(
+                f"assertion {aid!r} (timing_contract): 'bundle' (a path to a "
+                ".hotato bundle to re-verify) is required and must be a string"
+            )
+
+    elif kind == "entity_accuracy":
+        ref = item.get("reference")
+        if not isinstance(ref, dict) or not ref:
+            raise ValueError(
+                f"assertion {aid!r} (entity_accuracy): 'reference' is required and "
+                "must be a non-empty mapping of entity name -> expected value"
+            )
+        if "require" in item and item["require"] not in ("all", "any"):
+            raise ValueError(
+                f"assertion {aid!r} (entity_accuracy): 'require' must be 'all' or "
+                f"'any', got {item['require']!r}"
+            )
+        if "case_sensitive" in item and not isinstance(item["case_sensitive"], bool):
+            raise ValueError(
+                f"assertion {aid!r} (entity_accuracy): 'case_sensitive' must be a "
+                "boolean"
+            )
+
+    elif kind == "sequence":
+        steps = item.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise ValueError(
+                f"assertion {aid!r} (sequence): 'steps' is required and must be a "
+                "non-empty ordered list"
+            )
+        for i, st in enumerate(steps):
+            if not isinstance(st, dict) or len(
+                [k for k in ("span_type", "tool") if k in st]
+            ) != 1:
+                raise ValueError(
+                    f"assertion {aid!r} (sequence): steps[{i}] must be a mapping "
+                    "with exactly one of 'span_type' or 'tool'"
+                )
+
+    elif kind == "count":
+        matchers = [k for k in ("span_type", "tool", "phrase") if k in item]
+        if len(matchers) != 1:
+            raise ValueError(
+                f"assertion {aid!r} (count): exactly one of 'span_type', 'tool', "
+                f"'phrase' is required, got {matchers}"
+            )
+        if "phrase" in item:
+            phrase = item["phrase"]
+            if not isinstance(phrase, str) or not phrase:
+                raise ValueError(
+                    f"assertion {aid!r} (count): 'phrase' must be a non-empty regex "
+                    "string"
+                )
+            try:
+                re.compile(phrase)
+            except re.error as exc:
+                raise ValueError(
+                    f"assertion {aid!r} (count): invalid regex {phrase!r}: {exc}"
+                ) from exc
+        _validate_count_spec(aid, "count", item.get("count"))
+
+    elif kind in RUBRIC_KINDS:
+        # Quarantined until Phase 3: the rubric-ref shape is validated by the
+        # rubric engine when it lands. Accepted here so a conversation-test /
+        # assert document may reference one; its P1 evaluator returns
+        # INCONCLUSIVE ("rubric engine not built (Phase 3)"), never a guess.
+        return
+
 
 def validate_assertions_doc(doc: Any) -> Tuple[int, List[Dict[str, Any]]]:
     """Validate a parsed assertions document (as returned by
@@ -806,9 +1092,9 @@ def validate_assertions_doc(doc: Any) -> Tuple[int, List[Dict[str, Any]]]:
             raise ValueError(f"duplicate assertion id {aid!r}")
         seen_ids.add(aid)
         kind = item.get("kind")
-        if kind not in KINDS:
+        if kind not in ALL_KINDS:
             raise ValueError(
-                f"assertion {aid!r}: 'kind' must be one of {KINDS}, got {kind!r}"
+                f"assertion {aid!r}: 'kind' must be one of {ALL_KINDS}, got {kind!r}"
             )
         _validate_kind_fields(aid, kind, item)
         out.append(item)
@@ -1315,12 +1601,554 @@ def _eval_outcome(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     return result
 
 
+# =========================================================================
+# Phase-1 expanded deterministic kinds. Each reads the AUTHENTICATED trace
+# spans (voice_trace.v1), the post-call state adapter, or numeric timing --
+# NEVER the agent's spoken transcript claim (for the Authority 1 & 2 kinds
+# this is structural: their code below simply has no ``ctx.transcript`` read
+# and no model call). Every one returns ``deterministic: true``, and reports
+# INCONCLUSIVE -- never a guessed PASS/FAIL -- when its required input is
+# absent.
+# =========================================================================
+
+def _span_field(s: Dict[str, Any], *keys: str) -> Any:
+    """First non-``None`` value among a span's top-level ``keys`` or the same
+    keys inside its ``attributes`` dict (voice_trace.v1 spans carry payload at
+    either level; an ingested OTel export flattens into ``attributes``)."""
+    attrs = s.get("attributes") or {}
+    for k in keys:
+        if s.get(k) is not None:
+            return s[k]
+        if attrs.get(k) is not None:
+            return attrs[k]
+    return None
+
+
+def _typed_spans(ctx: Context, span_type: str, name: Optional[str] = None):
+    """``(index, span)`` for every span of ``span_type`` (optionally also
+    matching a ``name``), preserving trace order."""
+    out = []
+    for idx, s in enumerate(ctx.spans or []):
+        if s.get("type") != span_type:
+            continue
+        if name is not None and s.get("name") != name:
+            continue
+        out.append((idx, s))
+    return out
+
+
+def _span_errored(s: Dict[str, Any]) -> bool:
+    """A tool span 'errored' iff it carries a truthy ``error``, a ``status`` of
+    ``"error"``, or an explicit ``ok: false`` (top-level or in attributes)."""
+    if _span_field(s, "error") not in (None, "", False):
+        return True
+    if _span_field(s, "status") == "error":
+        return True
+    ok = _span_field(s, "ok")
+    return ok is False
+
+
+def _eval_tool_result(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            "no trace was provided; tool_result reads voice_trace.v1 tool "
+            "spans (Authority 1), never the agent's spoken claim"
+        )
+        return result
+    name = a["name"]
+    subset = a.get("result_subset") or {}
+    called = False
+    matched_ids: List[str] = []
+    for idx, s in _typed_spans(ctx, "tool_call", name):
+        called = True
+        res = _span_field(s, "result")
+        if not isinstance(res, dict):
+            continue
+        if _is_subset(subset, res):
+            matched_ids.append(_synthesize_span_id(idx))
+    if matched_ids:
+        result["status"] = "PASS"
+        result["span_ids"] = _sorted_span_ids(matched_ids)
+    else:
+        result["status"] = "FAIL"
+        result["reason"] = (
+            f"tool {name!r} produced no result span in the trace"
+            if not called
+            else f"tool {name!r} was called but no result matched {subset!r}"
+        )
+    return result
+
+
+def _eval_tool_error(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            "no trace was provided; tool_error reads voice_trace.v1 tool "
+            "spans (Authority 1), never the agent's spoken claim"
+        )
+        return result
+    name = a["name"]
+    absent = bool(a.get("absent", False))
+    matcher = a.get("error_matches")
+    rx = re.compile(matcher, re.IGNORECASE) if matcher else None
+    errored_ids: List[str] = []
+    for idx, s in _typed_spans(ctx, "tool_call", name):
+        if not _span_errored(s):
+            continue
+        if rx is not None:
+            msg = _span_field(s, "error", "error_message", "message")
+            if not (isinstance(msg, str) and rx.search(msg)):
+                continue
+        errored_ids.append(_synthesize_span_id(idx))
+    hit = bool(errored_ids)
+    passed = (not hit) if absent else hit
+    result["status"] = "PASS" if passed else "FAIL"
+    if errored_ids:
+        result["span_ids"] = _sorted_span_ids(errored_ids)
+    if not passed:
+        result["reason"] = (
+            f"tool {name!r} errored but must not have"
+            if absent
+            else f"tool {name!r} did not error (no matching error span in the trace)"
+        )
+    return result
+
+
+def _eval_state(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.state_adapter is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            "no state adapter was provided; state reads a post-call system of "
+            "record (Authority 2), never the agent's spoken claim"
+        )
+        return result
+    resource = a["resource"]
+    filters = a.get("filters") or {}
+    expect = a["expect"]
+    try:
+        rec = ctx.state_adapter.query(resource, **filters)
+    except Exception as exc:  # an adapter failure withholds a verdict, never guesses
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = f"state adapter query for {resource!r} failed: {exc}"
+        return result
+    if rec is None:
+        # The adapter IS queryable (input present); the record genuinely does
+        # not exist -> a grounded FAIL, not a guess. (Contrast a MISSING
+        # adapter above, which is absent input -> INCONCLUSIVE.)
+        result["status"] = "FAIL"
+        result["reason"] = f"no {resource!r} record matched filters {filters!r}"
+        return result
+    mismatched = []
+    for k in expect:
+        val, found = _get_path(rec, k)
+        if not found or val != expect[k]:
+            mismatched.append(k)
+    if not mismatched:
+        result["status"] = "PASS"
+    else:
+        result["status"] = "FAIL"
+        result["reason"] = (
+            f"{resource!r} record present but field(s) {sorted(mismatched)} did "
+            "not match the expected post-call state"
+        )
+    return result
+
+
+def _eval_state_change(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.state_adapter is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            "no state adapter was provided; state_change reads before/after "
+            "post-call state (Authority 2), never the agent's spoken claim"
+        )
+        return result
+    resource = a["resource"]
+    filters = a.get("filters") or {}
+    field = a["field"]
+    try:
+        before = ctx.state_adapter.query(resource, when="before", **filters)
+        after = ctx.state_adapter.query(resource, when="after", **filters)
+    except Exception as exc:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = f"state adapter query for {resource!r} failed: {exc}"
+        return result
+    if before is None or after is None:
+        # A delta needs both snapshots; a missing one is absent INPUT.
+        missing = [w for w, r in (("before", before), ("after", after)) if r is None]
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            f"cannot measure a delta on {resource!r}: {missing} snapshot(s) absent"
+        )
+        return result
+    bval, _bf = _get_path(before, field)
+    aval, _af = _get_path(after, field)
+    failures: List[str] = []
+    if "from" in a and bval != a["from"]:
+        failures.append(f"before {field!r} was {bval!r}, expected {a['from']!r}")
+    if "to" in a and aval != a["to"]:
+        failures.append(f"after {field!r} was {aval!r}, expected {a['to']!r}")
+    if a.get("changed") and bval == aval:
+        failures.append(f"{field!r} did not change (stayed {bval!r})")
+    if not failures:
+        result["status"] = "PASS"
+        result["delta"] = {"field": field, "before": bval, "after": aval}
+    else:
+        result["status"] = "FAIL"
+        result["reason"] = "; ".join(failures)
+    return result
+
+
+def _eval_handoff(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = "no trace was provided; handoff reads voice_trace.v1 spans"
+        return result
+    absent = bool(a.get("absent", False))
+    want_to = a.get("to")
+    ids: List[str] = []
+    for idx, s in _typed_spans(ctx, "handoff"):
+        if want_to is not None and _span_field(s, "to", "target", "name") != want_to:
+            continue
+        ids.append(_synthesize_span_id(idx))
+    hit = bool(ids)
+    passed = (not hit) if absent else hit
+    result["status"] = "PASS" if passed else "FAIL"
+    if ids:
+        result["span_ids"] = _sorted_span_ids(ids)
+    if not passed:
+        target = f" to {want_to!r}" if want_to is not None else ""
+        result["reason"] = (
+            f"a handoff{target} occurred but must not have"
+            if absent
+            else f"no handoff{target} span occurred in the trace"
+        )
+    return result
+
+
+def _eval_dtmf(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = "no trace was provided; dtmf reads voice_trace.v1 spans"
+        return result
+    expected = a["digits"]
+    absent = bool(a.get("absent", False))
+    seen_parts = []
+    ids: List[str] = []
+    for idx, s in _typed_spans(ctx, "dtmf"):
+        digits = _span_field(s, "digits", "digit")
+        if digits is not None:
+            seen_parts.append(str(digits))
+            ids.append(_synthesize_span_id(idx))
+    seen = "".join(seen_parts)
+    present = expected in seen
+    passed = (not present) if absent else present
+    result["status"] = "PASS" if passed else "FAIL"
+    if ids:
+        result["span_ids"] = _sorted_span_ids(ids)
+    if not passed:
+        result["reason"] = (
+            f"DTMF digits {expected!r} were present but must be absent"
+            if absent
+            else f"expected DTMF digits {expected!r} not found in the trace "
+                 f"(saw {seen!r})"
+        )
+    return result
+
+
+_TERMINATION_TYPES = ("termination", "call_ended", "call_terminated", "hangup")
+
+
+def _eval_termination(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            "no trace was provided; termination reads voice_trace.v1 spans"
+        )
+        return result
+    absent = bool(a.get("absent", False))
+    want_reason = a.get("reason")
+    want_by = a.get("by")
+    ids: List[str] = []
+    for idx, s in enumerate(ctx.spans or []):
+        if s.get("type") not in _TERMINATION_TYPES:
+            continue
+        if want_reason is not None and _span_field(s, "reason") != want_reason:
+            continue
+        if want_by is not None and _span_field(s, "by", "terminated_by") != want_by:
+            continue
+        ids.append(_synthesize_span_id(idx))
+    hit = bool(ids)
+    passed = (not hit) if absent else hit
+    result["status"] = "PASS" if passed else "FAIL"
+    if ids:
+        result["span_ids"] = _sorted_span_ids(ids)
+    if not passed:
+        result["reason"] = (
+            "the call terminated as described but must not have"
+            if absent
+            else "no matching termination span occurred in the trace"
+        )
+    return result
+
+
+def _first_numeric_from_timing(timing: Any, path: str) -> Optional[float]:
+    def _num(v: Any) -> Optional[float]:
+        return v if (isinstance(v, (int, float)) and not isinstance(v, bool)) else None
+
+    if isinstance(timing, list):
+        for ev in timing:
+            val, found = _get_path(ev, path)
+            if found and _num(val) is not None:
+                return _num(val)
+        return None
+    val, found = _get_path(timing, path)
+    return _num(val) if found else None
+
+
+def _eval_latency(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if "field" in a:
+        # Timing source: a numeric field (in its own unit) <= 'max'.
+        if ctx.timing is None:
+            result["status"] = "INCONCLUSIVE"
+            result["reason"] = "no timing context was provided for a latency field"
+            return result
+        measured = _first_numeric_from_timing(ctx.timing, a["field"])
+        if measured is None:
+            result["status"] = "INCONCLUSIVE"
+            result["reason"] = f"no numeric {a['field']!r} present in the timing context"
+            return result
+        threshold = a["max"]
+        result["measured"] = measured
+        result["status"] = "PASS" if measured <= threshold else "FAIL"
+        if measured > threshold:
+            result["reason"] = f"{a['field']} {measured} exceeds max {threshold}"
+        return result
+    # Trace source: the slowest matching span's latency_ms <= 'max_ms'.
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = "no trace was provided; latency reads span latency_ms"
+        return result
+    if "tool" in a:
+        spans = _typed_spans(ctx, "tool_call", a["tool"])
+        what = f"tool {a['tool']!r}"
+    else:
+        spans = _typed_spans(ctx, a["span_type"])
+        what = f"span_type {a['span_type']!r}"
+    measured_pairs = [
+        (_synthesize_span_id(idx), _span_field(s, "latency_ms"))
+        for idx, s in spans
+    ]
+    measured_pairs = [
+        (sid, v) for sid, v in measured_pairs
+        if isinstance(v, (int, float)) and not isinstance(v, bool)
+    ]
+    if not measured_pairs:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = f"no latency_ms measurement found for {what} in the trace"
+        return result
+    worst_sid, worst = max(measured_pairs, key=lambda p: p[1])
+    threshold = a["max_ms"]
+    result["measured_ms"] = worst
+    result["span_ids"] = _sorted_span_ids([sid for sid, _ in measured_pairs])
+    result["status"] = "PASS" if worst <= threshold else "FAIL"
+    if worst > threshold:
+        result["reason"] = (
+            f"{what} latency {worst}ms exceeds max_ms {threshold} (span {worst_sid})"
+        )
+    return result
+
+
+def _eval_timing_contract(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    bundle = a["bundle"]
+    if not os.path.exists(bundle):
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = f"timing-contract bundle {bundle!r} not found"
+        return result
+    # Deferred import: assert_ <- report <- contract is a real module cycle at
+    # import time (see load_spans_file); by the time an assertion runs, every
+    # module has finished loading, so importing contract here is safe. This is
+    # the design's "REUSE contract verify" -- the exact same re-scoring path.
+    from . import contract as _contract
+    try:
+        verdict = _contract.verify_contracts(bundle)
+    except ValueError as exc:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = f"could not verify timing contract {bundle!r}: {exc}"
+        return result
+    per = verdict.get("results") or []
+    if not per:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = f"no contracts found under {bundle!r}"
+        return result
+    failing = [r.get("id") for r in per if not r.get("passed")]
+    result["contracts"] = {"total": len(per), "passed": len(per) - len(failing)}
+    if not failing:
+        result["status"] = "PASS"
+    else:
+        result["status"] = "FAIL"
+        result["reason"] = f"timing contract(s) did not pass: {failing}"
+    return result
+
+
+def _tool_arg_values(ctx: Context) -> Dict[str, Any]:
+    """Every tool_call span's arguments flattened into ``{arg_name: value}`` --
+    the AUTHENTICATED entity values the agent actually passed to its tools,
+    read from the trace, never from the transcript. Later spans win a name
+    clash (the last value the agent committed)."""
+    out: Dict[str, Any] = {}
+    for _idx, s in _typed_spans(ctx, "tool_call"):
+        args = _span_field(s, "arguments")
+        if isinstance(args, dict):
+            out.update(args)
+    return out
+
+
+def _eval_entity_accuracy(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            "no trace was provided; entity_accuracy matches the authenticated "
+            "tool arguments against the reference, never the spoken transcript"
+        )
+        return result
+    reference = a["reference"]
+    require = a.get("require", "all")
+    case_sensitive = bool(a.get("case_sensitive", False))
+    observed = _tool_arg_values(ctx)
+
+    def _norm(x: Any) -> str:
+        s = str(x)
+        return s if case_sensitive else s.lower()
+
+    mismatched: List[str] = []
+    for key, expected in reference.items():
+        got = observed.get(key)
+        if got is None or _norm(got) != _norm(expected):
+            mismatched.append(key)
+    correct = len(reference) - len(mismatched)
+    passed = (not mismatched) if require == "all" else (correct > 0)
+    result["met"] = correct
+    result["of"] = len(reference)
+    result["status"] = "PASS" if passed else "FAIL"
+    if not passed:
+        # Report which ENTITY keys were wrong/missing, never the raw values.
+        result["reason"] = (
+            f"{require}: {correct}/{len(reference)} reference entit(y/ies) matched "
+            f"the tool arguments; incorrect/absent: {sorted(mismatched)}"
+        )
+    return result
+
+
+def _sequence_step_matches(step: Dict[str, Any], s: Dict[str, Any]) -> bool:
+    if "tool" in step:
+        return s.get("type") == "tool_call" and s.get("name") == step["tool"]
+    return s.get("type") == step["span_type"]
+
+
+def _eval_sequence(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = "no trace was provided; sequence reads voice_trace.v1 spans"
+        return result
+    steps = a["steps"]
+    last = -1
+    ids: List[str] = []
+    for i, step in enumerate(steps):
+        match_idx = next(
+            (idx for idx, s in enumerate(ctx.spans)
+             if idx > last and _sequence_step_matches(step, s)),
+            None,
+        )
+        if match_idx is None:
+            result["status"] = "FAIL"
+            result["reason"] = (
+                f"sequence broke at step {i} ({step}): no matching span occurred "
+                "after the previous step"
+            )
+            if ids:
+                result["span_ids"] = _sorted_span_ids(ids)
+            return result
+        ids.append(_synthesize_span_id(match_idx))
+        last = match_idx
+    result["status"] = "PASS"
+    result["span_ids"] = _sorted_span_ids(ids)
+    return result
+
+
+def _eval_count(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    result = _base_result(a)
+    spec = a["count"]
+    if "phrase" in a:
+        if ctx.transcript is None:
+            result["status"] = "INCONCLUSIVE"
+            result["reason"] = "no transcript was provided for a phrase count"
+            return result
+        rx = re.compile(a["phrase"], re.IGNORECASE)
+        role = a.get("role")
+        n = sum(
+            1 for t in ctx.transcript
+            if (role is None or t.get("role") == role) and rx.search(t.get("text") or "")
+        )
+    else:
+        if ctx.spans is None:
+            result["status"] = "INCONCLUSIVE"
+            result["reason"] = "no trace was provided; count reads voice_trace.v1 spans"
+            return result
+        if "tool" in a:
+            n = len(_typed_spans(ctx, "tool_call", a["tool"]))
+        else:
+            n = len(_typed_spans(ctx, a["span_type"]))
+    result["observed"] = n
+    result["status"] = "PASS" if _count_in_bounds(n, spec) else "FAIL"
+    if result["status"] == "FAIL":
+        result["reason"] = f"observed {n} occurrence(s); expected {spec!r}"
+    return result
+
+
+def _eval_rubric_stub(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    """The quarantined ``human_rubric``/``judge_rubric`` kinds (Phase 3). The
+    P1 evaluator is a deterministic STUB: it deterministically returns
+    INCONCLUSIVE without ever calling a model, so ``deterministic`` stays true
+    and the envelope's ``summary.judge`` honestly reports zero model-scored
+    assertions. No LLM path is built anywhere in this release."""
+    result = _base_result(a)
+    result["status"] = "INCONCLUSIVE"
+    result["reason"] = "rubric engine not built (Phase 3)"
+    return result
+
+
 _EVALUATORS = {
     "phrase": _eval_phrase,
     "pii": _eval_pii,
     "policy": _eval_policy,
     "tool_call": _eval_tool_call,
     "outcome": _eval_outcome,
+    "tool_result": _eval_tool_result,
+    "tool_error": _eval_tool_error,
+    "state": _eval_state,
+    "state_change": _eval_state_change,
+    "handoff": _eval_handoff,
+    "dtmf": _eval_dtmf,
+    "termination": _eval_termination,
+    "latency": _eval_latency,
+    "timing_contract": _eval_timing_contract,
+    "entity_accuracy": _eval_entity_accuracy,
+    "sequence": _eval_sequence,
+    "count": _eval_count,
+    "human_rubric": _eval_rubric_stub,
+    "judge_rubric": _eval_rubric_stub,
 }
 
 
@@ -1481,7 +2309,7 @@ def render_run_text(env: Dict[str, Any]) -> str:
     policy = env.get("inconclusive_policy", DEFAULT_INCONCLUSIVE_POLICY)
     if policy != DEFAULT_INCONCLUSIVE_POLICY:
         lines.append(f"inconclusive_policy: {policy}")
-    for kind in KINDS:
+    for kind in ALL_KINDS:
         results = by_kind.get(kind)
         if not results:
             continue
