@@ -42,6 +42,14 @@ makes a network call").
 | `issue create --yes` | GitHub, through your local `gh` CLI's existing auth | Only with `--yes` | `issuecmd.py`: `subprocess.run(["gh", "issue", "create", ...])` |
 | `pr create` (default, no `--yes`) | Nothing | Dry run: prints the PR body and the `git`/`gh` argv it would run | `prcmd.py` |
 | `pr create --yes` | Git remote + GitHub, through your local `gh` CLI's existing auth | Only with `--yes` | `prcmd.py`: `subprocess.run([...git...])` then `subprocess.run(["gh", "pr", "create", ...])` |
+| `test run --state F` (state-config with `adapter: http`) | Your configured system-of-record REST API | Per `state`/`state_change` assertion, and ONLY when the config sets `egress_opt_in: true`. What leaves: the mapped filter VALUES for that one query (in the URL or a JSON body); never audio, transcript, or the config. | `state_adapter.py`: `HttpStateAdapter.query` via `urllib.request` (credential-safe redirects reused from `capture.py`) |
+| `test run --state F` (state-config with `adapter: sql` + a `dsn`) | Your database, over the network via the driver you install | Per assertion, and ONLY with `egress_opt_in: true`. A parameterized read-only SELECT; the filter VALUES are bound as data, never interpolated. A local `sqlite_path` opens no socket. | `state_adapter.py`: `SqlStateAdapter.query` (stdlib `sqlite3`, or a caller-installed DBAPI driver) |
+
+Without `egress_opt_in: true`, `load_state_adapter` REFUSES an `http` adapter or
+a `sql` adapter over a `dsn` (raises before any connection -- the CLI's exit-2
+usage-error path). The default `--state` adapters -- the local mock JSON/SQLite
+sandbox and a local `sqlite_path` SQL DB -- open no socket and need no opt-in.
+Full config format: [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md).
 
 ## Optional extras that add a hosted call
 

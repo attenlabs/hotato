@@ -62,6 +62,19 @@ job. Each requires you to name a stack, a repository, or a webhook you configure
 | `pr` | GitHub, via your local `gh` | Open a PR adding promoted fixtures. Uses your existing `gh` auth. |
 | `apply` | a git clone you point it at | Applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel. |
 | `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
+| `test run --state` **http adapter** | your system-of-record's REST API | Only when the state-config names `adapter: http`, and only with `egress_opt_in: true` in that config. Sends the mapped filter VALUES for one `state`/`state_change` query; never audio, transcript, or the config itself. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md). |
+| `test run --state` **sql adapter over a `dsn`** | your database, over the network | Only when the state-config names `adapter: sql` with a `dsn`, and only with `egress_opt_in: true`. A parameterized, read-only SELECT with the mapped filter values bound as data. A local `sqlite_path` opens no socket. |
+
+The state adapters read a post-call **system of record** to ground an Authority-2
+`state` assertion (did the refund/appointment actually get written?). A record
+the system of record can be read and does not hold is a grounded FAIL; a system
+of record Hotato could **not** reach or read (network error, timeout, 5xx,
+non-JSON) is INCONCLUSIVE, never a fabricated verdict. Credentials come from
+environment-variable names in the config (never inline secrets), and the HTTP
+adapter refuses a plain-`http://` base URL unless `allow_http: true` is set for a
+trusted local endpoint. The default `--state` path is the local mock sandbox
+(a JSON/SQLite fixture) and a local `sqlite_path` SQL DB, both of which open no
+socket and need no opt-in.
 
 Notify surfaces (Slack, GitHub) are used only through credentials you configured
 (`gh`, a Slack token) and only for actions you invoked. Hotato ships no default
