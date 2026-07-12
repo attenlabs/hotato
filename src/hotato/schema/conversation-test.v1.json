@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/conversation-test.v1.json",
+  "title": "hotato conversation test, schema conversation-test.v1",
+  "description": "The PRIMARY user unit: a single file defining one testable conversation (Phase-1 design A). HONESTY INVARIANTS, structural: no `overall_score`, no weighting, no blended field anywhere -- success is a boolean over an explicit CLOSED vocabulary of named conditions, NEVER a merged percentage; deterministic and model-judged assertions live in SEPARATE lanes (assertions.deterministic vs assertions.rubric); the five report dimensions are a TAG on each assertion (dimension), never a scorer. Malformed docs are rejected by hotato.conversation_test.validate_conversation_test_doc (ValueError, exit 2) BEFORE any use, mirroring assert_.validate_assertions_doc.",
+  "type": "object",
+  "required": ["kind", "version", "id", "agent", "assertions"],
+  "additionalProperties": true,
+  "not": { "required": ["overall_score"] },
+  "properties": {
+    "kind": { "const": "hotato.conversation-test" },
+    "version": { "const": 1 },
+    "overall_score": false,
+    "id": { "type": "string", "minLength": 1 },
+    "agent": { "type": "string", "minLength": 1, "description": "agent_id under test." },
+    "scenario": {
+      "type": "string",
+      "description": "Optional path/ref to a scenario file. In P1 the caller/behavior may inline instead of pointing at a scenario."
+    },
+    "caller": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The simulated caller: who they are, what they want, the ground-truth they hold, and how they behave. Optional -- a test may reference a scenario file instead.",
+      "properties": {
+        "persona": { "type": "string" },
+        "goal": { "type": "string" },
+        "facts": { "type": "object", "description": "Known ground-truth the caller holds (used by entity/fact assertions later)." },
+        "behavior": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "interrupt_at": { "type": "array", "items": { "type": "string" }, "description": "Labelled points at which the caller barges in." },
+            "correction": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "field": { "type": "string" },
+                "from": {},
+                "to": {}
+              }
+            },
+            "speaking_rate": { "type": ["number", "string"] },
+            "backchannels": { "type": "object" }
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Describes the test environment. All members optional.",
+      "properties": {
+        "route": { "type": "string" },
+        "locale": { "type": "string" },
+        "codec": { "type": "string" },
+        "noise_profile": { "type": "string" }
+      }
+    },
+    "assertions": {
+      "type": "object",
+      "required": ["deterministic"],
+      "additionalProperties": true,
+      "description": "Two SEPARATE lanes (the deterministic/model-judged honesty wall). `deterministic` = assert.v1-style assertions (pure, offline, no model). `rubric` = model-judged refs whose evaluator lands in Phase 3; in P1 a rubric assertion evaluates to INCONCLUSIVE.",
+      "properties": {
+        "deterministic": { "type": "array", "items": { "$ref": "#/definitions/assertion" } },
+        "rubric": { "type": "array", "items": { "$ref": "#/definitions/assertion" } }
+      }
+    },
+    "repetitions": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "How many times the conversation is run; drives Reliability (pass^k), computed in Phase 2. Default 1."
+    },
+    "inconclusive_policy": {
+      "enum": ["report", "fail", "refuse"],
+      "default": "report",
+      "description": "Reuses the Phase-0 assert.v1 field semantics: how an INCONCLUSIVE result (absent required input, never a failed judgment) gates. Default 'report'."
+    },
+    "success": {
+      "type": "object",
+      "additionalProperties": true,
+      "not": { "required": ["overall_score"] },
+      "description": "Success is a BOOLEAN over an explicit closed vocabulary of named conditions -- there is deliberately no weighting and no overall_score. The per-dimension scorecard groups by the `dimension` tag; it is never blended into one number.",
+      "properties": {
+        "overall_score": false,
+        "required": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "all_deterministic_assertions_pass",
+              "no_deterministic_fail",
+              "no_rubric_failure",
+              "no_inconclusive"
+            ]
+          },
+          "description": "A CLOSED vocabulary of named boolean conditions (validated). Success is their conjunction, never a score."
+        },
+        "report_dimensions": {
+          "type": "array",
+          "items": { "enum": ["outcome", "policy", "conversation", "speech", "reliability"] },
+          "description": "Which of the five dimensions the report groups results into. A grouping key, never a weight."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "assertion": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": true,
+      "description": "One assertion in a lane. Its inner kind-specific fields are validated at RUN time (assert_ / a later slice's expanded kinds), not here -- this schema pins only the test-file envelope shape.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "dimension": {
+          "enum": ["outcome", "policy", "conversation", "speech", "reliability"],
+          "description": "Optional TAG grouping this assertion's result into one of the five report dimensions. A tag, never a weight or a scorer."
+        }
+      }
+    }
+  }
+}

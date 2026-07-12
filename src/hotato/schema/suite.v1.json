@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/suite.v1.json",
+  "title": "hotato suite, schema suite.v1",
+  "description": "A named set of conversation-tests (Phase-1 design E). Additive schema; no overall_score -- a suite groups tests, it does not blend them into one number.",
+  "type": "object",
+  "required": ["kind", "version", "suite_id", "name", "tests"],
+  "additionalProperties": true,
+  "not": { "required": ["overall_score"] },
+  "properties": {
+    "kind": { "const": "hotato.suite" },
+    "version": { "const": 1 },
+    "overall_score": false,
+    "suite_id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string" },
+    "purpose": { "type": "string" },
+    "required_for_release": { "type": "boolean", "default": false },
+    "inconclusive_policy": { "enum": ["report", "fail", "refuse"], "default": "report" },
+    "tests": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "conversation-test refs (ids or paths)."
+    }
+  }
+}
