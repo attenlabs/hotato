@@ -315,6 +315,12 @@ it, never whether the policy itself was right.
 - docs/OTEL.md: the two `trace ingest --otel` source shapes (a standard OTel
   JSON export, and hotato's own documented bridge JSONL).
 - docs/REPORTS.md: doctor, report, team, and export in depth.
+- docs/ASSERTIONS.md: `assert.v1`, the five deterministic assertion kinds
+  (phrase, pii, policy, tool_call, outcome) evaluated against a transcript /
+  trace / timing context, `assertions.yaml`, the honesty wall (kind tag +
+  deterministic:true on every result, split deterministic/judge counts, no
+  overall_score, judge quarantined), the two-shelf `hotato report`
+  integration, and the CI-gate exit codes.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.
 - docs/CI.md: the GitHub PR check and the sticky results comment.

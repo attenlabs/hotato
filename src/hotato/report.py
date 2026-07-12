@@ -708,6 +708,220 @@ def _base_section(env: dict, base_env: dict, base_label: Optional[str]) -> str:
     )
 
 
+# --- assertions (assert.v1): a pre-built envelope rendered as typed cards --
+#
+# report.py never evaluates an assertion: exactly like ``base`` (a previous
+# run envelope) and ``transcript`` (an already-produced ASR artifact), the
+# caller hands this module an ALREADY-EVALUATED assert.v1 envelope (build one
+# with hotato.assert_.run_assertions / run_assertions_from_file / .../
+# _from_yaml) and this module purely renders it -- nothing here recomputes a
+# result or invents a field the envelope did not already carry.
+#
+# Two visually separate shelves, always: "Deterministic" (the five regex /
+# checksum / span-lookup kinds this build actually evaluates -- phrase, pii,
+# policy, tool_call, outcome) and "Model-assisted (advisory, quarantined)".
+# The latter is ALWAYS empty in this build and says so: a judge (LLM-scored)
+# kind is a separate, quarantined capability, not built here. The headline is
+# ALWAYS "N deterministic pass / M fail  K judge-scored (advisory)" -- two
+# counts side by side, never one blended number, and there is NO
+# ``overall_score`` anywhere on the page.
+#
+# Absent by default: a report built with ``assertions=None`` (the default) is
+# byte-identical to one built before this feature existed -- no new markup,
+# no new CSS.
+#
+# ``_ASSERT_SCHEMA`` mirrors ``hotato.assert_.SCHEMA`` as a bare string
+# constant rather than importing it: ``hotato.assert_`` imports ``hotato.trace``,
+# which imports ``hotato.contract``, which imports THIS module -- an
+# ``import hotato.assert_`` at module scope here would be a circular import.
+# report.py only ever needs the one literal string to validate an envelope's
+# ``schema`` key, so it stays decoupled instead of importing across that cycle.
+_ASSERT_SCHEMA = "assert.v1"
+
+_ASSERT_STATUS_COLORS = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember"}
+
+# A left-border accent per kind so the five assertion dimensions read as
+# visually distinct card types at a glance. Purely decorative: the
+# PASS/FAIL/INCONCLUSIVE chip (the same palette as every other verdict on the
+# page) is the only element that ever carries a verdict.
+_ASSERT_KIND_ACCENT = {
+    "phrase": "agent",
+    "pii": "ember",
+    "policy": "caller",
+    "tool_call": "green",
+    "outcome": "muted",
+}
+
+
+def _validate_assertions_envelope(assertions: Any) -> None:
+    """Reject anything that is not a well-formed ``assert.v1`` envelope up
+    front (a clean usage error, mirroring ``_resolve_audio_mode``'s ValueError
+    on a bad ``audio_mode``) -- never silently render a malformed input as an
+    empty shelf, which would look identical to "no assertions ran"."""
+    if not isinstance(assertions, dict) or assertions.get("schema") != _ASSERT_SCHEMA:
+        raise ValueError(
+            f"assertions must be an {_ASSERT_SCHEMA!r} envelope dict (build "
+            "one with hotato.assert_.run_assertions / "
+            f"run_assertions_from_file / run_assertions_from_yaml); got "
+            f"{assertions!r}"
+        )
+    if not isinstance(assertions.get("results"), list) or not isinstance(
+        assertions.get("summary"), dict
+    ):
+        raise ValueError(
+            "assertions envelope is missing its 'results' list or 'summary' dict"
+        )
+
+
+def _assertions_headline(assertions: dict):
+    """``(headline, inconclusive_count)`` from the envelope's summary. The
+    headline ALWAYS carries exactly the deterministic pass/fail split plus
+    the judge-scored count -- never a merged single number, never an
+    ``overall_score``."""
+    summary = assertions.get("summary") or {}
+    det = summary.get("deterministic") or {}
+    judge = summary.get("judge") or {}
+    d_pass = det.get("pass", 0)
+    d_fail = det.get("fail", 0)
+    d_inconclusive = det.get("inconclusive", 0)
+    j_total = judge.get("pass", 0) + judge.get("fail", 0)
+    headline = (
+        f"{d_pass} deterministic pass / {d_fail} fail  "
+        f"{j_total} judge-scored (advisory)"
+    )
+    return headline, d_inconclusive
+
+
+def _assertion_kind_body(r: dict) -> str:
+    """Kind-specific fields already present on THIS result -- nothing here is
+    recomputed or fabricated; a field the result did not carry (e.g. a
+    passing ``phrase`` assertion carries no extra fields at all) simply
+    renders nothing extra."""
+    kind = r.get("kind")
+    parts = []
+
+    if kind == "pii":
+        hits = r.get("hits") or []
+        if hits:
+            detectors = sorted({h.get("detector") for h in hits})
+            rows = "".join(
+                f'<div class="asrthit mono">turn {_esc(h.get("turn"))} '
+                f'({_esc(h.get("role") or "n/a")}): {_esc(h.get("detector"))}</div>'
+                for h in hits
+            )
+            parts.append(
+                f'<div class="asrtline">{len(hits)} hit(s): '
+                f'{_esc(", ".join(detectors))}</div>'
+                f'<details class="asrtdetail"><summary>hit detail</summary>'
+                f'{rows}</details>'
+            )
+        redacted = r.get("redacted_transcript")
+        if redacted:
+            rows = "".join(
+                '<div class="trow"><span class="tt mono">'
+                f'{_esc(t.get("role") or "")}</span>'
+                f'<span class="tx">{_esc(t.get("text") or "")}</span></div>'
+                for t in redacted
+            )
+            parts.append(
+                '<details class="asrtdetail"><summary>redacted transcript'
+                f'</summary><div class="trows">{rows}</div></details>'
+            )
+
+    elif kind == "policy":
+        pack = r.get("pack")
+        if pack:
+            parts.append(
+                f'<div class="asrtline mono">pack {_esc(pack.get("name"))} '
+                f'v{_esc(pack.get("version"))}</div>'
+            )
+        matched = r.get("matched_rules")
+        if matched:
+            items = "".join(
+                f'<li>{_esc(m.get("rule"))} ({_esc(m.get("type"))})</li>'
+                for m in matched
+            )
+            parts.append(f'<ul class="reasons">{items}</ul>')
+
+    elif kind == "tool_call":
+        span_ids = r.get("span_ids")
+        if span_ids:
+            parts.append(
+                '<div class="asrtline mono">spans: '
+                f'{_esc(", ".join(span_ids))}</div>'
+            )
+
+    elif kind == "outcome":
+        met, of = r.get("met"), r.get("of")
+        if met is not None and of is not None:
+            parts.append(
+                f'<div class="asrtline mono">{met} of {of} predicate(s) met</div>'
+            )
+
+    return "".join(parts)
+
+
+def _assertion_card(r: dict) -> str:
+    """One PER-DIMENSION TYPED card: id, kind (typed tag + left accent),
+    the honesty-wall ``deterministic`` flag stated plainly, the PASS/FAIL/
+    INCONCLUSIVE chip, then whatever kind-specific fields this particular
+    result actually carries, then its ``reason`` (if any)."""
+    status = r.get("status", "INCONCLUSIVE")
+    chip_c = _C[_ASSERT_STATUS_COLORS.get(status, "muted")]
+    kind = r.get("kind", "")
+    accent = _C[_ASSERT_KIND_ACCENT.get(kind, "line")]
+    reason = r.get("reason")
+    reason_html = f'<div class="asrtreason">{_esc(reason)}</div>' if reason else ""
+    return (
+        f'<div class="acard" style="border-left:3px solid {accent}">'
+        '<div class="achead">'
+        f'<div><span class="kindtag mono">{_esc(kind)}</span> '
+        f'<span class="mono aid">{_esc(r.get("id", ""))}</span> '
+        '<span class="detflag mono">deterministic</span></div>'
+        f'<div class="chip small" style="background:{chip_c}">{_esc(status)}</div>'
+        '</div>'
+        f'{_assertion_kind_body(r)}{reason_html}'
+        '</div>'
+    )
+
+
+def _assertions_section(assertions: dict) -> str:
+    """The two-shelf ``assert.v1`` section: "Deterministic" (typed cards, one
+    per result) and "Model-assisted (advisory, quarantined)" (always empty in
+    this build, with a note explaining why). The headline never collapses
+    the deterministic pass/fail split and the judge count into one number."""
+    _validate_assertions_envelope(assertions)
+    headline, d_inconclusive = _assertions_headline(assertions)
+    results = assertions.get("results") or []
+    cards = "".join(_assertion_card(r) for r in results)
+    det_body = cards or (
+        '<div class="anempty">No deterministic assertions in this run.</div>'
+    )
+    inconclusive_note = (
+        f'<div class="ancap mono">{d_inconclusive} inconclusive (required '
+        'context absent; not a failure)</div>' if d_inconclusive else ""
+    )
+    return (
+        '<section class="card assertions">'
+        '<div class="ctitle">Assertions</div>'
+        '<div class="tnote">assert.v1: every result below carries a kind tag '
+        'and deterministic:true. Two counts side by side, never a merged '
+        'score -- no overall_score anywhere.</div>'
+        f'<div class="asrt-headline mono">{_esc(headline)}</div>'
+        f'{inconclusive_note}'
+        '<div class="shelf-title">Deterministic (audio / timing / '
+        'transcript / trace derived)</div>'
+        f'<div class="shelf det-shelf">{det_body}</div>'
+        '<div class="shelf-title">Model-assisted (advisory, quarantined)</div>'
+        '<div class="shelf judge-shelf">'
+        '<div class="anempty">No judge-scored assertions in this build. A '
+        'judge (model-scored) kind is a separate, quarantined capability, '
+        'not built here -- see docs/ASSERTIONS.md.</div>'
+        '</div>'
+        '</section>'
+    )
+
+
 # --- transcript context (opt-in aid; never a scoring input) ---------------
 #
 # report.py never imports hotato.transcribe and never runs any speech-to-text:
@@ -1308,11 +1522,38 @@ details.transcript summary{cursor:pointer;color:%(cream)s;font-size:13px;
 .tx{color:%(cream)s}
 """ % _C
 
+# Appended to the page's <style> ONLY when an ``assertions`` envelope was
+# actually passed in (see _render_page): a report built with the default
+# assertions=None must stay byte-identical to one built before this feature
+# existed, so these rules are never baked into the always-present _CSS above.
+_ASSERTIONS_CSS = """
+.assertions .asrt-headline{font-size:14px;font-weight:650;margin:6px 0 4px;
+ color:%(cream)s}
+.shelf-title{font-size:12px;font-weight:650;color:%(muted)s;
+ text-transform:uppercase;letter-spacing:0.04em;margin:16px 0 8px}
+.shelf{display:flex;flex-direction:column;gap:10px}
+.acard{background:%(card2)s;border:1px solid %(line)s;border-radius:10px;
+ padding:10px 13px}
+.achead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.kindtag{background:%(bg)s;border:1px solid %(line)s;border-radius:6px;
+ padding:1px 8px;font-size:11px;color:%(muted)s;text-transform:lowercase}
+.aid{color:%(muted)s;font-size:12px;margin-left:6px}
+.detflag{color:%(muted)s;font-size:10.5px;margin-left:8px;
+ text-transform:lowercase}
+.chip.small{padding:2px 9px;font-size:11px;border-radius:6px}
+.asrtline{margin-top:8px;color:%(muted)s;font-size:12.5px}
+.asrtreason{margin-top:8px;color:%(cream)s;font-size:12.5px}
+.asrtdetail{margin-top:6px}
+.asrtdetail summary{cursor:pointer;color:%(muted)s;font-size:11.5px}
+.asrthit{color:%(muted)s;font-size:11.5px;margin-top:4px}
+""" % _C
+
 
 def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  base_env: Optional[dict] = None,
                  base_label: Optional[str] = None,
-                 audio_mode: str = AUDIO_NONE) -> str:
+                 audio_mode: str = AUDIO_NONE,
+                 assertions: Optional[dict] = None) -> str:
     s = env["summary"]
     # A real failure always dominates: REGRESSION beats NOT SCORABLE beats
     # ALL PASS. NOT SCORABLE appears only when nothing failed but at least one
@@ -1338,7 +1579,14 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     # empty transcript_context, e.g. {"text": "", "segments": []}, renders no
     # panel and needs none), so a plain report stays byte-identical to before
     # this feature existed -- nothing about the stylesheet changes otherwise.
-    style_css = (_CSS + _TRANSCRIPT_CSS) if 'details class="transcript"' in cards else _CSS
+    # Same rule for the assertions CSS: appended ONLY when an assertions
+    # envelope was actually passed in, so assertions=None (the default) stays
+    # byte-identical to a report built before this feature existed.
+    style_css = _CSS
+    if 'details class="transcript"' in cards:
+        style_css += _TRANSCRIPT_CSS
+    if assertions is not None:
+        style_css += _ASSERTIONS_CSS
 
     legend = (
         f'<div class="legend">'
@@ -1391,11 +1639,18 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     # doesn't already: fewer than 3 events, and it is skipped entirely.
     analytics_html = _analytics_section(env, models) if len(models) >= 3 else ""
 
+    # The assertions section (assert.v1, two shelves) reads after the timing
+    # analytics: timing and assertions are two different axes of measurement,
+    # so a reader sees the timing story completely before the separate
+    # assertion story starts. Absent by default (assertions=None), so a plain
+    # report carries none of this markup.
+    assertions_html = _assertions_section(assertions) if assertions is not None else ""
+
     body = (
         f'<div class="wrap">{head}<main>{summary}'
         f'{_not_scorable_section_html(env)}'
         f'{base_html}{cards}'
-        f'{analytics_html}{_thresholds(cfg)}</main>{_footer()}</div>'
+        f'{analytics_html}{assertions_html}{_thresholds(cfg)}</main>{_footer()}</div>'
     )
 
     # Distinguishing title + description built only from measured counts.
@@ -1451,9 +1706,51 @@ def _md_row(cells) -> str:
     return "| " + " | ".join(str(c) for c in cells) + " |"
 
 
+def _assertions_md(assertions: dict) -> list:
+    """The Markdown mirror of ``_assertions_section``: same two shelves, same
+    headline, as tables instead of typed HTML cards."""
+    _validate_assertions_envelope(assertions)
+    headline, d_inconclusive = _assertions_headline(assertions)
+    results = assertions.get("results") or []
+
+    L = ["## Assertions", ""]
+    L.append("assert.v1: every result carries a kind tag and deterministic:true. "
+             "Two counts side by side, never a merged score -- no overall_score "
+             "anywhere.")
+    L.append("")
+    L.append(f"**{headline}**")
+    if d_inconclusive:
+        L.append("")
+        L.append(f"{d_inconclusive} inconclusive (required context absent; "
+                 "not a failure).")
+    L.append("")
+    L.append("### Deterministic (audio / timing / transcript / trace derived)")
+    L.append("")
+    if results:
+        L.append(_md_row(["id", "kind", "status", "deterministic", "detail"]))
+        L.append(_md_row(["---"] * 5))
+        for r in results:
+            L.append(_md_row([
+                r.get("id", ""), r.get("kind", ""), r.get("status", ""),
+                str(bool(r.get("deterministic", True))).lower(),
+                r.get("reason", ""),
+            ]))
+    else:
+        L.append("No deterministic assertions in this run.")
+    L.append("")
+    L.append("### Model-assisted (advisory, quarantined)")
+    L.append("")
+    L.append("No judge-scored assertions in this build. A judge (model-scored) "
+             "kind is a separate, quarantined capability, not built here -- "
+             "see docs/ASSERTIONS.md.")
+    L.append("")
+    return L
+
+
 def _render_md(env: dict, models: list, cfg: ScoreConfig,
                base_env: Optional[dict] = None,
-               base_label: Optional[str] = None) -> str:
+               base_label: Optional[str] = None,
+               assertions: Optional[dict] = None) -> str:
     s = env["summary"]
     eng = env.get("engine", {})
     mode_label = f"suite: {env['suite']}" if env.get("suite") else env.get("mode", "")
@@ -1613,6 +1910,10 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
     else:
         L.append(_no_failures_text(env))
     L.append("")
+
+    # assertions (assert.v1): absent by default, byte-identical without it
+    if assertions is not None:
+        L.extend(_assertions_md(assertions))
 
     # base comparison
     if base_env:
@@ -1784,7 +2085,8 @@ def build_report_html(*, base: Optional[dict] = None,
                       base_label: Optional[str] = None,
                       embed_audio: bool = False,
                       audio_mode: Optional[str] = None,
-                      transcript: Optional[TranscriptLike] = None, **kwargs):
+                      transcript: Optional[TranscriptLike] = None,
+                      assertions: Optional[dict] = None, **kwargs):
     """Score the input and return ``(html_str, envelope)``.
 
     Pass ``suite`` for the labelled battery, or a single recording via
@@ -1820,17 +2122,31 @@ def build_report_html(*, base: Optional[dict] = None,
     this parameter existed. This function never imports
     ``hotato.transcribe`` -- the caller produces the ``Transcript`` (through
     the strictly opt-in ``[transcribe]`` extra) and hands it here as data.
+
+    ``assertions`` (default ``None``) attaches an already-evaluated
+    ``assert.v1`` envelope (build one with ``hotato.assert_.run_assertions`` /
+    ``run_assertions_from_file`` / ``run_assertions_from_yaml``; this function
+    never evaluates an assertion itself, exactly like ``base``). It renders as
+    a new "Assertions" section with two shelves: "Deterministic" (one typed
+    card per result -- phrase, pii, policy, tool_call, outcome) and
+    "Model-assisted (advisory, quarantined)" (always empty in this build, with
+    a note). The headline is always the deterministic pass/fail split plus the
+    judge-scored count side by side -- never a merged number, and there is no
+    ``overall_score`` anywhere. ``None`` (the default) leaves the HTML
+    byte-identical to a report built before this parameter existed. See
+    ``docs/ASSERTIONS.md``.
     """
     env, models, cfg = _score_and_model(transcript=transcript, **kwargs)
     mode = _resolve_audio_mode(embed_audio, audio_mode)
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
-                        audio_mode=mode)
+                        audio_mode=mode, assertions=assertions)
     return page, env
 
 
 def build_report_md(*, base: Optional[dict] = None,
                     base_label: Optional[str] = None,
-                    transcript: Optional[TranscriptLike] = None, **kwargs):
+                    transcript: Optional[TranscriptLike] = None,
+                    assertions: Optional[dict] = None, **kwargs):
     """Score the input and return ``(markdown_str, envelope)``.
 
     Mirrors the HTML report's content with tables instead of SVG: summary,
@@ -1842,9 +2158,18 @@ def build_report_md(*, base: Optional[dict] = None,
     score)" section per event that carries one, additive to the envelope,
     never touching any timing/verdict field. ``None`` (the default) leaves the
     Markdown byte-identical to before this parameter existed.
+
+    ``assertions`` is the same optional ``assert.v1`` envelope parameter as
+    ``build_report_html`` (see there): an "Assertions" section with the same
+    two shelves, as Markdown tables. ``None`` (the default) leaves the
+    Markdown byte-identical to before this parameter existed.
     """
     env, models, cfg = _score_and_model(transcript=transcript, **kwargs)
-    return _render_md(env, models, cfg, base_env=base, base_label=base_label), env
+    return (
+        _render_md(env, models, cfg, base_env=base, base_label=base_label,
+                  assertions=assertions),
+        env,
+    )
 
 
 def write_report(path: str, fmt: str = "html", embed_audio: bool = False,
@@ -1856,8 +2181,8 @@ def write_report(path: str, fmt: str = "html", embed_audio: bool = False,
     ``audio_mode`` (``none`` / ``self_contained`` / ``audio_reference``) picks
     the audio treatment for the HTML report; it wins over ``embed_audio`` and is
     HTML-only, exactly like ``embed_audio``. ``transcript`` (optional ASR
-    context; see ``build_report_html``) passes through via ``**kwargs`` to
-    either renderer."""
+    context) and ``assertions`` (optional pre-built ``assert.v1`` envelope; see
+    ``build_report_html``) pass through via ``**kwargs`` to either renderer."""
     embeds_audio = _resolve_audio_mode(embed_audio, audio_mode) != AUDIO_NONE
     if fmt == "html":
         text, env = build_report_html(embed_audio=embed_audio,

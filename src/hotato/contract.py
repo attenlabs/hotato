@@ -1218,7 +1218,65 @@ def _require_shape(contract: dict, cpath: str, *required: tuple) -> None:
             )
 
 
-def _verify_one(bundle_dir: str) -> dict:
+def _bundle_trace_spans(bundle_dir: str) -> Optional[list]:
+    """Spans for embedded-assertion evaluation: the bundle's OWN attached
+    trace (``traces/voice_trace.jsonl``, written by ``hotato trace attach``),
+    if one was ever attached. A freshly created bundle's ``traces/`` holds
+    only the ``.gitkeep`` placeholder (see :func:`_finish_bundle`), so this
+    returns ``None`` for it -- a ``tool_call`` assertion evaluated against
+    ``None`` spans reports ``INCONCLUSIVE`` (missing input), never a
+    fabricated PASS/FAIL. Never re-derives spans from anywhere else; this is
+    the SAME trace ``contract inspect``/``explain`` would show."""
+    path = os.path.join(bundle_dir, _REL["traces_dir"], "voice_trace.jsonl")
+    if not os.path.isfile(path):
+        return None
+    # Lazy import: `assert_` -> `trace` -> `contract` -> `report` ->
+    # `assert_` is a real module-cycle at IMPORT time (report.py imports
+    # `SCHEMA` off `assert_` by attribute), so `contract` must never import
+    # `assert_` at module scope. By the time this function actually runs (a
+    # `contract verify` call), every module involved has long finished
+    # loading, so the deferred import here is always safe.
+    from . import assert_ as _assert_mod
+    return _assert_mod.load_spans_file(path)
+
+
+def _run_embedded_assertions(contract: dict, bundle_dir: str, *,
+                             event: dict,
+                             transcript_path: Optional[str]) -> Optional[dict]:
+    """Run this contract's own optional ``assertions`` block (schema/
+    contract.v1.json) through the SAME ``assert.v1`` engine ``hotato assert``
+    uses, and return its envelope. Returns ``None`` when the contract carries
+    no ``assertions`` block at all -- a contract that never asked for
+    assertions never gets a fabricated envelope. This is an ADDITIONAL,
+    separately reported dimension: it never touches the timing pass/fail
+    computed elsewhere in :func:`_verify_one`.
+
+    Context: ``spans`` come from the bundle's own attached trace (see
+    :func:`_bundle_trace_spans`); ``timing`` is this exact re-verify run's
+    freshly re-scored event (so an ``outcome`` assertion's ``field_present``
+    reads the CURRENT re-score, not a stale one); ``transcript`` comes from
+    ``--transcript FILE`` if the caller passed one to ``contract verify``
+    (the bundle format itself carries no stored transcript) -- reusing
+    :mod:`hotato.assert_`'s own file loader, so a missing/malformed
+    ``--transcript`` file is refused the same way it is for ``hotato
+    assert`` (a clean ``ValueError``, exit 2), never silently skipped.
+    Absent a transcript, any ``phrase``/``pii``/``policy`` assertion (or an
+    ``outcome`` predicate that needs one) reports ``INCONCLUSIVE``, never a
+    guessed result -- matching :mod:`hotato.assert_`'s own honesty
+    invariant."""
+    doc = contract.get("assertions")
+    if doc is None:
+        return None
+    from . import assert_ as _assert_mod  # see _bundle_trace_spans: deferred
+    ctx = _assert_mod.build_context(
+        transcript_path=transcript_path,
+        spans=_bundle_trace_spans(bundle_dir),
+        timing=event,
+    )
+    return _assert_mod.run_assertions(doc, ctx)
+
+
+def _verify_one(bundle_dir: str, *, transcript_path: Optional[str] = None) -> dict:
     contract = _load_contract(bundle_dir)
     cpath = os.path.join(bundle_dir, "contract.json")
     _require_shape(
@@ -1339,6 +1397,14 @@ def _verify_one(bundle_dir: str) -> dict:
     # that matches but carries no verifying signature is "unsigned, internally
     # consistent evidence", NEVER "authenticated".
     auth = _attest.assess_contract(contract, bundle_dir=bundle_dir)
+    # A SEPARATE reported dimension from the timing pass/fail above: this
+    # contract's own optional embedded `assertions` block (schema/
+    # contract.v1.json), re-evaluated through the exact `hotato assert`
+    # engine and reported as its own assert.v1 envelope (or `None` when the
+    # contract carries no assertions block). Never blended into `passed`.
+    assertions_env = _run_embedded_assertions(
+        contract, bundle_dir, event=event, transcript_path=transcript_path,
+    )
     if media_tampered:
         # A swapped recording cannot be certified: force tampered + non-passing,
         # so a fail->pass audio swap can never report an authenticated pass.
@@ -1356,6 +1422,7 @@ def _verify_one(bundle_dir: str) -> dict:
             "authenticity": "tampered",
             "authenticated": False,
             "authenticity_reason": media_reason,
+            "assertions": assertions_env,
         }
     return {
         "id": contract.get("id") or os.path.basename(bundle_dir),
@@ -1377,26 +1444,34 @@ def _verify_one(bundle_dir: str) -> dict:
         "authenticity": auth["authenticity"],
         "authenticated": auth["authenticated"],
         "authenticity_reason": auth["reason"],
+        "assertions": assertions_env,
     }
 
 
-def verify_contracts(path: str) -> dict:
+def verify_contracts(path: str, *, transcript_path: Optional[str] = None) -> dict:
     """Re-score every contract's bundled audio against its recorded policy
     and return the batch proof dict. ``path`` is a single bundle dir or a
-    parent directory of ``*.hotato`` bundles. Raises ``ValueError`` (CLI exit
-    2) for a missing/corrupt contract or a directory with no contracts;
-    otherwise always returns (a regression is a per-contract ``passed:
-    false``, never an exception)."""
+    parent directory of ``*.hotato`` bundles. ``transcript_path``, if given,
+    is a transcript JSON file (:func:`hotato.assert_.load_transcript_file`'s
+    shape) used as context for every contract's embedded ``assertions``
+    block, if any -- the bundle format itself carries no stored transcript
+    (see :func:`_run_embedded_assertions`). Raises ``ValueError`` (CLI exit
+    2) for a missing/corrupt contract, a directory with no contracts, an
+    unreadable ``--transcript`` file, or a malformed embedded ``assertions``
+    block; otherwise always returns (a regression, or an assertion FAIL, is a
+    per-contract result field, never an exception)."""
     bundle_dirs = discover_bundles(path)
     if not bundle_dirs:
         raise ValueError(
             f"{path!r} has no hotato contracts (looked for contract.json "
             "directly, or *.hotato/contract.json inside it)"
         )
-    results = [_verify_one(bd) for bd in bundle_dirs]
+    results = [_verify_one(bd, transcript_path=transcript_path) for bd in bundle_dirs]
     # A regressed score OR a tampered contract (edited after creation) fails the
     # batch. The per-result "passed" (the re-scoring axis) is left untouched;
     # tampering is an additional reason to fail, never a rewrite of the score.
+    # This axis stays exactly as it was before embedded assertions existed --
+    # see `assertions_failed` below for the separate assertions axis.
     failed = [r for r in results
               if not r["passed"] or r.get("authenticity") == "tampered"]
     tampered = [r for r in results if r.get("authenticity") == "tampered"]
@@ -1407,6 +1482,14 @@ def verify_contracts(path: str) -> dict:
     # mapping needs confirming" -- never a silent pass either way.
     refused = [r for r in results
                if r.get("scorable") and not r.get("verdict_eligible", True)]
+    # A SEPARATE reported dimension, never blended into `summary`/`failed`
+    # above: contracts carrying an embedded `assertions` block whose
+    # deterministic assert.v1 evaluation had at least one FAIL. A contract
+    # with no `assertions` block at all is never counted here.
+    assertions_failed = [
+        r for r in results
+        if r.get("assertions") is not None and r["assertions"].get("exit_code") != 0
+    ]
     return {
         "tool": "hotato",
         "kind": "contract-verify",
@@ -1418,8 +1501,34 @@ def verify_contracts(path: str) -> dict:
         "summary": {"passed": len(results) - len(failed), "failed": len(failed)},
         "tampered": len(tampered),
         "refused": len(refused),
-        "exit_code": 1 if failed else 0,
+        "assertions_failed": len(assertions_failed),
+        # A deterministic assertion FAIL contributes to the batch's nonzero
+        # exit exactly like a timing regression, even though the two are
+        # reported as the SEPARATE dimensions above (summary vs.
+        # assertions_failed) -- never merged into one score.
+        "exit_code": 1 if (failed or assertions_failed) else 0,
     }
+
+
+def _assertions_text_line(r: dict) -> Optional[str]:
+    """One extra report line for a contract's embedded-assertions result
+    (schema/assert.v1.json), kept SEPARATE from the timing pass/fail/refused/
+    not-scorable line above it -- never blended into that verdict. Returns
+    ``None`` when the contract carries no ``assertions`` block at all."""
+    env = r.get("assertions")
+    if env is None:
+        return None
+    d = env["summary"]["deterministic"]
+    mark = "FAIL" if env["exit_code"] else "PASS"
+    line = (
+        f"    [ASSERTIONS {mark}] {r['id']}: {d['pass']} pass, {d['fail']} fail, "
+        f"{d['inconclusive']} inconclusive (deterministic; "
+        f"{env['summary']['judge']['pass'] + env['summary']['judge']['fail']} judge)"
+    )
+    if env["exit_code"]:
+        failed_ids = [x["id"] for x in env["results"] if x["status"] == "FAIL"]
+        line += f" -- failed: {failed_ids}"
+    return line
 
 
 def render_verify_text(v: dict) -> str:
@@ -1434,8 +1543,7 @@ def render_verify_text(v: dict) -> str:
                 f"  [NOT SCORABLE] {r['id']}: {r['not_scorable_reason']} "
                 f"| authenticity: {auth}"
             )
-            continue
-        if not r.get("verdict_eligible", True):
+        elif not r.get("verdict_eligible", True):
             # K6: REFUSED, distinct from FAIL -- the engine found the audio
             # scorable but the channel mapping is unconfirmed (suspected swap or
             # contract-mode crosstalk/leakage), so no verdict is invented.
@@ -1443,20 +1551,26 @@ def render_verify_text(v: dict) -> str:
                 f"  [REFUSED] {r['id']} (expect {r['expect']}): "
                 f"{r.get('verdict_ineligible_reason')} | authenticity: {auth}"
             )
-            continue
-        mark = "PASS" if r["passed"] else "FAIL"
-        m = r["measurement"]
-        lines.append(
-            f"  [{mark}] {r['id']} (expect {r['expect']}): "
-            f"did_yield={m['did_yield']} "
-            f"seconds_to_yield={m['seconds_to_yield']} "
-            f"talk_over={m['talk_over_sec']} "
-            f"| authenticity: {auth}"
-        )
-        if auth == "tampered":
+        else:
+            mark = "PASS" if r["passed"] else "FAIL"
+            m = r["measurement"]
             lines.append(
-                f"    [TAMPERED] {r['id']}: {r.get('authenticity_reason', '')}"
+                f"  [{mark}] {r['id']} (expect {r['expect']}): "
+                f"did_yield={m['did_yield']} "
+                f"seconds_to_yield={m['seconds_to_yield']} "
+                f"talk_over={m['talk_over_sec']} "
+                f"| authenticity: {auth}"
             )
+            if auth == "tampered":
+                lines.append(
+                    f"    [TAMPERED] {r['id']}: {r.get('authenticity_reason', '')}"
+                )
+        # The assertions dimension is reported for EVERY contract that carries
+        # one, regardless of the timing verdict above (NOT SCORABLE/REFUSED/
+        # PASS/FAIL) -- it is a separate axis, never gated on the timing one.
+        aline = _assertions_text_line(r)
+        if aline is not None:
+            lines.append(aline)
     s = v["summary"]
     lines.append(f"  {s['passed']}/{v['count']} contracts pass; exit_code={v['exit_code']}")
     if v.get("tampered"):
@@ -1468,6 +1582,11 @@ def render_verify_text(v: dict) -> str:
         lines.append(
             f"  {v['refused']} contract(s) REFUSED (channel mapping "
             "unconfirmed: suspected swap/crosstalk)"
+        )
+    if v.get("assertions_failed"):
+        lines.append(
+            f"  {v['assertions_failed']} contract(s) have a FAILING embedded "
+            "assertion (separate from the timing verdict above)"
         )
     lines.append(f"  {_STORED_EVIDENCE_CAVEAT}")
     return "\n".join(lines)
@@ -1486,8 +1605,13 @@ def _jesc(s) -> str:
 
 
 def render_verify_junit(v: dict, *, suite_name: str = "hotato contracts") -> str:
-    """JUnit XML for CI: one ``<testcase>`` per contract, a ``<failure>``
-    child for a regressed or not-scorable one. Consumed by any JUnit-reading
+    """JUnit XML for CI: one ``<testcase>`` per contract for the timing
+    re-score, a ``<failure>`` child for a regressed or not-scorable one, PLUS
+    -- for a contract that carries an embedded ``assertions`` block -- one
+    ADDITIONAL, separate ``<testcase>`` (``classname="hotato.contract.
+    assertions"``) for its assert.v1 result. The two are always distinct
+    ``<testcase>`` elements, never one blended pass/fail, even though both
+    count toward this file's ``failures`` total. Consumed by any JUnit-reading
     CI dashboard (the shipped ``ci/github-action.yml`` publishes it as an
     artifact)."""
     results = v["results"]
@@ -1506,9 +1630,22 @@ def render_verify_junit(v: dict, *, suite_name: str = "hotato contracts") -> str
                     "</failure>\n  ")
         case += "</testcase>"
         cases.append(case)
+        env = r.get("assertions")
+        if env is not None:
+            acase = (f'  <testcase classname="hotato.contract.assertions" '
+                     f'name="{_jesc(r["id"])}">')
+            if env["exit_code"]:
+                failures += 1
+                failed_ids = [x["id"] for x in env["results"] if x["status"] == "FAIL"]
+                reason = f"{len(failed_ids)} assertion(s) failed: {failed_ids}"
+                acase += (f'\n    <failure message="{_jesc(reason)}">'
+                         f'{_jesc(json.dumps(env["summary"], sort_keys=True))}'
+                         "</failure>\n  ")
+            acase += "</testcase>"
+            cases.append(acase)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        f'<testsuite name="{_jesc(suite_name)}" tests="{len(results)}" '
+        f'<testsuite name="{_jesc(suite_name)}" tests="{len(cases)}" '
         f'failures="{failures}">\n' + "\n".join(cases) + "\n</testsuite>\n"
     )
 
@@ -1535,12 +1672,22 @@ def render_verify_html(v: dict) -> str:
         auth = r.get("authenticity", "unattested")
         acolor = "#e0664f" if auth == "tampered" else (
             "#74c98a" if auth == "authenticated" else "#b7ab97")
+        # Assertions: a SEPARATE column, never blended into `mark`/`color`
+        # above (the timing verdict). "-" when this contract carries no
+        # embedded `assertions` block at all.
+        aenv = r.get("assertions")
+        if aenv is None:
+            amark, acolor2 = "-", "#b7ab97"
+        else:
+            amark = "FAIL" if aenv["exit_code"] else "PASS"
+            acolor2 = "#e0664f" if aenv["exit_code"] else "#74c98a"
         rows.append(
             f'<tr><td class="mono">{esc(r["id"])}</td>'
             f'<td>{esc(r["expect"])}</td>'
             f'<td style="color:{color};font-weight:700">{mark}</td>'
             f'<td class="mono">{esc(detail)}</td>'
-            f'<td style="color:{acolor};font-weight:600">{esc(auth)}</td></tr>'
+            f'<td style="color:{acolor};font-weight:600">{esc(auth)}</td>'
+            f'<td style="color:{acolor2};font-weight:600">{esc(amark)}</td></tr>'
         )
     s = v["summary"]
     verdict = "PASSED" if v["exit_code"] == 0 else "FAILED"
@@ -1561,7 +1708,8 @@ def render_verify_html(v: dict) -> str:
         f'<p>{esc(v["dir"])}: {s["passed"]}/{v["count"]} contracts pass.</p>'
         f'<p style="color:#e8c547;font-weight:600">{esc(_STORED_EVIDENCE_CAVEAT)}</p>'
         '<table><thead><tr><th>id</th><th>expect</th><th>result</th>'
-        '<th>measured</th><th>authenticity</th></tr></thead><tbody>' + "".join(rows)
+        '<th>measured</th><th>authenticity</th><th>assertions</th></tr></thead><tbody>'
+        + "".join(rows)
         + "</tbody></table>"
         f'<p style="color:#b7ab97;font-size:12.5px;margin-top:18px">'
         f"{esc(_NOT_PROVED)} Hotato reports coincidence, not causation."
