@@ -71,6 +71,29 @@ design. See `docs/BENCHMARK.md`.
   and event datum on the page is unchanged; this is layout and copy only.
   `src/hotato/report.py`, `docs/REPORTS.md`.
 
+### Fixed
+- **Fleet registry: concurrent construction no longer deadlocks (was a CI hang
+  on Python 3.11/3.12).** Two threads or processes opening a `Registry` on the
+  same fresh `fleet.db` at once raced on the schema-init writes: `PRAGMA
+  journal_mode=WAL` needs a brief exclusive lock and is not covered by the
+  connect busy timeout, so the loser could raise `database is locked`, and the
+  check-then-seed of the `meta` schema_version row could raise a `UNIQUE`
+  `IntegrityError`. The connection now opens in autocommit
+  (`isolation_level=None`) so the manual `BEGIN IMMEDIATE` in
+  `JobQueue.enqueue`/`claim` is the sole, version-stable transaction control --
+  removing the implicit-transaction interaction whose timing changed across
+  CPython 3.11/3.12; the idempotent init sequence retries locked/busy with
+  bounded backoff; the schema_version seed is now `INSERT OR IGNORE` and the
+  additive column migration tolerates a concurrent duplicate add. `JobQueue`
+  writes retry the same way. Batch candidate reclustering
+  (`FleetAPI.recluster_agent`) now wraps its per-candidate rewrite in an explicit
+  `BEGIN IMMEDIATE`..`COMMIT`, so it stays all-or-nothing under autocommit instead
+  of committing each row individually. The concurrency regression test's worker
+  threads are now daemons, so any future regression fails fast instead of a leaked
+  non-daemon thread hanging the run. `src/hotato/fleet/registry.py`,
+  `src/hotato/fleet/jobs.py`, `src/hotato/fleet/api.py`,
+  `tests/test_fleet_jobs_concurrency.py`, `tests/test_fleet_recluster_atomicity.py`.
+
 ### Security
 - **Evidence kernel hardened (external review).** A forged, altered, or
   wrong-key manifest/attestation signature can no longer reach the signed tier

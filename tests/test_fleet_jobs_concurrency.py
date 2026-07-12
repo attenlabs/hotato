@@ -42,7 +42,13 @@ def test_enqueue_concurrent_same_idempotency_key_never_raises(tmp_path):
         finally:
             reg.close()
 
-    threads = [threading.Thread(target=worker), threading.Thread(target=worker)]
+    # daemon=True so that if a worker ever dies before reaching the 2-party
+    # barrier (e.g. a regression in Registry construction), the surviving
+    # thread's block on barrier.wait() can never keep the interpreter alive at
+    # shutdown -- the failure surfaces as a fast assertion, not a 95-minute CI
+    # hang (which is exactly how this test's own regression first manifested).
+    threads = [threading.Thread(target=worker, daemon=True),
+               threading.Thread(target=worker, daemon=True)]
     for t in threads:
         t.start()
     for t in threads:
@@ -87,7 +93,8 @@ def test_enqueue_repeated_races_stay_clean(tmp_path):
             finally:
                 reg.close()
 
-        threads = [threading.Thread(target=worker), threading.Thread(target=worker)]
+        threads = [threading.Thread(target=worker, daemon=True),  # daemon: see above
+               threading.Thread(target=worker, daemon=True)]
         for t in threads:
             t.start()
         for t in threads:

@@ -270,65 +270,101 @@ class Registry:
         # own internal busy-retry window; PRAGMA busy_timeout below restates it
         # explicitly for clarity/consistency with the other PRAGMA calls.
         timeout_sec = float(os.environ.get("HOTATO_FLEET_DB_TIMEOUT_SEC", "30"))
-        self.conn = sqlite3.connect(self.db_path, timeout=timeout_sec)
+        # isolation_level=None (autocommit): the concurrent write paths
+        # (JobQueue.enqueue/claim) drive transactions manually with explicit
+        # BEGIN IMMEDIATE / COMMIT / ROLLBACK. Under sqlite3's DEFAULT
+        # isolation_level ("") the module injects its own implicit BEGIN before
+        # DML and manages the transaction itself, fighting the manual control --
+        # an interaction whose timing changed across CPython 3.11/3.12 and
+        # deadlocked two same-key writers (one held the write lock in a half-open
+        # implicit transaction it never committed; the others timed out on
+        # `database is locked`). Autocommit makes the explicit statements the
+        # ONLY transaction control -- the documented, version-stable way to run
+        # manual BEGIN IMMEDIATE. Every non-manual write here is a single
+        # statement, so its atomicity is unchanged and the trailing .commit()
+        # calls become harmless no-ops.
+        self.conn = sqlite3.connect(self.db_path, timeout=timeout_sec,
+                                    isolation_level=None)
         self.conn.row_factory = sqlite3.Row
-        # The WHOLE schema-init sequence below (any of these statements can be
-        # the one that actually contends for the write lock, not just the
-        # final commit) runs under one try/except so a busy-database
-        # OperationalError is translated to the shared errors.HANDLED OSError
-        # contract, and the connection is always closed on any failure path.
-        try:
-            self.conn.execute("PRAGMA journal_mode=WAL")
-            self.conn.execute("PRAGMA foreign_keys=ON")
-            self.conn.execute(f"PRAGMA busy_timeout={int(timeout_sec * 1000)}")
-            self.conn.executescript(_SCHEMA)
-            # Additive column migrations. A fresh DB already has these from the
-            # CREATE TABLE above (IF NOT EXISTS never rewrites an existing
-            # table), so this backfills only older DB files. Each is guarded
-            # by table_info.
-            self._ensure_column("recordings", "retention_policy_json", "TEXT")
-            self._ensure_column("recordings", "pii_class", "TEXT")
-            self._ensure_column("variants", "agent_id", "TEXT")
-            self._ensure_column("variants", "expected_json", "TEXT")
-            self._ensure_column("variants", "observed_json", "TEXT")
-            self._ensure_column("variants", "rank", "INTEGER")
-            cur = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'")
-            row = cur.fetchone()
-            if row is None:
-                self.conn.execute("INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
-                                  (str(SCHEMA_VERSION),))
-            else:
-                try:
-                    stored = int(row["value"])
-                except (TypeError, ValueError):
-                    stored = None
-                # Fail closed on any parse ambiguity (garbage/non-numeric
-                # value): treat it the same as "newer/unknown" rather than
-                # proceeding.
-                if stored is None or stored > SCHEMA_VERSION:
-                    raise RegistrySchemaVersionError(
-                        f"fleet registry at {self.db_path} was written by a "
-                        f"newer hotato (schema {row['value']!r}) than this "
-                        f"install understands (schema {SCHEMA_VERSION}); "
-                        "upgrade hotato (`pip install -U hotato`) or point "
-                        "--home at a fresh directory.")
-                if stored < SCHEMA_VERSION:
-                    # Additive migrations above already ran; record that the
-                    # store now tracks the current schema instead of staying
-                    # stale.
+        # Concurrent Registry construction on a FRESH db races on the schema-init
+        # writes -- most sharply `PRAGMA journal_mode=WAL`, which needs a brief
+        # exclusive lock to rewrite the db header and (unlike ordinary DML) is not
+        # reliably covered by the connect busy timeout, so a co-launched second
+        # constructor can see `database is locked`. The whole sequence is idempotent
+        # (CREATE IF NOT EXISTS, additive migrations, meta upsert), so it is retried
+        # with bounded backoff before the busy error is surfaced as the shared
+        # errors.HANDLED OSError contract; the connection is closed on the terminal
+        # failure path. (Was the CI hang: two threads constructing a Registry at
+        # once, the loser's uncaught OSError killing its thread before a 2-party
+        # test barrier, leaving the survivor blocked on that barrier forever.)
+        for _attempt in range(12):
+            try:
+                self.conn.execute("PRAGMA journal_mode=WAL")
+                self.conn.execute("PRAGMA foreign_keys=ON")
+                self.conn.execute(f"PRAGMA busy_timeout={int(timeout_sec * 1000)}")
+                self.conn.executescript(_SCHEMA)
+                # Additive column migrations. A fresh DB already has these from the
+                # CREATE TABLE above (IF NOT EXISTS never rewrites an existing
+                # table), so this backfills only older DB files. Each is guarded
+                # by table_info.
+                self._ensure_column("recordings", "retention_policy_json", "TEXT")
+                self._ensure_column("recordings", "pii_class", "TEXT")
+                self._ensure_column("variants", "agent_id", "TEXT")
+                self._ensure_column("variants", "expected_json", "TEXT")
+                self._ensure_column("variants", "observed_json", "TEXT")
+                self._ensure_column("variants", "rank", "INTEGER")
+                cur = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'")
+                row = cur.fetchone()
+                if row is None:
+                    # OR IGNORE: a co-launched constructor on the same fresh db
+                    # can win the race to seed schema_version between our SELECT
+                    # and INSERT; both write the identical value, so the loser's
+                    # duplicate is a no-op, never a UNIQUE-constraint IntegrityError.
                     self.conn.execute(
-                        "UPDATE meta SET value=? WHERE key='schema_version'",
+                        "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                         (str(SCHEMA_VERSION),))
-            self.conn.commit()
-        except sqlite3.OperationalError as exc:
-            self.conn.close()
-            raise OSError(
-                f"fleet database busy (concurrent writers): {exc}. "
-                "Retry the command."
-            ) from exc
-        except Exception:
-            self.conn.close()
-            raise
+                else:
+                    try:
+                        stored = int(row["value"])
+                    except (TypeError, ValueError):
+                        stored = None
+                    # Fail closed on any parse ambiguity (garbage/non-numeric
+                    # value): treat it the same as "newer/unknown" rather than
+                    # proceeding.
+                    if stored is None or stored > SCHEMA_VERSION:
+                        raise RegistrySchemaVersionError(
+                            f"fleet registry at {self.db_path} was written by a "
+                            f"newer hotato (schema {row['value']!r}) than this "
+                            f"install understands (schema {SCHEMA_VERSION}); "
+                            "upgrade hotato (`pip install -U hotato`) or point "
+                            "--home at a fresh directory.")
+                    if stored < SCHEMA_VERSION:
+                        # Additive migrations above already ran; record that the
+                        # store now tracks the current schema instead of staying
+                        # stale.
+                        self.conn.execute(
+                            "UPDATE meta SET value=? WHERE key='schema_version'",
+                            (str(SCHEMA_VERSION),))
+                self.conn.commit()
+                break
+            except sqlite3.OperationalError as exc:
+                _m = str(exc).lower()
+                if ("locked" in _m or "busy" in _m) and _attempt < 11:
+                    if self.conn.in_transaction:
+                        try:
+                            self.conn.rollback()
+                        except sqlite3.OperationalError:
+                            pass
+                    time.sleep(min(0.02 * (2 ** _attempt), 0.5))
+                    continue
+                self.conn.close()
+                raise OSError(
+                    f"fleet database busy (concurrent writers): {exc}. "
+                    "Retry the command."
+                ) from exc
+            except Exception:
+                self.conn.close()
+                raise
 
     def close(self):
         self.conn.close()
@@ -396,7 +432,16 @@ class Registry:
         this is a no-op there. Guarded by a PRAGMA table_info check."""
         have = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
         if column not in have:
-            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            try:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            except sqlite3.OperationalError as exc:
+                # A concurrent constructor may have added the same column between
+                # the table_info check and here -- that is exactly the desired end
+                # state, so a duplicate-column race is a no-op. Any other error
+                # (including a genuine 'database is locked') re-raises for the
+                # __init__ retry loop / busy translation to handle.
+                if "duplicate column" not in str(exc).lower():
+                    raise
 
     # --- entities -------------------------------------------------------
     def ensure_workspace(self, workspace_id: str, name: Optional[str] = None):
