@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/scenario.v1.json",
+  "title": "hotato simulation scenario, schema scenario.v1",
+  "description": "A deterministic simulation scenario (Phase-2 design 2.1): the ground-truth a scripted caller holds, the caller's scripted turn sequence + behaviour, the environment, and a variation matrix. It is the deterministic INPUT side of a simulation -- there is no live agent and no scoring here. HONESTY INVARIANTS, structural: no `overall_score` (a scenario never scores anything); the caller only ever declares its OWN turns, never the agent's; a scenario is not a verdict. Malformed docs are rejected by hotato.scenario.validate_scenario_doc (ValueError, exit 2) BEFORE any use, mirroring conversation_test.validate_conversation_test_doc.",
+  "type": "object",
+  "required": ["kind", "version", "id", "goal", "caller"],
+  "additionalProperties": true,
+  "not": { "required": ["overall_score"] },
+  "properties": {
+    "kind": { "const": "hotato.scenario" },
+    "version": { "const": 1 },
+    "overall_score": false,
+    "id": { "type": "string", "minLength": 1 },
+    "goal": {
+      "type": "object",
+      "required": ["type", "target"],
+      "additionalProperties": true,
+      "description": "What the caller is trying to achieve. `type` is the goal kind (e.g. get_refund); `target` names its object (e.g. order A-1001). Descriptive only -- never a success threshold.",
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 }
+      }
+    },
+    "facts": {
+      "type": "object",
+      "description": "The ground-truth the caller HOLDS (e.g. {order_id: A-1001}). A valid simulation must preserve these -- the caller states its own truth, the simulator never alters it."
+    },
+    "caller": {
+      "type": "object",
+      "required": ["script"],
+      "additionalProperties": true,
+      "description": "The scripted caller: the ordered turns it speaks and how it behaves. The caller declares ONLY its own turns -- a scenario can never put words in the agent's mouth (invariant: the simulator does not solve the task for the agent).",
+      "properties": {
+        "script": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/turn" },
+          "description": "The ordered caller turns. Each is a `say` (spoken unconditionally), optionally gated by a `when_agent_asks` label (spoken when the agent asks about that label) or sequenced by an `after` label."
+        },
+        "behavior": { "$ref": "#/definitions/behavior" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The declared rendering environment. All members optional.",
+      "properties": {
+        "noise": { "type": "string", "description": "A named noise condition (e.g. clean, cafe). The declared perturbation a valid simulation must apply." },
+        "codec": { "type": "string" },
+        "locale": { "type": "string" }
+      }
+    },
+    "variation_matrix": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The cross product `expand()` walks (locale x speaking_rate x noise x behavior x repetitions) into concrete runs, each with a deterministic per-run seed. An absent dimension collapses to the scenario's single declared value.",
+      "properties": {
+        "locale": { "type": "array", "items": { "type": "string" } },
+        "speaking_rate": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 } },
+        "noise": { "type": "array", "items": { "type": "string" } },
+        "behavior": { "type": "array", "items": { "type": "string" } },
+        "repetitions": { "type": "integer", "minimum": 1, "default": 1 }
+      }
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "The base seed. A seeded replay is byte-identical; different seeds vary only where the scenario allows (probabilistic backchannels). Never Math.random / time-based."
+    }
+  },
+  "definitions": {
+    "turn": {
+      "type": "object",
+      "required": ["say"],
+      "additionalProperties": true,
+      "description": "One scripted caller turn. `say` is the spoken text (required). `when_agent_asks` / `after` are optional label triggers; a turn may carry at most one.",
+      "properties": {
+        "say": { "type": "string", "minLength": 1 },
+        "when_agent_asks": { "type": "string" },
+        "after": { "type": "string" }
+      }
+    },
+    "behavior": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "How the caller behaves: its speaking rate, declared barge-in interruptions (fixed offsets), and probabilistic backchannels (the one seed-dependent variation point).",
+      "properties": {
+        "speaking_rate": { "type": "number", "exclusiveMinimum": 0, "default": 1.0 },
+        "interruptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["trigger", "offset_ms"],
+            "additionalProperties": true,
+            "properties": {
+              "trigger": { "type": "string", "minLength": 1 },
+              "offset_ms": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "description": "Declared caller barge-ins at fixed offsets -- deterministic (same every seed). A valid simulation must render each declared interruption."
+        },
+        "backchannels": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "probability": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.0 }
+          },
+          "description": "Probabilistic short acknowledgements. The seeded PRNG decides each candidate -- probability 0 yields none; a fixed seed always fires the same set."
+        }
+      }
+    }
+  }
+}

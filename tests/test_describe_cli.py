@@ -35,6 +35,7 @@ _ALL_SUBCOMMANDS = [
     "test", "test run",
     "scenario", "scenario init", "scenario validate",
     "conversation", "conversation verify",
+    "simulate",
     "compare", "scan", "synth", "trust",
     "ingest", "analyze", "verify", "fix", "fix trial", "loop",
     "investigate", "investigate label", "describe",

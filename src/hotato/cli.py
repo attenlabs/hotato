@@ -350,6 +350,14 @@ _EXIT_CODES: dict = {
         (2, "REFUSED: a tampered (digest-mismatched) or missing child, a "
             "malformed manifest, or a usage error (no such directory/manifest)"),
     ),
+    "simulate": (
+        (0, "every produced conversation is labelled origin=simulated and "
+            "validated as a faithful rendering of its scenario"),
+        (1, "at least one produced simulation was SIMULATOR_INVALID -- a broken "
+            "fixture, never an agent PASS/FAIL"),
+        (2, "a usage error / unusable input: a malformed or unreadable scenario "
+            "file"),
+    ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
         (1, "with --fail-on-worse, the result is regressed or worse"),
@@ -2667,6 +2675,115 @@ def _cmd_conversation_verify(args) -> int:
     # A digest mismatch / missing child is a REFUSAL (exit 2): a tampered or
     # absent artifact is refused, never silently accepted.
     return 2 if verdict["refused"] else 0
+
+
+def _cmd_simulate(args) -> int:
+    import datetime as _dt
+
+    from . import scenario as _scn
+    from . import simulate as SIM
+
+    doc = _scn.load_scenario_file(args.scenario)
+    # --seed folds into the base seed (so derived per-run seeds shift with it);
+    # --repetitions overrides the matrix repetition count (or sets it for a
+    # matrix-less scenario). Both leave the transcript byte-stable for a fixed
+    # (scenario, seed): a SEEDED REPLAY is byte-identical, never "the model is
+    # deterministic".
+    if args.seed is not None:
+        doc = {**doc, "seed": args.seed}
+    if args.repetitions is not None:
+        vm = dict(doc.get("variation_matrix") or {})
+        vm["repetitions"] = args.repetitions
+        doc = {**doc, "variation_matrix": vm}
+
+    runs = SIM.expand(doc)
+    # A single run takes the explicit --seed (or the scenario seed) directly, so
+    # `simulate s.json --seed 5` uses 5; multi-run expansions keep their
+    # deterministic per-variation seeds.
+    if len(runs) == 1:
+        runs[0]["seed"] = args.seed if args.seed is not None else int(doc.get("seed", 0))
+
+    single = len(runs) == 1
+    created_at = args.created_at or _dt.datetime.now(
+        _dt.timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    run_records = []
+    verdicts = []
+    invalid = 0
+    for i, run in enumerate(runs):
+        rendered = SIM.render(run["scenario"], run["seed"])
+        verdict = SIM.validate_simulation(run["scenario"], rendered)
+        verdicts.append(verdict)
+        if not verdict["ok"]:
+            invalid += 1
+        out_dir = None
+        conversation_id = None
+        if args.out:
+            out_dir = args.out if single else os.path.join(
+                args.out, f"{rendered['scenario_id']}-{i:03d}")
+            manifest = SIM.write_artifact(
+                rendered, out_dir, created_at=created_at,
+                agent_id=args.agent, conversation_id=None)
+            conversation_id = manifest["conversation_id"]
+        run_records.append({
+            "index": i,
+            "seed": run["seed"],
+            "variation": run.get("variation"),
+            # EVERY produced conversation is labelled origin=simulated -- never
+            # real, and never merged into a real bucket.
+            "origin_kind": rendered["origin"]["kind"],
+            "content_hash": rendered["content_hash"],
+            "conversation_id": conversation_id,
+            "out": out_dir,
+            "simulation": verdict,
+        })
+
+    reliab = SIM.reliability([v["ok"] for v in verdicts])
+    # SIMULATOR_INVALID is a broken FIXTURE (exit 1), never an agent PASS/FAIL.
+    exit_code = 1 if invalid else 0
+
+    payload = {
+        "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+        "kind": "simulate", "scenario_id": doc["id"],
+        "origin_kind": "simulated", "runs": run_records,
+        "reliability": reliab, "invalid_count": invalid,
+        "all_simulated": all(r["origin_kind"] == "simulated" for r in run_records),
+        "exit_code": exit_code,
+    }
+    if args.format == "json":
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(_render_simulate_text(payload), end="")
+        if args.out:
+            print(f"wrote {len(run_records)} simulated artifact(s) under "
+                  f"{args.out}/", file=sys.stderr)
+    return exit_code
+
+
+def _render_simulate_text(p: dict) -> str:
+    lines = [
+        f"hotato simulate: {p['scenario_id']} -- {len(p['runs'])} run(s), "
+        "origin=simulated (never real)"
+    ]
+    for r in p["runs"]:
+        sim = r["simulation"]
+        mark = "ok" if sim["ok"] else sim["status"]
+        loc = f"  -> {r['out']}" if r["out"] else ""
+        lines.append(
+            f"  run {r['index'] + 1}: seed={r['seed']} "
+            f"{r['content_hash'][:12]} sim={mark}{loc}"
+        )
+        if not sim["ok"]:
+            lines.append(f"      {sim['reason']}")
+    rel = p["reliability"]
+    lines.append(
+        f"reliability: pass@1={rel['pass_at_1']:.3f} "
+        f"pass@k={rel['pass_at_k']:.3f} pass^k={rel['pass_caret_k']:.3f} "
+        f"(n={rel['n']})"
+    )
+    lines.append(f"  {rel['note']}")
+    return "\n".join(lines) + "\n"
 
 
 def _cmd_compare(args) -> int:
@@ -5068,6 +5185,57 @@ def build_parser() -> argparse.ArgumentParser:
     cvv.add_argument("--format", default="text", choices=["text", "json"],
                      help="output format (default text)")
     cvv.set_defaults(func=_cmd_conversation_verify)
+
+    # --- simulate: render a scenario into labelled origin=simulated calls ----
+    sm = sub.add_parser(
+        "simulate",
+        help="render a scenario.v1 into deterministic origin=simulated "
+             "conversation artifact(s) (a scripted caller; no live agent)",
+        description=(
+            "Render a hotato.scenario.v1 file with a DETERMINISTIC scripted "
+            "caller into one or more hotato.conversation.v1 artifacts, each "
+            "labelled origin=simulated (never real, never merged into a real "
+            "bucket). No live agent, no TTS, no network on this path. A SEEDED "
+            "REPLAY is byte-identical (the produced transcript is content-"
+            "hashed); different seeds differ only where the scenario allows "
+            "(probabilistic backchannels). Each produced conversation is checked "
+            "for faithfulness to its scenario -- a bad rendering is reported as "
+            "SIMULATOR_INVALID, NEVER scored as an agent PASS/FAIL. --repetitions "
+            "expands the variation matrix and reports Reliability (pass@1 / "
+            "pass@k / pass^k); for this deterministic caller pass^k == pass@1, "
+            "reported honestly, not fabricated variance. There is NO "
+            "overall_score anywhere."
+        ),
+        epilog=(
+            _exit_codes_epilog("simulate") + "\n\n"
+            "Examples:\n"
+            "  hotato simulate refund.scenario.yaml --out ./sim\n"
+            "  hotato simulate refund.scenario.yaml --repetitions 5 --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sm.add_argument("scenario", metavar="scenario.yaml",
+                    help="the hotato.scenario.v1 file to render")
+    sm.add_argument("--seed", type=int, default=None, metavar="N",
+                    help="base seed (default: the scenario's seed, else 0); a "
+                         "seeded replay is byte-identical")
+    sm.add_argument("--repetitions", type=int, default=None, metavar="N",
+                    help="override the variation matrix's repetition count "
+                         "(drives Reliability pass^k)")
+    sm.add_argument("--out", default=None, metavar="DIR",
+                    help="write the simulated conversation artifact(s) here "
+                         "(one dir for a single run, per-run subdirs otherwise); "
+                         "each carries origin.kind=simulated")
+    sm.add_argument("--agent", default="unbound", metavar="ID",
+                    help="agent_id recorded on the artifact (default 'unbound': "
+                         "the caller-side stimulus is not bound to an agent until "
+                         "a later live-play slice)")
+    sm.add_argument("--created-at", default=None, metavar="ISO8601",
+                    help="the artifact's created_at (default: now, UTC); set it "
+                         "for a byte-reproducible manifest")
+    sm.add_argument("--format", default="text", choices=["text", "json"],
+                    help="output format (default text)")
+    sm.set_defaults(func=_cmd_simulate)
 
     # --- compare: the shareable before/after on one fixed moment ------------
     cp = sub.add_parser(
