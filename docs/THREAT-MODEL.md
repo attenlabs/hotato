@@ -131,4 +131,37 @@ You can confirm the posture directly, without trusting this page:
 - **Egress is opt-in.** The only off-box audio path is `--diarizer pyannoteai`
   guarded by `--egress-opt-in`; without that flag, no audio leaves the machine.
 
+## Drive-a-call (`run_scenario`): originating a real call
+
+`run_scenario` (`src/hotato/drive.py`, wired into the Vapi and Twilio adapters)
+places a REAL outbound call against a live agent and pulls the recording. Its
+threat surface and the controls on it:
+
+- **A real, billable call is never placed silently.** `run_scenario` refuses
+  unless BOTH real credentials AND an explicit egress opt-in
+  (`HOTATO_DRIVE_OPT_IN=1` or `egress_opt_in: true` on the scenario) are present.
+  Absent either, it raises a clean structured refusal and dials nothing --
+  matching the opt-in posture of `--allow-mono` / `HOTATO_ALLOW_PRIVATE_URLS` /
+  `--egress-opt-in`.
+- **Production config is never mutated.** The only verbs issued are `POST`
+  (create the call) and `GET` (poll status, list the recording, download it) --
+  there is no `PUT`/`PATCH`/`DELETE` surface, so a driven call can never alter an
+  assistant, a phone number, or any other provider resource in place. For Vapi
+  the call is originated FROM the staging clone the experiment created, not the
+  production source.
+- **The caller side is honestly labelled, never overstated.** The produced
+  conversation carries `origin.kind == "real"` with the provider and its call id,
+  and `origin.caller` (`scripted-twiml` for the fixed-timeline Twilio caller,
+  `assistant-originated` for a Vapi call the assistant placed) -- it never claims
+  a human placed the call or that the scripted caller reacted to the agent.
+- **The recording download inherits every capture-side control.** The vendor
+  URL (`stereoUrl` / `RecordingSid` media) flows through the same validated
+  download as `capture`: http(s)-only scheme allowlist, default-deny SSRF
+  (loopback/private/metadata refused unless `HOTATO_ALLOW_PRIVATE_URLS=1`),
+  cross-host `Authorization`-strip on redirect, and atomic write. The API key is
+  never attached to a pre-signed media URL from the vendor's JSON response.
+
+See [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md) and the drive-a-call rows in
+[`docs/EGRESS.md`](EGRESS.md).
+
 Security policy and reporting: [SECURITY.md](../SECURITY.md).
