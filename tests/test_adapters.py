@@ -166,11 +166,19 @@ def test_describe_available_implies_not_a_stub(tmp_path):
 
 
 def test_live_and_source_adapters_do_not_advertise_scenario_ops(tmp_path):
-    # run_scenario (a scripted barge-in call) needs a provisioned phone number +
-    # a scripted-caller harness, so NO hosted adapter advertises it -- invoking
-    # raises. capture_result (pull a dual-channel recording) IS wired + verified
-    # against the live API for Vapi; the others still do not implement it.
-    for stack in ("vapi", "retell", "livekit", "pipecat"):
+    # DRIVE-A-CALL: run_scenario is now IMPLEMENTED where the provider has a
+    # confirmed create-call API -- Vapi (POST /call) and Twilio (Calls.json). Both
+    # advertise it (available=True) but, without credentials, describe() reports
+    # authorized=False and invoking raises CapabilityError (never places a call).
+    for stack in ("vapi", "twilio"):
+        adapter = adapters.get_adapter(stack)
+        assert adapter.supports("run_scenario")
+        assert "run_scenario" in adapter.capabilities()
+        assert adapter.describe()["run_scenario"]["available"] is True
+        assert adapter.describe()["run_scenario"]["authorized"] is False
+    # Retell (no confirmed create-call API) and the capture-in-your-infra source
+    # adapters stay honestly unadvertised for run_scenario -- invoking raises.
+    for stack in ("retell", "livekit", "pipecat"):
         adapter = adapters.get_adapter(stack)
         assert not adapter.supports("run_scenario")
         assert "run_scenario" not in adapter.capabilities()
@@ -192,7 +200,10 @@ def test_describe_distinguishes_credentials_from_unimplemented():
         "available": True, "authorized": False,
         "reason": "implemented; requires credentials (connect a stack and supply an API key)"}
     assert d["snapshot_config"] == {"available": True, "authorized": True, "reason": "ready"}
-    assert d["run_scenario"]["available"] is False
+    # run_scenario is now IMPLEMENTED for Vapi (drive-a-call) -- available=True,
+    # authorized=False without a key (the credentialed distinction, not unimplemented).
+    assert d["run_scenario"]["available"] is True
+    assert d["run_scenario"]["authorized"] is False
     # supplying a key flips authorization on the implemented op (still no crash)
     vk = adapters.get_adapter("vapi", api_key="sk-test-key")
     assert vk.describe()["clone_agent"]["authorized"] is True

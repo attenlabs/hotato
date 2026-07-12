@@ -84,3 +84,20 @@ applies to every fetch path in the table above that goes through
 - Posture summary and reporting a vulnerability: [`SECURITY.md`](../SECURITY.md)
 - Command-by-command threat model: [`docs/THREAT-MODEL.md`](THREAT-MODEL.md)
 - Ingest's untrusted-payload handling: [`docs/INGEST.md`](INGEST.md)
+
+## Drive-a-call -- originates a real call, so it is double-gated
+
+`run_scenario` (the fleet experiment step; `src/hotato/drive.py`) ORIGINATES a
+real, billable call against a live agent and pulls its recording. It is the one
+path here that both reaches a vendor AND places an outbound call, so it carries a
+gate on top of the usual credential requirement.
+
+| Op | Reaches | When | Gate |
+| --- | --- | --- | --- |
+| `run_scenario` (Vapi adapter) | `POST https://api.vapi.ai/call`, then polls `GET /call/{id}`, then the existing `capture_vapi` download | Only when driven | Refused unless real credentials AND an explicit egress opt-in (`HOTATO_DRIVE_OPT_IN=1` or `egress_opt_in: true` on the scenario) are BOTH present. Never PUT/PATCHes a config; the call is driven from the staging CLONE, never production. |
+| `run_scenario` (Twilio adapter) | `POST .../Calls.json`, then polls `GET .../Calls/{sid}.json` + `GET .../Recordings.json`, then the existing `capture_twilio` download | Only when driven | Same double gate. TwiML `<Say>` is a fixed-timeline scripted caller; recording is dual-channel via `Record=true`/`RecordingChannels=dual`. GET/POST only -- no config mutation. |
+
+The recording download reuses `capture.py`'s validated fetch (scheme allowlist,
+default-deny SSRF, cross-host credential strip, atomic write); a local test
+recording server on `127.0.0.1` needs `HOTATO_ALLOW_PRIVATE_URLS=1` like every
+other download. Full walkthrough: [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md).

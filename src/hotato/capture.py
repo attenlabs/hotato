@@ -462,6 +462,100 @@ def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 60):
         ) from exc
 
 
+def _http_post(
+    url: str,
+    data: bytes,
+    headers: Optional[dict] = None,
+    timeout: int = 60,
+    content_type: str = "application/json",
+) -> bytes:
+    """POST ``data`` (bytes) to ``url`` and return the response body. The
+    write-side twin of :func:`_http_get`, sharing every safety property that path
+    already has: the lazy process-wide safe opener (so a cross-host 3xx redirect
+    strips the ``Authorization`` header before it can leak a credential), the
+    explicit ``hotato/<ver>`` User-Agent (Cloudflare 403s urllib's default UA
+    before the key is ever checked), and the ``_HTTPStatusError``-carrying-``.code``
+    on an HTTP error so a caller can branch on the status (e.g. Twilio's 400).
+
+    The only verb this issues is POST -- there is no PUT/PATCH/DELETE surface
+    here, so the drive-a-call path can CREATE a provider call but can never mutate
+    an existing provider resource (an assistant config, a number) in place. The
+    clone/apply path's own primitive (``apply._http_json``) enforces the same
+    GET/POST-only allowlist; this is the capture-side equivalent for the call
+    origination + status-poll flow."""
+    import http.client
+    import socket
+    import urllib.error
+    import urllib.request
+
+    _ensure_safe_opener()
+    hdrs = dict(headers or {})
+    hdrs.setdefault("User-Agent", f"hotato/{_version()} (+https://hotato.dev)")
+    hdrs.setdefault("Content-Type", content_type)
+    req = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user-supplied API
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", "replace")[:400]
+        except Exception:
+            pass
+        raise _HTTPStatusError(
+            f"HTTP {exc.code} from POST {url}: {exc.reason}. {body}".strip(), exc.code
+        ) from exc
+    except urllib.error.URLError as exc:  # pragma: no cover - live path
+        raise ValueError(f"network error posting to {url}: {exc.reason}") from exc
+    except (TimeoutError, socket.timeout, ConnectionError, http.client.IncompleteRead) as exc:
+        raise ValueError(f"connection interrupted while posting to {url}: {exc}") from exc
+
+
+def _parse_json_response(raw: str, url: str) -> object:
+    """Parse a JSON body or raise the same clean, named usage error the GET path
+    gives (a proxy/CDN error page, an HTML redirect, or a vendor outage served
+    with a 2xx would otherwise surface as a context-free JSONDecodeError). Shared
+    by the POST-JSON and POST-form helpers so both write paths report a non-JSON
+    body identically to :func:`_http_get_json`."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        preview = " ".join(raw.split())[:200]
+        raise ValueError(
+            f"expected a JSON response from POST {url}, got a non-JSON body "
+            f"({exc.msg}). This is usually a proxy/CDN or WAF error page, an "
+            "expired-session HTML redirect, a vendor outage page served with a "
+            "2xx, or a wrong --base-url. First bytes: "
+            f"{preview!r}"
+        ) from exc
+
+
+def _http_post_json(url: str, body: object, headers: Optional[dict] = None,
+                    timeout: int = 60):
+    """POST a JSON ``body`` and parse the JSON response, mirroring
+    :func:`_http_get_json` on the write side. Used to originate a Vapi call
+    (``POST /call``)."""
+    raw = _http_post(
+        url, json.dumps(body).encode("utf-8"), headers=headers, timeout=timeout,
+        content_type="application/json",
+    ).decode("utf-8", "replace")
+    return _parse_json_response(raw, url)
+
+
+def _http_post_form(url: str, fields: dict, headers: Optional[dict] = None,
+                    timeout: int = 60):
+    """POST an ``application/x-www-form-urlencoded`` body (Twilio's REST content
+    type) and parse the JSON response. Used to originate a Twilio call
+    (``POST /2010-04-01/Accounts/{sid}/Calls.json``)."""
+    from urllib.parse import urlencode
+
+    raw = _http_post(
+        url, urlencode(fields).encode("utf-8"), headers=headers, timeout=timeout,
+        content_type="application/x-www-form-urlencoded",
+    ).decode("utf-8", "replace")
+    return _parse_json_response(raw, url)
+
+
 def _require_json_object(value, what: str) -> dict:
     """The vendor endpoints here are documented to return a single JSON OBJECT.
     A proxy/CDN error page, a misconfigured ``--base-url``, or a vendor failure can
