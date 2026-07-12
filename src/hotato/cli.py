@@ -352,11 +352,16 @@ _EXIT_CODES: dict = {
     ),
     "simulate": (
         (0, "every produced conversation is labelled origin=simulated and "
-            "validated as a faithful rendering of its scenario"),
+            "validated as a faithful rendering of its scenario (and, under "
+            "--matrix --conversation-test, every scored aggregate passed)"),
         (1, "at least one produced simulation was SIMULATOR_INVALID -- a broken "
-            "fixture, never an agent PASS/FAIL"),
-        (2, "a usage error / unusable input: a malformed or unreadable scenario "
-            "file"),
+            "fixture, never an agent PASS/FAIL -- or, under --matrix "
+            "--conversation-test, a scored aggregate FAILed (or an INCONCLUSIVE "
+            "gated under inconclusive_policy fail)"),
+        (2, "under --matrix --conversation-test with inconclusive_policy refuse, "
+            "a scored INCONCLUSIVE withheld the verdict; OR a usage error / "
+            "unusable input: a malformed or unreadable scenario / "
+            "conversation-test file"),
     ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
@@ -2683,6 +2688,26 @@ def _cmd_simulate(args) -> int:
     from . import scenario as _scn
     from . import simulate as SIM
 
+    # --matrix switches to the parallel scenario-matrix runner. --conversation-test
+    # / --parallel are matrix-only; refuse them in single-run mode rather than
+    # silently ignore them.
+    if args.matrix:
+        if args.scenario:
+            raise ValueError(
+                "pass the scenario to --matrix OR as the positional argument, "
+                "not both"
+            )
+        return _cmd_simulate_matrix(args)
+    if args.conversation_test is not None or args.parallel is not None:
+        raise ValueError(
+            "--conversation-test / --parallel apply to --matrix mode only"
+        )
+    if not args.scenario:
+        raise ValueError(
+            "provide a scenario file (positional), or --matrix <scenario.yaml> "
+            "to run the whole variation matrix"
+        )
+
     doc = _scn.load_scenario_file(args.scenario)
     # --seed folds into the base seed (so derived per-run seeds shift with it);
     # --repetitions overrides the matrix repetition count (or sets it for a
@@ -2783,6 +2808,84 @@ def _render_simulate_text(p: dict) -> str:
         f"(n={rel['n']})"
     )
     lines.append(f"  {rel['note']}")
+    return "\n".join(lines) + "\n"
+
+
+def _cmd_simulate_matrix(args) -> int:
+    from . import conversation_test as _ct
+    from . import scenario as _scn
+    from . import simulate as SIM
+
+    doc = _scn.load_scenario_file(args.matrix)
+    # --seed folds into the base seed (per-run seeds shift with it); --repetitions
+    # overrides the matrix repetition count. Both keep the summary byte-stable for
+    # a fixed (scenario, seed): same scenario -> same seeds -> byte-identical.
+    if args.seed is not None:
+        doc = {**doc, "seed": args.seed}
+    if args.repetitions is not None:
+        vm = dict(doc.get("variation_matrix") or {})
+        vm["repetitions"] = args.repetitions
+        doc = {**doc, "variation_matrix": vm}
+
+    ct = (_ct.load_conversation_test_file(args.conversation_test)
+          if args.conversation_test else None)
+
+    summary = SIM.run_matrix(
+        doc, conversation_test=ct, out_dir=args.out, max_workers=args.parallel,
+    )
+
+    if args.format == "json":
+        payload = {"tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+                   **summary}
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(_render_matrix_text(summary), end="")
+        if args.out:
+            print(f"wrote {summary['counts']['runs']} simulated artifact(s) "
+                  f"under {args.out}/", file=sys.stderr)
+    return summary["exit_code"]
+
+
+def _render_matrix_text(s: dict) -> str:
+    c = s["counts"]
+    lines = [
+        f"hotato simulate --matrix: {s['scenario_id']} -- {c['runs']} run(s) "
+        f"across {len(s['variation_cells'])} variation cell(s), "
+        "origin=simulated (never real)"
+    ]
+    if s["scored"]:
+        lines.append(
+            f"scored against conversation-test {s['conversation_test_id']} "
+            f"(inconclusive_policy={s['inconclusive_policy']})"
+        )
+    else:
+        lines.append("no conversation-test scored (simulations only)")
+    lines.append(
+        f"valid: {c['valid']}  simulator_invalid: {c['simulator_invalid']} "
+        "(bucketed separately, never an agent PASS/FAIL)"
+    )
+    # ATTRIBUTABLE per-variation reliability -- one line per cell, never blended.
+    lines.append("per-variation reliability (never blended):")
+    for cell in s["variation_cells"]:
+        v = cell["cell"]
+        rel = cell["reliability"]
+        lines.append(
+            f"  [{v['locale']} rate={v['speaking_rate']} noise={v['noise']} "
+            f"behavior={v['behavior']}] "
+            f"pass@1={rel['pass_at_1']:.3f} pass@k={rel['pass_at_k']:.3f} "
+            f"pass^k={rel['pass_caret_k']:.3f} (n={rel['n']})"
+        )
+    rel = s["reliability"]
+    lines.append(
+        f"scenario reliability [{s['reliability_basis']}]: "
+        f"pass@1={rel['pass_at_1']:.3f} pass@k={rel['pass_at_k']:.3f} "
+        f"pass^k={rel['pass_caret_k']:.3f} (n={rel['n']})"
+    )
+    lines.append(f"  {s['reliability_note']}")
+    if s["simulator_invalid"]:
+        lines.append("SIMULATOR_INVALID (broken fixtures, never agent PASS/FAIL):")
+        for r in s["simulator_invalid"]:
+            lines.append(f"  {r['run_id']} seed={r['seed']}: {r['reason']}")
     return "\n".join(lines) + "\n"
 
 
@@ -5210,12 +5313,33 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("simulate") + "\n\n"
             "Examples:\n"
             "  hotato simulate refund.scenario.yaml --out ./sim\n"
-            "  hotato simulate refund.scenario.yaml --repetitions 5 --format json"
+            "  hotato simulate refund.scenario.yaml --repetitions 5 --format json\n"
+            "  hotato simulate --matrix refund.scenario.yaml --out ./matrix\n"
+            "  hotato simulate --matrix refund.scenario.yaml \\\n"
+            "      --conversation-test refund.test.yaml --parallel 8 --format json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sm.add_argument("scenario", metavar="scenario.yaml",
-                    help="the hotato.scenario.v1 file to render")
+    sm.add_argument("scenario", metavar="scenario.yaml", nargs="?", default=None,
+                    help="the hotato.scenario.v1 file to render (single-run mode; "
+                         "use --matrix to run the whole variation matrix)")
+    sm.add_argument("--matrix", default=None, metavar="scenario.yaml",
+                    help="run the scenario's FULL variation matrix in parallel "
+                         "(the 'simulate hundreds' exit): expand every cell, "
+                         "render+validate each in a bounded pool, optionally score "
+                         "against --conversation-test, and print an ATTRIBUTABLE "
+                         "per-variation reliability summary (no blend, no "
+                         "overall_score)")
+    sm.add_argument("--conversation-test", default=None, metavar="TEST.yaml",
+                    dest="conversation_test",
+                    help="(--matrix) score each produced simulated conversation "
+                         "against this conversation-test's DETERMINISTIC "
+                         "assertions; SIMULATOR_INVALID runs are bucketed "
+                         "separately, never an agent PASS/FAIL")
+    sm.add_argument("--parallel", type=int, default=None, metavar="N",
+                    help="(--matrix) max worker threads (default: a CPU-based "
+                         "cap); the worker count NEVER changes the byte-identical "
+                         "summary")
     sm.add_argument("--seed", type=int, default=None, metavar="N",
                     help="base seed (default: the scenario's seed, else 0); a "
                          "seeded replay is byte-identical")

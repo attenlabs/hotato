@@ -35,6 +35,7 @@ The five honesty invariants are kept STRUCTURAL, not documented-and-hoped:
 
 from __future__ import annotations
 
+import concurrent.futures as _futures
 import copy
 import datetime as _dt
 import hashlib
@@ -43,13 +44,16 @@ import math
 import os
 from typing import Any, Dict, List, Optional
 
+from . import assert_ as _assert
 from . import conversation as CV
+from . import conversation_test as _ct
 from . import scenario as _scn
 from . import synth as _synth
 from .errors import open_regular as _open_regular  # noqa: F401  (parity import; scenario/CV own the FIFO guard)
 
 __all__ = [
     "MODEL_ID",
+    "MATRIX_KIND",
     "SIMULATOR_INVALID",
     "VOICE_TRACE_SCHEMA",
     "render",
@@ -58,6 +62,7 @@ __all__ = [
     "validate_simulation",
     "expand",
     "reliability",
+    "run_matrix",
 ]
 
 # The simulator's model_id: this is a SCRIPTED caller, not a generative model.
@@ -69,6 +74,11 @@ MODEL_ID = "scripted"
 # scenario. It is NEVER an agent PASS/FAIL -- a broken simulation is a broken
 # fixture, not evidence about an agent.
 SIMULATOR_INVALID = "SIMULATOR_INVALID"
+
+# The `kind` stamped on a run_matrix summary (parallels the "simulate" kind the
+# single-run CLI emits). A summary is an ATTRIBUTABLE aggregate, never a blended
+# score -- there is no overall_score anywhere in it, by construction.
+MATRIX_KIND = "simulate-matrix"
 
 # Mirrors hotato.trace.SCHEMA. Hardcoded (like hotato.synth's TOOL constant) so
 # this deterministic renderer stays free of the trace->contract->report import
@@ -612,4 +622,298 @@ def reliability(run_results: List[Any]) -> Dict[str, Any]:
         "passes": passes,
         "ci": _wilson_ci(passes, n),
         "note": note,
+    }
+
+
+# =========================================================================
+# run_matrix: expand() -> render+validate each run IN PARALLEL (bounded pool)
+# -> optionally score against a conversation-test -> an ATTRIBUTABLE,
+# reproducible per-scenario + per-variation-cell reliability summary.
+# =========================================================================
+
+def _default_workers(n_runs: int) -> int:
+    """A bounded worker count: at most one thread per run, capped by a CPU-based
+    ceiling (``os.cpu_count() + 4``, the same shape :class:`ThreadPoolExecutor`
+    itself defaults to), never below 1. The count only affects HOW FAST the
+    matrix runs, never the RESULT -- per-run seeds are pure hashes and no state
+    is shared across workers, so 1 worker and 8 workers yield the identical
+    summary (proven byte-for-byte by the test suite)."""
+    cap = (os.cpu_count() or 1) + 4
+    return max(1, min(int(n_runs), cap))
+
+
+def _cell_key(variation: Dict[str, Any]) -> Dict[str, Any]:
+    """The variation CELL a run belongs to: its variation tuple WITHOUT the
+    repetition index (the repetitions of one cell are the k samples pass^k is
+    computed over). A stable, JSON-serializable mapping."""
+    return {
+        "locale": variation["locale"],
+        "speaking_rate": variation["speaking_rate"],
+        "noise": variation["noise"],
+        "behavior": variation["behavior"],
+    }
+
+
+def _cell_sort_key(cell: Dict[str, Any]) -> tuple:
+    """Total order over cells so the summary's ``variation_cells`` list is
+    byte-stable regardless of dict/iteration order or worker completion order."""
+    return (cell["locale"], float(cell["speaking_rate"]), cell["noise"],
+            cell["behavior"])
+
+
+def _score_produced(
+    ct_doc: Dict[str, Any], produced: Dict[str, Any], policy: str
+) -> Dict[str, Any]:
+    """Score one produced simulated conversation against a conversation-test's
+    DETERMINISTIC lane -- the SAME Phase-1 assert layer, over a context built
+    from the produced transcript + trace (never any live agent). Returns a
+    compact per-run score ``{exit_code, status, summary}`` where ``status`` is a
+    plain rollup (``fail`` > ``inconclusive`` > ``pass``) and ``exit_code``
+    honors the test's ``inconclusive_policy`` exactly as
+    :func:`hotato.assert_.envelope_from_results` does. The rubric lane is NOT
+    touched here -- it is the quarantined, model-judged capability, never scored
+    on this deterministic path."""
+    ctx = _assert.build_context(
+        transcript=produced["transcript"]["segments"],
+        spans=produced["trace"]["spans"],
+    )
+    det_list = list((ct_doc.get("assertions") or {}).get("deterministic") or [])
+    if det_list:
+        env = _assert.run_assertions(
+            {"version": 1, "assertions": det_list, "inconclusive_policy": policy},
+            ctx, inconclusive_policy=policy,
+        )
+    else:
+        # An empty deterministic lane is a valid, honest run (nothing to check);
+        # run_assertions rejects an empty list, so serve it directly.
+        env = _assert.envelope_from_results([], inconclusive_policy=policy)
+    det = env["summary"]["deterministic"]
+    if det["fail"]:
+        status = "fail"
+    elif det["inconclusive"]:
+        status = "inconclusive"
+    else:
+        status = "pass"
+    return {"exit_code": env["exit_code"], "status": status, "summary": det}
+
+
+def _run_one(
+    index: int, run_id: str, run: Dict[str, Any], *,
+    out_dir: Optional[str], created_at: str,
+    ct_doc: Optional[Dict[str, Any]], policy: Optional[str], agent_id: str,
+) -> Dict[str, Any]:
+    """Render + validate (+ optionally score + write) ONE concrete run. Pure
+    with respect to every OTHER run: it reads only its own ``run`` (a fixed
+    (scenario, seed) whose seed is a pure hash from :func:`expand`), writes only
+    into its OWN ``out_dir/<run_id>/`` subdir, and shares no mutable state -- so
+    the pool may run these in any order and any worker count without changing a
+    single byte of the returned record."""
+    produced = render(run["scenario"], run["seed"])
+    verdict = validate_simulation(run["scenario"], produced)
+
+    artifact_path: Optional[str] = None
+    conversation_id: Optional[str] = None
+    if out_dir is not None:
+        artifact_path = os.path.join(out_dir, run_id)
+        # EVERY produced conversation is labelled origin=simulated (write_artifact
+        # refuses any other origin), written under its own per-run subdir.
+        manifest = write_artifact(
+            produced, artifact_path, created_at=created_at,
+            agent_id=agent_id, conversation_id=run_id,
+        )
+        conversation_id = manifest["conversation_id"]
+
+    rec: Dict[str, Any] = {
+        "run_id": run_id,
+        "index": index,
+        "seed": run["seed"],
+        "variation": run["variation"],
+        "content_hash": produced["content_hash"],
+        "origin_kind": produced["origin"]["kind"],
+        "valid": bool(verdict["ok"]),
+        "simulation_status": verdict["status"],
+        "artifact": artifact_path,
+        "conversation_id": conversation_id,
+    }
+    # A SIMULATOR_INVALID run carries its reason (a broken FIXTURE) and is NEVER
+    # scored as an agent PASS/FAIL -- it is bucketed separately by run_matrix.
+    if not verdict["ok"]:
+        rec["reason"] = verdict["reason"]
+    elif ct_doc is not None:
+        rec["score"] = _score_produced(ct_doc, produced, policy)
+    return rec
+
+
+def run_matrix(
+    scenario: Dict[str, Any],
+    *,
+    conversation_test: Optional[Dict[str, Any]] = None,
+    out_dir: Optional[str] = None,
+    max_workers: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Run a scenario's FULL variation matrix in parallel -- the Phase-2
+    "simulate hundreds of scenarios" deterministic exit -- and return a
+    reproducible, ATTRIBUTABLE summary.
+
+    :func:`expand` turns the ``variation_matrix`` into concrete runs (each a
+    fixed ``(scenario, seed)`` with a pure-hash per-run seed); every run is
+    rendered with :func:`run_scripted`'s scripted caller IN a bounded
+    :class:`concurrent.futures.ThreadPoolExecutor` (``max_workers`` defaults to a
+    CPU-based cap). Each produced conversation is labelled ``origin=simulated``
+    and, when ``out_dir`` is given, written under ``out_dir/<run-id>/`` as a
+    ``hotato.conversation.v1`` artifact. When ``conversation_test`` is given,
+    each produced simulated conversation is scored against its DETERMINISTIC
+    assertions (a context built from the produced transcript/trace; the SAME
+    Phase-1 assert layer; NO live agent) into a per-run pass/fail/inconclusive.
+
+    DETERMINISM UNDER PARALLELISM (scoped: "same scenario -> same seeds ->
+    byte-identical summary", never "the model is deterministic" -- there is no
+    model): per-run seeds are pure hashes from :func:`expand`, no mutable state
+    is shared across workers, and every collected result is SORTED
+    deterministically (runs by index, cells by variation tuple) before the
+    summary is built. The returned summary is therefore byte-identical regardless
+    of ``max_workers`` or worker completion order.
+
+    HONESTY INVARIANTS (structural): every produced artifact is
+    ``origin=simulated`` (never real, never merged into a real bucket); a run
+    whose :func:`validate_simulation` fails is placed in its OWN
+    ``simulator_invalid`` bucket with its reason and is EXCLUDED from the agent
+    reliability aggregate (a broken fixture is never an agent PASS/FAIL); the
+    reliability numbers are real aggregates over the runs (never fabricated);
+    there is NO ``overall_score`` / blended number anywhere in the summary.
+
+    The summary dict::
+
+        {"kind", "scenario_id", "total", "counts", "scored",
+         "conversation_test_id", "inconclusive_policy", "reliability_basis",
+         "reliability", "variation_cells": [...], "runs": [...],
+         "simulator_invalid": [...], "all_simulated": bool, "exit_code"}
+
+    ``exit_code`` is non-zero when a scored aggregate has a failure under the
+    test's ``inconclusive_policy`` (0/1/2, the refuse-precedence honored) OR when
+    any run is ``SIMULATOR_INVALID`` (a broken fixture -> exit 1, as
+    ``hotato simulate`` reports it); else 0."""
+    doc = _scn.validate_scenario_doc(scenario)
+    ct_doc = (
+        _ct.validate_conversation_test_doc(conversation_test)
+        if conversation_test is not None else None
+    )
+    scored = ct_doc is not None
+    policy = ct_doc["inconclusive_policy"] if scored else None
+
+    runs = expand(doc)
+    workers = _default_workers(len(runs)) if max_workers is None else max(
+        1, int(max_workers))
+
+    # A single, caller-independent created_at for every written manifest. It is
+    # NEVER placed in the summary, so the summary stays byte-identical across
+    # calls even though a manifest records when it was minted.
+    created_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if out_dir is not None:
+        os.makedirs(out_dir, exist_ok=True)
+
+    work = [
+        (i, f"{doc['id']}-{i:03d}", run) for i, run in enumerate(runs)
+    ]
+
+    def _worker(item):
+        index, run_id, run = item
+        return _run_one(
+            index, run_id, run, out_dir=out_dir, created_at=created_at,
+            ct_doc=ct_doc, policy=policy, agent_id="unbound",
+        )
+
+    # executor.map yields results in SUBMISSION order (not completion order), so
+    # the collected list is already index-ordered; we still sort explicitly so
+    # the invariant does not depend on that implementation detail.
+    with _futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        records = list(pool.map(_worker, work))
+    records.sort(key=lambda r: r["index"])
+
+    valid = [r for r in records if r["valid"]]
+    invalid = [r for r in records if not r["valid"]]
+
+    def _pass_bool(rec: Dict[str, Any]) -> bool:
+        # A scored run passes iff its deterministic envelope's exit_code is 0
+        # (which already honors the test's inconclusive_policy). With no
+        # conversation-test there is no agent to score, so a VALID simulation is
+        # a vacuous pass (pass^k is honest but carries no agent signal -- see the
+        # reliability note).
+        if scored:
+            return rec["score"]["exit_code"] == 0
+        return True
+
+    # Per-scenario reliability over the VALID runs only (SIMULATOR_INVALID runs
+    # are bucketed, never a pass/fail here).
+    scenario_reliability = reliability([_pass_bool(r) for r in valid])
+
+    # Per-variation-cell reliability: group the valid runs by their cell (the
+    # variation tuple minus the repetition) and compute pass@1/pass@k/pass^k over
+    # each cell's repetitions. Sorted by cell tuple for a byte-stable list.
+    cells: Dict[tuple, Dict[str, Any]] = {}
+    for r in valid:
+        cell = _cell_key(r["variation"])
+        key = _cell_sort_key(cell)
+        bucket = cells.setdefault(key, {"cell": cell, "passes": []})
+        bucket["passes"].append(_pass_bool(r))
+    variation_cells = [
+        {"cell": cells[key]["cell"], "runs": len(cells[key]["passes"]),
+         "reliability": reliability(cells[key]["passes"])}
+        for key in sorted(cells)
+    ]
+
+    # ATTRIBUTABLE simulator_invalid bucket: every broken fixture, mapped to its
+    # variation tuple + seed + reason + artifact path. NEVER an agent PASS/FAIL.
+    simulator_invalid = [
+        {"run_id": r["run_id"], "index": r["index"], "seed": r["seed"],
+         "variation": r["variation"], "reason": r["reason"],
+         "artifact": r["artifact"]}
+        for r in invalid
+    ]
+
+    # Exit code: a scored aggregate's worst per-run exit (0/1/2, refuse-precedence
+    # honored), raised to >=1 when any fixture is SIMULATOR_INVALID (a broken
+    # fixture, exactly as `hotato simulate` gates it).
+    scored_exit = 0
+    if scored:
+        scored_exit = max((r["score"]["exit_code"] for r in valid), default=0)
+    exit_code = max(scored_exit, 1 if invalid else 0)
+
+    if scored:
+        basis = "agent_deterministic"
+        rel_note = (
+            "reliability is the agent's DETERMINISTIC pass rate over the valid "
+            "simulations; SIMULATOR_INVALID runs are excluded (bucketed as broken "
+            "fixtures, never an agent PASS/FAIL)"
+        )
+    else:
+        basis = "none_scored"
+        rel_note = (
+            "no conversation-test scored: each VALID simulation is one sample but "
+            "NO agent was scored, so pass^k is vacuous (there is nothing to fail); "
+            "pass --conversation-test to score an agent"
+        )
+
+    return {
+        "kind": MATRIX_KIND,
+        "scenario_id": doc["id"],
+        "total": len(records),
+        "counts": {
+            "runs": len(records),
+            "valid": len(valid),
+            "simulator_invalid": len(invalid),
+            "scored": len(valid) if scored else 0,
+        },
+        "scored": scored,
+        "conversation_test_id": ct_doc["id"] if scored else None,
+        "inconclusive_policy": policy,
+        "reliability_basis": basis,
+        "reliability": scenario_reliability,
+        "reliability_note": rel_note,
+        "variation_cells": variation_cells,
+        "runs": records,
+        "simulator_invalid": simulator_invalid,
+        # EVERY produced conversation is origin=simulated -- never real.
+        "all_simulated": all(r["origin_kind"] == "simulated" for r in records),
+        "exit_code": exit_code,
     }
