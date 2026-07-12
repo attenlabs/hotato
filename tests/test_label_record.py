@@ -38,6 +38,7 @@ def _battery(tmp_path, *, expected=True):
 # --- labelrecord.py: mint / verify, both tiers ------------------------------
 
 def test_mint_and_verify_ed25519_roundtrip_is_human():
+    pytest.importorskip("cryptography")  # Ed25519 path needs the [sign] extra
     priv, pub, key_id = sign.keygen()
     record = lr.mint_label_record(
         reviewer_principal="alice", event_audio_pcm_sha256="a" * 64,
@@ -60,6 +61,7 @@ def test_mint_and_verify_hmac_roundtrip_is_human_shared():
 
 
 def test_tampered_body_fails_both_tiers():
+    pytest.importorskip("cryptography")  # Ed25519 path needs the [sign] extra
     priv, pub, key_id = sign.keygen()
     record = lr.mint_label_record(
         reviewer_principal="alice", event_audio_pcm_sha256="a" * 64,
@@ -80,6 +82,7 @@ def test_tampered_body_fails_both_tiers():
 
 
 def test_wrong_key_is_refused():
+    pytest.importorskip("cryptography")  # Ed25519 path needs the [sign] extra
     priv, pub, key_id = sign.keygen()
     _priv2, pub2, _kid2 = sign.keygen()
     record = lr.mint_label_record(
@@ -98,6 +101,7 @@ def test_wrong_key_is_refused():
 
 
 def test_unbound_audio_is_refused():
+    pytest.importorskip("cryptography")  # Ed25519 path needs the [sign] extra
     """A label-record genuinely signed for one recording must not silently
     authenticate a DIFFERENT recording's fixture."""
     priv, pub, key_id = sign.keygen()
@@ -150,6 +154,7 @@ def test_verified_hmac_label_record_is_human_shared(tmp_path, monkeypatch):
 
 
 def test_verified_ed25519_label_record_via_local_trust_is_human(tmp_path, monkeypatch):
+    pytest.importorskip("cryptography")  # Ed25519 path needs the [sign] extra
     """The real end-to-end path: a key saved to the local trust registry
     (mirrors what `hotato fixture create` / a keygen step would leave behind)
     lets build_manifest's own trust resolution -- not a caller-supplied key --
@@ -175,6 +180,7 @@ def test_verified_ed25519_label_record_via_local_trust_is_human(tmp_path, monkey
 
 
 def test_tampered_label_record_refuses_not_downgrades(tmp_path):
+    pytest.importorskip("cryptography")  # Ed25519 path needs the [sign] extra
     """A label-record that WAS supplied but fails verification caps at
     TIER_NONE (refused) -- strictly worse than an honestly-absent record
     ("none"/TIER_ASSERTED), never a silent slide to "asserted"."""

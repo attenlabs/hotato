@@ -6642,15 +6642,16 @@ FILE: docs/TRUST-GALLERY.md
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.1.1, offline. The rows
+Every block below is verbatim CLI output from hotato 1.2.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
-The clean case starts from the bundled example `01-hard-interruption.example.wav`
-(shipped in `src/hotato/data/audio/`). The four defect cases (silent caller,
-silent agent, swap, mono) are that same file with a channel silenced, the
-channels reversed, or the two channels downmixed to one, so you can reproduce
-every verdict from one known-good recording. The backchannel and echo cases use
-the bundled `02-backchannel-mhm.example.wav` and `07-echo-bleed.example.wav`.
+The clean case and the echo case use the bundled examples
+`01-hard-interruption.example.wav` and `07-echo-bleed.example.wav` (shipped in
+`src/hotato/data/audio/`), and the backchannel case uses the bundled
+`02-backchannel-mhm.example.wav`. The four defect cases (silent caller, silent
+agent, swap, mono) are the deterministic synthetic two-channel fixtures the test
+suite pins in `tests/test_trust.py`, each isolating one input defect, so every
+verdict reproduces byte-for-byte from the shipped builders.
 
 ---
 
@@ -6684,8 +6685,9 @@ $ hotato trust --stereo silent-caller.wav
 hotato trust: silent-caller.wav
   recording: 6.0s, 16000 Hz, 2 channels
   caller (ch0): 0.00s speech, -, peak -120.0 dBFS
-  agent  (ch1): 2.71s speech, first at 0.19s, peak -4.4 dBFS
+  agent  (ch1): 5.76s speech, first at 0.19s, peak -9.1 dBFS
   leading silence: 0.19s
+  crosstalk: coherence 0.0 (low) at 0.0s lag
   scorability: separated tracks yes, caller activity no, agent activity yes
   => NOT SCORABLE: caller channel has no detected speech
      next step: verify channel mapping or export dual-channel again
@@ -6705,10 +6707,11 @@ The agent channel is empty. There is no floor for the caller to barge into.
 $ hotato trust --stereo silent-agent.wav
 hotato trust: silent-agent.wav
   recording: 6.0s, 16000 Hz, 2 channels
-  caller (ch0): 2.46s speech, first at 2.39s, peak -4.4 dBFS
+  caller (ch0): 2.16s speech, first at 0.99s, peak -9.1 dBFS
   agent  (ch1): 0.00s speech, -, peak -120.0 dBFS
-  leading silence: 2.39s
-  possible channel swap: channel 0 (mapped as caller) holds the floor 2.46s vs 0.0s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
+  leading silence: 0.99s
+  crosstalk: coherence 0.0 (low) at 0.0s lag
+  possible channel swap: channel 0 (mapped as caller) holds the floor 2.16s vs 0.0s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
   scorability: separated tracks yes, caller activity yes, agent activity no
   => NOT SCORABLE: agent channel has no detected speech
      next step: verify channel mapping or export dual-channel again
@@ -6720,34 +6723,38 @@ independent checks point at the same fix: re-check the export.
 
 ---
 
-## 4. Swapped channels: still scorable, but confirm first
+## 4. Swapped channels: candidate-eligible, verdict refused
 
 Both channels carry speech, but the long floor-holder is on the channel mapped
-as the caller. `trust` clears it to scan **and** warns.
+as the caller. `trust` keeps the input candidate-eligible and refuses a verdict
+until the mapping is confirmed.
 
 ```text
 $ hotato trust --stereo swapped-warn.wav
 hotato trust: swapped-warn.wav
   recording: 6.0s, 16000 Hz, 2 channels
-  caller (ch0): 2.71s speech, first at 0.19s, peak -4.4 dBFS
-  agent  (ch1): 1.05s speech, first at 0.00s, peak -5.2 dBFS
-  leading silence: 0.00s
-  possible channel swap: channel 0 (mapped as caller) holds the floor 2.71s vs 1.05s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
+  caller (ch0): 5.76s speech, first at 0.19s, peak -9.1 dBFS
+  agent  (ch1): 0.66s speech, first at 1.99s, peak -9.1 dBFS
+  leading silence: 0.19s
+  crosstalk: coherence 0.31 (low) at 0.5s lag
+  possible channel swap: channel 0 (mapped as caller) holds the floor 5.76s vs 0.66s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => eligible for scan
+  => scan with caution: channel 0 (mapped as caller) holds the floor 5.76s vs 0.66s on channel 1 (mapped as agent); an agent usually holds the floor longer, so the caller/agent channels may be reversed
+  [!] not verdict-eligible (scan mode): channel mapping unconfirmed: suspected swap/crosstalk; confirm mapping or supply provider metadata
 ```
 
-**Verdict:** `eligible for scan`, exit 0, with a swap warning. This is the most
-dangerous condition, because scoring proceeds. A swap silently inverts every
-yield into a hold. Confirm the mapping (or set `--caller-channel` /
-`--agent-channel`) before you trust the verdict.
+**Verdict:** `scan with caution`, exit 0, candidate-eligible but **not
+verdict-eligible**. A swap would invert every yield into a hold, so Hotato
+surfaces candidates for review yet refuses to stamp a turn-taking verdict while
+the mapping is in doubt. Confirm the mapping (set `--caller-channel` /
+`--agent-channel`, or supply provider metadata) to restore verdict eligibility.
 
 ---
 
-## 5. Crosstalk / echo bleed: score at lower confidence
+## 5. Crosstalk / echo bleed: candidate-eligible, verdict refused
 
 The caller channel carries a delayed copy of the agent's own audio. Coherence
-pegs at 1.0.
+pegs at 1.0 and the measured leakage is -9.1 dB.
 
 ```text
 $ hotato trust --stereo 07-echo-bleed.example.wav
@@ -6757,13 +6764,16 @@ hotato trust: 07-echo-bleed.example.wav
   agent  (ch1): 5.81s speech, first at 0.19s, peak -4.4 dBFS
   leading silence: 0.19s
   crosstalk: coherence 1.0 (HIGH) at 0.12s lag
+  leakage: -9.1 dB (agent->caller, HIGH)
   scorability: separated tracks yes, caller activity yes, agent activity yes
-  => eligible for scan
+  => scan with caution: cross-channel leakage: agent audio on the caller channel sits at -9.1 dB, a consistent delayed copy (lag 0.12s); leaked audio at this level can be counted as the other party's activity, so a downstream timing measurement may be wrong even though the tracks are separated
+  [!] not verdict-eligible (scan mode): channel mapping unconfirmed: suspected swap/crosstalk; confirm mapping or supply provider metadata
 ```
 
-**Verdict:** `eligible for scan`, exit 0, with a **HIGH crosstalk** warning. Scoring
-proceeds, but the "caller" activity may be leaked TTS, so every candidate here is
-lower confidence. The scan step (example 8) names the specific moment.
+**Verdict:** `scan with caution`, exit 0, candidate-eligible but **not
+verdict-eligible**. The "caller" activity may be leaked TTS, so Hotato still
+surfaces candidates for review (the scan step, example 8, names the specific
+moment) but refuses a turn-taking verdict until the mapping is confirmed.
 
 ---
 
@@ -6837,9 +6847,11 @@ the echo capture) and it never becomes a fixture.
 
 The eight cases fall into three buckets:
 
-- **Score it** (1): clean stereo, full confidence.
-- **Score it, but with a caveat** (4, 5, 8): swap, crosstalk, and echo-driven
-  candidates all proceed, each with a specific warning you must act on.
+- **Score it** (1): clean stereo, verdict-eligible, full confidence.
+- **Candidate-eligible, verdict refused** (4, 5): swap and crosstalk keep `scan`
+  surfacing candidates (exit 0) but Hotato refuses a turn-taking verdict until you
+  confirm the channel mapping. Example 8 is that same echo call under `scan`,
+  where the specific leaked moment is named.
 - **Refuse** (2, 3, 6): silent caller, silent agent, and mono are not scorable;
   Hotato names the reason and the next step and exits 2.
 

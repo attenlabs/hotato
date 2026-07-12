@@ -10,6 +10,8 @@ have put a fixture-minted one.
 """
 from __future__ import annotations
 
+import pytest
+
 from hotato import labelrecord as lr
 from hotato import manifest as m
 from hotato import sign
@@ -17,6 +19,7 @@ from hotato import sign
 
 def sign_event_human(event: dict, *, reviewer: str = "test-reviewer",
                      decision=None, rationale=None) -> dict:
+    pytest.importorskip("cryptography")  # Ed25519 path needs the [sign] extra
     """Mint a real Ed25519-signed label-record bound to ``event``'s own
     stimulus PCM hash, attach it to ``event["label_record"]`` in place, and
     return the minted record. ``event`` must be a battery envelope event (the
