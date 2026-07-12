@@ -223,22 +223,36 @@ class FleetAPI:
             "SELECT COUNT(*) c FROM contracts WHERE workspace_id=? AND agent_id=?",
             (workspace_id, agent_id)) or {}).get("c"))
         n_total = max(1, len(cands))
-        for c in cands:
-            try:
-                m = json.loads(c["measured_json"] or "{}")
-            except (TypeError, ValueError):
-                m = {}
-            comp = m.get("components") or {}
-            rec = counter[keys[c["candidate_id"]]]
-            comp["recurrence"] = rec
-            # a shape seen once is novel (~1.0); a recurring shape trends to 0.
-            comp["novelty"] = round(1.0 - (rec - 1) / n_total, 3)
-            comp["covered_by_contract"] = has_contract
-            m["components"] = comp
-            self.registry.conn.execute(
-                "UPDATE candidates SET measured_json=? WHERE workspace_id=? AND candidate_id=?",
-                (json.dumps(m), workspace_id, c["candidate_id"]))
-        self.registry.conn.commit()
+        # One transaction for the whole per-candidate rewrite so it stays
+        # all-or-nothing. The Registry connection runs in autocommit
+        # (isolation_level=None), so an explicit BEGIN IMMEDIATE..COMMIT -- not a
+        # trailing .commit() over a loop of otherwise-individually-committing
+        # UPDATEs -- is what makes this batch atomic: a failure part-way through
+        # (e.g. `database is locked`) rolls the whole batch back instead of
+        # leaving some candidates rewritten and the rest stale.
+        conn = self.registry.conn
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for c in cands:
+                try:
+                    m = json.loads(c["measured_json"] or "{}")
+                except (TypeError, ValueError):
+                    m = {}
+                comp = m.get("components") or {}
+                rec = counter[keys[c["candidate_id"]]]
+                comp["recurrence"] = rec
+                # a shape seen once is novel (~1.0); a recurring shape trends to 0.
+                comp["novelty"] = round(1.0 - (rec - 1) / n_total, 3)
+                comp["covered_by_contract"] = has_contract
+                m["components"] = comp
+                conn.execute(
+                    "UPDATE candidates SET measured_json=? WHERE workspace_id=? AND candidate_id=?",
+                    (json.dumps(m), workspace_id, c["candidate_id"]))
+            conn.execute("COMMIT")
+        except Exception:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
         return {"clusters": dict(counter), "candidates": len(cands)}
 
     def run(self, workspace_id, agent_id, *, recordings=None, caller_channel=0,

@@ -59,19 +59,42 @@ def idempotency_key(*, workspace_id, agent_id, operation, source_pcm_hash="",
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()
 
 
-def _busy_wrap(fn):
-    """Run a write and translate a busy-database sqlite3.OperationalError
-    (lock contention past the busy_timeout window) into the shared
-    errors.HANDLED OSError contract, so the CLI and every MCP fleet tool emit
-    the existing clean, structured, exit-code-2 error envelope instead of
-    leaking a raw traceback. The write never partially applies: SQLite raises
-    before any bytes are committed."""
-    try:
-        return fn()
-    except sqlite3.OperationalError as exc:
-        raise OSError(
-            f"fleet database busy (concurrent writers): {exc}. Retry the command."
-        ) from exc
+def _busy_wrap(fn, *, conn=None, attempts=12):
+    """Run a write, retrying transient SQLite lock contention with bounded
+    exponential backoff before translating a persistent busy lock into the
+    shared errors.HANDLED OSError contract (the CLI and every MCP fleet tool
+    then emit the clean, structured, exit-code-2 error envelope instead of
+    leaking a raw traceback).
+
+    ``fn`` is a self-contained unit of work -- a single autocommit statement, or
+    a full BEGIN IMMEDIATE..COMMIT closure that rolls itself back on failure --
+    so re-running it after a rolled-back busy attempt is safe and idempotent
+    (enqueue re-checks the row, claim re-selects). Between attempts any half-open
+    transaction on ``conn`` is rolled back so the retry starts clean: a BEGIN
+    IMMEDIATE that lost the race leaves no transaction, a COMMIT that itself
+    raised busy leaves one. A write never partially applies -- SQLite raises
+    before any bytes are committed. Only genuine lock/busy errors are retried;
+    any other OperationalError propagates immediately."""
+    delay = 0.02
+    last = None
+    for _ in range(attempts):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "locked" not in msg and "busy" not in msg:
+                raise
+            last = exc
+            if conn is not None and conn.in_transaction:
+                try:
+                    conn.rollback()
+                except sqlite3.OperationalError:
+                    pass
+            time.sleep(delay)
+            delay = min(delay * 2, 0.5)
+    raise OSError(
+        f"fleet database busy (concurrent writers): {last}. Retry the command."
+    ) from last
 
 
 class JobQueue:
@@ -86,6 +109,11 @@ class JobQueue:
         # shorter busy window, and a JobQueue built over a bare connection
         # still gets the same generous default.
         timeout_sec = float(os.environ.get("HOTATO_FLEET_DB_TIMEOUT_SEC", "30"))
+        # Manual BEGIN IMMEDIATE (enqueue/claim) needs autocommit so sqlite3
+        # never injects its own implicit transaction. Registry already opens its
+        # connection this way; setting it here too keeps a JobQueue built over a
+        # bare connection out of the fragile default isolation_level mode.
+        self.conn.isolation_level = None
         self.conn.execute(f"PRAGMA busy_timeout={int(timeout_sec * 1000)}")
         self.conn.executescript(_JOBS_SCHEMA)
         self.conn.commit()
@@ -146,10 +174,22 @@ class JobQueue:
                 self.conn.execute("COMMIT")
                 return {"job_id": jid, "deduped": False, "state": "queued"}
             except Exception:
-                self.conn.execute("ROLLBACK")
+                # Only an actually-open transaction can be rolled back. If the
+                # failing statement was BEGIN IMMEDIATE itself (lost the write
+                # lock), no transaction is open and a bare ROLLBACK would raise
+                # "no transaction is active", masking the real busy error and
+                # defeating the _busy_wrap retry.
+                if self.conn.in_transaction:
+                    try:
+                        self.conn.execute("ROLLBACK")
+                    except sqlite3.OperationalError:
+                        # A ROLLBACK that itself hits a transient lock must not
+                        # mask the original error; the real exception re-raises
+                        # below and _busy_wrap cleans up before any retry.
+                        pass
                 raise
 
-        return _busy_wrap(_write)
+        return _busy_wrap(_write, conn=self.conn)
 
     def claim(self, *, capability, owner, lease_sec=120) -> Optional[dict]:
         """Claim the oldest claimable job for a capability: queued, or leased
@@ -176,10 +216,22 @@ class JobQueue:
                 self.conn.execute("COMMIT")
                 return jid
             except Exception:
-                self.conn.execute("ROLLBACK")
+                # Only an actually-open transaction can be rolled back. If the
+                # failing statement was BEGIN IMMEDIATE itself (lost the write
+                # lock), no transaction is open and a bare ROLLBACK would raise
+                # "no transaction is active", masking the real busy error and
+                # defeating the _busy_wrap retry.
+                if self.conn.in_transaction:
+                    try:
+                        self.conn.execute("ROLLBACK")
+                    except sqlite3.OperationalError:
+                        # A ROLLBACK that itself hits a transient lock must not
+                        # mask the original error; the real exception re-raises
+                        # below and _busy_wrap cleans up before any retry.
+                        pass
                 raise
 
-        jid = _busy_wrap(_write)
+        jid = _busy_wrap(_write, conn=self.conn)
         if jid is None:
             return None
         return self.get(jid)
@@ -195,7 +247,7 @@ class JobQueue:
             self.conn.commit()
             return cur.rowcount == 1
 
-        return _busy_wrap(_write)
+        return _busy_wrap(_write, conn=self.conn)
 
     def complete(self, job_id, *, owner, output_hashes=None) -> bool:
         now = self._now()
@@ -208,7 +260,7 @@ class JobQueue:
             self.conn.commit()
             return cur.rowcount == 1
 
-        return _busy_wrap(_write)
+        return _busy_wrap(_write, conn=self.conn)
 
     def fail(self, job_id, *, owner, reason) -> dict:
         """Fail a lease. Requeue if attempts remain, else dead-letter."""
@@ -231,7 +283,7 @@ class JobQueue:
             self.conn.commit()
             return state
 
-        state = _busy_wrap(_write)
+        state = _busy_wrap(_write, conn=self.conn)
         return {"ok": True, "state": state}
 
     def record_start(self, **kw) -> dict:
@@ -256,7 +308,7 @@ class JobQueue:
                 (json.dumps(output_hashes or [], sort_keys=True), now, job_id))
             self.conn.commit()
 
-        _busy_wrap(_write)
+        _busy_wrap(_write, conn=self.conn)
 
     def get(self, job_id):
         cur = self.conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,))
