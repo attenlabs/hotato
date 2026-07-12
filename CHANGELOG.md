@@ -7,9 +7,37 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
-## [Unreleased]
+## [1.2.0] - 2026-07-12
 
 ### Added
+- **`hotato investigate` -- one call to a CI-ready contract.** Takes a local
+  dual-channel WAV or a provider `--stack`/`--call-id` and, in one guided flow,
+  pulls or opens the audio, authenticates the capture origin honestly
+  (frozen-regression / provider-pulled / operator-asserted-local), runs the
+  channel-eligibility gate, ranks candidate moments, then `investigate label
+  <ref> --expect yield|hold` mints a signed label-record and builds a portable
+  signed contract plus the exact CI verify and recapture commands. Reuses only
+  shipped primitives; never fabricates a label or a verdict.
+- **`hotato assert` -- a deterministic assertion DSL.** Five no-model, offline,
+  byte-stable assertion kinds over the conversation: `phrase` (regex on the
+  transcript, with absent/compliance mode), `pii` (ssn/card-Luhn/email/phone
+  detectors with a `must_not_leak` gate and a redacted-transcript artifact that
+  never echoes the raw value), `policy` (named, versioned offline rule packs),
+  `tool_call` (name/args/order/count/never-before checked against the
+  `voice_trace.v1` spans, not the transcript), and `outcome` (task success as
+  all-of/any-of deterministic predicates). Every result carries its `kind` and
+  `deterministic` flag; the summary splits deterministic vs judge counts and by
+  construction emits no blended `overall_score`. Embeddable in a contract so
+  `contract verify` gates on a failing assertion, reported separately from the
+  timing verdict. New `docs/ASSERTIONS.md`.
+- **Signed label-records + Ed25519 signing (`[sign]` extra).** A human label is
+  now a signed `label-record.v1` bound to the exact audio, not an inference; the
+  opt-in `[sign]` extra adds asymmetric Ed25519 attestation, with HMAC kept as a
+  separately-named shared-secret tier.
+- **Opt-in `[transcribe]` extra (faster-whisper).** A transcript layer that is
+  context only and never alters the timing score.
+- **Copy-paste CI configs** for GitLab, Jenkins, Azure DevOps, and CircleCI in
+  the docs (alongside the existing GitHub Actions gate).
 - **`--notify URL` webhook on `sweep` and `hotato fleet run`.** Opt-in,
   repeatable, off by default: when the run finishes it POSTs one JSON summary
   (counts, the top candidate moments -- id, kind, timing numbers only -- and
@@ -42,6 +70,17 @@ design. See `docs/BENCHMARK.md`.
   a rollup over one or two cards had nothing to add. Every measured number
   and event datum on the page is unchanged; this is layout and copy only.
   `src/hotato/report.py`, `docs/REPORTS.md`.
+
+### Security
+- **Evidence kernel hardened (external review).** A forged, altered, or
+  wrong-key manifest/attestation signature can no longer reach the signed tier
+  (it is refused, never silently downgraded); the scorer pin now covers the real
+  scorer bytes and refuses on mismatch; a suspected channel swap or crosstalk
+  yields advisory candidates but a null verdict and a refused contract until the
+  mapping is confirmed. A temporal precommit + replay ledger binds recapture
+  receipts. The 19-finding robustness audit is closed and the FIFO/blocking-open
+  hang class is eliminated with an AST lint that fails CI on any new unguarded
+  external open.
 
 ## [1.1.1] - 2026-07-11
 

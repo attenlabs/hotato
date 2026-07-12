@@ -56,6 +56,7 @@ def _stereo_wav(path, *, onset=3.0, agent_end=8.0, total=10.0, rate=16000):
 # --- §6.4 capture receipts: attested tier reachable, unsigned falls back ----
 
 def test_clone_run_reaches_attested_tier_with_key(tmp_path, monkeypatch):
+    pytest.importorskip("cryptography")  # Ed25519 path needs the [sign] extra
     monkeypatch.setenv("HOTATO_ATTEST_KEY", "k")
     # K5: label_authority reaches "human"/TIER_ATTESTED ONLY behind a verified
     # Ed25519 label-record bound to each fixture's decoded audio -- an explicit
