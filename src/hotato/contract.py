@@ -65,6 +65,7 @@ from ._engine.score import ScoreConfig
 from . import attest as _attest
 from . import card as _card
 from . import fixture as _fixture
+from . import labelrecord as _labelrecord
 from . import report as _report
 from . import trust as _trust
 from .core import dump_frames_for_input, run_single
@@ -132,6 +133,7 @@ _REL = {
         "timeline": "evidence/timeline.html",
         "trust": "evidence/trust.json",
         "card": "evidence/card.svg",
+        "label_record": "evidence/label_record.json",
     },
     "traces_dir": "traces",
     "source": {
@@ -251,6 +253,7 @@ def create_contract(
     agent_channel: int = 1,
     include_identifiers: bool = False,
     confirm_channels: bool = False,
+    reviewer_principal: Optional[str] = None,
 ) -> dict:
     """Create one ``<id>.hotato`` failure-contract bundle under ``out_dir``.
 
@@ -282,6 +285,20 @@ def create_contract(
     ``contract verify`` re-derives verdict eligibility against the recording
     on disk and honors this SAME recorded confirmation, never a fresh
     unverified flag.
+
+    ``reviewer_principal`` (K5, ``--from-candidate``/``--stereo``/
+    ``--caller``+``--agent`` paths only): the human reviewer's name to bind
+    into the signed label-record :func:`hotato.fixture.create_fixture` mints
+    for this event (falling back to ``fixture._default_reviewer_principal()``
+    -- ``HOTATO_REVIEWER``/``USER``/``USERNAME`` -- when omitted). The minted
+    record (or ``None`` if no signing key is configured anywhere) is carried
+    on the returned contract as ``contract["label_record"]``, and an
+    HONEST tier -- ``"human"`` (Ed25519), ``"human-shared"`` (HMAC),
+    ``"asserted"`` (no key configured, never fabricated), or ``"invalid"``
+    (a record was minted but does not locally verify) -- as
+    ``contract["label_authority"]``. The reviewer name itself is also bound
+    into ``contract["identity"]["reviewer"]`` and the attestation digest, so
+    tampering with it after creation is caught by ``contract verify``.
     """
     if not _SLUG_RE.match(contract_id or ""):
         raise ValueError(
@@ -344,6 +361,7 @@ def create_contract(
                 agent_channel=agent_channel,
                 include_identifiers=include_identifiers,
                 confirm_channels=confirm_channels,
+                reviewer_principal=reviewer_principal,
             )
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -696,6 +714,7 @@ def _create_from_fixture_path(
     contract_id, want_yield, expect, onset_sec, stack, max_talk_over_sec,
     max_time_to_yield_sec, rationale, pre_sec, post_sec, no_clip,
     caller_channel, agent_channel, include_identifiers, confirm_channels=False,
+    reviewer_principal=None,
 ) -> dict:
     fx_kwargs, resolved_onset, recording_type, candidate_ref, candidate_kind = (
         _resolve_raw_input(from_candidate=from_candidate, stereo=stereo,
@@ -711,6 +730,13 @@ def _create_from_fixture_path(
     else:
         source_sha = _sha256_file(fx_kwargs["stereo"])
         source_name = os.path.basename(fx_kwargs["stereo"])
+
+    # K5: resolve the reviewer name ONCE, before minting, so the label-record's
+    # own reviewer_principal and the contract's identity.reviewer (bound into
+    # the attestation digest) can never independently drift onto two different
+    # fallback values.
+    resolved_reviewer = (reviewer_principal
+                         or _fixture._default_reviewer_principal())
 
     with tempfile.TemporaryDirectory(prefix="hotato-contract-fx-") as fx_root:
         fx_result = _fixture.create_fixture(
@@ -732,6 +758,7 @@ def _create_from_fixture_path(
             caller_channel=caller_channel,
             agent_channel=agent_channel,
             created_by=CREATED_BY,
+            reviewer_principal=resolved_reviewer,
         )
         # A ValueError above (not-scorable) propagates as-is: no bundle files
         # are written before this point, matching fixture create's own
@@ -770,6 +797,28 @@ def _create_from_fixture_path(
         bundle_audio_sha = _sha256_file(audio_dest)
         bundle_pcm_sha = _decoded_pcm_sha256(audio_dest)
 
+        # K5: carry the label-record `fixture.create_fixture` minted (bound to
+        # the fixture's clipped audio, which is byte-identical to the audio
+        # just bundled above) forward into the CONTRACT itself, instead of
+        # letting it evaporate with the throwaway fx_root -- this is the
+        # signed proof a human authored the label, not just a name string.
+        # Re-verify locally rather than trusting the mint call blindly: the
+        # SAME honest tiers `manifest.build_manifest` derives (human /
+        # human-shared / asserted / invalid), never a fabricated "human".
+        label_record = scenario.get("label_record")
+        if label_record is not None:
+            _label_verification = _labelrecord.verify_label_record_local(
+                label_record, event_pcm_sha256=bundle_pcm_sha,
+            )
+            label_authority = (_label_verification["authority"]
+                               if _label_verification.get("ok") else "invalid")
+        else:
+            # No signing key configured anywhere: the label stays an explicit,
+            # operator-asserted expectation -- never silently upgraded.
+            label_authority = "asserted"
+        _write_json(os.path.join(tmp_dir, _REL["evidence"]["label_record"]),
+                   label_record)
+
         _write_text(os.path.join(tmp_dir, _REL["evidence"]["frames"]),
                    _frame_lines(dump))
         _write_text(os.path.join(tmp_dir, _REL["evidence"]["timeline"]),
@@ -805,6 +854,16 @@ def _create_from_fixture_path(
             "label_source": "human",
             "rationale": rationale,
         },
+        # K5: the REAL evidence a human reviewed this exact recording and
+        # decided --expect -- a signed label-record (or None, honestly, when
+        # no signing key is configured anywhere), plus the same human/
+        # human-shared/asserted/invalid tier `manifest.build_manifest` derives
+        # elsewhere. `label.label_source` above stays frozen to "human" (a
+        # human ran this command); THIS is the cryptographic proof, never
+        # conflated with that fixed string.
+        "label_record": label_record,
+        "label_authority": label_authority,
+        "identity": {"reviewer": resolved_reviewer},
         "source": {
             "stack": stack or "generic",
             "recording_type": recording_type,
@@ -1040,6 +1099,25 @@ def render_create_text(result: dict) -> str:
         f"  expect:   {c['label']['expected_behavior']}",
         f"  scorable: {'yes' if m['scorable'] else 'NOT SCORABLE'}",
     ]
+    label_authority = c.get("label_authority")
+    if label_authority is not None:
+        reviewer = (c.get("identity") or {}).get("reviewer")
+        if label_authority in ("human", "human-shared"):
+            lines.append(
+                f"  label:    {label_authority} (signed label-record bound "
+                f"to this exact audio; reviewer={reviewer})"
+            )
+        elif label_authority == "asserted":
+            lines.append(
+                f"  label:    asserted (reviewer={reviewer}; no signing key "
+                "configured, so this is an operator-asserted expectation, "
+                "not a cryptographically signed human label)"
+            )
+        else:
+            lines.append(
+                f"  label:    {label_authority} (a label-record was minted "
+                "but does not locally verify; treat this label as unproven)"
+            )
     if m["scorable"]:
         lines.append(f"  passed:   {m['passed']}")
         lines.append(

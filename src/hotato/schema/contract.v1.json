@@ -22,6 +22,15 @@
         "rationale": { "type": ["string", "null"] }
       }
     },
+    "label_record": { "type": ["object", "null"], "description": "K5: the signed hotato.label-record.v1 a human reviewer minted for this exact event (see hotato.labelrecord), or null when no signing key is configured anywhere -- never fabricated. See label_authority for the honestly-derived trust tier." },
+    "label_authority": { "enum": ["human", "human-shared", "asserted", "invalid"], "description": "K5: human (verified Ed25519 label_record), human-shared (verified HMAC label_record), asserted (no label_record -- an explicit but unsigned expectation), or invalid (a label_record was minted but does not locally verify -- never silently downgraded to asserted)." },
+    "identity": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "reviewer": { "type": ["string", "null"], "description": "The human reviewer's name (--reviewer, or the HOTATO_REVIEWER/USER/USERNAME env fallback); bound into the attestation digest." }
+      }
+    },
     "source": {
       "type": "object",
       "required": ["stack", "recording_type", "channels", "source_audio_sha256"],

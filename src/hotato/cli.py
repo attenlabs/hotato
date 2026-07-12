@@ -372,6 +372,20 @@ _EXIT_CODES: dict = {
         (2, "usage error: no folder on the first run, an unreadable state file, "
             "or a path that is not a folder"),
     ),
+    "investigate": (
+        (0, "the recording is candidate-eligible: trust + scan ran and "
+            "candidates (if any) were persisted; a real yield/hold VERDICT "
+            "may still be refused (K6) -- see verdict_status"),
+        (2, "usage error (neither SOURCE nor --stack/--call-id, both given, "
+            "a bad channel/--min-gap flag, a missing credential, or an "
+            "unreadable state file), or the recording is NOT SCORABLE at all"),
+    ),
+    "investigate label": (
+        (0, "a signed, CI-ready contract was written from this candidate"),
+        (2, "usage error (a bad --expect, a bad candidate ref, an unresolved "
+            "source recording, or an existing contract without --force), or "
+            "the candidate turned out not scorable"),
+    ),
     "describe": (
         (0, "manifest printed"),
     ),
@@ -1545,6 +1559,67 @@ def _cmd_loop(args) -> int:
     else:
         print(_loop.render_text(result))
     return code
+
+
+# --- investigate: one call-id -> ranked candidates + the label commands ---
+
+def _cmd_investigate(args) -> int:
+    from . import investigate as _investigate
+
+    result, code = _investigate.run_investigate(
+        args.source,
+        stack=args.stack,
+        call_id=args.call_id,
+        api_key=args.api_key,
+        account_sid=args.account_sid,
+        auth_token=args.auth_token,
+        model_id=args.model_id,
+        agent_id=args.agent_id,
+        base_url=args.base_url,
+        allow_mono=args.allow_mono,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+        min_gap=args.min_gap,
+        top=args.top,
+        state_path=args.state,
+        channel_map_confirmed=args.confirm_channels,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_investigate.render_text(result))
+    return code
+
+
+def _cmd_investigate_label(args) -> int:
+    from . import investigate as _investigate
+
+    result = _investigate.run_investigate_label(
+        args.ref,
+        expect=args.expect,
+        contract_id=args.id,
+        out_dir=args.out,
+        folder=args.folder,
+        stack=args.stack,
+        rationale=args.rationale,
+        max_talk_over_sec=args.max_talk_over,
+        max_time_to_yield_sec=args.max_time_to_yield,
+        pre_sec=args.pre,
+        post_sec=args.post,
+        no_clip=args.no_clip,
+        force=args.force,
+        caller_channel=args.caller_channel,
+        agent_channel=args.agent_channel,
+        include_identifiers=args.include_identifiers,
+        confirm_channels=args.confirm_channels,
+        reviewer=args.reviewer,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(
+            _investigate.label_result_json(result), indent=2))
+    else:
+        print(_investigate.render_label_text(result))
+    return 0
 
 
 # --- the regression loop: scan -> fixture create -> run -> compare ---------
@@ -4927,6 +5002,159 @@ def build_parser() -> argparse.ArgumentParser:
                     help="output format (default text)")
     lp.set_defaults(func=_cmd_loop)
 
+    # --- investigate: one call-id (or local WAV) -> ranked candidates + the -
+    # --- exact command to label each one into a signed, CI-ready contract ---
+    iv = sub.add_parser(
+        "investigate",
+        help="pull/open one recording, authenticate its capture origin, run "
+             "the K6 trust gate, and rank its candidate moments -- with the "
+             "exact command to label each one into a contract",
+        description=(
+            "One recording in, ranked candidate turn-taking moments out: "
+            "opens a local dual-channel WAV, or pulls one live from a "
+            "connected stack (--stack/--call-id, reusing the same fetch "
+            "`hotato pull` uses), authenticates its capture origin (a "
+            "previously-frozen fixture clip, a fetch from the stack's own "
+            "API for a named call id, or an operator-asserted local file), "
+            "runs the input-health / K6 verdict-eligibility gate (`hotato "
+            "trust`, contract mode), and scans it for candidate moments "
+            "(`hotato scan`). Discovery only: no intent is inferred and no "
+            "verdict or label is ever fabricated here -- a suspected channel "
+            "swap or crosstalk REFUSES the verdict path (advisory candidates "
+            "are still shown) until you confirm the mapping or fix it. State "
+            "persists to .hotato/investigate-state.json (also a valid "
+            "FILE#N candidate ref for `hotato fixture promote` / `hotato "
+            "contract create --from-candidate`)."
+        ),
+        epilog=(
+            _exit_codes_epilog("investigate") + "\n\n" + _LABEL_NOTE + "\n\n"
+            "Examples:\n"
+            "  hotato investigate call.wav\n"
+            "  hotato investigate --stack vapi --call-id abc123\n"
+            "  hotato investigate label .hotato/investigate-state.json#1 \\\n"
+            "      --expect yield"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    iv.add_argument("source", nargs="?", default=None, metavar="SOURCE",
+                    help="a local dual-channel WAV path (omit when using "
+                         "--stack/--call-id)")
+    iv.add_argument("--stack", default=None, choices=list(_capture.PULL_STACKS),
+                    help="pull the recording from this connected stack "
+                         "instead of a local SOURCE")
+    iv.add_argument("--call-id", default=None, metavar="ID",
+                    help="the call/recording id to pull (with --stack); for "
+                         "twilio pass a Recording SID (RE...)")
+    _add_cred_args(iv)
+    iv.add_argument("--allow-mono", action="store_true",
+                    help="allow pulling a mono/mixed stack recording "
+                         "(degraded; it will not be candidate-eligible for "
+                         "separated scoring)")
+    iv.add_argument("--caller-channel", type=int, default=0)
+    iv.add_argument("--agent-channel", type=int, default=1)
+    iv.add_argument("--min-gap", type=float, default=2.0,
+                    help="minimum response gap in seconds to surface as a "
+                         "candidate (default 2.0)")
+    iv.add_argument("--top", type=int, default=10,
+                    help="how many top candidate moments to show and print "
+                         "label commands for (default 10; 0 shows all)")
+    iv.add_argument("--state", default=None, metavar="PATH",
+                    help="investigate state file (default "
+                         ".hotato/investigate-state.json in the current "
+                         "directory)")
+    iv.add_argument("--confirm-channels", action="store_true",
+                    help="human confirmation that the caller/agent channel "
+                         "mapping is correct despite a suspected swap or "
+                         "crosstalk/leakage; without it the verdict path is "
+                         "refused (K6), though candidates are still shown")
+    iv.add_argument("--format", default="text", choices=["json", "text"],
+                    help="output format (default text)")
+    iv.set_defaults(func=_cmd_investigate)
+
+    ivl = sub.add_parser(
+        "investigate label",
+        help="label one hotato investigate candidate into a signed, "
+             "CI-ready contract (this IS the human yield/hold decision)",
+        description=(
+            "The human's yield/hold decision for one `hotato investigate` "
+            "candidate ref. Wraps `hotato contract create --from-candidate` "
+            "exactly (same round-trip scorability guarantee, same signed "
+            "label-record when a signing key is configured): nothing here "
+            "fabricates a label or a verdict."
+        ),
+        epilog=(
+            _exit_codes_epilog("investigate label") + "\n\n" + _LABEL_NOTE
+            + "\n\n"
+            "Examples:\n"
+            "  hotato investigate label .hotato/investigate-state.json#1 \\\n"
+            "      --expect yield\n"
+            "  hotato investigate label .hotato/investigate-state.json#2 \\\n"
+            "      --expect hold --id refund-backchannel-002 --out contracts"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ivl.add_argument("ref", metavar="CANDIDATE_REF",
+                     help="a candidate ref printed by hotato investigate "
+                          "(STATE_FILE#N)")
+    ivl.add_argument("--expect", required=True, choices=["yield", "hold"],
+                     help="YOUR label for the event: 'yield' (the agent "
+                          "should stop for the caller) or 'hold' (the agent "
+                          "should keep speaking)")
+    ivl.add_argument("--id", default=None,
+                     help="contract id slug (default: derived from the "
+                          "candidate's source, onset, and label)")
+    ivl.add_argument("--out", default="contracts", metavar="DIR",
+                     help="contract root; writes DIR/<id>.hotato/ (default "
+                          "contracts)")
+    ivl.add_argument("--folder", default=None, metavar="DIR",
+                     help="folder holding the investigated recording, when "
+                          "the path recorded in the state file does not "
+                          "resolve from here")
+    ivl.add_argument("--stack", default="generic",
+                     choices=["generic", "vapi", "twilio", "livekit",
+                              "pipecat", "retell"],
+                     help="voice stack the recording came from")
+    ivl.add_argument("--max-talk-over", type=float, default=None,
+                     help="[yield] the contract's policy fails if talk-over "
+                          "exceeds this many seconds")
+    ivl.add_argument("--max-time-to-yield", type=float, default=None,
+                     help="[yield] the contract's policy fails if the yield "
+                          "is slower than this many seconds")
+    ivl.add_argument("--rationale", default=None,
+                     help="optional free-text note on why you labeled the "
+                          "event this way")
+    ivl.add_argument("--reviewer", default=None, metavar="NAME",
+                     help="your name/identity, bound into the signed "
+                          "label-record and the contract's identity.reviewer "
+                          "(default: HOTATO_REVIEWER env var, then USER/"
+                          "USERNAME)")
+    ivl.add_argument("--pre", type=float, default=2.0,
+                     help="seconds of audio kept BEFORE the onset when "
+                          "clipping (default 2.0)")
+    ivl.add_argument("--post", type=float, default=6.0,
+                     help="seconds of audio kept AFTER the onset when "
+                          "clipping (default 6.0)")
+    ivl.add_argument("--no-clip", action="store_true",
+                     help="keep the full recording and the original onset "
+                          "instead of clipping")
+    ivl.add_argument("--force", action="store_true",
+                     help="overwrite an existing contract with the same id")
+    ivl.add_argument("--caller-channel", type=int, default=0)
+    ivl.add_argument("--agent-channel", type=int, default=1)
+    ivl.add_argument("--confirm-channels", action="store_true",
+                     help="human confirmation that the caller/agent channel "
+                          "mapping is correct despite a suspected swap or "
+                          "crosstalk/leakage; without it the contract's "
+                          "verdict is withheld and `contract verify` "
+                          "REFUSES it")
+    ivl.add_argument("--include-identifiers", action="store_true",
+                     help="show the source recording's basename / candidate "
+                          "ref in the bundle and the card instead of "
+                          "redacting them (default: redacted)")
+    ivl.add_argument("--format", default="text", choices=["text", "json"],
+                     help="output format (default text)")
+    ivl.set_defaults(func=_cmd_investigate_label)
+
     # --- describe: the generated capability manifest (machine-drivability) --
     ds = sub.add_parser(
         "describe",
@@ -5536,9 +5764,25 @@ def _route_bare_folder(argv, parser) -> "list | None":
     return None
 
 
+def _route_investigate_label(argv) -> "list | None":
+    """``hotato investigate label REF ...`` merges its first two tokens into
+    the single subcommand name ``"investigate label"`` (registered with the
+    literal space) before argparse ever sees them. ``investigate`` itself
+    takes a positional SOURCE, and argparse cannot disambiguate an optional
+    positional from a subparsers action sharing the same first token (both
+    want it), so the merge happens here instead -- exactly the same
+    argv-rewrite technique :func:`_route_bare_folder` already uses. Every
+    other ``investigate ...`` invocation (including ``investigate --help``)
+    is left untouched."""
+    if len(argv) >= 2 and argv[0] == "investigate" and argv[1] == "label":
+        return ["investigate label"] + list(argv[2:])
+    return None
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     raw = sys.argv[1:] if argv is None else list(argv)
+    raw = _route_investigate_label(raw) or raw
     rerouted = _route_bare_folder(raw, parser)
     args = parser.parse_args(rerouted if rerouted is not None else raw)
     # Bare `hotato` (no subcommand): guide the user to score their OWN call.
