@@ -12,8 +12,10 @@ pins, on the CLI (not the Python API):
     end, and a success.required failure is non-zero;
   * a deterministic FAIL is non-zero; missing transcript/trace/state leaves the
     depending check INCONCLUSIVE, never guessed;
-  * the rubric lane is quarantined (INCONCLUSIVE), never folded into the
-    deterministic summary;
+  * the rubric lane REALLY runs through the model-judge engine (rubric.v1,
+    deterministic:false), ADVISORY by default, never folded into the
+    deterministic summary (here the judge backend is unreachable, so it is an
+    honest ERROR that never gates);
   * there is NO overall_score / blended number in ANY output, including json;
   * repetitions > 1 reports the per-run results + a plain run count, never a
     fabricated reliability number.
@@ -82,6 +84,20 @@ def _run(argv):
     return cli.main(argv)
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_judge(monkeypatch, tmp_path):
+    """`hotato test run` REALLY evaluates the rubric lane with a local model.
+    For a deterministic, network-free CLI suite we point the default judge at an
+    UNREACHABLE local endpoint so a rubric lane resolves to an honest ERROR
+    (advisory) instead of hitting a live daemon. This is production-real "judge
+    down" behavior -- not a stub -- and keeps these tests reproducible whether or
+    not Ollama is running. (The real model path is proven by the fake-judge unit
+    tests and the live-Ollama integration test.) Verdicts are also cached under
+    a per-test tmp dir so runs never touch ~/.hotato."""
+    monkeypatch.setenv("HOTATO_JUDGE_ENDPOINT", "http://127.0.0.1:1")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 # --- the DoD demonstration: one real call, one file, end to end -------------
 
 def test_bundled_call_one_file_end_to_end_scorecard_and_artifact(tmp_path, capsys):
@@ -123,7 +139,12 @@ def test_bundled_call_one_file_end_to_end_scorecard_and_artifact(tmp_path, capsy
     assert "per-dimension (grouped view; never blended)" in out_text
     assert "success: PASS" in out_text
     assert "deterministic: 4 pass" in out_text
-    assert "judge: 0 pass, 0 fail" in out_text
+    # the model-judged lane is reported SEPARATELY (advisory), never merged into
+    # the deterministic tally; with the judge backend unreachable its one rubric
+    # is an honest ERROR and never gates.
+    assert "rubric (model-judged, advisory)" in out_text
+    # the report's judge shelf is populated (advisory), on its own shelf
+    assert ">Model-assisted (advisory)<" in html
 
 
 def test_markdown_report_also_renders_scorecard(tmp_path):
@@ -243,28 +264,42 @@ def test_deterministic_fail_is_nonzero(tmp_path):
     assert code == 1
 
 
-# --- the rubric lane is quarantined, never folded into deterministic --------
+# --- the rubric lane REALLY runs (rubric.v1), advisory, never folded in ------
 
-def test_rubric_lane_is_quarantined_inconclusive(tmp_path, capsys):
+def test_rubric_lane_runs_real_judge_advisory(tmp_path, capsys):
     tf = _write_test(
         tmp_path, name="has-rubric",
         deterministic=[{"id": "refunded", "kind": "tool_call",
                         "name": "issue_refund", "dimension": "outcome"}],
         rubric=[{"id": "was-empathetic", "kind": "judge_rubric",
-                 "dimension": "conversation"}],
+                 "dimension": "conversation",
+                 "criterion": "was the agent empathetic?",
+                 "evidence": ["transcript"]}],
         success={"required": ["all_deterministic_assertions_pass",
                               "no_rubric_failure"]},
     )
+    # the autouse fixture points the judge at an unreachable endpoint, so the
+    # one rubric resolves to an honest ERROR (backend down) -- a REAL rubric.v1
+    # result, deterministic:false, ADVISORY (never gates), with the judge down.
     code = _run(["test", "run", tf, "--agent", "a", "--trace", _demo_trace(),
-                 "--format", "json"])
+                 "--transcript", _demo_transcript(), "--format", "json"])
     result = json.loads(capsys.readouterr().out)
-    assert result["rubric"]["quarantined"] is True
-    assert result["rubric"]["results"][0]["status"] == "INCONCLUSIVE"
-    assert result["rubric"]["results"][0]["deterministic"] is False
-    # the rubric INCONCLUSIVE is NOT counted in the deterministic summary
+    rub = result["rubric"]
+    assert rub["schema"] == "rubric.v1"
+    assert rub["advisory"] is True and rub["gated"] is False
+    r0 = rub["results"][0]
+    assert r0["kind"] == "rubric"
+    assert r0["deterministic"] is False
+    assert r0["status"] == "ERROR"          # backend unreachable, honest
+    assert r0["judge"]["provider"] in ("ollama", "none")
+    # full provenance is present even on the error path
+    assert r0["judge"]["prompt_id"] and r0["judge"]["temperature"] == 0
+    # the rubric result is NOT counted in the deterministic summary
     det = result["assertions"]["summary"]["deterministic"]
     assert det == {"pass": 1, "fail": 0, "inconclusive": 0}
+    # assert.v1's own judge lane stays the {0,0} quarantine (never conflated)
     assert result["assertions"]["summary"]["judge"] == {"pass": 0, "fail": 0}
+    # advisory: a judge ERROR never gates -- the deterministic lane passed
     assert code == 0
 
 

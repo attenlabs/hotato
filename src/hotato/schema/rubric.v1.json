@@ -1,0 +1,187 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/rubric.v1.json",
+  "title": "hotato rubric evaluation, schema rubric.v1",
+  "description": "The output of `hotato rubric run` (and the conversation-test `assertions.rubric` lane): a user-authored rubric criterion evaluated against a call's transcript / tool-trace by a pinned model. HONESTY INVARIANT, structural: every result carries `deterministic: false` with FULL provenance (model + model_digest, prompt id/version/sha256, temperature, input_sha256, cache_key, cached, votes, disagreement, confidence, citations). This is a SEPARATE schema from assert.v1 -- a rubric result is NEVER an assert.v1 result and NEVER carries deterministic:true. `summary` splits pass/fail/inconclusive/error and NEVER emits a merged percentage or an `overall_score`. A rubric result is ADVISORY by default; a run opts into gating with --gate. Missing/insufficient evidence -> INCONCLUSIVE (never a fabricated verdict). Additive-only: new provenance fields may appear without a version bump; a consumer must ignore unknown fields.",
+  "type": "object",
+  "required": ["schema", "exit_code", "results", "summary"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "rubric.v1" },
+    "exit_code": {
+      "enum": [0, 1, 2],
+      "description": "Advisory by default: 0 regardless of rubric verdicts. With --gate, 1 if any result's status is FAIL. INCONCLUSIVE/ERROR stay advisory (a model that could not decide, or a judge backend that was unreachable, never silently gates by itself). 2 is a usage error raised before any result exists."
+    },
+    "advisory": {
+      "type": "boolean",
+      "description": "True unless --gate was passed. When advisory, a rubric FAIL is reported but never affects exit_code -- the model-judged lane never silently blocks a release."
+    },
+    "gated": {
+      "type": "boolean",
+      "description": "True when --gate was passed: a rubric FAIL then gates exit_code like a deterministic FAIL."
+    },
+    "results": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/rubric_result" }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["pass", "fail", "inconclusive", "error", "note"],
+      "additionalProperties": true,
+      "not": { "required": ["overall_score"] },
+      "properties": {
+        "overall_score": false,
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "inconclusive": { "type": "integer", "minimum": 0 },
+        "error": { "type": "integer", "minimum": 0 },
+        "note": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "rubric_result": {
+      "type": "object",
+      "required": ["id", "kind", "deterministic", "status", "judge"],
+      "additionalProperties": true,
+      "not": { "required": ["overall_score"] },
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "const": "rubric" },
+        "deterministic": {
+          "const": false,
+          "description": "HONESTY INVARIANT: always false for a rubric result -- a model backed this verdict, so it is never conflated with an assert.v1 deterministic:true result and never counted in the deterministic summary."
+        },
+        "status": {
+          "enum": ["PASS", "FAIL", "INCONCLUSIVE", "ERROR"],
+          "description": "PASS/FAIL: a decisive, aggregated model verdict. INCONCLUSIVE: insufficient evidence, a non-unanimous or low-confidence vote, or an abstention -- never a guess. ERROR: the judge backend failed (e.g. unreachable); honest, advisory."
+        },
+        "dimension": {
+          "enum": ["outcome", "policy", "conversation", "speech", "reliability"],
+          "description": "OPTIONAL. The report dimension this rubric result is grouped under, copied from the rubric's `dimension` tag. A grouping key only -- never a weight, never part of any blended number."
+        },
+        "rationale": {
+          "type": "string",
+          "description": "The model's short explanation for the verdict, grounded in the cited evidence. Never a score."
+        },
+        "judge": {
+          "type": "object",
+          "required": ["model", "provider", "prompt_id", "prompt_version", "prompt_sha256", "temperature", "input_sha256", "cache_key", "cached"],
+          "additionalProperties": true,
+          "not": { "required": ["overall_score"] },
+          "properties": {
+            "model": { "type": "string", "description": "The pinned model id (never 'latest')." },
+            "model_digest": { "type": ["string", "null"], "description": "The model's content digest from the backend (Ollama /api/tags), pinning exactly which weights judged. Null only when the backend could not report one (then status is ERROR/INCONCLUSIVE)." },
+            "provider": { "type": "string", "description": "The judge backend: 'ollama' (local, default, zero egress), 'hosted' (opt-in egress), or 'fake' (test double)." },
+            "prompt_id": { "type": "string" },
+            "prompt_version": { "type": "integer", "minimum": 1 },
+            "prompt_sha256": { "type": "string" },
+            "temperature": { "const": 0 },
+            "input_sha256": { "type": "string", "description": "sha256 over the canonical evidence + rubric input the verdict was computed from." },
+            "cache_key": { "type": "string", "description": "sha256(provider:model + prompt_sha256 + input_sha256) -- the content address a cache hit is byte-identical under." },
+            "cached": { "type": "boolean", "description": "True if this verdict was replayed byte-identically from the content-addressed cache; false if freshly computed." },
+            "verdict_sha256": { "type": "string", "description": "sha256 of the stored verdict record (excluding runtime cached/drift fields). A cache hit reproduces the same verdict_sha256 -- that is the exact, scoped reproducibility claim (cached replay is byte-identical; the model itself is NOT claimed deterministic)." },
+            "votes": { "type": "array", "items": { "enum": ["pass", "fail", "inconclusive"] }, "description": "The raw per-repetition categorical votes, before aggregation." },
+            "repetitions": { "type": "integer", "minimum": 1 },
+            "aggregation": { "const": "unanimous_or_inconclusive" },
+            "disagreement": { "type": "boolean", "description": "True if the votes were not unanimous." },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "The majority-vote fraction across repetitions. Not a calibrated probability -- the plain agreement rate of the votes." },
+            "confidence_required": { "type": "number", "minimum": 0, "maximum": 1 },
+            "citations": {
+              "type": "array",
+              "description": "Citations to the exact evidence the verdict rests on: transcript turns (turn index + short quote) and/or trace events (span id).",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "type": { "enum": ["transcript_span", "trace_event"] },
+                  "turn": { "type": "integer", "minimum": 0 },
+                  "quote": { "type": "string" },
+                  "span_id": { "type": "string" }
+                }
+              }
+            },
+            "signer": { "type": "object", "description": "OPTIONAL: the {key_id, algo} of an Ed25519/HMAC 'judge-record' signature over the verdict, when the operator opted in." },
+            "signature": { "type": "string", "description": "OPTIONAL: hex signature proving the cached verdict is unmutated." },
+            "drift": {
+              "type": ["object", "null"],
+              "description": "OPTIONAL (only on a --no-cache re-query when a cached verdict existed): a diff surfacing that the fresh verdict differs from the cached one. Never hidden."
+            }
+          }
+        },
+        "input_refs": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "sha256 digests of the exact evidence supplied (transcript, trace) so a verdict is bound to what it judged.",
+          "properties": {
+            "transcript_sha256": { "type": ["string", "null"] },
+            "trace_sha256": { "type": ["string", "null"] }
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Human-review status. `human_required` is set when the rubric's review.human_required_on triggers fire (a FAIL, a disagreement, or confidence below the threshold). A model-judged result stays ADVISORY until a human reviews it; it never forges a human label.",
+          "properties": {
+            "human_required": { "type": "boolean" },
+            "reasons": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "rubric_object": {
+      "type": "object",
+      "description": "The USER-AUTHORED rubric: what to judge and how strictly. Never a default -- a rubric verdict is invalid without a cited, versioned rubric object.",
+      "required": ["id", "criterion", "evidence", "response"],
+      "additionalProperties": true,
+      "not": { "required": ["overall_score"] },
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["judge_rubric", "human_rubric"], "description": "judge_rubric: a model judges it. human_rubric: a human must judge it -- the model NEVER scores a human_rubric item; it stays INCONCLUSIVE with human_required until a person decides." },
+        "dimension": { "enum": ["outcome", "policy", "conversation", "speech", "reliability"] },
+        "criterion": { "type": "string", "description": "The natural-language question the judge decides, e.g. 'Did the agent acknowledge the caller's frustration before proposing a fix?'" },
+        "evidence": {
+          "type": "array",
+          "items": { "enum": ["transcript", "tool_trace"] },
+          "description": "Which evidence the judge may read. Missing required evidence -> INCONCLUSIVE, never a guess."
+        },
+        "response": {
+          "type": "object",
+          "required": ["type", "values"],
+          "properties": {
+            "type": { "const": "categorical" },
+            "values": { "type": "array", "items": { "enum": ["pass", "fail", "inconclusive"] } }
+          }
+        },
+        "examples": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "pass": { "type": "string" },
+            "fail": { "type": "string" }
+          }
+        },
+        "evaluation": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "model": { "type": "string" },
+            "repetitions": { "type": "integer", "minimum": 1 },
+            "aggregation": { "const": "unanimous_or_inconclusive" },
+            "confidence_required": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "human_required_on": {
+              "type": "array",
+              "items": { "enum": ["fail", "disagreement", "confidence_below_threshold"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

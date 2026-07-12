@@ -330,6 +330,22 @@ _EXIT_CODES: dict = {
             "unreadable --transcript/--trace/--state file, an unscorable "
             "--audio recording, or html/md without --out and --audio"),
     ),
+    "rubric": (
+        (2, "no subcommand given (see hotato rubric run/calibrate --help)"),
+    ),
+    "rubric run": (
+        (0, "the rubric lane ran; ADVISORY by default, so verdicts never gate "
+            "(a rubric FAIL is reported, exit stays 0)"),
+        (1, "only with --gate: at least one rubric result is FAIL"),
+        (2, "a usage error / unusable input: a malformed rubrics file, an "
+            "unreadable --transcript/--trace, or a refused off-box judge "
+            "(hosted or non-local endpoint without --judge-egress-opt-in)"),
+    ),
+    "rubric calibrate": (
+        (0, "a reproducible agreement + selective-accuracy artifact was written"),
+        (2, "a usage error / unusable input: a missing --labeled directory, a "
+            "malformed label item, or a refused off-box judge"),
+    ),
     "scenario": (
         (2, "no subcommand given (see hotato scenario init/validate --help)"),
     ),
@@ -2472,6 +2488,135 @@ def _load_state_adapter(path: str):
     return MockStateAdapter.from_json_file(path)
 
 
+def _add_judge_args(p) -> None:
+    """Shared judge/cache flags for the model-judge lane (``rubric run``,
+    ``rubric calibrate``, and ``test run``). The default judge is a LOCAL Ollama
+    model (zero egress); a hosted backend is refused without
+    ``--judge-egress-opt-in``."""
+    p.add_argument("--judge-model", default=None, metavar="ID",
+                   help="the pinned judge model id (default: qwen2.5vl:3b for "
+                        "Ollama, or $HOTATO_JUDGE_MODEL); never 'latest'")
+    p.add_argument("--judge-provider", default="ollama",
+                   choices=["ollama", "hosted"],
+                   help="ollama (default, LOCAL, zero egress) or hosted "
+                        "(off-box, requires --judge-endpoint + "
+                        "--judge-egress-opt-in)")
+    p.add_argument("--judge-endpoint", default=None, metavar="URL",
+                   help="the judge endpoint (default: http://localhost:11434 "
+                        "for Ollama, or $HOTATO_JUDGE_ENDPOINT)")
+    p.add_argument("--judge-egress-opt-in", action="store_true",
+                   help="explicitly allow the judge to reach an OFF-BOX host "
+                        "(a hosted judge, or a non-local Ollama endpoint); the "
+                        "default local judge never leaves the box")
+    p.add_argument("--cache-dir", default=None, metavar="DIR",
+                   help="the content-addressed verdict cache (default: "
+                        "~/.hotato/rubric-cache); a cache hit replays a "
+                        "byte-identical verdict")
+    p.add_argument("--no-cache", action="store_true",
+                   help="re-query the model fresh and DIFF against the cached "
+                        "verdict, surfacing drift instead of replaying")
+    p.add_argument("--no-store", action="store_true",
+                   help="do not read or write the verdict cache at all "
+                        "(every run is fresh; no drift baseline is kept)")
+
+
+def _default_rubric_cache_dir() -> str:
+    return os.path.join(os.path.expanduser("~"), ".hotato", "rubric-cache")
+
+
+def _build_judge(args):
+    """Construct a rubric judge from CLI flags. The DEFAULT is a LOCAL Ollama
+    judge (zero egress); a hosted endpoint is off-box egress and is refused
+    unless ``--judge-egress-opt-in`` is passed (mirrors ``--diarizer
+    pyannoteai --egress-opt-in``). Raises ``ValueError`` (exit 2) on a bad
+    combination or a refused egress."""
+    from . import rubric as R
+    egress = bool(getattr(args, "judge_egress_opt_in", False))
+    endpoint = getattr(args, "judge_endpoint", None)
+    model = getattr(args, "judge_model", None)
+    provider = getattr(args, "judge_provider", None) or "ollama"
+    if provider == "hosted":
+        if not endpoint:
+            raise ValueError(
+                "--judge-provider hosted needs --judge-endpoint URL (an "
+                "OpenAI/Anthropic-compatible /chat/completions host)"
+            )
+        return R.HostedJudge(model=model or "gpt-4o-mini", endpoint=endpoint,
+                             egress_opt_in=egress)
+    return R.OllamaJudge(model=model, endpoint=endpoint, egress_opt_in=egress)
+
+
+def _build_cache(args):
+    from . import rubric as R
+    if getattr(args, "no_cache", False) and getattr(args, "cache_dir", None) is None:
+        # --no-cache still needs the cache to DIFF against (surface drift); use
+        # the default cache location unless the caller pointed elsewhere.
+        pass
+    cache_dir = getattr(args, "cache_dir", None) or _default_rubric_cache_dir()
+    return R.VerdictCache(cache_dir)
+
+
+def _cmd_rubric_run(args) -> int:
+    """``hotato rubric run`` -- REALLY evaluate a rubrics file against a
+    transcript (+ optional trace) with a pinned LOCAL model, returning a
+    ``rubric.v1`` envelope. ADVISORY by default (exit 0 regardless of verdicts);
+    ``--gate`` opts into failing on a rubric FAIL. ``--no-cache`` re-queries and
+    surfaces drift vs the cached verdict."""
+    from . import assert_ as A
+    from . import rubric as R
+
+    rubrics = R.load_rubrics_file(args.rubrics)
+    transcript = A.load_transcript_file(args.transcript) if args.transcript else None
+    trace = A.load_spans_file(args.trace) if args.trace else None
+    judge = _build_judge(args)
+    cache = None if getattr(args, "no_store", False) else _build_cache(args)
+    env = R.evaluate_rubric_lane(
+        rubrics, transcript=transcript, trace=trace, judge=judge, cache=cache,
+        no_cache=bool(args.no_cache), gate=bool(args.gate), sign=bool(args.sign),
+    )
+    if args.out:
+        _atomic_write_text(args.out, _errors.safe_json_dumps(env, indent=2) + "\n")
+    if args.format == "json":
+        print(_errors.safe_json_dumps(env, indent=2))
+    else:
+        print(R.render_run_text(env), end="")
+        if args.out:
+            print(f"wrote rubric.v1 envelope to {args.out}", file=sys.stderr)
+    return env["exit_code"]
+
+
+def _cmd_rubric_calibrate(args) -> int:
+    """``hotato rubric calibrate`` -- score a HUMAN-labeled corpus and write a
+    reproducible agreement + selective-accuracy ARTIFACT (raw counts + method +
+    provenance), never a marketing number. Exit 0 on a written artifact."""
+    from . import rubric as R
+
+    items = R.load_labeled_corpus(args.labeled)
+    judge = _build_judge(args)
+    cache = None if getattr(args, "no_store", False) else _build_cache(args)
+    artifact = R.calibrate(items, judge=judge, cache=cache,
+                           held_out_pct=args.held_out_pct)
+    text = _errors.safe_json_dumps(artifact, indent=2)
+    if args.out:
+        _atomic_write_text(args.out, text + "\n")
+    if args.format == "json" or not args.out:
+        print(text)
+    else:
+        c = artifact["counts"]
+        agree = artifact["agreement"]
+        sel = artifact["selective_accuracy"]
+        print(
+            f"calibration: {c['total']} items, {c['held_out']} held out; "
+            f"agreement="
+            + (f"{agree:.3f}" if agree is not None else "n/a")
+            + " (held-out), selective_accuracy="
+            + (f"{sel:.3f}" if sel is not None else "n/a")
+        )
+        print(f"wrote reproducible calibration artifact to {args.out}",
+              file=sys.stderr)
+    return 0
+
+
 def _cmd_test_run(args) -> int:
     from . import assert_ as A
     from . import conversation_test as CT
@@ -2521,8 +2666,19 @@ def _cmd_test_run(args) -> int:
         state_adapter=state_adapter,
     )
 
+    # The model-judged rubric lane runs with a LOCAL Ollama judge by default
+    # (zero egress). A judge/cache is only built when the test actually has a
+    # rubric lane, so a purely-deterministic test never touches a model or the
+    # cache dir. When the judge backend is unreachable each rubric result is an
+    # honest ERROR (advisory), never a fabricated verdict.
+    has_rubric = bool((doc.get("assertions") or {}).get("rubric"))
+    judge = _build_judge(args) if has_rubric else None
+    cache = (None if getattr(args, "no_store", False)
+             else _build_cache(args)) if has_rubric else None
     result = TR.evaluate_conversation_test(
         doc, ctx, agent_id=args.agent, repetitions=args.repetitions,
+        judge=judge, cache=cache, no_cache=bool(getattr(args, "no_cache", False)),
+        gate_judge=bool(getattr(args, "gate_judge", False)),
     )
 
     manifest = None
@@ -2560,7 +2716,7 @@ def _cmd_test_run(args) -> int:
         page, _env = build(
             stereo=stereo, caller=caller, agent=agent,
             trace=trace_obj, assertions=result["assertions"],
-            conversation=manifest,
+            conversation=manifest, rubric=result["rubric"],
         )
         report_path = os.path.join(args.out, f"report.{fmt}")
         _atomic_write_text(report_path, page)
@@ -5177,7 +5333,106 @@ def build_parser() -> argparse.ArgumentParser:
                      help="text (default: the per-dimension summary), html/md "
                           "(the unified report into --out, needs --audio), or "
                           "json (the full machine result)")
+    _add_judge_args(tr_)
+    tr_.add_argument("--gate-judge", action="store_true",
+                     help="opt into failing the exit code on a rubric FAIL "
+                          "(model-judged results are ADVISORY by default and "
+                          "never gate CI on their own)")
     tr_.set_defaults(func=_cmd_test_run)
+
+    # --- rubric: the REAL model-judge lane (schema rubric.v1) ----------------
+    rb = sub.add_parser(
+        "rubric",
+        help="run the model-judge (rubric.v1) lane, or calibrate it on labels",
+        description=(
+            "The model-judged lane, kept SEPARATE from the deterministic "
+            "assert.v1 wall. Every result is deterministic:false with full "
+            "provenance (pinned model + digest, prompt id/version/sha256, "
+            "temperature 0, cache_key, votes, confidence, citations). The "
+            "default judge is a LOCAL Ollama model -- zero egress. ADVISORY by "
+            "default; --gate opts into failing CI on a rubric FAIL. Cached "
+            "verdicts replay byte-identically; --no-cache re-queries and "
+            "surfaces drift. No overall_score, ever. See docs/RUBRIC.md."
+        ),
+        epilog=_exit_codes_epilog("rubric"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rbsub = rb.add_subparsers(dest="rubric_command", required=True,
+                              metavar="run|calibrate")
+    rr = rbsub.add_parser(
+        "run",
+        help="score a rubrics file against a transcript (+ optional trace)",
+        description=(
+            "Evaluate each rubric in --rubrics against --transcript (and "
+            "--trace) with a pinned LOCAL model, emitting a rubric.v1 envelope. "
+            "Missing required evidence -> INCONCLUSIVE (no model call). A "
+            "human_rubric is never model-scored (stays INCONCLUSIVE, "
+            "human_required). ADVISORY unless --gate."
+        ),
+        epilog=(
+            _exit_codes_epilog("rubric run") + "\n\n"
+            "Examples:\n"
+            "  hotato rubric run --rubrics rubrics.yaml --transcript call.json\n"
+            "  hotato rubric run --rubrics r.yaml --transcript t.json --gate\n"
+            "  hotato rubric run --rubrics r.yaml --transcript t.json --no-cache"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rr.add_argument("--rubrics", required=True, metavar="FILE",
+                    help="a rubrics file: {version:1, rubrics:[...]} or a bare "
+                         "list of rubric objects (id/criterion/evidence/...)")
+    rr.add_argument("--transcript", default=None, metavar="FILE",
+                    help="a transcript JSON ({role,text,...} array or "
+                         "{\"segments\":[...]}); absent -> transcript-requiring "
+                         "rubrics are INCONCLUSIVE")
+    rr.add_argument("--trace", default=None, metavar="FILE",
+                    help="a hotato.voice_trace.v1 JSONL for tool_trace evidence")
+    rr.add_argument("--gate", action="store_true",
+                    help="fail the exit code (1) on a rubric FAIL; advisory "
+                         "(exit 0) by default")
+    rr.add_argument("--sign", action="store_true",
+                    help="sign each cached verdict as a 'judge-record' "
+                         "(Ed25519 [sign] extra, else HMAC), if a key is "
+                         "configured; otherwise the verdict is simply unsigned")
+    rr.add_argument("--out", default=None, metavar="FILE",
+                    help="also write the rubric.v1 envelope JSON here")
+    rr.add_argument("--format", default="text", choices=["text", "json"],
+                    help="text (default) or the full rubric.v1 JSON")
+    _add_judge_args(rr)
+    rr.set_defaults(func=_cmd_rubric_run)
+
+    rc = rbsub.add_parser(
+        "calibrate",
+        help="score a HUMAN-labeled corpus; write a reproducible agreement "
+             "artifact",
+        description=(
+            "Score a directory of human-labeled calls and compute AGREEMENT + "
+            "SELECTIVE ACCURACY on a held-out split, writing a reproducible "
+            "ARTIFACT (raw counts + method + provenance) -- never a marketing "
+            "number. Human labels are MANDATORY here: the model is scored "
+            "against them, never used to create them."
+        ),
+        epilog=(
+            _exit_codes_epilog("rubric calibrate") + "\n\n"
+            "Each *.json item: {rubric, transcript, trace?, label:"
+            "pass|fail|inconclusive, split?:train|held_out}.\n"
+            "Example:\n"
+            "  hotato rubric calibrate --labeled ./labeled --out agreement.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rc.add_argument("--labeled", required=True, metavar="DIR",
+                    help="a directory of *.json human-labeled calibration items")
+    rc.add_argument("--held-out-pct", type=int, default=30, metavar="PCT",
+                    help="held-out percentage for items without an explicit "
+                         "split (default 30); split is a stable hash of the "
+                         "item id, so it is reproducible")
+    rc.add_argument("--out", default=None, metavar="FILE",
+                    help="write the calibration artifact JSON here")
+    rc.add_argument("--format", default="text", choices=["text", "json"],
+                    help="text summary (default) or the full artifact JSON")
+    _add_judge_args(rc)
+    rc.set_defaults(func=_cmd_rubric_calibrate)
 
     # --- scenario: author + validate conversation-test files ----------------
     scn = sub.add_parser(

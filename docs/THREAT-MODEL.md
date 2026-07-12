@@ -41,6 +41,8 @@ open no sockets. This is the whole scoring, analysis, and fixture surface.
 | `demo` | Run the packaged two-call battery. Zero extra files. |
 | `team`, `export`, `benchmark` | Aggregate / export local run data. |
 | `setup`, `describe`, `init` | Print recording config, emit the CLI manifest, scaffold local integration files. |
+| `rubric run`, `rubric calibrate` | Score a local transcript against a rubric with a **LOCAL** model (Ollama at `localhost`). Default path opens no off-box socket; the verdict cache is local. Reaches the network only with an explicit hosted / non-local judge (see below). |
+| `test run` (rubric lane) | Same LOCAL model judge as `rubric run`, run inline on a conversation-test's `assertions.rubric` lane. Local by default. |
 
 Default retention is local-only: reports, envelopes, and exports are written
 where you point them and nowhere else.
@@ -61,7 +63,8 @@ job. Each requires you to name a stack, a repository, or a webhook you configure
 | `issue` | GitHub, via your local `gh` | File a sweep's candidates as an issue. Uses your existing `gh` auth. |
 | `pr` | GitHub, via your local `gh` | Open a PR adding promoted fixtures. Uses your existing `gh` auth. |
 | `apply` | a git clone you point it at | Applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel. |
-| `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
+| `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only AUDIO path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
+| `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | Sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a LOCAL Ollama model and never leaves the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md). |
 
 Notify surfaces (Slack, GitHub) are used only through credentials you configured
 (`gh`, a Slack token) and only for actions you invoked. Hotato ships no default

@@ -810,18 +810,25 @@ def _validate_assertions_envelope(assertions: Any) -> None:
         )
 
 
-def _assertions_headline(assertions: dict):
+def _assertions_headline(assertions: dict, rubric: Optional[dict] = None):
     """``(headline, inconclusive_count)`` from the envelope's summary. The
-    headline ALWAYS carries exactly the deterministic pass/fail split plus
-    the judge-scored count -- never a merged single number, never an
-    ``overall_score``."""
+    headline ALWAYS carries the deterministic pass/fail split and the
+    judge-scored count SIDE BY SIDE -- never a merged single number, never an
+    ``overall_score``. The judge count comes from the SEPARATE ``rubric.v1``
+    envelope (``rubric``) when one is supplied; ``assert.v1``'s own
+    ``summary.judge`` stays the ``{0, 0}`` quarantine it always was, so the two
+    lanes are never conflated in the count."""
     summary = assertions.get("summary") or {}
     det = summary.get("deterministic") or {}
-    judge = summary.get("judge") or {}
     d_pass = det.get("pass", 0)
     d_fail = det.get("fail", 0)
     d_inconclusive = det.get("inconclusive", 0)
-    j_total = judge.get("pass", 0) + judge.get("fail", 0)
+    if rubric is not None:
+        rs = rubric.get("summary") or {}
+        j_total = rs.get("pass", 0) + rs.get("fail", 0)
+    else:
+        judge = summary.get("judge") or {}
+        j_total = judge.get("pass", 0) + judge.get("fail", 0)
     headline = (
         f"{d_pass} deterministic pass / {d_fail} fail  "
         f"{j_total} judge-scored (advisory)"
@@ -1028,15 +1035,101 @@ def _assertions_scorecard(results: list) -> str:
     return '<div class="scorecard">' + "".join(blocks) + '</div>'
 
 
-def _assertions_section(assertions: dict) -> str:
-    """The two-shelf ``assert.v1`` section: "Deterministic" (typed cards, one
-    per result -- OR, when any result carries a ``dimension``, the same cards
-    grouped into the per-dimension scorecard) and "Model-assisted (advisory,
-    quarantined)" (always empty in this build, with a note explaining why). The
-    headline never collapses the deterministic pass/fail split and the judge
-    count into one number, and the scorecard never blends dimensions."""
+_JUDGE_STATUS_COLORS = {"PASS": "green", "FAIL": "red",
+                        "INCONCLUSIVE": "ember", "ERROR": "ember"}
+
+
+def _judge_card(r: dict) -> str:
+    """One model-judged (``rubric.v1``) card: id, the PASS/FAIL/INCONCLUSIVE/
+    ERROR chip, the ``deterministic:false`` flag stated plainly, the full
+    provenance line (model + digest, prompt id+version, temperature, cached/
+    fresh), the rationale, and citations to the exact transcript turns / trace
+    events. Never merged with the deterministic cards; never a score."""
+    j = r.get("judge") or {}
+    status = r.get("status", "INCONCLUSIVE")
+    chip_c = _C[_JUDGE_STATUS_COLORS.get(status, "muted")]
+    model = j.get("model", "")
+    digest = (j.get("model_digest") or "")
+    digest_short = f"@{digest[:12]}" if digest else ""
+    cached = "cached" if j.get("cached") else "fresh"
+    prov = (
+        f'model {_esc(model)}{_esc(digest_short)} · '
+        f'{_esc(str(j.get("prompt_id", "")))} v{_esc(str(j.get("prompt_version", "")))} · '
+        f'temp {_esc(str(j.get("temperature", 0)))} · {cached}'
+    )
+    votes = j.get("votes") or []
+    if votes:
+        prov += (f' · votes {_esc(", ".join(votes))}'
+                 f' · confidence {_esc(f"{j.get('confidence', 0):.2f}")}')
+    rationale = r.get("rationale")
+    rationale_html = f'<div class="asrtreason">{_esc(rationale)}</div>' if rationale else ""
+    cites = j.get("citations") or []
+    cite_html = ""
+    if cites:
+        parts = []
+        for c in cites:
+            if c.get("type") == "trace_event" or c.get("span_id"):
+                parts.append(f'trace {_esc(str(c.get("span_id", "")))}')
+            else:
+                q = c.get("quote", "")
+                parts.append(f'turn {_esc(str(c.get("turn", "")))}: “{_esc(q)}”')
+        cite_html = ('<div class="jcite mono">cites ' + " · ".join(parts) + '</div>')
+    rev = r.get("review") or {}
+    review_html = ""
+    if rev.get("human_required"):
+        review_html = ('<div class="jcite mono">human review required: '
+                       + _esc(", ".join(rev.get("reasons") or [])) + '</div>')
+    drift_html = ""
+    if j.get("drift"):
+        d = j["drift"]
+        drift_html = ('<div class="jcite mono">DRIFT vs cached: '
+                      f'{_esc(str(d.get("cached_status")))} → '
+                      f'{_esc(str(d.get("fresh_status")))}</div>')
+    return (
+        '<div class="jcard" style="border-left:3px solid ' + _C["ember"] + '">'
+        '<div class="achead">'
+        f'<div><span class="kindtag mono">rubric</span> '
+        f'<span class="mono aid">{_esc(r.get("id", ""))}</span> '
+        '<span class="detflag mono">deterministic:false</span></div>'
+        f'<div class="chip small" style="background:{chip_c}">{_esc(status)}</div>'
+        '</div>'
+        f'<div class="jprov mono">{prov}</div>'
+        f'{rationale_html}{cite_html}{review_html}{drift_html}'
+        '</div>'
+    )
+
+
+def _judge_shelf_html(rubric: dict) -> str:
+    """The populated "Model-assisted (advisory)" shelf: real counts + one typed
+    card per rubric result. Reads ONLY the separate ``rubric.v1`` envelope, so
+    the deterministic counts are never touched and there is no ``overall_score``."""
+    results = rubric.get("results") or []
+    s = rubric.get("summary") or {}
+    gated = rubric.get("gated")
+    mode = "GATED (a FAIL fails CI)" if gated else "advisory (never gates by itself)"
+    head = (
+        f'<div class="jsummary mono">{s.get("pass", 0)} pass / {s.get("fail", 0)} '
+        f'fail / {s.get("inconclusive", 0)} inconclusive / {s.get("error", 0)} '
+        f'error &mdash; model-judged, {mode}, deterministic:false, never merged '
+        'into the deterministic counts, no overall_score.</div>'
+    )
+    if not results:
+        return head + '<div class="anempty">No rubric assertions in this run.</div>'
+    return head + "".join(_judge_card(r) for r in results)
+
+
+def _assertions_section(assertions: dict, rubric: Optional[dict] = None) -> str:
+    """The two-shelf assertion section: "Deterministic" (``assert.v1`` typed
+    cards, one per result -- OR, when any result carries a ``dimension``, the
+    same cards grouped into the per-dimension scorecard) and "Model-assisted
+    (advisory)". When a separate ``rubric.v1`` envelope (``rubric``) is supplied
+    the judge shelf is POPULATED with real model-judged results (model id +
+    digest, prompt id+version, cached/fresh, rationale, citations); with none it
+    stays the empty note, byte-identical to before. The headline never collapses
+    the deterministic pass/fail split and the judge count into one number, the
+    two shelves never share a count, and the scorecard never blends dimensions."""
     _validate_assertions_envelope(assertions)
-    headline, d_inconclusive = _assertions_headline(assertions)
+    headline, d_inconclusive = _assertions_headline(assertions, rubric)
     results = assertions.get("results") or []
     if _assertions_have_dimensions(assertions):
         # Grouped VIEW: the SAME cards, arranged into the five dimensions. Each
@@ -1057,23 +1150,37 @@ def _assertions_section(assertions: dict) -> str:
         f'<div class="ancap mono">{d_inconclusive} inconclusive (required '
         'context absent; not a failure)</div>' if d_inconclusive else ""
     )
+    if rubric is not None:
+        judge_title = 'Model-assisted (advisory)'
+        judge_body = _judge_shelf_html(rubric)
+        tnote = (
+            'assert.v1 (deterministic:true) + rubric.v1 (deterministic:false, '
+            'advisory) rendered as two separate shelves. Two counts side by '
+            'side, never a merged score -- no overall_score anywhere.'
+        )
+    else:
+        judge_title = 'Model-assisted (advisory, quarantined)'
+        judge_body = (
+            '<div class="anempty">No judge-scored assertions in this build. A '
+            'judge (model-scored) kind is a separate, quarantined capability, '
+            'not built here -- see docs/ASSERTIONS.md.</div>'
+        )
+        tnote = (
+            'assert.v1: every result below carries a kind tag and '
+            'deterministic:true. Two counts side by side, never a merged score '
+            '-- no overall_score anywhere.'
+        )
     return (
         '<section class="card assertions">'
         '<div class="ctitle">Assertions</div>'
-        '<div class="tnote">assert.v1: every result below carries a kind tag '
-        'and deterministic:true. Two counts side by side, never a merged '
-        'score -- no overall_score anywhere.</div>'
+        f'<div class="tnote">{tnote}</div>'
         f'<div class="asrt-headline mono">{_esc(headline)}</div>'
         f'{inconclusive_note}'
         '<div class="shelf-title">Deterministic (audio / timing / '
         'transcript / trace derived)</div>'
         f'<div class="shelf det-shelf">{det_body}</div>'
-        '<div class="shelf-title">Model-assisted (advisory, quarantined)</div>'
-        '<div class="shelf judge-shelf">'
-        '<div class="anempty">No judge-scored assertions in this build. A '
-        'judge (model-scored) kind is a separate, quarantined capability, '
-        'not built here -- see docs/ASSERTIONS.md.</div>'
-        '</div>'
+        f'<div class="shelf-title">{judge_title}</div>'
+        f'<div class="shelf judge-shelf">{judge_body}</div>'
         '</section>'
     )
 
@@ -1829,6 +1936,18 @@ _ASSERTIONS_CSS = """
 .asrthit{color:%(muted)s;font-size:11.5px;margin-top:4px}
 """ % _C
 
+# Appended ONLY when a ``rubric.v1`` envelope was passed (see _render_page), so
+# a report with no model-judged lane stays byte-identical. The judge card is
+# visually distinct from a deterministic .acard so the two shelves never read as
+# one -- an ember accent, the provenance line, and citations.
+_JUDGE_CSS = """
+.jsummary{color:%(muted)s;font-size:12px;margin-bottom:10px}
+.jcard{background:%(card2)s;border:1px solid %(line)s;border-radius:10px;
+ padding:10px 13px}
+.jprov{color:%(muted)s;font-size:11px;margin-top:8px;word-break:break-word}
+.jcite{color:%(muted)s;font-size:11.5px;margin-top:6px}
+""" % _C
+
 # Appended to the page's <style> ONLY when a ``trace`` was actually passed in
 # (see _render_page): a report built with the default trace=None must stay
 # byte-identical to one built before this feature existed, so these rules are
@@ -2087,7 +2206,8 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  audio_mode: str = AUDIO_NONE,
                  assertions: Optional[dict] = None,
                  trace: Optional[dict] = None,
-                 conversation: Optional[dict] = None) -> str:
+                 conversation: Optional[dict] = None,
+                 rubric: Optional[dict] = None) -> str:
     s = env["summary"]
     # A real failure always dominates: REGRESSION beats NOT SCORABLE beats
     # ALL PASS. NOT SCORABLE appears only when nothing failed but at least one
@@ -2121,6 +2241,10 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         style_css += _TRANSCRIPT_CSS
     if assertions is not None:
         style_css += _ASSERTIONS_CSS
+    # The judge-shelf CSS is appended ONLY when a rubric.v1 envelope was
+    # actually supplied, so a report with no rubric lane stays byte-identical.
+    if rubric is not None:
+        style_css += _JUDGE_CSS
     # The scorecard CSS is appended ONLY when a result actually carries a
     # dimension, so an assertions envelope with no dimensions renders the flat
     # deterministic shelf byte-identically to before the scorecard existed.
@@ -2189,7 +2313,9 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     # so a reader sees the timing story completely before the separate
     # assertion story starts. Absent by default (assertions=None), so a plain
     # report carries none of this markup.
-    assertions_html = _assertions_section(assertions) if assertions is not None else ""
+    assertions_html = (
+        _assertions_section(assertions, rubric) if assertions is not None else ""
+    )
 
     # The trace section (voice_trace.v1, one call-level table) reads after the
     # assertion story: it is supplementary observability CONTEXT, never a score,
@@ -2319,14 +2445,53 @@ def _assertions_scorecard_md(results: list) -> list:
     return L
 
 
-def _assertions_md(assertions: dict) -> list:
+def _judge_shelf_md(rubric: dict) -> list:
+    """The Markdown mirror of the populated judge shelf: real counts + a table
+    of rubric results with model + provenance + rationale. Reads ONLY the
+    separate ``rubric.v1`` envelope; never merged with the deterministic
+    counts."""
+    results = rubric.get("results") or []
+    s = rubric.get("summary") or {}
+    gated = rubric.get("gated")
+    mode = "GATED (a FAIL fails CI)" if gated else "advisory (never gates by itself)"
+    L = [
+        f"{s.get('pass', 0)} pass / {s.get('fail', 0)} fail / "
+        f"{s.get('inconclusive', 0)} inconclusive / {s.get('error', 0)} error "
+        f"-- model-judged, {mode}, deterministic:false, never merged into the "
+        "deterministic counts, no overall_score.",
+        "",
+    ]
+    if not results:
+        L.append("No rubric assertions in this run.")
+        L.append("")
+        return L
+    L.append(_md_row(["id", "status", "deterministic", "model", "cached", "rationale"]))
+    L.append(_md_row(["---"] * 6))
+    for r in results:
+        j = r.get("judge") or {}
+        digest = (j.get("model_digest") or "")
+        model = j.get("model", "")
+        if digest:
+            model = f"{model}@{digest[:12]}"
+        cached = "cached" if j.get("cached") else "fresh"
+        L.append(_md_row([
+            r.get("id", ""), r.get("status", ""), "false", model, cached,
+            (r.get("rationale") or "").replace("|", "\\|"),
+        ]))
+    L.append("")
+    return L
+
+
+def _assertions_md(assertions: dict, rubric: Optional[dict] = None) -> list:
     """The Markdown mirror of ``_assertions_section``: same two shelves, same
     headline, as tables instead of typed HTML cards. When any result carries a
     ``dimension``, the deterministic shelf is grouped into the per-dimension
-    scorecard (each dimension its own counts, no blend); otherwise it renders
-    exactly as before this feature existed."""
+    scorecard (each dimension its own counts, no blend). When a separate
+    ``rubric.v1`` envelope is supplied the judge shelf is POPULATED with real
+    model-judged rows; with none it stays the empty note, byte-identical to
+    before this feature existed."""
     _validate_assertions_envelope(assertions)
-    headline, d_inconclusive = _assertions_headline(assertions)
+    headline, d_inconclusive = _assertions_headline(assertions, rubric)
     results = assertions.get("results") or []
 
     L = ["## Assertions", ""]
@@ -2353,12 +2518,17 @@ def _assertions_md(assertions: dict) -> list:
         else:
             L.append("No deterministic assertions in this run.")
         L.append("")
-    L.append("### Model-assisted (advisory, quarantined)")
-    L.append("")
-    L.append("No judge-scored assertions in this build. A judge (model-scored) "
-             "kind is a separate, quarantined capability, not built here -- "
-             "see docs/ASSERTIONS.md.")
-    L.append("")
+    if rubric is not None:
+        L.append("### Model-assisted (advisory)")
+        L.append("")
+        L.extend(_judge_shelf_md(rubric))
+    else:
+        L.append("### Model-assisted (advisory, quarantined)")
+        L.append("")
+        L.append("No judge-scored assertions in this build. A judge (model-scored) "
+                 "kind is a separate, quarantined capability, not built here -- "
+                 "see docs/ASSERTIONS.md.")
+        L.append("")
     return L
 
 
@@ -2394,7 +2564,8 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
                base_label: Optional[str] = None,
                assertions: Optional[dict] = None,
                trace: Optional[dict] = None,
-               conversation: Optional[dict] = None) -> str:
+               conversation: Optional[dict] = None,
+               rubric: Optional[dict] = None) -> str:
     s = env["summary"]
     eng = env.get("engine", {})
     mode_label = f"suite: {env['suite']}" if env.get("suite") else env.get("mode", "")
@@ -2562,7 +2733,7 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
 
     # assertions (assert.v1): absent by default, byte-identical without it
     if assertions is not None:
-        L.extend(_assertions_md(assertions))
+        L.extend(_assertions_md(assertions, rubric))
 
     # trace (voice_trace.v1): absent by default, byte-identical without it
     if trace is not None:
@@ -2756,6 +2927,7 @@ def build_report_html(*, base: Optional[dict] = None,
                       assertions: Optional[dict] = None,
                       trace: Optional[TraceLike] = None,
                       conversation: Optional[ConversationLike] = None,
+                      rubric: Optional[dict] = None,
                       **kwargs):
     """Score the input and return ``(html_str, envelope)``.
 
@@ -2842,7 +3014,8 @@ def build_report_html(*, base: Optional[dict] = None,
         env["conversation"] = cv
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
                         audio_mode=mode, assertions=assertions,
-                        trace=env.get("trace_context"), conversation=cv)
+                        trace=env.get("trace_context"), conversation=cv,
+                        rubric=rubric)
     return page, env
 
 
@@ -2852,6 +3025,7 @@ def build_report_md(*, base: Optional[dict] = None,
                     assertions: Optional[dict] = None,
                     trace: Optional[TraceLike] = None,
                     conversation: Optional[ConversationLike] = None,
+                    rubric: Optional[dict] = None,
                     **kwargs):
     """Score the input and return ``(markdown_str, envelope)``.
 
@@ -2892,7 +3066,7 @@ def build_report_md(*, base: Optional[dict] = None,
     return (
         _render_md(env, models, cfg, base_env=base, base_label=base_label,
                   assertions=assertions, trace=env.get("trace_context"),
-                  conversation=cv),
+                  conversation=cv, rubric=rubric),
         env,
     )
 
