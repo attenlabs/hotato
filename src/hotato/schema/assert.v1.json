@@ -10,7 +10,11 @@
     "schema": { "const": "assert.v1" },
     "exit_code": {
       "enum": [0, 1, 2],
-      "description": "1 if any result's status is FAIL; 2 for a malformed assertions file / bad input (raised before any result exists); 0 otherwise. An INCONCLUSIVE result never forces exit 1 by itself -- it reports missing required input, not a failure."
+      "description": "Under the default inconclusive_policy 'report': 1 if any result's status is FAIL, 2 for a malformed assertions file / bad input (raised before any result exists), 0 otherwise -- an INCONCLUSIVE result never forces exit 1 by itself. Two opt-in policies change how INCONCLUSIVE gates (see inconclusive_policy): 'fail' makes an INCONCLUSIVE result exit 1 like a FAIL; 'refuse' makes an INCONCLUSIVE result exit 2 (a refusal to return a verdict when required input is missing), taking precedence over a FAIL."
+    },
+    "inconclusive_policy": {
+      "enum": ["report", "fail", "refuse"],
+      "description": "OPTIONAL, additive. The gating policy actually applied to this run (how an INCONCLUSIVE result -- absent required input, never a failed judgment -- affects exit_code). 'report' (default): INCONCLUSIVE never forces a non-zero exit; the historical, backward-compatible behavior. 'fail': INCONCLUSIVE gates like a FAIL (exit 1). 'refuse': INCONCLUSIVE refuses a verdict (exit 2), taking precedence over a FAIL. Absent on envelopes built before this field existed; a consumer must not require it."
     },
     "results": {
       "type": "array",

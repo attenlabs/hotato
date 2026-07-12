@@ -35,10 +35,16 @@ Three layers:
   whole document's worth of) assertions against a ``Context``, producing the
   ``assert.v1`` envelope (schema: ``schema/assert.v1.json``). Exit-code
   convention (mirroring the rest of hotato: 0 pass / 1 fail / 2 usage error):
-  the envelope's own ``exit_code`` is 1 if any assertion's deterministic
-  status is ``FAIL``, else 0; a malformed assertions document raises
-  ``ValueError`` before an envelope is ever built (the caller's existing
-  exit-2 path, see :mod:`hotato.errors`).
+  under the default ``inconclusive_policy`` ``"report"`` the envelope's own
+  ``exit_code`` is 1 if any assertion's deterministic status is ``FAIL``,
+  else 0 -- an ``INCONCLUSIVE`` result (absent required input) never gates.
+  A suite can opt into gating on missing input: ``"fail"`` makes
+  ``INCONCLUSIVE`` gate like a ``FAIL`` (exit 1), ``"refuse"`` makes it exit 2
+  (a refusal to return a verdict, precedence over a ``FAIL``); see
+  :func:`envelope_from_results`. A malformed assertions document -- including
+  a bad ``inconclusive_policy`` value -- raises ``ValueError`` before an
+  envelope is ever built (the caller's existing exit-2 path, see
+  :mod:`hotato.errors`).
 
 ``tool_call`` reads ONLY the ingested trace's spans, never transcript text
 (Cekura's honest boundary applies here too: a tool call absent from the
@@ -76,6 +82,8 @@ __all__ = [
     "run_assertions_from_yaml",
     "run_assertions_from_file",
     "envelope_from_results",
+    "INCONCLUSIVE_POLICIES",
+    "DEFAULT_INCONCLUSIVE_POLICY",
     "render_run_text",
     "build_init_stub",
     "render_assertions_yaml",
@@ -84,6 +92,29 @@ __all__ = [
 SCHEMA = "assert.v1"
 SUPPORTED_DOC_VERSION = 1
 KINDS = ("phrase", "pii", "policy", "tool_call", "outcome")
+
+# How an INCONCLUSIVE result (a statement about ABSENT required input, never a
+# non-deterministic judgment) gates the run's exit code. The default,
+# ``"report"``, is exactly the historical behavior -- INCONCLUSIVE never
+# forces a non-zero exit -- so an existing suite's exit code is unchanged when
+# the policy is left unset. A CI/compliance suite that must NOT stay green on
+# missing input opts into ``"fail"`` (INCONCLUSIVE gates like a FAIL) or
+# ``"refuse"`` (INCONCLUSIVE refuses to return a verdict at all, exit 2).
+INCONCLUSIVE_POLICIES = ("report", "fail", "refuse")
+DEFAULT_INCONCLUSIVE_POLICY = "report"
+
+
+def _validate_inconclusive_policy(value: Any, source: str) -> str:
+    """Return ``value`` unchanged if it is one of :data:`INCONCLUSIVE_POLICIES`,
+    else raise ``ValueError`` (the caller's usage-error / exit-2 path). Used
+    both for the optional top-level ``inconclusive_policy`` key in an
+    assertions document and for an explicit caller/CLI override."""
+    if value not in INCONCLUSIVE_POLICIES:
+        raise ValueError(
+            f"{source}: 'inconclusive_policy' must be one of "
+            f"{INCONCLUSIVE_POLICIES}, got {value!r}"
+        )
+    return value
 
 
 # =========================================================================
@@ -750,6 +781,15 @@ def validate_assertions_doc(doc: Any) -> Tuple[int, List[Dict[str, Any]]]:
             f"assert supports version {SUPPORTED_DOC_VERSION}"
         )
 
+    # Optional top-level gating policy. Validated HERE, before any assertion
+    # is evaluated, so a bad value is the same up-front usage error (exit 2) a
+    # bad kind/regex is -- never a partial result set. Absent = the default
+    # "report" policy is applied by run_assertions.
+    if "inconclusive_policy" in doc:
+        _validate_inconclusive_policy(
+            doc["inconclusive_policy"], "assertions document"
+        )
+
     items = doc["assertions"]
     if not isinstance(items, list) or not items:
         raise ValueError("'assertions' must be a non-empty list")
@@ -1295,60 +1335,125 @@ def evaluate_assertion(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     return _EVALUATORS[a["kind"]](a, ctx)
 
 
-def envelope_from_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+def envelope_from_results(
+    results: List[Dict[str, Any]],
+    inconclusive_policy: str = DEFAULT_INCONCLUSIVE_POLICY,
+) -> Dict[str, Any]:
     """Build the ``assert.v1`` envelope from a list of already-evaluated
-    results. ``exit_code`` is 1 if any result's ``status`` is ``FAIL``, else
-    0 (an ``INCONCLUSIVE`` result never forces a non-zero exit; it is a
-    statement about missing input, not a failure). ``summary`` splits
-    deterministic from judge counts and never emits a merged score."""
+    results. ``exit_code`` depends on ``inconclusive_policy`` -- how an
+    ``INCONCLUSIVE`` result (absent required INPUT, never a failure of
+    judgment) gates the run:
+
+    * ``"report"`` (default): ``exit_code`` is 1 if any result is ``FAIL``,
+      else 0 -- an ``INCONCLUSIVE`` result never forces a non-zero exit. This
+      is the historical behavior, unchanged, so a suite that never sets a
+      policy gates exactly as it did before this field existed.
+    * ``"fail"``: an ``INCONCLUSIVE`` result gates like a ``FAIL`` --
+      ``exit_code`` is 1 if any result is ``FAIL`` OR ``INCONCLUSIVE``, else 0.
+    * ``"refuse"``: an ``INCONCLUSIVE`` result refuses a verdict outright --
+      ``exit_code`` is 2 if any result is ``INCONCLUSIVE`` (this exit-2
+      refusal takes PRECEDENCE over a ``FAIL``: "I will not return a verdict
+      when required input is missing"), else 1 if any result is ``FAIL``,
+      else 0.
+
+    The envelope always carries the ``inconclusive_policy`` actually applied,
+    and ``summary.note`` states that policy plus the counts. ``summary``
+    always splits deterministic from judge counts and never emits a merged
+    score (``summary.judge`` stays the ``{"pass": 0, "fail": 0}`` quarantine
+    -- a judge kind is a separate capability, not built here)."""
+    _validate_inconclusive_policy(inconclusive_policy, "envelope_from_results")
     counts = {"pass": 0, "fail": 0, "inconclusive": 0}
     for r in results:
         key = r["status"].lower()
         counts[key] = counts.get(key, 0) + 1
-    exit_code = 1 if counts["fail"] > 0 else 0
+    fail = counts["fail"]
+    inconclusive = counts["inconclusive"]
+    if inconclusive_policy == "refuse":
+        # exit-2 refusal takes precedence over a FAIL: a run missing required
+        # input withholds its verdict rather than reporting a partial one.
+        exit_code = 2 if inconclusive > 0 else (1 if fail > 0 else 0)
+    elif inconclusive_policy == "fail":
+        exit_code = 1 if (fail > 0 or inconclusive > 0) else 0
+    else:  # "report": historical behavior, INCONCLUSIVE never gates
+        exit_code = 1 if fail > 0 else 0
     return {
         "schema": SCHEMA,
         "exit_code": exit_code,
+        "inconclusive_policy": inconclusive_policy,
         "results": results,
         "summary": {
             "deterministic": {
                 "pass": counts["pass"],
-                "fail": counts["fail"],
-                "inconclusive": counts["inconclusive"],
+                "fail": fail,
+                "inconclusive": inconclusive,
             },
             "judge": {"pass": 0, "fail": 0},
             "note": (
-                f"{len(results)} deterministic assertion(s) in this run; 0 "
-                "judge-scored assertions (a judge kind is a separate, "
-                "quarantined capability, not built here)"
+                f"inconclusive_policy={inconclusive_policy}: "
+                f"{counts['pass']} pass, {fail} fail, {inconclusive} "
+                f"inconclusive across {len(results)} deterministic "
+                "assertion(s); 0 judge-scored assertions (a judge kind is a "
+                "separate, quarantined capability, not built here)"
             ),
         },
     }
 
 
-def run_assertions(doc: Any, ctx: Context) -> Dict[str, Any]:
+def _resolve_inconclusive_policy(
+    doc: Any, override: Optional[str]
+) -> str:
+    """Resolve the gating policy for a run: an explicit caller/CLI
+    ``override`` wins; else the document's own optional top-level
+    ``inconclusive_policy`` key (already value-validated by
+    :func:`validate_assertions_doc`); else the default ``"report"``. An
+    explicit override is validated here so a bad caller argument is the same
+    ``ValueError`` a bad document key is."""
+    if override is not None:
+        return _validate_inconclusive_policy(override, "inconclusive_policy argument")
+    if isinstance(doc, dict) and "inconclusive_policy" in doc:
+        return _validate_inconclusive_policy(
+            doc["inconclusive_policy"], "assertions document"
+        )
+    return DEFAULT_INCONCLUSIVE_POLICY
+
+
+def run_assertions(
+    doc: Any, ctx: Context, inconclusive_policy: Optional[str] = None
+) -> Dict[str, Any]:
     """Validate a parsed assertions document and evaluate every assertion in
     it against ``ctx``, returning the ``assert.v1`` envelope. Raises
     ``ValueError`` for a malformed document -- validation runs before any
     assertion is evaluated, so a bad file never produces a partial result
-    set (the caller's exit-2 usage-error path, see :mod:`hotato.errors`)."""
+    set (the caller's exit-2 usage-error path, see :mod:`hotato.errors`).
+
+    ``inconclusive_policy`` (how an ``INCONCLUSIVE`` result gates the exit
+    code, see :func:`envelope_from_results`) resolves as: an explicit
+    caller/CLI argument overrides the document's own optional top-level
+    ``inconclusive_policy`` key; absent both, the default ``"report"`` (the
+    historical, backward-compatible behavior)."""
     _version, assertions = validate_assertions_doc(doc)
+    policy = _resolve_inconclusive_policy(doc, inconclusive_policy)
     results = [evaluate_assertion(a, ctx) for a in assertions]
-    return envelope_from_results(results)
+    return envelope_from_results(results, inconclusive_policy=policy)
 
 
-def run_assertions_from_yaml(text: str, ctx: Context) -> Dict[str, Any]:
+def run_assertions_from_yaml(
+    text: str, ctx: Context, inconclusive_policy: Optional[str] = None
+) -> Dict[str, Any]:
     """Convenience: parse an ``assertions.yaml`` TEXT and evaluate it in one
-    call. See :func:`parse_assertions_yaml` and :func:`run_assertions`."""
-    return run_assertions(parse_assertions_yaml(text), ctx)
+    call. See :func:`parse_assertions_yaml` and :func:`run_assertions`
+    (including how ``inconclusive_policy`` is resolved)."""
+    return run_assertions(parse_assertions_yaml(text), ctx, inconclusive_policy)
 
 
-def run_assertions_from_file(path: str, ctx: Context) -> Dict[str, Any]:
+def run_assertions_from_file(
+    path: str, ctx: Context, inconclusive_policy: Optional[str] = None
+) -> Dict[str, Any]:
     """Convenience: read ``path`` (an ``assertions.yaml`` file, guarded by
     :func:`hotato.errors.open_regular`) and evaluate it in one call."""
     with _open_regular(path, "r", encoding="utf-8") as fh:
         text = fh.read()
-    return run_assertions_from_yaml(text, ctx)
+    return run_assertions_from_yaml(text, ctx, inconclusive_policy)
 
 
 # =========================================================================
@@ -1370,6 +1475,12 @@ def render_run_text(env: Dict[str, Any]) -> str:
         by_kind.setdefault(r["kind"], []).append(r)
 
     lines = [f"hotato assert ({env['schema']}) -- exit_code={env['exit_code']}"]
+    # Surface a non-default gating policy so a reader can see WHY an
+    # inconclusive-only run exited non-zero; the default "report" run's text
+    # output stays byte-identical to before this field existed.
+    policy = env.get("inconclusive_policy", DEFAULT_INCONCLUSIVE_POLICY)
+    if policy != DEFAULT_INCONCLUSIVE_POLICY:
+        lines.append(f"inconclusive_policy: {policy}")
     for kind in KINDS:
         results = by_kind.get(kind)
         if not results:
@@ -1533,6 +1644,12 @@ def _init_stub_header(
             "# timing starter seeded from the --stereo recording's own "
             "scored verdict."
         )
+    # Left commented (a starter, not an imposed policy): uncomment to make a
+    # missing-input INCONCLUSIVE gate CI rather than silently stay green.
+    lines.append(
+        "# inconclusive_policy: fail  # CI/compliance suites should set fail "
+        "or refuse"
+    )
     lines.append("")
     return "\n".join(lines) + "\n"
 

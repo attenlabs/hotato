@@ -3125,13 +3125,72 @@ When present, it adds one "Assertions" section with:
 `assertions=None` (the default) is byte-identical to a report built before
 this parameter existed: no new markup, no new CSS, nothing.
 
+## `inconclusive_policy`: making missing input gate CI
+
+By default an `INCONCLUSIVE` result -- a check whose required input was simply
+absent -- never fails the run. That is the honest default for an exploratory
+run, but it means a suite whose transcript or trace never arrived stays
+silently green. `inconclusive_policy` lets a suite opt into gating on that:
+
+| value | how `INCONCLUSIVE` gates | `exit_code` |
+| --- | --- | --- |
+| `report` (default) | never gates -- reports missing input, unchanged | `1` if any `FAIL`, else `0` |
+| `fail` | gates exactly like a `FAIL` | `1` if any `FAIL` **or** `INCONCLUSIVE`, else `0` |
+| `refuse` | refuses to return a verdict at all | `2` if any `INCONCLUSIVE`, else `1` if any `FAIL`, else `0` |
+
+**`refuse` precedence.** Under `refuse`, an `INCONCLUSIVE` result exits `2`
+*even if another assertion also `FAIL`ed* -- the exit-2 refusal ("I will not
+return a verdict when required input is missing") takes precedence over the
+FAIL. A run that cannot fully see its inputs withholds its verdict rather than
+reporting a partial one.
+
+The **default is `report`**, so a suite that sets nothing gates exactly as it
+did before this field existed -- fully backward-compatible. **CI and
+compliance suites should set `fail` or `refuse`**, so a missing transcript or
+trace fails loudly instead of passing by omission.
+
+Set it as an optional top-level key in the assertions document:
+
+```yaml
+version: 1
+inconclusive_policy: fail   # or: refuse | report (default)
+assertions:
+  - id: disclosure
+    kind: phrase
+    regex: "recorded for quality"
+    role: agent
+```
+
+or override the document's key from the CLI (the flag wins):
+
+```bash
+hotato assert run --assertions assertions.yaml --transcript call.json \
+    --inconclusive-policy refuse
+```
+
+or from Python (an explicit argument overrides the document's key; absent
+both, the default `report` applies):
+
+```python
+env = A.run_assertions_from_file("assertions.yaml", ctx, inconclusive_policy="fail")
+```
+
+A bad value (anything but `report`/`fail`/`refuse`), whether in the document
+or passed explicitly, is a usage error (`ValueError`, exit `2`) raised during
+validation, before any assertion is evaluated. The envelope always carries the
+`inconclusive_policy` actually applied and states it, with the counts, in
+`summary.note`.
+
 ## Mapping to a CI gate
 
 Same exit-code convention as every other hotato command: `0` every assertion
-passed (an `INCONCLUSIVE` result never forces a non-zero exit -- it reports
-missing input, not a failure), `1` at least one assertion's deterministic
-status is `FAIL`, `2` a malformed assertions file or bad input, raised before
-any assertion is ever evaluated.
+passed (under the default `report` policy an `INCONCLUSIVE` result never forces
+a non-zero exit -- it reports missing input, not a failure; under `fail` it
+gates like a `FAIL`, under `refuse` it exits `2`), `1` at least one assertion's
+deterministic status is `FAIL` (or, under `fail`, `INCONCLUSIVE`), `2` a
+refusal under `refuse` (an `INCONCLUSIVE` result, taking precedence over a
+`FAIL`) or a malformed assertions file / bad input, raised before any
+assertion is ever evaluated.
 
 ```bash
 python3 - <<'PY'

@@ -300,13 +300,18 @@ _EXIT_CODES: dict = {
             "--stereo recording, or an existing --out without --force"),
     ),
     "assert run": (
-        (0, "every assertion's deterministic status was PASS or "
-            "INCONCLUSIVE"),
-        (1, "at least one assertion's deterministic status was FAIL"),
-        (2, "usage error or unusable input: a malformed --assertions file, "
-            "an unreadable --transcript/--trace file, an unscorable "
-            "--stereo recording, or --transcribe without --stereo (or "
-            "combined with --transcript)"),
+        (0, "every assertion's deterministic status was PASS or (under the "
+            "default --inconclusive-policy report) INCONCLUSIVE"),
+        (1, "at least one assertion's deterministic status was FAIL -- or, "
+            "under --inconclusive-policy fail, at least one INCONCLUSIVE "
+            "(missing required input) result"),
+        (2, "under --inconclusive-policy refuse, at least one INCONCLUSIVE "
+            "result withheld the verdict (this refusal takes precedence over "
+            "a FAIL); OR a usage error / unusable input: a malformed "
+            "--assertions file (including a bad inconclusive_policy value), "
+            "an unreadable --transcript/--trace file, an unscorable --stereo "
+            "recording, or --transcribe without --stereo (or combined with "
+            "--transcript)"),
     ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
@@ -2384,7 +2389,10 @@ def _cmd_assert_run(args) -> int:
         trace_path=args.trace,
         timing=timing,
     )
-    env_out = A.run_assertions_from_file(args.assertions, ctx)
+    env_out = A.run_assertions_from_file(
+        args.assertions, ctx,
+        inconclusive_policy=getattr(args, "inconclusive_policy", None),
+    )
     if args.format == "json":
         print(_errors.safe_json_dumps(env_out, indent=2))
     else:
@@ -4526,7 +4534,10 @@ def build_parser() -> argparse.ArgumentParser:
             "run's timing, then evaluate --assertions against it. Every "
             "one of the 5 kinds here is deterministic; --format text "
             "prints per-kind PASS/FAIL/INCONCLUSIVE counts, and the judge "
-            "count separately -- never one merged number."
+            "count separately -- never one merged number. By default an "
+            "INCONCLUSIVE (missing-input) result never fails the run; a "
+            "CI/compliance suite can make it gate with --inconclusive-policy "
+            "fail or refuse (or the same key in the assertions file)."
         ),
         epilog=(
             _exit_codes_epilog("assert run") + "\n\n"
@@ -4571,6 +4582,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="a hotato.voice_trace.v1 JSONL (from `hotato "
                          "trace ingest`); tool_call assertions read only "
                          "these spans, never transcript text")
+    ar.add_argument("--inconclusive-policy", default=None,
+                    choices=["report", "fail", "refuse"],
+                    help="how an INCONCLUSIVE (missing required input) result "
+                         "gates the exit code: report (default) never fails "
+                         "on inconclusive; fail treats it like a FAIL (exit "
+                         "1); refuse withholds a verdict (exit 2, precedence "
+                         "over a FAIL). Overrides any inconclusive_policy in "
+                         "the --assertions file; CI/compliance suites should "
+                         "set fail or refuse")
     ar.add_argument("--format", default="text", choices=["text", "json"],
                     help="output format (default text)")
     ar.set_defaults(func=_cmd_assert_run)
