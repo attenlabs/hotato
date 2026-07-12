@@ -159,7 +159,8 @@ _EXIT_CODES: dict = {
     "report": (
         (0, "report written, every scorable event passed"),
         (1, "a scorable event failed"),
-        (2, "usage error or unusable input; --no-fail always exits 0"),
+        (2, "usage error or unusable input (including an unreadable or "
+            "schema-mismatched --trace file); --no-fail always exits 0"),
     ),
     "team": (
         (0, "aggregated (fewer than 2 runs is stated plainly, never padded "
@@ -925,6 +926,13 @@ def _cmd_report(args) -> int:
         )
     base = _load_base_envelope(args.base) if args.base else None
     base_label = os.path.basename(args.base) if args.base else None
+    # An optional voice trace is loaded here (import inside the function so
+    # report.py never imports hotato.trace -- that would be a circular import)
+    # and handed to the report builder purely as CONTEXT; it is never scored.
+    trace = None
+    if args.trace:
+        from . import trace as _trace
+        trace = _trace.load_voice_trace_jsonl(args.trace)
     out = args.out
     if out is None:
         out = "hotato-report.md" if args.format == "md" else "hotato-report.html"
@@ -935,6 +943,7 @@ def _cmd_report(args) -> int:
             embed_audio=args.embed_audio,
             base=base,
             base_label=base_label,
+            trace=trace,
             suite=args.suite,
             stack=args.stack,
             scenarios_dir=args.scenarios,
@@ -952,6 +961,7 @@ def _cmd_report(args) -> int:
             embed_audio=args.embed_audio,
             base=base,
             base_label=base_label,
+            trace=trace,
             stereo=args.stereo,
             caller=args.caller,
             agent=args.agent,
@@ -3327,6 +3337,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  hotato report --stereo call.wav --out report.html\n"
             "  hotato report --stereo call.wav --embed-audio --out report.html\n"
             "  hotato report --caller a.wav --agent b.wav --expect yield --out r.html\n"
+            "  hotato report --stereo call.wav --trace voice_trace.jsonl --out report.html\n"
             "  hotato report --suite barge-in --out selftest.html"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -3364,6 +3375,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "base.json) to compare against: renders per-scenario "
                          "talk-over and time-to-yield deltas with clear "
                          "worse/better marks")
+    rp.add_argument("--trace", default=None, metavar="voice_trace.jsonl",
+                    help="a hotato voice trace (hotato trace ingest ... --out "
+                         "voice_trace.jsonl) to render as a collapsed 'Trace "
+                         "(context, not a score)' section: discrete voice-"
+                         "pipeline events (TTS cancel/stop, ASR partials, tool "
+                         "calls) shown alongside the timing. Context only, "
+                         "never scored; a redacted span shows [redacted].")
     rp.add_argument("--out", default=None, metavar="PATH",
                     help="where to write the report (default hotato-report.html, "
                          "or hotato-report.md with --format md)")
