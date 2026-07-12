@@ -173,12 +173,21 @@ def test_hmac_sign_and_verify_attestation(tmp_path, monkeypatch):
     assert good["tier"] == "authenticated"
     assert good["ok"] is True
 
+    # K7: a CLAIMED signature that does not verify under the given key is an
+    # authenticity FAILURE (wrong key or forged/altered signature). It must fail
+    # closed -- never ok=True/unsigned, which previously let forged evidence pass.
     wrong = _attest.verify_attestation(c, att, key=b"the-wrong-key")
     assert wrong["authenticated"] is False
-    assert wrong["ok"] is True                 # digest still matches: not tampered
+    assert wrong["ok"] is False
+    assert wrong["tier"] == "tampered"
 
+    # A claimed signature with NO key to check it is honestly "unverified"
+    # (claimed but not checked), distinct from explicitly unsigned; it is not
+    # authenticated and must not be treated as verified.
     absent = _attest.verify_attestation(c, att, key=None)
     assert absent["authenticated"] is False
+    assert absent["tier"] == "unverified"
+    assert absent["ok"] is True
 
 
 def test_signed_then_body_edited_is_tampered(tmp_path, monkeypatch):
@@ -254,3 +263,30 @@ def test_legacy_contract_without_attestation_is_unattested(tmp_path, monkeypatch
     assert a["authenticity"] == "unattested"
     assert a["ok"] is True                 # still usable (backward compatible)
     assert a["authenticated"] is False     # but never authenticated
+
+
+# --- K2/K7 regression: signature classification must fail closed -------------
+
+def test_k7_wrong_key_attestation_is_refused_not_unsigned(tmp_path, monkeypatch):
+    """A present hmac signature that fails under the verifier's key must be
+    tampered/ok=False, never silently downgraded to unsigned (K7)."""
+    _isolate_key(monkeypatch, tmp_path)
+    c = _make(tmp_path)["contract"]
+    digest, fields = _attest.canonical_contract_digest(c)
+    att = _attest.sign(digest, key=b"real-key", signer="t", digest_fields=fields)
+    v = _attest.verify_attestation(c, att, key=b"attacker-guess")
+    assert v["ok"] is False and v["authenticated"] is False
+    assert v["tier"] == "tampered"
+
+
+def test_k7_altered_signature_bytes_is_refused(tmp_path, monkeypatch):
+    """Flipping the signature bytes (forgery attempt) must not authenticate and
+    must not read as unsigned."""
+    _isolate_key(monkeypatch, tmp_path)
+    c = _make(tmp_path)["contract"]
+    digest, fields = _attest.canonical_contract_digest(c)
+    key = b"real-key"
+    att = _attest.sign(digest, key=key, signer="t", digest_fields=fields)
+    att = dict(att); att["signature"] = "00" + att["signature"][2:]  # tamper
+    v = _attest.verify_attestation(c, att, key=key)
+    assert v["ok"] is False and v["tier"] == "tampered"

@@ -44,20 +44,51 @@ def _sha256_str(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
+# The scorer identity pins the SOURCE that actually determines a verdict: the
+# package version marker (__init__), the scoring orchestration (core.py), and
+# the entire vendored scoring engine (_engine/*.py). Hashing only __init__.py
+# left _engine/score.py free to change while the pin stayed constant, so a later
+# build (or a local edit) could re-score the same audio to a different verdict
+# under an unchanged "wheel hash". This covers every byte that moves a score.
+_SCORER_SOURCES = ("__init__.py", "core.py")
+
+
 def wheel_hash() -> str:
-    """Best-effort content hash pinning the exact installed scorer wheel: the
-    sha256 of the hotato package ``__init__``. Deterministic and network-free.
-    Returns the documented literal ``"unverified"`` when the package file cannot
-    be located (so a manifest never fabricates a wheel identity it cannot back)."""
+    """Deterministic, network-free content hash of the installed scorer source:
+    ``__init__.py`` + ``core.py`` + every module under ``_engine/``. Any edit to
+    a byte that can change a verdict changes this hash. Returns the documented
+    literal ``"unverified"`` when the package source cannot be located (so a
+    manifest never fabricates a scorer identity it cannot back)."""
     try:
         import hotato as _pkg
-        path = getattr(_pkg, "__file__", None)
-        if path and os.path.exists(path):
-            with _open_regular(path) as fh:
-                return hashlib.sha256(fh.read()).hexdigest()
+        init = getattr(_pkg, "__file__", None)
+        if not init or not os.path.exists(init):
+            return "unverified"
+        pkg_dir = os.path.dirname(os.path.abspath(init))
+        parts = []  # (relpath, sha256) pairs, sorted for a stable manifest
+        for name in _SCORER_SOURCES:
+            fp = os.path.join(pkg_dir, name)
+            if os.path.exists(fp):
+                with _open_regular(fp) as fh:
+                    parts.append((name, hashlib.sha256(fh.read()).hexdigest()))
+        eng_dir = os.path.join(pkg_dir, "_engine")
+        if os.path.isdir(eng_dir):
+            for root, _dirs, files in os.walk(eng_dir):
+                if "__pycache__" in root:
+                    continue
+                for f in files:
+                    if not f.endswith(".py"):
+                        continue
+                    fp = os.path.join(root, f)
+                    rel = os.path.relpath(fp, pkg_dir)
+                    with _open_regular(fp) as fh:
+                        parts.append((rel, hashlib.sha256(fh.read()).hexdigest()))
+        if not parts:
+            return "unverified"
+        manifest = "\n".join(f"{rel}:{h}" for rel, h in sorted(parts))
+        return hashlib.sha256(manifest.encode("utf-8")).hexdigest()
     except Exception:
-        pass
-    return "unverified"
+        return "unverified"
 
 
 def _config_to_dict(cfg: ScoreConfig) -> dict:

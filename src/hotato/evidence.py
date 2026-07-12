@@ -100,7 +100,13 @@ _DIMENSIONS: Dict[str, Dict[Optional[str], int]] = {
         "signed": TIER_ATTESTED,
         "repo_pinned": TIER_PAIRED,
         "manifest_pinned": TIER_PAIRED,     # both sides scored under one pinned policy hash
+        # a signature is claimed but there is no key to verify it: the manifest is
+        # still pinned, so it holds at PAIRED, but it is NOT upgraded to attested.
+        "signature_unverified": TIER_PAIRED,
         "unsigned": TIER_MEASURED,
+        # a claimed signature that FAILS verification (tamper / wrong key): refuse,
+        # strictly below an honestly-unsigned manifest.
+        "signature_invalid": TIER_NONE,
         "changed": TIER_NONE,               # policy differs between sides: refuse
         None: TIER_MEASURED,
     },
@@ -113,6 +119,9 @@ _DIMENSIONS: Dict[str, Dict[Optional[str], int]] = {
     "score_integrity": {
         "recomputed": TIER_ATTESTED,        # verdict re-derived from audio at trial time
         "envelope_only": TIER_ASSERTED,     # trusted a stored verdict.passed
+        # the recompute ran under a scorer whose source bytes differ from the one
+        # the manifest pinned: not a verifiable recompute under the pinned scorer
+        "scorer_changed": TIER_NONE,        # refuse
         "mismatch": TIER_NONE,              # stored verdict != recomputed: refuse
         None: TIER_ASSERTED,
     },

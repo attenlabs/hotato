@@ -182,9 +182,13 @@ def verify_attestation(contract: dict, attestation: dict, *,
         body was edited after signing: ``tier="tampered"``, ``ok=False``;
       * algorithm ``"hmac-sha256"`` + a key whose HMAC matches -> ``tier=
         "authenticated"``, ``authenticated=True``;
-      * algorithm ``"none"``, no key available, or a signature that does not
-        verify -> ``tier="unsigned"``, ``authenticated=False``, ``ok=True``,
-        "unsigned, internally consistent evidence".
+      * a claimed signature that does NOT verify (wrong key / altered) ->
+        ``tier="tampered"``, ``ok=False``: an authenticity failure, refused;
+      * a claimed signature with no key available to check it ->
+        ``tier="unverified"``, ``authenticated=False``, ``ok=True``: honest
+        "claimed but not checked", distinct from explicitly unsigned;
+      * algorithm ``"none"`` (explicitly unsigned) -> ``tier="unsigned"``,
+        ``authenticated=False``, ``ok=True``, "unsigned, internally consistent".
     """
     recomputed, _ = canonical_contract_digest(contract)
     attestation = attestation or {}
@@ -210,10 +214,11 @@ def verify_attestation(contract: dict, attestation: dict, *,
             return {
                 "ok": True,
                 "authenticated": False,
-                "tier": "unsigned",
+                "tier": "unverified",
                 "reason": (
-                    "signed with hmac-sha256 but no key is available to verify "
-                    "it; unsigned, internally consistent evidence"
+                    "a hmac-sha256 signature is claimed but no key is available "
+                    "to verify it; the claimed signature was NOT checked "
+                    "(unverified, not the same as explicitly unsigned)"
                 ),
                 "recomputed_digest": recomputed,
                 "subject_digest": subject,
@@ -232,13 +237,14 @@ def verify_attestation(contract: dict, attestation: dict, *,
                 "subject_digest": subject,
             }
         return {
-            "ok": True,
+            "ok": False,
             "authenticated": False,
-            "tier": "unsigned",
+            "tier": "tampered",
             "reason": (
-                "signature did not verify (wrong key or altered signature); "
-                "cannot authenticate, treated as unsigned, internally "
-                "consistent evidence"
+                "a claimed hmac-sha256 signature did NOT verify (wrong key or "
+                "altered signature); refusing to authenticate. A present-but-"
+                "failing signature is an authenticity failure, never treated as "
+                "unsigned evidence"
             ),
             "recomputed_digest": recomputed,
             "subject_digest": subject,
@@ -397,6 +403,19 @@ def assess_contract(contract: dict, *, bundle_dir: Optional[str] = None,
             return {
                 "authenticity": "tampered",
                 "ok": False,
+                "authenticated": False,
+                "reason": v["reason"],
+                "recomputed_digest": recomputed,
+                "embedded_digest": embedded,
+                "signature_present": signature_present,
+            }
+        if v["tier"] == "unverified":
+            # a signature is claimed but could not be checked (no key): honest
+            # "unverified" -- passes as internally-consistent, but NOT authenticated
+            # and NOT silently relabeled "unsigned".
+            return {
+                "authenticity": "unverified",
+                "ok": True,
                 "authenticated": False,
                 "reason": v["reason"],
                 "recomputed_digest": recomputed,
