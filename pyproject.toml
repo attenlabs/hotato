@@ -6,21 +6,34 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hotato"
 version = "1.3.1"
-description = "Open-source, self-hosted conversation QA for voice agents: simulate, evaluate, review, and track calls across five dimensions with the evidence behind every result. MIT."
+description = "Conversation QA for voice agents. Catch the calls that pass every text check but talk over the caller, skip a required disclosure, or claim a task that never happened. Self-hosted, offline, MIT."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Attention Labs, Inc." }]
 keywords = [
-    "hotato", "voice-ai", "voice-agents", "evals", "barge-in", "turn-taking",
-    "mcp", "agent-native", "observability", "reliability", "livekit",
-    "pipecat", "vapi",
+    "hotato", "conversation-qa", "voice-ai", "voice-agents", "ai-agents",
+    "voice-agent-testing", "llm-eval", "evals", "regression-testing", "ci",
+    "self-hosted", "offline", "barge-in", "turn-taking", "reliability",
+    "observability", "mcp", "agent-native", "ollama", "livekit", "pipecat",
+    "vapi", "retell",
 ]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Sound/Audio :: Analysis",
     "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
 ]
 # The core has ZERO required third-party dependencies: it is stdlib-only so it
 # runs anywhere with `uvx` and adds no supply-chain surface. numpy is used only
@@ -112,8 +125,11 @@ hotato-mcp = "hotato.mcp_server:main"
 hotato = "hotato.pytest_plugin"
 
 [project.urls]
-Repository = "https://github.com/attenlabs/hotato"
 Homepage = "https://hotato.dev"
+Documentation = "https://github.com/attenlabs/hotato/tree/main/docs"
+Repository = "https://github.com/attenlabs/hotato"
+Changelog = "https://github.com/attenlabs/hotato/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/attenlabs/hotato/issues"
 "Open engine (upstream)" = "https://github.com/quantumCF/voice-agent-barge-in-tests"
 
 [tool.setuptools.packages.find]
