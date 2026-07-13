@@ -1,0 +1,8 @@
+{
+  "kind": "synthetic.source-result-reference.v1",
+  "test_id": "refund-claimed-not-issued",
+  "deterministic_status": "FAIL",
+  "advisory_status": "UNAVAILABLE",
+  "origin": "fixture"
+}
+

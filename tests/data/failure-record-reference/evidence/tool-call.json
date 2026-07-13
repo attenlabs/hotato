@@ -1,0 +1,8 @@
+{
+  "kind": "synthetic.tool-call-reference.v1",
+  "span_id": "tool-refund-01",
+  "tool": "refund.create",
+  "arguments_redacted": true,
+  "result_present": false
+}
+

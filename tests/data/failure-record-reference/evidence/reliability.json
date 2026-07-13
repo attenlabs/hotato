@@ -1,0 +1,7 @@
+{
+  "kind": "synthetic.reliability-samples.v1",
+  "outcomes": [false, true, false, true, false],
+  "passes": 2,
+  "trials": 5
+}
+

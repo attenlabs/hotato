@@ -1,0 +1,399 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schema/failure-record.v1.json",
+  "title": "hotato failure record, schema failure-record.v1",
+  "description": "A share-safe PROJECTION of one failed, inconclusive, or error result. Five separate lanes (outcome / policy / conversation / speech / reliability), each with its own status and never a blended number; a deterministic gate that a model advisory can never silently change; content-addressed record_id; relative digest-pinned evidence references; an argv-token reproducer. It performs no evaluation and cannot change a source verdict.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "version",
+    "record_id",
+    "status",
+    "headline",
+    "subject",
+    "origin",
+    "gate",
+    "advisory",
+    "dimensions",
+    "evidence",
+    "reproduction",
+    "privacy",
+    "provenance"
+  ],
+  "properties": {
+    "kind": { "const": "hotato.failure-record.v1" },
+    "version": { "const": "1.0" },
+    "record_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "status": {
+      "enum": ["FAIL", "INCONCLUSIVE", "ERROR"]
+    },
+    "headline": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "subject": { "$ref": "#/$defs/subject" },
+    "origin": { "$ref": "#/$defs/origin" },
+    "gate": { "$ref": "#/$defs/gate" },
+    "advisory": { "$ref": "#/$defs/advisory" },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "policy", "conversation", "speech", "reliability"],
+      "properties": {
+        "outcome": { "$ref": "#/$defs/dimension" },
+        "policy": { "$ref": "#/$defs/dimension" },
+        "conversation": { "$ref": "#/$defs/dimension" },
+        "speech": { "$ref": "#/$defs/dimension" },
+        "reliability": { "$ref": "#/$defs/reliabilityDimension" }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceRef" },
+      "uniqueItems": true
+    },
+    "reproduction": { "$ref": "#/$defs/reproduction" },
+    "privacy": { "$ref": "#/$defs/privacy" },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "safeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+~-]*$"
+    },
+    "status": {
+      "enum": ["PASS", "FAIL", "INCONCLUSIVE", "ERROR", "NOT_RUN"]
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["test_id"],
+      "properties": {
+        "test_id": { "$ref": "#/$defs/safeId" },
+        "scenario_id": { "$ref": "#/$defs/safeId" },
+        "suite_id": { "$ref": "#/$defs/safeId" },
+        "run_id": { "$ref": "#/$defs/safeId" },
+        "agent_id": { "$ref": "#/$defs/safeId" },
+        "release_id": { "$ref": "#/$defs/safeId" }
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["captured", "simulated", "imported", "fixture"] },
+        "source": { "$ref": "#/$defs/safeId" },
+        "transport": { "$ref": "#/$defs/safeId" },
+        "path_exercised": {
+          "type": "string",
+          "maxLength": 240
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "policy"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "policy": { "$ref": "#/$defs/safeId" },
+        "exit_code": { "type": "integer", "minimum": 0, "maximum": 255 }
+      }
+    },
+    "advisory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "gate_enabled"],
+      "properties": {
+        "status": {
+          "enum": ["PASS", "FAIL", "INCONCLUSIVE", "ERROR", "NOT_RUN", "UNAVAILABLE"]
+        },
+        "gate_enabled": { "type": "boolean" },
+        "model_id": { "$ref": "#/$defs/safeId" },
+        "model_digest": { "$ref": "#/$defs/digest" },
+        "reason_code": { "$ref": "#/$defs/safeId" }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assertion_id",
+        "rule_id",
+        "dimension",
+        "status",
+        "authority",
+        "expected",
+        "observed",
+        "evidence_refs",
+        "missing_evidence"
+      ],
+      "properties": {
+        "assertion_id": { "$ref": "#/$defs/safeId" },
+        "rule_id": { "$ref": "#/$defs/safeId" },
+        "rule_version": { "$ref": "#/$defs/safeId" },
+        "dimension": {
+          "enum": ["outcome", "policy", "conversation", "speech", "reliability"]
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "authority": { "enum": ["deterministic", "advisory"] },
+        "expected": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "observed": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/safeId" },
+          "uniqueItems": true
+        },
+        "missing_evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/safeId" },
+          "uniqueItems": true
+        },
+        "source_result_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "dimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evaluated", "passed", "failed", "inconclusive", "assertions"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "evaluated": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "inconclusive": { "type": "integer", "minimum": 0 },
+        "assertions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assertion" }
+        }
+      }
+    },
+    "interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "confidence", "lower", "upper"],
+      "properties": {
+        "method": { "const": "wilson" },
+        "confidence": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+        "lower": { "type": "number", "minimum": 0, "maximum": 1 },
+        "upper": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "reliabilityDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "trials",
+        "passes",
+        "pass_at_1",
+        "pass_at_k",
+        "pass_caret_k",
+        "wilson_interval",
+        "assertions"
+      ],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "trials": { "type": "integer", "minimum": 0 },
+        "passes": { "type": "integer", "minimum": 0 },
+        "pass_at_1": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "pass_at_k": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "pass_caret_k": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "k": { "type": ["integer", "null"], "minimum": 1 },
+        "wilson_interval": {
+          "oneOf": [
+            { "$ref": "#/$defs/interval" },
+            { "type": "null" }
+          ]
+        },
+        "assertions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assertion" }
+        }
+      }
+    },
+    "timeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_ms", "end_ms"],
+      "properties": {
+        "start_ms": { "type": "integer", "minimum": 0 },
+        "end_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "digest", "authority", "redacted"],
+      "properties": {
+        "evidence_id": { "$ref": "#/$defs/safeId" },
+        "kind": {
+          "enum": [
+            "audio_interval",
+            "transcript_span",
+            "trace_span",
+            "tool_call",
+            "tool_result",
+            "state_snapshot",
+            "state_change",
+            "policy_match",
+            "timing_measurement",
+            "trust_assessment",
+            "reliability_sample",
+            "configuration"
+          ]
+        },
+        "digest": { "$ref": "#/$defs/digest" },
+        "authority": { "enum": ["machine", "model", "operator", "source"] },
+        "locator": {
+          "type": "string",
+          "maxLength": 320,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?![A-Za-z]:).+$"
+        },
+        "media_type": { "type": "string", "maxLength": 120 },
+        "channel_role": { "enum": ["caller", "agent", "channel_a", "channel_b", "unknown"] },
+        "time_range": { "$ref": "#/$defs/timeRange" },
+        "redacted": { "type": "boolean" },
+        "redaction_classes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/safeId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "requiredArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "digest"],
+      "properties": {
+        "role": { "$ref": "#/$defs/safeId" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "relative_path": {
+          "type": "string",
+          "maxLength": 240,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?![A-Za-z]:).+$"
+        }
+      }
+    },
+    "reproduction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv", "required_artifacts"],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1, "maxLength": 320 }
+        },
+        "working_directory": {
+          "type": "string",
+          "maxLength": 160,
+          "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?![A-Za-z]:).+)$"
+        },
+        "required_artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requiredArtifact" }
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "raw_audio_embedded",
+        "transcript_body_embedded",
+        "tool_payload_embedded",
+        "state_value_embedded",
+        "credential_embedded",
+        "absolute_path_embedded",
+        "redaction_classes"
+      ],
+      "properties": {
+        "profile": { "const": "share-safe-v1" },
+        "raw_audio_embedded": { "const": false },
+        "transcript_body_embedded": { "const": false },
+        "tool_payload_embedded": { "const": false },
+        "state_value_embedded": { "const": false },
+        "credential_embedded": { "const": false },
+        "absolute_path_embedded": { "const": false },
+        "redaction_classes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/safeId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "$ref": "#/$defs/safeId" },
+        "version": { "$ref": "#/$defs/safeId" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "namedDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "digest"],
+      "properties": {
+        "name": { "$ref": "#/$defs/safeId" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hotato", "schemas", "inputs"],
+      "properties": {
+        "hotato": { "$ref": "#/$defs/component" },
+        "schemas": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "scorers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "config_digest": { "$ref": "#/$defs/digest" },
+        "inputs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/namedDigest" }
+        },
+        "seed": { "type": ["integer", "null"] },
+        "capture_receipt_digest": { "$ref": "#/$defs/digest" },
+        "source_result_digest": { "$ref": "#/$defs/digest" },
+        "related": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "digest"],
+            "properties": {
+              "name": { "enum": ["before", "after"] },
+              "digest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
