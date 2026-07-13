@@ -197,6 +197,12 @@ def _drill(conversation_id: str, label: Optional[str] = None) -> str:
 # page scaffold
 # =========================================================================
 
+def _active_attr(href, active):
+    """The active-tab attribute, kept OUT of the f-string expression: an f-string
+    expression part cannot include a backslash on Python < 3.12 (PEP 701)."""
+    return ' class="active"' if href == active else ""
+
+
 def page(title: str, active: str, body: str, *, workspace: str) -> str:
     """Assemble a full, self-contained HTML document: all CSS inline (report
     fragments + workspace chrome), no external request, the report's ember logo
@@ -204,7 +210,7 @@ def page(title: str, active: str, body: str, *, workspace: str) -> str:
     css = (_REPORT_CSS + _TRACE_CSS + _TRANSCRIPT_CSS + _CONVERSATION_CSS
            + _SCORECARD_CSS + _ASSERTIONS_CSS + _WORKSPACE_CSS)
     tabs = "".join(
-        f'<a href="{href}"{" class=\"active\"" if href == active else ""}>{_esc(label)}</a>'
+        f'<a href="{href}"{_active_attr(href, active)}>{_esc(label)}</a>'
         for href, label in _TABS
     )
     return (

@@ -130,3 +130,12 @@ hotato = [
     "templates/webhook/*.tmpl",
     "templates/webhook/fragments/*.py",
 ]
+
+[tool.pytest.ini_options]
+# Collect ONLY the tests directory. Two shipped SOURCE modules have names that
+# match pytest's default discovery globs -- src/hotato/test_run.py (test_*.py) and
+# src/hotato/conversation_test.py (*_test.py) -- so a bare `python -m pytest` (what
+# CI and the sdist-guard run) would otherwise try to import them as test modules and
+# fail collection. testpaths bounds discovery to tests/ and makes CI match a local
+# `pytest tests/`.
+testpaths = ["tests"]

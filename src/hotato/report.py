@@ -1348,8 +1348,9 @@ def _judge_card(r: dict) -> str:
     )
     votes = j.get("votes") or []
     if votes:
+        _conf = _esc(format(j.get("confidence", 0), ".2f"))
         prov += (f' · votes {_esc(", ".join(votes))}'
-                 f' · confidence {_esc(f"{j.get('confidence', 0):.2f}")}')
+                 f' · confidence {_conf}')
     rationale = r.get("rationale")
     rationale_html = f'<div class="asrtreason">{_esc(rationale)}</div>' if rationale else ""
     cites = j.get("citations") or []
