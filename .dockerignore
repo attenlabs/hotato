@@ -1,0 +1,53 @@
+# Keep the build context tiny and reproducible: the image builds from src/ +
+# packaging metadata only. Everything else is dev cruft, tests, docs, or the
+# heavy corpus/examples that never belong in a runtime image.
+
+.git
+.github
+.gitignore
+
+# tests + local caches
+tests
+.pytest_cache
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# docs, corpus, examples, tooling, site assets — not needed to run the workspace
+docs
+corpus
+examples
+adapters
+ci
+scripts
+tools
+llms.txt
+llms-full.txt
+*.md
+!README.md
+
+# build artifacts
+build
+dist
+*.egg-info
+**/*.egg-info
+
+# compose + the verify script + env example are not part of the runtime image.
+# The three deploy helpers (entrypoint.sh, healthcheck.py, seed-demo.py) ARE
+# COPYed by the Dockerfile, so they are intentionally NOT ignored.
+docker-compose.yml
+deploy/verify-zero-egress.sh
+deploy/hotato.env
+deploy/hotato.env.example
+
+# local/editor
+.venv
+venv
+.idea
+.vscode
+.DS_Store
