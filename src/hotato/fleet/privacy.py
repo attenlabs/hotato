@@ -19,11 +19,14 @@ from __future__ import annotations
 from ..errors import wav_read as _wav_read
 
 import hashlib
-import json
 import os
 import struct
 import wave
 from typing import List, Optional
+
+# sha256-of-canonical for the deletion receipt reuses the shared manifest
+# primitives (finding #2); ``hashlib`` stays for the streaming PCM hash below.
+from .. import manifest as _manifest
 
 
 # --- retention / consent policy -------------------------------------------
@@ -100,8 +103,7 @@ def deletion_receipt(*, subject_id: str, subject_kind: str, pcm_sha256: str,
         "at": at,
         "blocked_by_legal_hold": legal_hold,
     }
-    body["receipt_digest"] = hashlib.sha256(
-        json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    body["receipt_digest"] = _manifest._sha256_str(_manifest.canonical_json(body))
     return body
 
 

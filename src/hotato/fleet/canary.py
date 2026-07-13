@@ -10,11 +10,13 @@ release recommends and, at most, prepares an approval request.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import List, Optional
 
 from .. import evidence as _evidence
+# Canonical-JSON + sha256-of-canonical: the shared manifest primitives (finding
+# #2). ``manifest`` imports no fleet module, so this is non-circular -- fleet's
+# adapters/api already import it the same way.
+from .. import manifest as _manifest
 
 
 def approval_policy(*, agent_id: str, parameter_family: str,
@@ -115,8 +117,7 @@ def deployment_receipt(kind: str, *, agent_id: str, variant_id: Optional[str] = 
     body = {"schema_version": "1", "kind": kind, "agent_id": agent_id,
             "variant_id": variant_id, "config_hash": config_hash,
             "prior_revision": prior_revision, "detail": detail}
-    body["receipt_digest"] = hashlib.sha256(
-        json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    body["receipt_digest"] = _manifest._sha256_str(_manifest.canonical_json(body))
     return body
 
 
@@ -127,8 +128,7 @@ def rollback(adapter, *, ref, revision, reason: str, actor: str, at: float) -> d
     body = {"schema_version": "1", "kind": "rollback_receipt", "ref": ref,
             "restored_revision": revision, "reason": reason, "actor": actor,
             "at": at, "adapter_result": result}
-    body["receipt_digest"] = hashlib.sha256(
-        json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    body["receipt_digest"] = _manifest._sha256_str(_manifest.canonical_json(body))
     return body
 
 
