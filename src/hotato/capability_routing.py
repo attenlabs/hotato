@@ -76,8 +76,9 @@ def _as_events(events: Union[Mapping, Iterable[Mapping]]) -> List[Mapping]:
 def _norm_event(ev: Mapping) -> dict:
     """Validate the routing shape enough to route on it; fail loud otherwise.
 
-    The interaction label is read through :func:`hotato.interaction_label.of`,
-    which validates it. Reading a supplied label is not inference.
+    The interaction label is read through :func:`hotato.interaction_label.coerce`,
+    which adapts the bare label mapping and validates it. Reading a supplied
+    label is not inference.
     """
     if not isinstance(ev, Mapping):
         raise RoutingInputError(
