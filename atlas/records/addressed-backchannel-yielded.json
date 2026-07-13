@@ -243,8 +243,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-02-backchannel-yielded --out record",
-      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record-fd02/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:5f770124478c481630bc48b54c0d256c6597c3984ec6ed2923dbc0a7d1d6f33b\n"
+      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:5f770124478c481630bc48b54c0d256c6597c3984ec6ed2923dbc0a7d1d6f33b\n"
     }
   ],
-  "content_digest": "sha256:28d2008b731414c76cb6f23434a49a6425a1b37762a9eac0ae473dd6d01d21a7"
+  "content_digest": "sha256:2947b274647305aec6a5aa97e53ee75e28786c65bb6aba6927fb53bf67a9fe13"
 }

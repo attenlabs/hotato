@@ -245,6 +245,40 @@ def verify_implementation_evidence(
 # hard publication gate
 # =========================================================================
 
+# A drive-letter root ("C:", "c:/win", "Z:\\x"). Matched OS-independently so a
+# Windows-shaped path is refused even when this builder runs on POSIX.
+_DRIVE_ROOT = re.compile(r"^[A-Za-z]:")
+
+
+def _is_unsafe_fixture_path(path: str) -> bool:
+    """Whether a cited fixture path could escape the repo, decided WITHOUT
+    relying on the host ``os.sep``.
+
+    A typed source is shared across contributors and operating systems, so the
+    gate cannot trust ``os.path.isabs`` (host-native: on POSIX it treats
+    ``C:\\x``, ``\\\\srv\\share`` and ``\\x`` as ordinary relative names) nor a
+    ``/``-only split (which never sees a backslash ``..`` segment). Rejects:
+    POSIX-absolute roots, Windows drive-letter roots, UNC roots, backslash
+    absolute roots, and any ``..`` traversal segment in either separator style.
+    """
+    if not path:
+        return True
+    # Treat a backslash as a separator too: it is one on Windows and must never
+    # be trusted as an ordinary filename character in a shared typed source.
+    unified = path.replace("\\", "/")
+    if os.path.isabs(path):          # host-native absolute (POSIX '/...')
+        return True
+    if unified.startswith("/"):       # POSIX-absolute or backslash root ('\\x')
+        return True
+    if unified.startswith("//"):      # UNC root ('\\\\srv\\share' or '//srv/share')
+        return True
+    if _DRIVE_ROOT.match(path):        # drive-letter root ('C:\\', 'C:/', 'C:x')
+        return True
+    if ".." in unified.split("/"):     # traversal in either separator style
+        return True
+    return False
+
+
 def record_gate_reasons(record: Dict[str, Any]) -> List[str]:
     """Every reason this record FAILS the hard publication gate. Empty means
     eligible for indexing."""
@@ -277,7 +311,7 @@ def record_gate_reasons(record: Dict[str, Any]) -> List[str]:
         reasons.append("failure_record.evidence is empty -- no claim traces to evidence")
 
     for path in (record.get("evidence_provenance") or {}).get("fixture_paths", []):
-        if os.path.isabs(path) or ".." in path.split("/"):
+        if _is_unsafe_fixture_path(path):
             reasons.append(f"evidence_provenance.fixture_paths contains an unsafe path: {path!r}")
 
     # 'fixture' origin is a VERIFIABLE property, not a self-asserted label: every
@@ -387,8 +421,6 @@ def page(title: str, body: str, *, noindex: bool = False) -> str:
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         "<meta name=\"referrer\" content=\"no-referrer\">"
-        "<meta name=\"publisher\" content=\"Attention Labs\">"
-        "<meta name=\"author\" content=\"Attention Labs\">"
         f"{robots}"
         f"<title>{_esc(title)} · Hotato Voice Failure Atlas</title>"
         f"<style>{_ATLAS_CSS}</style></head><body><div class=\"wrap\">"

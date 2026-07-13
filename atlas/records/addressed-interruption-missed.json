@@ -243,8 +243,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-01-missed-interruption --out record",
-      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record-fd01/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:54998f8a6ce9df8d23d9f045170cbcea4a4dc6fbbc1975e89e7750a7a7b1e515\n"
+      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:54998f8a6ce9df8d23d9f045170cbcea4a4dc6fbbc1975e89e7750a7a7b1e515\n"
     }
   ],
-  "content_digest": "sha256:44f4c6fd5d469f92973a62f055d6b017469ccc723d308e35f8f99741cc5065d2"
+  "content_digest": "sha256:acfaf9fff089f2e1a3a724942e34a78082fb00a0a89dac326c1b182e02470ded"
 }
