@@ -50,6 +50,19 @@ Security and correctness hardening from an independent validation pass.
 - **MCP**: the server reports hotato's application version (not the transport
   SDK's), and the tool inventory is a single canonical source shared by the
   server, docs, and tests.
+- **CLI machine output**: `capture --format json` and `start` route progress
+  lines to stderr so stdout is a single parseable JSON object, and
+  `start --demo --dir` creates a missing nested output directory (still refusing
+  a path that exists as a non-directory).
+- **Neural provenance**: a `--backend neural` run labels the non-reference
+  backend in the event JSON (additive `vad_backend`); the default energy path
+  emits no such key and stays byte-identical.
+- **Cold-path evidence** redacts absolute paths recursively and separates
+  deterministic artifacts from timestamp-bearing ones, so the committed proof
+  reproduces from the released wheel and leaks no local paths.
+- **Packaging/metadata**: the SBOM declares its coverage scope explicitly,
+  `docs/CI.md` pins one canonical current-release example, and
+  `requires-python` carries a documented support policy.
 
 ### Changed
 - The reference reference-agent kit and shipped shell scripts are pinned to LF
