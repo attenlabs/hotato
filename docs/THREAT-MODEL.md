@@ -180,4 +180,43 @@ threat surface and the controls on it:
 See [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md) and the drive-a-call rows in
 [`docs/EGRESS.md`](EGRESS.md).
 
+## Team workspace (`hotato serve`): a new local listening socket
+
+`hotato serve` (`src/hotato/serve/`, wired into the CLI) opens a NEW local HTTP
+listening socket to serve the five conversation-QA views over the fleet registry
++ evidence store. Its threat surface and the controls on it:
+
+- **Localhost-default bind.** The server binds `127.0.0.1` unless the operator
+  explicitly passes `--host`. A non-loopback bind (e.g. `--host 0.0.0.0`) prints
+  a prominent warning at start — it is never the default, and it is never done
+  silently.
+- **Token auth on every request.** A shared bearer token authenticates every
+  request, compared in constant time (`hmac.compare_digest`). It is either
+  operator-supplied (`--token` / `--token-file`) or generated with
+  `secrets.token_urlsafe` and stored `0600` under the per-workspace state dir.
+  Browsers bootstrap an in-memory, HttpOnly session cookie from the printed
+  `/?token=…` URL (then the token is stripped from the address bar via a
+  redirect); the token itself is never echoed into any response body. An
+  unauthenticated request gets `401` and is never routed.
+- **Read-only.** The server issues only `SELECT`s against the registry and reads
+  evidence blobs by digest; it exposes no write endpoint and mutates no workspace
+  data. Reviews and labels stay CLI-driven. The ONLY file it writes is the
+  append-only audit log (`…/serve/<workspace>/audit.jsonl`, `0600`), which
+  records who (token/session prefix, never the secret), what (method + path, the
+  token stripped from the query), when, and the response status of every request.
+- **Zero egress.** The server only binds a listening socket; it never opens an
+  outbound connection and imports nothing that phones home, so audio, traces, and
+  evaluations never leave the machine. A test whitelists loopback and fails if
+  any view attempts an external connection.
+- **No stored-content execution.** The raw evidence endpoint (`/evidence/<digest>`)
+  serves blobs as `text/plain` with `X-Content-Type-Options: nosniff` (and the
+  pages set `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`), so a crafted
+  evidence blob cannot execute in the viewer. Redacted transcript/trace content is
+  scrubbed at the data layer, so it reaches neither the HTML nor the JSON mirror.
+- **No path traversal via the workspace id.** The workspace id is used verbatim
+  only in parameterized SQL; as a state-directory name it is sanitized so a
+  crafted id cannot escape the registry home.
+
+See [`docs/WORKSPACE.md`](WORKSPACE.md).
+
 Security policy and reporting: [SECURITY.md](../SECURITY.md).
