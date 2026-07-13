@@ -766,13 +766,31 @@ _ASSERT_SCHEMA = "assert.v1"
 # shows its own pass/fail/inconclusive counts, never a merged or overall number.
 _REPORT_DIMENSIONS = ("outcome", "policy", "conversation", "speech", "reliability")
 
-# Reliability (pass^k across repetitions) is NOT computed in Phase 1 -- it
-# arrives in Phase 2. The scorecard therefore shows an explicit placeholder for
-# the Reliability dimension rather than a fabricated value.
+# Reliability (pass@1 / pass@k / pass^k across repeated runs) is Reliability's
+# OWN dimension. When a report carries REAL repetition data (a run_matrix
+# aggregate or a reliability() dict, threaded via the ``reliability=`` param) the
+# scorecard renders those real numbers (see _reliability_block_html); when it
+# carries NONE, the dimension shows an honest empty-state -- never a fabricated
+# value, and pass^k is never blended into any other dimension.
 _RELIABILITY_DIMENSION = "reliability"
-_RELIABILITY_PHASE2_NOTE = (
-    "Reliability (pass^k across repetitions) is not yet measured -- it arrives "
-    "in Phase 2. Shown as a placeholder here rather than a fabricated value."
+# An honest empty assert.v1 envelope: used ONLY when real reliability data is
+# supplied with no assertions envelope, so the Reliability dimension still
+# renders instead of the data being silently dropped (0 assertions is stated
+# plainly; nothing is fabricated).
+_EMPTY_ASSERT_ENVELOPE = {
+    "schema": "assert.v1",
+    "exit_code": 0,
+    "results": [],
+    "summary": {
+        "deterministic": {"pass": 0, "fail": 0, "inconclusive": 0},
+        "judge": {"pass": 0, "fail": 0},
+        "note": "no assertions in this run (reliability-only report)",
+    },
+}
+
+_RELIABILITY_EMPTY_NOTE = (
+    "Reliability (pass@1 / pass@k / pass^k across repeated runs) not measured: "
+    "no repeated runs in this report."
 )
 
 _ASSERT_STATUS_COLORS = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember"}
@@ -990,25 +1008,30 @@ def _dim_counts_text(counts: dict) -> str:
 
 
 def _scorecard_dim_block(title: str, results: list, *,
-                         reliability: bool = False) -> str:
+                         is_reliability: bool = False,
+                         reliability_data: Optional[dict] = None) -> str:
     """One dimension block: its name, its OWN counts, then its typed cards. The
-    Reliability dimension always carries the explicit Phase-2 placeholder (its
-    deterministic content is not measured until Phase 2); any other dimension
-    with no results shows an honest empty state -- never a fabricated value."""
+    Reliability dimension renders REAL pass@1/pass@k/pass^k content when
+    ``reliability_data`` is supplied (:func:`_reliability_block_html`); with none
+    it shows the honest empty-state (no repeated runs) -- never a fabricated
+    value. Any other dimension with no results shows an honest empty state."""
     counts = _status_counts(results)
     parts = [
         '<div class="scdim">'
         f'<div class="schead"><span class="scname">{_esc(title)}</span>'
         f'<span class="sccounts mono">{_dim_counts_text(counts)}</span></div>'
     ]
-    if reliability:
-        parts.append(
-            f'<div class="scplaceholder">{_esc(_RELIABILITY_PHASE2_NOTE)}</div>'
-        )
+    if is_reliability:
+        if reliability_data is not None:
+            parts.append(_reliability_block_html(reliability_data))
+        else:
+            parts.append(
+                f'<div class="scplaceholder">{_esc(_RELIABILITY_EMPTY_NOTE)}</div>'
+            )
     if results:
         cards = "".join(_assertion_card(r) for r in results)
         parts.append(f'<div class="shelf">{cards}</div>')
-    elif not reliability:
+    elif not is_reliability:
         parts.append(
             '<div class="scempty">No results tagged to this dimension.</div>'
         )
@@ -1016,15 +1039,20 @@ def _scorecard_dim_block(title: str, results: list, *,
     return "".join(parts)
 
 
-def _assertions_scorecard(results: list) -> str:
+def _assertions_scorecard(results: list,
+                          reliability: Optional[dict] = None) -> str:
     """The per-dimension scorecard body: the five dimension blocks in order,
     then an Ungrouped block for any untagged results. A grouped VIEW of the
-    same results -- no blended number anywhere."""
+    same results -- no blended number anywhere. ``reliability`` (a normalized
+    reliability summary, or None) feeds the Reliability dimension's REAL
+    pass@1/pass@k/pass^k content; every other dimension ignores it."""
     dims, ungrouped = _group_results_by_dimension(results)
     blocks = [
         _scorecard_dim_block(
             dim.capitalize(), dim_results,
-            reliability=(dim == _RELIABILITY_DIMENSION),
+            is_reliability=(dim == _RELIABILITY_DIMENSION),
+            reliability_data=(reliability if dim == _RELIABILITY_DIMENSION
+                              else None),
         )
         for dim, dim_results in dims
     ]
@@ -1033,6 +1061,267 @@ def _assertions_scorecard(results: list) -> str:
             _scorecard_dim_block("Ungrouped (no dimension tag)", ungrouped)
         )
     return '<div class="scorecard">' + "".join(blocks) + '</div>'
+
+
+# --- Reliability dimension: REAL pass@1 / pass@k / pass^k content -----------
+#
+# Reliability is its OWN dimension: pass@1 (single-run pass rate), pass@k (>=1 of
+# k passed), pass^k (ALL k passed), with n, k, and a Wilson CI on pass@1 -- each
+# number LABELED, tabular mono, NEVER blended into any other dimension and never
+# an overall_score. A run_matrix aggregate additionally carries per-variation
+# cells (each its own pass^k) and a SIMULATOR_INVALID bucket (broken fixtures,
+# excluded from n). When the data came from SIMULATED runs the section is
+# labeled origin=simulated -- a simulator's replay reliability is never
+# presented as production reliability.
+
+
+def _normalize_reliability(reliability: Any) -> Optional[dict]:
+    """Normalize a caller-supplied reliability summary into the internal shape
+    the scorecard's Reliability dimension renders -- or ``None`` when there is
+    genuinely NO repetition data (the honest empty-state).
+
+    Accepts either a :func:`hotato.simulate.run_matrix` summary (a
+    ``simulate-matrix`` aggregate + per-variation cells + a SIMULATOR_INVALID
+    bucket), a bare :func:`hotato.simulate.reliability` dict (carries
+    ``pass_at_1`` ...), or a ``{"aggregate": <reliability dict>, "origin": ...}``
+    wrapper (what ``hotato test run`` threads through for a repeated recording).
+    Never fabricates: an aggregate with ``n == 0`` and no cells and no broken
+    fixtures is treated as no data (``None``)."""
+    if reliability is None:
+        return None
+    if not isinstance(reliability, dict):
+        raise ValueError(
+            "reliability must be a run_matrix summary, a reliability() dict, or "
+            f"a {{'aggregate': ...}} wrapper dict; got {reliability!r}"
+        )
+    if reliability.get("kind") == "simulate-matrix" or (
+        "reliability" in reliability and "variation_cells" in reliability
+    ):
+        agg = reliability.get("reliability") or {}
+        invalid = reliability.get("simulator_invalid") or []
+        counts = reliability.get("counts") or {}
+        invalid_count = counts.get("simulator_invalid", len(invalid))
+        norm = {
+            "aggregate": agg,
+            "cells": reliability.get("variation_cells") or [],
+            "invalid": invalid,
+            "invalid_count": invalid_count,
+            "basis": reliability.get("reliability_basis"),
+            "note": reliability.get("reliability_note") or agg.get("note"),
+            # run_matrix is always origin=simulated (every produced conversation
+            # is labelled simulated -- never real, never merged into a real bucket)
+            "origin": "simulated",
+            "runs": counts.get("runs", agg.get("n", 0) + invalid_count),
+        }
+    elif "aggregate" in reliability:
+        agg = reliability.get("aggregate") or {}
+        invalid = (reliability.get("invalid")
+                   or reliability.get("simulator_invalid") or [])
+        norm = {
+            "aggregate": agg,
+            "cells": (reliability.get("cells")
+                      or reliability.get("variation_cells") or []),
+            "invalid": invalid,
+            "invalid_count": reliability.get("invalid_count", len(invalid)),
+            "basis": reliability.get("basis"),
+            "note": reliability.get("note") or agg.get("note"),
+            "origin": reliability.get("origin"),
+            "runs": reliability.get("runs", agg.get("n", 0)),
+        }
+    elif "pass_at_1" in reliability:
+        agg = reliability
+        norm = {
+            "aggregate": agg,
+            "cells": [],
+            "invalid": [],
+            "invalid_count": 0,
+            "basis": None,
+            "note": reliability.get("note"),
+            "origin": reliability.get("origin"),
+            "runs": reliability.get("n", 0),
+        }
+    else:
+        raise ValueError(
+            "unrecognized reliability payload: expected a run_matrix summary "
+            "(kind='simulate-matrix'), a reliability() dict (with 'pass_at_1'), "
+            f"or a {{'aggregate': ...}} wrapper; got keys {sorted(reliability)!r}"
+        )
+    agg = norm["aggregate"]
+    n = agg.get("n", 0) if isinstance(agg, dict) else 0
+    # No runs, no cells, no broken fixtures == genuinely no repetition data: the
+    # honest empty-state, signalled as None (never a zero-row fabricated table).
+    if not n and not norm["cells"] and not norm["invalid_count"]:
+        return None
+    return norm
+
+
+def _fmt_prob(x: Any) -> str:
+    """A stable 3-decimal string for a pass-rate probability (matching the CLI
+    matrix summary), or 'n/a' when the value is missing / non-numeric."""
+    try:
+        return f"{float(x):.3f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _reliability_ci_text(ci: Optional[dict]) -> str:
+    """The Wilson CI on pass@1 as '[low, high] (method)', or 'n/a' when absent
+    (n == 0). Read verbatim from the reliability() dict -- never recomputed."""
+    if not isinstance(ci, dict):
+        return "n/a"
+    return (f"[{_fmt_prob(ci.get('low'))}, {_fmt_prob(ci.get('high'))}] "
+            f"({ci.get('method', 'wilson')})")
+
+
+def _reliability_origin_line(origin: Optional[str], runs: Any) -> str:
+    """A plain origin + run-count sentence. When origin=simulated it says so
+    explicitly -- the simulator's replay reliability, never production."""
+    n = runs if isinstance(runs, int) else "?"
+    if origin == "simulated":
+        return (f"Over {n} simulated run(s) (origin=simulated) -- the simulator's "
+                "replay reliability, never production reliability.")
+    if origin == "real":
+        return (f"Over {n} repeated run(s) of the supplied recording "
+                "(origin=real).")
+    return f"Over {n} repeated run(s)."
+
+
+def _reliability_cell_text(cell: dict) -> str:
+    """A stable one-line description of a variation cell (locale / rate / noise /
+    behavior), matching the CLI matrix summary's per-cell line."""
+    return (f"{cell.get('locale')} rate={cell.get('speaking_rate')} "
+            f"noise={cell.get('noise')} behavior={cell.get('behavior')}")
+
+
+_RELIABILITY_ROW_LABELS = (
+    ("pass_at_1", "pass@1 (single-run pass rate)"),
+    ("pass_at_k", "pass@k (>=1 of k passed)"),
+    ("pass_caret_k", "pass^k (all k passed)"),
+)
+
+
+def _reliability_block_html(data: dict) -> str:
+    """The Reliability dimension's REAL content: an origin line, a labeled mono
+    table of pass@1/pass@k/pass^k + n/k/passes + the Wilson CI, optional
+    per-variation-cell rows, and a SIMULATOR_INVALID bucket (excluded from n).
+    No blended score anywhere; pass^k stands on its own."""
+    agg = data["aggregate"]
+    rows = [(label, _fmt_prob(agg.get(key)))
+            for key, label in _RELIABILITY_ROW_LABELS]
+    rows += [
+        ("n (runs in aggregate)", str(agg.get("n", 0))),
+        ("k (samples)", str(agg.get("k", agg.get("n", 0)))),
+        ("passes", str(agg.get("passes", 0))),
+        ("95% Wilson CI (on pass@1)", _reliability_ci_text(agg.get("ci"))),
+    ]
+    table = "".join(
+        f'<tr><td class="rellabel">{_esc(label)}</td>'
+        f'<td class="relval mono">{_esc(val)}</td></tr>'
+        for label, val in rows
+    )
+    parts = [
+        '<div class="relblock">',
+        '<div class="relnote">Reliability is its OWN number -- pass^k is never '
+        'blended into any other dimension, and there is no overall_score.</div>',
+        '<div class="relorigin">'
+        f'{_esc(_reliability_origin_line(data.get("origin"), data.get("runs")))}'
+        '</div>',
+        f'<table class="reltable"><tbody>{table}</tbody></table>',
+    ]
+    cells = data.get("cells") or []
+    if cells:
+        crows = "".join(
+            '<tr>'
+            f'<td class="rellabel mono">{_esc(_reliability_cell_text(c.get("cell") or {}))}</td>'
+            f'<td class="relval mono">{_esc(str((c.get("runs") if c.get("runs") is not None else (c.get("reliability") or {}).get("n", 0))))}</td>'
+            f'<td class="relval mono">{_esc(_fmt_prob((c.get("reliability") or {}).get("pass_at_1")))}</td>'
+            f'<td class="relval mono">{_esc(_fmt_prob((c.get("reliability") or {}).get("pass_at_k")))}</td>'
+            f'<td class="relval mono">{_esc(_fmt_prob((c.get("reliability") or {}).get("pass_caret_k")))}</td>'
+            f'<td class="relval mono">{_esc(str((c.get("reliability") or {}).get("n", 0)))}</td>'
+            '</tr>'
+            for c in cells
+        )
+        parts.append(
+            '<div class="relsub">Per-variation cells (each its own pass^k, never '
+            'blended)</div>'
+            '<table class="reltable relcells"><thead><tr>'
+            '<th>cell</th><th>runs</th><th>pass@1</th><th>pass@k</th>'
+            '<th>pass^k</th><th>n</th></tr></thead>'
+            f'<tbody>{crows}</tbody></table>'
+        )
+    invalid_count = data.get("invalid_count") or 0
+    if invalid_count:
+        items = "".join(
+            f'<li class="mono">{_esc(r.get("run_id") or r.get("index"))}: '
+            f'{_esc(r.get("reason") or "")}</li>'
+            for r in (data.get("invalid") or [])
+        )
+        reasons = f'<ul class="reasons">{items}</ul>' if items else ""
+        parts.append(
+            f'<div class="relinvalid">{invalid_count} run(s) SIMULATOR_INVALID '
+            '(broken fixtures, excluded from n; never an agent PASS/FAIL).'
+            f'{reasons}</div>'
+        )
+    if data.get("basis"):
+        parts.append(f'<div class="relbasis mono">basis: {_esc(data["basis"])}</div>')
+    if data.get("note"):
+        parts.append(f'<div class="relnote">{_esc(data["note"])}</div>')
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def _reliability_block_md(data: dict) -> list:
+    """The Markdown mirror of :func:`_reliability_block_html`: same origin line,
+    same labeled table, same per-cell rows and SIMULATOR_INVALID bucket."""
+    agg = data["aggregate"]
+    L = [
+        "Reliability is its OWN number -- pass^k is never blended into any other "
+        "dimension, and there is no overall_score.",
+        "",
+        _reliability_origin_line(data.get("origin"), data.get("runs")),
+        "",
+        _md_row(["metric", "value"]),
+        _md_row(["---", "---"]),
+    ]
+    L += [_md_row([label, _fmt_prob(agg.get(key))])
+          for key, label in _RELIABILITY_ROW_LABELS]
+    L += [
+        _md_row(["n (runs in aggregate)", str(agg.get("n", 0))]),
+        _md_row(["k (samples)", str(agg.get("k", agg.get("n", 0)))]),
+        _md_row(["passes", str(agg.get("passes", 0))]),
+        _md_row(["95% Wilson CI (on pass@1)", _reliability_ci_text(agg.get("ci"))]),
+        "",
+    ]
+    cells = data.get("cells") or []
+    if cells:
+        L.append("Per-variation cells (each its own pass^k, never blended):")
+        L.append("")
+        L.append(_md_row(["cell", "runs", "pass@1", "pass@k", "pass^k", "n"]))
+        L.append(_md_row(["---"] * 6))
+        for c in cells:
+            rel = c.get("reliability") or {}
+            runs = c.get("runs") if c.get("runs") is not None else rel.get("n", 0)
+            L.append(_md_row([
+                _reliability_cell_text(c.get("cell") or {}), runs,
+                _fmt_prob(rel.get("pass_at_1")), _fmt_prob(rel.get("pass_at_k")),
+                _fmt_prob(rel.get("pass_caret_k")), rel.get("n", 0),
+            ]))
+        L.append("")
+    invalid_count = data.get("invalid_count") or 0
+    if invalid_count:
+        L.append(f"{invalid_count} run(s) SIMULATOR_INVALID (broken fixtures, "
+                 "excluded from n; never an agent PASS/FAIL).")
+        for r in (data.get("invalid") or []):
+            L.append(f"- {r.get('run_id') or r.get('index')}: "
+                     f"{r.get('reason') or ''}")
+        L.append("")
+    if data.get("basis"):
+        L.append(f"basis: {data['basis']}")
+        L.append("")
+    if data.get("note"):
+        L.append(data["note"])
+        L.append("")
+    return L
 
 
 _JUDGE_STATUS_COLORS = {"PASS": "green", "FAIL": "red",
@@ -1118,20 +1407,24 @@ def _judge_shelf_html(rubric: dict) -> str:
     return head + "".join(_judge_card(r) for r in results)
 
 
-def _assertions_section(assertions: dict, rubric: Optional[dict] = None) -> str:
+def _assertions_section(assertions: dict, rubric: Optional[dict] = None,
+                        reliability: Optional[dict] = None) -> str:
     """The two-shelf assertion section: "Deterministic" (``assert.v1`` typed
-    cards, one per result -- OR, when any result carries a ``dimension``, the
-    same cards grouped into the per-dimension scorecard) and "Model-assisted
-    (advisory)". When a separate ``rubric.v1`` envelope (``rubric``) is supplied
-    the judge shelf is POPULATED with real model-judged results (model id +
-    digest, prompt id+version, cached/fresh, rationale, citations); with none it
-    stays the empty note, byte-identical to before. The headline never collapses
-    the deterministic pass/fail split and the judge count into one number, the
-    two shelves never share a count, and the scorecard never blends dimensions."""
+    cards, one per result -- OR, when any result carries a ``dimension`` OR real
+    ``reliability`` data is supplied, the same cards grouped into the
+    per-dimension scorecard) and "Model-assisted (advisory)". When a separate
+    ``rubric.v1`` envelope (``rubric``) is supplied the judge shelf is POPULATED
+    with real model-judged results (model id + digest, prompt id+version,
+    cached/fresh, rationale, citations); with none it stays the empty note,
+    byte-identical to before. ``reliability`` (a NORMALIZED reliability summary,
+    or None) feeds the scorecard's Reliability dimension its real pass@1 /
+    pass@k / pass^k content. The headline never collapses the deterministic
+    pass/fail split and the judge count into one number, the two shelves never
+    share a count, and the scorecard never blends dimensions."""
     _validate_assertions_envelope(assertions)
     headline, d_inconclusive = _assertions_headline(assertions, rubric)
     results = assertions.get("results") or []
-    if _assertions_have_dimensions(assertions):
+    if _assertions_have_dimensions(assertions) or reliability is not None:
         # Grouped VIEW: the SAME cards, arranged into the five dimensions. Each
         # dimension keeps its own counts; nothing is merged, nothing dropped.
         det_body = (
@@ -1139,7 +1432,7 @@ def _assertions_section(assertions: dict, rubric: Optional[dict] = None) -> str:
             'dimension keeps its OWN pass / fail / inconclusive counts -- there '
             'is no blended or overall number across dimensions or within one. '
             'Untagged results go to Ungrouped; nothing is dropped.</div>'
-            + _assertions_scorecard(results)
+            + _assertions_scorecard(results, reliability)
         )
     else:
         cards = "".join(_assertion_card(r) for r in results)
@@ -1981,6 +2274,16 @@ _SCORECARD_CSS = """
 .scdim .shelf{margin-top:10px}
 .scplaceholder,.scempty{color:%(muted)s;font-size:12.5px;font-style:italic;
  margin-top:8px}
+.relblock{margin-top:8px}
+.relorigin{font-size:12.5px;color:%(cream)s;margin:2px 0 8px}
+.relnote{color:%(muted)s;font-size:12px;margin:6px 0}
+.relsub,.relbasis,.relinvalid{font-size:12px;color:%(muted)s;margin:8px 0 4px}
+.reltable{border-collapse:collapse;font-size:12.5px;margin:4px 0}
+.reltable td,.reltable th{border:1px solid %(line)s;padding:4px 8px;
+ text-align:left}
+.reltable th{color:%(muted)s;font-weight:600}
+.rellabel{color:%(cream)s}
+.relval{color:%(cream)s;text-align:right}
 """ % _C
 
 # Appended to the page's <style> ONLY when a ``conversation`` manifest was
@@ -2207,7 +2510,8 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  assertions: Optional[dict] = None,
                  trace: Optional[dict] = None,
                  conversation: Optional[dict] = None,
-                 rubric: Optional[dict] = None) -> str:
+                 rubric: Optional[dict] = None,
+                 reliability: Optional[dict] = None) -> str:
     s = env["summary"]
     # A real failure always dominates: REGRESSION beats NOT SCORABLE beats
     # ALL PASS. NOT SCORABLE appears only when nothing failed but at least one
@@ -2246,9 +2550,12 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     if rubric is not None:
         style_css += _JUDGE_CSS
     # The scorecard CSS is appended ONLY when a result actually carries a
-    # dimension, so an assertions envelope with no dimensions renders the flat
-    # deterministic shelf byte-identically to before the scorecard existed.
-    if assertions is not None and _assertions_have_dimensions(assertions):
+    # dimension OR real reliability data was supplied, so an assertions envelope
+    # with no dimensions and reliability=None renders the flat deterministic
+    # shelf byte-identically to before the scorecard existed.
+    if assertions is not None and (
+        _assertions_have_dimensions(assertions) or reliability is not None
+    ):
         style_css += _SCORECARD_CSS
     if trace is not None:
         style_css += _TRACE_CSS
@@ -2314,7 +2621,8 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     # assertion story starts. Absent by default (assertions=None), so a plain
     # report carries none of this markup.
     assertions_html = (
-        _assertions_section(assertions, rubric) if assertions is not None else ""
+        _assertions_section(assertions, rubric, reliability)
+        if assertions is not None else ""
     )
 
     # The trace section (voice_trace.v1, one call-level table) reads after the
@@ -2404,10 +2712,13 @@ def _assertion_md_row(r: dict) -> str:
     ])
 
 
-def _assertions_scorecard_md(results: list) -> list:
+def _assertions_scorecard_md(results: list,
+                             reliability: Optional[dict] = None) -> list:
     """The Markdown mirror of ``_assertions_scorecard``: a per-dimension
     subsection with its OWN counts and table, then an Ungrouped subsection for
-    untagged results. No blended number; nothing dropped."""
+    untagged results. No blended number; nothing dropped. ``reliability`` (a
+    normalized reliability summary, or None) feeds the Reliability dimension its
+    real pass@1 / pass@k / pass^k content."""
     dims, ungrouped = _group_results_by_dimension(results)
     L = ["Grouped into the five report dimensions. Each dimension keeps its OWN "
          "pass / fail / inconclusive counts -- no blended or overall number "
@@ -2420,8 +2731,11 @@ def _assertions_scorecard_md(results: list) -> list:
         L.append(_dim_counts_text(counts))
         L.append("")
         if dim == _RELIABILITY_DIMENSION:
-            L.append(_RELIABILITY_PHASE2_NOTE)
-            L.append("")
+            if reliability is not None:
+                L.extend(_reliability_block_md(reliability))
+            else:
+                L.append(_RELIABILITY_EMPTY_NOTE)
+                L.append("")
         if dim_results:
             L.append(_md_row(["id", "kind", "status", "deterministic", "detail"]))
             L.append(_md_row(["---"] * 5))
@@ -2482,14 +2796,17 @@ def _judge_shelf_md(rubric: dict) -> list:
     return L
 
 
-def _assertions_md(assertions: dict, rubric: Optional[dict] = None) -> list:
+def _assertions_md(assertions: dict, rubric: Optional[dict] = None,
+                   reliability: Optional[dict] = None) -> list:
     """The Markdown mirror of ``_assertions_section``: same two shelves, same
     headline, as tables instead of typed HTML cards. When any result carries a
-    ``dimension``, the deterministic shelf is grouped into the per-dimension
-    scorecard (each dimension its own counts, no blend). When a separate
-    ``rubric.v1`` envelope is supplied the judge shelf is POPULATED with real
-    model-judged rows; with none it stays the empty note, byte-identical to
-    before this feature existed."""
+    ``dimension`` OR real ``reliability`` data is supplied, the deterministic
+    shelf is grouped into the per-dimension scorecard (each dimension its own
+    counts, no blend). When a separate ``rubric.v1`` envelope is supplied the
+    judge shelf is POPULATED with real model-judged rows; with none it stays the
+    empty note, byte-identical to before this feature existed. ``reliability``
+    (a normalized reliability summary, or None) feeds the Reliability
+    dimension's real pass@1 / pass@k / pass^k content."""
     _validate_assertions_envelope(assertions)
     headline, d_inconclusive = _assertions_headline(assertions, rubric)
     results = assertions.get("results") or []
@@ -2507,8 +2824,8 @@ def _assertions_md(assertions: dict, rubric: Optional[dict] = None) -> list:
     L.append("")
     L.append("### Deterministic (audio / timing / transcript / trace derived)")
     L.append("")
-    if _assertions_have_dimensions(assertions):
-        L.extend(_assertions_scorecard_md(results))
+    if _assertions_have_dimensions(assertions) or reliability is not None:
+        L.extend(_assertions_scorecard_md(results, reliability))
     else:
         if results:
             L.append(_md_row(["id", "kind", "status", "deterministic", "detail"]))
@@ -2565,7 +2882,8 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
                assertions: Optional[dict] = None,
                trace: Optional[dict] = None,
                conversation: Optional[dict] = None,
-               rubric: Optional[dict] = None) -> str:
+               rubric: Optional[dict] = None,
+               reliability: Optional[dict] = None) -> str:
     s = env["summary"]
     eng = env.get("engine", {})
     mode_label = f"suite: {env['suite']}" if env.get("suite") else env.get("mode", "")
@@ -2733,7 +3051,7 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
 
     # assertions (assert.v1): absent by default, byte-identical without it
     if assertions is not None:
-        L.extend(_assertions_md(assertions, rubric))
+        L.extend(_assertions_md(assertions, rubric, reliability))
 
     # trace (voice_trace.v1): absent by default, byte-identical without it
     if trace is not None:
@@ -2928,6 +3246,7 @@ def build_report_html(*, base: Optional[dict] = None,
                       trace: Optional[TraceLike] = None,
                       conversation: Optional[ConversationLike] = None,
                       rubric: Optional[dict] = None,
+                      reliability: Optional[dict] = None,
                       **kwargs):
     """Score the input and return ``(html_str, envelope)``.
 
@@ -3003,6 +3322,20 @@ def build_report_html(*, base: Optional[dict] = None,
     re-hashes a child and never touches any timing/verdict field; ``None`` (the
     default) leaves the HTML byte-identical to a report built before this
     parameter existed.
+
+    ``reliability`` (default ``None``) attaches REAL repetition data -- a
+    :func:`hotato.simulate.run_matrix` summary, a bare
+    :func:`hotato.simulate.reliability` dict, or a
+    ``{"aggregate": <reliability dict>, "origin": ...}`` wrapper -- so the
+    scorecard's Reliability dimension renders its OWN pass@1 / pass@k / pass^k
+    (with n and the Wilson CI), any per-variation cells, the run count, and a
+    SIMULATOR_INVALID bucket (excluded from n). pass^k is never blended into any
+    other dimension and there is no ``overall_score``. When the data came from
+    simulated runs the section is labeled origin=simulated -- a simulator's
+    replay reliability is never presented as production reliability. ``None``
+    (the default, and any payload with genuinely no repetition data) leaves the
+    Reliability dimension showing the honest empty-state and is byte-identical to
+    a report built without this parameter. See ``docs/REPORTS.md``.
     """
     env, models, cfg = _score_and_model(transcript=transcript, trace=trace,
                                         **kwargs)
@@ -3012,10 +3345,17 @@ def build_report_html(*, base: Optional[dict] = None,
     cv = _normalize_conversation(conversation) if conversation is not None else None
     if cv is not None:
         env["conversation"] = cv
+    rel = _normalize_reliability(reliability)
+    if rel is not None and assertions is None:
+        # Data supplied = data rendered, never silently dropped: real reliability
+        # numbers with no assertions envelope still render their Reliability
+        # dimension, over an honest empty envelope (0 assertions, stated in the
+        # note). assertions=None WITH reliability=None stays byte-identical.
+        assertions = _EMPTY_ASSERT_ENVELOPE
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
                         audio_mode=mode, assertions=assertions,
                         trace=env.get("trace_context"), conversation=cv,
-                        rubric=rubric)
+                        rubric=rubric, reliability=rel)
     return page, env
 
 
@@ -3026,6 +3366,7 @@ def build_report_md(*, base: Optional[dict] = None,
                     trace: Optional[TraceLike] = None,
                     conversation: Optional[ConversationLike] = None,
                     rubric: Optional[dict] = None,
+                    reliability: Optional[dict] = None,
                     **kwargs):
     """Score the input and return ``(markdown_str, envelope)``.
 
@@ -3057,16 +3398,31 @@ def build_report_md(*, base: Optional[dict] = None,
     digests, folded into the envelope as an additive top-level ``conversation``
     key, never touching any timing/verdict field. ``None`` (the default) leaves
     the Markdown byte-identical to before this parameter existed.
+
+    ``reliability`` is the same optional REAL-repetition parameter as
+    ``build_report_html`` (see there): the scorecard's Reliability dimension
+    renders its OWN pass@1 / pass@k / pass^k (with n + Wilson CI), per-variation
+    cells, and the SIMULATOR_INVALID bucket, as Markdown tables. ``None`` (the
+    default, and any payload with no repetition data) leaves the Reliability
+    dimension showing the honest empty-state, byte-identical to before this
+    parameter existed.
     """
     env, models, cfg = _score_and_model(transcript=transcript, trace=trace,
                                         **kwargs)
     cv = _normalize_conversation(conversation) if conversation is not None else None
     if cv is not None:
         env["conversation"] = cv
+    rel = _normalize_reliability(reliability)
+    if rel is not None and assertions is None:
+        # Data supplied = data rendered, never silently dropped: real reliability
+        # numbers with no assertions envelope still render their Reliability
+        # dimension, over an honest empty envelope (0 assertions, stated in the
+        # note). assertions=None WITH reliability=None stays byte-identical.
+        assertions = _EMPTY_ASSERT_ENVELOPE
     return (
         _render_md(env, models, cfg, base_env=base, base_label=base_label,
                   assertions=assertions, trace=env.get("trace_context"),
-                  conversation=cv, rubric=rubric),
+                  conversation=cv, rubric=rubric, reliability=rel),
         env,
     )
 

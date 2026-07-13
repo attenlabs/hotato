@@ -17,8 +17,9 @@ pins, on the CLI (not the Python API):
     deterministic summary (here the judge backend is unreachable, so it is an
     honest ERROR that never gates);
   * there is NO overall_score / blended number in ANY output, including json;
-  * repetitions > 1 reports the per-run results + a plain run count, never a
-    fabricated reliability number.
+  * repetitions > 1 reports the per-run results + the run count + a REAL
+    reliability aggregate (pass@1 / pass@k / pass^k + a Wilson CI), never a
+    fabricated number and never a Phase-2 deferral.
 """
 
 import json
@@ -303,9 +304,9 @@ def test_rubric_lane_runs_real_judge_advisory(tmp_path, capsys):
     assert code == 0
 
 
-# --- repetitions > 1: per-run + a plain count, never a fabricated number -----
+# --- repetitions > 1: per-run + a REAL reliability aggregate (Phase 2) --------
 
-def test_repetitions_report_per_run_without_reliability_number(tmp_path, capsys):
+def test_repetitions_report_per_run_with_real_reliability(tmp_path, capsys):
     tf = _write_test(
         tmp_path, name="reps",
         deterministic=[{"id": "refunded", "kind": "tool_call",
@@ -317,13 +318,24 @@ def test_repetitions_report_per_run_without_reliability_number(tmp_path, capsys)
     assert result["repetitions"]["runs"] == 3
     assert len(result["repetitions"]["per_run"]) == 3
     assert [r["run"] for r in result["repetitions"]["per_run"]] == [1, 2, 3]
-    # a plain count + an explicit Phase-2 deferral, never a fabricated pass^k
-    assert result["reliability"] == {
-        "runs": 3,
-        "note": "reliability: 3 runs; pass^k in Phase 2 (not computed)",
-    }
-    # no fabricated reliability number leaks into the results/summary
-    assert "pass^k" not in json.dumps(result["assertions"])
+    # a REAL reliability aggregate now (Phase 2 shipped): pass@1/pass@k/pass^k +
+    # a Wilson CI, with the honest deterministic-replay note. Never a Phase-2
+    # deferral, never a fabricated number.
+    rel = result["reliability"]
+    assert rel["runs"] == 3
+    assert rel["origin"] == "real"
+    agg = rel["aggregate"]
+    assert agg["n"] == 3 and agg["k"] == 3 and agg["passes"] == 3
+    assert agg["pass_at_1"] == 1.0
+    assert agg["pass_at_k"] == 1.0
+    # every run scores the SAME recording -> zero variance -> pass^k == pass@1
+    assert agg["pass_caret_k"] == agg["pass_at_1"] == 1.0
+    assert agg["ci"]["method"] == "wilson"
+    assert "Phase 2" not in json.dumps(rel)
+    # per-run attribution is present and honest
+    assert all(r["passed"] for r in rel["per_run"])
+    # no overall_score / blended number anywhere
+    assert "overall_score" not in json.dumps(result)
     assert code == 0
 
 
