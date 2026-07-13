@@ -1,0 +1,14 @@
+{
+  "status": "AWAITING_REAL_COLD_USERS",
+  "note": "These two batteries require real people / hosted credentials and are NOT fillable by the build. Slots stay empty until real cold users run them; counts are never invented.",
+  "battery_1_five_unfamiliar_voice_engineers": {
+    "thresholds": {"complete_credentialless_demo_under_5min": ">=4/5", "produce_record_from_own_call_under_30min": ">=3/5", "maintainer_intervention": "0", "can_explain_five_lanes_separate": "5/5", "none_reads_addressed_backchannel_as_SAA_diagnosis": "required"},
+    "results": {"n": null, "demo_under_5min": null, "record_under_30min": null, "interventions": null, "explained_five_lanes": null, "backchannel_misread": null},
+    "reason_code_if_unrun": "NO_COLD_USERS_AVAILABLE"
+  },
+  "battery_2_five_cold_saa_starts": {
+    "thresholds": {"key_creation_matches_public_flow": "5/5", "package_recipe_visible_immediately": "5/5", "doctor_identifies_missing_key_auth_device_stack": "5/5", "first_typed_event_or_stable_reason_code": "5/5", "cleanup_leaves_no_device_or_socket": "5/5"},
+    "results": {"n": null, "key_flow_ok": null, "recipe_visible": null, "doctor_ok": null, "first_event_or_reason": null, "clean_cleanup": null},
+    "reason_code_if_unrun": "REQUIRES_HOSTED_CREDENTIALS"
+  }
+}
