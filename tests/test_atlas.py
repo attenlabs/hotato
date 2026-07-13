@@ -166,13 +166,15 @@ def _known_paths(out_dir):
     for dirpath, _dirs, files in os.walk(out_dir):
         for f in files:
             rel = os.path.relpath(dirpath, out_dir)
-            prefix = "" if rel == "." else rel
+            # URL paths always use "/" -- normalise the OS-native separator so
+            # this check is correct on Windows as well as POSIX.
+            prefix = "" if rel == "." else rel.replace(os.sep, "/")
+            if os.altsep:
+                prefix = prefix.replace(os.altsep, "/")
             if f == "index.html":
-                p = "/" + prefix + ("/" if prefix else "")
-                known.add(p if p.startswith("/") else "/" + p)
-                known.add("/" + prefix + "/" if prefix else "/")
+                known.add(("/" + prefix + "/") if prefix else "/")
             else:
-                known.add("/" + os.path.join(prefix, f) if prefix else "/" + f)
+                known.add(("/" + prefix + "/" + f) if prefix else "/" + f)
     return known
 
 
