@@ -840,6 +840,29 @@ def mcp_clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = 
                       "result": result})
 
 
+# --- Canonical MCP tool inventory -------------------------------------------
+# The single source of truth for which tools this server registers: one scoring
+# tool (``voice_eval_run``) plus eleven fleet tools. ``build_server`` registers
+# EXACTLY these names, docs/MCP.md lists them, and tests/test_mcp_parity.py asserts
+# the registered set equals this tuple. Add a tool name here in the SAME change that
+# adds its ``@server.tool`` registration -- test_expected_tools_registered fails on
+# any drift between this inventory and what is actually registered.
+TOOL_NAMES = (
+    "voice_eval_run",
+    "fleet_status",
+    "candidate_list",
+    "candidate_inspect",
+    "contract_list",
+    "trial_explain",
+    "experiment_status",
+    "artifact_verify",
+    "experiment_propose",
+    "experiment_create",
+    "experiment_run",
+    "clone_cleanup",
+)
+
+
 def build_server():
     """Construct the FastMCP server with the scoring tool and the fleet tools registered."""
     try:
@@ -854,6 +877,16 @@ def build_server():
         )
 
     server = FastMCP("hotato")
+    # FastMCP does not forward an application version to its underlying low-level
+    # Server, so serverInfo.version in the initialize handshake would otherwise
+    # default to the MCP SDK's own version (create_initialization_options() falls
+    # back to importlib version("mcp") when Server.version is None). Pin it to
+    # hotato's explicit application version so the client learns which application
+    # it is talking to, not the transport SDK. Verified at the floor SDK
+    # (mcp==1.2.0) and current.
+    from . import __version__ as _hotato_version
+
+    server._mcp_server.version = _hotato_version
 
     @server.tool(name="voice_eval_run", description=_TOOL_DESCRIPTION)
     def voice_eval_run(
