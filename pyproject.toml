@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.3.0"
+version = "1.3.1"
 description = "Open-source, self-hosted conversation QA for voice agents: simulate, evaluate, review, and track calls across five dimensions with the evidence behind every result. MIT."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -123,6 +123,7 @@ where = ["src"]
 hotato = [
     "data/evidence_language.json",
     "data/scenarios/*.json",
+    "data/simulate/*.json",
     "data/audio/*.wav",
     "data/demo/failing/scenarios/*.json",
     "data/demo/failing/audio/*.wav",

@@ -164,21 +164,27 @@ def _next_commands_text(card_written: bool, contract_written: bool) -> str:
     return "\n".join(lines)
 
 
-def run_start(*, demo: bool = False, stack: Optional[str] = None,
-              folder: Optional[str] = None, stereo: Optional[str] = None,
+def _secs(x) -> str:
+    """Format a seconds value for the human report: ``n/a`` for a missing
+    measurement, never a raw ``None`` (report.py / capture.py do the same)."""
+    return "n/a" if x is None else f"{x:.2f}s"
+
+
+def run_start(*, demo: bool = False, stereo: Optional[str] = None,
               out_dir: Optional[str] = None, fmt: str = "text",
               label: Optional[str] = None, onset_sec: Optional[float] = None,
               caller_channel: int = 0, agent_channel: int = 1, confirm_channels: bool = False) -> int:
-    """``hotato start``. Only ``--demo`` fully runs in this build; the other
-    modes are stubbed and route to the shipped command that does the job."""
-    modes = [m for m, on in (("--demo", demo), ("--stack", stack),
-                             ("--folder", folder), ("--stereo", stereo)) if on]
+    """``hotato start``. Two guided first-run modes: ``--demo`` (the bundled,
+    credential-less demo) and ``--stereo <call.wav>`` (your own dual-channel
+    recording). To score a live provider stack or a folder of recordings, use
+    ``hotato sweep`` / ``hotato analyze``."""
+    modes = [m for m, on in (("--demo", demo), ("--stereo", stereo)) if on]
     if not modes:
         raise ValueError(
             "choose a mode: hotato start --demo (the guided, credential-less "
             "first run) or hotato start --stereo <call.wav> (the guided own-call "
-            "review-and-contract flow). --stack/--folder are placeholders; use "
-            "hotato sweep / hotato analyze for those."
+            "review-and-contract flow). To score a live provider stack or a "
+            "folder of recordings, use hotato sweep / hotato analyze."
         )
     if stereo:
         return _run_stereo_flow(
@@ -186,19 +192,6 @@ def run_start(*, demo: bool = False, stack: Optional[str] = None,
             label=label, onset_sec=onset_sec,
             caller_channel=caller_channel, agent_channel=agent_channel,
             confirm_channels=confirm_channels)
-    if not demo:
-        # --stack / --folder still route to the shipped primitive.
-        route = {"--stack": "hotato sweep --stack <stack>",
-                 "--folder": "hotato analyze <folder>"}[modes[0]]
-        msg = (f"hotato start {modes[0]} is not yet in this build. "
-               f"For now, run: {route}")
-        if fmt == "json":
-            print(_errors.safe_json_dumps(
-                {"tool": "hotato", "kind": "start", "mode": modes[0],
-                 "ran": False, "route": route, "message": msg}, indent=2))
-        else:
-            print(msg)
-        return 0
 
     out_dir = out_dir or "."
     if not os.path.isdir(out_dir):
@@ -451,13 +444,13 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
             v = measured["verdict"]
             lines += [f"  top candidate:   onset {measured['onset_sec']:.2f}s "
                       f"(frame {m.get('onset_frame_index')}), "
-                      f"time-to-yield {v.get('seconds_to_yield')}, "
-                      f"talk-over {v.get('talk_over_sec')}s{bs}"]
+                      f"time-to-yield {_secs(v.get('seconds_to_yield'))}, "
+                      f"talk-over {_secs(v.get('talk_over_sec'))}{bs}"]
         else:
             dm = m.get("decision_margin_sec")
             lines += [f"  top candidate:   onset {measured['onset_sec']:.2f}s "
                       f"(frame {m.get('onset_frame_index')}), decision margin "
-                      f"{dm}s{bs} -- unlabeled (a timing moment, not a verdict)"]
+                      f"{_secs(dm)}{bs} -- unlabeled (a timing moment, not a verdict)"]
     if contract_info:
         lines += [f"  contract:        {contract_info['dir']} "
                   f"(evidence: {contract_info['evidence_headline']}, tier "

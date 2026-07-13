@@ -36,7 +36,7 @@ no ranking.
 | **Vapi** | A voice agent orchestration platform: the runtime stack a team builds and deploys its agent on. |
 | **Retell** | A voice agent orchestration platform for building and deploying voice agents. |
 
-## The honest job, and the better fit
+## What it measures, and the better fit
 
 | What you need | Best fit | Why |
 |---|---|---|

@@ -958,8 +958,9 @@ def evaluate_rubric_lane(
 ) -> Dict[str, Any]:
     """Evaluate a whole rubric lane and return a ``rubric.v1`` envelope. ADVISORY
     by default (``exit_code`` 0 regardless of verdicts); ``gate=True`` makes any
-    FAIL gate (exit 1). Never merges into a deterministic count and never emits
-    an ``overall_score``."""
+    FAIL or judge ERROR gate (exit 1) -- a judge that could not run is not a
+    pass. Never merges into a deterministic count and never emits an
+    ``overall_score``."""
     results = [
         evaluate_rubric(r, transcript=transcript, trace=trace, judge=judge,
                         cache=cache, no_cache=no_cache, sign=sign)
@@ -980,18 +981,29 @@ def rubric_envelope(results: List[Dict[str, Any]], *, gate: bool = False) -> Dic
             counts["error"] += 1
         else:
             counts["inconclusive"] += 1
-    # Advisory by default: a rubric FAIL is reported but never gates. With
-    # --gate, a FAIL gates like a deterministic FAIL (exit 1). INCONCLUSIVE and
-    # ERROR stay advisory even under --gate -- a model that could not decide, or
-    # a backend that was down, never silently blocks a release.
-    exit_code = 1 if (gate and counts["fail"] > 0) else 0
+    # Advisory by default: verdicts are reported but never gate. With --gate, a
+    # FAIL gates (exit 1) AND a judge ERROR gates -- a judge that could not run
+    # (backend down/unreachable, or an exception) is NOT a pass, and exit 0 must
+    # never quietly mean "the check you gated on did not actually run".
+    # INCONCLUSIVE (the model ran but abstained) stays advisory even under
+    # --gate; a suite that wants to gate on that uses inconclusive_policy.
+    exit_code = 1 if (gate and (counts["fail"] > 0 or counts["error"] > 0)) else 0
+    if not gate:
+        gate_note = "ADVISORY: no verdict gates CI."
+    elif counts["error"] > 0:
+        gate_note = (f"GATED and BLOCKED: {counts['error']} judge error(s) -- the "
+                     "judge could not run, which is not a pass. Fix the judge "
+                     "backend, or drop --gate to keep the rubric advisory.")
+    elif counts["fail"] > 0:
+        gate_note = "GATED: a rubric FAIL gates CI."
+    else:
+        gate_note = "GATED: a FAIL or a judge ERROR would gate CI."
     note = (
         f"{counts['pass']} pass, {counts['fail']} fail, "
         f"{counts['inconclusive']} inconclusive, {counts['error']} error across "
         f"{len(results)} rubric result(s); model-judged (advisory), "
         "deterministic:false, never merged into the deterministic counts and "
-        "never a blended or overall number. "
-        + ("GATED: a FAIL gates CI." if gate else "ADVISORY: no verdict gates CI.")
+        "never a blended or overall number. " + gate_note
     )
     return {
         "schema": SCHEMA,

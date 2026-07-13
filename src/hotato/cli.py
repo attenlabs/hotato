@@ -355,7 +355,7 @@ _EXIT_CODES: dict = {
     ),
     "release compare": (
         (0, "the two releases were compared (per-dimension deltas + new-failures "
-            "/ fixed-since printed; a side with no runs is an honest empty state, "
+            "/ fixed-since printed; a side with no runs is an empty state, "
             "never an error and never a blended delta score)"),
         (2, "a usage error or an unreadable registry --registry"),
     ),
@@ -442,7 +442,7 @@ _EXIT_CODES: dict = {
     ),
     "verify": (
         (0, "verified: the before/after rollup was produced (a low-n claim is "
-            "refused honestly but still exits 0; the per-fixture facts hold)"),
+            "refused but still exits 0; the per-fixture facts hold)"),
         (1, "a gate you opted into failed: with --fail-on-regression a fixture "
             "regressed or got worse, or with --policy a guardrail was violated "
             "or a target.improve criterion was not met"),
@@ -585,7 +585,7 @@ _EXIT_CODES: dict = {
     "fleet discover": (
         (0, "scanned the recording (candidate moments listed, possibly zero; "
             "never a verdict and never an auto-label)"),
-        (2, "not-scorable input (the honest trust recommendation is printed), a "
+        (2, "not-scorable input (the trust recommendation is printed), a "
             "usage error, or unreadable audio"),
     ),
     "fleet review": (
@@ -673,7 +673,7 @@ _EXIT_CODES: dict = {
     ),
     "fleet trend": (
         (0, "wrote the self-contained trend dashboard (possibly zero agents "
-            "or zero history: honest-empty states, never a crash)"),
+            "or zero history: empty states, never a crash)"),
         (2, "usage error or an unwritable --out"),
     ),
 }
@@ -2952,11 +2952,59 @@ def _cmd_conversation_verify(args) -> int:
     return 2 if verdict["refused"] else 0
 
 
+def _cmd_simulate_init(args) -> int:
+    """Write a MINIMAL valid scenario.v1 the user can simulate immediately -- the
+    onboarding path for a fresh install. It writes a hotato.scenario.v1 doc (the
+    schema `simulate` consumes), NOT the conversation-test file `hotato scenario
+    init` writes, so `hotato simulate --init X && hotato simulate X` runs end to
+    end. The scenario id is derived from the filename stem."""
+    from . import scenario as _scn
+
+    path = args.init
+    if os.path.exists(path) and not args.force:
+        raise ValueError(
+            f"{path!r} already exists; pass --force to overwrite it, or choose "
+            "a new --init PATH"
+        )
+    stem = os.path.basename(path)
+    for suf in (".json", ".yaml", ".yml"):
+        if stem.endswith(suf):
+            stem = stem[: -len(suf)]
+            break
+    if stem.endswith(".scenario"):
+        stem = stem[: -len(".scenario")]
+    scenario_id = stem or "demo"
+    _atomic_write_text(path, _scn.build_starter(scenario_id))
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "simulate-init", "path": path, "scenario_id": scenario_id,
+        }
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(f"wrote a minimal simulate scenario ({scenario_id}): {path}")
+        print(f"next: hotato simulate {path} --out ./sim")
+    return 0
+
+
 def _cmd_simulate(args) -> int:
     import datetime as _dt
 
     from . import scenario as _scn
     from . import simulate as SIM
+
+    # Onboarding paths, handled before anything loads a file: --init writes a
+    # minimal scenario the user can simulate immediately; --example renders the
+    # scenario bundled inside the package (a runnable demo from a bare install).
+    if args.init is not None:
+        return _cmd_simulate_init(args)
+    if args.example:
+        if args.scenario or args.matrix:
+            raise ValueError(
+                "--example renders the scenario bundled with the package; do "
+                "not also pass a scenario file or --matrix"
+            )
+        args.scenario = _scn.example_scenario_path()
 
     # --matrix switches to the parallel scenario-matrix runner. --conversation-test
     # / --parallel are matrix-only; refuse them in single-run mode rather than
@@ -3705,8 +3753,7 @@ def _cmd_start(args) -> int:
     from . import start as _start
 
     return _start.run_start(
-        demo=args.demo, stack=args.stack, folder=args.folder,
-        stereo=args.stereo, out_dir=args.dir, fmt=args.format,
+        demo=args.demo, stereo=args.stereo, out_dir=args.dir, fmt=args.format,
         label=getattr(args, "label", None), onset_sec=getattr(args, "onset", None),
         caller_channel=getattr(args, "caller_channel", 0),
         agent_channel=getattr(args, "agent_channel", 1),
@@ -4150,7 +4197,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="aggregate a directory of run envelopes into a trend (pass rate, "
              "talk-over, time to yield)",
         description=(
-            "Aggregate many runs into one honest trend view. Point it at a "
+            "Aggregate many runs into one trend view. Point it at a "
             "directory of envelope JSONs (hotato run --format json > runs/001.json). "
             "It reports runs, mean/median/p90 talk-over and time-to-yield pooled "
             "across all events, mean/median/p90/p95 response gap (dead air before "
@@ -4415,10 +4462,10 @@ def build_parser() -> argparse.ArgumentParser:
             "portable contract, and contract verify catches it); then prints "
             "the exact next commands: promote a candidate into a permanent "
             "fixture, run those fixtures in CI, re-verify the demo contract, "
-            "and render a card. hotato start --stereo <call.wav> runs the fully-"
-            "wired guided own-call flow (trust -> scan -> review -> human label "
-            "-> contract + evidence-tier card). --stack/--folder route you to "
-            "hotato sweep / analyze."
+            "and render a card. hotato start --stereo <call.wav> runs the "
+            "guided own-call flow (trust -> scan -> review -> human label "
+            "-> contract + evidence-tier card). To score a live provider stack "
+            "or a folder of recordings, use hotato sweep / hotato analyze."
         ),
         epilog=(
             _exit_codes_epilog("start") + "\n\n"
@@ -4429,13 +4476,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     st.add_argument("--demo", action="store_true",
-                    help="run the guided demo first run (the only fully-wired "
-                         "mode in this build)")
-    st.add_argument("--stack", default=None,
-                    help="[not yet in this build] route to hotato sweep "
-                         "--stack")
-    st.add_argument("--folder", default=None,
-                    help="[not yet in this build] route to hotato analyze")
+                    help="run the guided, credential-less demo first run")
     st.add_argument("--stereo", default=None, metavar="CALL_WAV",
                     help="guided own-call flow on a dual-channel recording: trust "
                          "preflight, candidate scan, local review page, (with "
@@ -4584,7 +4625,7 @@ def build_parser() -> argparse.ArgumentParser:
             "bounded move in an unambiguous direction within documented bounds, "
             "the battery contains a passing opposite-risk fixture, and the "
             "diagnosis is config-only-safe; otherwise the plan downgrades "
-            "honestly (refusal on the threshold funnel, instrumentation "
+            "(refusal on the threshold funnel, instrumentation "
             "checklist on an ambiguous slow yield, insufficient_coverage when "
             "the verifying fixture is missing). Plans never carry an absolute "
             "magic value: from -> to is one step relative to the inspected "
@@ -4707,7 +4748,7 @@ def build_parser() -> argparse.ArgumentParser:
             "audio is always written as ONE two-channel WAV (caller on "
             "channel 0, agent on channel 1). The created fixture is scored "
             "immediately; an input that cannot be judged is refused with the "
-            "honest reason (exit 2), never written as a fixture that would "
+            "reason (exit 2), never written as a fixture that would "
             "report a meaningless verdict. Offline; no accuracy percentage "
             "anywhere."
         ),
@@ -4783,7 +4824,7 @@ def build_parser() -> argparse.ArgumentParser:
             "onset, and the kind, so unlike `fixture create` no --stereo "
             "and no --onset is needed; you add the label. The created "
             "fixture is scored immediately; a candidate that cannot be "
-            "judged is refused with the honest reason (exit 2), never "
+            "judged is refused with the reason (exit 2), never "
             "written as a fixture that would report a meaningless verdict. "
             "Offline; no accuracy percentage anywhere."
         ),
@@ -4872,7 +4913,7 @@ def build_parser() -> argparse.ArgumentParser:
             "shareable SVG card, a CI policy, and the exact replay/CI "
             "commands. Reuses the same round-trip scorability guarantee "
             "`fixture create` gives: a not-scorable moment is refused with "
-            "the honest reason (exit 2) and no bundle is written. A mono "
+            "the reason (exit 2) and no bundle is written. A mono "
             "recording is rejected by default; pass --mono with --diarize "
             "for the opt-in, quality-gated diarized-mono path (never "
             "silently upgraded past indicative-only). Offline; no accuracy "
@@ -5231,7 +5272,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="run a deterministic assertions.yaml against a call's "
              "transcript/spans/timing (phrase/pii/policy/tool_call/outcome)",
         description=(
-            "The honesty wall made structural: phrase, pii, policy, "
+            "The deterministic/judge split made structural: phrase, pii, policy, "
             "tool_call, and outcome assertions -- every one of them pure "
             "regex/checksum/span-lookup, never a model call. The summary "
             "always splits deterministic pass/fail/inconclusive counts "
@@ -5797,18 +5838,42 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             _exit_codes_epilog("simulate") + "\n\n"
+            "Quickstart (works from a bare pip install):\n"
+            "  hotato simulate --init demo.scenario.json   # write a minimal scenario\n"
+            "  hotato simulate demo.scenario.json --out ./sim\n"
+            "  hotato simulate --example --out ./sim        # or run the bundled one\n"
+            "\n"
             "Examples:\n"
             "  hotato simulate refund.scenario.yaml --out ./sim\n"
             "  hotato simulate refund.scenario.yaml --repetitions 5 --format json\n"
             "  hotato simulate --matrix refund.scenario.yaml --out ./matrix\n"
             "  hotato simulate --matrix refund.scenario.yaml \\\n"
-            "      --conversation-test refund.test.yaml --parallel 8 --format json"
+            "      --conversation-test refund.test.yaml --parallel 8 --format json\n"
+            "\n"
+            "NOTE: a simulate scenario is a hotato.scenario.v1 doc (get one with "
+            "--init),\n"
+            "which is NOT the conversation-test file `hotato scenario init` writes "
+            "for\n"
+            "`hotato test run`. See docs/SIMULATE.md."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sm.add_argument("scenario", metavar="scenario.yaml", nargs="?", default=None,
                     help="the hotato.scenario.v1 file to render (single-run mode; "
-                         "use --matrix to run the whole variation matrix)")
+                         "use --matrix to run the whole variation matrix). Get a "
+                         "starter with `hotato simulate --init`")
+    sm.add_argument("--init", nargs="?", const="demo.scenario.json", default=None,
+                    metavar="PATH",
+                    help="write a MINIMAL valid scenario.v1 (default "
+                         "demo.scenario.json) that simulate accepts as-is, then "
+                         "exit: `hotato simulate --init demo.scenario.json && "
+                         "hotato simulate demo.scenario.json` runs end-to-end")
+    sm.add_argument("--example", action="store_true",
+                    help="render the minimal scenario BUNDLED with the package "
+                         "(no scenario file needed) -- a runnable demo from a "
+                         "bare pip install")
+    sm.add_argument("--force", action="store_true",
+                    help="(--init) overwrite an existing --init PATH")
     sm.add_argument("--matrix", default=None, metavar="scenario.yaml",
                     help="run the scenario's FULL variation matrix in parallel "
                          "(the 'simulate hundreds' exit): expand every cell, "
@@ -5960,7 +6025,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     syn = sub.add_parser(
         "synth",
-        help="generate deterministic synthetic perturbations of a REAL recording "
+        help="generate deterministic synthetic perturbations of a source recording "
              "(a separate synthetic axis; never blended with real evidence)",
         description=(
             "Apply the deterministic transform matrix (sample rate, gain, additive "

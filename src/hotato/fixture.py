@@ -32,6 +32,7 @@ from .errors import open_regular as _open_regular
 import json
 import os
 import re
+import shlex
 import tempfile
 from typing import Optional
 
@@ -344,8 +345,8 @@ def create_fixture(
         "validation": validation,
         "onset": {"source_sec": round(onset_sec, 3),
                   "fixture_sec": fixture_onset},
-        "next": (f"hotato run --scenarios {scenarios_dir} "
-                 f"--audio {audio_dir} --format text"),
+        "next": (f"hotato run --scenarios {shlex.quote(scenarios_dir)} "
+                 f"--audio {shlex.quote(audio_dir)} --format text"),
     }
 
 

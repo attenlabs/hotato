@@ -27,6 +27,7 @@ Reproducibility here is scoped to "a seeded replay is byte-identical", never
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict
 
 from .assert_ import parse_assertions_yaml
@@ -40,15 +41,25 @@ __all__ = [
     "KIND",
     "VERSION",
     "DEFAULT_SPEAKING_RATE",
+    "EXAMPLE_FILENAME",
     "validate_scenario_doc",
     "parse_scenario",
     "load_scenario_file",
+    "build_starter",
+    "example_scenario_path",
 ]
 
 KIND = "hotato.scenario"
 VERSION = 1
 
 DEFAULT_SPEAKING_RATE = 1.0
+
+# The minimal scenario shipped INSIDE the package (installed with the wheel under
+# ``hotato/data/simulate/``) so ``hotato simulate --example`` runs from a bare
+# ``pip install`` with no example file on disk. Its bytes are produced by
+# :func:`build_starter` -- one source of truth, pinned by a test.
+EXAMPLE_FILENAME = "quickstart.scenario.json"
+EXAMPLE_SCENARIO_ID = "simulate-quickstart"
 
 
 def _reject_overall_score(obj: Any, where: str) -> None:
@@ -264,6 +275,28 @@ def validate_scenario_doc(doc: Any) -> Dict[str, Any]:
         )
     _reject_overall_score(doc, "scenario document")
 
+    # An actionable kind mismatch BEFORE the shared const check: the two "scenario"
+    # concepts collide by name, and the bare ``'kind' must be 'hotato.scenario'``
+    # leaves a new user stranded. Name what they DO have and the exact command
+    # that produces a scenario ``simulate`` accepts.
+    kind = doc.get("kind")
+    if kind != KIND:
+        if kind == "hotato.conversation-test":
+            what = (
+                " -- that is a conversation-test file (what `hotato scenario "
+                "init` writes; `hotato test run` consumes it), NOT a simulate "
+                "scenario"
+            )
+        else:
+            what = ""
+        raise ValueError(
+            f"'kind' must be {KIND!r} (a hotato.scenario.v1 doc), got "
+            f"{kind!r}{what}. Get a valid scenario with `hotato simulate --init "
+            "demo.scenario.json` (then `hotato simulate demo.scenario.json`), "
+            "or run the bundled one with `hotato simulate --example`. See "
+            "docs/SIMULATE.md."
+        )
+
     _check_kind_version(doc, kind=KIND, version=VERSION, subject="scenario")
 
     sid = doc.get("id")
@@ -319,3 +352,47 @@ def load_scenario_file(path: str) -> Dict[str, Any]:
     with _open_regular(path, "r", encoding="utf-8") as fh:
         text = fh.read()
     return validate_scenario_doc(parse_scenario(text))
+
+
+def build_starter(scenario_id: str = "demo") -> str:
+    """Return a MINIMAL valid ``hotato.scenario.v1`` document as JSON text that
+    ``hotato simulate`` accepts as-is -- the onboarding scenario ``hotato
+    simulate --init`` writes and the bundled ``--example`` ships.
+
+    It round-trips through :func:`parse_scenario` + :func:`validate_scenario_doc`
+    and renders to a faithful (non ``SIMULATOR_INVALID``) ``origin=simulated``
+    conversation. Deliberately tiny: a two-turn scripted caller, backchannels
+    off (so it is byte-identical at every seed), no variation matrix, no
+    ``agent_mock``. It is a starter you EDIT for your own agent, never a claim
+    these are the right caller turns for your call."""
+    doc = {
+        "kind": KIND,
+        "version": VERSION,
+        "id": scenario_id or "demo",
+        "goal": {"type": "get_refund", "target": "order A-1001"},
+        "facts": {"order_id": "A-1001"},
+        "caller": {
+            "script": [
+                {"say": "Hi, my order A-1001 arrived damaged and I would like "
+                        "a refund."},
+                {"say": "Yes, please refund it to my card."},
+            ],
+            "behavior": {"backchannels": {"probability": 0.0}},
+        },
+        "environment": {"locale": "en-US", "route": "phone"},
+        "seed": 0,
+    }
+    # sort_keys keeps the bytes stable so the packaged --example file and this
+    # builder can be pinned equal by a test.
+    return json.dumps(doc, indent=2, sort_keys=True) + "\n"
+
+
+def example_scenario_path() -> str:
+    """Absolute path to the minimal scenario bundled INSIDE the package (shipped
+    in the wheel under ``hotato/data/simulate/``), so ``hotato simulate
+    --example`` runs from a bare ``pip install`` with no example file on disk."""
+    from importlib import resources  # deferred: import cost at interpreter start
+
+    return str(
+        resources.files("hotato").joinpath("data", "simulate", EXAMPLE_FILENAME)
+    )

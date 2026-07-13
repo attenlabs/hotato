@@ -117,7 +117,7 @@ kind-specific fields are validated (bad regex, unknown detector, missing
 required field, an unsupported `version`) up front, before anything is
 evaluated -- a malformed file never produces a partial result set.
 
-## The honesty wall
+## The deterministic/judge split
 
 This is the entire point of the module, and it is structural, not a
 convention someone can quietly break:
@@ -140,7 +140,7 @@ convention someone can quietly break:
   timestamp, no random id, nothing non-reproducible in the envelope).
 
 The report (below) renders this split as two visually separate shelves
-instead of one number, so the honesty wall is visible on the page, not just
+instead of one number, so the split between the deterministic and judged lanes is visible on the page, not just
 in the JSON.
 
 ## The report: two shelves, no `overall_score`

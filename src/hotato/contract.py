@@ -54,6 +54,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import tempfile
 import wave
@@ -379,7 +380,7 @@ def create_contract(
         "dir": bundle_dir,
         "contract": contract,
         "paths": paths,
-        "next": f"hotato contract verify {out_dir}",
+        "next": f"hotato contract verify {shlex.quote(out_dir)}",
     }
 
 

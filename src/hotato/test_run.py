@@ -144,14 +144,15 @@ def evaluate_success(
     (``no_rubric_failure``) ONLY when ``gate_judge=True``. Every condition's
     boolean is still reported in ``conditions`` (honest), but a model verdict is
     advisory unless the run opts into ``--gate-judge`` -- so a rubric FAIL never
-    silently blocks a release. ``no_inconclusive`` is scoped to the
-    deterministic lane."""
+    silently blocks a release. Under ``--gate-judge`` a rubric ERROR (the judge
+    could not run) also fails ``no_rubric_failure``: a judge that did not run is
+    not a pass. ``no_inconclusive`` is scoped to the deterministic lane."""
     det_status = [r["status"] for r in det_results]
     rubric_status = [r.get("status") for r in rubric_results]
     available = {
         "all_deterministic_assertions_pass": all(s == "PASS" for s in det_status),
         "no_deterministic_fail": not any(s == "FAIL" for s in det_status),
-        "no_rubric_failure": not any(s == "FAIL" for s in rubric_status),
+        "no_rubric_failure": not any(s in ("FAIL", "ERROR") for s in rubric_status),
         "no_inconclusive": not any(s == "INCONCLUSIVE" for s in det_status),
     }
     conditions = {name: available[name] for name in required}

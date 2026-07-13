@@ -323,3 +323,36 @@ def test_cli_inspect_vapi_uses_env_key(monkeypatch, capsys, http_mock):
     assert http_mock[0]["headers"]["Authorization"] == "Bearer env-key"
     doc = json.loads(capsys.readouterr().out)
     assert doc["turn_taking"]["interrupt_min_words"] == 2
+
+
+def test_inspect_http_get_installs_hardened_opener_before_request(monkeypatch):
+    """The credentialed inspect path (``inspect_vapi``/``inspect_retell`` send
+    ``Authorization: Bearer <vendor key>``) must install the credential-safe
+    opener BEFORE issuing the request, so a cross-host 30x from the vendor host
+    cannot exfiltrate the API key. This path previously missed the opener that
+    rubric.py / state_adapter.py already install. Pin the ordering."""
+    import urllib.error
+    import urllib.request
+
+    import hotato.capture as capture
+    import hotato.inspectcfg as inspectcfg
+
+    order = []
+    monkeypatch.setattr(capture, "_ensure_safe_opener",
+                        lambda: order.append("opener"))
+
+    def _fake_urlopen(req, timeout=None):
+        order.append("urlopen")
+        raise urllib.error.URLError("no network in test")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    with pytest.raises(ValueError):
+        inspectcfg._http_get_json(
+            "https://api.vapi.ai/assistant/x",
+            headers={"Authorization": "Bearer secret-key"})
+
+    assert order and order[0] == "opener", (
+        "inspect must install the hardened opener before any request; "
+        f"got order={order}")
+    assert "urlopen" in order

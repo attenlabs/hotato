@@ -34,6 +34,7 @@ from .errors import open_regular as _open_regular
 
 import json
 import os
+import shlex
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
@@ -231,15 +232,15 @@ def _message(stage: str, state: dict) -> Tuple[str, list]:
                 "the battery fails on both axes at once: no single config "
                 "threshold fixes it. hotato patch will print the "
                 "engagement-control pointer, not a config patch.",
-                [f"hotato patch {p['plan_path']}"],
+                [f"hotato patch {shlex.quote(p['plan_path'])}"],
             )
         return (
             f"a fix plan is ready ({p['fixes_awaiting_verify']} config step "
             f"awaiting verify, decision {p['decision']}). Apply it yourself, "
             "then prove it held.",
             [
-                f"hotato patch {p['plan_path']}   # produces the paste-ready "
-                "patch; you apply it",
+                f"hotato patch {shlex.quote(p['plan_path'])}   # produces the "
+                "paste-ready patch; you apply it",
                 "re-capture the failing fixtures after applying the change",
                 "hotato verify --before <old-run>.json --after <new-run>.json",
             ],

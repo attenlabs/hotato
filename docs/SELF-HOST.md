@@ -111,8 +111,12 @@ mix of pass / fail / inconclusive across the five dimensions, and both direct
 and simulated origins), run the one-shot seeder:
 
 ```bash
-docker compose run --rm hotato-init
+docker compose --profile demo run --rm hotato-init
 ```
+
+The seeder lives in the `demo` compose profile, so a plain `docker compose up -d`
+never starts it. `docker compose run` targets that profiled service directly; the
+`--profile demo` above makes the profile explicit.
 
 > `hotato start --demo` writes a *sweep report* (`hotato-sweep.json` + an HTML
 > dashboard) into a directory — it does not populate the workspace, which reads
@@ -188,26 +192,36 @@ docker compose --profile judge up -d
 
 The Ollama service publishes **no port** — it is reachable only on the private
 compose network, wired to the workspace via `HOTATO_JUDGE_ENDPOINT=http://ollama:11434`.
-Pull a model once:
+Pull the pinned judge model once (`qwen2.5vl:3b` is the model `hotato rubric run`
+uses by default, so no `--judge-model` flag is needed later):
 
 ```bash
-docker compose exec ollama ollama pull llama3.1:8b
+docker compose exec ollama ollama pull qwen2.5vl:3b
 ```
 
 > **This pull downloads model weights from the internet** — the one documented
 > download, like installing any package that carries model weights. It happens
 > once, into the `ollama-models` volume; after that, inference runs offline.
 
-Run the rubric lane inside the container. Because the endpoint hostname
-(`ollama`) is not loopback, hotato's endpoint gate asks you to acknowledge it
-with `--judge-egress-opt-in`. That traffic stays on the private compose network
-and never leaves the host; the flag exists because the gate keys on the
-hostname, not on where the packet goes:
+Run the rubric lane inside the container, pointing it at a rubrics file and a
+transcript you supply (author a rubric per [`docs/RUBRIC.md`](RUBRIC.md), then
+mount or copy both into the `/data` volume). Because the judge endpoint hostname
+(`ollama`, wired by `HOTATO_JUDGE_ENDPOINT` in the compose file) is not loopback,
+hotato's endpoint gate asks you to acknowledge it with `--judge-egress-opt-in`.
+That traffic stays on the private compose network and never leaves the host; the
+flag exists because the gate keys on the hostname, not on where the packet goes:
 
 ```bash
 docker compose exec hotato-workspace hotato rubric run \
-  --home /data -w default --judge-egress-opt-in transcript.json rubric.json
+  --rubrics /data/rubric.json --transcript /data/transcript.json \
+  --judge-egress-opt-in --judge-endpoint http://ollama:11434
 ```
+
+The lane is advisory by default — a rubric FAIL is reported but the exit code
+stays `0`; add `--gate` to fail CI on a FAIL. The judge uses the pinned
+`qwen2.5vl:3b` model you pulled above; pass `--judge-model <id>` to pick another.
+The rubric result is model-judged (`deterministic: false`) and is never merged
+into the deterministic assertion counts.
 
 ### Pre-seed the judge model for an air-gapped deploy
 
@@ -218,7 +232,7 @@ that volume (or its backing directory) to the air-gapped host:
 # on a connected machine
 docker volume create ollama-models
 docker run --rm -v ollama-models:/root/.ollama ollama/ollama:latest \
-  sh -c "ollama serve & sleep 5 && ollama pull llama3.1:8b"
+  sh -c "ollama serve & sleep 5 && ollama pull qwen2.5vl:3b"
 # back up the volume and restore it as `hotato_ollama-models` on the target
 docker run --rm -v ollama-models:/data -v "$PWD":/backup alpine \
   tar czf /backup/ollama-models.tgz -C /data .

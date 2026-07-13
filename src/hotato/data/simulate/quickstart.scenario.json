@@ -1,0 +1,32 @@
+{
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "Hi, my order A-1001 arrived damaged and I would like a refund."
+      },
+      {
+        "say": "Yes, please refund it to my card."
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "order_id": "A-1001"
+  },
+  "goal": {
+    "target": "order A-1001",
+    "type": "get_refund"
+  },
+  "id": "simulate-quickstart",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "version": 1
+}
