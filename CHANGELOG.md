@@ -8,8 +8,12 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-13
+
+The Voice Failure Atlas and the delta prove-and-stop gate (deltas D5, D6).
+
 ### Added
-- **Voice Failure Atlas builder** (delta D5, not yet published): a
+- **Voice Failure Atlas builder** (delta D5): a
   deterministic, static, server-rendered site generator
   (`scripts/build_atlas.py`, stdlib-only) built from typed sources under
   `atlas/{records,contracts,implementations}/`, schema-validated against three
@@ -29,7 +33,20 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   addressee-gate-eligible pattern class ships as an honest, unindexed,
   zero-record stub since no cleared non-addressed-speech fixture exists yet.
   Two builds from the same sources are byte-identical. `tests/test_atlas.py`
-  (26 tests). See `implementation-notes/D5-ATLAS.md`.
+  (27 tests, including a gate check that an `origin=fixture` record's
+  cited fixtures resolve to shipped files under `examples/`). See
+  `implementation-notes/D5-ATLAS.md`.
+
+- **Delta prove-and-stop verifier** (delta D6): `scripts/verify_delta.py`, a
+  machine-verifiable gate that confirms the D2/D3/D5 deliverables and their
+  tests, the adjacent offline security and consumer suites, a frozen-surface
+  check (the delta touched only additive surfaces), and a recorded cold-path
+  proof. `scripts/cold_path_proof.py` records share-safe evidence that a clean
+  install of the released package runs the credentialless offline first-run
+  (`hotato start --demo`) with no key and zero intervention. The two human cold
+  batteries (unfamiliar engineers; hosted starts) ship as an un-fabricated
+  template with empty slots -- they are never filled with invented counts. See
+  `implementation-notes/D6-PROVE-AND-STOP.md`.
 
 ## [1.4.1] - 2026-07-13
 
