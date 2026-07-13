@@ -382,15 +382,13 @@ def _all_atlas_and_site_text(tmp_path):
 
 
 def test_no_vendor_or_saa_mention_anywhere_in_sources_or_rendered_site(tmp_path):
-    # The only allowed exceptions are the mandated footer-only attribution
-    # line ("Hotato is maintained by Attention Labs.") and its accompanying
-    # <meta name="publisher"/"author"> tags -- everywhere else, every record,
-    # contract, implementation, and verdict must stay silent on vendor/product
-    # names.
-    allowed = re.compile(
-        r"Hotato is maintained by Attention Labs\."
-        r'|<meta name="(?:publisher|author)" content="Attention Labs">',
-    )
+    # The ONLY allowed exception is the mandated footer-only attribution line
+    # ("Hotato is maintained by Attention Labs."). Attribution is footer-only:
+    # no page carries a <meta name="publisher"/"author"> attribution tag (see
+    # test_attribution_is_footer_only_no_author_publisher_meta). Everywhere
+    # else, every record, contract, implementation, and verdict must stay
+    # silent on vendor/product names.
+    allowed = re.compile(r"Hotato is maintained by Attention Labs\.")
     forbidden = re.compile(
         r"\bsaa\b|attention\s*labs|attenlabs|multivox|speech\s+addressee\s+agent",
         re.IGNORECASE,
@@ -445,3 +443,144 @@ def test_interface_conformance_and_behavioral_evidence_are_separate_sections(tmp
         assert "Interface conformance" in text
         assert "Behavioral evidence" in text
         assert text.index("Interface conformance") < text.index("Behavioral evidence")
+
+
+# ---------------------------------------------------------------------------
+# (f) hardening: stored transcripts replay, OS-independent path gate,
+#     footer-only attribution
+# ---------------------------------------------------------------------------
+
+def test_stored_cli_transcript_matches_a_live_record_render(tmp_path):
+    """Replay equality (finding: stored transcript mismatch). Each atlas
+    record's stored ``hotato record render`` transcript must reproduce
+    byte-for-byte from a live run of the shipped CLI against the record's own
+    stored ``verify.json``: the render command's ``--out`` directory, its file
+    list, and its ``record_id`` are what the CLI actually emits, not
+    hand-edited. ``FR.__version__`` is pinned to the record's stored
+    provenance version so the content-addressed ``record_id`` is reproducible
+    across real tool-version bumps -- the same pinning discipline
+    ``test_failure_render`` uses for its golden record."""
+    import io
+    import contextlib
+    from types import SimpleNamespace
+    from hotato import cli
+    from hotato import failure_record as FR
+
+    records, _, _ = _all_sources()
+    for path in records:
+        doc = _load_json(path)
+        transcript = doc["cli_transcript"]
+        verify_entry = next(e for e in transcript
+                            if e["command"].startswith("hotato contract verify"))
+        render_entry = next(e for e in transcript
+                            if e["command"].startswith("hotato record render"))
+
+        # The verify step's stdout IS the verify.json the render step consumes;
+        # write it verbatim so the source-result digest -- and therefore the
+        # record_id -- is byte-identical to what produced the stored record.
+        workdir = tmp_path / doc["content_id"]
+        workdir.mkdir()
+        (workdir / "verify.json").write_text(verify_entry["output"], encoding="utf-8")
+
+        # Parse `hotato record render SOURCE#SEL --out OUT` back into args.
+        toks = render_entry["command"].split()
+        assert toks[:3] == ["hotato", "record", "render"], toks
+        assert toks[4] == "--out", toks
+        source_tok, out_name = toks[3], toks[5]
+        rawfile, _, selector = source_tok.partition("#")
+        live_source = str(workdir / rawfile) + (f"#{selector}" if selector else "")
+        live_out = workdir / out_name
+
+        pinned_version = doc["failure_record"]["provenance"]["hotato"]["version"]
+        args = SimpleNamespace(source=live_source, out=str(live_out))
+
+        original = FR.__version__
+        FR.__version__ = pinned_version
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = cli._cmd_record_render(args)
+        finally:
+            FR.__version__ = original
+        assert rc == 0
+
+        # The transcript names the --out dir by its relative basename
+        # (presentation, not the caller's absolute temp path).
+        live_output = buf.getvalue().replace(str(live_out), out_name)
+        assert live_output == render_entry["output"], (
+            f"{path}: stored `record render` transcript diverges from a live run"
+        )
+
+
+def test_is_unsafe_fixture_path_is_os_independent():
+    """The unsafe-path predicate refuses escapes regardless of the host os.sep:
+    a Windows-shaped path is rejected on POSIX and vice versa, and legitimate
+    forward-slash relative paths under examples/ are accepted."""
+    build_atlas = _load_build_atlas()
+    unsafe = [
+        "C:\\Windows\\system32",     # drive-letter absolute (backslash)
+        "C:/Windows/system32",       # drive-letter absolute (forward slash)
+        "\\\\server\\share\\x",       # UNC root (backslash)
+        "//server/share/x",           # UNC root (forward slash)
+        "\\etc\\passwd",              # backslash absolute root
+        "/etc/passwd",                # POSIX absolute root
+        "..\\..\\etc\\passwd",        # backslash traversal
+        "../../etc/passwd",           # forward-slash traversal
+        "examples\\..\\..\\secret",   # mixed-separator traversal
+        "examples/../secret",         # normalised-away traversal
+        "",                            # empty
+    ]
+    for p in unsafe:
+        assert build_atlas._is_unsafe_fixture_path(p) is True, f"accepted unsafe {p!r}"
+    for p in ("examples/funnel-demo/audio/x.wav", "examples/a/b/c.json",
+              "examples/scenario.json"):
+        assert build_atlas._is_unsafe_fixture_path(p) is False, f"rejected safe {p!r}"
+
+
+def test_hard_gate_rejects_os_independent_unsafe_fixture_paths():
+    """OS-independent path gate (finding: POSIX-only path gate). A shared typed
+    source can carry a Windows-shaped or backslash path even when this builder
+    runs on POSIX; drive-letter roots, UNC roots, backslash absolute roots, and
+    backslash/normalised '..' traversal must all fail the publication gate,
+    never be trusted as ordinary relative filenames."""
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    unsafe_paths = [
+        "C:\\Windows\\system32\\drivers",
+        "C:/Windows/system32",
+        "\\\\server\\share\\secret",
+        "//server/share/secret",
+        "\\etc\\passwd",
+        "..\\..\\etc\\passwd",
+        "examples\\..\\..\\etc",
+        "/etc/passwd",
+        "examples/../../etc",
+    ]
+    for p in unsafe_paths:
+        doc = copy.deepcopy(_load_json(records[0]))
+        # Keep origin off 'fixture' so the examples/-resolves check does not
+        # mask the unsafe-path check being exercised here.
+        doc["origin"] = "synthetic"
+        doc["evidence_provenance"]["fixture_paths"] = [p]
+        reasons = build_atlas.record_gate_reasons(doc)
+        assert any("unsafe path" in r for r in reasons), (
+            f"unsafe fixture path was accepted by the gate: {p!r}"
+        )
+
+
+def test_attribution_is_footer_only_no_author_publisher_meta(tmp_path):
+    """Footer-only attribution (finding: footer-only attribution). The only
+    place a rendered page names its maintainer is the footer line; no page may
+    carry <meta name=\"author\"> or <meta name=\"publisher\"> attribution
+    tags."""
+    build_atlas = _load_build_atlas()
+    out = tmp_path / "site"
+    build_atlas.build(str(out))
+    pages = glob.glob(str(out / "**" / "*.html"), recursive=True)
+    assert pages, "build produced no HTML pages"
+    for html_path in pages:
+        text = open(html_path, encoding="utf-8").read()
+        assert '<meta name="author"' not in text, html_path
+        assert '<meta name="publisher"' not in text, html_path
+        # Attribution is still present -- footer-only.
+        assert "Hotato is maintained by Attention Labs." in text, html_path
