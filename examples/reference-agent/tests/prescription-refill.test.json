@@ -1,0 +1,74 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "patient_900,",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "refill_prescription",
+        "result_subset": {
+          "status": "queued"
+        }
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "status": "queued"
+        },
+        "filters": {
+          "prescription_id": "rx_44"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "prescriptions"
+      },
+      {
+        "dimension": "policy",
+        "id": "identity-before-action",
+        "kind": "sequence",
+        "steps": [
+          {
+            "tool": "verify_identity"
+          },
+          {
+            "tool": "refill_prescription"
+          }
+        ]
+      }
+    ]
+  },
+  "id": "prescription-refill-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/prescription-refill.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

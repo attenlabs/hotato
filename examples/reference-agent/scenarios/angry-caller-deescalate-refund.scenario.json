@@ -1,0 +1,79 @@
+{
+  "agent_mock": {
+    "state": {
+      "orders": [
+        {
+          "order_id": "A-5000",
+          "refund_status": "refunded"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "order_id": "A-5000"
+        },
+        "latency_ms": 310,
+        "name": "lookup_order",
+        "result": {
+          "found": true
+        }
+      },
+      {
+        "arguments": {
+          "order_id": "A-5000"
+        },
+        "latency_ms": 580,
+        "name": "issue_refund",
+        "result": {
+          "status": "refunded"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "this is the third time i've called about order A-5000"
+      },
+      {
+        "say": "i am furious, i just want my refund"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "order_id": "A-5000"
+  },
+  "goal": {
+    "target": "order A-5000",
+    "type": "get_refund"
+  },
+  "id": "angry-caller-deescalate-refund",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

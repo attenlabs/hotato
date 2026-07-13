@@ -1,0 +1,56 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "what",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "lookup_faq",
+        "result_subset": {
+          "answer": "9 to 5"
+        }
+      },
+      {
+        "dimension": "speech",
+        "id": "tool-latency",
+        "kind": "latency",
+        "max_ms": 1000,
+        "tool": "lookup_faq"
+      }
+    ]
+  },
+  "id": "faq-store-hours-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/faq-store-hours.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

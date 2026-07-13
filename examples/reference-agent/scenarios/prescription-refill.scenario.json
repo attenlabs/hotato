@@ -1,0 +1,80 @@
+{
+  "agent_mock": {
+    "state": {
+      "prescriptions": [
+        {
+          "prescription_id": "rx_44",
+          "status": "queued"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "patient_id": "patient_900"
+        },
+        "latency_ms": 440,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "prescription_id": "rx_44"
+        },
+        "latency_ms": 560,
+        "name": "refill_prescription",
+        "result": {
+          "status": "queued"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "patient_900, i need to refill prescription rx_44"
+      },
+      {
+        "say": "the same pharmacy as last time please"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "patient_id": "patient_900",
+    "prescription_id": "rx_44"
+  },
+  "goal": {
+    "target": "rx_44",
+    "type": "refill_prescription"
+  },
+  "id": "prescription-refill",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

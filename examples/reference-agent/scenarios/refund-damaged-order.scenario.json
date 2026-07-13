@@ -1,0 +1,81 @@
+{
+  "agent_mock": {
+    "state": {
+      "orders": [
+        {
+          "order_id": "A-1001",
+          "refund_status": "refunded"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "order_id": "A-1001"
+        },
+        "latency_ms": 300,
+        "name": "lookup_order",
+        "result": {
+          "found": true,
+          "total": 42
+        }
+      },
+      {
+        "arguments": {
+          "order_id": "A-1001"
+        },
+        "latency_ms": 560,
+        "name": "issue_refund",
+        "result": {
+          "amount": 42,
+          "status": "refunded"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "hi, my order is A-1001 and it arrived damaged"
+      },
+      {
+        "say": "i would like a refund please"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "order_id": "A-1001"
+  },
+  "goal": {
+    "target": "order A-1001",
+    "type": "get_refund"
+  },
+  "id": "refund-damaged-order",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

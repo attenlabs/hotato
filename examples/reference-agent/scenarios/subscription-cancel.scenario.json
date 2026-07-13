@@ -1,0 +1,90 @@
+{
+  "agent_mock": {
+    "state": {
+      "subscriptions": [
+        {
+          "status": "cancelled",
+          "subscription_id": "sub_12"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "account_id": "acct_600"
+        },
+        "latency_ms": 410,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "policy": "cancellation_terms"
+        },
+        "latency_ms": 220,
+        "name": "read_disclosure",
+        "result": {
+          "read": true
+        }
+      },
+      {
+        "arguments": {
+          "subscription_id": "sub_12"
+        },
+        "latency_ms": 640,
+        "name": "cancel_subscription",
+        "result": {
+          "status": "cancelled"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "account acct_600, i want to cancel subscription sub_12"
+      },
+      {
+        "say": "please stop the renewal"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "account_id": "acct_600",
+    "subscription_id": "sub_12"
+  },
+  "goal": {
+    "target": "sub_12",
+    "type": "cancel_subscription"
+  },
+  "id": "subscription-cancel",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

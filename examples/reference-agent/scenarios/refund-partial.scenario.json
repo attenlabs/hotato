@@ -1,0 +1,81 @@
+{
+  "agent_mock": {
+    "state": {
+      "orders": [
+        {
+          "order_id": "A-2044",
+          "refund_status": "partial"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "order_id": "A-2044"
+        },
+        "latency_ms": 280,
+        "name": "lookup_order",
+        "result": {
+          "found": true
+        }
+      },
+      {
+        "arguments": {
+          "kind": "partial",
+          "order_id": "A-2044"
+        },
+        "latency_ms": 540,
+        "name": "issue_refund",
+        "result": {
+          "amount": 12,
+          "status": "refunded"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "order A-2044 was missing one item"
+      },
+      {
+        "say": "can i get a partial refund for the missing item"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "order_id": "A-2044"
+  },
+  "goal": {
+    "target": "order A-2044",
+    "type": "get_partial_refund"
+  },
+  "id": "refund-partial",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}
