@@ -153,13 +153,22 @@ def test_setup_unknown_stack_raises():
 
 # --- first-run guide leads with capture, labels the self-test -------------
 
-def test_bare_hotato_guides_to_capture(capsys):
+def test_bare_hotato_shows_the_first_run_screen(capsys):
+    # Bare `hotato` prints the first-run screen: the logo, the conversation-QA
+    # one-liner, and the single command to try. Every command shown is
+    # copy-paste-safe (no inline `#` comment that would break a paste).
     rc = cli.main([])
     assert rc == 0
-    out = capsys.readouterr().out.lower()
-    assert "capture --stack vapi" in out
-    assert "self-test" in out
-    assert "no accuracy score" in out
+    out = capsys.readouterr().out
+    low = out.lower()
+    assert "conversation qa for voice agents" in low
+    assert "hotato start --demo" in out
+    assert "hotato serve" in out
+    assert "hotato.dev" in low
+    # no inline shell comment on any command line (the paste-breaking bug)
+    for line in out.splitlines():
+        if line.strip().startswith("hotato "):
+            assert "#" not in line, f"command line has a paste-breaking comment: {line!r}"
 
 
 # --- honesty: no accuracy claim anywhere on the capture surface -----------

@@ -2,15 +2,22 @@
 FILE: README.md
 ================================================================================
 
-<p align="center">
-  <a href="https://hotato.dev">
-    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: score a voice agent call across outcome, policy, conversation, speech, and reliability, with the evidence behind every result" width="840">
-  </a>
-</p>
+<div align="center">
 
-<h1 align="center">
-  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/mascot.svg" alt="" width="26" align="top"> hotato
-</h1>
+<pre>
+        ) )   ( (
+       ( (     ) )
+██╗  ██╗ ██████╗ ████████╗ █████╗ ████████╗ ██████╗ 
+██║  ██║██╔═══██╗╚══██╔══╝██╔══██╗╚══██╔══╝██╔═══██╗
+███████║██║   ██║   ██║   ███████║   ██║   ██║   ██║
+██╔══██║██║   ██║   ██║   ██╔══██║   ██║   ██║   ██║
+██║  ██║╚██████╔╝   ██║   ██║  ██║   ██║   ╚██████╔╝
+╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝   ╚═╝    ╚═════╝ 
+</pre>
+
+<h1>hotato</h1>
+
+</div>
 
 <p align="center"><b>Open-source, self-hosted conversation QA for voice agents.</b></p>
 
@@ -71,6 +78,11 @@ hotato start --stereo my-call.wav          # trust -> scan -> review -> label ->
 Every command takes a two-channel recording (caller on one channel, agent on the other). A mono file or a bad export is marked NOT SCORABLE, never turned into a confident but meaningless verdict.
 
 ## What hotato catches: five dimensions, reported on their own
+
+<p align="center">
+  <a href="https://hotato.dev"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="A hotato scorecard: one call graded across outcome, policy, conversation, speech, and reliability, deterministic checks kept separate from the model-judged rubric, with no blended number." width="840"></a>
+</p>
+
 
 A voice agent can pass every text assertion and still lose the call: the refund never fires, the recording disclosure gets skipped, the caller gets talked over. `hotato test run` grades one call against a conversation-test file across five dimensions, kept apart and never summed into one number:
 

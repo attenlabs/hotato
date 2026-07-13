@@ -8,10 +8,19 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [1.3.2] - 2026-07-13
 
-Docs and metadata release: no code changes.
+First-run experience, docs, and metadata.
+
+### Added
+- A first-run screen for `hotato` (run with no subcommand): an ASCII logo, the
+  one command to try (`hotato start --demo`), and the browser workspace
+  (`hotato serve`). Color is optional and gated on an interactive terminal
+  (respects NO_COLOR), it degrades to plain text when piped or on a narrow
+  terminal, and every command shown is copy-paste-safe. Still zero runtime
+  dependencies.
 
 ### Changed
-- README rebuilt for clarity and organic reach: pain-led hook, the per-dimension
+- README leads with an ASCII logo hero; the banner image moves alongside the
+  five-dimension section. Rebuilt for clarity and organic reach: pain-led hook, the per-dimension
   scorecard surfaced high, a dedicated CI-gate section, and a corpus-contribution
   path; skimmable structure.
 - Revamped repository banner and added a social-share card, matched to the
