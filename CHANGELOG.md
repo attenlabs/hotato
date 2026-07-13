@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+## [1.3.2] - 2026-07-13
+
+Docs and metadata release: no code changes.
+
+### Changed
+- README rebuilt for clarity and organic reach: pain-led hook, the per-dimension
+  scorecard surfaced high, a dedicated CI-gate section, and a corpus-contribution
+  path; skimmable structure.
+- Revamped repository banner and added a social-share card, matched to the
+  hotato.dev brand and the conversation-QA positioning.
+- PyPI metadata: a pain-led Summary, expanded keywords, full trove classifiers,
+  and richer project URLs (Documentation, Changelog, Bug Tracker).
+- CONTRIBUTING and the issue/PR templates reframed to conversation QA with a
+  five-minute first-contribution on-ramp and the corpus loop front and center.
+
 ## [1.3.1] - 2026-07-13
 
 A pre-launch hardening pass driven by an adversarial audit of the 1.3.0 wheel:
