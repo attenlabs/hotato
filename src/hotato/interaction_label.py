@@ -22,6 +22,9 @@ SPEECH_PRESENCE = ("speech", "non-speech", "unknown")
 FLOOR_INTENT = ("take", "feedback", "none", "unknown")
 LABEL_AUTHORITY = ("human", "trusted-source", "fixture", "unknown")
 
+# The authorities that can stand behind a routing decision (not "unknown").
+TRUSTED_AUTHORITIES = ("human", "trusted-source", "fixture")
+
 # The all-unknown label an event with no supplied metadata reads as.
 UNKNOWN: Dict[str, Any] = {
     "kind": KIND,
@@ -115,6 +118,52 @@ def build(
     return validate(doc)
 
 
+def coerce(mapping: Any) -> Dict[str, Any]:
+    """Adapt a RAW label mapping into a valid interaction label: absent axes
+    become unknown/null, and a non-speech row with blank addressee/intent is
+    pinned to the schema's non-speech shape. An explicitly contradicting value
+    (for example non-speech WITH a floor intent) still fails through validate,
+    never silently. Unlike build(), this does not degrade a supplied trusted
+    label, so a router can see the label as given.
+
+    of() reads a label attached to a carrier record (under "interaction_label");
+    coerce() adapts a bare label mapping (an event's "interaction" object)."""
+    if not isinstance(mapping, dict):
+        raise InteractionLabelError(
+            f"cannot adapt {type(mapping).__name__} to an interaction label")
+    sp = mapping.get("speech_presence", "unknown")
+    addressed = mapping.get("addressed_to_agent", None)
+    fi = mapping.get("floor_intent", "unknown")
+    if sp == "non-speech":
+        if "addressed_to_agent" not in mapping:
+            addressed = None
+        if "floor_intent" not in mapping:
+            fi = "none"
+    return validate({
+        "kind": KIND,
+        "speech_presence": sp,
+        "addressed_to_agent": addressed,
+        "floor_intent": fi,
+        "label_authority": mapping.get("label_authority", "unknown"),
+        "label_ref": mapping.get("label_ref", None),
+    })
+
+
+def is_trusted(label: dict) -> bool:
+    """True when the label authority can stand behind a routing decision."""
+    return label.get("label_authority") in TRUSTED_AUTHORITIES
+
+
+def addressee_known(label: dict) -> bool:
+    """True when addressed_to_agent carries a definite true/false."""
+    return isinstance(label.get("addressed_to_agent"), bool)
+
+
+def intent_known(label: dict) -> bool:
+    """True when floor_intent carries a definite (non-unknown) value."""
+    return label.get("floor_intent") in ("take", "feedback", "none")
+
+
 def of(carrier: Optional[dict]) -> Dict[str, Any]:
     """Read the interaction label attached to a record/event, or the all-unknown
     label when absent. Backwards-compatible: any prior artifact reads as
@@ -136,5 +185,6 @@ def attach(carrier: dict, label: dict) -> dict:
 
 __all__ = [
     "KIND", "SPEECH_PRESENCE", "FLOOR_INTENT", "LABEL_AUTHORITY", "UNKNOWN",
-    "InteractionLabelError", "validate", "build", "of", "attach",
+    "InteractionLabelError", "validate", "build", "coerce", "of", "attach",
+    "TRUSTED_AUTHORITIES", "is_trusted", "addressee_known", "intent_known",
 ]
