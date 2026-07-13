@@ -220,6 +220,12 @@ jobs:
           agent: action-smoke-agent
           output: .hotato/pass
 
+      # qa-pass ran the default 'action' mode, which is zero-egress (PYTHONPATH,
+      # no install), so hotato is not yet importable process-wide. The
+      # preinstalled scenario below needs an explicit install of the checkout.
+      - name: Install hotato for the preinstalled scenario
+        run: python -m pip install --no-deps .
+
       - name: Mixed-fail fixture suite through the root Action
         id: qa-mixed
         continue-on-error: true
