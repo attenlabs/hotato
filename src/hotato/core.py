@@ -266,6 +266,34 @@ def _not_scorable_reason(*, result, expected_yield: bool, onset_provided: bool):
     return None
 
 
+def _vad_backend_provenance(cfg) -> Optional[dict]:
+    """Additive VAD-backend provenance for a scored event.
+
+    Returns ``None`` when BOTH channels used the deterministic energy REFERENCE
+    (the default), so the energy path adds no key and its output stays
+    byte-identical. Returns a labeled block naming the non-reference backend
+    whenever a neural (or any non-energy) backend actually produced a channel's
+    activity track -- invariant 4: the reference-vs-non-reference backend must be
+    IDENTIFIED in provenance, never left indistinguishable from the reference.
+    """
+    caller_be = getattr(getattr(cfg, "caller_vad", None), "backend", "energy") or "energy"
+    agent_be = getattr(getattr(cfg, "agent_vad", None), "backend", "energy") or "energy"
+    if caller_be == "energy" and agent_be == "energy":
+        return None
+    block = {
+        "caller_backend": caller_be,
+        "agent_backend": agent_be,
+        "reference": False,  # a non-reference backend produced at least one track
+    }
+    if caller_be == agent_be:
+        block["backend"] = caller_be
+    if "neural" in (caller_be, agent_be):
+        from .neural import neural_backend_provenance
+
+        block["neural"] = neural_backend_provenance()
+    return block
+
+
 def _event_from_result(
     *,
     event_id: str,
@@ -284,6 +312,7 @@ def _event_from_result(
     audio_provenance: Optional[dict] = None,
     expected_yield_explicit: bool = True,
     label_record: Optional[dict] = None,
+    vad_backend: Optional[dict] = None,
 ) -> dict:
     verdict = evaluate(result, expected)
     expected_yield = bool(expected.get("yield", True))
@@ -384,6 +413,13 @@ def _event_from_result(
     # reads is unchanged.
     if audio_provenance is not None:
         event["audio_provenance"] = audio_provenance
+    # Additive VAD-backend provenance (invariant 4): present ONLY when a
+    # non-reference backend (neural) actually produced a channel's activity
+    # track, naming it so a reader can never mistake it for the energy reference.
+    # Omitted entirely for the default energy path, so an energy envelope stays
+    # byte-identical to before this field existed (schema_version stays "1").
+    if vad_backend is not None:
+        event["vad_backend"] = vad_backend
     # Additive (K5): whether the underlying scenario's own "expected" mapping
     # was EXPLICITLY authored (a human wrote this label) vs defaulted (no
     # expectation given at all). This -- never the always-present
@@ -965,6 +1001,7 @@ def _run_diarized_mono(
         echo_gate=False,
         resume=resume,
         audio_provenance=_audio_provenance(("mono", mono)),
+        vad_backend=_vad_backend_provenance(cfg),
     )
     # Diarized-mono provenance + confidence stamp. `indicative_only` marks a
     # non-high tier so every renderer shows it prominently and never presents this
@@ -1169,6 +1206,7 @@ def run_single(
         echo_gate=echo_gate,
         resume=resume,
         audio_provenance=audio_provenance,
+        vad_backend=_vad_backend_provenance(cfg),
     )
     env = _envelope(mode="single", stack=stack, events=[event])
     if transcribe:

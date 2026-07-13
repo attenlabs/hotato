@@ -1,20 +1,13 @@
 {
-  "proof": "machine-cold credentialless path, hotato 1.5.0 (built wheel, clean install)",
-  "environment": "fresh venv install of the 1.5.0 wheel, no dev tree, fresh HOME, empty project dir, no SAA_API_KEY, no connected stack",
-  "intervention": "none (fully automated)",
+  "proof": "machine-cold credentialless first-run of the released hotato package",
+  "package": "hotato",
+  "reproducibility": "This committed snapshot is the reproducible projection of the cold-path run: a clean re-run reproduces it byte-for-byte. Per-battery 'artifacts' (name + sha256_16) are content-addressable; 'volatile_artifacts' (attestation.json, provenance.json, contract.json) embed a signing timestamp, so only their name + size are recorded (no digest asserted). All paths are redacted to <sandbox> / <sandbox-home> / <tmp>. Wall-clock 'timing' is emitted per-run by scripts/cold_path_proof.py but omitted from this committed snapshot so the file reproduces; drop the per-battery 'timing' block from a fresh generator run to compare against this file.",
   "batteries": [
     {
       "battery": "credentialless_first_run (hotato start)",
-      "command": "start --demo",
+      "command": "hotato start --demo",
       "exit": 0,
-      "seconds": 0.79,
-      "artifact_count": 20,
       "artifacts": [
-        {
-          "name": "contracts/demo-missed-interruption.hotato/attestation.json",
-          "bytes": 844,
-          "sha256_16": "091746def48fab8b"
-        },
         {
           "name": "contracts/demo-missed-interruption.hotato/audio/event.wav",
           "bytes": 512044,
@@ -29,11 +22,6 @@
           "name": "contracts/demo-missed-interruption.hotato/ci/junit.xml",
           "bytes": 316,
           "sha256_16": "e6b7d9d78561745e"
-        },
-        {
-          "name": "contracts/demo-missed-interruption.hotato/contract.json",
-          "bytes": 4341,
-          "sha256_16": "db03777cae15f8fb"
         },
         {
           "name": "contracts/demo-missed-interruption.hotato/evidence/card.svg",
@@ -64,11 +52,6 @@
           "name": "contracts/demo-missed-interruption.hotato/policy/verify.yaml",
           "bytes": 439,
           "sha256_16": "79943d9ce90d944c"
-        },
-        {
-          "name": "contracts/demo-missed-interruption.hotato/provenance.json",
-          "bytes": 325,
-          "sha256_16": "7762c5268aed6c97"
         },
         {
           "name": "contracts/demo-missed-interruption.hotato/reports/after.html",
@@ -107,8 +90,22 @@
         },
         {
           "name": "hotato-sweep.json",
-          "bytes": 3078,
-          "sha256_16": "6ab1dfed913dc4d3"
+          "bytes": 3027,
+          "sha256_16": "238aaee88b3498fe"
+        }
+      ],
+      "volatile_artifacts": [
+        {
+          "name": "contracts/demo-missed-interruption.hotato/attestation.json",
+          "bytes": 844
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/contract.json",
+          "bytes": 4341
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/provenance.json",
+          "bytes": 325
         }
       ],
       "stdout_tail": "arios tests/hotato/scenarios --audio tests/hotato/audio\n\n  3. Render a shareable card from any candidate:\n     hotato card hotato-sweep.json#1 --out candidate.svg\n\n  4. Re-verify the demo failure contract in CI (or create your own from any candidate with `hotato contract create`):\n     hotato contract verify contracts/\n\nThe threshold-funnel card is already rendered: hotato-no-single-threshold.svg\n",
@@ -116,12 +113,11 @@
     },
     {
       "battery": "bundled_failing_battery (hotato demo)",
-      "command": "demo",
+      "command": "hotato demo",
       "exit": 0,
-      "seconds": 5.35,
-      "artifact_count": 0,
       "artifacts": [],
-      "stdout_tail": "nt-control]: False barge-in: a backchannel was treated as a bid for the floor\n            -> a learned engagement-control / addressee-detection layer\n  note: no single sensitivity threshold satisfies this battery; see funnel pointer in --format json.\n  exit_code=1\nthese are two recorded calls on a provider's default settings; run it to see what Hotato catches.\nreport: <tmp>\n",
+      "volatile_artifacts": [],
+      "stdout_tail": "nt-control]: False barge-in: a backchannel was treated as a bid for the floor\n            -> a learned engagement-control / addressee-detection layer\n  note: no single sensitivity threshold satisfies this battery; see funnel pointer in --format json.\n  exit_code=1\nthese are two recorded calls on a provider's default settings; run it to see what Hotato catches.\nreport: <tmp>/hotato-demo-report.html\n",
       "stderr_tail": ""
     }
   ]

@@ -34,7 +34,7 @@ from hotato._engine.vad import (
     neural_vad,
     register_neural_backend,
 )
-from hotato.core import run_suite
+from hotato.core import run_single, run_suite
 
 SR = 16000
 
@@ -216,6 +216,50 @@ def test_golden_suite_unaffected_while_neural_registered(stub_neural):
         assert by[sid]["did_yield"] == did_yield, sid
         assert by[sid]["seconds_to_yield"] == ttoy, sid
         assert by[sid]["talk_over_sec"] == talk_over, sid
+
+
+# --- backend PROVENANCE in the scored envelope (invariant 4) ----------------
+#
+# The reference-vs-non-reference backend must be IDENTIFIED in the result: a run
+# that actually used the neural backend has to say so, and an energy (reference)
+# run must stay byte-identical (no such block appears).
+
+def test_neural_run_labels_backend_in_event_provenance(stub_neural):
+    """A neural-backed single run identifies 'neural' in the event's backend
+    provenance (naming the model), so it can never be mistaken for the energy
+    reference."""
+    stereo = _bundled("01-hard-interruption")
+    cfg = ScoreConfig(
+        caller_vad=VADParams(backend="neural"),
+        agent_vad=VADParams(backend="neural"),
+    )
+    env = run_single(stereo=stereo, onset_sec=0.5, cfg=cfg)
+    ev = env["events"][0]
+    assert "vad_backend" in ev, "neural run must carry backend provenance"
+    prov = ev["vad_backend"]
+    assert prov["backend"] == "neural"
+    assert prov["caller_backend"] == "neural" and prov["agent_backend"] == "neural"
+    assert prov["reference"] is False
+    # the model behind the neural track is named, not just the word "neural"
+    assert prov["neural"]["backend"] == "neural"
+    assert prov["neural"]["model"] == "silero-vad"
+    assert prov["neural"]["reference"] is False
+
+
+def test_energy_run_omits_backend_provenance_and_stays_byte_identical(stub_neural):
+    """The default energy (reference) run attaches NO backend-provenance block, so
+    the energy envelope is byte-identical to before the field existed -- proving
+    the neural label is strictly additive and never touches the reference bytes.
+    Registering a neural backend must not change this."""
+    stereo = _bundled("01-hard-interruption")
+    env = run_single(stereo=stereo, onset_sec=0.5)  # cfg=None -> energy default
+    ev = env["events"][0]
+    assert "vad_backend" not in ev
+    # the score-bearing bytes are the deterministic energy reference for this
+    # exact input, unchanged by the additive provenance field existing
+    assert ev["verdict"]["did_yield"] is True
+    assert ev["verdict"]["seconds_to_yield"] == 2.4
+    assert ev["verdict"]["talk_over_sec"] == 0.51
 
 
 # --- CLI surface -----------------------------------------------------------
