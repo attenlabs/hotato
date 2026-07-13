@@ -323,6 +323,16 @@ _EXIT_CODES: dict = {
             "never an error and never a blended delta score)"),
         (2, "a usage error or an unreadable registry --registry"),
     ),
+    "record": (
+        (2, "no subcommand given (see hotato record render --help)"),
+    ),
+    "record render": (
+        (0, "wrote failure-record.json, .md, .html, and .svg into --out"),
+        (2, "usage error or unusable input: a source that is not a hotato "
+            "result, a selector matching zero or several failing results, an "
+            "all-pass source (no failure to record), or a field the "
+            "share-safe projection refuses"),
+    ),
     "rubric": (
         (2, "no subcommand given (see hotato rubric run/calibrate --help)"),
     ),
@@ -2789,6 +2799,42 @@ def _cmd_suite_run(args) -> int:
                   f"{result['workspace']}); browse with `hotato serve -w "
                   f"{result['workspace']}`", file=sys.stderr)
     return result["exit_code"]
+
+
+def _cmd_record_render(args) -> int:
+    from . import failure_record as FR
+    from . import failure_render as FRR
+
+    raw = args.source
+    selector = None
+    if "#" in raw:
+        raw, selector = raw.split("#", 1)
+        if not selector:
+            raise ValueError(
+                "empty selector after the number sign; use SOURCE#TEST_ID "
+                "(for example suite-run.json#greeting-test) or drop the "
+                "number sign entirely"
+            )
+    doc = _errors.load_json_file(raw, label=f"source result {raw!r}")
+    if not isinstance(doc, dict):
+        raise ValueError(
+            f"source result {raw!r} is not a JSON object; expected a "
+            "hotato test-run, suite-run, or contract-verify result saved "
+            "with --format json"
+        )
+    # The reproduction argv inside the record always says `--out record` (a
+    # fixed relative name): the record's content address must not change with
+    # the caller's output directory, which is presentation, not identity.
+    record = FR.project(doc, selector=selector, source_path=raw)
+    outputs = FRR.render_all(record)
+    os.makedirs(args.out, exist_ok=True)
+    for name in sorted(outputs):
+        _atomic_write_text(os.path.join(args.out, name), outputs[name])
+    print(f"wrote failure record ({record['status']}, "
+          f"{record['subject']['test_id']}) to {args.out}/: "
+          + ", ".join(sorted(outputs)))
+    print(f"record_id: {record['record_id']}")
+    return 0
 
 
 def _cmd_release_compare(args) -> int:
@@ -5598,6 +5644,62 @@ def build_parser() -> argparse.ArgumentParser:
                      help="registry home directory (default ~/.hotato/fleet)")
     _add_format_arg(rlc, choices=("text", "json"))
     rlc.set_defaults(func=_cmd_release_compare)
+
+    # --- record: the Failure Record (failure-record.v1) ----------------------
+    rec = sub.add_parser(
+        "record",
+        help="render the share-safe Failure Record for one failing result",
+        description=(
+            "Project ONE failed, inconclusive, or error result into the "
+            "canonical failure-record.v1 artifact and render it as JSON, "
+            "Markdown, HTML, and an SVG share card. A projection, never an "
+            "evaluation: statuses are copied from the source result, the "
+            "five dimensions stay separate (no blended score), the "
+            "deterministic gate is reported apart from the model advisory, "
+            "and the default output is share-safe (no transcript body, tool "
+            "payload, state value, raw audio, credential, or absolute path)."
+        ),
+        epilog=_exit_codes_epilog("record"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    recsub = rec.add_subparsers(dest="record_command", required=True,
+                                metavar="render")
+    rcr = recsub.add_parser(
+        "render",
+        help="render failure-record.json/.md/.html/.svg from a result file",
+        description=(
+            "Render the four Failure Record formats from one source result: "
+            "a `hotato test run --format json` result, a `hotato suite run "
+            "--format json` result, or a `hotato contract verify --format "
+            "json` envelope, each saved to a file. A suite or contract "
+            "source with several failing entries needs a selector appended "
+            "to the path: SOURCE#TEST_ID. A source whose checks all passed "
+            "is refused with a clear no-failure diagnostic -- a passing "
+            "result is never relabeled as a Failure Record. All four files "
+            "carry the same content-addressed record_id and are "
+            "byte-deterministic for the same source."
+        ),
+        epilog=(
+            _exit_codes_epilog("record render") + "\n\n"
+            "Examples:\n"
+            "  hotato test run checks.yaml --transcript call.json "
+            "--format json > result.json\n"
+            "  hotato record render result.json --out record\n"
+            "  hotato record render suite-out/suite-run.json#TEST_ID "
+            "--out record"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rcr.add_argument(
+        "source", metavar="SOURCE",
+        help="path to the source result JSON; append a number-sign selector "
+             "(SOURCE#TEST_ID) to pick one failing entry out of a suite-run "
+             "or contract-verify source")
+    rcr.add_argument(
+        "--out", required=True, metavar="DIR",
+        help="directory to write failure-record.json/.md/.html/.svg into "
+             "(created if absent; files are replaced atomically)")
+    rcr.set_defaults(func=_cmd_record_render)
 
     # --- rubric: the REAL model-judge lane (schema rubric.v1) ----------------
     rb = sub.add_parser(

@@ -35,6 +35,7 @@ _ALL_SUBCOMMANDS = [
     "test", "test run",
     "suite", "suite run",
     "release", "release compare",
+    "record", "record render",
     "rubric", "rubric run", "rubric calibrate",
     "scenario", "scenario init", "scenario validate",
     "conversation", "conversation verify",
