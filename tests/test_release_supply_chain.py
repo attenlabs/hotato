@@ -72,6 +72,15 @@ def _all_workflow_text():
 # ---------------------------------------------------------------------------
 # (a) every `uses:` is pinned to a 40-hex commit SHA (+ a # vX comment)
 # ---------------------------------------------------------------------------
+def _is_local_action(line):
+    """``uses: ./`` (the repository's own root action.yml) runs the exact
+    checked-out commit, so it is immutable by construction and carries no
+    remote ref to pin. Only the bare local form is exempt; a remote ref
+    still needs the 40-hex SHA."""
+    m = _USES_LINE.match(line)
+    return bool(m) and m.group(1) == "./"
+
+
 def test_every_uses_is_sha_pinned():
     lines = _uses_lines()
     if not lines:
@@ -79,7 +88,7 @@ def test_every_uses_is_sha_pinned():
     unpinned = [
         f"{os.path.basename(p)}:{n}: {line.strip()}"
         for p, n, line in lines
-        if not _SHA_PIN.search(line)
+        if not _SHA_PIN.search(line) and not _is_local_action(line)
     ]
     assert not unpinned, "un-SHA-pinned `uses:` (need @<40-hex>):\n" + "\n".join(unpinned)
 
@@ -91,7 +100,7 @@ def test_every_uses_has_version_comment():
     missing = [
         f"{os.path.basename(p)}:{n}: {line.strip()}"
         for p, n, line in lines
-        if not _SHA_PIN_WITH_COMMENT.search(line)
+        if not _SHA_PIN_WITH_COMMENT.search(line) and not _is_local_action(line)
     ]
     assert not missing, "SHA pin without a `# vX.Y.Z` comment:\n" + "\n".join(missing)
 

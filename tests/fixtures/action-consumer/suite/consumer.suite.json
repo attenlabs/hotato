@@ -1,0 +1,13 @@
+{
+  "inconclusive_policy": "fail",
+  "kind": "hotato.suite",
+  "name": "Action consumer fixture suite (one passing test, one failing test)",
+  "purpose": "Conformance fixture for the root GitHub Action: two offline simulated conversation tests, one that passes and one whose escalation handoff check fails, so the mixed-fail summary and exit propagation are exercised end to end.",
+  "required_for_release": true,
+  "suite_id": "action-consumer-suite",
+  "tests": [
+    "tests/faq-store-hours.test.json",
+    "tests/escalate-not-handed-off.test.json"
+  ],
+  "version": 1
+}

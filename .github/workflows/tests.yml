@@ -196,3 +196,64 @@ jobs:
       - name: Run the full suite from the extracted sdist tree
         working-directory: ${{ env.SDIST_DIR }}
         run: $RUNNER_TEMP/sdist-venv/bin/python -m pytest -q
+
+  # The root Action (action.yml) exercised on this repository itself through
+  # the `uses: ./` Action-path mechanism, against the consumer conformance
+  # fixture (tests/fixtures/action-consumer/). This proves the composite
+  # wiring, summary, outputs, and exit propagation on a real runner; the
+  # local harness (tests/test_action_consumer.py) covers the same pieces
+  # offline. The remaining gate, running the Action from an UNRELATED
+  # repository against a pinned revision, needs that external repository and
+  # a published revision, and is tracked on the release checklist.
+  action-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: All-pass fixture suite through the root Action
+        id: qa-pass
+        uses: ./
+        with:
+          suite: tests/fixtures/action-consumer/suite/pass.suite.json
+          agent: action-smoke-agent
+          output: .hotato/pass
+
+      - name: Mixed-fail fixture suite through the root Action
+        id: qa-mixed
+        continue-on-error: true
+        uses: ./
+        with:
+          suite: tests/fixtures/action-consumer/suite/consumer.suite.json
+          agent: action-smoke-agent
+          output: .hotato/mixed
+          hotato-version: preinstalled
+
+      - name: Assert outputs and exit propagation
+        if: always()
+        env:
+          PASS_STATUS: ${{ steps.qa-pass.outputs.status }}
+          PASS_EXIT: ${{ steps.qa-pass.outputs.exit-code }}
+          PASS_RESULT: ${{ steps.qa-pass.outputs.suite-result }}
+          PASS_SUMMARY: ${{ steps.qa-pass.outputs.summary }}
+          MIXED_STATUS: ${{ steps.qa-mixed.outputs.status }}
+          MIXED_EXIT: ${{ steps.qa-mixed.outputs.exit-code }}
+          MIXED_OUTCOME: ${{ steps.qa-mixed.outcome }}
+        run: |
+          test "$PASS_STATUS" = pass
+          test "$PASS_EXIT" = 0
+          test -f "$PASS_RESULT"
+          test -f "$PASS_SUMMARY"
+          test "$MIXED_STATUS" = fail
+          test "$MIXED_EXIT" = 1
+          test "$MIXED_OUTCOME" = failure
+
+      # Artifact upload stays an explicit consumer step, exactly as the
+      # documented consumer workflow does it.
+      - if: always()
+        uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+        with:
+          name: hotato-action-smoke
+          path: .hotato
+          if-no-files-found: error

@@ -1,0 +1,167 @@
+# Root composite Action: run a committed hotato suite, conversation test, or
+# contract verification in a consumer repository and gate the job on hotato's
+# own exit status.
+#
+# Consumer contract (docs/CI.md has the copy-paste workflow):
+#   - permissions: contents: read is sufficient; no secret is read or needed.
+#   - the default install is the pinned Action revision itself
+#     (pip install --no-deps of the action checkout), so the executed code is
+#     exactly the revision the consumer pinned; hotato-version accepts an
+#     exact PyPI pin instead, never a range and never latest.
+#   - the default run installs no model, no ASR, no Node tool, and calls no
+#     external judge; the model-judged rubric lane is advisory and reports
+#     as ERROR or INCONCLUSIVE when no local judge is reachable.
+#   - the step exit IS hotato's exit code: 0 pass, 1 fail, 2 refuse or usage
+#     error. A rubric verdict changes the exit only when the consumer opted
+#     in with gate-advisory: true (hotato's own --gate-judge flag).
+#   - artifact upload stays a consumer step (actions/upload-artifact pinned
+#     by full commit SHA); this Action never uploads, comments, or notifies.
+#   - every input is passed to python through the environment and used as an
+#     argv token; no input string is ever shell evaluated.
+name: hotato conversation QA
+description: >-
+  Run a committed hotato suite, conversation test, or contract verification
+  offline; write a five-lane job summary on pass and on failure; expose the
+  artifact paths as outputs; exit with hotato's gate status.
+author: Attention Labs
+branding:
+  icon: check-circle
+  color: yellow
+
+inputs:
+  suite:
+    description: >-
+      Workspace-relative path to a committed hotato suite file. Exactly one
+      of suite, test, contracts is required.
+    required: false
+    default: ""
+  test:
+    description: >-
+      Workspace-relative path to a committed conversation-test file. Exactly
+      one of suite, test, contracts is required.
+    required: false
+    default: ""
+  contracts:
+    description: >-
+      Workspace-relative directory of hotato contract bundles to verify.
+      Exactly one of suite, test, contracts is required.
+    required: false
+    default: ""
+  agent:
+    description: >-
+      Agent id under test (required for suite and test runs); a safe
+      identifier recorded on the results.
+    required: false
+    default: ""
+  release:
+    description: >-
+      Release id the runs are recorded under; defaults to the commit SHA of
+      the triggering workflow.
+    required: false
+    default: ""
+  output:
+    description: Workspace-relative results directory.
+    required: false
+    default: ".hotato/results"
+  parallel:
+    description: >-
+      Max worker threads for a suite run (1 to 64); the default is hotato's
+      own CPU-based cap. The worker count never changes the result bytes.
+    required: false
+    default: ""
+  gate-advisory:
+    description: >-
+      Set true on a test run to pass hotato's --gate-judge flag, opting the
+      exit code into the model-judged rubric lane. Default false; the
+      advisory lane then reports without gating.
+    required: false
+    default: "false"
+  transcript:
+    description: >-
+      Workspace-relative transcript JSON used as evidence for a test run, or
+      as embedded-assertion context for a contracts run.
+    required: false
+    default: ""
+  trace:
+    description: >-
+      Workspace-relative voice-trace JSONL used as evidence for a test run.
+    required: false
+    default: ""
+  state:
+    description: >-
+      Workspace-relative state-adapter sandbox used as evidence for a test
+      run.
+    required: false
+    default: ""
+  hotato-version:
+    description: >-
+      What to install. "action" (default) installs the pinned Action
+      revision itself with no package-index egress; "preinstalled" skips
+      installation; an exact version such as "1.3.3" installs that pin from
+      PyPI with --no-deps. Ranges and "latest" are refused.
+    required: false
+    default: "action"
+  render-records:
+    description: >-
+      Set true to also render Failure Records through hotato record render
+      when the installed hotato ships that subcommand; when it does not, the
+      run carries on unchanged.
+    required: false
+    default: "false"
+  python-version:
+    description: Python version for actions/setup-python.
+    required: false
+    default: "3.12"
+
+outputs:
+  output:
+    description: The validated workspace-relative results directory.
+    value: ${{ steps.gate.outputs.output }}
+  suite-result:
+    description: >-
+      Workspace-relative path of the machine result JSON (suite-run.json,
+      test-run.json, or contract-verify.json).
+    value: ${{ steps.gate.outputs.suite-result }}
+  summary:
+    description: Workspace-relative path of the rendered Markdown summary.
+    value: ${{ steps.gate.outputs.summary }}
+  records:
+    description: >-
+      Workspace-relative Failure Record directory when produced, else empty.
+    value: ${{ steps.gate.outputs.records }}
+  exit-code:
+    description: The hotato process exit code, as a string.
+    value: ${{ steps.gate.outputs.exit-code }}
+  status:
+    description: >-
+      pass, fail, inconclusive, or error, read from the machine result
+      (presentation only; the exit code owns the gate).
+    value: ${{ steps.gate.outputs.status }}
+  hotato-version:
+    description: The executed hotato package version.
+    value: ${{ steps.gate.outputs.hotato-version }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+      with:
+        python-version: ${{ inputs.python-version }}
+    - id: gate
+      shell: bash
+      env:
+        HOTATO_ACTION_SUITE: ${{ inputs.suite }}
+        HOTATO_ACTION_TEST: ${{ inputs.test }}
+        HOTATO_ACTION_CONTRACTS: ${{ inputs.contracts }}
+        HOTATO_ACTION_AGENT: ${{ inputs.agent }}
+        HOTATO_ACTION_RELEASE: ${{ inputs.release }}
+        HOTATO_ACTION_OUTPUT: ${{ inputs.output }}
+        HOTATO_ACTION_PARALLEL: ${{ inputs.parallel }}
+        HOTATO_ACTION_GATE_ADVISORY: ${{ inputs.gate-advisory }}
+        HOTATO_ACTION_TRANSCRIPT: ${{ inputs.transcript }}
+        HOTATO_ACTION_TRACE: ${{ inputs.trace }}
+        HOTATO_ACTION_STATE: ${{ inputs.state }}
+        HOTATO_ACTION_VERSION: ${{ inputs.hotato-version }}
+        HOTATO_ACTION_RENDER_RECORDS: ${{ inputs.render-records }}
+        HOTATO_ACTION_PATH: ${{ github.action_path }}
+      run: python "${GITHUB_ACTION_PATH}/ci/action/gate.py"

@@ -1,0 +1,325 @@
+{
+  "tool": "hotato",
+  "schema_version": "1",
+  "kind": "hotato.suite-run",
+  "version": 1,
+  "suite_id": "action-consumer-pass-suite",
+  "name": "Action consumer fixture suite (all passing)",
+  "agent": "consumer-agent",
+  "release_id": "fixture-release",
+  "workspace": "default",
+  "inconclusive_policy": "fail",
+  "required_for_release": true,
+  "origin": "simulated",
+  "counts": {
+    "tests": 1,
+    "runs": 3,
+    "valid": 3,
+    "simulator_invalid": 0,
+    "passed_tests": 1,
+    "failed_tests": 0,
+    "refused_tests": 0
+  },
+  "dimensions": {
+    "outcome": {
+      "pass": 1,
+      "fail": 0,
+      "inconclusive": 0
+    },
+    "policy": {
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0
+    },
+    "conversation": {
+      "pass": 2,
+      "fail": 0,
+      "inconclusive": 0
+    },
+    "speech": {
+      "pass": 1,
+      "fail": 0,
+      "inconclusive": 0
+    },
+    "reliability": {
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0
+    }
+  },
+  "reliability": {
+    "pass_at_1": 1.0,
+    "pass_at_k": 1.0,
+    "pass_caret_k": 1.0,
+    "n": 3,
+    "k": 3,
+    "passes": 3,
+    "ci": {
+      "low": 0.438494,
+      "high": 1.0,
+      "method": "wilson",
+      "z": 1.96
+    },
+    "note": "pass^k over k=n runs; for the scripted deterministic caller a seeded replay is byte-identical, so pass^k == pass@1 -- reported honestly, not fabricated variance"
+  },
+  "reliability_note": "pass@1 / pass@k / pass^k over every VALID simulated run in the suite (origin=simulated; a simulator's replay reliability is never production reliability). SIMULATOR_INVALID runs are excluded (bucketed as broken fixtures, never an agent PASS/FAIL). Never blended into any dimension; there is no overall_score.",
+  "tests": [
+    {
+      "test_id": "faq-store-hours-test",
+      "scenario_id": "faq-store-hours",
+      "agent": "consumer-agent",
+      "kind": "scenario",
+      "inconclusive_policy": "fail",
+      "dimensions": {
+        "outcome": "PASS",
+        "policy": null,
+        "conversation": "PASS",
+        "speech": "PASS",
+        "reliability": null
+      },
+      "dim_counts": {
+        "outcome": {
+          "pass": 1,
+          "fail": 0,
+          "inconclusive": 0,
+          "ids": [
+            "outcome-tool"
+          ]
+        },
+        "policy": {
+          "pass": 0,
+          "fail": 0,
+          "inconclusive": 0,
+          "ids": []
+        },
+        "conversation": {
+          "pass": 2,
+          "fail": 0,
+          "inconclusive": 0,
+          "ids": [
+            "caller-stated-need",
+            "caller-turns"
+          ]
+        },
+        "speech": {
+          "pass": 1,
+          "fail": 0,
+          "inconclusive": 0,
+          "ids": [
+            "tool-latency"
+          ]
+        },
+        "reliability": {
+          "pass": 0,
+          "fail": 0,
+          "inconclusive": 0,
+          "ids": []
+        }
+      },
+      "dim_reason": {},
+      "ungrouped": null,
+      "success": {
+        "required": [
+          "all_deterministic_assertions_pass"
+        ],
+        "conditions": {
+          "all_deterministic_assertions_pass": true
+        },
+        "passed": true,
+        "rubric_gated": false
+      },
+      "rubric_summary": {
+        "pass": 0,
+        "fail": 0,
+        "inconclusive": 0,
+        "error": 0,
+        "note": "0 pass, 0 fail, 0 inconclusive, 0 error across 0 rubric result(s); model-judged (advisory), deterministic:false, never merged into the deterministic counts and never a blended or overall number. ADVISORY: no verdict gates CI."
+      },
+      "reliability": {
+        "pass_at_1": 1.0,
+        "pass_at_k": 1.0,
+        "pass_caret_k": 1.0,
+        "n": 3,
+        "k": 3,
+        "passes": 3,
+        "ci": {
+          "low": 0.438494,
+          "high": 1.0,
+          "method": "wilson",
+          "z": 1.96
+        },
+        "note": "pass^k over k=n runs; for the scripted deterministic caller a seeded replay is byte-identical, so pass^k == pass@1 -- reported honestly, not fabricated variance"
+      },
+      "reliability_basis": "agent_deterministic",
+      "counts": {
+        "runs": 3,
+        "valid": 3,
+        "simulator_invalid": 0,
+        "scored": 3
+      },
+      "variation_cells": [
+        {
+          "cell": {
+            "locale": "en-US",
+            "speaking_rate": 1.0,
+            "noise": "cafe",
+            "behavior": "default"
+          },
+          "runs": 1,
+          "reliability": {
+            "pass_at_1": 1.0,
+            "pass_at_k": 1.0,
+            "pass_caret_k": 1.0,
+            "n": 1,
+            "k": 1,
+            "passes": 1,
+            "ci": {
+              "low": 0.206543,
+              "high": 1.0,
+              "method": "wilson",
+              "z": 1.96
+            },
+            "note": "pass^k over k=n runs; for the scripted deterministic caller a seeded replay is byte-identical, so pass^k == pass@1 -- reported honestly, not fabricated variance"
+          }
+        },
+        {
+          "cell": {
+            "locale": "en-US",
+            "speaking_rate": 1.0,
+            "noise": "clean",
+            "behavior": "default"
+          },
+          "runs": 1,
+          "reliability": {
+            "pass_at_1": 1.0,
+            "pass_at_k": 1.0,
+            "pass_caret_k": 1.0,
+            "n": 1,
+            "k": 1,
+            "passes": 1,
+            "ci": {
+              "low": 0.206543,
+              "high": 1.0,
+              "method": "wilson",
+              "z": 1.96
+            },
+            "note": "pass^k over k=n runs; for the scripted deterministic caller a seeded replay is byte-identical, so pass^k == pass@1 -- reported honestly, not fabricated variance"
+          }
+        },
+        {
+          "cell": {
+            "locale": "en-US",
+            "speaking_rate": 1.0,
+            "noise": "street",
+            "behavior": "default"
+          },
+          "runs": 1,
+          "reliability": {
+            "pass_at_1": 1.0,
+            "pass_at_k": 1.0,
+            "pass_caret_k": 1.0,
+            "n": 1,
+            "k": 1,
+            "passes": 1,
+            "ci": {
+              "low": 0.206543,
+              "high": 1.0,
+              "method": "wilson",
+              "z": 1.96
+            },
+            "note": "pass^k over k=n runs; for the scripted deterministic caller a seeded replay is byte-identical, so pass^k == pass@1 -- reported honestly, not fabricated variance"
+          }
+        }
+      ],
+      "simulator_invalid": [],
+      "runs": [
+        {
+          "run_id": "faq-store-hours-000",
+          "index": 0,
+          "seed": 1032164557,
+          "variation": {
+            "locale": "en-US",
+            "speaking_rate": 1.0,
+            "noise": "clean",
+            "behavior": "default",
+            "repetition": 0
+          },
+          "content_hash": "c1edb3ff4d60e2ee53026e4b6dcc4b284d4efe3988de4c12428b0bd4de9d5715",
+          "origin_kind": "simulated",
+          "valid": true,
+          "simulation_status": "ok",
+          "artifact": null,
+          "conversation_id": null,
+          "score": {
+            "exit_code": 0,
+            "status": "pass",
+            "summary": {
+              "pass": 4,
+              "fail": 0,
+              "inconclusive": 0
+            }
+          }
+        },
+        {
+          "run_id": "faq-store-hours-001",
+          "index": 1,
+          "seed": 1925695442,
+          "variation": {
+            "locale": "en-US",
+            "speaking_rate": 1.0,
+            "noise": "cafe",
+            "behavior": "default",
+            "repetition": 0
+          },
+          "content_hash": "c1edb3ff4d60e2ee53026e4b6dcc4b284d4efe3988de4c12428b0bd4de9d5715",
+          "origin_kind": "simulated",
+          "valid": true,
+          "simulation_status": "ok",
+          "artifact": null,
+          "conversation_id": null,
+          "score": {
+            "exit_code": 0,
+            "status": "pass",
+            "summary": {
+              "pass": 4,
+              "fail": 0,
+              "inconclusive": 0
+            }
+          }
+        },
+        {
+          "run_id": "faq-store-hours-002",
+          "index": 2,
+          "seed": 4266803037,
+          "variation": {
+            "locale": "en-US",
+            "speaking_rate": 1.0,
+            "noise": "street",
+            "behavior": "default",
+            "repetition": 0
+          },
+          "content_hash": "c1edb3ff4d60e2ee53026e4b6dcc4b284d4efe3988de4c12428b0bd4de9d5715",
+          "origin_kind": "simulated",
+          "valid": true,
+          "simulation_status": "ok",
+          "artifact": null,
+          "conversation_id": null,
+          "score": {
+            "exit_code": 0,
+            "status": "pass",
+            "summary": {
+              "pass": 4,
+              "fail": 0,
+              "inconclusive": 0
+            }
+          }
+        }
+      ],
+      "exit_code": 0,
+      "status": "pass",
+      "origin": "simulated"
+    }
+  ],
+  "simulator_invalid": [],
+  "exit_code": 0
+}

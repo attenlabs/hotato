@@ -47,3 +47,23 @@
    reference kit + schema, Action, regression projection, record view) -> D2
    interaction labels -> D3 capability routing -> D4 SAA-side (local branch) ->
    D5 Atlas generator -> D6 prove and stop.
+
+## Delta 2 queued (hotato-agent-conformance-delta, 2026-07-13)
+- Package: scratchpad/hotato-conformance-delta/ (39 files, sha256 verified
+  a25207c7..., self-verifier PASS: 18 tests, 9 conformance docs, double-build
+  byte-identical).
+- Content: Agent Skill (.agents/skills/hotato-voice-regression + 12 evals,
+  read-only LiveKit/Pipecat/Vapi/Retell detection), draft open conformance
+  profile (receipts, registry, statuses reference/conformant/experimental/
+  stale, central CI never runs contributed adapters), strict
+  utterance_addressee_gate eligibility (paired labelled evidence only; the 7
+  ineligible classes fixtured), static privacy-gated Failure Atlas builder,
+  repo-discovery updates (Slice E last).
+- EXECUTION ORDER: (1) finish 1.3.3 ship [CI in flight] -> (2) SAA-organic
+  delta D1..D6 -> (3) this conformance delta, Slices A-E per its continuation
+  prompt, starting with the working-tree reconciliation table. Its Slice C/D
+  interfaces must reconcile with D1's Failure Record + D2/D3 labels/routing
+  (the eligibility semantics match the D3 truth table; names agree:
+  utterance_addressee_gate).
+- Boundaries unchanged: no publish/tag/push/upstream-contact/SAA-repo edits
+  without separate operator authorization.

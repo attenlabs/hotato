@@ -1,0 +1,12 @@
+{
+  "inconclusive_policy": "fail",
+  "kind": "hotato.suite",
+  "name": "Action consumer fixture suite (path with spaces)",
+  "purpose": "Conformance fixture for the root GitHub Action: the suite file lives under a directory whose name contains a space, so path handling stays argv-safe end to end.",
+  "required_for_release": true,
+  "suite_id": "action-consumer-spaced-suite",
+  "tests": [
+    "../suite/tests/faq-store-hours.test.json"
+  ],
+  "version": 1
+}
