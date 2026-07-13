@@ -137,10 +137,9 @@ def _next_commands_text(card_written: bool, contract_written: bool) -> str:
         "",
         "Next steps (all offline, no credentials):",
         "",
-        "  1. Save a candidate as a permanent regression test (you choose the "
-        "label):",
-        f"     hotato fixture promote {_SWEEP_JSON}#1 --expect <yield|hold> \\",
-        "         --id my-first-fixture --out tests/hotato",
+        "  1. Save a candidate as a permanent regression test:",
+        f"     hotato fixture promote {_SWEEP_JSON}#1 --expect yield --id my-first-fixture --out tests/hotato",
+        "     (use --expect hold instead if the agent should keep talking through that moment)",
         "",
         "  2. Run your fixtures in CI (exits non-zero on a regression):",
         "     hotato run --scenarios tests/hotato/scenarios --audio "
@@ -235,8 +234,7 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             "offline": True, "written": written,
             "total_candidates": aggregate["total_candidates"],
             "next_commands": [
-                f"hotato fixture promote {_SWEEP_JSON}#1 --expect "
-                "<yield|hold> --id my-first-fixture --out tests/hotato",
+                f"hotato fixture promote {_SWEEP_JSON}#1 --expect yield --id my-first-fixture --out tests/hotato",
                 "hotato run --scenarios tests/hotato/scenarios --audio "
                 "tests/hotato/audio",
                 f"hotato card {_SWEEP_JSON}#1 --out candidate.svg",
