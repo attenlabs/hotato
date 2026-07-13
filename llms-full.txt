@@ -6249,6 +6249,174 @@ gated on connected credentials and a tested rollback.
 
 
 ================================================================================
+FILE: docs/INVESTIGATE.md
+================================================================================
+
+# `hotato investigate`: one recording in, ranked candidate moments out
+
+`hotato investigate` takes one recording -- a local dual-channel WAV, or a
+live pull from a connected stack by call id -- and does four things, in order:
+authenticates where the audio came from, runs the input-health / K6
+verdict-eligibility gate, scans it for candidate turn-taking moments, and
+prints the exact next command that turns each candidate into a signed,
+CI-ready contract.
+
+It is discovery and guidance, nothing more. `hotato investigate` never infers
+intent and never mints a label or a verdict. The one decision that matters --
+which candidate is a bug, and whether the agent should have *yielded* or
+*held* -- stays with you, and you make it by running the command this tool
+prints:
+
+```bash
+hotato investigate label <candidate_ref> --expect yield|hold
+```
+
+Every step reuses a shipped primitive: audio-in is the same per-stack fetch
+`hotato pull` uses; the gate is `hotato trust` in contract mode; discovery is
+`hotato scan`; the label step wraps `hotato contract create --from-candidate`.
+
+## The label comes from you
+
+Hotato does not infer intent. You label the expected behavior for the event:
+`yield` means the agent should stop for the caller; `hold` means the agent
+should keep speaking through a backchannel, noise, or acknowledgement. Hotato
+then measures whether the timing matched that label. `"mhm"` and `"stop"` can
+carry identical speech energy; no timing measurement tells them apart, so the
+label is yours.
+
+## Scan one recording
+
+```bash
+# a local dual-channel WAV you already have
+hotato investigate call.wav
+
+# or pull it live from a connected stack by call id
+hotato investigate --stack vapi --call-id abc123
+```
+
+Give it either a local `SOURCE` path or `--stack STACK --call-id ID`, never
+both. Connectable stacks: `vapi`, `twilio`, `retell`, `bland`, `elevenlabs`,
+`synthflow`, `millis`, `cartesia`. LiveKit and Pipecat capture in your own
+infrastructure -- run `hotato setup --stack <name>` and pass the resulting WAV
+as `SOURCE`. `--allow-mono` permits a mono/mixed stack recording, but a summed
+channel is degraded and is not candidate-eligible for separated scoring.
+
+Useful flags: `--min-gap` (minimum response gap in seconds to surface, default
+`2.0`), `--top` (how many top candidates to show and print label commands for,
+default `10`; `0` shows all), `--caller-channel` / `--agent-channel`, and
+`--state PATH` (default `.hotato/investigate-state.json`).
+
+### What it reports
+
+```
+hotato investigate [run 1]: call.wav
+  capture origin: operator-asserted local file (call.wav)
+  input health: <trust recommendation>
+  verdict path: eligible (a labeled event here can carry a yield/hold verdict)
+  N candidate moment(s) (showing N):
+    [1] t=42.18s <kind>  <durations>
+        label: hotato investigate label .hotato/investigate-state.json#1 --expect yield|hold
+  state remembered at: .hotato/investigate-state.json
+```
+
+The onset above is illustrative. Candidates are timing facts only, never a
+verdict.
+
+## Capture origin: authenticated, not asserted for you
+
+Every run records where the audio came from, one of three kinds:
+
+- **`frozen_regression`** -- a previously-created hotato fixture clip (a sibling
+  scenario file names this exact audio): a pinned regression, not a live call.
+- **`provider_pulled`** -- fetched just now from the stack's own recording API
+  for a named call id. Stronger than an arbitrary file, but this is **not** a
+  signed capture receipt -- never read it as machine-verified or
+  runner-attested. For that stronger claim, see [RECAPTURE.md](RECAPTURE.md).
+- **`operator_asserted_local`** -- you handed hotato a local WAV path; nothing
+  here independently verifies it.
+
+## The K6 verdict gate
+
+Trust runs in contract mode -- the same stricter crosstalk/leakage bar
+`hotato contract create` itself checks, since this command exists to produce a
+contract. Two outcomes matter:
+
+- **NOT SCORABLE** (mono, identical channels, a silent required channel): no
+  candidates are scanned; the report names the reason, and the command exits
+  `2`. Fix the input and re-run.
+- **Verdict path REFUSED** (a suspected channel swap or crosstalk/leakage): the
+  candidates below are still shown as timing facts, but no labeled event here
+  can carry a yield/hold verdict until you confirm the mapping with
+  `--confirm-channels` or fix the crosstalk. See [TRUST.md](TRUST.md).
+
+Note the two gates are different widths: `scan` runs whenever the input is
+scorable, so candidates appear even when the verdict path is refused.
+
+## State and candidate refs
+
+State persists to `.hotato/investigate-state.json` (run-numbered, atomically
+written, with a history log). It is written in the same shape `hotato analyze`
+/ `hotato sweep` produce, so it is itself a valid `FILE#N` candidate ref:
+`hotato fixture promote` and `hotato contract create --from-candidate` read it
+directly. `#1` is the top-ranked candidate, `#2` the next, and so on.
+
+## Label a candidate into a contract
+
+`hotato investigate label` is the label step. Your `--expect` goes straight to
+`hotato contract create --from-candidate`, which mints a signed label-record
+bound to the exact decoded audio when a signing key is configured. Without a
+signing key it never crashes and never fabricates a human attestation: the
+contract honestly floors its `label_authority` at `asserted`.
+
+```bash
+hotato investigate label .hotato/investigate-state.json#1 \
+    --expect yield \
+    --max-talk-over 0.6 --max-time-to-yield 1.0 \
+    --reviewer "$USER" --out contracts
+```
+
+This writes `contracts/<id>.hotato/`. The id defaults to a slug derived from
+the source, onset, and label; pass `--id` to name it, `--force` to overwrite.
+Clipping keeps `--pre` seconds before the onset (default `2.0`) and `--post`
+after (default `6.0`); `--no-clip` keeps the full recording. If the verdict
+path was refused, add `--confirm-channels`, or `contract verify` refuses the
+contract's verdict. Source basenames are redacted from the bundle unless you
+pass `--include-identifiers`.
+
+Building a contract (not a bare fixture) is deliberate: it carries the K6 trust
+block, the CI policy, and the exact `hotato contract verify` command. That is
+where investigate hands off to [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md) and
+[CONTRACTS.md](CONTRACTS.md).
+
+Scanning, the trust gate, and labeling run offline; audio stays on your machine
+unless you explicitly pull it from your own stack ([THREAT-MODEL.md](THREAT-MODEL.md)).
+
+## Exit codes
+
+`hotato investigate`:
+
+| code | meaning |
+| --- | --- |
+| `0` | the recording is candidate-eligible: trust + scan ran and candidates (if any) were persisted; a yield/hold VERDICT may still be refused (K6) -- see `verdict_status` |
+| `2` | usage error (neither `SOURCE` nor `--stack/--call-id`, both given, a bad channel/`--min-gap` flag, a missing credential, or an unreadable state file), or the recording is NOT SCORABLE at all |
+
+`hotato investigate label`:
+
+| code | meaning |
+| --- | --- |
+| `0` | a signed, CI-ready contract was written from this candidate |
+| `2` | usage error (a bad `--expect`, a bad candidate ref, an unresolved source recording, or an existing contract without `--force`), or the candidate turned out not scorable |
+
+## See also
+
+- [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md) -- the bad-call to CI-gate flow this feeds.
+- [CONTRACTS.md](CONTRACTS.md) -- the failure-contract bundle.
+- [TRUST.md](TRUST.md) -- the input-health / K6 scorability gate.
+- [RECAPTURE.md](RECAPTURE.md) -- the stronger, signed fresh-recapture claim.
+- [CONVERSATION-TEST.md](CONVERSATION-TEST.md), [SUITE-RUN.md](SUITE-RUN.md) -- the conversation-QA path.
+
+
+================================================================================
 FILE: docs/RECAPTURE.md
 ================================================================================
 
@@ -6553,6 +6721,119 @@ still attach the generated `dist/*.cdx.json` SBOMs to the GitHub release.
 
 - [ ] Smoke-test the README quickstart commands exactly as written.
 - [ ] File follow-ups for anything that needed a manual touch, so the next release is one pass.
+
+
+================================================================================
+FILE: docs/RELEASE-COMPARE.md
+================================================================================
+
+# `hotato release compare`: diff two releases, per dimension
+
+`hotato release compare BASELINE CANDIDATE` reads two releases from the fleet
+registry and reports what moved between them. `BASELINE` is first, `CANDIDATE`
+second. It reports movement; it does not gate a release (use a
+`required_for_release` suite for the gate). A comparison always exits `0` unless
+the invocation itself is unusable.
+
+Each release is a snapshot recorded by [`hotato suite run`](SUITE-RUN.md). To
+compare, run the same suite twice under two stable `--release` ids in the same
+workspace and registry, then diff them.
+
+## What it reports
+
+- **Per-dimension counts for each side, plus the per-count delta.** Each
+  dimension (`outcome`, `policy`, `conversation`, `speech`, `reliability`)
+  keeps its own three counts (pass / fail / inconclusive), and the delta is per
+  count -- never a single blended delta score.
+- **New failures** -- a `scenario x dimension` that PASSED on the baseline and
+  FAILs on the candidate. **Fixed-since** -- the reverse. Both are diffed
+  **only** where BOTH releases ran the same `scenario x dimension`. A scenario
+  one side never ran is new coverage, not a regression.
+- **Per-scenario status changes** -- every `scenario x dimension` whose status
+  differs between the two, diffed only where both sides have a comparable
+  result.
+
+The releases' pinned digests are surfaced, so the reader knows exactly which
+two snapshots were compared: digest-exact, never a fuzzy name match.
+
+## Honest empty state
+
+A side with no runs is stated plainly, never a fabricated baseline:
+
+- a release id that is **not registered** in the workspace is reported as such;
+- a release that is registered but **has no runs** is reported plainly as an
+  empty state with nothing to compare on that side.
+
+When no `scenario x dimension` result is comparable across both releases, the
+report says so: new-failures / fixed-since need a scenario BOTH releases ran.
+
+## Compare
+
+```bash
+hotato release compare reference-agent-v1 reference-agent-rc2
+```
+
+`--workspace`/`-w ID` selects the fleet-registry workspace (default `default`);
+`--registry PATH` sets the registry home (default `~/.hotato/fleet`);
+`--format {text,json}` picks the output.
+
+## Worked example: two reference-agent releases
+
+Record two releases of the reference agent into the same registry and
+workspace, then diff them. The reference example writes to
+`examples/reference-agent/.workspace`, workspace `reference`:
+
+```bash
+cd examples/reference-agent
+
+# record the baseline release
+python run_reference.py --release reference-agent-v1
+
+# edit the scenario / agent_mock fixtures (or point at a changed agent),
+# regenerate, and record the candidate release
+python run_reference.py --generate --release reference-agent-rc2
+
+# diff them (same workspace + registry both runs recorded into)
+hotato release compare reference-agent-v1 reference-agent-rc2 \
+    --workspace reference --registry ./.workspace
+```
+
+Two runs over identical fixtures record byte-identical results, so the diff is
+all-zero deltas and no status changes. Edit the fixtures between the two runs
+to see movement.
+
+The text output follows this shape (counts here are schematic, not a
+benchmark):
+
+```
+hotato release compare: baseline reference-agent-v1 -> candidate reference-agent-rc2  (workspace reference)
+baseline runs=375 conv=375 eval=...  candidate runs=375 conv=375 eval=...
+per-dimension counts (baseline -> candidate, delta; never blended):
+  outcome       ...P/...F/...I  ->  ...P/...F/...I   (dP +.., dF -.., dI +..)
+  policy        ...P/...F/...I  ->  ...P/...F/...I   (dP +.., dF -.., dI +..)
+  conversation  ...P/...F/...I  ->  ...P/...F/...I   (dP +.., dF -.., dI +..)
+  speech        ...P/...F/...I  ->  ...P/...F/...I   (dP +.., dF -.., dI +..)
+  reliability   ...P/...F/...I  ->  ...P/...F/...I   (dP +.., dF -.., dI +..)
+new failures (PASS on baseline -> FAIL on candidate): N
+  - <scenario> / <dimension>
+fixed since (FAIL on baseline -> PASS on candidate): N
+  + <scenario> / <dimension>
+all per-scenario status changes:
+  ~ <scenario> / <dimension>: PASS -> FAIL
+```
+
+## Exit codes
+
+| code | meaning |
+| --- | --- |
+| `0` | the two releases were compared (per-dimension deltas + new-failures / fixed-since printed; a side with no runs is an honest empty state, never an error and never a blended delta score) |
+| `2` | a usage error or an unreadable registry `--registry` |
+
+## See also
+
+- [SUITE-RUN.md](SUITE-RUN.md) -- records the releases this command diffs.
+- [CONVERSATION-TEST.md](CONVERSATION-TEST.md) -- the per-dimension scorecard model.
+- [WORKSPACE.md](WORKSPACE.md) -- browse the releases and their runs with `hotato serve`.
 
 
 ================================================================================
@@ -7518,6 +7799,138 @@ against them is honestly INCONCLUSIVE rather than a fabricated "no change".
 - [`docs/ASSERTIONS.md`](ASSERTIONS.md) — the `state` / `state_change` assertion kinds.
 - [`docs/EGRESS.md`](EGRESS.md), [`docs/THREAT-MODEL.md`](THREAT-MODEL.md) — the network rows.
 - `src/hotato/state_adapter.py` — the adapters; `tests/test_state_adapters_real.py` — the tests.
+
+
+================================================================================
+FILE: docs/SUITE-RUN.md
+================================================================================
+
+# `hotato suite run`: execute a suite of conversation-tests
+
+`hotato suite run` loads a `hotato.suite` file (a NAMED SET of
+conversation-test refs, never a blend), resolves each ref relative to the suite
+file, executes every test, and emits a per-dimension + reliability report. It
+also records the run into the fleet registry so `hotato serve` can browse it.
+
+A conversation-test is one file that defines one testable conversation; see
+[CONVERSATION-TEST.md](CONVERSATION-TEST.md). A suite groups those files under a
+`suite_id`, a `purpose`, an `inconclusive_policy`, and a
+`required_for_release` flag. The suite file is JSON or YAML.
+
+## How a test runs
+
+- A test that declares a `scenario` runs **offline** through the deterministic
+  scripted-caller simulator. The scenario's variation matrix expands into
+  concrete runs, each rendered, validated, and scored against the test's
+  DETERMINISTIC lane. Authority-1 tool spans and the Authority-2 mock-state
+  sandbox come from the scenario's `agent_mock` -- there is no live agent and no
+  network. (Authority 2 is grounded state; see [STATE-ADAPTERS.md](STATE-ADAPTERS.md).)
+- A test with no scenario is evaluated once against an empty context: every
+  input-dependent check is honestly INCONCLUSIVE, never a guessed pass/fail.
+
+## The report has no blended score
+
+The report carries per-dimension counts (`outcome`, `policy`, `conversation`,
+`speech`, `reliability`) plus a reliability aggregate -- `pass@1`, `pass@k`,
+`pass^k` -- and nothing else. There is no `overall_score` and no blended number
+anywhere, including `--format json`. Per-dimension counts are a grouping across
+tests, never a weight. Reliability is its own dimension over every valid
+simulated run, never folded into another dimension.
+
+A `SIMULATOR_INVALID` run is a broken fixture, not an agent PASS/FAIL. It is
+bucketed separately and reported by test id and run id; it never counts toward
+any dimension or the reliability aggregate.
+
+## The suite's policy is authoritative
+
+The SUITE's `inconclusive_policy` is the effective policy for every test it
+names -- a test's own policy never weakens a required CI/compliance suite. So a
+suite with `inconclusive_policy: fail` makes an INCONCLUSIVE (absent required
+input) FAIL the gate; `refuse` withholds the verdict (exit `2`, precedence).
+
+The suite exit code is the **worst** test outcome under that policy
+(`refuse` > `fail` > `pass`), raised to at least `1` by any `SIMULATOR_INVALID`
+run.
+
+## Run it
+
+```bash
+hotato suite run examples/reference-agent/suite.json \
+    --agent reference-agent-v1 \
+    --release reference-agent-v1 \
+    --out ./suite-out
+```
+
+`--agent ID` (required) is recorded on every conversation and the release.
+`--release ID` names the release the runs are recorded under (default
+`<agent>@<suite_id>`); use a stable id per release so
+[`hotato release compare`](RELEASE-COMPARE.md) can diff two of them. `--out DIR`
+writes the per-test simulated conversation artifacts plus `suite-report.md`,
+`suite-report.html`, and `suite-run.json`. `--parallel N` caps the worker
+threads for each scenario's matrix; the worker count never changes the
+byte-identical result.
+
+The runs are recorded into the fleet registry (`--registry`, default
+`~/.hotato/fleet`; `--workspace`/`-w`, default `default`) as
+Release / Suite / Scenario / Run / Conversation / Evaluation rows, so
+`hotato serve -w <workspace>` renders them (see [WORKSPACE.md](WORKSPACE.md)).
+Pass `--no-registry` to report only.
+
+## Worked example: the reference agent
+
+`examples/reference-agent/` ships a full suite: 25 realistic voice-agent jobs
+x 5 caller behaviours x 3 audio environments = 375 offline simulated runs,
+scored across the outcome / policy / conversation / speech dimensions. Its
+`suite.json` has `inconclusive_policy: fail` and `required_for_release: true`.
+
+The one-command path regenerates the files, runs the 375-run suite offline, and
+records a browsable workspace:
+
+```bash
+cd examples/reference-agent
+make reference
+# then browse:
+hotato serve --workspace reference --registry ./.workspace
+```
+
+The summary printed to stdout follows this shape (counts here are schematic,
+not a benchmark):
+
+```
+hotato suite run: reference-agent-suite (...) -- agent reference-agent-v1, release reference-agent-v1 -- exit_code=0
+inconclusive_policy: fail  required_for_release: True
+tests: 25  (25 pass, 0 fail, 0 refuse)
+runs: 375 (375 valid, 0 SIMULATOR_INVALID -- broken fixtures, never an agent PASS/FAIL), origin=simulated
+per-dimension (grouped across tests; never blended):
+  outcome       ... pass / ... fail / ... inconclusive
+  policy        ... pass / ... fail / ... inconclusive
+  conversation  ... pass / ... fail / ... inconclusive
+  speech        ... pass / ... fail / ... inconclusive
+  reliability   ... pass / ... fail / ... inconclusive
+reliability [origin=simulated]: pass@1=... pass@k=... pass^k=... (n=...)
+per-test:
+  [pass   ] refund-damaged-order            runs=15  ...
+  ...
+```
+
+Origin is always labelled `simulated`: a simulator's replay reliability is not
+production reliability.
+
+## Exit codes
+
+| code | meaning |
+| --- | --- |
+| `0` | every test in the suite passed under the suite's `inconclusive_policy` (and no run was `SIMULATOR_INVALID`) |
+| `1` | at least one test FAILed (a `success.required` condition failed, a deterministic assertion FAILed, or -- under `inconclusive_policy fail` -- an INCONCLUSIVE gated), or a run was `SIMULATOR_INVALID` (a broken fixture, never an agent PASS/FAIL) |
+| `2` | under `inconclusive_policy refuse` a scored INCONCLUSIVE withheld the verdict (takes precedence over a FAIL); OR a usage error / unusable input: a malformed suite / conversation-test / scenario file, or an unresolvable test/scenario ref |
+
+## See also
+
+- [CONVERSATION-TEST.md](CONVERSATION-TEST.md) -- the conversation-test file each suite ref points at.
+- [STATE-ADAPTERS.md](STATE-ADAPTERS.md) -- Authority 2 state grounding for `state` / `state_change` checks.
+- [RELEASE-COMPARE.md](RELEASE-COMPARE.md) -- diff two releases recorded by `suite run`.
+- [WORKSPACE.md](WORKSPACE.md) -- browse the recorded runs with `hotato serve`.
+- [SUITES.md](SUITES.md) -- the `corpus/suites/` scenario-audio suites for the `hotato run` scoring path (a distinct mechanism).
 
 
 ================================================================================
