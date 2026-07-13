@@ -63,42 +63,6 @@ _SUITE_ENERGY_ONLY_NOTE = (
     "hotato run --stereo your_call.wav --backend neural"
 )
 
-# The first-run "aha": lead with scoring the user's OWN call, not the synthetic
-# self-test. Printed when `hotato` is run with no subcommand.
-_FIRST_RUN_GUIDE = """\
-hotato -- the open, offline turn-taking eval for voice agents.
-Does your agent drop the turn, or hog it?
-
-Score YOUR OWN call in under a minute (bring a dual-channel recording):
-
-  Vapi:     hotato capture --stack vapi   --call-id <id>          # + VAPI_API_KEY
-  Twilio:   hotato capture --stack twilio --recording-sid RE...   # + TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN
-  LiveKit:  hotato setup   --stack livekit   # scaffold two-track egress, then --caller a.wav --agent b.wav
-  Pipecat:  hotato setup   --stack pipecat   # drop in the 2-channel recorder, then score the WAV
-  Retell:   hotato capture --stack retell --call-id <id>          # + RETELL_API_KEY
-
-Already have a 2-channel WAV (caller on channel 0, agent on channel 1)?
-  hotato run --stereo your_call.wav --expect yield
-
-Turn a bad moment into a permanent regression test (docs/BAD-CALL-TO-CI.md):
-  hotato scan --stereo full_call.wav                # list candidate moments
-  hotato fixture create --stereo full_call.wav --onset 42.18 \\
-      --expect yield --id refund-cutoff-001 --out tests/hotato
-  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
-
-See what a failure looks like, in one command (packaged bad-agent battery; it
-fails by design and opens the report):
-  hotato demo
-
-No recording handy? Watch the capture -> score loop run end-to-end, fully offline:
-  hotato capture --stack vapi --demo
-
-Self-test (checks Hotato ITSELF on synthetic fixtures -- NOT a test of your agent):
-  hotato run --suite barge-in
-
-Offline. MIT. No accuracy score anywhere: reproducible timing measurements with an
-exposed method and an explicit ceiling. Docs: README.md / METHODOLOGY.md
-"""
 
 _SELF_TEST_NOTE = (
     "note: --suite is Hotato's SELF-TEST on synthetic fixtures -- it checks the "
@@ -7384,9 +7348,11 @@ def main(argv=None) -> int:
     raw = _route_investigate_label(raw) or raw
     rerouted = _route_bare_folder(raw, parser)
     args = parser.parse_args(rerouted if rerouted is not None else raw)
-    # Bare `hotato` (no subcommand): guide the user to score their OWN call.
+    # Bare `hotato` (no subcommand): the first-run screen (logo + the one
+    # command to try). See hotato/intro.py.
     if getattr(args, "func", None) is None:
-        print(_FIRST_RUN_GUIDE, end="")
+        from . import intro as _intro
+        _intro.print_intro()
         return 0
     try:
         return args.func(args)
