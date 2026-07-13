@@ -30,6 +30,14 @@ import tempfile
 import time
 from typing import Optional
 
+# Shared canonical-JSON producer (finding #2). ``manifest`` imports no fleet
+# module (adapters/api already import it this way), so this is non-circular even
+# though fleet/__init__ imports this store first. ``put_json`` keeps its trailing
+# newline; ``canonical_json`` (ensure_ascii=True, sorted keys, compact
+# separators) is byte-identical to the inline dump it replaces, so every stored
+# blob's content-addressed digest is unchanged.
+from .. import manifest as _manifest
+
 SCHEMA_VERSION = "1"
 
 # How old an orphaned "*.tmp" write must be before the startup sweep will
@@ -132,7 +140,7 @@ class ArtifactStore:
         return digest
 
     def put_json(self, obj, **kw) -> str:
-        data = (json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        data = (_manifest.canonical_json(obj) + "\n").encode("utf-8")
         return self.put_bytes(data, **kw)
 
     # --- reads ----------------------------------------------------------

@@ -663,6 +663,18 @@ def _exit_codes_epilog(key: str) -> str:
     return f"Exit codes: {parts}."
 
 
+def _add_format_arg(parser, *, choices=("json", "text"), default="text",
+                    help="output format (default text)") -> None:
+    """Shared ``--format`` flag (audit finding #6). The common case (text
+    default, json/text choices, the standard help) is a bare
+    ``_add_format_arg(parser)``; callers with a different choice set / default /
+    help pass them explicitly. ``choices`` is materialized to a list so argparse
+    membership, the ``--help`` metavar, and ``hotato describe``'s manifest are
+    byte-identical to the inline ``add_argument`` this replaces."""
+    parser.add_argument("--format", default=default, choices=list(choices),
+                        help=help)
+
+
 def _add_cred_args(parser) -> None:
     """The shared credential flags for connect/pull/sweep. Each falls back to
     ~/.hotato/connections.json then the stack's environment variable, so after
@@ -3789,7 +3801,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--caller-channel", type=int, default=0)
     c.add_argument("--agent-channel", type=int, default=1)
     c.add_argument("--out", default=None, help="where to write the downloaded recording (else a temp file)")
-    c.add_argument("--format", default="text", choices=["json", "text"], help="output format (default text)")
+    _add_format_arg(c)
     c.set_defaults(func=_cmd_capture)
 
     # --- setup: scaffold the exact recording config for a stack -----------
@@ -3840,8 +3852,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_cred_args(cn)
     cn.add_argument("--no-verify", action="store_true",
                     help="skip the live auth check; just store the credentials")
-    cn.add_argument("--format", default="text", choices=["json", "text"],
-                    help="output format (default text)")
+    _add_format_arg(cn)
     cn.set_defaults(func=_cmd_connect)
 
     # --- pull: bulk-fetch recent recordings into a local directory --------
@@ -3889,8 +3900,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_cred_args(pu)
     pu.add_argument("--out", default=None, metavar="DIR",
                     help="download directory (default hotato-pull-<stack>)")
-    pu.add_argument("--format", default="text", choices=["json", "text"],
-                    help="output format (default text)")
+    _add_format_arg(pu)
     pu.set_defaults(func=_cmd_pull)
 
     # --- sweep: pull recent recordings then analyze them in one flow ------
@@ -4291,8 +4301,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="where to write the HTML report (default: a temp file)")
     dm.add_argument("--no-open", action="store_true",
                     help="do not launch a browser; just write and print the path")
-    dm.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(dm, choices=("text", "json"))
     dm.add_argument("--fail", action="store_true",
                     help="exit with the real regression code (1: this battery "
                          "fails by design) instead of the default 0")
@@ -4349,8 +4358,7 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--dir", default=None, metavar="DIR",
                     help="directory to write the outputs into (default: the "
                          "current directory)")
-    st.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(st, choices=("text", "json"))
     st.add_argument("--label", default=None, choices=["yield", "hold"],
                     help="(--stereo) your human label for the top candidate; creates a contract")
     st.add_argument("--onset", type=float, default=None,
@@ -4472,8 +4480,7 @@ def build_parser() -> argparse.ArgumentParser:
     ins.add_argument("--api-key",
                      help="[vapi|retell] API key (else env VAPI_API_KEY / "
                           "RETELL_API_KEY); used for one read-only GET")
-    ins.add_argument("--format", default="text", choices=["json", "text"],
-                     help="output format (default text)")
+    _add_format_arg(ins)
     ins.set_defaults(func=_cmd_inspect)
 
     # --- plan: Level 2, a guarded fix plan (proposal only, no apply) --------
@@ -4579,8 +4586,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="a hotato envelope JSON, a FILE#N / FILE#CALL:N candidate ref, "
              "or a contract bundle directory",
     )
-    ex.add_argument("--format", default="text", choices=["json", "text"],
-                    help="output format (default text)")
+    _add_format_arg(ex)
     ex.add_argument("--html", default=None, metavar="PATH",
                     help="also write a self-contained HTML report to PATH")
     ex.set_defaults(func=_cmd_explain)
@@ -4668,8 +4674,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="overwrite an existing fixture with the same id")
     fc.add_argument("--caller-channel", type=int, default=0)
     fc.add_argument("--agent-channel", type=int, default=1)
-    fc.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(fc, choices=("text", "json"))
     fc.set_defaults(func=_cmd_fixture_create)
 
     # --- fixture promote: sweep/analyze candidate -> regression fixture -----
@@ -4745,8 +4750,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="overwrite an existing fixture with the same id")
     fp.add_argument("--caller-channel", type=int, default=0)
     fp.add_argument("--agent-channel", type=int, default=1)
-    fp.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(fp, choices=("text", "json"))
     fp.set_defaults(func=_cmd_fixture_promote)
 
     # --- contract: the portable failure contract -----------------------------
@@ -4881,8 +4885,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="show the source recording's basename / candidate "
                          "ref in the bundle and the card instead of "
                          "redacting them (default: redacted)")
-    cc.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(cc, choices=("text", "json"))
     cc.set_defaults(func=_cmd_contract_create)
 
     cv = ctsub.add_parser(
@@ -4933,8 +4936,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ci_.add_argument("path", metavar="PATH",
                      help="a <id>.hotato bundle directory, or its contract.json")
-    ci_.add_argument("--format", default="text", choices=["text", "json"],
-                     help="output format (default text)")
+    _add_format_arg(ci_, choices=("text", "json"))
     ci_.set_defaults(func=_cmd_contract_inspect)
 
     cp = ctsub.add_parser(
@@ -4959,8 +4961,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "bundle directory's own name)")
     cp.add_argument("--force", action="store_true",
                     help="overwrite an existing archive at --out")
-    cp.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(cp, choices=("text", "json"))
     cp.set_defaults(func=_cmd_contract_pack)
 
     cu = ctsub.add_parser(
@@ -4993,8 +4994,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "the archive's ACTUAL decompressed content (default "
                          "512 MiB, or $HOTATO_CONTRACT_MAX_UNPACK_BYTES; "
                          "raise only for a trusted archive)")
-    cu.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(cu, choices=("text", "json"))
     cu.set_defaults(func=_cmd_contract_unpack)
 
     # --- trace: the observability bridge (voice_trace.v1) --------------------
@@ -5068,8 +5068,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "text_redacted stays true either way it is stated)")
     ti.add_argument("--force", action="store_true",
                     help="overwrite an existing --out file")
-    ti.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(ti, choices=("text", "json"))
     ti.set_defaults(func=_cmd_trace_ingest)
 
     ta = trsub.add_parser(
@@ -5100,8 +5099,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "trace ingest`)")
     ta.add_argument("--force", action="store_true",
                     help="replace an already-attached trace")
-    ta.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(ta, choices=("text", "json"))
     ta.set_defaults(func=_cmd_trace_attach)
 
     te = trsub.add_parser(
@@ -5195,8 +5193,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "assertions.yaml)")
     ai.add_argument("--force", action="store_true",
                     help="overwrite an existing --out file")
-    ai.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(ai, choices=("text", "json"))
     ai.set_defaults(func=_cmd_assert_init)
 
     ar = asub.add_parser(
@@ -5266,8 +5263,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "over a FAIL). Overrides any inconclusive_policy in "
                          "the --assertions file; CI/compliance suites should "
                          "set fail or refuse")
-    ar.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(ar, choices=("text", "json"))
     ar.set_defaults(func=_cmd_assert_run)
 
     # --- test: the Phase-1 EXIT -- one conversation-test file end to end -----
@@ -5504,8 +5500,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="path to write (default conversation-test.yaml)")
     si.add_argument("--force", action="store_true",
                     help="overwrite an existing --out file")
-    si.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(si, choices=("text", "json"))
     si.set_defaults(func=_cmd_scenario_init)
 
     sv = scnsub.add_parser(
@@ -5528,8 +5523,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sv.add_argument("path", metavar="PATH",
                     help="a conversation-test file, or a directory of them")
-    sv.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(sv, choices=("text", "json"))
     sv.set_defaults(func=_cmd_scenario_validate)
 
     # --- conversation: verify a conversation artifact -----------------------
@@ -5567,8 +5561,7 @@ def build_parser() -> argparse.ArgumentParser:
     cvv.add_argument("dir", metavar="DIR",
                      help="a conversation artifact directory (or a "
                           "conversation.json path)")
-    cvv.add_argument("--format", default="text", choices=["text", "json"],
-                     help="output format (default text)")
+    _add_format_arg(cvv, choices=("text", "json"))
     cvv.set_defaults(func=_cmd_conversation_verify)
 
     # --- simulate: render a scenario into labelled origin=simulated calls ----
@@ -5639,8 +5632,7 @@ def build_parser() -> argparse.ArgumentParser:
     sm.add_argument("--created-at", default=None, metavar="ISO8601",
                     help="the artifact's created_at (default: now, UTC); set it "
                          "for a byte-reproducible manifest")
-    sm.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(sm, choices=("text", "json"))
     sm.set_defaults(func=_cmd_simulate)
 
     # --- compare: the shareable before/after on one fixed moment ------------
@@ -5701,8 +5693,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="fail bound applied identically to both takes")
     cp.add_argument("--caller-channel", type=int, default=0)
     cp.add_argument("--agent-channel", type=int, default=1)
-    cp.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(cp, choices=("text", "json"))
     cp.add_argument("--out", default=None, metavar="PATH",
                     help="also write the self-contained HTML report: the "
                          "after take with the before take as the base "
@@ -5750,8 +5741,7 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--min-gap", type=float, default=2.0,
                     help="minimum response gap in seconds to surface as a "
                          "candidate (default 2.0)")
-    sc.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(sc, choices=("text", "json"))
     sc.add_argument("--out", default=None, metavar="PATH",
                     help="write EVERY candidate as JSON here (--top caps only "
                          "the stdout listing)")
@@ -5779,8 +5769,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="directory to write the synthetic-derived clips into")
     syn.add_argument("--seed", type=int, default=1, metavar="N",
                      help="deterministic seed (default 1)")
-    syn.add_argument("--format", default="text", choices=["text", "json"],
-                     help="output format (default text)")
+    _add_format_arg(syn, choices=("text", "json"))
     syn.set_defaults(func=_cmd_synth)
 
     # --- trust: input-health check (is this recording even scorable?) --------
@@ -6080,8 +6069,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--api-key", default=None,
                     help="platform API key for --yes (else the connection or the "
                          "stack's env var, e.g. VAPI_API_KEY / RETELL_API_KEY)")
-    ap.add_argument("--format", default="text", choices=["json", "text"],
-                    help="output format (default text)")
+    _add_format_arg(ap)
     ap.set_defaults(func=_cmd_apply)
 
     # --- verify: battery-scale before/after proof a fix held ----------------
@@ -6142,8 +6130,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "require_hold_fixture, require_yield_fixture). verify "
                          "exits 1 unless every guardrail holds and every target "
                          "is met, so a one-axis bandaid cannot pass")
-    vf.add_argument("--format", default="text", choices=["json", "text"],
-                    help="output format (default text)")
+    _add_format_arg(vf)
     vf.add_argument("--out", default=None, metavar="PATH",
                     help="also write the proof here: a .html/.htm path writes a "
                          "self-contained offline before/after report (headline "
@@ -6246,8 +6233,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="minimum previously-failing fixtures needed to "
                          "support the claim (default 3); below it the "
                          "trial is inconclusive, not a pass")
-    ft.add_argument("--format", default="text", choices=["json", "text"],
-                    help="output format (default text)")
+    _add_format_arg(ft)
     ft.add_argument("--out", default=None, metavar="PATH",
                     help="also write the full proof JSON here")
     ft.add_argument("--html", default=None, metavar="PATH",
@@ -6311,8 +6297,7 @@ def build_parser() -> argparse.ArgumentParser:
     lp.add_argument("--top", type=int, default=10,
                     help="how many top candidate moments to record in state for "
                          "the label step (default 10)")
-    lp.add_argument("--format", default="text", choices=["json", "text"],
-                    help="output format (default text)")
+    _add_format_arg(lp)
     lp.set_defaults(func=_cmd_loop)
 
     # --- investigate: one call-id (or local WAV) -> ranked candidates + the -
@@ -6380,8 +6365,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "mapping is correct despite a suspected swap or "
                          "crosstalk/leakage; without it the verdict path is "
                          "refused (K6), though candidates are still shown")
-    iv.add_argument("--format", default="text", choices=["json", "text"],
-                    help="output format (default text)")
+    _add_format_arg(iv)
     iv.set_defaults(func=_cmd_investigate)
 
     ivl = sub.add_parser(
@@ -6464,8 +6448,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="show the source recording's basename / candidate "
                           "ref in the bundle and the card instead of "
                           "redacting them (default: redacted)")
-    ivl.add_argument("--format", default="text", choices=["text", "json"],
-                     help="output format (default text)")
+    _add_format_arg(ivl, choices=("text", "json"))
     ivl.set_defaults(func=_cmd_investigate_label)
 
     # --- describe: the generated capability manifest (machine-drivability) --
@@ -6553,8 +6536,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="directory to scaffold the worker into")
     iw.add_argument("--force", action="store_true",
                     help="overwrite existing files in --out")
-    iw.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(iw, choices=("text", "json"))
     iw.set_defaults(func=_cmd_init_webhook)
 
     ist = itsub.add_parser(
@@ -6603,8 +6585,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "(often . -- your existing repo root)")
     ist.add_argument("--force", action="store_true",
                      help="overwrite existing files in --out")
-    ist.add_argument("--format", default="text", choices=["text", "json"],
-                     help="output format (default text)")
+    _add_format_arg(ist, choices=("text", "json"))
     ist.set_defaults(func=_cmd_init_starter)
 
     # --- issue: file a sweep's candidates as a GitHub issue -----------------
@@ -6670,8 +6651,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="actually create the issue through gh; without it "
                          "this is a dry run that prints the body and the "
                          "command and creates nothing")
-    ic.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(ic, choices=("text", "json"))
     ic.set_defaults(func=_cmd_issue_create)
 
     # --- pr: open a pull request that adds promoted fixtures ----------------
@@ -6742,8 +6722,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "and open the PR through git and gh; without it this "
                          "is a dry run that prints the body and the exact "
                          "commands and changes nothing")
-    pc.add_argument("--format", default="text", choices=["text", "json"],
-                    help="output format (default text)")
+    _add_format_arg(pc, choices=("text", "json"))
     pc.set_defaults(func=_cmd_pr_create)
 
     # --- fleet: the local, self-hosted Guardian control plane ----------------
@@ -6753,8 +6732,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="fleet control-plane home (default ~/.hotato/fleet)")
         sp.add_argument("--workspace", "-w", default="default", metavar="ID",
                         help="workspace id (default 'default')")
-        sp.add_argument("--format", default="text", choices=["text", "json"],
-                        help="output format (default text)")
+        _add_format_arg(sp, choices=("text", "json"))
 
     def _fleet_parser(parent, name, dotted, help_text):
         """Add a fleet subparser carrying the uniform ``Exit codes:`` epilog
