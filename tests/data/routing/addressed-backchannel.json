@@ -1,0 +1,24 @@
+{
+  "kind": "hotato.routing-fixture.v1",
+  "event_id": "addressed-backchannel",
+  "battery_id": "routing-reference",
+  "configuration_id": "agent-config-a",
+  "scorable": true,
+  "expected_behavior": "hold",
+  "observed_behavior": "yield",
+  "failure": "false_trigger",
+  "input_health": {
+    "self_echo": false,
+    "non_speech_ambient": false,
+    "invalid_channel_map": false
+  },
+  "interaction": {
+    "kind": "hotato.interaction-label.v1",
+    "speech_presence": "speech",
+    "addressed_to_agent": true,
+    "floor_intent": "feedback",
+    "label_authority": "fixture",
+    "label_ref": "synthetic routing contract only; no audio included"
+  }
+}
+

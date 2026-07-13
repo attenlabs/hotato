@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schemas/capability-requirement.v1.schema.json",
+  "title": "Hotato capability requirement v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "fix_class",
+    "required_capability",
+    "trigger",
+    "evidence_refs",
+    "acceptance_tests",
+    "excluded_causes",
+    "missing_evidence"
+  ],
+  "properties": {
+    "kind": {"const": "hotato.capability-requirement.v1"},
+    "fix_class": {"const": "engagement-control"},
+    "required_capability": {
+      "enum": [
+        "utterance_addressee_gate",
+        "turn_intent_discriminator",
+        "engagement_control"
+      ]
+    },
+    "trigger": {
+      "enum": ["paired_discrimination_failure", "insufficient_labels"]
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 256}
+    },
+    "acceptance_tests": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "addressed_interruption_reaches_agent",
+          "non_addressed_speech_does_not_reach_agent",
+          "addressed_feedback_does_not_take_floor",
+          "opposite_risk_fixture_does_not_regress",
+          "collect_trusted_addressee_label"
+        ]
+      }
+    },
+    "excluded_causes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "self_echo",
+          "non_speech_ambient",
+          "invalid_channel_map",
+          "unscorable_input"
+        ]
+      }
+    },
+    "missing_evidence": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "addressed_to_agent",
+          "floor_intent",
+          "label_authority",
+          "opposite_risk_fixture"
+        ]
+      }
+    },
+    "contract_uri": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "maxLength": 512
+    }
+  }
+}
