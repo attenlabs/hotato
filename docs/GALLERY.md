@@ -41,9 +41,6 @@ Summary:
 | 7 | Backchannel candidate | Surfaced as a candidate; you label it |
 | 8 | Noisy false-positive candidate | Surfaced, with the reason it is likely spurious |
 
-Open [TRUST-GALLERY.md](TRUST-GALLERY.md) for the exact command and output
-behind each row.
-
 ## Case studies
 
 Real-audio write-ups, each following

@@ -21,7 +21,7 @@ A `state` query verifies post-call system state. It has three outcomes, and the
 distinction is the whole point:
 
 - **The record is present and matches** -> `PASS`.
-- **The system of record was read and genuinely holds no such record** (or a
+- **The system of record was read and holds no such record** (or a
   field does not match) -> a grounded `FAIL`. The agent claimed something the
   record does not confirm.
 - **The system of record could not be reached or read** (network error,
@@ -33,14 +33,14 @@ a state adapter. The query is a lookup plus a dict comparison, deterministic.
 
 ## The three adapters
 
-### 1. `mock` — the local sandbox (default, offline)
+### 1. `mock`: the local sandbox (default, offline)
 
 A JSON or SQLite fixture: `{resource: rows}`. No network, byte-stable, no
 opt-in. Use it for regression suites and for a captured before/after snapshot
 (`state_change` reads a `{"before": [...], "after": [...]}` shape). This is the
 adapter `--state some_sandbox.json` and `--state some.sqlite3` select today.
 
-### 2. `http` — a REST system of record
+### 2. `http`: a REST system of record
 
 Queries your API over stdlib `urllib`. A **resource map** turns a query into one
 request:
@@ -73,7 +73,7 @@ dict at `response_pointer` from the JSON response.
   resolves to nothing on a well-formed response means "no such record" -> `None`.
 - `method` is `GET` (default) or `POST`.
 - **HTTPS is required by default.** A plain `http://` base URL is refused unless
-  you set `"allow_http": true` (only for a trusted local endpoint) — a state
+  you set `"allow_http": true` (only for a trusted local endpoint); a state
   query would otherwise send filter values and the auth header in cleartext.
 - A 404 means the addressed record does not exist -> `None` -> grounded FAIL.
   Every other non-2xx, and any network/timeout/non-JSON failure, is
@@ -81,7 +81,7 @@ dict at `response_pointer` from the JSON response.
   turns into an INCONCLUSIVE result; the structured cause is on the adapter's
   `last_error`).
 
-### 3. `sql` — a SQL system of record
+### 3. `sql`: a SQL system of record
 
 Queries a database with a **parameterized, read-only** SELECT.
 
@@ -102,9 +102,9 @@ Queries a database with a **parameterized, read-only** SELECT.
 the statement's parameters and returns the first row as a `{column: value}` dict,
 or `None` when no row matches.
 
-- Connection source (exactly one): `sqlite_path` (a local file DB — fully local,
+- Connection source (exactly one): `sqlite_path` (a local file DB, fully local,
   no egress), a `dsn` + `driver` (a DBAPI module to import and `connect`, e.g.
-  `psycopg2` for PostgreSQL — a network DB, so it needs `egress_opt_in: true`;
+  `psycopg2` for PostgreSQL, a network DB, so it needs `egress_opt_in: true`;
   the driver is imported lazily and is never a hard dependency of hotato), or a
   caller-supplied `connection` object (Python API only).
 - Use the placeholder style your driver expects (`?` for sqlite3, `%s` for
@@ -115,7 +115,7 @@ or `None` when no row matches.
 
 - **Injection-safe by construction.** Filter values are ALWAYS bound as query
   parameters; they are never string-interpolated into the SQL. A filter value
-  carrying SQL (`"O1'; DROP TABLE refunds; --"`) is treated as a literal — it
+  carrying SQL (`"O1'; DROP TABLE refunds; --"`) is treated as a literal: it
   matches no row and the table is untouched. Tested in
   `tests/test_state_adapters_real.py`.
 - **Read-only.** Every mapped SQL query is validated at construction (and
@@ -128,7 +128,7 @@ or `None` when no row matches.
 The `http` adapter, and a `sql` adapter over a `dsn`, are **network paths** (see
 [`docs/EGRESS.md`](EGRESS.md) and [`docs/THREAT-MODEL.md`](THREAT-MODEL.md)).
 `load_state_adapter` **refuses** them unless the config sets
-`"egress_opt_in": true` — an explicit, per-config opt-in, the same discipline
+`"egress_opt_in": true`, an explicit, per-config opt-in, the same discipline
 `--egress-opt-in` applies to the hosted diarizer and `--notify`. Without it, you
 get a clear usage error (the CLI's exit-2 path) before any connection is made.
 A local `sqlite_path` SQL DB and the mock sandbox open no socket and need no
@@ -149,7 +149,7 @@ it):
 - `basic`: `{ "type": "basic", "username_env": "DB_USER", "password_env": "DB_PASS" }`
   (`username` may be inline since it is not a secret).
 - `header`: `{ "type": "header", "headers": { "X-Api-Key": { "env": "API_KEY" }, "X-Tenant": { "value": "acme" } } }`
-  — each header value is either `{ "env": NAME }` (a secret from the environment)
+  where each header value is either `{ "env": NAME }` (a secret from the environment)
   or `{ "value": LITERAL }` (a non-secret constant).
 
 A missing credential env var fails fast at construction with a message naming the
@@ -161,12 +161,12 @@ in `last_error`.
 `state_change` reads a `before` and an `after` snapshot to measure a delta. Only
 the **mock** adapter provides both (from a captured `{"before": ..., "after":
 ...}` fixture, or `<table>__before` / `<table>__after` SQLite tables). The `http`
-and `sql` adapters answer point-in-time `state` queries — a live API/DB exposes
-only "now" — so their `before` snapshot is reported absent, and a `state_change`
-against them is honestly INCONCLUSIVE rather than a fabricated "no change".
+and `sql` adapters answer point-in-time `state` queries (a live API/DB exposes
+only "now"), so their `before` snapshot is reported absent, and a `state_change`
+against them is INCONCLUSIVE rather than a fabricated "no change".
 
 ## See also
 
-- [`docs/ASSERTIONS.md`](ASSERTIONS.md) — the `state` / `state_change` assertion kinds.
-- [`docs/EGRESS.md`](EGRESS.md), [`docs/THREAT-MODEL.md`](THREAT-MODEL.md) — the network rows.
-- `src/hotato/state_adapter.py` — the adapters; `tests/test_state_adapters_real.py` — the tests.
+- [`docs/ASSERTIONS.md`](ASSERTIONS.md): the `state` / `state_change` assertion kinds.
+- [`docs/EGRESS.md`](EGRESS.md), [`docs/THREAT-MODEL.md`](THREAT-MODEL.md): the network rows.
+- `src/hotato/state_adapter.py`: the adapters; `tests/test_state_adapters_real.py`: the tests.

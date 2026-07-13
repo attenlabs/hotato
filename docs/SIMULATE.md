@@ -93,7 +93,7 @@ and the optional deterministic `agent_mock`, is
 
 - **`origin=simulated` on every produced conversation** -- never `real`, never
   merged into a real bucket. `write_artifact` refuses to write anything whose
-  origin is not simulated. Synthetic is never conflated with a real call.
+  origin is not simulated.
 - **A bad rendering is `SIMULATOR_INVALID`, never an agent PASS/FAIL.** The
   simulator only decides whether the produced conversation is a FAITHFUL
   rendering of its scenario. Scoring is the SEPARATE assert layer's job, over
@@ -114,8 +114,7 @@ and the optional deterministic `agent_mock`, is
 - `pass^k` -- all-`k`-pass.
 
 For the scripted deterministic caller `pass^k == pass@1`: a seeded replay is
-byte-identical, so every run has the same outcome. That is CORRECT and reported
-honestly -- not fabricated variance. `--repetitions N` expands the variation
+byte-identical, so every run has the same outcome. That is CORRECT and reported, not fabricated variance. `--repetitions N` expands the variation
 matrix so Reliability is measured over `N` runs.
 
 ## Simulate many scenarios in parallel (`--matrix`)

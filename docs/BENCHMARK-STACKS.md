@@ -3,7 +3,7 @@
 `hotato benchmark` scores the recordings you captured by running one fixed
 scenario set through YOUR configured voice stack. Every stack is scored on the
 same scenarios, the same labels, and the same thresholds, so the result files
-are directly comparable: same battery, same measurements, same exposed config.
+are directly comparable.
 
 hotato measures timing on the recordings it is given. It ships no vendor
 numbers, no leaderboard, and no accuracy percentage. Results depend on your
@@ -82,5 +82,4 @@ missing from.
 Reproducible timing measurements of the recordings you provided, scored by
 the same engine as `hotato run`, with every threshold exposed in the result.
 They tell you how your configuration of a stack handled the battery you
-captured. They are not a vendor ranking, and no accuracy percentage appears
-anywhere.
+captured.

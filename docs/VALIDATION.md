@@ -56,7 +56,7 @@ It establishes only that the measurement is stable and re-derivable by hand from
 ## Job 2: candidate-discovery usefulness
 
 **The question:** when Hotato scans a whole recording, does it surface the
-moments a human reviewer would actually want to look at, ranked by salience?
+moments a human reviewer would want to look at, ranked by salience?
 
 **What is reported.** A ranked list of candidate turn-taking moments as **timing
 facts only**: overlap onsets (caller became active while the agent was talking,

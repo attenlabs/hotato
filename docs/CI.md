@@ -2,8 +2,7 @@
 
 hotato scores turn-taking timing from call recordings, so a pull request can
 carry a running score and fail when the agent gets slower to stop talking for
-an interrupting caller. The workflow runs offline, needs no extra dependencies,
-and posts one comment that updates itself on every push.
+an interrupting caller. The workflow runs offline and needs no extra dependencies.
 
 ## Drop it in
 

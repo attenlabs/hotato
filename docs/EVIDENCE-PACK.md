@@ -21,7 +21,7 @@ if you are deciding how much to trust any single piece below.
 | Where Hotato fits next to a QA platform | Named-vendor routing guide | [COMPARE.md](COMPARE.md) |
 | Case studies | Real-audio write-ups, each with a repro command and a mandatory "what Hotato did not prove" section | [`case-studies/`](case-studies/README.md) |
 | Shareable cards | Self-contained SVGs of a candidate, a threshold-funnel finding, or a verify result | [CARDS.md](CARDS.md) · [`assets/cards/`](assets/cards/) |
-| Launch-bar status | The checklist of what is done and what is still an honest gap | [evidence/validation-plan.md](evidence/validation-plan.md) |
+| Launch-bar status | The checklist of what is done and what is still an open gap | [evidence/validation-plan.md](evidence/validation-plan.md) |
 
 ## How to check it yourself
 

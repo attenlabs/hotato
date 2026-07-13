@@ -1,8 +1,8 @@
-# The team workspace — `hotato serve`
+# The team workspace: `hotato serve`
 
 A self-hosted, local web app for a team to read a voice agent's conversation-QA
 state: release readiness, the scenario matrix, a conversation inspector, failure
-clusters, and production health. It is stdlib-only (`http.server` + `sqlite3`) —
+clusters, and production health. It is stdlib-only (`http.server` + `sqlite3`):
 no framework, no build step, no external services, no telemetry. It serves the
 same fleet registry and evidence store the CLI writes; it never passes a database
 file around.
@@ -15,7 +15,7 @@ On first start it prints where it is listening, the bearer token, and the URL to
 open:
 
 ```
-hotato serve — workspace 'default'
+hotato serve: workspace 'default'
   registry:  /home/you/.hotato/fleet
   listening: http://127.0.0.1:8321
   token:     Ab3xQ_p1…                 (generated, stored 0600 at …/serve/default/token)
@@ -24,9 +24,8 @@ hotato serve — workspace 'default'
   read-only: the server issues only SELECTs; reviews/labels stay CLI-driven. No telemetry, no external calls.
 ```
 
-Open the `open:` URL in a browser. The server sets an HttpOnly session cookie and
-redirects to strip the token from the address bar; from then on you navigate
-without the secret in the URL.
+Open the `open:` URL in a browser; the server sets a session cookie and redirects
+to strip the token from the address bar (see [Auth](#auth)).
 
 ## Flags
 
@@ -36,8 +35,8 @@ without the secret in the URL.
 | `--host` | `127.0.0.1` | bind address (see [Binding](#binding-127001-by-default)) |
 | `--port` | `8321` | listen port |
 | `--registry` | `~/.hotato/fleet` | registry home directory |
-| `--token` | — | supply the bearer token yourself |
-| `--token-file` | — | read the bearer token from a file (first line) |
+| `--token` | none | supply the bearer token yourself |
+| `--token-file` | none | read the bearer token from a file (first line) |
 
 Exit codes: `0` clean shutdown (Ctrl-C); `2` usage error (unusable registry or
 token, or the port was unavailable).
@@ -47,36 +46,35 @@ token, or the port was unavailable).
 Every view has a machine mirror at `?format=json` (same auth, same data) so
 agents and scripts can drive the workspace without scraping HTML.
 
-1. **Release readiness** (`/`) — the pre-ship home screen. Per-release rollup
+1. **Release readiness** (`/`): the pre-ship home screen. Per-release rollup
    from `suites`/`runs`/`evaluations`: whether required suites are complete,
    scenario and run counts, **failures by dimension** (outcome / policy /
    conversation / speech / reliability), the inconclusive count, the origin split
    (real vs simulated, kept separate), and **new-vs-fixed since the previous
    release** compared per (scenario, dimension). Small samples are flagged
    (`low sample, N=3`), never smoothed.
-2. **Scenario matrix** (`/scenarios`) — rows are scenarios, columns are the
+2. **Scenario matrix** (`/scenarios`): rows are scenarios, columns are the
    current and previous release, with a per-dimension status and **reliability**
    (`pass^k` where a scenario has repetitions). Filter by `agent`, `release`,
    `suite`, and `status` via query parameters (there is a filter form at the top).
-3. **Conversation inspector** (`/conversation/<id>`) — one conversation: its
-   evidence manifest (`conversation.v1` — origin, provider/caller provenance,
+3. **Conversation inspector** (`/conversation/<id>`): one conversation. Its
+   evidence manifest (`conversation.v1`: origin, provider/caller provenance,
    child digests), transcript, trace spans, per-dimension evaluations with
    rationale and citations (deterministic checks and model-judged/advisory
    results shown in **separate lanes**), and reviewer decisions. Every digest is
-   a link to the raw evidence blob (`/evidence/<digest>`) — drill straight to the
+   a link to the raw evidence blob (`/evidence/<digest>`) to drill straight to the
    source. Redacted transcript segments and trace spans render as `[redacted]`
    and the redacted text is scrubbed from both the HTML and the JSON mirror.
-4. **Failure clusters** (`/clusters`) — failed evaluations and assertions grouped
+4. **Failure clusters** (`/clusters`): failed evaluations and assertions grouped
    by **observable signature** (dimension + assertion kind + reason-class), with
-   counts and drill-through lists into the inspector. This is labelled *clusters
-   by observable signature* — it groups what was observed and does not claim a
-   cause.
-5. **Production health** (`/health`) — ingest counts, evaluated coverage, and
+   counts and drill-through lists into the inspector. Labelled *clusters by
+   observable signature*: it groups what was observed and does not claim a cause.
+5. **Production health** (`/health`): ingest counts, evaluated coverage, and
    per-dimension failure rate over time, computed **separately for real and
    simulated** conversations (never merged). Days with no evaluated sample get no
    point, and a dimension with fewer than two days of data reads *not enough
-   history* — the same honesty the trend report uses. There is no single combined
-   quality number anywhere.
+   history*, matching the trend report. There is no single combined quality number
+   anywhere.
 
 ## Auth
 

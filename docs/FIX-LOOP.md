@@ -46,7 +46,7 @@ Reads a fix plan (schema `hotato.fixplan.v1`) and renders it per platform:
 ### The both-axes case: no patch, a pointer instead
 
 `hotato patch` only handles the config-fixable classes. When the plan's decision
-is `do_not_tune_single_threshold` -- the genuine **both-axes** case, where the
+is `do_not_tune_single_threshold` -- the **both-axes** case, where the
 battery misses a real interruption AND false-stops on a backchannel at once -- no
 single config value fixes both. patch emits **no config patch**. It prints the
 vendor-neutral, numbers-free **engagement-control pointer** instead: it names the

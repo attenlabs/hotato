@@ -22,7 +22,7 @@ A scorer that looks flawless on synthetic fixtures still needs proving on a real
 
 A small, carefully labeled corpus of real calls closes that gap. It is the
 difference between "the tool does what the spec says" and "the tool measures what
-actually happens on a phone line." We keep the corpus small and high-integrity on
+happens on a phone line." We keep the corpus small and high-integrity on
 purpose: every clip is consented, de-identified, and human-labeled. Ten trustworthy
 calls beat ten thousand scraped ones.
 

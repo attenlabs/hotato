@@ -1,7 +1,7 @@
 # Hotato Guardian / Fleet
 
 Guardian/Fleet turns Hotato's capture → scan → trust → label → contract → trial
-primitives into one continuous, honest workflow, wrapped in a private,
+primitives into one continuous workflow, wrapped in a private,
 self-hosted control plane. It hardens the evidence kernel first, then layers a
 fleet view on top. Nothing here deploys to production automatically.
 
@@ -10,7 +10,7 @@ fleet view on top. Nothing here deploys to production automatically.
 ### Evidence vector, not a confidence percentage
 Every artifact carries a machine-readable **evidence vector** (`hotato/evidence.py`,
 schema `evidence_vector.v1.json`). The public tier is the *weakest* tier any
-required dimension allows — a minimum over an inspectable lattice, never a blended
+required dimension allows: a minimum over an inspectable lattice, never a blended
 "92% confidence". Tiers, ascending:
 
 | tier | name | meaning |
@@ -37,10 +37,10 @@ onset, or fixture set refuses the comparison.
 The proof gate never trusts a stored `verdict.passed`. It re-derives every
 verdict from the on-disk audio under the manifest and refuses:
 
-- **verdict tampering** — a stored verdict that disagrees with the recomputed one;
-- **same-audio re-encode** — before and after decode to the same PCM;
-- **dropped fixtures** — either side omits a pinned fixture;
-- **unrelated audio** — the after-side caller stimulus does not match the pinned one and no capture receipt binds it.
+- **verdict tampering**: a stored verdict that disagrees with the recomputed one;
+- **same-audio re-encode**: before and after decode to the same PCM;
+- **dropped fixtures**: either side omits a pinned fixture;
+- **unrelated audio**: the after-side caller stimulus does not match the pinned one and no capture receipt binds it.
 
 A green *paired* proof additionally requires evidence tier ≥ paired.
 
@@ -63,7 +63,7 @@ Every event exposes `onset_frame_index`, `onset_effective_sec`,
 within one hop of flipping is flagged, so it no longer reads with the confidence
 of one hundreds of milliseconds inside the limit.
 
-### Honest trust headline
+### Trust headline
 Any verdict-changing warning (low signal, possible channel swap, VAD-relevant
 leakage) forces `scan with caution`, never `eligible for scan`. `input_health` is an
 explicit three-state field (`clean` / `caution` / `not_scorable`). Leakage is

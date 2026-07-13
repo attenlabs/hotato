@@ -182,7 +182,7 @@ a real interruption) is **your** call. `scan` reports the timing; you label
 
 ## 8. Noisy false positive: a candidate that is really the agent
 
-A scan of the echo-bleed call. One candidate is a genuine overlap fact; the
+A scan of the echo-bleed call. One candidate is an overlap fact; the
 second is Hotato flagging that the "caller" activity is leaked TTS.
 
 ```text
@@ -195,7 +195,7 @@ Candidates are timing events. You decide the expected behavior; label with: hota
 
 **Verdict:** two candidates, exit 0. Candidate 1 looks like a bad talk-over.
 Candidate 2 is Hotato telling you the overlap is probably the agent hearing its
-own audio, not a real interruption. This is the honest failure mode of
+own audio, not a real interruption. This is the failure mode of
 candidate discovery: the net is wide, and Hotato labels the reason a wide-net
 candidate is likely spurious instead of hiding it. You label it `hold` (or fix
 the echo capture) and it never becomes a fixture.

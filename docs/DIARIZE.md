@@ -10,11 +10,11 @@ attribute energy to a speaker.
 The opt-in `[diarize]` front-end widens that coverage. It runs an off-the-shelf
 **speaker diarizer** over the mono to recover *who was active when*, reconstructs
 two caller/agent tracks, and feeds the **existing** scorer -- so a mono call
-becomes scorable. It is **quality-gated** and honestly labeled: above the
-confidence bar the verdict is a real `diarized-mono` verdict; below it, the
+becomes scorable. It is **quality-gated** and labeled by tier: above the
+confidence bar the verdict is a `diarized-mono` verdict; below it, the
 verdict is labeled indicative only and no SLA gate fires; a non-separable file is
 refused. A diarized-mono verdict is **never** equivalent to a true dual-channel
-measurement for sub-second talk-over, and the gate is what keeps that honest per
+measurement for sub-second talk-over, and the gate enforces that per
 file.
 
 Diarization, not source separation: Hotato scores *timing* (who was active when,
@@ -100,7 +100,7 @@ runtime, with no ground truth**. Six signals feed a `separation_confidence` in
 
 **Tiers:**
 
-- **high** -- score normally; the verdict is real but always tagged
+- **high** -- score normally; the verdict is always tagged
   `source: "diarized-mono"` and `confidence_tier: "high"` (never presented as
   dual-channel).
 - **low** -- score, but the envelope carries `indicative_only: true`: the verdict
@@ -138,7 +138,7 @@ high in overlap). On the diarized-mono path the echo block is marked
 `applicable: false` and the `--echo-gate` can never fire -- it is meaningful only
 for two physically separate channels.
 
-## Honest limits (what stays indicative or refused)
+## Limits (what stays indicative or refused)
 
 - **very similar voices** (same gender/pitch, or one person on both ends) -> low
   embedding margin -> low/refuse.
@@ -154,7 +154,7 @@ short backchannel gap -- an error intrinsic to single-channel masking that no
 diarizer quality removes. That is precisely why elevated-overlap and short-yield
 cases land in the fragile `low` zone (indicative, no SLA gate). Direct
 diarization-timeline injection (skipping the reconstruction re-VAD) is the
-recommended follow-up; under either approach the honest error budget is governed
+recommended follow-up; under either approach the error budget is governed
 by the gate above.
 
 ## JSON shape (agents)

@@ -22,8 +22,7 @@ complements; the schema is `src/hotato/schema/assert.v1.json`.
 
 ## The core deterministic kinds
 
-Every kind is 100% deterministic (pure regex, checksum arithmetic, span/dict
-lookup, never a model call), which is why every result carries
+Every kind is deterministic, which is why every result carries
 `deterministic: true` -- including a result whose status is `INCONCLUSIVE`.
 The five below are the original core; the full vocabulary is listed under
 [the whole `kind` vocabulary](#the-whole-kind-vocabulary).
@@ -44,7 +43,7 @@ plus hit metadata (detector name, transcript turn index, role).
 
 ### The whole `kind` vocabulary
 
-The table above is the original core, but it is not the complete set. The full
+The full
 `assert.v1` `kind` vocabulary is **17 deterministic kinds** -- all
 `deterministic: true`, all model-free. Alongside the five core kinds:
 `tool_result` and `tool_error` (a tool's returned value or raised error, read
@@ -139,9 +138,8 @@ convention someone can quietly break:
   is byte-stable across repeated calls on identical input (no wall-clock
   timestamp, no random id, nothing non-reproducible in the envelope).
 
-The report (below) renders this split as two visually separate shelves
-instead of one number, so the split between the deterministic and judged lanes is visible on the page, not just
-in the JSON.
+The report (below) renders this as two visually separate shelves
+instead of one number, so it is visible on the page, not just in the JSON.
 
 ## The report: two shelves, no `overall_score`
 
@@ -167,12 +165,11 @@ When present, it adds one "Assertions" section with:
 - **Deterministic** (audio / timing / transcript / trace derived): one
   PER-DIMENSION TYPED card per result -- a kind tag, the `deterministic` flag
   stated plainly, the PASS/FAIL/INCONCLUSIVE chip, and whatever kind-specific
-  fields that particular result actually carries (a `pii` card's hit detail
+  fields that particular result carries (a `pii` card's hit detail
   and redacted transcript, a `policy` card's matched rules and pack name, a
   `tool_call` card's grounding span ids, an `outcome` card's met/of fraction).
 - **Model-assisted (advisory, quarantined)**: always empty in this build,
-  with a note explaining why -- a judge kind is a separate, quarantined
-  capability, not built here.
+  with a note explaining why.
 
 `assertions=None` (the default) is byte-identical to a report built before
 this parameter existed: no new markup, no new CSS, nothing.
@@ -180,7 +177,7 @@ this parameter existed: no new markup, no new CSS, nothing.
 ## `inconclusive_policy`: making missing input gate CI
 
 By default an `INCONCLUSIVE` result -- a check whose required input was simply
-absent -- never fails the run. That is the honest default for an exploratory
+absent -- never fails the run. That is the default for an exploratory
 run, but it means a suite whose transcript or trace never arrived stays
 silently green. `inconclusive_policy` lets a suite opt into gating on that:
 
@@ -230,7 +227,7 @@ env = A.run_assertions_from_file("assertions.yaml", ctx, inconclusive_policy="fa
 A bad value (anything but `report`/`fail`/`refuse`), whether in the document
 or passed explicitly, is a usage error (`ValueError`, exit `2`) raised during
 validation, before any assertion is evaluated. The envelope always carries the
-`inconclusive_policy` actually applied and states it, with the counts, in
+`inconclusive_policy` applied and states it, with the counts, in
 `summary.note`.
 
 ## Mapping to a CI gate

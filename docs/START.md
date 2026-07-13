@@ -15,7 +15,7 @@ hotato start --demo
 Into the current directory (or `--dir DIR`):
 
 - `hotato-sweep.json` -- the sweep result: every candidate timing moment across
-  the two demo calls, ranked. This is a real `analyze` result, so a `FILE#N` ref
+  the two demo calls, ranked. This is an `analyze` result, so a `FILE#N` ref
   off it drives `hotato fixture promote` and `hotato card` unchanged.
 - `hotato-sweep.html` -- a self-contained dashboard (embedded audio, no external
   assets) you can open in any browser.
@@ -42,7 +42,7 @@ hotato contract verify contracts/
 
 Candidate #2 in the bundled sweep is the real missed-interruption call: the
 agent talked over the caller instead of yielding. Scored against `--expect
-yield`, it genuinely fails -- so `start --demo` prints:
+yield`, it fails -- so `start --demo` prints:
 
 ```
 verified contract: FAIL as expected -- the demo call really did miss the

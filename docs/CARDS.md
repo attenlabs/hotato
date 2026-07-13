@@ -1,9 +1,9 @@
 # Cards: a shareable image from any hotato result
 
 `hotato card` turns a machine result into a self-contained SVG you can drop into
-a pull request, an issue, or a slide. One command, offline, and honest by
-construction: the card names the measured timing moment and never a verdict about
-intent, and it carries no accuracy number anywhere.
+a pull request, an issue, or a slide. One command, offline: the card names the
+measured timing moment and never a verdict about intent, and it carries no
+accuracy number anywhere.
 
 ```bash
 hotato card INPUT[#REF] --out card.svg

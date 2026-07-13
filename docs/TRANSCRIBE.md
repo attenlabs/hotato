@@ -41,8 +41,7 @@ hotato run --stereo call.wav --transcribe --format json
 ```
 
 With the extra absent, `--transcribe` errors cleanly and exits `2`; it
-**never** falls back to skipping the transcript silently, and it never scores
-anything differently because the extra happens to be missing.
+**never** falls back to skipping the transcript silently.
 
 ## Usage
 
@@ -72,7 +71,7 @@ no-op, so a CI script never mistakes "flag ignored" for "flag applied."
   device, else `cpu`. `compute_type` defaults to `float16` on GPU and `int8`
   on CPU, CTranslate2's documented fast/accurate defaults for each device,
   not an accuracy claim; both are overridable.
-- Every choice actually used is stamped in the output
+- Every choice used is stamped in the output
   (`transcript.model` / `transcript.device` / `transcript.compute_type` /
   `transcript.language`), so a report is reproducible.
 
@@ -88,9 +87,7 @@ transcribe = ["faster-whisper>=1.0"]
 
 Unlike `[diarize]`, this extra does not raise the core's Python floor: the
 core stays `>=3.9`, and `faster-whisper`/CTranslate2 support that same range.
-There is also no gated model card to accept -- the first run downloads the
-named model from its public host once, then every subsequent run is fully
-offline (see the egress note below).
+There is also no gated model card to accept (see the egress note below).
 
 ### Model licenses (log per FTO note)
 

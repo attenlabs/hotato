@@ -49,8 +49,7 @@ hotato apply patch.json --clone --name staging-refund-fix --battery tests/hotato
    it would create and the patch it would apply, creating nothing and touching
    no network. Only `--yes` WITH credentials reaches the platform. The actual
    create is the only networked function: it reads the source config (`GET`),
-   applies the patch to a copy, and creates a NEW assistant (`POST`). The source
-   is only ever read.
+   applies the patch to a copy, and creates a NEW assistant (`POST`).
 
 5. **Name required.** The staging clone must be named explicitly (`--name`).
    apply never invents a name for something it creates.

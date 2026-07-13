@@ -12,9 +12,8 @@
 > unknown. Runs entirely on your machine. Built to be called by an AI agent
 > mid-task, as a CLI or an MCP server.
 > Version 1.3.1. This file is the machine-readable index; `hotato describe
-> --format json` emits the same information generated straight from the CLI's
-> own argparse structure (every subcommand, its args, its exit codes, plus the
-> schema URLs and the version), so it can never drift from the real flags.
+> --format json` regenerates the same command data straight from the CLI's
+> argparse, so it never drifts from the real flags.
 
 ## Run it (zero-install)
 
@@ -400,21 +399,13 @@ it, never whether the policy itself was right.
 - docs/FIX-LOOP.md: the closed loop -- patch (a plan into a paste-ready
   merge-patch/curl or source edit), verify (a battery-scale before/after proof),
   and loop (one-command orchestration that remembers where it left off).
-- docs/APPLY.md: `hotato apply --clone`, the guarded clone-only staged apply --
-  the one command that mutates external state, dry-run by default, refuses the
-  both-axes threshold funnel, and never touches the source (creates a NEW
-  staging assistant instead).
-- docs/FIX-TRIAL.md: `hotato fix trial`, composing apply's clone-only offline
-  gate + verify's battery-scale rollup + an optional contracts re-verify +
-  explain's attribution into ONE fail-closed before/after report (improved /
-  regressed / inconclusive; inconclusive is not a pass). Never creates a clone
-  or touches the network.
+- docs/APPLY.md: `hotato apply --clone`, the guarded clone-only staged apply.
+- docs/FIX-TRIAL.md: `hotato fix trial`, the fail-closed before/after report
+  (improved / regressed / inconclusive; inconclusive is not a pass).
 - docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
   dashboard with the hear-the-bug audio playhead.
-- docs/TRUST.md: `hotato trust`, the input-health "trust doctor" pre-scan check
-  (per-channel activity, channel-swap flag, clipping, leading silence, crosstalk
-  risk, scorability) that says "eligible for scan" or "NOT SCORABLE" with the reason
-  and the next step. Never a turn-taking verdict.
+- docs/TRUST.md: `hotato trust`, the input-health "trust doctor" pre-scan:
+  "eligible for scan" or "NOT SCORABLE" with the reason, never a turn-taking verdict.
 - docs/CONNECT.md: `hotato connect` / `pull` / `sweep`, the connect-once bulk
   pull-and-analyze recipe across your real calls, with per-stack credentials.
 - docs/ADAPTER-STATUS.md: the honest per-stack map -- auto-pull dual-channel,
@@ -435,13 +426,12 @@ it, never whether the policy itself was right.
   overall_score, judge quarantined), the two-shelf `hotato report`
   integration, and the CI-gate exit codes.
 - docs/CONVERSATION-TEST.md: `hotato test run`, the end-to-end conversation-QA
-  workflow -- one conversation-test.v1 file, one call, the per-dimension
-  scorecard (outcome / policy / conversation / speech / reliability) bound into
-  a digest-verified hotato.conversation.v1 artifact; boolean success, no
-  overall_score.
+  workflow: one conversation-test.v1 file, one call, the per-dimension
+  scorecard bound into a digest-verified hotato.conversation.v1 artifact;
+  boolean success, no overall_score.
 - docs/RUBRIC.md: `hotato rubric run` / `calibrate`, the model-judged lane
-  (rubric.v1) kept structurally separate from the deterministic assert.v1 wall
-  -- a local Ollama judge, full provenance, advisory unless --gate.
+  (rubric.v1) kept separate from the deterministic assert.v1 wall; local Ollama
+  judge, full provenance, advisory unless --gate.
 - docs/SIMULATE.md: `hotato simulate`, rendering a scenario.v1 through a
   deterministic scripted caller into origin=simulated conversation artifacts
   (byte-identical on a seeded replay); `--init` / `--example` are the
@@ -453,9 +443,8 @@ it, never whether the policy itself was right.
   per-scenario, digest-exact diff of two recorded releases (new failures /
   fixed-since; never one blended delta).
 - docs/WORKSPACE.md: `hotato serve`, the self-hosted, read-only local web app
-  over the fleet registry (release readiness, scenario matrix, conversation
-  inspector, failure clusters, production health).
-- docs/GUARDIAN-FLEET.md: `hotato fleet`, the private control plane -- ingest,
+  over the fleet registry.
+- docs/GUARDIAN-FLEET.md: `hotato fleet`, the private control plane: ingest,
   discover, human-label, and run manifest-bound before/after experiments that
   recommend, never auto-deploy.
 - docs/START.md: `hotato start`, the guided credential-less first run.

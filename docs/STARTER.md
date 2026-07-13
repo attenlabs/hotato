@@ -59,10 +59,9 @@ at the WAV your own deployment writes.
 
 ## LiveKit and Pipecat runbook
 
-LiveKit and Pipecat are a foundational orchestration tier a lot of the
-market builds on, and they are the two stacks where capture and the
-turn-taking config both live in your own code rather than behind a vendor
-API. This is the operator runbook for both, capture through CI.
+LiveKit and Pipecat are the two stacks where capture and the turn-taking
+config both live in your own code rather than behind a vendor API. This is
+the operator runbook for both, capture through CI.
 
 ### LiveKit
 
@@ -77,7 +76,7 @@ API. This is the operator runbook for both, capture through CI.
    `"manual"`), `endpointing` (`min_delay`, `max_delay`), and `interruption`
    (`enabled`, `mode`, `min_duration`, `min_words`,
    `false_interruption_timeout`, `resume_false_interruption`). Read what a
-   given agent file is ACTUALLY running, statically, before you propose
+   given agent file is running, statically, before you propose
    changing anything: `hotato inspect --stack livekit --config agent.py`.
 3. **Score it.**
    `hotato capture --stack livekit --caller caller.wav --agent agent.wav --onset <sec> --expect yield`
@@ -100,7 +99,7 @@ API. This is the operator runbook for both, capture through CI.
    `TurnAnalyzerUserTurnStopStrategy(turn_analyzer=...)`); note
    `MinWordsInterruptionStrategy` is deprecated since pipecat 0.0.99 in
    favor of `MinWordsUserTurnStartStrategy`. Read what a given bot file is
-   ACTUALLY running, statically: `hotato inspect --stack pipecat --config bot.py`.
+   running, statically: `hotato inspect --stack pipecat --config bot.py`.
 3. **Score it.**
    `hotato capture --stack pipecat --stereo captured.wav --expect yield`
    (write the WAV from the `AudioBufferProcessor`'s `on_audio_data` handler

@@ -3,8 +3,7 @@
 `hotato release compare BASELINE CANDIDATE` reads two releases from the fleet
 registry and reports what moved between them. `BASELINE` is first, `CANDIDATE`
 second. It reports movement; it does not gate a release (use a
-`required_for_release` suite for the gate). A comparison always exits `0` unless
-the invocation itself is unusable.
+`required_for_release` suite for the gate).
 
 Each release is a snapshot recorded by [`hotato suite run`](SUITE-RUN.md). To
 compare, run the same suite twice under two stable `--release` ids in the same
@@ -27,7 +26,7 @@ workspace and registry, then diff them.
 The releases' pinned digests are surfaced, so the reader knows exactly which
 two snapshots were compared: digest-exact, never a fuzzy name match.
 
-## Honest empty state
+## Empty state
 
 A side with no runs is stated plainly, never a fabricated baseline:
 
@@ -97,7 +96,7 @@ all per-scenario status changes:
 
 | code | meaning |
 | --- | --- |
-| `0` | the two releases were compared (per-dimension deltas + new-failures / fixed-since printed; a side with no runs is an honest empty state, never an error and never a blended delta score) |
+| `0` | the two releases were compared (per-dimension deltas + new-failures / fixed-since printed; a side with no runs is an empty state, never an error) |
 | `2` | a usage error or an unreadable registry `--registry` |
 
 ## See also

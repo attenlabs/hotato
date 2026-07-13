@@ -43,8 +43,7 @@ defects, reports them, and stops, so a green or red build always means something
 ## Two ways past a mono refusal
 
 Mono is refused by default because one channel cannot separate the two parties.
-There are two opt-in escapes, and both produce results marked indicative only,
-never equal to dual-channel.
+There are two opt-in escapes, both indicative only.
 
 **1. `--allow-mono` (degraded mode).** On `capture`, `pull`, and `sweep`, the
 `--allow-mono` flag (or `HOTATO_ALLOW_MONO=1`) accepts a mono-only recording from

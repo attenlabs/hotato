@@ -28,9 +28,8 @@ gap:
 
 Each of these lives entirely in the audio timing of the call. A transcript
 diff, an LLM judge on text, and a unit test on the agent's reply all score a
-call with any of these failures as perfect. The transcript reads clean; the
-caller called back anyway. That gap, between a passing text-level check and a
-caller who came back unhappy, is exactly what these four patterns hide.
+call with any of these failures as perfect: the transcript reads clean, the
+caller called back anyway. That gap is exactly what these four patterns hide.
 
 Hotato does not infer intent. You label the expected behavior for the event:
 yield means the agent should stop for the caller. hold means the agent should
@@ -46,7 +45,7 @@ and no VAD threshold will ever touch it:
 
 - **STT hallucination.** The transcript has words the caller never said, or
   drops words that mattered, so the agent responds to something that was not
-  actually said. That looks like an interruption the agent ignored. Reach
+  said. That looks like an interruption the agent ignored. Reach
   for: an STT/ASR word-error-rate check against the raw audio, not a
   turn-taking scorer.
 - **Client-side audio buffering.** The caller's own device or browser queues
@@ -76,7 +75,7 @@ not a timing bug; you will save the day you would have spent staring at
 `turn_end_silence_sec`. If it matches none of them: two common complaints are
 agent-talks-over-caller and false-stop-on-backchannel, and that is exactly what
 Hotato measures, with the funnel (no single config value fixes both directions
-at once) proven on real recorded calls, not synthetic fixtures
+at once) proven on recorded calls, not synthetic fixtures
 (`corpus/vapi-defaults/README.md`).
 
 ## What makes Hotato different
