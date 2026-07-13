@@ -1,0 +1,24 @@
+# Line-ending policy for the BYTE-ORACLE files.
+#
+# A default Windows checkout (core.autocrlf=true) rewrites text files to CRLF.
+# For most files that is harmless, but two kinds of file are a byte oracle and
+# MUST stay LF on every platform, or an untouched, correct checkout starts
+# failing:
+#
+#   * the digest-pinned Failure Record reference kit -- its evidence sha256s
+#     are taken over the raw file bytes, so an added \r changes every digest
+#     and the conformance oracle rejects an untampered kit; and
+#   * the shell scripts -- `bash -n` and a real shell choke on a trailing \r.
+#
+# `eol=lf` forces these to check out with LF regardless of the local
+# autocrlf/eol setting.
+
+# Shell scripts: keep LF so `bash -n` and execution work after a CRLF checkout.
+*.sh text eol=lf
+
+# The digest-pinned Failure Record reference conformance kit (record + the
+# evidence files its sha256s are computed over).
+tests/data/failure-record-reference/** text eol=lf
+
+# The rendered Failure Record goldens are byte-compared in tests; pin them too.
+tests/golden/failure_record/** text eol=lf
