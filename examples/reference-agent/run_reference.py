@@ -44,6 +44,10 @@ def main(argv=None) -> int:
     ap.add_argument("--parallel", type=int, default=None, help="max worker threads")
     ap.add_argument("--generate", action="store_true",
                     help="regenerate the scenario/test/suite files first")
+    ap.add_argument("--gate", action="store_true",
+                    help="exit with the suite's exit code (non-zero when a test "
+                         "fails) so this can be used as a CI gate; by default the "
+                         "demo prints the suite exit code but exits 0")
     args = ap.parse_args(argv)
 
     if args.generate:
@@ -76,10 +80,14 @@ def main(argv=None) -> int:
         b = dims[d]
         print(f"  {d:<13} {b['pass']} pass / {b['fail']} fail / {b['inconclusive']} inconclusive")
     print(f"WALL TIME: {elapsed:.2f}s for {c['runs']} offline simulated runs")
-    print(f"exit_code={result['exit_code']}")
+    print(f"suite exit_code={result['exit_code']} "
+          f"(the reference agent carries 4 intentional defects, so the suite "
+          f"gates: exit_code=1 is expected)")
     print()
     print(f"browse: hotato serve --workspace {args.workspace} --registry {args.registry}")
-    return 0
+    # Demo default: exit 0 (the run succeeded). --gate mirrors the suite's exit
+    # code so this doubles as a CI gate.
+    return result["exit_code"] if args.gate else 0
 
 
 if __name__ == "__main__":
