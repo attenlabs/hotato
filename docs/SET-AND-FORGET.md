@@ -2,7 +2,7 @@
 
 `hotato sweep` turns from a command you remember to run into a job that runs
 on its own schedule and only asks for your attention when it finds something
-real.
+worth acting on.
 
 Every command below is a shipped `hotato` command (verify with `hotato
 <command> --help`). Try the whole loop right now with `--demo`, no
@@ -15,10 +15,9 @@ connect (once) -> sweep (on a schedule) -> read the dashboard
    -> promote confirmed candidates into fixtures -> hotato run gates CI
 ```
 
-Sweeping never changes anything by itself: it lists candidate timing
-moments, never a verdict. You decide which ones are real bugs and label
-them; only `hotato fixture create` / `hotato fixture promote` turn a
-candidate into a permanent test.
+Sweeping only reads: it lists candidate timing moments for you to judge. You
+decide which ones are bugs and label them; `hotato fixture create` /
+`hotato fixture promote` are what turn a candidate into a permanent test.
 
 ## 1. Connect once
 
@@ -28,11 +27,12 @@ hotato connect vapi --api-key <key>
 ```
 
 This runs a lightweight live auth check (skip with `--no-verify`) and stores
-the credential in `~/.hotato/connections.json`, file mode `0600`. The key is
-never sent to Hotato, only to the vendor's own API. Full per-stack
+the credential in `~/.hotato/connections.json`, file mode `0600`. The key
+travels only to the vendor's own API, kept out of Hotato's hands entirely.
+Full per-stack
 credential table (Vapi, Twilio, Retell, Bland, ElevenLabs, Synthflow, Millis,
 Cartesia): [`CONNECT.md`](CONNECT.md). LiveKit and Pipecat are
-capture-in-your-infra, not connectable; use `hotato setup --stack
+capture-in-your-infra; use `hotato setup --stack
 livekit|pipecat` instead.
 
 Once a stack is connected, `--stack` and the credential flags are optional
@@ -48,8 +48,8 @@ hotato sweep --stack vapi --since 7d --out hotato-sweep.html --no-open
 ```
 
 - `--format json` is the machine-readable candidate list `fixture promote`
-  reads; redirect it to a file every time (`--out` only writes the HTML
-  dashboard, not the JSON. For JSON, capture stdout).
+  reads; redirect it to a file every time (`--out` writes the HTML
+  dashboard; capture stdout for the JSON).
 - `--out FILE.html --no-open` writes the shareable dashboard without popping
   a browser, the right mode when nothing is watching the screen.
 - `--since 7d` scopes the pull to recent calls; a nightly job narrows this to
@@ -79,14 +79,13 @@ every candidate moment across every swept call, ranked by salience, with the
 hear-the-bug audio player embedded for the top `--audio-top` (default 8) so
 you can listen before deciding anything. Calls that could not be scored
 (mono/mixed stacks without `--allow-mono`, an unreadable file) list under
-Skipped with the reason, a logged skip, not a silent drop.
+Skipped with the reason -- a fully logged skip.
 
 The JSON (`--format json`) is the same candidate list as structured data.
 Each entry carries the source recording, the timestamp (`t_sec`), the kind
 (`agent_stop_no_caller`, `overlap_while_agent_talking`, ...), and a salience
-score. Nothing in either output is a verdict: a candidate is a timing fact,
-not a label. You decide, per candidate, whether the agent should have
-yielded or held.
+score -- a timing fact for you to judge. You decide, per candidate, whether
+the agent should have yielded or held.
 
 ## 4. Promote a confirmed bug into a fixture
 
@@ -106,12 +105,12 @@ by its source file or pulled call id), for example `hotato-sweep.json#3` or
 `hotato-sweep.json#call_abc123:2`. `--expect yield` means the agent should
 have stopped for the caller; `--expect hold` means it should have kept
 talking through a backchannel. The fixture is scored immediately: a
-candidate that turns out not to be scorable is refused (exit 2), never
-written as a fixture that would report a meaningless verdict.
+candidate that isn't scorable is refused (exit 2), so only a scorable
+candidate becomes a fixture.
 
-This is the most important step in the loop. It is how "this suspicious
-moment is real" becomes a fact your CI enforces forever, instead of
-something you noticed once and forgot. (`hotato fixture create --stereo ...
+This is the most important step in the loop. It is how a suspicious moment
+becomes a fact your CI enforces forever, instead of something you noticed
+once and forgot. (`hotato fixture create --stereo ...
 --onset ...` does the same thing from a raw recording and a timestamp you
 already know, if you are not starting from a sweep/analyze result.)
 
@@ -137,28 +136,27 @@ complete cron + CI pairing.
 ## Worked example (zero setup, verified end to end)
 
 Every command above works right now on the bundled demo calls, so you can
-see one real failure get pinned before wiring anything to your own stack:
+see a failure get pinned before wiring anything to your own stack:
 
 ```bash
 hotato sweep --demo --format json > hotato-sweep.json
 hotato fixture promote hotato-sweep.json#2 --expect yield \
     --id demo-missed-interruption --out tests/hotato
 hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
-# exit code 1: the demo agent never yielded for a real interruption -- pinned
+# exit code 1: the demo agent never yielded for an interruption -- pinned
 ```
 
 That last `run` prints the fix card too (fix class, the config knob, the
 direction to move it), because the fixture that just failed is a
-labelled bad-agent moment from the bundled demo battery, not a placeholder.
+labelled bad-agent moment from the bundled demo battery.
 
-## What this does not do
+## What you control in this loop
 
-- Hotato never auto-labels a candidate, never auto-creates a fixture, and
-  never auto-tunes a threshold. Promotion is always a command you run, for a
-  candidate you listened to.
+- Labeling, fixture creation, and threshold tuning are each a command you
+  run, for a candidate you listened to.
 - `sweep` and `ingest` (the webhook-driven version of this same loop, see
-  [`docs/INGEST.md`](INGEST.md)) both report candidates, never a pass/fail.
-  Only fixtures scored with `hotato run` produce a verdict.
-- There is no daemon and no hosted service. Cron, CI, and a webhook handler
-  are all just processes that shell out to the same CLI; the schedule is
-  yours to own.
+  [`docs/INGEST.md`](INGEST.md)) both report candidates as timing facts;
+  fixtures scored with `hotato run` are what produce a pass/fail verdict.
+- This runs entirely as processes you control: cron, CI, and a webhook
+  handler all just shell out to the same CLI, on a schedule that's yours to
+  own.

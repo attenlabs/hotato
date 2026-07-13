@@ -85,12 +85,12 @@ Each event:
 }
 ```
 
-An event that cannot be judged (a silent caller channel with no onset label, or
-a should-yield expectation with the agent silent at onset) additionally carries
-`"scorable": False` and a plain `"not_scorable_reason"`. It counts in neither
-`passed` nor `failed`, never routes a fix, and never fires the funnel: an input
-problem is reported as one, not dressed up as an agent verdict. Envelopes for
-valid recordings are byte-identical to before these keys existed.
+An event that lacks the input to be judged (a silent caller channel with no
+onset label, or a should-yield expectation with the agent silent at onset)
+additionally carries `"scorable": False` and a plain `"not_scorable_reason"`.
+It's reported as an input problem: it sits outside `passed`/`failed` and
+outside the fix router and the funnel. Envelopes for valid recordings are
+byte-identical to before these keys existed.
 
 ## hotato.core
 
@@ -196,7 +196,7 @@ cfg = ScoreConfig(
 `VADParams.backend` is `"energy"` (the deterministic reference behind every
 published number) or `"neural"` (an optional Silero VAD cross-check via
 `pip install 'hotato[neural]'`; without the extra it raises a clean
-`BackendUnavailable`, never a silent fallback).
+`BackendUnavailable`, surfacing the missing dependency immediately).
 
 ## hotato.report
 
@@ -243,7 +243,8 @@ aggregate_runs(runs: list, order: str = "mtime",
     # talk_over_sec / seconds_to_yield distribution summaries (mean/median/p90),
     # pass_rate {latest, first, mean, direction}, pass_rate_over_time,
     # failure_classes, most_common_failure_class, skipped, exit_code 0.
-    # Raises ValueError with fewer than 2 runs, never pads a trend.
+    # Raises ValueError with fewer than 2 runs; each trend point corresponds
+    # to one input run.
 
 build_team_section_html(agg: dict) -> str   # embeddable section
 build_team_page_html(agg: dict) -> str      # full self-contained page
@@ -277,12 +278,13 @@ Writes `events.csv` (one row per event, columns in
 `hotato.export.EVENT_COLUMNS`), `frames.csv` (one row per VAD frame, columns in
 `FRAME_COLUMNS`), and `envelope.json` into `out_dir` (created if missing).
 Column meanings are documented in `#` comment lines at the top of each CSV.
-Empty cell means not derivable, never fabricated.
+An empty cell marks a value that could not be derived from the input; every
+filled cell is a direct measurement.
 
 ## hotato.stackbench
 
-Identical scenarios, your stack, comparable result files. No vendor numbers, no
-leaderboard: every number is a measurement of recordings you provide.
+Identical scenarios, your stack, comparable result files: every number is a
+measurement of the recordings you provide.
 
 ### run_stackbench
 
@@ -304,9 +306,9 @@ run_stackbench(
 Returns a result dict (`kind: "stack-benchmark"`) with the envelope fields plus
 `config`, `scenarios {total, captured, not_captured}`, and `provenance`.
 Scoring is `run_suite` unchanged. Scenarios with no matching recording are
-listed under `not_captured`, never scored and never counted as failures. The
-timestamp derives from input file mtimes, so the same inputs reproduce the same
-result file.
+listed under `not_captured`, left out of both the scoring and the failure
+counts. The timestamp derives from input file mtimes, so the same inputs
+reproduce the same result file.
 
 ### load_result, compare_results, render_comparison_md
 
@@ -346,7 +348,7 @@ def test_call_yields(hotato_score):
 
 `hotato_score(**kwargs)` takes the same keyword arguments as `run_single`; pass
 `suite="barge-in"` (plus `run_suite` keywords) to score a battery instead. It
-returns the envelope and never asserts for you.
+returns the envelope; write your own assertions against it.
 
 Session gate flags: `pytest --hotato-suite` runs the battery after your tests
 and fails the session (exit 1) on a regression; `--hotato-suite-scenarios DIR`
@@ -390,5 +392,4 @@ caller with no onset label, or agent silent at onset; the reason is in
 agent verdict. Suite runs count such events in `summary.not_scorable` and
 keep their 0/1 semantics. Malformed input (bad WAV, out-of-range channel,
 negative onset, unknown suite or stack) raises `ValueError`, which the CLI
-surfaces as exit code 2. Nothing is ever scored from a file the scorer could
-not fully read.
+surfaces as exit code 2. Only a file the scorer can fully read gets scored.

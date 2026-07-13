@@ -218,8 +218,10 @@ def _message(stage: str, state: dict) -> Tuple[str, list]:
             [
                 "review the candidates and label the ones that are real bugs "
                 "(you supply the yield/hold intent; hotato never labels for you):",
-                "  hotato fixture create --stereo <call>.wav --onset <sec> "
-                "--expect yield|hold --id <slug> --out tests/hotato",
+                "  hotato fixture create --stereo CALL.wav --onset 42.18 "
+                "--expect yield --id my-fixture --out tests/hotato",
+                "  (use --expect hold instead when the agent was right to keep "
+                "talking)",
                 "then re-run hotato loop --fixtures tests/hotato to plan a fix",
             ],
         )
@@ -239,10 +241,10 @@ def _message(stage: str, state: dict) -> Tuple[str, list]:
             f"awaiting verify, decision {p['decision']}). Apply it yourself, "
             "then prove it held.",
             [
-                f"hotato patch {shlex.quote(p['plan_path'])}   # produces the "
-                "paste-ready patch; you apply it",
+                f"hotato patch {shlex.quote(p['plan_path'])}",
+                "that prints the paste-ready patch for you to apply",
                 "re-capture the failing fixtures after applying the change",
-                "hotato verify --before <old-run>.json --after <new-run>.json",
+                "hotato verify --before before.json --after after.json",
             ],
         )
     # complete. This is only ever reached via decision == "no_change" (see

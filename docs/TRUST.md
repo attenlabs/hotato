@@ -66,11 +66,11 @@ with `--caller-channel` / `--agent-channel`). `trust` reports INPUT health only:
   cross-channel leak may corrupt the timing a scan produces); or `NOT SCORABLE`
   with the specific reason AND the next step to fix it.
 
-## What it is NOT
+## Scope: one question, and it stops there
 
-`trust` never labels intent and never emits a turn-taking verdict. There is no
-`yield` / `hold`, no `pass` / `fail`, no `did_yield`, no talk-over number. It
-answers exactly one question (is this audio good enough to score?) and stops.
+`trust` answers exactly one question -- is this audio good enough to score? --
+and stops: no `yield` / `hold`, no `pass` / `fail`, no `did_yield`, no
+talk-over number, no intent label, no turn-taking verdict.
 A recording that is eligible for scan may still contain agent bugs; finding those is
 what [`hotato scan`](../src/hotato/scan.py) and `hotato run` are for.
 
@@ -88,13 +88,13 @@ false`, a plain reason, and the next step, and exits `2`:
   speech`. Next step: verify channel mapping or export dual-channel again.
 
 Clipping, high leading silence, crosstalk risk, cross-channel leakage, a very low
-signal level, and a possible channel swap are **warnings**: they are surfaced but
-do not, by themselves, make a recording unscorable. A loud cross-channel leak
+signal level, and a possible channel swap are **warnings**: surfaced as signal,
+without changing scorability by themselves. A loud cross-channel leak
 additionally downgrades the recommendation to `scan with caution` -- the tracks
-are still separated and scorable, so the scorability gate and exit code are
-unchanged; only the human-facing recommendation records that a scan's timing may
-be wrong. Nothing here moves the not-scorable boundary: `trust` adds signals and
-discloses limits, it never silently changes what passes.
+stay separated and scorable, so the scorability gate and exit code hold
+steady; only the human-facing recommendation records that a scan's timing may
+be wrong. `trust` adds signals and discloses limits -- the not-scorable
+boundary, and what passes, stay fixed.
 
 ## Mono via `--diarize`: is this mono file confidently separable?
 
@@ -118,9 +118,9 @@ confidence **tier**:
 The six signals behind the tier (speaker count, per-speaker activity, mean
 segmentation posterior, embedding cluster-separation margin, overlap ratio,
 segment churn) are in the `separation.signals` block. A missing extra / token /
-model raises a clean error (exit 2), never a raw-mono guess. The dual-channel
-path stays the gold reference; a diarized-mono verdict is never equivalent to it.
-See `docs/DIARIZE.md` for the full front-end.
+model raises a clean error (exit 2) instead of a raw-mono guess. The
+dual-channel path stays the gold reference; a diarized-mono verdict stays
+distinct from it. See `docs/DIARIZE.md` for the full front-end.
 
 ## JSON for agents
 
@@ -167,5 +167,5 @@ hotato trust --stereo call.wav --format json
 
 Everything runs offline and reuses hotato's existing primitives: the hardened
 WAV reader, the reference framing, the energy VAD, and the cross-channel echo
-coherence. No audio leaves the machine, and no accuracy percentage appears
-anywhere.
+coherence, all on your machine, reporting input-health signals only -- never
+an accuracy percentage.

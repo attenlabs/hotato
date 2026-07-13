@@ -272,7 +272,7 @@ def load_result(path: str) -> dict:
             and isinstance(data.get("events"), list)):
         raise ValueError(
             f"{path!r} is not a hotato stack-benchmark result JSON. Save one "
-            "with: hotato benchmark --stack <stack> --recordings DIR "
+            "with: hotato benchmark --stack STACK --recordings DIR "
             "--out result.json"
         )
     return data

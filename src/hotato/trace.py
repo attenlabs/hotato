@@ -451,7 +451,7 @@ def render_ingest_text(result: dict) -> str:
     types = sorted({s.get("type") for s in vt["spans"]})
     lines.append(f"  types:   {', '.join(types) if types else '(none)'}")
     lines.append("next:")
-    lines.append(f"  hotato trace attach <bundle>.hotato --trace {result['path']}")
+    lines.append(f"  hotato trace attach BUNDLE.hotato --trace {result['path']}")
     return "\n".join(lines)
 
 

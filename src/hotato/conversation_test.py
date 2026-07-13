@@ -332,10 +332,10 @@ def build_scenario_starter(name: str = "example-scenario", agent: str = "my-agen
         "# ONE testable conversation: the agent under test, the simulated caller,",
         "# the two SEPARATE assertion lanes, and a BOOLEAN success condition",
         "# (a conjunction of named conditions -- never a blended score). Edit the",
-        "# ids/agent/checks, then evaluate a real call through it:",
-        "#   hotato test run <this file> --agent <agent-id> \\",
-        "#       --audio call.wav --trace voice_trace.jsonl \\",
-        "#       --transcript call.transcript.json --out ./conv-artifact --format html",
+        "# ids/agent/checks, then evaluate a real call through it (one line):",
+        "#   hotato test run conversation-test.yaml --agent my-agent "
+        "--audio call.wav --trace voice_trace.jsonl "
+        "--transcript call.transcript.json --out ./conv-artifact --format html",
         "kind: hotato.conversation-test",
         "version: 1",
         f"id: {_scalar(safe)}",

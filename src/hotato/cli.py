@@ -67,7 +67,7 @@ _SUITE_ENERGY_ONLY_NOTE = (
 _SELF_TEST_NOTE = (
     "note: --suite is Hotato's SELF-TEST on synthetic fixtures -- it checks the "
     "tool itself, not your agent. To score YOUR agent, bring a real dual-channel "
-    "call: hotato capture --stack vapi --call-id <id>  (see: hotato)"
+    "call: hotato capture --stack vapi --call-id CALL_ID  (see: hotato)"
 )
 
 # The label contract, stated wherever yield/hold appears (canonical wording;
@@ -525,7 +525,7 @@ _EXIT_CODES: dict = {
             "found"),
     ),
     "fleet": (
-        (2, "no subcommand given (see hotato fleet <cmd> --help)"),
+        (2, "no subcommand given (see hotato fleet --help)"),
     ),
     "fleet init": (
         (0, "the workspace was created/ensured under --home"),
@@ -2831,9 +2831,9 @@ def _cmd_scenario_init(args) -> int:
     else:
         print(f"wrote a starter conversation-test file: {args.out}")
         print(
-            f"next: hotato test run {args.out} --agent {args.agent} \\\n"
-            "        --audio call.wav --trace voice_trace.jsonl \\\n"
-            "        --transcript call.transcript.json --out ./conv-artifact"
+            f"next: hotato test run {args.out} --agent {args.agent} "
+            "--audio call.wav --trace voice_trace.jsonl "
+            "--transcript call.transcript.json --out ./conv-artifact"
         )
     return 0
 
@@ -3731,6 +3731,7 @@ def _cmd_serve(args) -> int:
     return _serve.run_serve(
         workspace=args.workspace, host=args.host, port=args.port,
         registry=args.registry, token=args.token, token_file=args.token_file,
+        open_browser=not args.no_open,
     )
 
 
@@ -3866,12 +3867,16 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("capture") + "\n\n"
             "Examples:\n"
-            "  hotato capture --stack vapi --call-id <id>            # + VAPI_API_KEY\n"
-            "  hotato capture --stack retell --call-id <id>          # + RETELL_API_KEY\n"
-            "  hotato capture --stack twilio --recording-sid RE...   # + TWILIO_ACCOUNT_SID/TOKEN\n"
+            "  hotato capture --stack vapi --call-id CALL_ID\n"
+            "  hotato capture --stack retell --call-id CALL_ID\n"
+            "  hotato capture --stack twilio --recording-sid RE...\n"
             "  hotato capture --stack livekit --caller a.wav --agent b.wav\n"
             "  hotato capture --stack pipecat --stereo captured.wav\n"
-            "  hotato capture --stack vapi --demo                    # offline, zero deps"
+            "  hotato capture --stack vapi --demo\n"
+            "\n"
+            "vapi/retell read VAPI_API_KEY / RETELL_API_KEY; twilio reads "
+            "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN; --demo runs offline with "
+            "zero deps."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -3940,10 +3945,12 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("connect") + "\n\n"
             "Examples:\n"
-            "  hotato connect vapi --api-key <key>\n"
-            "  VAPI_API_KEY=<key> hotato connect vapi        # reads the env var\n"
-            "  hotato connect twilio --account-sid AC... --auth-token ...\n"
-            "  hotato connect synthflow --api-key <key> --model-id <id>"
+            "  hotato connect vapi --api-key YOUR_API_KEY\n"
+            "  VAPI_API_KEY=YOUR_API_KEY hotato connect vapi\n"
+            "  hotato connect twilio --account-sid AC... --auth-token AUTH_TOKEN\n"
+            "  hotato connect synthflow --api-key YOUR_API_KEY --model-id MODEL_ID\n"
+            "\n"
+            "the second form reads the key from the environment instead of a flag."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -3976,9 +3983,11 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("pull") + "\n\n"
             "Examples:\n"
             "  hotato pull --stack vapi --since 7d --limit 50\n"
-            "  hotato pull                                   # only-connected stack\n"
+            "  hotato pull\n"
             "  hotato pull --stack retell --call-id c1 --call-id c2\n"
-            "  hotato pull --stack bland --allow-mono --limit 20"
+            "  hotato pull --stack bland --allow-mono --limit 20\n"
+            "\n"
+            "with no --stack, pull uses your only connected stack."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4026,11 +4035,15 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("sweep") + "\n\n"
             "Examples:\n"
-            "  hotato sweep --demo                            # bundled real calls, zero setup\n"
-            "  hotato sweep --stack vapi --since 7d           # pull + dashboard\n"
-            "  hotato sweep                                   # only-connected stack\n"
+            "  hotato sweep --demo\n"
+            "  hotato sweep --stack vapi --since 7d\n"
+            "  hotato sweep\n"
             "  hotato sweep --stack twilio --limit 100 --out calls.html\n"
-            "  hotato sweep --stack retell --call-id c1 --call-id c2\n\n"
+            "  hotato sweep --stack retell --call-id c1 --call-id c2\n"
+            "\n"
+            "--demo uses bundled real calls (zero setup); --stack pulls then "
+            "builds the dashboard; with no --stack, sweep uses your only "
+            "connected stack.\n\n"
             + _LABEL_NOTE
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4340,10 +4353,14 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("doctor") + "\n\n" + _LABEL_NOTE + "\n\n"
             "Examples:\n"
-            "  hotato doctor --stereo call.wav        # score your call, open the report\n"
-            "  hotato doctor --demo                   # self-test, open the report\n"
-            "  hotato doctor                          # same self-test fallback\n"
-            "  hotato doctor --no-open --format json  # the machine envelope"
+            "  hotato doctor --stereo call.wav\n"
+            "  hotato doctor --demo\n"
+            "  hotato doctor\n"
+            "  hotato doctor --no-open --format json\n"
+            "\n"
+            "--stereo scores your call and opens the report; --demo (or no "
+            "recording) runs the self-test; --format json prints the machine "
+            "envelope."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4390,10 +4407,13 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("demo") + "\n\n" + _LABEL_NOTE + "\n\n"
             "Examples:\n"
-            "  hotato demo                          # run, print, open the report\n"
+            "  hotato demo\n"
             "  hotato demo --no-open --out demo.html\n"
-            "  hotato demo --format json            # the machine envelope\n"
-            "  hotato demo --fail                   # exit 1 (real regression code)"
+            "  hotato demo --format json\n"
+            "  hotato demo --fail\n"
+            "\n"
+            "plain demo runs, prints, and opens the report; --format json "
+            "prints the machine envelope; --fail exits 1 on the regression."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4426,7 +4446,7 @@ def build_parser() -> argparse.ArgumentParser:
             "portable contract, and contract verify catches it); then prints "
             "the exact next commands: promote a candidate into a permanent "
             "fixture, run those fixtures in CI, re-verify the demo contract, "
-            "and render a card. hotato start --stereo <call.wav> runs the "
+            "and render a card. hotato start --stereo CALL.wav runs the "
             "guided own-call flow (trust -> scan -> review -> human label "
             "-> contract + evidence-tier card). To score a live provider stack "
             "or a folder of recordings, use hotato sweep / hotato analyze."
@@ -4556,10 +4576,13 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("inspect") + "\n"
             "Examples:\n"
-            "  hotato inspect --stack vapi --assistant-id <id>     # + VAPI_API_KEY\n"
-            "  hotato inspect --stack retell --agent-id <id>       # + RETELL_API_KEY\n"
+            "  hotato inspect --stack vapi --assistant-id ASSISTANT_ID\n"
+            "  hotato inspect --stack retell --agent-id AGENT_ID\n"
             "  hotato inspect --stack livekit --config agent.py\n"
-            "  hotato inspect --stack pipecat --config bot.py --format json"
+            "  hotato inspect --stack pipecat --config bot.py --format json\n"
+            "\n"
+            "vapi/retell read VAPI_API_KEY / RETELL_API_KEY for the one "
+            "read-only GET."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4601,7 +4624,7 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("plan") + "\n"
             "Examples:\n"
             "  hotato plan result.json\n"
-            "  hotato plan result.json --stack vapi --assistant-id <id>\n"
+            "  hotato plan result.json --stack vapi --assistant-id ASSISTANT_ID\n"
             "  hotato plan result.json --stack livekit --config agent.py\n"
             "  hotato plan result.json --out my-plan.json --format json"
         ),
@@ -4719,10 +4742,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("fixture create") + "\n\n" + _LABEL_NOTE + "\n\n"
             "Examples:\n"
-            "  hotato fixture create --stereo bad-call.wav --id refund-cutoff-001 \\\n"
-            "      --onset 42.18 --expect yield --max-talk-over 0.6 --out tests/hotato\n"
-            "  hotato fixture create --caller c.wav --agent a.wav --id ack-hold-002 \\\n"
-            "      --onset 12.4 --expect hold --out tests/hotato\n"
+            "  hotato fixture create --stereo bad-call.wav --id refund-cutoff-001 "
+            "--onset 42.18 --expect yield --max-talk-over 0.6 --out tests/hotato\n"
+            "  hotato fixture create --caller c.wav --agent a.wav --id ack-hold-002 "
+            "--onset 12.4 --expect hold --out tests/hotato\n"
             "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4797,10 +4820,10 @@ def build_parser() -> argparse.ArgumentParser:
             + "\n\n"
             "Examples:\n"
             "  hotato sweep --demo --format json > hotato-sweep.json\n"
-            "  hotato fixture promote hotato-sweep.json#3 --expect yield \\\n"
-            "      --id refund-cutoff-001 --out tests/hotato\n"
-            "  hotato fixture promote analyze.json#call_abc123:2 --expect hold \\\n"
-            "      --id ack-hold-002 --out tests/hotato\n"
+            "  hotato fixture promote hotato-sweep.json#3 --expect yield "
+            "--id refund-cutoff-001 --out tests/hotato\n"
+            "  hotato fixture promote analyze.json#call_abc123:2 --expect hold "
+            "--id ack-hold-002 --out tests/hotato\n"
             "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4888,10 +4911,10 @@ def build_parser() -> argparse.ArgumentParser:
             + "\n\n"
             "Examples:\n"
             "  hotato sweep --demo --format json > hotato-sweep.json\n"
-            "  hotato contract create --from-candidate hotato-sweep.json#1 \\\n"
-            "      --expect yield --id refund-cutoff-001 --out contracts\n"
-            "  hotato contract create --stereo bad-call.wav --onset 42.18 \\\n"
-            "      --expect yield --id refund-cutoff-001 --out contracts\n"
+            "  hotato contract create --from-candidate hotato-sweep.json#1 "
+            "--expect yield --id refund-cutoff-001 --out contracts\n"
+            "  hotato contract create --stereo bad-call.wav --onset 42.18 "
+            "--expect yield --id refund-cutoff-001 --out contracts\n"
             "  hotato contract verify contracts/ --junit contracts-junit.xml"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -5130,8 +5153,8 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("trace ingest") + "\n\n"
             "Examples:\n"
             "  hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl\n"
-            "  hotato trace ingest --otel export.json --out voice_trace.jsonl \\\n"
-            "      --stack vapi --include-identifiers --include-text"
+            "  hotato trace ingest --otel export.json --out voice_trace.jsonl "
+            "--stack vapi --include-identifiers --include-text"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5181,8 +5204,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("trace attach") + "\n\n"
             "Examples:\n"
-            "  hotato trace attach contracts/refund-cutoff-001.hotato \\\n"
-            "      --trace voice_trace.jsonl"
+            "  hotato trace attach contracts/refund-cutoff-001.hotato "
+            "--trace voice_trace.jsonl"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5209,8 +5232,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("trace export") + "\n\n"
             "Examples:\n"
-            "  hotato trace export contracts/refund-cutoff-001.hotato \\\n"
-            "      --format otel --out otel.jsonl"
+            "  hotato trace export contracts/refund-cutoff-001.hotato "
+            "--format otel --out otel.jsonl"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5269,8 +5292,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  hotato assert init --from-trace voice_trace.jsonl\n"
             "  hotato assert init --from-trace voice_trace.jsonl "
-            "--stereo call.wav \\\n"
-            "      --out assertions.yaml"
+            "--stereo call.wav --out assertions.yaml"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5308,14 +5330,12 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("assert run") + "\n\n"
             "Examples:\n"
-            "  hotato assert run --transcript call.transcript.json \\\n"
-            "      --assertions assertions.yaml\n"
+            "  hotato assert run --transcript call.transcript.json "
+            "--assertions assertions.yaml\n"
             "  hotato assert run --stereo call.wav --trace "
-            "voice_trace.jsonl \\\n"
-            "      --assertions assertions.yaml\n"
+            "voice_trace.jsonl --assertions assertions.yaml\n"
             "  hotato assert run --stereo call.wav --transcribe "
-            "--assertions assertions.yaml \\\n"
-            "      --format json"
+            "--assertions assertions.yaml --format json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5402,11 +5422,11 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("test run") + "\n\n"
             "Examples:\n"
-            "  hotato test run refund.yaml --agent support-v3 \\\n"
-            "      --audio call.wav --trace voice_trace.jsonl \\\n"
-            "      --transcript call.transcript.json --out ./conv-artifact\n"
-            "  hotato test run refund.yaml --agent support-v3 \\\n"
-            "      --trace voice_trace.jsonl --format json"
+            "  hotato test run refund.yaml --agent support-v3 "
+            "--audio call.wav --trace voice_trace.jsonl "
+            "--transcript call.transcript.json --out ./conv-artifact\n"
+            "  hotato test run refund.yaml --agent support-v3 "
+            "--trace voice_trace.jsonl --format json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5497,10 +5517,10 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("suite run") + "\n\n"
             "Examples:\n"
             "  hotato suite run smoke.suite.yaml --agent support-v3\n"
-            "  hotato suite run examples/reference-agent/suite.json \\\n"
-            "      --agent reference-agent-v1 --out ./suite-out --parallel 8\n"
-            "  hotato suite run ci.suite.yaml --agent support-v3 \\\n"
-            "      --release support-v3-rc2 --format json"
+            "  hotato suite run examples/reference-agent/suite.json "
+            "--agent reference-agent-v1 --out ./suite-out --parallel 8\n"
+            "  hotato suite run ci.suite.yaml --agent support-v3 "
+            "--release support-v3-rc2 --format json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5803,16 +5823,18 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("simulate") + "\n\n"
             "Quickstart (works from a bare pip install):\n"
-            "  hotato simulate --init demo.scenario.json   # write a minimal scenario\n"
+            "  hotato simulate --init demo.scenario.json\n"
             "  hotato simulate demo.scenario.json --out ./sim\n"
-            "  hotato simulate --example --out ./sim        # or run the bundled one\n"
+            "  hotato simulate --example --out ./sim\n"
+            "  Use --init to write a minimal scenario, or --example to run the "
+            "bundled one.\n"
             "\n"
             "Examples:\n"
             "  hotato simulate refund.scenario.yaml --out ./sim\n"
             "  hotato simulate refund.scenario.yaml --repetitions 5 --format json\n"
             "  hotato simulate --matrix refund.scenario.yaml --out ./matrix\n"
-            "  hotato simulate --matrix refund.scenario.yaml \\\n"
-            "      --conversation-test refund.test.yaml --parallel 8 --format json\n"
+            "  hotato simulate --matrix refund.scenario.yaml "
+            "--conversation-test refund.test.yaml --parallel 8 --format json\n"
             "\n"
             "NOTE: a simulate scenario is a hotato.scenario.v1 doc (get one with "
             "--init),\n"
@@ -5894,8 +5916,8 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("compare") + "\n\n"
             "Examples:\n"
             "  hotato compare --before bad.wav --after fixed.wav --onset 12.4 --expect yield\n"
-            "  hotato compare --before bad.wav --after fixed.wav \\\n"
-            "      --before-onset 12.4 --after-onset 11.9 --expect yield --out report.html\n"
+            "  hotato compare --before bad.wav --after fixed.wav "
+            "--before-onset 12.4 --after-onset 11.9 --expect yield --out report.html\n"
             "  hotato compare --before a.wav --after b.wav --onset 3.1 --expect hold --format json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -5966,8 +5988,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  hotato scan --stereo full-call.wav\n"
             "  hotato scan --stereo full-call.wav --top 5\n"
             "  hotato scan --stereo full-call.wav --format json --out candidates.json\n"
-            "  hotato fixture create --stereo full-call.wav --onset 42.18 \\\n"
-            "      --expect yield --id found-moment-001 --out tests/hotato"
+            "  hotato fixture create --stereo full-call.wav --onset 42.18 "
+            "--expect yield --id found-moment-001 --out tests/hotato"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6089,17 +6111,19 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("ingest") + "\n\n"
             "Wire your webhook -> hotato ingest (see docs/INGEST.md):\n"
             "  # in your webhook handler, save the payload and call ingest\n"
-            "  hotato ingest --stack vapi   --event payload.json    # + VAPI_API_KEY\n"
-            "  hotato ingest --stack retell --event payload.json    # + RETELL_API_KEY\n"
-            "  hotato ingest --stack twilio --event payload.json    # + TWILIO_ACCOUNT_SID/TOKEN\n"
-            "  hotato ingest --stack livekit --event payload.json   # egress file locator\n"
-            "  hotato ingest --stack pipecat --event payload.json   # your own event\n\n"
+            "  hotato ingest --stack vapi --event payload.json\n"
+            "  hotato ingest --stack retell --event payload.json\n"
+            "  hotato ingest --stack twilio --event payload.json\n"
+            "  hotato ingest --stack livekit --event payload.json\n"
+            "  hotato ingest --stack pipecat --event payload.json\n"
+            "  vapi/retell/twilio read their API creds from the env; livekit "
+            "uses the egress file locator and pipecat your own event.\n\n"
             "Or skip the payload with a direct id:\n"
-            "  hotato ingest --stack vapi   --call-id <id> --out candidates.html\n"
+            "  hotato ingest --stack vapi --call-id CALL_ID --out candidates.html\n"
             "  hotato ingest --stack twilio --recording-sid RE... --format json\n\n"
             "Then promote a candidate to a regression test:\n"
-            "  hotato fixture create --stereo <call>.wav --onset <t> \\\n"
-            "      --expect yield|hold --id found-moment-001 --out tests/hotato"
+            "  hotato fixture create --stereo CALL.wav --onset 42.18 "
+            "--expect yield --id found-moment-001 --out tests/hotato"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6159,10 +6183,13 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("analyze") + "\n\n"
             "Examples:\n"
-            "  hotato analyze ./recordings                      # dashboard -> hotato-analyze.html\n"
+            "  hotato analyze ./recordings\n"
             "  hotato analyze ./recordings --out calls.html --audio-top 12\n"
-            "  hotato analyze ./recordings --format json        # ranked candidates for an agent\n"
-            "  hotato ./recordings                              # bare folder routes here\n\n"
+            "  hotato analyze ./recordings --format json\n"
+            "  hotato ./recordings\n"
+            "  plain analyze writes the hotato-analyze.html dashboard; --format "
+            "json gives ranked candidates for an agent; a bare folder routes "
+            "here.\n\n"
             + _LABEL_NOTE
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -6222,9 +6249,11 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("patch") + "\n\n"
             "Examples:\n"
-            "  hotato plan result.json --stack vapi --assistant-id <id> --out fixplan.json\n"
-            "  hotato patch fixplan.json                 # the curl + merge-patch to paste\n"
-            "  hotato patch fixplan.json --format json --out patch.json"
+            "  hotato plan result.json --stack vapi --assistant-id ASSISTANT_ID --out fixplan.json\n"
+            "  hotato patch fixplan.json\n"
+            "  hotato patch fixplan.json --format json --out patch.json\n"
+            "\n"
+            "hotato patch prints the curl + merge-patch for you to paste."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6273,11 +6302,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  hotato patch fixplan.json --format json --out patch.json\n"
             "  # dry run: prints the clone it WOULD create, creates nothing\n"
-            "  hotato apply patch.json --clone --name staging-refund-fix \\\n"
-            "      --battery tests/hotato\n"
+            "  hotato apply patch.json --clone --name staging-refund-fix "
+            "--battery tests/hotato\n"
             "  # actually create the staging clone (needs credentials)\n"
-            "  hotato apply patch.json --clone --name staging-refund-fix \\\n"
-            "      --battery tests/hotato --yes\n\n"
+            "  hotato apply patch.json --clone --name staging-refund-fix "
+            "--battery tests/hotato --yes\n\n"
             "Then re-capture the battery through the CLONE and prove it:\n"
             "  hotato verify --before before/ --after after/ --policy hotato.verify.yaml"
         ),
@@ -6338,10 +6367,12 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("verify") + "\n\n"
             "Examples:\n"
             "  # score the same battery before and after the change\n"
-            "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio \\\n"
-            "      --format json > before.json      # (the failing take)\n"
-            "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio-new \\\n"
-            "      --format json > after.json       # (after applying the patch + re-capturing)\n"
+            "  # (before.json is the failing take; after.json is after the "
+            "patch + re-capture)\n"
+            "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio "
+            "--format json > before.json\n"
+            "  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio-new "
+            "--format json > after.json\n"
             "  hotato verify --before before.json --after after.json\n"
             "  hotato verify --before before/ --after after/ --min-n 5 --fail-on-regression\n"
             "  hotato verify --before before.json --after after.json --out verify.html\n"
@@ -6428,16 +6459,15 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("fix trial") + "\n\n"
             "Examples:\n"
             "  hotato patch fixplan.json --format json --out patch.json\n"
-            "  hotato apply patch.json --clone --name staging-refund-fix \\\n"
-            "      --battery tests/hotato\n"
+            "  hotato apply patch.json --clone --name staging-refund-fix "
+            "--battery tests/hotato\n"
             "  # ... re-capture the battery through the source (before/) and\n"
             "  # the clone (after/) ...\n"
-            "  hotato fix trial patch.json --name staging-refund-fix \\\n"
-            "      --before before/ --after after/ --battery tests/hotato \\\n"
-            "      --policy hotato.verify.yaml --out fix-trial.json \\\n"
-            "      --html fix-trial.html\n"
-            "  hotato fix trial patch.json --name staging-refund-fix \\\n"
-            "      --before before/ --after after/ --contracts contracts/"
+            "  hotato fix trial patch.json --name staging-refund-fix "
+            "--before before/ --after after/ --battery tests/hotato "
+            "--policy hotato.verify.yaml --out fix-trial.json --html fix-trial.html\n"
+            "  hotato fix trial patch.json --name staging-refund-fix "
+            "--before before/ --after after/ --contracts contracts/"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6504,11 +6534,13 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("loop") + "\n\n"
             "Examples:\n"
-            "  hotato loop ./recordings                          # run 1: discover -> awaiting_label\n"
-            "  hotato fixture create --stereo rec.wav --onset 12.4 \\\n"
-            "      --expect yield --id refund-001 --out tests/hotato\n"
-            "  hotato loop ./recordings --fixtures tests/hotato   # run 2: plan -> awaiting_verify\n"
-            "  hotato loop ./recordings --format json             # machine state\n\n"
+            "  hotato loop ./recordings\n"
+            "  hotato fixture create --stereo rec.wav --onset 12.4 "
+            "--expect yield --id refund-001 --out tests/hotato\n"
+            "  hotato loop ./recordings --fixtures tests/hotato\n"
+            "  hotato loop ./recordings --format json\n"
+            "  run 1 discovers (awaiting_label); run 2 plans (awaiting_verify); "
+            "--format json prints the machine state.\n\n"
             + _LABEL_NOTE
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -6569,8 +6601,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  hotato investigate call.wav\n"
             "  hotato investigate --stack vapi --call-id abc123\n"
-            "  hotato investigate label .hotato/investigate-state.json#1 \\\n"
-            "      --expect yield"
+            "  hotato investigate label .hotato/investigate-state.json#1 "
+            "--expect yield"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6623,10 +6655,10 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("investigate label") + "\n\n" + _LABEL_NOTE
             + "\n\n"
             "Examples:\n"
-            "  hotato investigate label .hotato/investigate-state.json#1 \\\n"
-            "      --expect yield\n"
-            "  hotato investigate label .hotato/investigate-state.json#2 \\\n"
-            "      --expect hold --id refund-backchannel-002 --out contracts"
+            "  hotato investigate label .hotato/investigate-state.json#1 "
+            "--expect yield\n"
+            "  hotato investigate label .hotato/investigate-state.json#2 "
+            "--expect hold --id refund-backchannel-002 --out contracts"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6811,10 +6843,12 @@ def build_parser() -> argparse.ArgumentParser:
             "  hotato init starter --stack livekit --out ./my-agent-repo\n"
             "  hotato init starter --stack pipecat --out . --force\n\n"
             "Then:\n"
-            "  cat HOTATO.md                                # what was added, next steps\n"
-            "  hotato contract create --stereo call.wav --onset 42.18 \\\n"
-            "      --expect yield --id refund-cutoff-001 --out contracts\n"
-            "  hotato contract verify contracts --junit hotato.xml   # the CI gate, locally"
+            "  cat HOTATO.md\n"
+            "  hotato contract create --stereo call.wav --onset 42.18 "
+            "--expect yield --id refund-cutoff-001 --out contracts\n"
+            "  hotato contract verify contracts --junit hotato.xml\n"
+            "  HOTATO.md lists what was added and the next steps; contract "
+            "verify is the CI gate, run locally."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6869,8 +6903,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  hotato sweep --demo --format json > hotato-sweep.json\n"
             "  hotato issue create hotato-sweep.json --repo owner/repo --top 3\n"
-            "  hotato issue create hotato-sweep.json --repo owner/repo \\\n"
-            "      --label turn-taking --label regression --yes\n\n"
+            "  hotato issue create hotato-sweep.json --repo owner/repo "
+            "--label turn-taking --label regression --yes\n\n"
             "Requires the GitHub CLI (`gh`) authenticated only for --yes."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -6933,11 +6967,11 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("pr create") + "\n\n"
             "Examples:\n"
-            "  hotato pr create --fixtures tests/hotato --repo owner/repo \\\n"
-            "      --title 'Add turn-taking regression fixtures'\n"
-            "  hotato pr create --fixtures tests/hotato --repo owner/repo \\\n"
-            "      --title 'Add turn-taking regression fixtures' \\\n"
-            "      --branch hotato/turn-taking-fixtures --base main --yes\n\n"
+            "  hotato pr create --fixtures tests/hotato --repo owner/repo "
+            "--title 'Add turn-taking regression fixtures'\n"
+            "  hotato pr create --fixtures tests/hotato --repo owner/repo "
+            "--title 'Add turn-taking regression fixtures' "
+            "--branch hotato/turn-taking-fixtures --base main --yes\n\n"
             "Requires git and the GitHub CLI (`gh`) authenticated only for "
             "--yes."
         ),
@@ -7301,6 +7335,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "generate + store 0600 under the workspace state dir)")
     srv.add_argument("--token-file", default=None, metavar="PATH",
                      help="read the bearer token from PATH instead of --token")
+    srv.add_argument("--no-open", action="store_true",
+                     help="do not open a browser on start (auto-open is also "
+                          "skipped when stdout is not a TTY, in CI, or when "
+                          "$HOTATO_NO_BROWSER is set)")
     srv.set_defaults(func=_cmd_serve)
 
     return p

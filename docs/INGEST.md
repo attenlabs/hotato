@@ -1,13 +1,11 @@
 # `hotato ingest` -- the composable passive on-ramp
 
-You should not have to remember to run a CLI after every bad call. Wire a webhook
-to invoke `hotato ingest` once, and every completed call is scanned for
-**candidate** turn-taking moments automatically.
+Wire a webhook to invoke `hotato ingest` once, and every completed call is
+scanned for **candidate** turn-taking moments automatically.
 
-`ingest` is **discovery, not a verdict**. It surfaces timing candidates; it never
-returns a pass/fail and never infers intent. You review the candidates and
-promote one to a permanent regression test with `hotato fixture create`. The human
-label step stays human: `ingest` never auto-labels, auto-fixtures, or auto-tunes.
+`ingest` surfaces timing candidates for you to review. You decide which ones
+matter and promote them to a permanent regression test with
+`hotato fixture create` -- the yield/hold label always comes from you.
 
 It is built by **composition** and adds only a per-stack webhook parser:
 
@@ -18,15 +16,14 @@ scan for candidates         ->  hotato.scan (no labels, no verdict)
 write a candidate report     ->  JSON always; --out an HTML report (optional)
 ```
 
-## What it is not
+## How it runs
 
-- **Not a daemon.** Hotato ships the command; *you* own the trigger (a webhook
-  handler, a serverless function, a cron over your call log). There is no
-  long-running process and no hosted service, so the offline/self-host wedge stays
-  intact. The only network is the same recording fetch `hotato capture` already
-  does; everything else is offline.
-- **Not a labeler.** A candidate is a timing event. Only you know whether a caller
-  sound was "mhm" or "stop", so only you label it.
+- **You own the trigger.** Hotato ships the command; wire it to a webhook
+  handler, a serverless function, or a cron over your call log, and it runs
+  offline and self-hosted, on your infrastructure. The only network call is
+  the same recording fetch `hotato capture` already makes.
+- **You own the label.** A candidate is a timing event. Only you know whether
+  a caller sound was "mhm" or "stop", so the label is yours.
 
 ## Contract
 
@@ -43,7 +40,7 @@ hotato ingest --stack {vapi|retell|twilio|livekit|pipecat} \
 `--format` controls stdout (`text` listing or the `json` candidate list, capped by
 `--top`). `--out` additionally writes an HTML candidate report containing every
 candidate. A webhook payload is **untrusted DATA**: `ingest` reads only the named
-locator fields and never executes, scaffolds, or acts on anything in it.
+locator fields out of it.
 
 ## Wire your webhook -> `hotato ingest`
 
@@ -96,8 +93,8 @@ missing field is simply absent, never fabricated).
 For **vapi / retell / twilio**, `ingest` extracts the identifier from the payload
 and delegates the dual-channel recording fetch to the same adapter `hotato capture`
 uses (which already resolved the recording URLs; see
-[ADAPTER-STATUS.md](ADAPTER-STATUS.md)). The recording URL is never read from the
-untrusted payload.
+[ADAPTER-STATUS.md](ADAPTER-STATUS.md)) -- the recording URL always comes from
+that validated fetch, not the raw payload.
 
 For **livekit / pipecat**, the recording lands in *your* infra, so the event
 carries the locator directly. LiveKit egress files land in your storage bucket;

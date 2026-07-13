@@ -3,28 +3,28 @@
 Hotato is built so that the sensitive thing (your call recordings) stays on your
 machine, and every network action is one you named. This page is the precise
 split: which commands are offline-only, which reach the network and only when you
-ask, and what Hotato guarantees it will never do.
+ask, and the guarantees that hold either way.
 
 ## Three guarantees
 
-1. **Hotato never mutates production by default.** No command changes a live
-   stack's configuration on its own. `plan` and `patch` produce a proposal;
-   `apply` operates on a fresh staging clone and dry-runs by default. There is no
-   command that pushes a config to production.
-2. **Hotato never uploads your recordings to Attention Labs.** There is no
-   hosted backend, no telemetry, and no "phone home." Audio moves only from your
-   own stack to your own disk, and only when you run a pull/capture/sweep. The
-   one exception is explicit and opt-in: the hosted `--diarizer pyannoteai`
-   backend, which requires `--egress-opt-in` before any audio leaves the machine.
-3. **Hotato never treats a webhook payload as instructions.** The `ingest`
-   webhook worker reads a completed-call notification as **data**: it extracts a
-   recording reference and scans it. Payload fields are never executed, shelled
-   out, or used to choose what code runs.
+1. **Every production change happens through a proposal you apply yourself.**
+   `plan` and `patch` produce a proposal; `apply` operates on a fresh staging
+   clone and dry-runs by default. Pushing a config to production is a step
+   you take, not one any command takes on its own.
+2. **Recordings stay on your machine.** Self-hosted, with audio moving only
+   from your own stack to your own disk, and only when you run a
+   pull/capture/sweep. The one exception is explicit and opt-in: the hosted
+   `--diarizer pyannoteai` backend, which requires `--egress-opt-in` before any
+   audio leaves the machine.
+3. **Hotato treats a webhook payload strictly as data.** The `ingest` webhook
+   worker reads a completed-call notification as **data**: it extracts a
+   recording reference and scans it. Payload fields are read, never executed,
+   shelled out, or used to choose what code runs.
 
-## Core: offline, no network, ever
+## Core: fully offline, on your machine
 
-These commands read the local files you point them at and write local files. They
-open no sockets. This is the whole scoring, analysis, and fixture surface.
+These commands read and write only the local files you point them at, opening
+no sockets. This is the whole scoring, analysis, and fixture surface.
 
 | Command | What it touches |
 |---|---|
@@ -45,7 +45,7 @@ open no sockets. This is the whole scoring, analysis, and fixture surface.
 | `test run` (rubric lane) | Same LOCAL model judge as `rubric run`, run inline on a conversation-test's `assertions.rubric` lane. Local by default. |
 
 Default retention is local-only: reports, envelopes, and exports are written
-where you point them and nowhere else.
+exactly where you point them.
 
 ## Network: only when you explicitly request it
 
@@ -64,8 +64,8 @@ job. Each requires you to name a stack, a repository, or a webhook you configure
 | `pr` | GitHub, via your local `gh` | Open a PR adding promoted fixtures. Uses your existing `gh` auth. |
 | `apply` | a git clone you point it at | Applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel. |
 | `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only AUDIO path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
-| `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | Sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a LOCAL Ollama model and never leaves the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md). |
-| `test run --state` **http adapter** | your system-of-record's REST API | Only when the state-config names `adapter: http`, and only with `egress_opt_in: true` in that config. Sends the mapped filter VALUES for one `state`/`state_change` query; never audio, transcript, or the config itself. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md). |
+| `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | Sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a LOCAL Ollama model that stays on the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md). |
+| `test run --state` **http adapter** | your system-of-record's REST API | Only when the state-config names `adapter: http`, and only with `egress_opt_in: true` in that config. Sends the mapped filter VALUES for one `state`/`state_change` query -- audio, transcript, and the config itself stay local. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md). |
 | `test run --state` **sql adapter over a `dsn`** | your database, over the network | Only when the state-config names `adapter: sql` with a `dsn`, and only with `egress_opt_in: true`. A parameterized, read-only SELECT with the mapped filter values bound as data. A local `sqlite_path` opens no socket. |
 
 The state adapters read a post-call **system of record** to ground an Authority-2
@@ -73,15 +73,15 @@ The state adapters read a post-call **system of record** to ground an Authority-
 the system of record can be read and does not hold is a grounded FAIL; a system
 of record Hotato could **not** reach or read (network error, timeout, 5xx,
 non-JSON) is INCONCLUSIVE, never a fabricated verdict. Credentials come from
-environment-variable names in the config (never inline secrets), and the HTTP
-adapter refuses a plain-`http://` base URL unless `allow_http: true` is set for a
-trusted local endpoint. The default `--state` path is the local mock sandbox
-(a JSON/SQLite fixture) and a local `sqlite_path` SQL DB, both of which open no
-socket and need no opt-in.
+environment-variable **names** in the config, keeping the secret itself out of
+it, and the HTTP adapter refuses a plain-`http://` base URL unless
+`allow_http: true` is set for a trusted local endpoint. The default `--state`
+path is the local mock sandbox (a JSON/SQLite fixture) and a local
+`sqlite_path` SQL DB, both running entirely on-machine, with no opt-in needed.
 
-Notify surfaces (Slack, GitHub) are used only through credentials you configured
-(`gh`, a Slack token) and only for actions you invoked. Hotato ships no default
-integrations that fire on their own.
+Notify surfaces (Slack, GitHub) fire only through credentials you configured
+(`gh`, a Slack token) and only for actions you invoked -- every integration is
+one you triggered.
 
 ## Network trust: proxies and TLS
 
@@ -97,15 +97,14 @@ implicit.
 
 Two things bound how far that ambient trust reaches:
 
-- **TLS certificate validation is never disabled.** Every credentialed base
+- **TLS certificate validation is always enforced.** Every credentialed base
   URL in `capture.py` and `apply.py` is hardcoded `https://` (`api.vapi.ai`,
-  `api.retellai.com`, `api.twilio.com`, and the other supported stacks), and
-  Hotato never turns off certificate checking. A proxy set via
-  `HTTP_PROXY`/`HTTPS_PROXY` can see the `CONNECT` target host and port, and
-  can refuse or stall the connection (a denial of service), but it cannot
-  read or rewrite the `Authorization` header or the response body without
-  also presenting a certificate the machine's own trust store already
-  accepts for that vendor's domain, a much larger compromise (a rogue
+  `api.retellai.com`, `api.twilio.com`, and the other supported stacks). A
+  proxy set via `HTTP_PROXY`/`HTTPS_PROXY` can see the `CONNECT` target host
+  and port, and can refuse or stall the connection (a denial of service), but
+  reading or rewriting the `Authorization` header or the response body
+  requires also presenting a certificate the machine's own trust store
+  already accepts for that vendor's domain, a much larger compromise (a rogue
   trusted root CA already installed) outside `HTTP_PROXY`'s reach and
   outside Hotato's control.
 - **The threat prerequisite is already a compromised local environment.** An
@@ -121,31 +120,32 @@ command. The default is unchanged: proxy env vars are honored, matching
 curl/pip/git, so a legitimate corporate-proxy setup keeps working with no
 configuration.
 
-## What an attacker cannot do through Hotato
+## Hotato's containment guarantees
 
-- **Cannot exfiltrate recordings by default.** With no `pull`/`capture`/`sweep`
-  run and no `--egress-opt-in`, no audio leaves the machine. The default
-  diarizer is local.
-- **Cannot inject commands via a call webhook.** `ingest` parses a payload for a
-  recording reference. It does not evaluate payload fields, and a malicious
-  webhook body cannot make Hotato run arbitrary code (guarantee 3).
-- **Cannot silently change production.** No command writes to a live stack's
-  config. The furthest Hotato goes is a proposed patch you apply to a staging
-  clone yourself.
+- **Recordings stay on the machine by default.** Audio leaves only when you run
+  `pull`/`capture`/`sweep` with `--egress-opt-in`; the default diarizer is
+  local.
+- **A call webhook is read as data, never as commands.** `ingest` parses a
+  payload for a recording reference and stops there: payload fields are read,
+  never evaluated, so a malicious webhook body cannot make Hotato run
+  arbitrary code (guarantee 3).
+- **Production changes always go through you.** No command writes to a live
+  stack's config directly; the furthest Hotato goes is a proposed patch you
+  apply to a staging clone yourself.
 
 ## Verifying the posture
 
 You can confirm the posture directly, without trusting this page:
 
-- **No telemetry.** There is no analytics or "phone home" code path and no
-  hosted backend. `pip install hotato` pulls zero runtime dependencies, so there
-  is nothing to audit but the standard library.
+- **Self-hosted, nothing to audit but the standard library.** `pip install
+  hotato` pulls zero runtime dependencies; the only network code path is the
+  one you explicitly invoke.
 - **Credentials at `0600`.** `connect` writes stack credentials locally with
   owner-only permissions; check them with `ls -l` on your credentials path.
-- **Local-only retention.** Reports, envelopes, and exports exist only where you
-  wrote them.
-- **Egress is opt-in.** The only off-box audio path is `--diarizer pyannoteai`
-  guarded by `--egress-opt-in`; without that flag, no audio leaves the machine.
+- **Local-only retention.** Reports, envelopes, and exports exist exactly where
+  you wrote them.
+- **Egress is opt-in.** The only off-box audio path is `--diarizer pyannoteai`,
+  gated by `--egress-opt-in` -- audio stays on the machine until you set it.
 
 ## Drive-a-call (`run_scenario`): originating a real call
 
@@ -153,23 +153,24 @@ You can confirm the posture directly, without trusting this page:
 places a REAL outbound call against a live agent and pulls the recording. Its
 threat surface and the controls on it:
 
-- **A real, billable call is never placed silently.** `run_scenario` refuses
-  unless BOTH real credentials AND an explicit egress opt-in
-  (`HOTATO_DRIVE_OPT_IN=1` or `egress_opt_in: true` on the scenario) are present.
-  Absent either, it raises a clean structured refusal and dials nothing --
-  matching the opt-in posture of `--allow-mono` / `HOTATO_ALLOW_PRIVATE_URLS` /
-  `--egress-opt-in`.
-- **Production config is never mutated.** The only verbs issued are `POST`
-  (create the call) and `GET` (poll status, list the recording, download it) --
-  there is no `PUT`/`PATCH`/`DELETE` surface, so a driven call can never alter an
-  assistant, a phone number, or any other provider resource in place. For Vapi
-  the call is originated FROM the staging clone the experiment created, not the
-  production source.
-- **The caller side is labelled precisely, never overstated.** The produced
-  conversation carries `origin.kind == "real"` with the provider and its call id,
-  and `origin.caller` (`scripted-twiml` for the fixed-timeline Twilio caller,
-  `assistant-originated` for a Vapi call the assistant placed) -- it never claims
-  a human placed the call or that the scripted caller reacted to the agent.
+- **A real, billable call always requires explicit opt-in.** `run_scenario`
+  places the call only when BOTH real credentials AND an explicit egress
+  opt-in (`HOTATO_DRIVE_OPT_IN=1` or `egress_opt_in: true` on the scenario) are
+  present. Absent either, it raises a clean structured refusal and dials
+  nothing -- matching the opt-in posture of `--allow-mono` /
+  `HOTATO_ALLOW_PRIVATE_URLS` / `--egress-opt-in`.
+- **Production config stays untouched.** The surface is create-and-read only:
+  the only verbs issued are `POST` (create the call) and `GET` (poll status,
+  list the recording, download it), with no `PUT`/`PATCH`/`DELETE` path to
+  alter an assistant, a phone number, or any other provider resource in place.
+  For Vapi the call originates FROM the staging clone the experiment created,
+  keeping the production source untouched.
+- **The caller side is labelled precisely.** The produced conversation carries
+  `origin.kind == "real"` with the provider and its call id, and
+  `origin.caller` (`scripted-twiml` for the fixed-timeline Twilio caller,
+  `assistant-originated` for a Vapi call the assistant placed), stating
+  exactly what happened -- no claim that a human placed the call or that the
+  scripted caller reacted to the agent.
 - **The recording download inherits every capture-side control.** The vendor
   URL (`stereoUrl` / `RecordingSid` media) flows through the same validated
   download as `capture`: http(s)-only scheme allowlist, default-deny SSRF
@@ -187,35 +188,37 @@ listening socket to serve the five conversation-QA views over the fleet registry
 + evidence store. Its threat surface and the controls on it:
 
 - **Localhost-default bind.** The server binds `127.0.0.1` unless the operator
-  explicitly passes `--host`. A non-loopback bind (e.g. `--host 0.0.0.0`) prints
-  a prominent warning at start; it is never the default, and it is never done
-  silently.
+  explicitly passes `--host`. A non-loopback bind (e.g. `--host 0.0.0.0`)
+  always prints a prominent warning at start and always requires that explicit
+  flag.
 - **Token auth on every request.** A shared bearer token authenticates every
   request, compared in constant time (`hmac.compare_digest`). It is either
   operator-supplied (`--token` / `--token-file`) or generated with
   `secrets.token_urlsafe` and stored `0600` under the per-workspace state dir.
   Browsers bootstrap an in-memory, HttpOnly session cookie from the printed
   `/?token=…` URL (then the token is stripped from the address bar via a
-  redirect); the token itself is never echoed into any response body. An
-  unauthenticated request gets `401` and is never routed.
+  redirect); the token stays out of every response body. An unauthenticated
+  request gets `401` before it is routed anywhere.
 - **Read-only.** The server issues only `SELECT`s against the registry and reads
-  evidence blobs by digest; it exposes no write endpoint and mutates no workspace
-  data. Reviews and labels stay CLI-driven. The ONLY file it writes is the
-  append-only audit log (`…/serve/<workspace>/audit.jsonl`, `0600`), which
-  records who (token/session prefix, never the secret), what (method + path, the
-  token stripped from the query), when, and the response status of every request.
-- **Zero egress.** The server only binds a listening socket; it never opens an
-  outbound connection and imports nothing that phones home, so audio, traces, and
-  evaluations never leave the machine. A test whitelists loopback and fails if
-  any view attempts an external connection.
-- **No stored-content execution.** The raw evidence endpoint (`/evidence/<digest>`)
-  serves blobs as `text/plain` with `X-Content-Type-Options: nosniff` (and the
-  pages set `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`), so a crafted
-  evidence blob cannot execute in the viewer. Redacted transcript/trace content is
-  scrubbed at the data layer, so it reaches neither the HTML nor the JSON mirror.
-- **No path traversal via the workspace id.** The workspace id is used verbatim
-  only in parameterized SQL; as a state-directory name it is sanitized so a
-  crafted id cannot escape the registry home.
+  evidence blobs by digest, exposing only reads: no write endpoint, no
+  workspace mutation. Reviews and labels stay CLI-driven. The ONLY file it
+  writes is the append-only audit log (`…/serve/<workspace>/audit.jsonl`,
+  `0600`), which records who (token/session prefix, the secret stays out of
+  it), what (method + path, the token stripped from the query), when, and the
+  response status of every request.
+- **Zero egress.** The server only binds a listening socket, opening no
+  outbound connection and importing nothing that phones home -- audio,
+  traces, and evaluations stay on the machine. A test whitelists loopback and
+  fails if any view attempts an external connection.
+- **Evidence renders as data, never as executable content.** The raw evidence
+  endpoint (`/evidence/<digest>`) serves blobs as `text/plain` with
+  `X-Content-Type-Options: nosniff` (and the pages set `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`), keeping a crafted evidence blob inert in the
+  viewer. Redacted transcript/trace content is scrubbed at the data layer, so
+  both the HTML and the JSON mirror render only the `[redacted]` placeholder.
+- **Workspace id sanitized against path traversal.** The workspace id is used
+  verbatim only in parameterized SQL; as a state-directory name it is
+  sanitized to stay inside the registry home.
 
 See [`docs/WORKSPACE.md`](WORKSPACE.md).
 

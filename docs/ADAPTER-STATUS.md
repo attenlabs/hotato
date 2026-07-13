@@ -3,7 +3,7 @@
 What each capture adapter is built against, verified verbatim against the
 vendor's live documentation on the date shown (integration research:
 `hotato-launch/INTEGRATION-SPEC-2026-07-07.md`). This file is the map of
-what Hotato can and cannot pull, and why.
+what Hotato can pull from each stack, and why.
 
 Terms:
 
@@ -12,17 +12,18 @@ Terms:
 - **capture-in-your-infra**: there is no vendor recording API; Hotato prints
   the recording config (`hotato setup`) and scores the file your deployment
   writes.
-- **mono / mixed**: a single combined channel. Overlap cannot be attributed to
-  the caller or the agent, so Hotato scores it only behind an explicit
-  `--allow-mono` / `HOTATO_ALLOW_MONO=1` opt-in and labels the result indicative
-  only. Separated turn-taking analysis is not possible from mono.
+- **mono / mixed**: a single combined channel. Attributing overlap to the
+  caller or the agent needs separated tracks, so Hotato scores a combined
+  channel only behind an explicit `--allow-mono` / `HOTATO_ALLOW_MONO=1`
+  opt-in and labels the result indicative only. Separated turn-taking
+  analysis runs on a dual-channel file.
 
 Honesty rule (enforced): an adapter ships only with endpoints verified verbatim
 in the spec. Where the spec marks a list-calls endpoint or a channel layout
-**unconfirmed / none**, Hotato does not invent one; it supports the
-fallback (explicit ids) and documents the gap here rather than guessing.
+**unconfirmed / none**, Hotato supports the fallback (explicit ids) and
+documents the gap here.
 
-## Build now: real dual-channel (auto-pull, separated scoring)
+## Build now: dual-channel (auto-pull, separated scoring)
 
 | Stack | List recent calls | Fetch recording | Channel basis | Last verified |
 | --- | --- | --- | --- | --- |
@@ -66,8 +67,8 @@ nobody assumes support that was never confirmed.
 - **Regal.ai**: no list-calls and no REST fetch-recording endpoint. The
   recording arrives only via the `call.recording.available` webhook's
   `properties.recording_link`, which is a literal Twilio Recordings URL. Feed
-  that URL through Hotato's existing Twilio path; Hotato does not fabricate a
-  Regal pull.
+  that URL through Hotato's existing Twilio path -- the one shipped route for
+  Regal-sourced recordings.
 - **Thoughtly**: OpenAPI types responses as an untyped `GenericResponse.data`
   blob; no recording-URL field path could be confirmed live.
 - **Sindarin**: no Sindarin-hosted recording endpoint found; `record` is
@@ -99,6 +100,6 @@ channel (2 channels) before producing separated talk-over numbers; mono stacks
 are scored degraded only behind `--allow-mono`. All live fetch/list paths are
 stdlib-only (`urllib`); stack SDKs import lazily and only inside your own infra.
 Credentials captured by `hotato connect` are stored locally at
-`~/.hotato/connections.json` (mode 0600) and are sent only to the vendor's own
-API, never to Hotato. Scoring is always offline; the only network is the direct
-recording download.
+`~/.hotato/connections.json` (mode 0600) and go straight to the vendor's own
+API -- Hotato stays out of that exchange. Scoring is always offline; the only
+network is the direct recording download.

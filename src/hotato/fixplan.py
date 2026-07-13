@@ -315,7 +315,7 @@ _TWILIO_CHECKLIST = [
     "active while the agent speaks.",
     "Identify the upstream voice-agent stack behind this number (for example "
     "Vapi, Retell, LiveKit, or Pipecat) and re-plan against it: "
-    "hotato plan result.json --stack <that stack> with its target flag.",
+    "hotato plan result.json --stack STACK with its target flag.",
 ]
 
 _READ_ONLY_REASON = "hotato plan is read-only"
@@ -354,8 +354,8 @@ def _next_commands(plan: dict) -> list:
         )
     cmds.append(
         "re-capture the same call moment through your stack, then verify the "
-        "movement: hotato compare --before <bad-take.wav> --after "
-        "<new-take.wav> --onset <sec> --expect <yield|hold>"
+        "movement: hotato compare --before before.wav --after after.wav "
+        "--onset 42.18 --expect yield  (use --expect hold if a hold was right)"
     )
     cmds.append(
         "re-run the battery and re-diagnose: hotato run --suite barge-in "

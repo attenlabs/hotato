@@ -8,27 +8,28 @@ model over the same recording and hands back plain text with per-segment
 timestamps, so a human (or an agent) reading a report can see WHAT was said
 next to WHEN the timing engine says it was said.
 
-That is the entire feature. A transcript is **context**, attached to the
-output strictly after scoring is final. It is not an input to the score, it
-does not refine or cross-check the timing measurement, and it carries no
-accuracy claim.
+That is the entire feature. A transcript is attached as **context** beside
+the score, computed strictly after scoring is final. The timing score stays
+grounded in the audio: the transcript rides alongside it, never feeding back
+into it, and carries no accuracy claim of its own.
 
-## What this is not
+## What stays unchanged
 
-- **Not a change to the timing score.** `did_yield` / `talk_over_sec` /
-  `seconds_to_yield` / every other verdict and measurement field is computed
-  identically whether or not `--transcribe` is passed. Adding `--transcribe`
-  to a run produces byte-identical timing numbers to the same run without it
-  -- this is pinned by a test (`tests/test_transcribe.py`), not just asserted
-  in prose.
-- **Not a QA or semantic judgment.** Hotato does not grade what was said,
-  whether the agent understood the caller, or content quality; see "Not
-  transcript scoring" in the README. No WER, accuracy, or quality number is
-  claimed for the ASR model, here or anywhere in hotato.
-- **Not speaker identification.** The transcript is plain text with
-  timestamps; it does not attribute a segment to caller vs. agent. (Anonymous
-  speaker separation is a separate, unrelated extra -- see
-  [`docs/DIARIZE.md`](DIARIZE.md).)
+- **The timing score stays grounded in the audio.** `did_yield` /
+  `talk_over_sec` / `seconds_to_yield` / every other verdict and measurement
+  field is computed identically whether or not `--transcribe` is passed.
+  Adding `--transcribe` to a run produces byte-identical timing numbers to
+  the same run without it -- this is pinned by a test
+  (`tests/test_transcribe.py`), not just asserted in prose.
+- **Plain text, not a quality judgment.** The transcript hands back what was
+  said, not a grade on whether it was said well; see "Not transcript
+  scoring" in the README. What's reported for the ASR model is the plain
+  text and its timestamps -- not a WER, accuracy, or quality number, here or
+  anywhere in hotato.
+- **Timestamps only, no speaker attribution.** The transcript is plain text
+  with timestamps, with no caller/agent attribution -- anonymous speaker
+  separation lives in a separate, unrelated extra, see
+  [`docs/DIARIZE.md`](DIARIZE.md).
 
 ## Quickstart
 
@@ -40,8 +41,8 @@ pip install 'hotato[transcribe]'
 hotato run --stereo call.wav --transcribe --format json
 ```
 
-With the extra absent, `--transcribe` errors cleanly and exits `2`; it
-**never** falls back to skipping the transcript silently.
+With the extra absent, `--transcribe` always fails loud: a clean error, exit
+`2`, never a silent skip of the transcript.
 
 ## Usage
 
@@ -55,12 +56,12 @@ hotato run --mono call.wav --diarize --transcribe                            # a
 `--transcribe` needs a **single** audio file to run ASR over: `--stereo`, or
 `--mono` when scoring through the opt-in `--diarize` front-end (it transcribes
 the same mono file the diarizer separated). Two separate `--caller`/`--agent`
-files are not supported and raise a clean usage error naming `--stereo`
-instead of guessing which channel to transcribe or silently dropping one.
+files raise a clean usage error naming `--stereo`, a clear signal instead of a
+guess at which channel to transcribe, or a silent drop of one.
 
-The bundled self-test battery (`--suite` / `--scenarios`+`--audio`) does not
-support `--transcribe`; combining them is a clean usage error, not a silent
-no-op, so a CI script never mistakes "flag ignored" for "flag applied."
+Combining `--transcribe` with the bundled self-test battery (`--suite` /
+`--scenarios`+`--audio`) raises a clean usage error, not a silent no-op, so a
+CI script never mistakes "flag ignored" for "flag applied."
 
 ## Models and device
 
@@ -85,9 +86,10 @@ no-op, so a CI script never mistakes "flag ignored" for "flag applied."
 transcribe = ["faster-whisper>=1.0"]
 ```
 
-Unlike `[diarize]`, this extra does not raise the core's Python floor: the
-core stays `>=3.9`, and `faster-whisper`/CTranslate2 support that same range.
-There is also no gated model card to accept (see the egress note below).
+This extra keeps the core's Python floor at `>=3.9` (unlike `[diarize]`),
+since `faster-whisper`/CTranslate2 support that same range. Unlike the gated
+diarization model, there's no model card to accept here either (see the
+egress note below).
 
 ### Model licenses (log per FTO note)
 
@@ -98,22 +100,22 @@ claim, but the dependency licenses are logged here:
 - `CTranslate2` -- **MIT** (the inference runtime `faster-whisper` runs on)
 - Whisper model weights -- **MIT** (OpenAI)
 
-## The honesty invariant (never touches the score)
+## The invariant: context beside the score, grounded in the audio
 
 A transcript is computed strictly **after** the score is final, over the
-same audio the score already used, and is attached as a new top-level key on
-the envelope -- nothing already there is read or rewritten:
+same audio the score already used, and is attached as context on a new
+top-level key of the envelope -- nothing already there is read or rewritten:
 
 - `events`, `verdict`, `measurements`, and `signals` are the exact same
   values with or without `--transcribe`.
-- A transcript word boundary is not a voice-activity boundary; ASR word
-  timestamps are themselves a model estimate, not ground truth, and are
-  never substituted for the energy VAD's frame-level activity.
-- A missing/broken `[transcribe]` extra raises a clean, actionable error
-  (never a bare `ImportError`, never a silent skip, never a fallback to a
-  different backend) -- exactly like the `[neural]` and `[diarize]` seams.
-- `hotato.transcribe` is wired nowhere near the scorer: nothing in the
-  vendored `_engine` imports it, and nothing in `_engine` is imported by it.
+- The energy VAD's frame-level activity stays the ground truth for timing;
+  a transcript word boundary is a separate thing -- ASR word timestamps are
+  themselves a model estimate, read alongside it, never substituted in.
+- A missing/broken `[transcribe]` extra raises a clean, actionable error --
+  exactly like the `[neural]` and `[diarize]` seams: never a bare
+  `ImportError`, a silent skip, or a fallback to a different backend.
+- `hotato.transcribe` and the vendored `_engine` import nothing from each
+  other, keeping the transcript path fully separate from the scorer.
 
 ## JSON shape (agents)
 
@@ -141,11 +143,11 @@ run without `--transcribe`:
 }
 ```
 
-Branch on the presence of `transcript`; it is only ever present when
-`--transcribe` was passed and never changes the meaning of anything under
-`events`. On the diarized-mono path, `transcript` still attaches even when
-the diarization confidence gate refused or downgraded the verdict -- ASR does
-not depend on diarization succeeding.
+Branch on the presence of `transcript`: present only when `--transcribe` was
+passed, and additive only -- the meaning of everything under `events` stays
+the same. On the diarized-mono path, `transcript` still attaches even when
+the diarization confidence gate refused or downgraded the verdict; ASR runs
+independent of whether diarization succeeds.
 
 ## Egress
 

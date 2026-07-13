@@ -97,12 +97,12 @@ def load_all() -> Dict[str, dict]:
     except (OSError, ValueError) as exc:
         raise ValueError(
             f"{path!r} is not readable as JSON ({exc}). Fix or delete it, then "
-            "re-run `hotato connect <stack>`."
+            "re-run `hotato connect STACK`."
         ) from exc
     if not isinstance(data, dict):
         raise ValueError(
             f"{path!r} does not contain a JSON object of connections. Delete it "
-            "and re-run `hotato connect <stack>`."
+            "and re-run `hotato connect STACK`."
         )
     # Only keep well-formed {stack: {field: value}} entries; ignore stray keys
     # rather than trusting arbitrary structure from a hand-edited file.

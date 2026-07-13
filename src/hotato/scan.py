@@ -82,7 +82,8 @@ KINDS = ("overlap_while_agent_talking", "agent_start_during_caller",
 
 SCAN_NOTE = (
     "Candidates are timing events. You decide the expected behavior; label "
-    "with: hotato fixture create --onset <t> --expect yield|hold"
+    "with: hotato fixture create --onset 42.18 --expect yield  (use --expect "
+    "hold when the agent was right to keep talking)"
 )
 
 DEFAULT_TOP = 20

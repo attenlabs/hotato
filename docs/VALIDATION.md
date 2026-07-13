@@ -1,7 +1,6 @@
 # What Hotato validates
 
-Hotato does not report a single accuracy percentage, and it never will. A turn
-handoff is not one number. Instead, Hotato is validated on **three separate
+A turn handoff is not one number, so Hotato is validated on **three separate
 jobs**, each measured on its own terms, each with an explicit reported output.
 If you are judging whether to trust Hotato, judge these three jobs one at a time.
 
@@ -46,10 +45,10 @@ is the property a regression test needs: under a fixed hotato version and the
 same pinned audio, channel map, onset, label, and scoring config, a changed
 result means one of those pinned inputs changed, not that the scorer drifted.
 
-**What this job does NOT establish.** That 0.51s is the "true" yield latency in
-some absolute sense, or that the reference thresholds are right for your product.
-It establishes only that the measurement is stable and re-derivable by hand from
-[`METHODOLOGY.md`](../METHODOLOGY.md).
+**What this job establishes.** That the measurement is stable and re-derivable
+by hand from [`METHODOLOGY.md`](../METHODOLOGY.md) -- not that 0.51s is the
+"true" yield latency in some absolute sense, or that the reference thresholds
+are right for your product.
 
 ---
 
@@ -62,7 +61,7 @@ moments a human reviewer would want to look at, ranked by salience?
 facts only**: overlap onsets (caller became active while the agent was talking,
 with the overlap length and whether the agent went silent), agent starts during
 caller activity, and long response gaps. Each candidate is a timestamp and a
-measurement. It is **not** a verdict, and it does not label intent.
+measurement -- the timing fact, reported without a verdict or an intent label.
 
 ```text
 $ hotato scan --stereo 02-backchannel-mhm.example.wav --top 5
@@ -76,13 +75,13 @@ Candidates are timing events. You decide the expected behavior; label with: hota
 The usefulness bar is **recall of human-notable moments at a workable candidate
 count**, not precision against a ground-truth intent label (there is no such
 label at scan time, by design). A candidate that turns out to be a harmless
-backchannel is not a Hotato error: it is a candidate you label `hold` and move
-on. The validation artifact is the [trust gallery](TRUST-GALLERY.md), which
+backchannel is simply one you label `hold` and move on. The validation
+artifact is the [trust gallery](TRUST-GALLERY.md), which
 includes a deliberate false positive so you can see what an unhelpful candidate
 looks like and why Hotato still surfaces it.
 
-**What this job does NOT establish.** That every candidate is a real bug, or that
-a quiet region is guaranteed clean. Scan widens the net; you make the call.
+**What this job establishes.** Scan widens the net for you to make the call --
+not that every candidate is a bug, or that a quiet region is guaranteed clean.
 
 ---
 
@@ -121,37 +120,38 @@ hotato [suite] stack=generic offline=True
   exit_code=1
 ```
 
-Both labelled failures are caught, and the battery-level note refuses to name one
-threshold when a missed interruption and a false stop fail in the same run. That
-refusal is part of the validated behavior: Hotato reports the disagreement
-instead of inventing a fix.
+Both labelled failures are caught, and the battery-level note reports the
+disagreement plainly when a missed interruption and a false stop fail in the
+same run -- no single threshold satisfies both. Reporting that disagreement
+instead of inventing a fix is part of the validated behavior.
 
-**What this job does NOT establish.** That the label was correct (you own the
-label), or that a passing fixture means the agent is good in general. It
-establishes that the verdict follows the audio and the label consistently.
+**What this job establishes.** That the verdict follows the audio and the
+label consistently -- not that the label was correct (you own the label), or
+that a passing fixture means the agent is good in general.
 
 ---
 
-## What we do not claim
+## What Hotato measures, and where it stops
 
-Read this as a hard boundary, not a disclaimer.
+Read this as the scope of the claim, stated once, plainly.
 
-- **No semantic intent.** Hotato measures timing. It does not know whether a
-  caller sound meant "stop" or "mhm, go on." You supply that as a label.
-- **No root-cause certainty.** A slow yield can be TTS buffering, transport, or
-  VAD. `diagnose` names a likely layer and stays `unknown_root_cause` when one
-  recording cannot separate them. A voice trace (once the trace layer ships)
-  will narrow the candidates further; it will not convert a candidate into a
-  proof.
-- **No task success.** Whether the call booked the appointment, resolved the
-  ticket, or satisfied the caller is out of scope. Use a QA platform for that
-  (see [COMPARE.md](COMPARE.md)).
-- **No vendor ranking.** Hotato never scores one platform against another. A
-  provider-default example demonstrates the threshold funnel on one assistant,
-  one config, one date, one scripted caller. It is not a benchmark of the vendor.
-- **No human satisfaction or sentiment.** Hotato has no opinion on tone or CSAT.
-- **No single accuracy score.** There is no headline percentage anywhere in
-  Hotato, on purpose. The three jobs above are the whole claim.
+- **Timing, not semantic intent.** Hotato measures timing; whether a caller
+  sound meant "stop" or "mhm, go on" is a label you supply.
+- **A likely layer, not certainty.** A slow yield can be TTS buffering,
+  transport, or VAD. `diagnose` names a likely layer and stays
+  `unknown_root_cause` when one recording cannot separate them. A voice trace
+  (once the trace layer ships) narrows the candidates further, short of
+  turning one into a proof.
+- **Timing, not task success.** Whether the call booked the appointment,
+  resolved the ticket, or satisfied the caller is a QA platform's job (see
+  [COMPARE.md](COMPARE.md)).
+- **A demonstration, not a vendor ranking.** Hotato scores calls, not
+  platforms. A provider-default example demonstrates the threshold funnel on
+  one assistant, one config, one date, one scripted caller.
+- **Timing, not tone.** Sentiment, satisfaction, and CSAT sit outside what
+  Hotato measures.
+- **Reproducible timing measurements, with the method exposed.** The three
+  jobs above are the whole claim -- no headline percentage, by design.
 
 The validation plan for the launch battery (external testers, consented
 fixtures, before/after) lives in

@@ -12,7 +12,7 @@ and the label is what you are contributing.
 ## 1. Record dual-channel
 
 Caller on one channel, agent on the other, separated at capture: the two legs
-of a SIP bridge, or two streams that never mix. Real separation makes overlap
+of a SIP bridge, or two streams kept fully separate. This separation makes overlap
 a fact of the recording, exact to the sample. Save a WAV at the call's native
 sample rate (8000 Hz telephony, 16000 Hz wideband).
 
@@ -106,8 +106,8 @@ Two doors, one intake:
    clips. The corpus stays small and high-integrity; every clip earns its
    place.
 3. **Normalize.** Slug the `id`, align filenames, confirm the channel map and
-   declared sample rate. Timing is preserved exactly; audio is never edited
-   in a way that shifts a label.
+   declared sample rate. Timing is preserved exactly: any audio edit leaves
+   the label's timing untouched.
 4. **Add to a suite.** Register the clip so the benchmark harness scores it
    and reports millisecond error distributions and the yield confusion matrix
    ([`BENCHMARK.md`](BENCHMARK.md)).

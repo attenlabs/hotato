@@ -1,7 +1,7 @@
-# Connect, pull, sweep: score every real call across your stack
+# Connect, pull, sweep: score every call across your stack
 
 `hotato sweep` is the "connect once, see every turn-taking problem across all
-your real calls" flow. It has three steps you can also run on their own:
+your calls" flow. It has three steps you can also run on their own:
 
 1. **`hotato connect <stack>`**: store a stack's credentials once, locally.
 2. **`hotato pull`**: bulk-fetch your recent recordings into a folder.
@@ -9,8 +9,8 @@ your real calls" flow. It has three steps you can also run on their own:
    write one offline dashboard of the ranked turn-taking moments.
 
 Everything scores offline. The only network is the direct recording download
-from your vendor to your machine; your audio and your keys are never sent to
-Hotato.
+from your vendor to your machine; your audio and your keys stay between you
+and the vendor.
 
 ## 1. Connect once
 
@@ -20,7 +20,7 @@ hotato connect vapi --api-key <key>
 
 This does a lightweight live auth check (it lists one recent call), then writes
 the credentials to `~/.hotato/connections.json` with file mode `0600` (directory
-`0700`). The key is never printed and never leaves your machine except to the
+`0700`). The key stays out of any printed output and travels only to the
 vendor's own API. Credentials also fall back to the stack's environment variable,
 so this works too:
 
@@ -43,8 +43,8 @@ Per-stack credentials:
 
 Retell has no list endpoint to verify against, so `connect retell` stores the
 key and validates it on the first pull. Use `--no-verify` to skip the live check
-for any stack. LiveKit and Pipecat are capture-in-your-infra. There is no
-vendor recording to pull, so they are not connectable; use `hotato setup
+for any stack. LiveKit and Pipecat are capture-in-your-infra: there's no
+vendor recording to pull, so connect them via `hotato setup
 --stack livekit|pipecat` instead.
 
 After connecting, `--stack` and the credential flags are optional for `pull` and
@@ -61,11 +61,11 @@ hotato pull                                   # the only connected stack
 downloads each one by looping the same single-call fetch `hotato capture` uses,
 into `hotato-pull-<stack>/` (override with `--out DIR`). `--since` accepts `7d`,
 `12h`, `30m`, `2w`. A recording that cannot be fetched (missing URL, HTTP error,
-wrong channel count) is reported as a clean skip with its reason and the pull
-continues. One bad call never crashes the run.
+wrong channel count) is reported as a clean skip with its reason, and the pull
+keeps going through the rest.
 
 **Retell has no verified list endpoint.** Pull it from explicit ids instead
-(Hotato never fabricates an endpoint):
+(Hotato ships only verified endpoints):
 
 ```
 hotato pull --stack retell --call-id c1 --call-id c2
@@ -74,8 +74,8 @@ hotato pull --stack retell --call-id c1 --call-id c2
 For Twilio, `--call-id` values are Recording SIDs (`RE...`).
 
 **Mono / mixed stacks** (bland, elevenlabs, synthflow, millis, cartesia) produce
-a single combined recording with no per-party channel, so talk-over cannot be
-attributed. They require `--allow-mono` and are indicative only:
+a single combined recording with no per-party channel; attributing talk-over
+needs the `--allow-mono` opt-in, and results are indicative only:
 
 ```
 hotato pull --stack bland --allow-mono --limit 20
@@ -96,12 +96,11 @@ with the hear-the-bug audio player on the top moments. `--format json` emits the
 ranked candidates plus a pull summary instead.
 
 Dual-channel stacks give separated scoring. Mono/mixed stacks can be swept with
-`--allow-mono`, but their calls cannot be attributed per party and surface in the
+`--allow-mono`; lacking per-party separation, their calls surface in the
 dashboard's Skipped section.
 
 Candidates are MEASURED timing moments you review and label with `hotato fixture
-create`, never verdicts and never intent. There is no pass/fail, no failure
-count, and no accuracy number anywhere.
+create`: a timestamp and a number, not a verdict on intent.
 
 ## What is and isn't pullable
 

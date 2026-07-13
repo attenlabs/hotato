@@ -2,17 +2,17 @@
 
 `hotato card` turns a machine result into a self-contained SVG you can drop into
 a pull request, an issue, or a slide. One command, offline: the card names the
-measured timing moment and never a verdict about intent, and it carries no
-accuracy number anywhere.
+measured timing moment -- a reproducible measurement, not a verdict about
+intent.
 
 ```bash
 hotato card INPUT[#REF] --out card.svg
 ```
 
-Everything runs locally. The SVG is a pure function of the input JSON (no
-timestamp, no version, no randomness), so the same input renders the same bytes
-forever, and it references no font, image, stylesheet, script, or link: every
-color is inline. Drop it anywhere with no CDN and no asset host.
+Everything runs locally. The SVG is a pure function of the input JSON alone --
+the same input renders the same bytes forever -- with every color inlined and
+no font, image, stylesheet, script, or link to fetch. Drop it anywhere: it's
+fully self-contained, no CDN or asset host required.
 
 ## The four cards, auto-detected
 
@@ -52,10 +52,11 @@ hotato card hotato-sweep.json#1 --out false-stop.svg
 
 ### C. threshold funnel (the hero)
 
-The plan the both-axes case produces: the battery missed a real interruption
-**and** false-stopped on a backchannel, so no single sensitivity dial can satisfy
-both axes at once. The card states that Hotato refused threshold tuning and names
-the fix class (`engagement-control`). This is the card the project leads with.
+The plan the both-axes case produces: the battery missed an interruption
+**and** false-stopped on a backchannel, so satisfying both axes at once needs
+more than a single sensitivity dial. The card states that Hotato refused
+threshold tuning and names the fix class (`engagement-control`). This is the
+card the project leads with.
 
 ```bash
 hotato demo --format json > demo.json
@@ -70,13 +71,12 @@ a clean exit-2 usage error (it is not one of the four kinds).
 
 A supported `hotato verify` before/after rollup where at least one previously-failing
 fixture now passes and no hold/backchannel fixture regressed. This is paired
-evidence, not a claim about the current agent standing alone -- the card
+evidence tied to that specific before/after pair -- the card
 reads "PAIRED FRESH-RECAPTURE IMPROVED" only when the recapture is runner-
 attested and "PAIRED (OPERATOR-ASSERTED)" otherwise, never "verified" or "fix verified", and
 closes with "Hotato reports coincidence, not causation." A verify result that
-does not support that claim (too few previously-failing fixtures, nothing now
-passing, or a regressed hold fixture) is refused with exit 2 rather than
-stamped as an improvement.
+doesn't support that claim (too few previously-failing fixtures, nothing now
+passing, or a regressed hold fixture) is refused with exit 2.
 
 ```bash
 hotato card verify.json --out comparison.svg

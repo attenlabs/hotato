@@ -1,29 +1,28 @@
 # Failure contracts
 
-A failure contract turns ONE real call moment into a portable, private,
+A failure contract turns ONE call moment into a portable, private,
 vendor-neutral bundle: the audio, frame-level timing evidence, an
 input-health report, a shareable card, a CI pass/fail policy, and the exact
 commands to replay and re-verify it. It is the CI object: `hotato contract
 verify` re-scores a directory of contracts and exits non-zero when one
 regresses.
 
-Hotato does not infer intent. A contract's label is always a human call
-(`label_source` is frozen to `"human"`); Hotato measures whether the recorded
-timing matched that label, and `contract verify` re-measures the SAME
-recording later and reports pass/fail.
+A contract's label always comes from a human call (`label_source` is frozen
+to `"human"`); Hotato measures whether the recorded timing matched that
+label, and `contract verify` re-measures the SAME recording later and
+reports pass/fail.
 
 > **A contract bundle contains call audio (`audio/event.wav`).** Do not
 > commit a raw customer contract to a public repository -- treat it like any
-> other recording of a real caller. Use sanitized fixtures (synthetic or
-> consent-cleared) for anything public, and put real-customer contracts in
+> other recording of a caller. Use sanitized fixtures (synthetic or
+> consent-cleared) for anything public, and put customer contracts in
 > a private repository or controlled artifact storage instead.
 > `--include-identifiers` additionally writes a source basename and
 > candidate ref into `contract.json` and the card; leave it off by default
-> for the same reason. That redaction hides metadata, not spoken content --
-> the full audio-handling rules (what raw audio may contain, why redaction
-> does not remove it, and the audio-free evidence summary to prefer when
-> you need to share proof without the recording) are in
-> [`SECURITY.md`](../SECURITY.md#audio-handling).
+> for the same reason. That redaction covers metadata only -- the full
+> audio-handling rules (what raw audio may contain, the limits of redaction,
+> and the audio-free evidence summary for sharing proof minus the recording)
+> are in [`SECURITY.md`](../SECURITY.md#audio-handling).
 
 ## Two lanes: what `verify` proves depends on which recording you feed it
 
@@ -39,10 +38,10 @@ stayed fixed: it can only fail if someone edits the bundle's audio or policy,
 because the recording never changes. Proving the CURRENT agent still yields
 correctly requires re-running the same caller stimulus against it and
 re-verifying the fresh capture, by hand, per
-[`docs/RECAPTURE.md`](RECAPTURE.md). The two lanes are complementary, not
-interchangeable: run the frozen-recording gate on every push to catch
-evidence/policy drift for free, and recapture periodically (or after an agent
-change) to catch the thing the frozen gate structurally cannot.
+[`docs/RECAPTURE.md`](RECAPTURE.md). The two lanes are complementary: run the
+frozen-recording gate on every push to catch evidence/policy drift for free,
+and recapture periodically (or after an agent change) to catch what only a
+fresh capture can.
 
 ## The bundle
 
@@ -119,15 +118,15 @@ hotato contract create --mono call.wav --diarize \
     --expect yield --id refund-cutoff-002 --out contracts
 ```
 
-This NEVER silently upgrades an indicative-only verdict: a `low`-confidence
-separation tier carries `measurement.indicative_only: true` all the way into
-`contract.json` and every renderer, and a `refuse` tier (not two clean
-parties, extreme overlap, unstable segmentation, voices too similar) is
-refused exactly like a plain mono file, with the specific reason. Frame-level
-evidence (`evidence/frames.jsonl`, the to-scale timeline) is not produced for
-this path in this release; `evidence/timeline.html` says so plainly instead
-of fabricating one, and points at `evidence/trust.json`'s separation
-confidence tier.
+This keeps an indicative-only verdict in its tier: a `low`-confidence separation
+tier carries `measurement.indicative_only: true` all the way into
+`contract.json` and every renderer, and a `refuse`
+tier (not two clean parties, extreme overlap, unstable segmentation, voices
+too similar) is refused exactly like a plain mono file, with the specific
+reason. Frame-level evidence (`evidence/frames.jsonl`, the to-scale timeline)
+isn't produced for this path in this release; `evidence/timeline.html` states
+that plainly and points at `evidence/trust.json`'s separation confidence
+tier.
 
 ## Verify
 
@@ -154,10 +153,10 @@ push, on PR, and weekly, and publishes the JUnit file as an artifact.
 
 Every text and HTML render of `verify` also prints, verbatim: *"This result
 re-measures stored evidence. It does not test the current agent."* -- a
-green CI run here means the evidence, policy, and scorer are still intact,
-not that today's deployed agent was re-checked. See
-[`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-honestly-say)
-for what each kind of evidence does and does not let you claim.
+green CI run here means the evidence, policy, and scorer are still intact;
+re-checking today's deployed agent needs the fresh-recapture lane above. See
+[`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-accurately-say)
+for exactly what each kind of evidence lets you claim.
 
 ### Embedded assertions (optional)
 
@@ -165,14 +164,14 @@ A contract can carry its own `assertions` block (schema `hotato.contract.v1`
 -- see `schema/contract.v1.json`), the same `{version, assertions}` document
 `hotato assert` reads from an `assertions.yaml` file. When one is present,
 `contract verify` evaluates it through the SAME `assert.v1` engine and reports
-the result as a per-contract `assertions` field -- a SEPARATE dimension from
-the timing pass/fail above it, never blended into `summary`/`passed`. Pass
+the result as a per-contract `assertions` field, a dimension kept separate
+from the timing pass/fail in `summary`/`passed`. Pass
 `--transcript FILE` (a plain JSON array of `{role, text, start, end}` turns,
 or hotato's own `{"segments": [...]}` shape) to supply transcript context for
 `phrase`/`pii`/`policy` assertions; `tool_call` assertions read the bundle's
 own attached trace (`hotato trace attach`) if one exists. Missing context
-(no `--transcript`, no attached trace) reports `INCONCLUSIVE`, never a
-fabricated FAIL. A deterministic assertion FAIL contributes to the batch's
+(no `--transcript`, no attached trace) reports `INCONCLUSIVE`. A deterministic
+assertion FAIL contributes to the batch's
 nonzero exit code exactly like a timing regression; the batch result also
 carries a separate `assertions_failed` count. See
 [`schema/assert.v1.json`](../src/hotato/schema/assert.v1.json) for the result
@@ -211,9 +210,9 @@ Windows in CI, not yet green -- see [VALIDATION.md](VALIDATION.md) Job 1.
 ### Security: unpack treats an archive as hostile input
 
 A `.hotato` archive is meant to be sent between teams, so `contract unpack`
-never trusts it. Before or during extraction it refuses (exit 2), with
-nothing written outside a scratch temp directory that is removed on any
-failure:
+verifies everything about it before trusting a single byte. Before or during
+extraction it refuses (exit 2) on any of the following, writing only inside a
+scratch temp directory that's removed on any failure:
 
 * path traversal (`..`), absolute paths, and Windows-style backslash /
   drive-letter paths (`C:\...`) in a member name;
@@ -221,12 +220,12 @@ failure:
 * duplicate member names;
 * any member the archive carries that its own `MANIFEST.sha256.json` does
   not declare;
-* more members than a real bundle could plausibly need;
-* a declared or ACTUAL decompressed size past the cap (default 512 MiB, set
+* more members than a legitimate bundle could plausibly need;
+* a declared or measured decompressed size past the cap (default 512 MiB, set
   `HOTATO_CONTRACT_MAX_UNPACK_BYTES` or pass `--max-bytes` to raise it for a
-  trusted archive) -- checked against the real bytes streamed out during
-  extraction, not just the archive's own (untrusted) size metadata;
-* a single member whose compression ratio is far beyond anything a real
+  trusted archive) -- checked against the bytes measured live during
+  extraction, beyond what the archive's own (untrusted) size metadata claims;
+* a single member whose compression ratio is far beyond anything a legitimate
   bundle member produces (a zip-bomb signal), even if it is well under the
   total-bytes cap.
 
@@ -245,12 +244,12 @@ uvx hotato contract verify contracts/ --junit contracts-junit.xml --format json 
 Gate a pull request or a scheduled job on the process exit code; do not parse
 stdout to decide pass or fail.
 
-## What a contract does not prove
+## What a contract proves, precisely
 
-Hotato does not prove authorization, identity, compliance, or policy safety.
-Hotato proves timing behavior against this explicit contract. `verify`
-reports coincidence, not causation: a passing re-verify after a config change
-coincides with the change; it is not a controlled experiment. See
+Hotato proves timing behavior against this explicit contract -- not
+authorization, identity, compliance, or policy safety. `verify` reports
+coincidence, not causation: a passing re-verify after a config change
+coincides with the change, distinct from a controlled experiment. See
 `docs/VALIDATION.md` and `docs/THREAT-MODEL.md`.
 
 ## Read more

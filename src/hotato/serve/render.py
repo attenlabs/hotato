@@ -129,6 +129,12 @@ form.filters button{background:%(ember)s;color:#15110d;border:none;border-radius
  color:%(muted)s;word-break:break-all}
 .dg a{color:%(agent)s}
 .origin.real{color:%(caller)s}.origin.simulated{color:%(agent)s}
+/* origin badge: inline-block so the padded pill always wraps its label (no clip),
+   real and simulated carry distinct track colours and always dark, legible text */
+.cvchip{display:inline-block;line-height:1.5;vertical-align:1px;white-space:nowrap;
+ color:#15110d;font-weight:800;margin-left:6px}
+.cvchip.origin.real,.cvchip.origin.simulated,.cvchip.origin.muted{color:#15110d}
+section.card.conversation .cvorigin{display:flex;align-items:center;gap:2px}
 a.drill{color:%(agent)s;text-decoration:none}a.drill:hover{text-decoration:underline}
 """) % _C
 
@@ -152,7 +158,7 @@ def _status_chip(status: Optional[str]) -> str:
     """A semantic PASS/FAIL/INCONCLUSIVE chip in the report palette; a muted dash
     when a dimension carries no evaluation (honest 'no data', not a fake pass)."""
     if not status:
-        return '<span class="dash">—</span>'
+        return '<span class="dash">-</span>'
     color = _C.get(_STATUS_COLOR.get(status, "muted"), _C["muted"])
     return f'<span class="chip small" style="background:{color}">{_esc(status)}</span>'
 
@@ -160,6 +166,17 @@ def _status_chip(status: Optional[str]) -> str:
 def _dot(status: Optional[str]) -> str:
     color = _C.get(_STATUS_COLOR.get(status or "", "muted"), _C["muted"])
     return f'<span class="dot" style="background:{color}"></span>'
+
+
+def _origin_bg(origin: Optional[str]) -> str:
+    """Badge background for a conversation origin. Real uses the human-track
+    colour, simulated the machine-track colour, so the two never read as one
+    bucket; anything unspecified stays muted. Text on all three is dark."""
+    if origin == "real":
+        return _C["caller"]
+    if origin == "simulated":
+        return _C["agent"]
+    return _C["muted"]
 
 
 def _dim_row(per_dim: dict) -> str:
@@ -172,12 +189,12 @@ def _dim_row(per_dim: dict) -> str:
 
 
 def _pct(x: Optional[float]) -> str:
-    return "—" if x is None else f"{x * 100:.0f}%"
+    return "-" if x is None else f"{x * 100:.0f}%"
 
 
 def _reliability_cell(rel: Optional[dict]) -> str:
     if not rel or rel.get("reps", 0) == 0:
-        return '<span class="dash">—</span>'
+        return '<span class="dash">-</span>'
     reps = rel["reps"]
     scored = rel.get("scored", 0)
     passed = rel.get("passed", 0)
@@ -244,7 +261,7 @@ def _footer() -> str:
         'append-only audit log.</div>'
         '<div class="fline" style="color:%s">No telemetry, no external calls. '
         'Evidence (audio, traces, evaluations) stays on this machine. Every '
-        'dimension is scored separately &mdash; there is no combined number.</div>'
+        'dimension is scored separately; there is no combined number.</div>'
         '</div>' % _C["muted"]
     )
 
@@ -340,7 +357,7 @@ def render_release_readiness(m: dict) -> str:
         prev = m.get("previous_release") or {}
         parts.append('<div class="cldim" style="margin-bottom:8px">baseline: '
                      f'<span class="mono">{_esc(prev.get("release_id"))}</span> '
-                     '&mdash; compared per (scenario, dimension).</div>')
+                     '&middot; compared per (scenario, dimension).</div>')
         parts.append(_change_list("New failures (regressions)", m["new_failures"], "FAIL"))
         parts.append(_change_list("Fixed since previous", m["fixed"], "PASS"))
     parts.append('</section>')
@@ -413,8 +430,8 @@ def render_scenario_matrix(m: dict) -> str:
     for row in m["rows"]:
         cur = row["current"]
         prev = row["previous"]
-        prev_agg = _status_chip(prev["aggregate"]) if prev.get("release_id") else '<span class="dash">—</span>'
-        agents = ", ".join(_esc(a) for a in cur.get("agents") or []) or '<span class="dash">—</span>'
+        prev_agg = _status_chip(prev["aggregate"]) if prev.get("release_id") else '<span class="dash">-</span>'
+        agents = ", ".join(_esc(a) for a in cur.get("agents") or []) or '<span class="dash">-</span>'
         goal = f'<div class="cldim">{_esc(row.get("goal"))}</div>' if row.get("goal") else ""
         parts.append(
             f'<tr><td class="mono">{_esc(row["scenario_id"])}{goal}</td>'
@@ -439,7 +456,7 @@ def _opt(value: str, current: Optional[str]) -> str:
 def render_conversation_inspector(m: dict) -> str:
     conv = m["conversation"]
     parts = [f'<h2 class="vh">Conversation <span class="mono">{_esc(conv["conversation_id"])}</span></h2>',
-             '<p class="vsub">One conversation &mdash; its evidence manifest, '
+             '<p class="vsub">One conversation: its evidence manifest, '
              'transcript, trace, per-dimension evaluations and reviewer decisions. '
              'Every verdict links back to its source artifact.</p>']
 
@@ -448,7 +465,7 @@ def render_conversation_inspector(m: dict) -> str:
     parts.append('<section class="card conversation">')
     parts.append(f'<div class="cvorigin">origin '
                  f'<span class="cvchip origin {_esc(ocls)}" '
-                 f'style="background:{_C.get(ocls, _C["muted"])}">{_esc(origin)}</span></div>')
+                 f'style="background:{_origin_bg(origin)}">{_esc(origin)}</span></div>')
     # lineage + digests (drill-to-evidence targets)
     parts.append('<table class="cvtab"><tbody>')
     parts.append(_cvrow("agent", conv.get("agent_id")))
@@ -489,7 +506,7 @@ def render_conversation_inspector(m: dict) -> str:
     elif ev == "unresolved":
         parts.append('<div class="notice">A conversation artifact digest is '
                      'bound to this row, but the artifact is not present in this '
-                     'workspace\'s store &mdash; transcript and trace cannot be '
+                     'workspace\'s store, so transcript and trace cannot be '
                      'shown. (Evidence is refused, never fabricated.)</div>')
     else:
         parts.append('<div class="cldim">No conversation artifact is bound to '
@@ -586,7 +603,7 @@ def _eval_card(e: dict) -> str:
         items = "".join(
             f'<li><span class="mono">{_esc(r.get("reviewer"))}</span>: '
             f'{_esc(r.get("decision"))}'
-            + (f' &mdash; {_esc(r.get("rationale"))}' if r.get("rationale") else "")
+            + (f' &middot; {_esc(r.get("rationale"))}' if r.get("rationale") else "")
             + f' <span class="cldim">[{_esc(r.get("adjudication_state") or "review")}]</span></li>'
             for r in reviews)
         rv = f'<ul class="members">{items}</ul>'
@@ -811,7 +828,7 @@ def _cluster_member(mem: dict) -> str:
     if mem.get("evaluation_id"):
         extra.append('eval <span class="mono">%s</span>' % _esc(mem["evaluation_id"]))
     if mem.get("reason"):
-        extra.append('&mdash; %s' % _esc(mem["reason"]))
+        extra.append('&middot; %s' % _esc(mem["reason"]))
     tail = (" &middot; " + " ".join(extra)) if extra else ""
     return f'<li>{link}{tail}</li>'
 
@@ -823,7 +840,7 @@ def _cluster_member(mem: dict) -> str:
 def render_production_health(m: dict) -> str:
     parts = ['<h2 class="vh">Production health</h2>',
              '<p class="vsub">Ingest volume, evaluated coverage, and per-dimension '
-             'failure rate over time &mdash; real and simulated kept strictly '
+             'failure rate over time; real and simulated kept strictly '
              'apart, no combined number.</p>']
 
     parts.append('<section class="card"><div class="grid">')
@@ -844,7 +861,7 @@ def render_production_health(m: dict) -> str:
         parts.append('<section class="card">')
         parts.append(f'<div class="cvorigin">origin '
                      f'<span class="cvchip origin {_esc(cls)}" '
-                     f'style="background:{_C.get(cls, _C["muted"])}">{_esc(origin)}</span></div>')
+                     f'style="background:{_origin_bg(origin)}">{_esc(origin)}</span></div>')
         parts.append('<div class="grid" style="margin-top:8px">')
         parts.append(_kv("ingested", str(stats["ingested"])))
         parts.append(_kv("evaluated", str(stats["evaluated"])))
@@ -879,7 +896,7 @@ def render_production_health(m: dict) -> str:
                      '<div class="dimrow">')
         for mk in m["release_markers"]:
             parts.append(f'<span class="dimtag"><span class="rel">{_esc(mk["release_id"])}</span> '
-                         f'<span class="mono">{_esc(mk.get("day") or "—")}</span></span>')
+                         f'<span class="mono">{_esc(mk.get("day") or "-")}</span></span>')
         parts.append('</div></section>')
     return "".join(parts)
 
@@ -892,18 +909,81 @@ def render_404(what: str) -> str:
     return (f'<h2 class="vh">Not found</h2><div class="notice">{_esc(what)}</div>')
 
 
-def render_401_html() -> str:
-    """A minimal unauthenticated page (no house chrome needed): tells the user to
-    open the tokenised URL that was printed on server start."""
+_GATE_CSS = ("""
+.gate{max-width:560px;margin:0 auto}
+.gate .brand{display:flex;align-items:center;gap:12px;margin:8vh 0 22px}
+.gate .mark{width:36px;height:36px;border-radius:11px;background:%(ember)s;flex:none;
+ box-shadow:0 6px 18px -8px %(ember)s}
+.gate h1{font-size:23px;font-weight:700;margin:0;letter-spacing:-0.01em}
+.gate .lede{color:%(cream)s;font-size:14.5px;margin:0 0 22px;line-height:1.6}
+.gate ol{margin:0 0 20px;padding-left:20px;line-height:1.75;font-size:14px;color:%(cream)s}
+.gate ol li{margin:0 0 4px}
+.gate code{color:%(ember)s;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+ font-size:13px}
+.gate .urlbox{background:%(card2)s;border:1px solid %(line)s;border-left:3px solid %(ember)s;
+ border-radius:10px;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+ font-size:13px;color:%(cream)s;word-break:break-all;margin:0 0 22px}
+.gate .note{color:%(muted)s;font-size:12.5px;border-top:1px solid %(line)s;padding-top:16px;
+ line-height:1.65}
+""") % _C
+
+
+def _standalone_page(title: str, inner: str) -> str:
+    """A self-contained, unauthenticated page in the workspace house style (warm
+    charcoal ground, ember mark). It shares no workspace data and never shows the
+    token; used for the courtesy landing page and the access-token notice."""
+    css = _REPORT_CSS + _GATE_CSS
     return (
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-        "<title>401 · hotato workspace</title>"
-        f"<style>body{{background:{_C['bg']};color:{_C['cream']};"
-        "font-family:ui-sans-serif,system-ui,sans-serif;max-width:560px;"
-        "margin:12vh auto;padding:0 20px;line-height:1.55}"
-        f"code{{color:{_C['ember']}}}</style></head><body>"
-        "<h1>Authentication required</h1>"
-        "<p>This hotato workspace requires a bearer token. Open the "
-        "<code>/?token=…</code> URL printed when the server started, or send "
-        "<code>Authorization: Bearer &lt;token&gt;</code>.</p></body></html>"
+        "<!doctype html>\n<html lang=\"en\"><head>"
+        "<meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<meta name=\"referrer\" content=\"no-referrer\">"
+        f"<title>{_esc(title)} · hotato workspace</title>"
+        f"<style>{css}</style></head><body><div class=\"wrap\">"
+        f"<div class=\"gate\">{inner}</div></div></body></html>"
     )
+
+
+def render_landing_html(*, workspace: str, host_display: str = "") -> str:
+    """The courtesy home page shown when the workspace root is opened without a
+    token. It welcomes the user, explains this is their local read-only workspace,
+    and shows exactly how to get in. It reveals no token and no workspace data."""
+    ws = _esc(workspace)
+    host = _esc(host_display or "127.0.0.1:8321")
+    inner = (
+        '<div class="brand"><div class="mark"></div>'
+        '<h1>hotato workspace</h1></div>'
+        f'<p class="lede">This is your local workspace for <b>{ws}</b>. It runs on '
+        'this machine and is read-only. Open it with the access link that hotato '
+        'printed in your terminal.</p>'
+        '<ol>'
+        '<li>Switch to the terminal where you ran <code>hotato serve</code>.</li>'
+        '<li>Open the link it printed (it looks like the one below), or click it.</li>'
+        '<li>Closed that terminal? Run <code>hotato serve</code> again to reprint '
+        'the link.</li>'
+        '</ol>'
+        f'<div class="urlbox">http://{host}/?token=…</div>'
+        '<div class="note">The access token stays in your terminal and is never '
+        'shown on this page. Nothing leaves this machine: the workspace is served '
+        'locally, read-only, with no telemetry and no external calls.</div>'
+    )
+    return _standalone_page("Local workspace", inner)
+
+
+def render_401_html(*, host_display: str = "") -> str:
+    """The access-token notice returned for a token-gated path opened without a
+    valid token (HTML clients). It points the user to the workspace home for
+    step-by-step access and to the bearer header for API clients."""
+    host = _esc(host_display or "127.0.0.1:8321")
+    inner = (
+        '<div class="brand"><div class="mark"></div>'
+        '<h1>Access token needed</h1></div>'
+        '<p class="lede">This view needs the workspace access token. Open the '
+        'workspace home for step-by-step access, or send the token as a bearer '
+        'header from an API client.</p>'
+        f'<div class="urlbox">http://{host}/</div>'
+        '<div class="note">Open <code>/</code> to see how to get in, or send '
+        '<code>Authorization: Bearer &lt;token&gt;</code>. The workspace is local '
+        'and read-only.</div>'
+    )
+    return _standalone_page("Access token needed", inner)

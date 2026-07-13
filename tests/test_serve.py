@@ -258,18 +258,64 @@ def test_cli_serve_default_host_is_loopback():
     assert args.workspace == "default"
 
 
+def test_cli_serve_no_open_flag():
+    from hotato.cli import build_parser
+    assert build_parser().parse_args(["serve"]).no_open is False
+    assert build_parser().parse_args(["serve", "--no-open"]).no_open is True
+
+
+def test_browser_open_respects_disable_signals(monkeypatch):
+    # the browser is never dispatched when disabled by --no-open, or when the
+    # environment says not to (CI / $HOTATO_NO_BROWSER); webbrowser.open is not
+    # even reached, so CI and the test suite never spawn a browser.
+    import hotato.serve.app as app_mod
+    from hotato.serve.app import _maybe_open_browser
+    calls = []
+    monkeypatch.setattr(app_mod.webbrowser, "open",
+                        lambda *a, **k: calls.append(a) or True)
+
+    assert _maybe_open_browser("http://x/?token=t", enabled=False) is False
+    monkeypatch.setenv("HOTATO_NO_BROWSER", "1")
+    assert _maybe_open_browser("http://x/?token=t", enabled=True) is False
+    monkeypatch.delenv("HOTATO_NO_BROWSER", raising=False)
+    monkeypatch.setenv("CI", "true")
+    assert _maybe_open_browser("http://x/?token=t", enabled=True) is False
+    assert calls == []
+
+
 # =========================================================================
 # auth
 # =========================================================================
 
 def test_unauthenticated_is_401_and_not_routed(live):
-    for path in _VIEWS + ["/conversation/conv-a1"]:
+    # every data/view path stays token-gated (the courtesy landing at "/" is the
+    # ONLY unauthenticated 200 and is covered by test_root_without_token_*). The
+    # root JSON mirror is included to prove data at "/" is still gated.
+    gated = ["/scenarios", "/clusters", "/health", "/conversation/conv-a1",
+             "/?format=json"]
+    for path in gated:
         code, body, headers = _req(live.base, path)
         assert code == 401, path
         assert "bearer" in headers.get("WWW-Authenticate", "").lower()
         # the 401 body is the auth page, never workspace content
         assert "Release readiness" not in body
         assert "conv-a1" not in body
+
+
+def test_root_without_token_is_friendly_landing(live):
+    # opening the workspace HOME in a browser without a token returns a clean 200
+    # landing page (not a bare 401), with NO workspace data and NO token in it.
+    code, body, headers = _req(live.base, "/")
+    assert code == 200
+    assert "text/html" in headers.get("Content-Type", "")
+    assert "hotato workspace" in body
+    assert "hotato serve" in body               # tells the user how to get in
+    assert "Release readiness" not in body      # shares no workspace data
+    assert "cancel-after-cutoff" not in body
+    assert live.token not in body               # never reveals the token
+    # the machine mirror at the root is still token-gated
+    code_json, _b, _h = _req(live.base, "/?format=json")
+    assert code_json == 401
 
 
 def test_wrong_token_is_401(live):
@@ -473,7 +519,9 @@ def test_audit_log_records_authenticated_requests(live):
 
 
 def test_audit_log_records_unauthenticated_denials(live):
-    _c, _b, _h = _req(live.base, "/")
+    # a token-gated path without a token is a 401 and is audited; "/" would be the
+    # courtesy landing (200), so exercise a data path here.
+    _c, _b, _h = _req(live.base, "/health")
     time.sleep(0.05)
     with open(live.audit_path, "r", encoding="utf-8") as fh:
         lines = [json.loads(x) for x in fh if x.strip()]

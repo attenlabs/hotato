@@ -1053,7 +1053,7 @@ def capture(stack: str, **kwargs) -> str:
     raise ValueError(
         f"stack {stack!r} has no direct fetch. Run `hotato setup --stack {stack}` "
         "for the recording scaffold, then score the resulting WAV with "
-        "`hotato capture --stack {stack} --stereo <file>`."
+        "`hotato capture --stack {stack} --stereo FILE`."
     )
 
 
@@ -1084,8 +1084,7 @@ cannot attribute overlap, so use TWO audio-only Track egresses (one per party).
 
     # Convert to PCM WAV (the scorer reads WAV) and score the two mono tracks:
     #   ffmpeg -i caller.ogg caller.wav ; ffmpeg -i agent.ogg agent.wav
-    #   hotato capture --stack livekit --caller caller.wav --agent agent.wav \\
-    #                  --onset <sec> --expect yield
+    #   hotato capture --stack livekit --caller caller.wav --agent agent.wav --onset 42.18 --expect yield
 
 What you are testing (current Agents API, verified docs.livekit.io/agents/logic/
 turns/, 2026-07-06): turn taking is configured on
@@ -1161,8 +1160,8 @@ need the call id + your private API key. Near-zero friction: no SDK, no export s
        customer on channel 0 and assistant on channel 1).
     2. After the call ENDS, grab its call id (dashboard, or the end-of-call webhook).
     3. Score it:
-         export VAPI_API_KEY=<your private key>
-         hotato capture --stack vapi --call-id <call-id> --expect yield
+         export VAPI_API_KEY=YOUR_API_KEY
+         hotato capture --stack vapi --call-id CALL_ID --expect yield
 
 Under the hood: GET https://api.vapi.ai/call/<id> -> artifact.recording.stereoUrl
 (a 2-channel WAV; the current field since Vapi's 2025-04-29 API update, with
@@ -1206,8 +1205,8 @@ plus your API key. No SDK, no export step.
        recordings on the call object after the call ends.
     2. Grab the call id (dashboard, or the call webhook payload).
     3. Score it:
-         export RETELL_API_KEY=<your api key>
-         hotato capture --stack retell --call-id <call-id> --expect yield
+         export RETELL_API_KEY=YOUR_API_KEY
+         hotato capture --stack retell --call-id CALL_ID --expect yield
 
 Under the hood: GET https://api.retellai.com/v2/get-call/<call-id> (Bearer auth)
 -> scrubbed_recording_multi_channel_url (PII scrubbed, preferred) or
@@ -1776,8 +1775,8 @@ def list_calls(stack, creds, *, since=None, limit=50):
             raise ValueError(
                 "Retell has no verified list-calls endpoint (the integration "
                 "spec marks it unconfirmed), so Hotato will not guess one. Pull "
-                "explicit ids instead: hotato pull --stack retell --call-id <id> "
-                "[--call-id <id> ...]."
+                "explicit ids instead: hotato pull --stack retell --call-id CALL_ID "
+                "(repeat --call-id for more)."
             )
         if stack in ("livekit", "pipecat"):
             raise ValueError(

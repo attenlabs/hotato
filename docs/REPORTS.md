@@ -1,8 +1,7 @@
 # Reports: doctor, report, team, export
 
-Four surfaces over the same scorer. Every number in every one of them is a
-measurement from the envelope; nothing is recomputed, restyled into a
-percentage, or fabricated. There is no accuracy percentage anywhere.
+Four surfaces over the same scorer: reproducible timing measurements read
+straight from the envelope, with the method exposed at every layer.
 
 ## `hotato doctor`: the 5-minute path
 
@@ -16,14 +15,14 @@ uvx hotato doctor                       # self-test fallback, same flow
 uvx hotato doctor --demo --no-open --out report.html
 ```
 
-It is a convenience wrapper over the existing scorer and report. Nothing new is
-claimed, and everything runs offline. Exit codes match `run`: `0` all pass,
-`1` a regression (`--no-fail` forces `0`), `2` usage or IO error, or a
-recording that is not scorable. Not scorable means the recording cannot answer
-the question (the caller channel is silent, or the agent was not talking when
-the caller started), so no verdict is given.
+It wraps the existing scorer and report, and everything runs offline. Exit
+codes match `run`: `0` all pass, `1` a regression (`--no-fail` forces `0`),
+`2` usage or IO error, or a recording that is not scorable. Not scorable
+means the recording lacks a moment to measure (the caller channel is silent,
+or the agent was not talking when the caller started), reported plainly
+instead of a verdict.
 
-**A real recording gets its audio embedded in the report by default.**
+**Your own recording gets its audio embedded in the report by default.**
 Scoring a call with `--stereo` / `--caller`+`--agent` writes the exact scored
 audio into the HTML file as a base64 data URI, so hearing the moment next to
 its timeline works offline. The bundled self-test fallback stays unembedded.
@@ -45,14 +44,14 @@ uvx hotato report --stereo call.wav --embed-audio --out report.html  # opt-in: e
 `--embed-audio` embeds the exact scored audio (base64, under a size cap) so
 the report is a fully self-contained, hearable artifact -- and, for the same
 reason, a shareable-HTML caution applies: a report built with `--embed-audio`
-(or `hotato doctor` on a real recording, which sets it by default) carries
-the call audio inside the HTML file. Do not post it somewhere public, or
-attach it to a public issue/PR, without the same care you would give the raw
-recording.
+(or `hotato doctor` on your own recording, which sets it by default) carries
+the call audio inside the HTML file. Give it the same care as the raw
+recording before posting it somewhere public or attaching it to a public
+issue/PR.
 
 Per event it draws a to-scale caller/agent activity timeline from the
 frame data: the overlap shaded, the caller-onset and yield markers, the
-measured talk-over seconds, expected vs actual, and a PASS or FAIL chip.
+measured talk-over seconds, expected vs measured, and a PASS or FAIL chip.
 
 After the per-event cards, once the page has at least three of them, sits an
 analytics rollup computed from the same measurements (a page with fewer
@@ -86,17 +85,18 @@ The report grows one collapsed, clearly-labelled "Trace (context, not a
 score)" section: the trace's discrete voice-pipeline events -- TTS
 cancel/stop, ASR partials, tool calls -- as a mono span table (type, name,
 start, end, detail). Exactly like `--base` and an attached `assert.v1`
-envelope, the report never **evaluates** or scores a trace; it renders the
-already-produced artifact as data. The section is context only: it never
-touches `did_yield`, `talk_over_sec`, `seconds_to_yield`, or the PASS/FAIL
-verdict, and it is folded into the machine envelope as an additive top-level
-`trace_context` key. A report built without `--trace` is byte-identical to one
-built before the flag existed.
+envelope, the report renders the already-produced trace artifact as data,
+context alongside the score. The section stays scoped to context: `did_yield`,
+`talk_over_sec`, `seconds_to_yield`, and the PASS/FAIL verdict come from the
+scorer alone, and the trace is folded into the machine envelope as an
+additive top-level `trace_context` key. A report built without `--trace` is
+byte-identical to one built before the flag existed.
 
 Redaction is respected: a span carrying `text_redacted: true` (e.g. an
 `asr_partial` ingested without `--include-text`) shows a `[redacted]`
-placeholder, never its text -- so a report shared outside the fleet leaks no
-spoken content the trace itself already withheld. The same `trace=` parameter
+placeholder in place of its text, so a report shared outside the fleet
+carries only what the trace itself already chose to keep. The same `trace=`
+parameter
 is on `build_report_html` / `build_report_md`; see `docs/TRACE.md` for the
 trace format and `hotato trace ingest`.
 
@@ -105,7 +105,7 @@ trace format and `hotato trace ingest`.
 When a report carries an `assert.v1` envelope whose results are dimension-tagged,
 the "Deterministic" shelf renders as a per-dimension **scorecard** (outcome /
 policy / conversation / speech / reliability). The **Reliability** dimension is
-pass^k's home, and it renders REAL repetition data when you thread it in:
+pass^k's home, and it renders the repetition data you thread in:
 
 ```python
 from hotato import report, simulate
@@ -124,12 +124,12 @@ html, _ = report.build_report_html(stereo="call.wav",
 - a **per-variation-cell** breakdown (each cell its own pass^k) when the summary
   carries one;
 - a **SIMULATOR_INVALID** bucket -- broken fixtures, shown separately and
-  **excluded from n**, never an agent PASS/FAIL.
+  **excluded from n**, kept distinct from an agent PASS/FAIL.
 
-pass^k is its OWN number: it is never blended into any other dimension, and there
-is no `overall_score` anywhere. When the runs were simulated the section is
-labeled **origin=simulated** -- a simulator's replay reliability, never presented
-as production reliability.
+pass^k is its OWN number, kept on its own lane -- there's no `overall_score`
+field for it to blend into. When the runs were simulated the section is
+labeled **origin=simulated**: a simulator's replay reliability, scoped apart
+from production reliability.
 
 `hotato test run --repetitions N` (with `N > 1`) computes this aggregate over the
 N deterministic runs and threads it into `report.{html,md}` automatically. With
@@ -178,8 +178,8 @@ pass/fail contract as a talk-over or time-to-yield regression (`--no-fail`
 always exits `0`). Percentile definitions: `METHODOLOGY.md`; the pooling
 shape is `dist_summary` in `src/hotato/_stats.py`.
 
-Fewer than two runs is stated plainly and exits `0`. It is never padded into a
-trend, because a trend of one point is a fabrication.
+Fewer than two runs is stated plainly and exits `0`; a trend line renders
+once there are enough points for it to mean something.
 
 ## `hotato export`: research-grade CSVs
 
@@ -197,8 +197,8 @@ uvx hotato export --suite barge-in --out research/
 
 Column meanings are documented in comment lines at the top of each CSV, so the
 files are self-describing when they land in a notebook or a stats package
-months later. An empty cell means "not derivable", never zero. Stdlib only,
-offline.
+months later. An empty cell means "not derivable", distinct from a zero.
+Stdlib only, offline.
 
 `export` also prints mean/median/p90/p95 response gap pooled across the
 exported events, and accepts the same `--max-response-gap SECONDS` latency

@@ -208,10 +208,10 @@ def scaffold_webhook(
         "files": files,
         "next": [
             f"cd {shlex.quote(out_dir)}",
-            "cp .env.example .env   # fill in your secrets",
+            "cp .env.example .env",
             "pip install -r requirements.txt",
-            "pytest -q tests/test_webhook_contract.py   # the four invariants",
-            "uvicorn app:app --reload   # POST /webhook ; GET /health",
+            "pytest -q tests/test_webhook_contract.py",
+            "uvicorn app:app --reload",
         ],
     }
 
@@ -229,7 +229,8 @@ def render_text(result: dict) -> str:
         "It verifies the webhook secret, then delegates to `hotato ingest` "
         "(read-only fetch + candidate scan). It never mutates platform config "
         "and never labels intent; the four invariants are pinned in "
-        "tests/test_webhook_contract.py.",
+        "tests/test_webhook_contract.py. Fill in your secrets in .env, then it "
+        "serves POST /webhook and GET /health.",
         "",
         "next:",
     ]
@@ -519,10 +520,9 @@ def _starter_fixtures_readme() -> str:
         "\n"
         "Add one:\n"
         "\n"
-        "    hotato fixture create --stereo bad-call.wav \\\n"
-        "        --id refund-interruption-001 --onset 42.18 --expect "
-        "yield \\\n"
-        "        --out fixtures\n"
+        "    hotato fixture create --stereo bad-call.wav "
+        "--id refund-interruption-001 --onset 42.18 --expect yield "
+        "--out fixtures\n"
         "\n"
         "Run the battery:\n"
         "\n"
@@ -553,13 +553,12 @@ def _starter_contracts_readme() -> str:
         "\n"
         "Add one:\n"
         "\n"
-        "    hotato contract create --stereo bad-call.wav --onset 42.18 \\\n"
-        "        --expect yield --id refund-cutoff-001 --out contracts\n"
+        "    hotato contract create --stereo bad-call.wav --onset 42.18 "
+        "--expect yield --id refund-cutoff-001 --out contracts\n"
         "\n"
         "    # or, from a sweep/scan candidate:\n"
         "    hotato contract create --from-candidate hotato-sweep.json#1 "
-        "\\\n"
-        "        --expect yield --id refund-cutoff-001 --out contracts\n"
+        "--expect yield --id refund-cutoff-001 --out contracts\n"
         "\n"
         "Verify the battery (the CI gate):\n"
         "\n"
@@ -643,24 +642,23 @@ def _starter_hotato_md(stack: str) -> str:
     title = _STARTER_TITLES[stack]
     if stack in _STARTER_AUTO_PULL:
         first_call = (
-            f"    hotato connect {stack} --api-key <key>   # stores it "
-            "once, locally, mode 0600\n"
+            f"    hotato connect {stack} --api-key YOUR_API_KEY\n"
+            "    # (stored once, locally, mode 0600)\n"
             f"    hotato sweep --stack {stack} --out hotato-sweep.html\n"
             "    # open hotato-sweep.html, pick a real candidate moment, "
             "then:\n"
             "    hotato contract create --from-candidate "
-            "hotato-sweep.json#1 \\\n"
-            "        --expect yield --id <slug> --out contracts\n"
+            "hotato-sweep.json#1 --expect yield --id refund-cutoff-001 "
+            "--out contracts\n"
         )
         capture_note = ""
     else:
         first_call = (
-            f"    hotato setup --stack {stack}   # prints the exact "
-            "two-track capture scaffold\n"
+            f"    hotato setup --stack {stack}\n"
+            "    # prints the exact two-track capture scaffold\n"
             "    # once your deployment writes a two-channel WAV:\n"
-            "    hotato contract create --stereo call.wav --onset <sec> "
-            "\\\n"
-            "        --expect yield --id <slug> --out contracts\n"
+            "    hotato contract create --stereo call.wav --onset 42.18 "
+            "--expect yield --id refund-cutoff-001 --out contracts\n"
         )
         capture_note = (
             "\n"
@@ -799,18 +797,17 @@ def scaffold_starter(stack: str, out_dir: str, *, force: bool = False) -> dict:
         "next": (
             [
                 f"cd {shlex.quote(out_dir)}" if out_dir != "." else None,
-                f"hotato connect {stack} --api-key <key>",
+                f"hotato connect {stack} --api-key YOUR_API_KEY",
                 f"hotato sweep --stack {stack} --out hotato-sweep.html",
                 "hotato contract create --from-candidate "
-                "hotato-sweep.json#1 --expect yield --id <slug> "
+                "hotato-sweep.json#1 --expect yield --id refund-cutoff-001 "
                 "--out contracts",
             ] if auto_pull else [
                 f"cd {shlex.quote(out_dir)}" if out_dir != "." else None,
                 f"hotato setup --stack {stack}",
-                f"hotato inspect --stack {stack} --config <file>   "
-                "# where turn-taking config actually lives",
-                "hotato contract create --stereo call.wav --onset <sec> "
-                "--expect yield --id <slug> --out contracts",
+                f"hotato inspect --stack {stack} --config agent.py",
+                "hotato contract create --stereo call.wav --onset 42.18 "
+                "--expect yield --id refund-cutoff-001 --out contracts",
             ]
         ),
     }

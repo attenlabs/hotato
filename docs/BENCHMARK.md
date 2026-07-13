@@ -40,8 +40,8 @@ A signal is scored where a rendered or true reference exists and the scorer
 produced a value; a missing reference yields a `-`. (The echo-of-agent fixture has
 no independent caller speech, so it has no onset or yield error: a gap.)
 
-Onset is measured in **detect mode** (the scorer gets no onset hint), so it is a
-real test of the onset detector. Yield, talk-over, response gap, and `did_yield`
+Onset is measured in **detect mode** (the scorer gets no onset hint), so it
+tests the onset detector directly. Yield, talk-over, response gap, and `did_yield`
 are measured in **label mode** (the scorer is given the human `caller_onset_sec`,
 exactly as the shipped battery runs), so those are the numbers a user
 sees.
@@ -69,8 +69,8 @@ failures with different fixes; averaging them into one number would hide which
 one you have. This is the rule the corpus governance doc enforces
 (`docs/CORPUS-GOVERNANCE.md`, "Validity metrics"), applied to the tooling.
 
-The reported error is what the default shipped config measures, so it is the number
-a real user gets. On the synthetic fixtures the yield error equals the exposed VAD
+The reported error is what the default shipped config measures, so it is
+the number you get. On the synthetic fixtures the yield error equals the exposed VAD
 hangover and the onset/gap error is one frame hop, both documented `ScoreConfig`
 parameters. Set the hangover to zero
 (`caller_vad.hangover_sec = agent_vad.hangover_sec = 0`) and every signal collapses
@@ -89,9 +89,10 @@ Every timing signal the scorer reports is quantized to the frame hop
 hangover (`caller_vad.hangover_sec` / `agent_vad.hangover_sec`, default `0.15`
 s): the measured value can land up to one hop off the true underlying event
 purely from where that event falls inside a 10 ms frame, before hangover is
-even counted. This is deterministic sub-frame-phase rounding, not noise, and
-it is the same one-hop collapse the section above already pins down (hangover
-zero -> every signal within one hop of ground truth).
+even counted. This sub-frame-phase rounding is deterministic, driven purely
+by where the event lands inside the frame, and it is the same one-hop
+collapse the section above already pins down (hangover zero -> every signal
+within one hop of ground truth).
 
 The consequence for a `--max-time-to-yield` (or any other) policy bound: a
 physically identical yield event, shifted by a few milliseconds of sub-frame
@@ -99,17 +100,15 @@ phase with nothing else about the audio changed, can cross an exact bound
 purely from quantization. Reproduced case: a 250 ms yield event evaluated
 against a 400 ms bound flips PASS/FAIL as the event's sub-frame phase is swept
 through 3, 6, 12, and 16 ms offsets, with the underlying event unchanged --
-the measured value moves by exactly one hop (10 ms) at each transition, never
-more. A bound set within one hop of the true value is therefore not a
-categorical pass/fail on that recording; it can go either way depending on
-phase alone.
+the measured value moves by exactly one hop (10 ms) at each transition, and
+no further. Phase alone can flip a bound set within one hop of the true value
+either way on that recording.
 
 **Read policy bounds accordingly: a margin of less than one hop (10 ms
-default) from the true value is inside the scorer's quantization noise, not a
-real pass/fail line.** This is a disclosure of an existing property, not a
-change: `hotato` does not move verdict margins to paper over it (see
-`docs/FIX-PLANS.md`'s no-single-threshold rule, which the same logic
-extends to quantization) -- the fix is to know the margin exists and set
+default) from the true value sits inside the scorer's quantization noise.**
+This is a disclosure of an existing property. `hotato` surfaces the margin
+plainly (see `docs/FIX-PLANS.md`'s no-single-threshold rule, which the same
+logic extends to quantization); the fix is to know the margin exists and set
 bounds at least one hop away from a value you need to hold.
 
 ---
@@ -138,11 +137,11 @@ See `examples/README.md` and `docs/CORPUS-GOVERNANCE.md`.
 
 ---
 
-## Extending to real recordings (bring your own labelled data)
+## Extending to your own recordings (bring your own labelled data)
 
-The synthetic floor tells you the scorer does what the spec says. Real recordings
-tell you it measures what happens on an actual phone line. The harness runs on your
-own labelled data with no code change:
+The synthetic floor tells you the scorer does what the spec says. A labelled
+recording from a live phone line tells you what it measures under production
+conditions. The harness runs on your own labelled data with no code change:
 
 ```bash
 PYTHONPATH=src python3 -m hotato.benchmark \
@@ -166,7 +165,8 @@ PYTHONPATH=src python3 -m hotato.benchmark \
 When `--scenarios` is given, only that set is scored, so you get a clean report for
 your corpus alone.
 
-The path to a real-model number is manual and consented: bring your own
-labelled audio. Contributing real audio is governed by `docs/CORPUS-GOVERNANCE.md`
-(consent, PII, data-handling) and the pipeline in `corpus/` (a labelling schema and
-a validator). Synthetic fixtures keep their synthetic label.
+The path to a number from your own recordings is manual and consented: bring
+your own labelled audio. Contributing that audio is governed by
+`docs/CORPUS-GOVERNANCE.md` (consent, PII, data-handling) and the pipeline in
+`corpus/` (a labelling schema and a validator). Synthetic fixtures keep their
+synthetic label.

@@ -1013,7 +1013,7 @@ def _diarize_trust(base: dict, signal, *, diarizer: str, egress_opt_in: bool,
         base["scorable"] = True
         base["recommendation"] = (
             f"SCORABLE via diarized-mono ({label}); score with: "
-            "hotato run --mono <file> --diarize"
+            "hotato run --mono FILE --diarize"
         )
         # "clean" scorable; a below-bar tier carries indicative_only, not a
         # verdict-changing input-health warning, so the input itself reads clean.

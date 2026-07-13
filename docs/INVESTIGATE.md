@@ -7,8 +7,8 @@ verdict-eligibility gate, scans it for candidate turn-taking moments, and
 prints the exact next command that turns each candidate into a signed,
 CI-ready contract.
 
-It is discovery and guidance, nothing more. `hotato investigate` never infers
-intent and never mints a label or a verdict. The one decision that matters --
+It is discovery and guidance: it surfaces candidates and prints the exact next
+command. The one decision that matters --
 which candidate is a bug, and whether the agent should have *yielded* or
 *held* -- stays with you, and you make it by running the command this tool
 prints:
@@ -65,21 +65,20 @@ hotato investigate [run 1]: call.wav
   state remembered at: .hotato/investigate-state.json
 ```
 
-The onset above is illustrative. Candidates are timing facts only, never a
-verdict.
+The onset above is illustrative. Candidates are timing facts, ready for you to
+label.
 
-## Capture origin: authenticated, not asserted for you
+## Capture origin: tracked for every run
 
 Every run records where the audio came from, one of three kinds:
 
 - **`frozen_regression`** -- a previously-created hotato fixture clip (a sibling
-  scenario file names this exact audio): a pinned regression, not a live call.
+  scenario file names this exact audio): a pinned regression, played back exactly.
 - **`provider_pulled`** -- fetched just now from the stack's own recording API
-  for a named call id. Stronger than an arbitrary file, but this is **not** a
-  signed capture receipt -- never read it as machine-verified or
-  runner-attested. For that stronger claim, see [RECAPTURE.md](RECAPTURE.md).
-- **`operator_asserted_local`** -- you handed hotato a local WAV path; nothing
-  here independently verifies it.
+  for a named call id. Stronger than an arbitrary file. For the stronger,
+  signed, machine-verified claim, see [RECAPTURE.md](RECAPTURE.md).
+- **`operator_asserted_local`** -- you handed hotato a local WAV path, taken at
+  face value.
 
 ## The K6 verdict gate
 
@@ -91,8 +90,8 @@ contract. Two outcomes matter:
   candidates are scanned; the report names the reason, and the command exits
   `2`. Fix the input and re-run.
 - **Verdict path REFUSED** (a suspected channel swap or crosstalk/leakage): the
-  candidates below are still shown as timing facts, but no labeled event here
-  can carry a yield/hold verdict until you confirm the mapping with
+  candidates below are still shown as timing facts, and a labeled event here
+  carries a yield/hold verdict once you confirm the mapping with
   `--confirm-channels` or fix the crosstalk. See [TRUST.md](TRUST.md).
 
 Note the two gates are different widths: `scan` runs whenever the input is
@@ -111,8 +110,7 @@ directly. `#1` is the top-ranked candidate, `#2` the next, and so on.
 `hotato investigate label` is the label step. Your `--expect` goes straight to
 `hotato contract create --from-candidate`, which mints a signed label-record
 bound to the exact decoded audio when a signing key is configured. Without a
-signing key it never crashes and never fabricates a human attestation: the
-contract floors its `label_authority` at `asserted`.
+signing key, the contract's `label_authority` floors at `asserted`.
 
 ```bash
 hotato investigate label .hotato/investigate-state.json#1 \
@@ -125,9 +123,9 @@ This writes `contracts/<id>.hotato/`. The id defaults to a slug derived from
 the source, onset, and label; pass `--id` to name it, `--force` to overwrite.
 Clipping keeps `--pre` seconds before the onset (default `2.0`) and `--post`
 after (default `6.0`); `--no-clip` keeps the full recording. If the verdict
-path was refused, add `--confirm-channels`, or `contract verify` refuses the
-contract's verdict. Source basenames are redacted from the bundle unless you
-pass `--include-identifiers`.
+path was refused, add `--confirm-channels` to carry the contract's verdict
+through `contract verify`. Source basenames are redacted from the bundle by
+default; pass `--include-identifiers` to keep them.
 
 Building a contract (not a bare fixture) is deliberate: it carries the K6 trust
 block, the CI policy, and the exact `hotato contract verify` command. That is
