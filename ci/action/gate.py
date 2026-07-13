@@ -9,8 +9,9 @@ hotato's own gate code.
 
 Install modes (``hotato-version`` input):
 
-* ``action`` (default): ``pip install --no-deps`` of the Action checkout
-  itself (``github.action_path``), so the executed code is exactly the pinned
+* ``action`` (default): run the Action checkout itself
+  (``github.action_path``) directly off ``PYTHONPATH`` -- no pip, no build
+  backend, no package index (zero-egress); the executed code is exactly the pinned
   Action revision; zero package-index egress.
 * ``preinstalled``: skip installation; hotato must already be importable
   (used by hotato's own CI and the local harness test).
@@ -202,11 +203,27 @@ def install_hotato(cfg: Dict[str, Any]) -> str:
         action_path = _env("HOTATO_ACTION_PATH")
         if not action_path or not os.path.isfile(
                 os.path.join(action_path, "pyproject.toml")):
-            raise InputError("the action path is unavailable; cannot install"
+            raise InputError("the action path is unavailable; cannot run"
                              " the pinned Action revision")
-        target, source = action_path, "action path (pinned Action revision)"
-    else:
-        target, source = f"hotato=={version}", f"hotato=={version} (exact pin)"
+        src = os.path.join(action_path, "src")
+        if not os.path.isdir(os.path.join(src, "hotato")):
+            raise InputError("the pinned Action checkout has no src/hotato tree")
+        # Zero-egress by construction: the pinned checkout runs directly off
+        # PYTHONPATH (gate.py always invokes ``python -m hotato``), so there is
+        # no pip step, no isolated build backend fetched, and no package index
+        # contact at all -- the executed code is exactly the pinned revision.
+        # Subprocesses inherit this environment.
+        prev = os.environ.get("PYTHONPATH", "")
+        os.environ["PYTHONPATH"] = src + (os.pathsep + prev if prev else "")
+        probe = _run([sys.executable, "-c", "import hotato"],
+                     capture_output=True, text=True)
+        if probe.returncode != 0:
+            raise InputError("the pinned Action checkout is not importable:"
+                             f" {(probe.stderr or '').strip()[-400:]}")
+        return "action path (PYTHONPATH, zero-egress)"
+    # An exact version pin installs from PyPI: index access is the documented
+    # intent of this mode. hotato ships a wheel, so no source build runs.
+    target, source = f"hotato=={version}", f"hotato=={version} (exact pin)"
     proc = _run([sys.executable, "-m", "pip", "install", "--no-deps",
                  "--quiet", target], capture_output=True, text=True)
     if proc.returncode != 0:

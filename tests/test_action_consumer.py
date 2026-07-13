@@ -213,6 +213,7 @@ def test_gate_pass_suite_exit_zero(tmp_path):
     assert outputs["exit-code"] == "0"
     assert outputs["status"] == "pass"
     assert outputs["hotato-version"]
+
     result = ws / outputs["suite-result"]
     assert result.is_file()
     assert json.loads(result.read_text())["kind"] == "hotato.suite-run"
@@ -351,3 +352,30 @@ def test_action_scripts_import_no_network_module():
         with open(os.path.join(ACTION_DIR, name), "r", encoding="utf-8") as fh:
             source = fh.read()
         assert not banned.search(source), f"{name} imports a network module"
+def test_gate_action_mode_runs_zero_egress_via_pythonpath(tmp_path):
+    """The default 'action' mode must run the pinned checkout off PYTHONPATH --
+    never a pip install -- so a consumer's gate makes no package-index request."""
+    ws = _workspace(tmp_path)
+    gh_summary = tmp_path / "summary.md"
+    gh_output = tmp_path / "outputs.txt"
+    # A clean env: do NOT preset PYTHONPATH, so gate.py's own PYTHONPATH wiring
+    # is what makes the checkout importable. HOTATO_ACTION_PATH is the checkout.
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("HOTATO_ACTION_", "GITHUB_", "PYTHONPATH"))}
+    env["HOTATO_HOME"] = str(tmp_path / "hotato-home")
+    env["GITHUB_WORKSPACE"] = str(ws)
+    env["GITHUB_STEP_SUMMARY"] = str(gh_summary)
+    env["GITHUB_OUTPUT"] = str(gh_output)
+    env["HOTATO_ACTION_VERSION"] = "action"
+    env["HOTATO_ACTION_PATH"] = ROOT
+    env["HOTATO_ACTION_SUITE"] = "qa/suite/pass.suite.json"
+    env["HOTATO_ACTION_AGENT"] = "consumer-agent"
+    env["HOTATO_ACTION_RELEASE"] = "harness-release"
+    proc = subprocess.run(
+        [sys.executable, os.path.join(ACTION_DIR, "gate.py")],
+        env=env, capture_output=True, text=True, cwd=str(ws), timeout=300)
+    assert proc.returncode == 0, proc.stderr
+    summary = gh_summary.read_text() if gh_summary.exists() else ""
+    assert "PYTHONPATH, zero-egress" in summary, summary
+    # the pip install path must not have run for the action mode
+    assert "pip install" not in (proc.stdout + proc.stderr)

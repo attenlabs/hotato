@@ -9,7 +9,7 @@ an interrupting caller. The workflow runs offline with zero extra dependencies.
 The repository root ships a composite GitHub Action, so a repository with no
 hotato source can run a committed suite, conversation test, or contract
 verification and gate on hotato's exit status. The default run is offline: it
-installs the pinned Action revision itself (no package index), installs no
+runs the pinned Action revision itself off PYTHONPATH (no pip, no package index), installs no
 model, no ASR, no Node tool, and calls no external judge. No secret is read
 or needed.
 
@@ -17,7 +17,7 @@ The Action ships starting with release v1.4.0. Pin the revision you adopt by
 its full commit SHA; resolve a tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.4.0
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.5.1
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -38,7 +38,8 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
-        uses: attenlabs/hotato@v1.4.0
+        # Pin by full commit SHA (immutable); the comment names the release.
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.5.1
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent

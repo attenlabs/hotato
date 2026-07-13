@@ -5,7 +5,7 @@
 # Consumer contract (docs/CI.md has the copy-paste workflow):
 #   - permissions: contents: read is sufficient; no secret is read or needed.
 #   - the default install is the pinned Action revision itself
-#     (pip install --no-deps of the action checkout), so the executed code is
+#     (run directly off PYTHONPATH -- no pip, no index egress), so the executed code is
 #     exactly the revision the consumer pinned; hotato-version accepts an
 #     exact PyPI pin instead, never a range and never latest.
 #   - the default run installs no model, no ASR, no Node tool, and calls no
@@ -96,7 +96,7 @@ inputs:
   hotato-version:
     description: >-
       What to install. "action" (default) installs the pinned Action
-      revision itself with no package-index egress; "preinstalled" skips
+      revision itself with zero package-index egress (PYTHONPATH); "preinstalled" skips
       installation; an exact version such as "1.3.3" installs that pin from
       PyPI with --no-deps. Ranges and "latest" are refused.
     required: false
