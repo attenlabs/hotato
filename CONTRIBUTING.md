@@ -34,6 +34,10 @@ git clone https://github.com/attenlabs/hotato && cd hotato
 python -m pip install -e ".[dev]"    # pytest + jsonschema
 ```
 
+Supported Python versions: 3.9 to 3.13 (the tested matrix in CI). `pyproject.toml`
+sets `requires-python = ">=3.9"` as a floor with no upper cap, so newer
+interpreters install and are best-effort until they join the CI matrix.
+
 Run the checks the way CI does, before you open a PR:
 
 ```bash

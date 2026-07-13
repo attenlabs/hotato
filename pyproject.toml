@@ -8,6 +8,13 @@ name = "hotato"
 version = "1.5.2"
 description = "Conversation QA for voice agents. Catch the calls that pass every text check but talk over the caller, skip a required disclosure, or claim a task that never happened. Self-hosted, offline, MIT."
 readme = "README.pypi.md"
+# Support policy: requires-python is lower-bounded only. There is no upper cap
+# on purpose -- an upper pin (e.g. <3.14) locks installs out of new interpreters
+# before they are tested, which packaging guidance discourages. The TESTED and
+# supported matrix is Python 3.9 to 3.13 (the classifiers below and the
+# `python-3.9 to 3.13` badge in the README); newer interpreters are best-effort
+# until they are added to CI. So ">=3.9" is a floor, not an open-ended promise of
+# every future Python. tests/test_python_support_policy.py holds this in lockstep.
 requires-python = ">=3.9"
 license = "MIT"
 license-files = ["LICENSE"]

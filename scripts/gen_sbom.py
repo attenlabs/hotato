@@ -8,6 +8,19 @@ dependency. No network, no pip, no third-party import -- it never resolves,
 downloads, or introspects installed packages, so the same tree always produces
 the same document regardless of what happens to be installed.
 
+Scope (stated in the document, not just here): this is the DECLARED-DIRECT
+surface -- the package plus the direct dependencies named in pyproject.toml. It
+is NOT the resolved transitive closure: each dependency carries its declared
+version RANGE intent with an empty (unresolved) ``version`` field, never a pin,
+and transitive dependencies of the extras (mcp/neural/transcribe/diarize/...)
+are not walked. The document machine-declares this via
+``metadata.properties``: ``hotato:dependency-scope = declared-direct`` and
+``hotato:transitive-resolved = false``, so a consumer parsing the CycloneDX
+JSON can tell it is the manifest-level surface, not a locked, pinned closure. A
+resolved-closure SBOM would need a locked environment (pip/uv resolve), which
+this tool deliberately does not do -- that would break its offline, no-network,
+deterministic contract.
+
 Usage
 -----
   python3 scripts/gen_sbom.py                       # -> dist/hotato.sbom.cdx.json
@@ -170,6 +183,16 @@ def build_sbom(pyproject, profile=None):
         "metadata": {
             "timestamp": now,
             "tools": [{"name": "gen_sbom.py", "vendor": "hotato"}],
+            # BOM-level scope: this document covers the DECLARED-DIRECT surface
+            # (the package + its direct pyproject deps), NOT the resolved
+            # transitive closure. Dependency components carry a declared RANGE,
+            # not a pin (empty version); transitive deps are not walked.
+            # Machine-readable so a consumer never mistakes this for a
+            # locked/pinned closure.
+            "properties": [
+                {"name": "hotato:dependency-scope", "value": "declared-direct"},
+                {"name": "hotato:transitive-resolved", "value": "false"},
+            ],
             "component": {
                 "type": "application",
                 "name": name,
