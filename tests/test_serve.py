@@ -579,6 +579,91 @@ def test_evidence_bad_digest_is_400(live):
     assert code == 400
 
 
+def _serve_workspace(home, workspace):
+    """Start a real loopback server for `workspace` over `home`'s SHARED,
+    content-addressed store. Returns (base_url, token, stop). Used to prove that
+    the content-addressed store being shared does NOT let one workspace read
+    another's blob by digest."""
+    state_dir = os.path.join(home, "serve", _safe_dirname(workspace))
+    os.makedirs(state_dir, exist_ok=True)
+    ctx = ServeContext(
+        home=home, workspace=workspace,
+        store_root=os.path.join(home, "artifacts"), token=_TOKEN,
+        state_dir=state_dir, audit=AuditLog(os.path.join(state_dir, "audit.jsonl")),
+        sessions=SessionStore(), bind_host="127.0.0.1")
+    server = build_server(ctx, "127.0.0.1", 0)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def stop():
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    return "http://127.0.0.1:%d" % port, _TOKEN, stop
+
+
+def test_evidence_child_of_rooted_manifest_is_served(live):
+    """The owning workspace can drill into a CHILD evidence blob (transcript)
+    whose digest is not a top-level registry row but is declared by the rooted
+    conversation manifest. Guards the fix from over-restricting: reachability is
+    transitive through a workspace-rooted manifest's declared artifacts."""
+    _c, body, _h = _req(live.base, "/conversation/conv-a1?format=json", token=live.token)
+    m = json.loads(body)
+    child_sha = m["manifest"]["artifacts"]["transcript"]["sha256"]
+    assert len(child_sha) == 64
+    code, _blob, _h = _req(live.base, "/evidence/" + child_sha, token=live.token)
+    assert code == 200
+
+
+def test_evidence_cross_workspace_foreign_root_is_404(tmp_path):
+    """CRITICAL: a digest rooted ONLY in workspace 'default' must NOT be readable
+    by a different workspace, even though the content-addressed store is SHARED
+    and store.has(digest) is True. CAS presence is not authority."""
+    home = str(tmp_path / "fleet")
+    os.makedirs(home, exist_ok=True)
+    _seed(home)  # roots conv-a1's manifest digest in workspace 'default'
+    reg = Registry(home=home)
+    digest = reg.get_conversation("default", "conv-a1")["artifact_digest"]
+    reg.close()
+    assert digest
+    # the blob is genuinely present in the shared CAS...
+    assert ArtifactStore(os.path.join(home, "artifacts")).has(digest)
+    # ...but an unrelated workspace never rooted it -> the read is refused 404.
+    base, token, stop = _serve_workspace(home, "intruder-ws")
+    try:
+        code, _b, _h = _req(base, "/evidence/" + digest, token=token)
+        assert code == 404
+    finally:
+        stop()
+
+
+def test_evidence_orphaned_after_only_root_deleted_is_404(tmp_path):
+    """CRITICAL: after a workspace's ONLY live registry root for a digest is
+    deleted, the orphaned CAS blob must 404 even for that same workspace. CAS
+    lineage/presence is never an ACL; authority lives at the registry root."""
+    home = str(tmp_path / "fleet")
+    os.makedirs(home, exist_ok=True)
+    _seed(home)
+    reg = Registry(home=home)
+    digest = reg.get_conversation("default", "conv-a1")["artifact_digest"]
+    # delete the ONLY row that roots this digest for the workspace
+    reg.conn.execute(
+        "DELETE FROM conversations WHERE workspace_id=? AND conversation_id=?",
+        ("default", "conv-a1"))
+    reg.conn.commit()
+    reg.close()
+    # the blob is still physically present in the store (orphaned), not GC'd
+    assert ArtifactStore(os.path.join(home, "artifacts")).has(digest)
+    base, token, stop = _serve_workspace(home, "default")
+    try:
+        code, _b, _h = _req(base, "/evidence/" + digest, token=token)
+        assert code == 404
+    finally:
+        stop()
+
+
 def test_safe_dirname_blocks_traversal():
     assert _safe_dirname("../../etc") not in ("../../etc",)
     assert "/" not in _safe_dirname("a/b/c")

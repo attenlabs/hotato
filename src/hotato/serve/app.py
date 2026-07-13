@@ -359,15 +359,30 @@ class _Handler(BaseHTTPRequestHandler):
         return 200, doc.encode("utf-8"), "text/html; charset=utf-8", {}
 
     def _evidence(self, ctx, digest):
-        """Serve a raw evidence blob by digest (drill-to-evidence). A digest is a
-        capability and the caller is already authenticated to this workspace;
-        blobs are served as ``text/plain`` with ``nosniff`` so a crafted blob can
-        never execute in the browser."""
+        """Serve a raw evidence blob by digest (drill-to-evidence). The
+        content-addressed store is a SHARED blob pool keyed by digest, so blob
+        presence is NOT authority: the read is refused unless ``digest`` is
+        reachable from a LIVE registry ROOT scoped to THIS workspace (named by a
+        workspace-scoped reference-edge row, or declared by a rooted manifest's
+        own artifacts). CAS lineage is never consulted -- a foreign-rooted or
+        orphaned blob 404s. Authorized blobs are served ``text/plain`` with
+        ``nosniff`` so a crafted blob can never execute in the browser."""
         if not _HEX64.match(digest or ""):
             return 400, _json_bytes({"error": "a 64-hex sha256 digest is required"}), \
                 "application/json; charset=utf-8", {}
         store = ctx.open_store()
-        if store is None or not store.has(digest):
+        authorized = False
+        if store is not None:
+            reg = ctx.open_registry()
+            try:
+                authorized = _data.evidence_digest_authorized(
+                    reg, ctx.workspace, store, digest)
+            finally:
+                reg.close()
+        # Refuse (404) both an unreachable digest and an authorized-but-absent
+        # one, with one indistinguishable message: never confirm a blob the caller
+        # is not entitled to, and never fabricate one it is.
+        if store is None or not authorized or not store.has(digest):
             return 404, _json_bytes({"error": "no such artifact in this workspace",
                                      "digest": digest}), \
                 "application/json; charset=utf-8", {}
