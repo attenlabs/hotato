@@ -1,0 +1,7 @@
+{
+  "kind": "synthetic.state-reference.v1",
+  "scope": "order-ref-01",
+  "field": "refund_status",
+  "value": "none"
+}
+

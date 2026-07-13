@@ -1,0 +1,6 @@
+{
+  "kind": "synthetic.test-definition-reference.v1",
+  "test_id": "refund-claimed-not-issued",
+  "required_dimensions": ["outcome", "policy", "conversation", "speech", "reliability"]
+}
+

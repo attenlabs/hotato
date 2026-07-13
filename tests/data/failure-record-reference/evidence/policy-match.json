@@ -1,0 +1,7 @@
+{
+  "kind": "synthetic.policy-match.v1",
+  "rule_id": "policy.refund.disclosure.v2",
+  "matched": true,
+  "span_text_embedded": false
+}
+

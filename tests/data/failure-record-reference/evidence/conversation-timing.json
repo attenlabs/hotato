@@ -1,0 +1,10 @@
+{
+  "kind": "synthetic.timing-measurement.v1",
+  "event_id": "caller-onset-01",
+  "caller_onset_ms": 8420,
+  "agent_yield_ms": 8610,
+  "yield_delay_ms": 190,
+  "limit_ms": 250,
+  "scorable": true
+}
+

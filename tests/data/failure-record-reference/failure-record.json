@@ -1,0 +1,337 @@
+{
+  "advisory": {
+    "gate_enabled": false,
+    "reason_code": "backend-not-requested",
+    "status": "UNAVAILABLE"
+  },
+  "dimensions": {
+    "conversation": {
+      "assertions": [
+        {
+          "assertion_id": "caller-onset-yield-window",
+          "authority": "deterministic",
+          "dimension": "conversation",
+          "evidence_refs": [
+            "conversation-timing-ref"
+          ],
+          "expected": "Agent yields within 250 ms after the supported caller onset.",
+          "missing_evidence": [],
+          "observed": "Agent yield delay measured 190 ms after caller onset.",
+          "rule_id": "conversation.yield-within-ms",
+          "rule_version": "1",
+          "source_result_digest": "sha256:e63054e8a648594119cc58f9a9171704b30be0083ae5b66f8b57c0893dd729de",
+          "status": "PASS"
+        }
+      ],
+      "evaluated": 1,
+      "failed": 0,
+      "inconclusive": 0,
+      "passed": 1,
+      "status": "PASS"
+    },
+    "outcome": {
+      "assertions": [
+        {
+          "assertion_id": "refund-postcondition",
+          "authority": "deterministic",
+          "dimension": "outcome",
+          "evidence_refs": [
+            "tool-call-ref",
+            "state-before-ref",
+            "state-after-ref"
+          ],
+          "expected": "A successful refund result and changed refund state are observed.",
+          "missing_evidence": [
+            "successful-tool-result"
+          ],
+          "observed": "No successful refund result was present; the refund state digest remained unchanged.",
+          "rule_id": "outcome.state-change-required",
+          "rule_version": "1",
+          "source_result_digest": "sha256:e63054e8a648594119cc58f9a9171704b30be0083ae5b66f8b57c0893dd729de",
+          "status": "FAIL"
+        }
+      ],
+      "evaluated": 1,
+      "failed": 1,
+      "inconclusive": 0,
+      "passed": 0,
+      "status": "FAIL"
+    },
+    "policy": {
+      "assertions": [
+        {
+          "assertion_id": "refund-disclosure",
+          "authority": "deterministic",
+          "dimension": "policy",
+          "evidence_refs": [
+            "policy-match-ref"
+          ],
+          "expected": "The configured refund disclosure is present.",
+          "missing_evidence": [],
+          "observed": "The configured disclosure matcher returned present.",
+          "rule_id": "policy.refund.disclosure",
+          "rule_version": "2",
+          "source_result_digest": "sha256:e63054e8a648594119cc58f9a9171704b30be0083ae5b66f8b57c0893dd729de",
+          "status": "PASS"
+        }
+      ],
+      "evaluated": 1,
+      "failed": 0,
+      "inconclusive": 0,
+      "passed": 1,
+      "status": "PASS"
+    },
+    "reliability": {
+      "assertions": [
+        {
+          "assertion_id": "all-five-repetitions-pass",
+          "authority": "deterministic",
+          "dimension": "reliability",
+          "evidence_refs": [
+            "reliability-samples-ref"
+          ],
+          "expected": "All 5 configured repetitions pass.",
+          "missing_evidence": [],
+          "observed": "2 of 5 repetitions passed.",
+          "rule_id": "reliability.all-k-pass",
+          "rule_version": "1",
+          "source_result_digest": "sha256:e63054e8a648594119cc58f9a9171704b30be0083ae5b66f8b57c0893dd729de",
+          "status": "FAIL"
+        }
+      ],
+      "k": 5,
+      "pass_at_1": 0.4,
+      "pass_at_k": 1.0,
+      "pass_caret_k": 0.0,
+      "passes": 2,
+      "status": "FAIL",
+      "trials": 5,
+      "wilson_interval": {
+        "confidence": 0.95,
+        "lower": 0.117621,
+        "method": "wilson",
+        "upper": 0.76928
+      }
+    },
+    "speech": {
+      "assertions": [
+        {
+          "assertion_id": "speech-response-latency",
+          "authority": "deterministic",
+          "dimension": "speech",
+          "evidence_refs": [],
+          "expected": "Separated scorable audio supplies the configured latency measurement.",
+          "missing_evidence": [
+            "separated-audio"
+          ],
+          "observed": "No separated scorable audio was supplied for this fixture.",
+          "rule_id": "speech.response-latency",
+          "rule_version": "1",
+          "source_result_digest": "sha256:e63054e8a648594119cc58f9a9171704b30be0083ae5b66f8b57c0893dd729de",
+          "status": "INCONCLUSIVE"
+        }
+      ],
+      "evaluated": 0,
+      "failed": 0,
+      "inconclusive": 1,
+      "passed": 0,
+      "status": "INCONCLUSIVE"
+    }
+  },
+  "evidence": [
+    {
+      "authority": "source",
+      "digest": "sha256:806b71370712fb703f29b2186c90802433de9fedd465c690fca9ea858d4c3022",
+      "evidence_id": "tool-call-ref",
+      "kind": "tool_call",
+      "locator": "evidence/tool-call.json#tool-refund-01",
+      "media_type": "application/json",
+      "redacted": true,
+      "redaction_classes": [
+        "tool-arguments",
+        "tool-result"
+      ]
+    },
+    {
+      "authority": "source",
+      "digest": "sha256:b8289c2d91106f6bf58a70f381cfed675984f9d3908a6c22d20685ab9ba1e173",
+      "evidence_id": "state-before-ref",
+      "kind": "state_snapshot",
+      "locator": "evidence/state-before.json",
+      "media_type": "application/json",
+      "redacted": true,
+      "redaction_classes": [
+        "state-values"
+      ]
+    },
+    {
+      "authority": "source",
+      "digest": "sha256:b8289c2d91106f6bf58a70f381cfed675984f9d3908a6c22d20685ab9ba1e173",
+      "evidence_id": "state-after-ref",
+      "kind": "state_snapshot",
+      "locator": "evidence/state-after.json",
+      "media_type": "application/json",
+      "redacted": true,
+      "redaction_classes": [
+        "state-values"
+      ]
+    },
+    {
+      "authority": "machine",
+      "digest": "sha256:ee3e49a73b1a5b2347c918f6fff8c528c0994e18f492ced1d78f8eb0f7c64f35",
+      "evidence_id": "policy-match-ref",
+      "kind": "policy_match",
+      "locator": "evidence/policy-match.json",
+      "media_type": "application/json",
+      "redacted": true,
+      "redaction_classes": [
+        "transcript-span"
+      ]
+    },
+    {
+      "authority": "machine",
+      "channel_role": "unknown",
+      "digest": "sha256:3a0f4c3788e5035389615e46569d9aa28873bc811653ed0f846b734f70d99ad8",
+      "evidence_id": "conversation-timing-ref",
+      "kind": "timing_measurement",
+      "locator": "evidence/conversation-timing.json#caller-onset-01",
+      "media_type": "application/json",
+      "redacted": false,
+      "redaction_classes": [],
+      "time_range": {
+        "end_ms": 8610,
+        "start_ms": 8420
+      }
+    },
+    {
+      "authority": "machine",
+      "digest": "sha256:8bc8e935e3bbd09e3006f3ed6a6bf6d91e0f7429e3fd8daf6e6230f58f864808",
+      "evidence_id": "reliability-samples-ref",
+      "kind": "reliability_sample",
+      "locator": "evidence/reliability.json",
+      "media_type": "application/json",
+      "redacted": false,
+      "redaction_classes": []
+    }
+  ],
+  "gate": {
+    "exit_code": 1,
+    "policy": "all-deterministic-assertions-pass",
+    "status": "FAIL"
+  },
+  "headline": "refund-postcondition failed: no successful refund result or state change was observed.",
+  "kind": "hotato.failure-record.v1",
+  "origin": {
+    "kind": "fixture",
+    "path_exercised": "Synthetic stored evidence only; no live agent or transport was exercised.",
+    "source": "failure-record-reference-kit",
+    "transport": "offline-fixture"
+  },
+  "privacy": {
+    "absolute_path_embedded": false,
+    "credential_embedded": false,
+    "profile": "share-safe-v1",
+    "raw_audio_embedded": false,
+    "redaction_classes": [
+      "transcript-body",
+      "tool-payload",
+      "state-values",
+      "credentials",
+      "absolute-paths"
+    ],
+    "state_value_embedded": false,
+    "tool_payload_embedded": false,
+    "transcript_body_embedded": false
+  },
+  "provenance": {
+    "config_digest": "sha256:760b1f8546ee7b1facbfc1a33e53167dbfd014fbe0d42a0767290dd389adac88",
+    "hotato": {
+      "name": "hotato",
+      "version": "1.3.2"
+    },
+    "inputs": [
+      {
+        "digest": "sha256:e63054e8a648594119cc58f9a9171704b30be0083ae5b66f8b57c0893dd729de",
+        "name": "source-result"
+      },
+      {
+        "digest": "sha256:760b1f8546ee7b1facbfc1a33e53167dbfd014fbe0d42a0767290dd389adac88",
+        "name": "test-definition"
+      }
+    ],
+    "rules": [
+      {
+        "name": "outcome.state-change-required",
+        "version": "1"
+      },
+      {
+        "name": "policy.refund.disclosure",
+        "version": "2"
+      },
+      {
+        "name": "conversation.yield-within-ms",
+        "version": "1"
+      },
+      {
+        "name": "reliability.all-k-pass",
+        "version": "1"
+      }
+    ],
+    "schemas": [
+      {
+        "name": "failure-record",
+        "version": "1.0"
+      },
+      {
+        "name": "synthetic-source-result-reference",
+        "version": "1"
+      }
+    ],
+    "scorers": [
+      {
+        "name": "reference-conformance-projection",
+        "version": "1"
+      }
+    ],
+    "seed": 1042,
+    "source_result_digest": "sha256:e63054e8a648594119cc58f9a9171704b30be0083ae5b66f8b57c0893dd729de"
+  },
+  "record_id": "sha256:9e2424af898c8e96ba2aeaa2b25932be3fb327aad6b1d26b11275926194f4a77",
+  "reproduction": {
+    "argv": [
+      "hotato",
+      "suite",
+      "run",
+      "reference-suite.json",
+      "--agent",
+      "synthetic-support-agent",
+      "--only",
+      "refund-claimed-not-issued",
+      "--out",
+      "suite-out"
+    ],
+    "required_artifacts": [
+      {
+        "digest": "sha256:e63054e8a648594119cc58f9a9171704b30be0083ae5b66f8b57c0893dd729de",
+        "relative_path": "evidence/source-result.json",
+        "role": "source-result"
+      },
+      {
+        "digest": "sha256:760b1f8546ee7b1facbfc1a33e53167dbfd014fbe0d42a0767290dd389adac88",
+        "relative_path": "evidence/test-definition.json",
+        "role": "test-definition"
+      }
+    ],
+    "working_directory": "."
+  },
+  "status": "FAIL",
+  "subject": {
+    "agent_id": "synthetic-support-agent",
+    "release_id": "reference-kit-v1",
+    "run_id": "reference-run-001",
+    "scenario_id": "refund-reference-fixture",
+    "suite_id": "failure-record-conformance",
+    "test_id": "refund-claimed-not-issued"
+  },
+  "version": "1.0"
+}
