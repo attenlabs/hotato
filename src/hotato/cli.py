@@ -5492,8 +5492,8 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("suite run") + "\n\n"
             "Examples:\n"
             "  hotato suite run smoke.suite.yaml --agent support-v3\n"
-            "  hotato suite run examples/reference-agent/suite.yaml \\\n"
-            "      --agent reference-v1 --out ./suite-out --parallel 8\n"
+            "  hotato suite run examples/reference-agent/suite.json \\\n"
+            "      --agent reference-agent-v1 --out ./suite-out --parallel 8\n"
             "  hotato suite run ci.suite.yaml --agent support-v3 \\\n"
             "      --release support-v3-rc2 --format json"
         ),
