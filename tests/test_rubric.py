@@ -477,3 +477,40 @@ def test_ollama_judge_live(tmp_path):
     assert again["judge"]["cached"] is True
     assert again["judge"]["verdict_sha256"] == j["verdict_sha256"]
     print(f"\nLIVE verdict: {res['status']} -- {res['rationale']}")
+
+
+def test_judge_http_paths_install_hardened_opener(monkeypatch):
+    """Both judge HTTP paths must install the credential-safe opener BEFORE any
+    request (audit finding #1): a cross-host redirect from a judge endpoint must
+    never carry Authorization/Cookie to another host, and every redirect target
+    must re-pass the SSRF guard. Regression-pins the _ensure_safe_opener call."""
+    import hotato.capture as capture
+    import hotato.rubric as rubric
+    calls = []
+    monkeypatch.setattr(capture, "_ensure_safe_opener",
+                        lambda: calls.append("installed"))
+
+    class _Boom(Exception):
+        pass
+
+    def _no_net(*a, **k):
+        raise rubric.JudgeError("stop before network")
+    j = rubric.OllamaJudge(model="qwen2.5vl:3b")
+    try:
+        # urlopen will fail fast (nothing listening is fine too) -- the point is
+        # the opener install happens first, which we capture via the monkeypatch.
+        j._http_json("/api/tags", None, method="GET")
+    except Exception:
+        pass
+    assert "installed" in calls, "OllamaJudge must install the safe opener"
+    calls.clear()
+    # egress_opt_in=True: the constructor gate is honest and refuses otherwise
+    # (tested elsewhere); this test never reaches the network -- example.invalid
+    # fails fast AFTER the opener install we are pinning.
+    h = rubric.HostedJudge(model="m", endpoint="https://example.invalid",
+                           egress_opt_in=True)
+    try:
+        h.complete("s", "u")
+    except Exception:
+        pass
+    assert "installed" in calls, "HostedJudge must install the safe opener"
