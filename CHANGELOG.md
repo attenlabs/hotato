@@ -23,6 +23,33 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   `action-smoke` CI job runs the consumer shape against the local checkout.
   Consumer usage: docs/CI.md, "The root Action".
 
+## [1.4.0] - 2026-07-13
+
+The Failure Record and the conformance-for-PRs foundation.
+
+### Added
+- **Failure Record v1** (`hotato.failure-record.v1`): a content-addressed,
+  five-lane record projected from a test-run, suite-run, or contract-verify
+  result. `hotato record render SOURCE[#TEST_ID] --out DIR` renders it to
+  deterministic JSON, Markdown, inert self-contained HTML, and a 1200x630 SVG,
+  all carrying the same record id. Outcome claims cite tool/state evidence;
+  transcript-only outcomes are refused. Safe projection excludes raw audio,
+  transcript bodies, payload values, secrets, environment values, and absolute
+  paths by default.
+- **Consumer GitHub Action** (root `action.yml`): an unrelated repository can
+  pin it by commit SHA to run a committed Hotato suite/test/contract and get a
+  five-lane job summary (with the reproduction command and acceptance-check
+  ids) on pass and failure, artifact and exit outputs, and hotato's own gate
+  status as the step exit. Read-only permissions; the default gate installs no
+  model, ASR, Node tool, or external judge.
+- **`hotato regression prepare`**: turn one confirmed failure into a sanitized,
+  deterministic, committed regression bundle on disk (rights and redaction read
+  from versioned metadata files). It prepares files locally and stops; it never
+  uploads, commits, opens a pull request, or changes an agent.
+- **Failure record viewer in `hotato serve`**: a read-only `/records` list and
+  detail view over the workspace records, token-gated and path-contained, with
+  an explicit empty state.
+
 ## [1.3.3] - 2026-07-13
 
 First-run truth, paste-safe guidance, and a workspace that opens itself.

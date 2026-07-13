@@ -27,10 +27,15 @@ correctness bound for an aggregate.
 from __future__ import annotations
 
 import json
+from ..errors import open_regular as _open_regular
+import os
 import re
 from collections import Counter, OrderedDict
 from typing import Any, Dict, List, Optional
 
+from ..failure_record import LANES as _FR_LANES
+from ..failure_record import KIND as _FR_KIND
+from ..failure_record import validate_record as _validate_record
 from ..fleet.registry import Registry
 from ..fleet.trend import _day as _utc_day  # reuse the exact UTC-day bucketing
 
@@ -39,11 +44,14 @@ __all__ = [
     "STATUSES",
     "ORIGINS",
     "store_root_for",
+    "records_root_for",
     "build_release_readiness",
     "build_scenario_matrix",
     "build_conversation_inspector",
     "build_failure_clusters",
     "build_production_health",
+    "build_records_list",
+    "build_record_detail",
 ]
 
 # The five conversation-QA dimensions (GPT Pro §2; never blended into one score).
@@ -750,3 +758,153 @@ def build_production_health(reg: Registry, ws: str) -> dict:
         "days_of_history": len(days_present),
         "enough_history": len(days_present) >= 2,
     }
+
+
+# =========================================================================
+# View 6 -- Failure records (read-only viewer over hotato.failure-record.v1)
+# =========================================================================
+
+# A record is addressed in the URL by a single, safe path segment (the on-disk
+# directory or file name it lives under). Anything outside this alphabet, a bare
+# ``.``/``..``, or a name with a separator is REJECTED (never sanitised) so a
+# hostile id cannot select a file outside the records root.
+_RECORD_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+# A share-safe Failure Record is small JSON (five lanes + evidence refs, never a
+# payload/audio body). Cap the read so a stray large blob is never parsed here.
+_RECORD_MAX_BYTES = 2 * 1024 * 1024
+
+
+def records_root_for(home: str) -> str:
+    """The read-only Failure Record directory for a registry ``home`` --
+    ``<home>/records``. Each record is either ``<root>/<id>/failure-record.json``
+    (the ``hotato record render --out`` layout) or a flat ``<root>/<id>.json``.
+    The server only reads from here; it never creates or writes it."""
+    return os.path.join(home, "records")
+
+
+def _contained(root_real: str, candidate: str) -> Optional[str]:
+    """The real path of ``candidate`` iff it resolves to a regular file strictly
+    inside ``root_real`` (symlinks resolved). Returns ``None`` on any escape --
+    a traversal id or a symlink pointing outside the records root is refused,
+    never followed."""
+    real = os.path.realpath(candidate)
+    if real != root_real and not real.startswith(root_real + os.sep):
+        return None
+    if not os.path.isfile(real):
+        return None
+    return real
+
+
+def _read_valid_record(path: str) -> Optional[Dict[str, Any]]:
+    """Load ONE ``hotato.failure-record.v1`` from ``path`` if it is a small,
+    well-formed, VALID record; otherwise ``None``. Validation runs the canonical
+    :func:`validate_record` oracle (content address, five separate lanes, no
+    aggregate score, share-safe privacy, no absolute paths) with no ``root`` so a
+    portable record is accepted without its evidence files present. Nothing that
+    fails to validate is ever shown."""
+    try:
+        if os.path.getsize(path) > _RECORD_MAX_BYTES:
+            return None
+        with _open_regular(path, "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict) or doc.get("kind") != _FR_KIND:
+        return None
+    try:
+        _validate_record(doc)
+    except Exception:
+        return None
+    return doc
+
+
+def _record_candidates(root: str, record_id: str) -> List[str]:
+    return [
+        os.path.join(root, record_id, "failure-record.json"),
+        os.path.join(root, record_id + ".json"),
+    ]
+
+
+def _record_summary(record_id: str, doc: Dict[str, Any]) -> Dict[str, Any]:
+    """The share-safe list row for one record: its URL-safe ref, content address,
+    headline, subject, per-lane status (each separate, never blended), and the
+    deterministic-gate/advisory statuses kept apart. Only fields the record
+    already publishes -- no payload, no absolute path."""
+    dims = doc.get("dimensions") or {}
+    lane_status = OrderedDict(
+        (lane, (dims.get(lane) or {}).get("status")) for lane in _FR_LANES)
+    return {
+        "record_id_ref": record_id,                     # URL routing id
+        "record_id": doc.get("record_id"),              # content address
+        "status": doc.get("status"),
+        "headline": doc.get("headline"),
+        "test_id": (doc.get("subject") or {}).get("test_id"),
+        "origin": (doc.get("origin") or {}).get("kind"),
+        "gate_status": (doc.get("gate") or {}).get("status"),
+        "advisory_status": (doc.get("advisory") or {}).get("status"),
+        "lane_status": lane_status,
+    }
+
+
+def build_records_list(home: str, ws: str) -> Dict[str, Any]:
+    """List the validated Failure Records under ``<home>/records``. Reads the
+    directory fresh on every call (read-only), skips anything that is not a
+    small, valid ``hotato.failure-record.v1``, and never follows a symlink out of
+    the root. An absent or empty directory yields an explicit empty list -- no
+    record is ever fabricated."""
+    root = records_root_for(home)
+    records: List[Dict[str, Any]] = []
+    if not os.path.isdir(root):
+        return {"view": "failure_records", "workspace": ws,
+                "records": records, "record_count": 0}
+    root_real = os.path.realpath(root)
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        names = []
+    seen: set = set()
+    for name in names:
+        full = os.path.join(root, name)
+        if os.path.isdir(full):
+            record_id = name
+            path = os.path.join(full, "failure-record.json")
+        elif name.endswith(".json"):
+            record_id = name[:-5]
+            path = full
+        else:
+            continue
+        if record_id in seen or not _RECORD_ID_RE.match(record_id):
+            continue
+        real = _contained(root_real, path)
+        if real is None:
+            continue
+        doc = _read_valid_record(real)
+        if doc is None:
+            continue
+        seen.add(record_id)
+        records.append(_record_summary(record_id, doc))
+    records.sort(key=lambda r: r["record_id_ref"])
+    return {"view": "failure_records", "workspace": ws,
+            "records": records, "record_count": len(records)}
+
+
+def build_record_detail(home: str, record_id: str) -> Optional[Dict[str, Any]]:
+    """Resolve ONE Failure Record by its URL-safe ``record_id`` and return the
+    validated canonical record dict, or ``None`` when the id is unsafe, escapes
+    the records root, is absent, or fails validation. The returned dict is the
+    canonical ``hotato.failure-record.v1`` -- the same object the JSON mirror and
+    the HTML view both render (one record, one source of truth)."""
+    if not _RECORD_ID_RE.match(record_id or ""):
+        return None
+    root = records_root_for(home)
+    if not os.path.isdir(root):
+        return None
+    root_real = os.path.realpath(root)
+    for candidate in _record_candidates(root, record_id):
+        real = _contained(root_real, candidate)
+        if real is None:
+            continue
+        doc = _read_valid_record(real)
+        if doc is not None:
+            return doc
+    return None

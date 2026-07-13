@@ -266,6 +266,11 @@ class _Handler(BaseHTTPRequestHandler):
             return self._view(ctx, "clusters", query, fmt)
         if path in ("/health", "/production"):
             return self._view(ctx, "health", query, fmt)
+        if path == "/records":
+            return self._records_list(ctx, fmt)
+        if path.startswith("/records/"):
+            rid = unquote(path.split("/", 2)[2]) if path.count("/") >= 2 else ""
+            return self._record_detail(ctx, rid, fmt)
         if path.startswith("/conversation/") or path.startswith("/conversations/"):
             cid = unquote(path.split("/", 2)[2]) if path.count("/") >= 2 else ""
             return self._inspector(ctx, cid, fmt)
@@ -320,6 +325,36 @@ class _Handler(BaseHTTPRequestHandler):
             return 200, _json_bytes(model), "application/json; charset=utf-8", {}
         doc = _render.page("Conversation", "conversation",
                            _render.render_conversation_inspector(model),
+                           workspace=ctx.workspace)
+        return 200, doc.encode("utf-8"), "text/html; charset=utf-8", {}
+
+    def _records_list(self, ctx, fmt):
+        """The read-only Failure Record index. Reads ``<home>/records`` fresh
+        (never writes it); an absent/empty directory renders an explicit empty
+        state, never a fabricated record."""
+        model = _data.build_records_list(ctx.home, ctx.workspace)
+        if fmt == "json":
+            return 200, _json_bytes(model), "application/json; charset=utf-8", {}
+        doc = _render.page("Failure records", "/records",
+                           _render.render_records_list(model),
+                           workspace=ctx.workspace)
+        return 200, doc.encode("utf-8"), "text/html; charset=utf-8", {}
+
+    def _record_detail(self, ctx, record_id, fmt):
+        """One Failure Record by its URL-safe id. The id is validated and
+        contained to the records root (traversal/symlink escape refused) in the
+        data layer; an unknown/unsafe/invalid id renders a 404. The JSON mirror
+        returns the canonical ``hotato.failure-record.v1`` -- the exact object the
+        HTML view renders, so the two can never diverge."""
+        record = _data.build_record_detail(ctx.home, record_id)
+        if record is None:
+            return self._not_found(
+                ctx, fmt, "No such failure record: %r" % record_id,
+                extra_json={"record_id": record_id})
+        if fmt == "json":
+            return 200, _json_bytes(record), "application/json; charset=utf-8", {}
+        doc = _render.page("Failure record", "/records",
+                           _render.render_record_detail(record),
                            workspace=ctx.workspace)
         return 200, doc.encode("utf-8"), "text/html; charset=utf-8", {}
 
