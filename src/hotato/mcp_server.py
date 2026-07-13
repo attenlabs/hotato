@@ -886,7 +886,13 @@ def build_server():
     # (mcp==1.2.0) and current.
     from . import __version__ as _hotato_version
 
-    server._mcp_server.version = _hotato_version
+    # Set the application version on the low-level server when it is present.
+    # The unit-test doubles (_FakeFastMCP) that run without the mcp extra do not
+    # expose _mcp_server; the real SDK does, and the floor+current wire tests
+    # assert the initialize payload carries hotato's version.
+    _low_server = getattr(server, "_mcp_server", None)
+    if _low_server is not None:
+        _low_server.version = _hotato_version
 
     @server.tool(name="voice_eval_run", description=_TOOL_DESCRIPTION)
     def voice_eval_run(
