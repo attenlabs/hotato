@@ -2714,10 +2714,17 @@ def _cmd_test_run(args) -> int:
 
         trace_obj = _trace.load_voice_trace_jsonl(args.trace) if args.trace else None
         build = _report.build_report_html if fmt == "html" else _report.build_report_md
+        # Thread the REAL reliability aggregate into the report's scorecard only
+        # when the test actually repeated (reps > 1); a single run has no
+        # repetition data, so the Reliability dimension shows the honest
+        # empty-state instead of a one-sample table.
+        reliability = (result["reliability"]
+                       if result["repetitions"]["runs"] > 1 else None)
         page, _env = build(
             stereo=stereo, caller=caller, agent=agent,
             trace=trace_obj, assertions=result["assertions"],
             conversation=manifest, rubric=result["rubric"],
+            reliability=reliability,
         )
         report_path = os.path.join(args.out, f"report.{fmt}")
         _atomic_write_text(report_path, page)
@@ -5281,9 +5288,12 @@ def build_parser() -> argparse.ArgumentParser:
             "INCONCLUSIVE, never guessed. The exit code honors the file's "
             "inconclusive_policy (report/fail/refuse) exactly as `assert run`, "
             "raised to non-zero when a success.required condition fails. "
-            "--repetitions N runs the deterministic lane N times and reports a "
-            "plain run count (reliability pass^k lands in Phase 2, never "
-            "fabricated here)."
+            "--repetitions N runs the deterministic lane N times and reports the "
+            "per-run outcomes, the run count, AND a real reliability aggregate "
+            "(pass@1 / pass@k / pass^k + a Wilson CI); with N>1 that aggregate is "
+            "threaded into the report's Reliability dimension. Every run scores "
+            "the same recording, so the lane has zero variance and pass^k == "
+            "pass@1 -- honest, never fabricated, never blended."
         ),
         epilog=(
             _exit_codes_epilog("test run") + "\n\n"
@@ -5321,8 +5331,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "bound into the artifact's audio slot")
     tr_.add_argument("--repetitions", type=int, default=None, metavar="N",
                      help="run the deterministic lane N times (default: the "
-                          "file's repetitions, else 1); reports a plain run "
-                          "count -- reliability (pass^k) is Phase 2")
+                          "file's repetitions, else 1); reports the per-run "
+                          "outcomes + a real reliability aggregate (pass@1 / "
+                          "pass@k / pass^k + Wilson CI), threaded into the "
+                          "report's Reliability dimension when N>1")
     tr_.add_argument("--out", default=None, metavar="DIR",
                      help="write the conversation artifact (conversation.json + "
                           "bound children) here; required for --format html/md")
