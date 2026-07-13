@@ -604,6 +604,8 @@ _EXIT_CODES: dict = {
     ),
     "fleet experiment approve": (
         (0, "the human approval was recorded (no deployment is performed)"),
+        (1, "approval rejected: the trial's verdict is refused or its evidence "
+            "tier is 0/none (no green paired proof to deploy)"),
         (2, "usage error or unknown trial"),
     ),
     "fleet run": (
@@ -2165,6 +2167,14 @@ def _cmd_fleet_experiment_approve(args) -> int:
     try:
         res = api.approve_trial(args.workspace, args.trial_id, approver=args.approver,
                                 note=args.note)
+        if not res.get("approved"):
+            # Approval was REJECTED on the trial's own evidence (refused verdict or
+            # tier-0/none floor). A policy block, like a legal hold on delete: report
+            # it and exit 1, never a silent exit-0 success.
+            _fleet_emit(args, res, [f"trial:    {res['trial_id']}",
+                                    "approved: False",
+                                    f"rejected: {res.get('reason')}"])
+            return 1
         _fleet_emit(args, res, [f"trial:    {res['trial_id']}",
                                 f"approved: {res['approved']} by {res['approver']}",
                                 f"note:     {res['note']}"])
