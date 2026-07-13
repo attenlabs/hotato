@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://hotato.dev">
-    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: find where your voice agent talks over callers, and pin the fix to a CI-gated contract" width="840">
+    <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="hotato: score a voice agent call across outcome, policy, conversation, speech, and reliability, with the evidence behind every result" width="840">
   </a>
 </p>
 
@@ -11,7 +11,7 @@
 <p align="center"><b>Open-source, self-hosted conversation QA for voice agents.</b></p>
 
 <p align="center">
-  Simulate, evaluate, review, and track every call across five dimensions (outcome, policy, conversation, speech, reliability), with the evidence behind every result. Deterministic checks stay separate from the model-judged rubric; never one blended score.<br>
+  Score every call across five dimensions reported on their own (outcome, policy, conversation, speech, reliability), with the evidence behind every result. Deterministic checks stay separate from the model-judged rubric; never one blended number.<br>
   Offline by default &middot; MIT &middot; zero runtime dependencies.
 </p>
 
@@ -25,6 +25,8 @@
   <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg"></a>
 </p>
 
+Your voice agent passes every text assertion and still loses the call. It talks over the caller, skips a required disclosure, or confirms a refund that never posted. hotato scores the conversation and the outcome, with the timing evidence behind every flag, then turns a caught bug into a CI contract so it stays caught.
+
 ## Quickstart: no account, no keys, no network
 
 ```bash
@@ -37,7 +39,8 @@ Already have [uv](https://docs.astral.sh/uv/)? Zero-install, same command:
 uvx hotato start --demo
 ```
 
-It sweeps two bundled recorded calls a provider's default agent failed, writes the candidate dashboard, and turns one missed-interruption candidate into a demo failure contract it verifies on the spot (output abridged):
+One command sweeps two bundled calls a provider's default agent failed, writes the candidate dashboard, and turns one missed-interruption moment into a demo failure contract it verifies on the spot, all offline:
+
 
 ```
 [start] demo: swept 2 bundled calls, 5 candidate moments; wrote hotato-sweep.json, hotato-sweep.html, hotato-no-single-threshold.svg, contracts/demo-missed-interruption.hotato/contract.json
@@ -48,7 +51,7 @@ hotato start: swept the 2 bundled demo calls offline.
   [ ... then the exact next commands: promote a candidate, gate it in CI, re-check it ... ]
 ```
 
-Open `hotato-sweep.html` -- the ranked candidate moments, each with a hear-the-bug playhead:
+Open `hotato-sweep.html`. The candidate moments come ranked by how far the timing missed, each with a hear-the-bug playhead. This is the artifact you screenshot into a PR:
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/sweep-dashboard.png" alt="The hotato candidate dashboard: 5 candidate moments ranked by salience across 2 calls, each card showing the caller and agent timeline, an embedded hear-the-bug audio playhead, and promote-as-yield / promote-as-hold / ignore buttons." width="820">
@@ -63,80 +66,17 @@ hotato start --stereo my-call.wav          # trust -> scan -> review -> label ->
 
 Every command takes a two-channel recording (caller on one channel, agent on the other). A mono file or a bad export is marked NOT SCORABLE, never turned into a confident but meaningless verdict.
 
-## How the loop works
-
-Catch a moment, confirm what it should have done, gate it in CI, then re-check today's agent.
-
-### 1. Catch: surface the candidate moments
-
-`sweep` ranks the talk-over and false-stop moments across your recent calls by how far the timing missed. Two candidate types, straight from the open scorer, no accuracy score:
-
-<table align="center">
-<tr>
-<td width="412"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/talk-over-card.svg" alt="Level 1 candidate card: 0.32s of overlap while the agent was talking, at t=2s in the recording. Hotato reports timing candidates, not intent." width="400"></td>
-<td width="412"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/false-stop-card.svg" alt="Level 1 candidate card: 0.46s of silence after the agent stopped with no caller nearby, at t=1.28s in the recording. Hotato reports timing candidates, not intent." width="400"></td>
-</tr>
-<tr>
-<td colspan="2" align="center"><sub><b>Level 1 -- candidate.</b> Hotato reports what it measured (0.32s of overlap; 0.46s of trailing silence), never a guess at intent. Each is a timing moment worth review, not a bug yet.</sub></td>
-</tr>
-</table>
-
-### 2. Confirm: you label yield or hold
-
-You decide the expected behavior for a candidate: `yield` (stop for the caller) or `hold` (keep talking through a backchannel). No single sensitivity dial decides it for you -- a threshold that stops missing interruptions starts false-stopping on backchannels, so when both fail in one run `diagnose` refuses to name one threshold:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/no-single-threshold-card.svg" alt="No single threshold can fix this: one sensitivity dial cannot both avoid missing a real interruption and avoid false-stopping on a backchannel. Hotato refused threshold tuning; fix class engagement-control." width="760">
-</p>
-<p align="center"><sub><b>Level 2 -- human-labeled failure.</b> A reviewer confirms the recording broke an explicit yield-or-hold expectation. When a missed interruption and a false stop collide, the fix is the engagement-control class, not one dial.</sub></p>
-
-### 3. Gate: pin it to a CI contract
-
-`fixture promote` saves your labeled call as a permanent regression test. On every push, CI re-scores that recording under the pinned thresholds and scorer, and exits non-zero if the stored evidence stops matching your policy:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/report-scored.png" alt="The scored hotato HTML report: 0 of 1 events pass with a REGRESSION verdict, an analytics panel (time to yield, talk-over histogram, failure clusters by fix class), and the per-event timeline with caller and agent channels, the measured metrics, and the fix note." width="820">
-</p>
-<p align="center"><sub><b>Level 3 -- stored-evidence check.</b> One recording, the pinned scorer, a FAIL against the labeled yield expectation. The same audio and config reproduce every number in this report.</sub></p>
-
-### 4. Prove: re-check the current agent
-
-The frozen recording catches the evidence, thresholds, or scorer drifting. To check that the CURRENT agent still behaves, recapture the same scenario and score a NEW contract under the same policy:
-
-```bash
-# place the same call against today's agent, capture dual-channel, then:
-hotato contract create --stereo fresh-call.wav --onset 41.90 --expect yield \
-    --id refund-cutoff-001-recapture --out contracts
-hotato contract verify contracts/refund-cutoff-001-recapture.hotato
-```
-
-<p align="center"><sub><b>Level 4 -- fresh-recapture comparison.</b> A newly captured call meets the same labelled policy and no submitted paired guard regressed. This is the claim the frozen-recording gate cannot make. Walkthrough: <a href="docs/RECAPTURE.md"><code>docs/RECAPTURE.md</code></a>.</sub></p>
-
-## Five levels of evidence
-
-Hotato never calls the weakest level a verdict. Every card, report, and CLI result names its level; the public tier is the weakest one its inputs support, never a blended score.
-
-| Level | Name | What it means |
-| --- | --- | --- |
-| 1 | Candidate | A timing moment worth human review. Not a bug yet. |
-| 2 | Human-labeled failure | A reviewer confirmed this recording broke an explicit yield-or-hold expectation. |
-| 3 | Stored-evidence check | The historical audio still produces the expected result under the pinned policy and scorer. |
-| 4 | Fresh-recapture comparison | A newly captured call passed the same contract, and no submitted paired guard regressed. |
-| 5 | External proof | An independent team confirmed a caught regression or a fresh recapture. Not yet published. |
-
-A before/after experiment (`hotato fix trial`, and the fleet loop) re-derives every verdict from the on-disk audio under one pinned trial manifest. It refuses a proof built from an edited verdict, a re-encoded old call, a dropped fixture, or unrelated audio. The number comes from re-scoring the recordings every time, never from a stored field.
-
-## Conversation QA: the five-dimension scorecard
+## What hotato catches: five dimensions, reported on their own
 
 A voice agent can pass every text assertion and still lose the call: the refund never fires, the recording disclosure gets skipped, the caller gets talked over. `hotato test run` grades one call against a conversation-test file across five dimensions, kept apart and never summed into one number:
 
-- **Outcome:** did the job get done, graded on tool-call and state evidence, not the transcript's say-so.
-- **Policy:** required disclosures, PII handling, and the compliance phrases your team owns.
-- **Conversation:** the deterministic turn-taking core: did the agent yield when the caller took the floor, and how fast.
-- **Speech:** response latency and the timing around each turn.
-- **Reliability:** pass@1 / pass@k / pass^k across repeated runs with a Wilson interval, so a flaky check reads as flaky.
+- **Outcome** &middot; did the job get done, graded on tool-call and state evidence, not the transcript's say-so.
+- **Policy** &middot; required disclosures, PII handling, and the compliance phrases your team owns.
+- **Conversation** &middot; the deterministic turn-taking core: did the agent yield when the caller took the floor, and how fast.
+- **Speech** &middot; response latency and the timing around each turn.
+- **Reliability** &middot; pass@1 / pass@k / pass^k across repeated runs with a Wilson interval, so a flaky check reads as flaky.
 
-Two lanes stay structurally separate. Deterministic checks (phrase, PII, policy, tool-call, sequence, latency, outcome -- pure regex, checksum, and span-lookup) live behind a wall from the model-judged rubric lane; a rubric verdict is `deterministic: false`, advisory, and never merged into a deterministic count. No output carries an `overall_score`, including `--format json`.
+Two lanes stay structurally separate. Deterministic checks (phrase, PII, policy, tool-call, sequence, latency, outcome, all pure regex, checksum, and span-lookup) live behind a wall from the model-judged rubric lane. A rubric verdict is `deterministic: false`, advisory, and never merged into a deterministic count; a judge can never silently gate CI. No output carries an `overall_score`, including `--format json`.
 
 ```bash
 hotato scenario init refund-check --out conversation-test.yaml   # a starter you edit, not a claim about your call
@@ -155,7 +95,85 @@ per-dimension (grouped view; never blended):
 
 Supply the call as `--transcript`, `--trace`, `--state`, and/or `--audio` and each check turns to pass or fail; a check whose evidence is absent stays INCONCLUSIVE, never guessed. Full walkthrough: [`docs/CONVERSATION-TEST.md`](docs/CONVERSATION-TEST.md).
 
-Then scale the one call into a release gate:
+## The receipt: a per-dimension scorecard with the evidence attached
+
+The scored HTML report is the thing that ends an argument in review: a verdict per event, a time-to-yield and talk-over histogram, failure clusters by fix class, and the per-event timeline with both channels and the measured numbers. The same audio and config reproduce every figure on the page.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/report-scored.png" alt="The scored hotato HTML report: 0 of 1 events pass with a REGRESSION verdict, an analytics panel (time to yield, talk-over histogram, failure clusters by fix class), and the per-event timeline with caller and agent channels, the measured metrics, and the fix note." width="820">
+</p>
+<p align="center"><sub>One recording, the pinned scorer, a FAIL against the labeled yield expectation. Share it in a PR with <code>hotato card hotato-sweep.json#1 --out finding.svg</code>.</sub></p>
+
+## The loop: catch, confirm, gate, prove
+
+Surface a moment, confirm what it should have done, pin it to a CI contract, then re-check today's agent.
+
+### 1. Catch: surface the candidate moments
+
+`sweep` ranks the talk-over and false-stop moments across your recent calls by how far the timing missed. Two candidate types, straight from the open scorer, no accuracy score:
+
+<table align="center">
+<tr>
+<td width="412"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/talk-over-card.svg" alt="Level 1 candidate card: 0.32s of overlap while the agent was talking, at t=2s in the recording. Hotato reports timing candidates, not intent." width="400"></td>
+<td width="412"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/false-stop-card.svg" alt="Level 1 candidate card: 0.46s of silence after the agent stopped with no caller nearby, at t=1.28s in the recording. Hotato reports timing candidates, not intent." width="400"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><sub><b>Level 1 -- candidate.</b> Hotato reports what it measured (0.32s of overlap; 0.46s of trailing silence), never a guess at intent. Each is a timing moment worth review, not a bug yet.</sub></td>
+</tr>
+</table>
+
+### 2. Confirm: you label yield or hold
+
+You decide the expected behavior for a candidate: `yield` (stop for the caller) or `hold` (keep talking through a backchannel). No single sensitivity dial decides it for you. A threshold that stops missing interruptions starts false-stopping on backchannels, so when both fail in one run `diagnose` refuses to name one threshold:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/no-single-threshold-card.svg" alt="No single threshold can fix this: one sensitivity dial cannot both avoid missing an interruption and avoid false-stopping on a backchannel. Hotato refused threshold tuning; fix class engagement-control." width="760">
+</p>
+<p align="center"><sub><b>Level 2 -- human-labeled failure.</b> A reviewer confirms the recording broke an explicit yield-or-hold expectation. When a missed interruption and a false stop collide, the fix is the engagement-control class, not one dial.</sub></p>
+
+### 3. Gate: pin it to a CI contract
+
+`fixture promote` saves your labeled call as a permanent regression test. On every push, CI re-scores that recording under the pinned thresholds and scorer, and exits non-zero if the stored evidence stops matching your policy.
+
+### 4. Prove: re-check the current agent
+
+The frozen recording catches the evidence, thresholds, or scorer drifting. To check that the CURRENT agent still behaves, recapture the same scenario and score a NEW contract under the same policy:
+
+```bash
+# place the same call against today's agent, capture dual-channel, then:
+hotato contract create --stereo fresh-call.wav --onset 41.90 --expect yield \
+    --id refund-cutoff-001-recapture --out contracts
+hotato contract verify contracts/refund-cutoff-001-recapture.hotato
+```
+
+<p align="center"><sub><b>Level 4 -- fresh-recapture comparison.</b> A newly captured call meets the same labeled policy and no submitted paired guard regressed. This is the claim the frozen-recording gate cannot make. Walkthrough: <a href="docs/RECAPTURE.md"><code>docs/RECAPTURE.md</code></a>.</sub></p>
+
+### Five levels of evidence, and never one blended score
+
+Hotato never calls the weakest level a verdict. Every card, report, and CLI result names its level; the public tier is the weakest one its inputs support.
+
+| Level | Name | What it means |
+| --- | --- | --- |
+| 1 | Candidate | A timing moment worth human review. Not a bug yet. |
+| 2 | Human-labeled failure | A reviewer confirmed this recording broke an explicit yield-or-hold expectation. |
+| 3 | Stored-evidence check | The historical audio still produces the expected result under the pinned policy and scorer. |
+| 4 | Fresh-recapture comparison | A newly captured call passed the same contract, and no submitted paired guard regressed. |
+| 5 | External proof | An independent team confirmed a caught regression or a fresh recapture. Not yet published. |
+
+A before/after experiment (`hotato fix trial`, and the fleet loop) re-derives every verdict from the on-disk audio under one pinned trial manifest. It refuses a proof built from an edited verdict, a re-encoded old call, a dropped fixture, or unrelated audio. The number comes from re-scoring the recordings every time, never from a stored field.
+
+## Gate it in CI
+
+hotato speaks CI natively.
+
+- Every scoring command exits non-zero when a deterministic check fails and zero when they pass, so a red build is a caught regression.
+- `hotato contract verify contracts/ --junit contracts-junit.xml` writes JUnit XML your runner already renders.
+- `--format json` carries an `exit_code` field, so an agent or a workflow reads the verdict without parsing prose.
+- The model-judged rubric is advisory by default and blocks a build only when you pass `--gate`.
+
+Drop-in GitHub Action and a pytest plugin: [`docs/CI.md`](docs/CI.md) &middot; [`docs/PYTEST.md`](docs/PYTEST.md). One bad call to a CI gate, step by step: [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md) &middot; runnable [`examples/bad-call-to-ci/`](examples/bad-call-to-ci/README.md).
+
+## Scale one call into a release gate
 
 - `hotato suite run suite.yaml --agent support-bot` -- run a whole `suite.v1`; scenario-driven tests execute offline through the deterministic scripted-caller simulator, and every run records into the local registry.
 - `hotato simulate --matrix scenario.yaml --out ./conv` -- render a `scenario.v1` with a deterministic scripted caller into `origin=simulated` conversation artifacts; the variation matrix expands into hundreds of runs, seeded and byte-identical on replay.
@@ -163,9 +181,11 @@ Then scale the one call into a release gate:
 - `hotato release compare BASELINE CANDIDATE` -- diff two recorded releases per dimension and per scenario, digest-exact, surfacing new failures and fixed-since.
 - `hotato serve` -- a self-hosted, read-only web app over the local registry (release readiness, scenario matrix, conversation inspector, failure clusters, production health) on `127.0.0.1`, bearer-token authenticated. [`docs/WORKSPACE.md`](docs/WORKSPACE.md).
 
+The bundled reference agent shows the shape at scale: 25 voice-agent jobs x 5 caller behaviours x 3 audio environments = 375 offline simulated runs, scored across the dimensions and byte-reproducible on replay. Run it with `make reference` in [`examples/reference-agent/`](examples/reference-agent/README.md) ([`docs/SUITE-RUN.md`](docs/SUITE-RUN.md)); the measurement-error harness is [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
+
 ## Connect a production stack
 
-The demo needs nothing. To point Hotato at real calls, connect once, then sweep on a schedule:
+The demo needs nothing. To point Hotato at your live calls, connect once, then sweep on a schedule:
 
 ```bash
 hotato connect vapi                                             # credentials stored 0600, local only
@@ -174,15 +194,13 @@ hotato sweep --stack vapi --since 7d --out hotato-sweep.html    # cron, CI, wher
 
 Run `sweep` on a timer and it becomes a scheduled batch scanner. Your audio stays on your machine unless you explicitly pull it from your stack. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) &middot; runnable [`examples/set-and-forget/`](examples/set-and-forget/README.md).
 
-### Get notified
-
-`sweep` and `hotato fleet run` can POST a one-line JSON summary to a webhook when they finish -- off by default, opt in with `--notify` (repeatable for more than one URL):
+`sweep` and `hotato fleet run` can POST a one-line JSON summary to a webhook when they finish, off by default, opt in with `--notify` (repeatable for more than one URL):
 
 ```bash
 hotato sweep --stack vapi --since 7d --notify https://hooks.slack.com/services/...
 ```
 
-The payload carries counts, the top candidate moments (id, kind, timing numbers only), and local artifact paths -- never audio, a credential, or transcript text -- plus a `text` field a Slack incoming webhook renders directly, no template work needed. A down or slow webhook never breaks the run: a delivery failure is one warning line on stderr. Egress details: [`docs/EGRESS.md`](docs/EGRESS.md).
+The payload carries counts, the top candidate moments (id, kind, timing numbers only), and local artifact paths, never audio, a credential, or transcript text, plus a `text` field a Slack incoming webhook renders directly. A down or slow webhook never breaks the run: a delivery failure is one warning line on stderr. Egress details: [`docs/EGRESS.md`](docs/EGRESS.md).
 
 ## Fleet: private, self-hosted
 
@@ -196,15 +214,11 @@ hotato fleet discover -w acme --agent support-bot call.wav
 hotato fleet review   -w acme
 ```
 
-Full guide: [`docs/GUARDIAN-FLEET.md`](docs/GUARDIAN-FLEET.md).
+Once a workspace has some history, `hotato fleet trend -w acme` reads the same local SQLite registry and writes one self-contained HTML page: per-agent talk-over and time-to-yield trend lines (p50/p95 per day), candidate moments discovered over time, and experiment outcomes (improved/inconclusive/refused). A day with no measurements gets no point, and a series with fewer than two days of history reports plainly as "not enough history to trend" instead of an interpolated line. Full guide: [`docs/GUARDIAN-FLEET.md`](docs/GUARDIAN-FLEET.md).
 
-Once a workspace has some history, `hotato fleet trend -w acme` reads the same local SQLite registry and writes one self-contained HTML page: per-agent talk-over and time-to-yield trend lines (p50/p95 per day), candidate moments discovered over time, and experiment outcomes (improved/inconclusive/refused) -- offline, no external assets, hand-rendered inline SVG in the same house style as the sweep dashboard. A day with no measurements gets no point, and a series with fewer than two days of history is reported plainly as "not enough history to trend" instead of a faked or interpolated line.
+## Self-host in your own cloud or VPC
 
-### Run it in your own cloud / VPC
-
-The whole team workspace ships as a container. One command stands up the read-only,
-token-authenticated workspace (`hotato serve`) on host loopback over a private
-volume; the default stack makes no external call at run time.
+The whole team workspace ships as a container. One command stands up the read-only, token-authenticated workspace (`hotato serve`) on host loopback over a private volume; the default stack makes no external call at run time.
 
 ```bash
 docker compose up -d                    # workspace on 127.0.0.1:8321
@@ -212,10 +226,17 @@ docker compose run --rm hotato-init     # optional: seed example data
 docker compose --profile judge up -d    # optional: a local Ollama model judge
 ```
 
-Full walk-through -- build, connect your own calls, the local judge, air-gap,
-backup, and the zero-migration promise (self-host and cloud share one set of
-schemas): [`docs/SELF-HOST.md`](docs/SELF-HOST.md). Prove the no-external-calls
-posture on your own machine with [`deploy/verify-zero-egress.sh`](deploy/verify-zero-egress.sh).
+Build, connect your own calls, the local judge, air-gap, backup, and the zero-migration promise (self-host and cloud share one set of schemas): [`docs/SELF-HOST.md`](docs/SELF-HOST.md). Confirm the no-external-calls posture on your own machine with [`deploy/verify-zero-egress.sh`](deploy/verify-zero-egress.sh).
+
+## Built for coding agents
+
+Hotato is a first-class tool for an LLM or an agent to drive: machine JSON on every command, meaningful exit codes, a described capability manifest, [`llms.txt`](llms.txt), JSON-LD, and an MCP server.
+
+```bash
+uvx --from "hotato[mcp]" hotato-mcp      # the voice_eval_run scorer + eleven fleet tools
+```
+
+Configs and the tool contract: [`docs/MCP.md`](docs/MCP.md) &middot; [`AGENTS.md`](AGENTS.md) &middot; [`llms-full.txt`](llms-full.txt).
 
 ## Choose your path
 
@@ -223,21 +244,21 @@ posture on your own machine with [`deploy/verify-zero-egress.sh`](deploy/verify-
 | --- | --- |
 | Try the full loop, no credentials | `hotato start --demo` |
 | Sweep the bundled demo calls | `hotato sweep --demo` |
-| Sweep recent calls from a real stack | `hotato connect vapi` then `hotato sweep --stack vapi --since 7d` |
+| Sweep recent calls from your stack | `hotato connect vapi` then `hotato sweep --stack vapi --since 7d` |
 | Add Hotato to an existing repo, CI gate included | `hotato init starter --stack vapi --out .` ([`docs/STARTER.md`](docs/STARTER.md)) |
 | Turn a confirmed failure into a portable contract | `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield --id refund-cutoff-001 --out contracts` ([`docs/CONTRACTS.md`](docs/CONTRACTS.md)) |
 | Verify contracts in CI | `hotato contract verify contracts/ --junit contracts-junit.xml` |
 | Attach observability traces to a contract | `hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl` ([`docs/TRACE.md`](docs/TRACE.md)) |
 | Test a candidate fix, before/after, fail-closed | `hotato fix trial patch.json --name staging-x --before before/ --after after/` ([`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md)) |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |
-| Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` (the `voice_eval_run` scorer + eleven fleet tools; configs in [`docs/MCP.md`](docs/MCP.md)) |
+| Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` ([`docs/MCP.md`](docs/MCP.md)) |
 
 `contract verify` and a promoted fixture in CI are two different guarantees, depending on which recording goes in:
 
 | | On the frozen recording (every push) | On a fresh recapture (by hand, see [`docs/RECAPTURE.md`](docs/RECAPTURE.md)) |
 | --- | --- | --- |
 | Proves | The evidence, policy, and scorer are intact | The CURRENT agent's behavior still matches the label |
-| Does not prove | That the deployed agent hasn't changed | -- |
+| Does not prove | That the deployed agent has not changed | -- |
 
 A contract bundle contains call audio. Do not commit a raw customer contract to a public repository; use sanitized fixtures for anything public. See [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
 
@@ -253,9 +274,13 @@ pip install 'hotato[livekit]'      # LiveKit live capture
 pip install 'hotato[pipecat]'      # Pipecat live capture
 ```
 
+## Contribute a labeled call
+
+The highest-value PR is one labeled dual-channel call. A small, high-integrity corpus of recorded calls with human-labeled turn-taking ground truth is the part of hotato that compounds: the more moments the community labels, the sharper every scorer gets. Add a clip: [`docs/SUBMITTING.md`](docs/SUBMITTING.md) &middot; the corpus and its schema live in [`corpus/`](corpus/README.md), with a recorded battery in [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md). Contributor guide: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## What Hotato is not
 
-- **A conversation-QA system that shows its work.** See [`docs/COMPARE.md`](docs/COMPARE.md) for how the per-dimension scorecard fits alongside runtime voice layers.
+- **Conversation QA that shows its work.** See [`docs/COMPARE.md`](docs/COMPARE.md) for how the per-dimension scorecard fits alongside runtime voice layers.
 - **Not transcript scoring.** It measures audio timing, not what was said. The opt-in `--transcribe` flag attaches an ASR transcript purely as context to read next to the verdict; it never changes the timing score. See [`docs/TRANSCRIBE.md`](docs/TRANSCRIBE.md).
 - **Not speaker ID.** Channels are anonymous; nothing identifies who a person is.
 - **Not semantic intent detection.** It produces candidate timing evidence. Humans label intent. CI enforces confirmed contracts.
@@ -271,14 +296,14 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 - **Pull a call from your stack** (Vapi, Twilio, Retell, LiveKit, Pipecat): [`adapters/README.md`](adapters/README.md) &middot; status [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
 - **CI gates**: GitHub Action [`docs/CI.md`](docs/CI.md) &middot; pytest plugin [`docs/PYTEST.md`](docs/PYTEST.md)
 - **Recorded-call battery**: 12 scripted calls against a live voice agent on its provider's default settings, where a missed interruption and a false stop on a backchannel fail in the same run, so `diagnose` refuses to name one threshold: [`corpus/vapi-defaults/README.md`](corpus/vapi-defaults/README.md)
-- **Failure contracts and traces**: turn a labelled candidate into a portable, CI-verified bundle and attach observability evidence: [`docs/CONTRACTS.md`](docs/CONTRACTS.md) &middot; [`docs/TRACE.md`](docs/TRACE.md) &middot; [`docs/OTEL.md`](docs/OTEL.md)
+- **Failure contracts and traces**: turn a labeled candidate into a portable, CI-verified bundle and attach observability evidence: [`docs/CONTRACTS.md`](docs/CONTRACTS.md) &middot; [`docs/TRACE.md`](docs/TRACE.md) &middot; [`docs/OTEL.md`](docs/OTEL.md)
 - **Deterministic assertions on the transcript/trace** (phrase, PII, policy, tool-call, outcome; never a blended score): [`docs/ASSERTIONS.md`](docs/ASSERTIONS.md)
 - **Checking the CURRENT agent, not just the frozen recording**: the recapture walkthrough: [`docs/RECAPTURE.md`](docs/RECAPTURE.md)
-- **Egress**: a per-command network table derived from the code -- what's local, what reaches your vendor, what optional extras add a hosted call: [`docs/EGRESS.md`](docs/EGRESS.md)
+- **Egress**: a per-command network table derived from the code, what is local, what reaches your vendor, what optional extras add a hosted call: [`docs/EGRESS.md`](docs/EGRESS.md)
 - **Layered failure evidence and a before/after fix trial**: `hotato explain` breaks a failing result down by layer, and `hotato fix trial` tests a candidate change before/after, fail-closed: [`docs/EXPLAIN.md`](docs/EXPLAIN.md) &middot; [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md) &middot; [`docs/APPLY.md`](docs/APPLY.md) &middot; [`docs/FIX-LOOP.md`](docs/FIX-LOOP.md)
 - **Evidence**: what Hotato validates, the input-condition trust matrix, every card and CLI block reproducible, and where Hotato fits alongside broader voice-agent testing tools: [`docs/VALIDATION.md`](docs/VALIDATION.md) &middot; [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) &middot; [`docs/GALLERY.md`](docs/GALLERY.md) &middot; [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) &middot; [`docs/COMPARE.md`](docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](AGENTS.md) &middot; [`llms.txt`](llms.txt) &middot; [`llms-full.txt`](llms-full.txt) &middot; MCP server [`docs/MCP.md`](docs/MCP.md) &middot; Security [`SECURITY.md`](SECURITY.md)
-- **Contributing**: the highest-value PR is a labelled call fixture: [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
+- **Contributing**: the highest-value PR is a labeled call fixture: [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
 
 Why "hotato": good turn-taking is a game of hot potato. Speak, then pass the turn the moment the caller wants it. MIT licensed ([`LICENSE`](LICENSE)); the open core stays open.
 

@@ -1,18 +1,18 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Contributing a real labelled recording
+  - name: Contributing a recorded call to the corpus
     url: https://github.com/attenlabs/hotato/blob/main/docs/CORPUS-GOVERNANCE.md
     about: >-
-      Adding real call audio to the corpus? Read the governance doc first:
-      consent, PII, PHI, and how validity is reported (ms error + a confusion
+      Adding a recorded call to the corpus? Read the governance doc first:
+      consent, PII, PHI, and how validity is reported (ms error and a confusion
       matrix, never an accuracy %). Then see corpus/README.md and run
       corpus/validate.py before you open a PR.
-  - name: Security or a consent/PII concern
+  - name: Security, or a consent / PII concern
     url: https://github.com/attenlabs/hotato/security/policy
     about: >-
       Found a recording that shouldn't have been published, or a data-handling
-      problem? Report it privately, not in a public issue. We honour removal
-      requests.
-  - name: Hotato website
+      problem? Report it privately rather than in a public issue. Removal
+      requests are honored.
+  - name: hotato docs and website
     url: https://hotato.dev
     about: Project overview, docs, and how to reach the maintainers.

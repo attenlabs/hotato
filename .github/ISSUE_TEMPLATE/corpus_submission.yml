@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: >-
-        One consented, labeled real call strengthens this eval. The full
+        One consented, labeled call recording strengthens this eval. The full
         walkthrough is
         [docs/SUBMITTING.md](https://github.com/attenlabs/hotato/blob/main/docs/SUBMITTING.md);
         consent, PII, and PHI rules are normative in
