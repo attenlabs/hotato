@@ -30,7 +30,11 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from .assert_ import parse_assertions_yaml
-from .errors import open_regular as _open_regular
+from .errors import (
+    check_kind_version as _check_kind_version,
+    open_regular as _open_regular,
+    reject_overall_score as _reject_overall_score_impl,
+)
 
 __all__ = [
     "KIND",
@@ -51,12 +55,14 @@ def _reject_overall_score(obj: Any, where: str) -> None:
     """Reject an ``overall_score`` key wherever the honesty invariant forbids
     one. The schema forbids it structurally too; this is the same guard on the
     code path, so a hand-built dict can never slip a score past
-    :func:`validate_scenario_doc`. A scenario scores NOTHING -- it is an input."""
-    if isinstance(obj, dict) and "overall_score" in obj:
-        raise ValueError(
-            f"{where}: 'overall_score' is forbidden -- a scenario is a "
-            "deterministic input, it never scores anything"
-        )
+    :func:`validate_scenario_doc`. A scenario scores NOTHING -- it is an input.
+    The reject MECHANISM is shared (:func:`hotato.errors.reject_overall_score`);
+    this scenario-specific wording stays local (load-bearing per the invariant)."""
+    _reject_overall_score_impl(
+        obj,
+        f"{where}: 'overall_score' is forbidden -- a scenario is a "
+        "deterministic input, it never scores anything",
+    )
 
 
 def _validate_goal(goal: Any) -> None:
@@ -199,13 +205,7 @@ def validate_scenario_doc(doc: Any) -> Dict[str, Any]:
         )
     _reject_overall_score(doc, "scenario document")
 
-    if doc.get("kind") != KIND:
-        raise ValueError(f"'kind' must be {KIND!r}, got {doc.get('kind')!r}")
-    if doc.get("version") != VERSION:
-        raise ValueError(
-            f"unsupported scenario version {doc.get('version')!r}; this build "
-            f"supports version {VERSION}"
-        )
+    _check_kind_version(doc, kind=KIND, version=VERSION, subject="scenario")
 
     sid = doc.get("id")
     if not sid or not isinstance(sid, str):

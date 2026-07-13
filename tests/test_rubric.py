@@ -514,3 +514,34 @@ def test_judge_http_paths_install_hardened_opener(monkeypatch):
     except Exception:
         pass
     assert "installed" in calls, "HostedJudge must install the safe opener"
+
+
+def test_shared_transport_installs_opener_before_request(monkeypatch):
+    """Finding #8 moved the opener install into the shared ``_urllib_json_call``
+    transport. Pin, at the consolidation point itself, that the hardened opener
+    (finding #1) is installed BEFORE any request is issued -- so neither judge
+    path can regress the credential-safe redirect protection."""
+    import urllib.error
+    import urllib.request
+
+    import hotato.capture as capture
+    import hotato.rubric as rubric
+
+    order = []
+    monkeypatch.setattr(capture, "_ensure_safe_opener",
+                        lambda: order.append("opener"))
+
+    def _fake_urlopen(req, timeout=None):
+        order.append("urlopen")
+        raise urllib.error.URLError("no network in test")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    with pytest.raises(rubric.JudgeError):
+        rubric._urllib_json_call(
+            "http://localhost:11434/api/tags", data=None, headers={},
+            method="GET", timeout=1.0,
+            unreachable_subject="ollama endpoint", failed_subject="ollama",
+        )
+    # opener MUST be installed before the request is ever issued
+    assert order == ["opener", "urlopen"]

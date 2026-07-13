@@ -121,8 +121,9 @@
   `hotato/schema/fixplan.v1.json`, `hotato.fixplan.v1`). A change is proposed
   only when it maps cleanly to one setting, is one bounded step in an
   unambiguous direction, and the battery has a passing opposite-risk fixture;
-  otherwise it downgrades honestly. `production_apply` is always `false`; no
-  apply command exists.
+  otherwise it downgrades honestly. `production_apply` is always `false`; the
+  shipped `hotato apply` is clone-only and staged, and never a production
+  auto-apply (see docs/APPLY.md).
 - `hotato patch fixplan.json` -- render a fix plan into a LITERAL, paste-ready
   artifact per platform: a JSON merge-patch body plus a ready `curl` against the
   platform's real config-update endpoint (Vapi, Retell), or the exact source

@@ -32,7 +32,12 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-from .errors import open_regular as _open_regular
+from .errors import (
+    check_kind_version as _check_kind_version,
+    load_json_file as _load_json_file,
+    open_regular as _open_regular,
+    reject_overall_score as _reject_overall_score,
+)
 from .fleet.store import ArtifactStore
 
 __all__ = [
@@ -126,15 +131,8 @@ def validate_conversation_doc(doc: Any) -> Dict[str, Any]:
     verify-time refusal (:func:`verify`)."""
     if not isinstance(doc, dict):
         raise ValueError("conversation manifest must be a mapping")
-    if "overall_score" in doc:
-        raise ValueError("'overall_score' is forbidden in a conversation manifest")
-    if doc.get("kind") != KIND:
-        raise ValueError(f"'kind' must be {KIND!r}, got {doc.get('kind')!r}")
-    if doc.get("version") != VERSION:
-        raise ValueError(
-            f"unsupported conversation version {doc.get('version')!r}; this "
-            f"build supports version {VERSION}"
-        )
+    _reject_overall_score(doc, "'overall_score' is forbidden in a conversation manifest")
+    _check_kind_version(doc, kind=KIND, version=VERSION, subject="conversation")
     for field in ("conversation_id", "agent_id", "created_at"):
         if not doc.get(field) or not isinstance(doc[field], str):
             raise ValueError(f"conversation manifest is missing a string {field!r}")
@@ -218,11 +216,7 @@ def write_conversation(manifest: Dict[str, Any], dir_path: str) -> str:
 def load_manifest(path: str) -> Dict[str, Any]:
     """Load and structurally validate a ``conversation.json`` manifest from a
     file. Raises ``ValueError`` on invalid JSON or a malformed manifest."""
-    with _open_regular(path, "r", encoding="utf-8") as fh:
-        try:
-            doc = json.load(fh)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{path!r} is not valid JSON: {exc}") from exc
+    doc = _load_json_file(path)
     return validate_conversation_doc(doc)
 
 
