@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>FAIL · refund-claimed-not-issued · hotato failure record</title>
+<style>
+* { box-sizing:border-box; }
+body { margin:0; background:#1b1714; color:#f1e8d7; font-family:ui-sans-serif,system-ui,sans-serif; }
+main { max-width:960px; margin:0 auto; padding:32px 20px 48px; }
+h1 { font-size:1.5rem; line-height:1.35; } h1,h2 { font-weight:650; }
+.eyebrow,.meta { color:#b7ab97; font-size:0.9rem; }
+.panel { background:#241f1a; border:1px solid #493d31; border-radius:14px; padding:18px; margin:18px 0; }
+table { width:100%; border-collapse:collapse; margin:18px 0; }
+th,td { padding:10px 12px; text-align:left; border-bottom:1px solid #493d31; vertical-align:top; overflow-wrap:anywhere; }
+th { width:18%; }
+.status { font-family:ui-monospace,SFMono-Regular,monospace; font-weight:700; }
+code,pre { font-family:ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere; }
+pre { white-space:pre-wrap; background:#241f1a; border:1px solid #493d31; border-radius:10px; padding:12px; }
+</style>
+</head>
+<body>
+<main>
+<div class="eyebrow">hotato failure record · <span class="status" style="color:#e0664f">FAIL</span> · refund-claimed-not-issued</div>
+<h1>refund-issued failed: expected a refund.create tool call; none was found in the trace</h1>
+<table aria-label="Five evaluation dimensions"><thead><tr><th>Dimension</th><th>Status</th><th>Observed</th></tr></thead><tbody><tr><th>Outcome</th><td><span class="status" style="color:#e0664f">FAIL</span></td><td>expected a refund.create tool call; none was found in the trace</td></tr><tr><th>Policy</th><td><span class="status" style="color:#74c98a">PASS</span></td><td>The policy assertion passed against the supplied evidence.</td></tr><tr><th>Conversation</th><td><span class="status" style="color:#74c98a">PASS</span></td><td>The latency assertion passed against the supplied evidence.</td></tr><tr><th>Speech</th><td><span class="status" style="color:#b7ab97">INCONCLUSIVE</span></td><td>no timing context was provided for a latency field</td></tr><tr><th>Reliability</th><td><span class="status" style="color:#b7ab97">NOT_RUN</span></td><td>No assertion ran in this dimension.</td></tr></tbody></table>
+<div class="panel"><h2>Gate authority</h2>
+<p>Deterministic gate: <strong>FAIL</strong> · policy <code>all_deterministic_assertions_pass</code></p>
+<p>Model advisory: <strong>UNAVAILABLE</strong> · gate not enabled</p></div>
+<div class="panel"><h2>Reliability</h2><p>pass@1=0.400 pass@k=1.000 pass^k=0.000 (2 of 5 trials passed); 95% Wilson interval [0.117621, 0.769280]</p></div>
+<section><h2>Primary assertion</h2><p><code>assert.tool_call</code> · <code>FAIL</code></p><p><strong>Expected:</strong> The declared tool_call conditions hold against the supplied evidence.</p><p><strong>Observed:</strong> expected a refund.create tool call; none was found in the trace</p><p><strong>Evidence:</strong> assertion-refund-issued-evidence</p></section>
+<section><h2>Evidence references</h2>
+<table aria-label="Evidence references"><thead><tr><th>Reference</th><th>Kind</th><th>Locator</th><th>Digest</th></tr></thead><tbody><tr><td><code>assertion-refund-issued-evidence</code></td><td>tool_call</td><td>(digest only)</td><td><code>sha256:8adec3cb69c1c...</code></td></tr><tr><td><code>assertion-disclosure-present-evidence</code></td><td>policy_match</td><td>(digest only)</td><td><code>sha256:4a929d631fa1c...</code></td></tr><tr><td><code>assertion-yield-latency-evidence</code></td><td>timing_measurement</td><td>(digest only)</td><td><code>sha256:4bfed19f36210...</code></td></tr><tr><td><code>assertion-speech-latency-evidence</code></td><td>timing_measurement</td><td>(digest only)</td><td><code>sha256:ad92320c255d3...</code></td></tr></tbody></table></section>
+<section><h2>Reproduce</h2><pre><code>hotato record render source-result.json --out record</code></pre></section>
+<p class="meta"><code>sha256:4fba280a24712a25e863b1bd5f5857801aafd5e0b03bebfa40f1966c120d8c6e</code><br>
+hotato 0.0.0-golden · origin captured · privacy profile share-safe-v1</p>
+</main>
+</body>
+</html>

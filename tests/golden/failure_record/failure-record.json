@@ -1,0 +1,260 @@
+{
+  "advisory": {
+    "gate_enabled": false,
+    "reason_code": "backend-not-requested",
+    "status": "UNAVAILABLE"
+  },
+  "dimensions": {
+    "conversation": {
+      "assertions": [
+        {
+          "assertion_id": "yield-latency",
+          "authority": "deterministic",
+          "dimension": "conversation",
+          "evidence_refs": [
+            "assertion-yield-latency-evidence"
+          ],
+          "expected": "The declared latency conditions hold against the supplied evidence.",
+          "missing_evidence": [],
+          "observed": "The latency assertion passed against the supplied evidence.",
+          "rule_id": "assert.latency",
+          "rule_version": "1",
+          "source_result_digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14",
+          "status": "PASS"
+        }
+      ],
+      "evaluated": 1,
+      "failed": 0,
+      "inconclusive": 0,
+      "passed": 1,
+      "status": "PASS"
+    },
+    "outcome": {
+      "assertions": [
+        {
+          "assertion_id": "refund-issued",
+          "authority": "deterministic",
+          "dimension": "outcome",
+          "evidence_refs": [
+            "assertion-refund-issued-evidence"
+          ],
+          "expected": "The declared tool_call conditions hold against the supplied evidence.",
+          "missing_evidence": [],
+          "observed": "expected a refund.create tool call; none was found in the trace",
+          "rule_id": "assert.tool_call",
+          "rule_version": "1",
+          "source_result_digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14",
+          "status": "FAIL"
+        }
+      ],
+      "evaluated": 1,
+      "failed": 1,
+      "inconclusive": 0,
+      "passed": 0,
+      "status": "FAIL"
+    },
+    "policy": {
+      "assertions": [
+        {
+          "assertion_id": "disclosure-present",
+          "authority": "deterministic",
+          "dimension": "policy",
+          "evidence_refs": [
+            "assertion-disclosure-present-evidence"
+          ],
+          "expected": "The declared policy conditions hold against the supplied evidence.",
+          "missing_evidence": [],
+          "observed": "The policy assertion passed against the supplied evidence.",
+          "rule_id": "assert.policy",
+          "rule_version": "1",
+          "source_result_digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14",
+          "status": "PASS"
+        }
+      ],
+      "evaluated": 1,
+      "failed": 0,
+      "inconclusive": 0,
+      "passed": 1,
+      "status": "PASS"
+    },
+    "reliability": {
+      "assertions": [],
+      "k": 5,
+      "pass_at_1": 0.4,
+      "pass_at_k": 1.0,
+      "pass_caret_k": 0.0,
+      "passes": 2,
+      "status": "NOT_RUN",
+      "trials": 5,
+      "wilson_interval": {
+        "confidence": 0.95,
+        "lower": 0.117621,
+        "method": "wilson",
+        "upper": 0.76928
+      }
+    },
+    "speech": {
+      "assertions": [
+        {
+          "assertion_id": "speech-latency",
+          "authority": "deterministic",
+          "dimension": "speech",
+          "evidence_refs": [
+            "assertion-speech-latency-evidence"
+          ],
+          "expected": "The declared latency conditions hold against the supplied evidence.",
+          "missing_evidence": [
+            "timing"
+          ],
+          "observed": "no timing context was provided for a latency field",
+          "rule_id": "assert.latency",
+          "rule_version": "1",
+          "source_result_digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14",
+          "status": "INCONCLUSIVE"
+        }
+      ],
+      "evaluated": 0,
+      "failed": 0,
+      "inconclusive": 1,
+      "passed": 0,
+      "status": "INCONCLUSIVE"
+    }
+  },
+  "evidence": [
+    {
+      "authority": "source",
+      "digest": "sha256:8adec3cb69c1c38617503e46bc876cec7c8bc2aa6d009f922dbbb11b46754b00",
+      "evidence_id": "assertion-refund-issued-evidence",
+      "kind": "tool_call",
+      "media_type": "application/json",
+      "redacted": true,
+      "redaction_classes": [
+        "tool-arguments"
+      ]
+    },
+    {
+      "authority": "source",
+      "digest": "sha256:4a929d631fa1c976c7a0392f23f35db884d33ed43e11d3160c43528ca350af4d",
+      "evidence_id": "assertion-disclosure-present-evidence",
+      "kind": "policy_match",
+      "media_type": "application/json",
+      "redacted": true,
+      "redaction_classes": [
+        "transcript-span"
+      ]
+    },
+    {
+      "authority": "source",
+      "digest": "sha256:4bfed19f36210b10a8f10b9622d482e1a67136d1eb9ae92d3d507c1c9742f4f6",
+      "evidence_id": "assertion-yield-latency-evidence",
+      "kind": "timing_measurement",
+      "media_type": "application/json",
+      "redacted": false,
+      "redaction_classes": []
+    },
+    {
+      "authority": "source",
+      "digest": "sha256:ad92320c255d394d798e7d2803e8559d07aa9d052e6b1438f8f699e5d67e3dc4",
+      "evidence_id": "assertion-speech-latency-evidence",
+      "kind": "timing_measurement",
+      "media_type": "application/json",
+      "redacted": false,
+      "redaction_classes": []
+    }
+  ],
+  "gate": {
+    "exit_code": 1,
+    "policy": "all_deterministic_assertions_pass",
+    "status": "FAIL"
+  },
+  "headline": "refund-issued failed: expected a refund.create tool call; none was found in the trace",
+  "kind": "hotato.failure-record.v1",
+  "origin": {
+    "kind": "captured",
+    "source": "hotato.test-run"
+  },
+  "privacy": {
+    "absolute_path_embedded": false,
+    "credential_embedded": false,
+    "profile": "share-safe-v1",
+    "raw_audio_embedded": false,
+    "redaction_classes": [
+      "absolute-paths",
+      "credentials",
+      "state-values",
+      "tool-payload",
+      "transcript-body"
+    ],
+    "state_value_embedded": false,
+    "tool_payload_embedded": false,
+    "transcript_body_embedded": false
+  },
+  "provenance": {
+    "hotato": {
+      "name": "hotato",
+      "version": "0.0.0-golden"
+    },
+    "inputs": [
+      {
+        "digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14",
+        "name": "source-result"
+      }
+    ],
+    "rules": [
+      {
+        "name": "assert.tool_call",
+        "version": "1"
+      },
+      {
+        "name": "assert.policy",
+        "version": "1"
+      },
+      {
+        "name": "assert.latency",
+        "version": "1"
+      }
+    ],
+    "schemas": [
+      {
+        "name": "failure-record",
+        "version": "1.0"
+      },
+      {
+        "name": "hotato.test-run",
+        "version": "1"
+      }
+    ],
+    "scorers": [
+      {
+        "name": "hotato-failure-record-projection",
+        "version": "1"
+      }
+    ],
+    "source_result_digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14"
+  },
+  "record_id": "sha256:4fba280a24712a25e863b1bd5f5857801aafd5e0b03bebfa40f1966c120d8c6e",
+  "reproduction": {
+    "argv": [
+      "hotato",
+      "record",
+      "render",
+      "source-result.json",
+      "--out",
+      "record"
+    ],
+    "required_artifacts": [
+      {
+        "digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14",
+        "relative_path": "source-result.json",
+        "role": "source-result"
+      }
+    ],
+    "working_directory": "."
+  },
+  "status": "FAIL",
+  "subject": {
+    "agent_id": "support-agent",
+    "test_id": "refund-claimed-not-issued"
+  },
+  "version": "1.0"
+}
