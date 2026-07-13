@@ -25,6 +25,7 @@ only). The per-stack signature-verification and event-detection code lives in
 from __future__ import annotations
 
 import os
+import shlex
 import stat
 from importlib import resources
 from typing import Optional
@@ -206,7 +207,7 @@ def scaffold_webhook(
         "out": out_dir,
         "files": files,
         "next": [
-            f"cd {out_dir}",
+            f"cd {shlex.quote(out_dir)}",
             "cp .env.example .env   # fill in your secrets",
             "pip install -r requirements.txt",
             "pytest -q tests/test_webhook_contract.py   # the four invariants",
@@ -797,14 +798,14 @@ def scaffold_starter(stack: str, out_dir: str, *, force: bool = False) -> dict:
         "credential_env": list(_STARTER_ENV_VARS[stack]),
         "next": (
             [
-                f"cd {out_dir}" if out_dir != "." else None,
+                f"cd {shlex.quote(out_dir)}" if out_dir != "." else None,
                 f"hotato connect {stack} --api-key <key>",
                 f"hotato sweep --stack {stack} --out hotato-sweep.html",
                 "hotato contract create --from-candidate "
                 "hotato-sweep.json#1 --expect yield --id <slug> "
                 "--out contracts",
             ] if auto_pull else [
-                f"cd {out_dir}" if out_dir != "." else None,
+                f"cd {shlex.quote(out_dir)}" if out_dir != "." else None,
                 f"hotato setup --stack {stack}",
                 f"hotato inspect --stack {stack} --config <file>   "
                 "# where turn-taking config actually lives",

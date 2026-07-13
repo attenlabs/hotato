@@ -11,7 +11,7 @@
 > Some timing signatures map to a likely fix class; root cause may remain
 > unknown. Runs entirely on your machine. Built to be called by an AI agent
 > mid-task, as a CLI or an MCP server.
-> Version 1.3.0. This file is the machine-readable index; `hotato describe
+> Version 1.3.1. This file is the machine-readable index; `hotato describe
 > --format json` emits the same information generated straight from the CLI's
 > own argparse structure (every subcommand, its args, its exit codes, plus the
 > schema URLs and the version), so it can never drift from the real flags.
@@ -177,6 +177,116 @@
   pulled recordings while keeping pinned fixture/contract clips committed.
   Refused (never partial, never silent) if a destination already exists,
   unless `--force`. Detail: `docs/STARTER.md`.
+- `hotato start [--demo | --stereo call.wav | --stack X | --folder DIR]` -- the
+  zero-setup first run: `--demo` sweeps the two bundled demo calls, writes the
+  sweep result + dashboard + threshold-funnel card, creates and verifies one
+  demo failure contract, and prints the exact next commands; `--stereo` walks
+  your own call through trust -> scan -> review -> label -> contract. Detail:
+  `docs/START.md`.
+- `hotato test run TEST.yaml --agent ID [--transcript F] [--trace F] [--state
+  F] [--audio WAV]` -- the conversation-QA entry point: evaluate one
+  conversation-test.v1 file against a supplied call and emit a per-dimension
+  scorecard (outcome / policy / conversation / speech / reliability) bound into
+  a hotato.conversation.v1 artifact. Runs the DETERMINISTIC assertion lane; the
+  model-judged rubric lane stays quarantined to INCONCLUSIVE unless
+  --gate-judge. Absent evidence is INCONCLUSIVE, never guessed. Success is a
+  boolean over named conditions; there is NO overall_score, including in
+  `--format json`. Detail: `docs/CONVERSATION-TEST.md`.
+- `hotato suite run SUITE.yaml --agent ID [--release ID] [--out DIR]` -- run a
+  suite.v1 of conversation-tests; a test that declares a `scenario` executes
+  offline through the deterministic scripted-caller simulator. Records
+  Release/Suite/Scenario/Run/Conversation/Evaluation rows into the local fleet
+  registry (so `hotato serve` renders them). Per-dimension + reliability
+  (pass@1 / pass@k / pass^k) only, no blended score; the exit code is the worst
+  test outcome under the suite's inconclusive_policy. Detail: `docs/SUITE-RUN.md`.
+- `hotato scenario init [NAME] [--out PATH]` / `hotato scenario validate PATH`
+  -- author a starter conversation-test.yaml you edit, or structurally validate
+  one file or a directory of them (exit 2 on any malformed file).
+- `hotato simulate [SCENARIO.yaml] [--matrix SCENARIO.yaml] [--seed N]
+  [--repetitions N] [--out DIR]` -- render a hotato.scenario.v1 with a
+  DETERMINISTIC scripted caller into hotato.conversation.v1 artifacts labelled
+  origin=simulated (never merged into a real bucket). No live agent, no TTS, no
+  network. A seeded replay is byte-identical; a bad rendering is
+  SIMULATOR_INVALID, never an agent PASS/FAIL. `--matrix` expands the whole
+  variation matrix in a bounded pool.
+- `hotato rubric run --rubrics FILE [--transcript F] [--trace F] [--gate]` (and
+  `hotato rubric calibrate`) -- the model-judged lane, kept SEPARATE from the
+  deterministic assert.v1 wall. Every result is deterministic:false with full
+  provenance (pinned model + digest, prompt sha256, temperature 0, votes,
+  citations). Default judge is a LOCAL Ollama model -- zero egress. ADVISORY
+  unless --gate. No overall_score. Detail: `docs/RUBRIC.md`.
+- `hotato release compare BASELINE CANDIDATE` -- diff two releases recorded by
+  `hotato suite run`, per dimension and per scenario, digest-exact: per-count
+  deltas (never one blended delta), NEW FAILURES, and FIXED-SINCE, only where
+  both releases ran the same scenario x dimension. Detail:
+  `docs/RELEASE-COMPARE.md`.
+- `hotato conversation verify ARTIFACT` -- re-hash every child bound into a
+  hotato.conversation.v1 artifact and REFUSE on any tamper or missing file.
+- `hotato assert run assertions.yaml [--transcript F] [--trace F]` (and
+  `hotato assert init`) -- the deterministic assertion wall: phrase, pii,
+  policy, tool_call, and outcome checks, each pure regex/checksum/span-lookup,
+  never a model call. The summary splits deterministic pass/fail/inconclusive
+  from a separate judge count and never merges them. Detail:
+  `docs/ASSERTIONS.md`.
+- `hotato contract create|verify|inspect|pack|unpack` -- build a self-contained
+  <id>.hotato failure-contract bundle from a labelled call moment (audio, frame
+  evidence, input-health report, card, CI policy), verify a directory of them
+  for CI, inspect one, or pack/unpack the portable archive. Detail:
+  `docs/CONTRACTS.md`.
+- `hotato explain RESULT` -- read-only layer attribution for a finished run
+  envelope, a sweep/analyze candidate ref (FILE#N), or a contract bundle:
+  failure_layer, fixability (safe_to_patch | needs_human |
+  insufficient_evidence | do_not_patch), opposite_risk, evidence for/against,
+  and explicit unknowns. Refuses rather than guesses; a bare candidate ref is
+  refused with the exact promote command for both labels.
+- `hotato trust --stereo call.wav` -- the input-health 'trust doctor':
+  per-channel activity, a channel-swap flag, sample rate, clipping, leading
+  silence, crosstalk risk, and the three scorability checks, then 'eligible for
+  scan' or 'NOT SCORABLE' with the reason and the next step. Never a yield/hold
+  or pass/fail verdict.
+- `hotato synth SOURCE.wav --out DIR [--seed N]` -- apply the deterministic
+  transform matrix (sample rate, gain, additive noise at a declared SNR,
+  cross-channel leakage, inversion, silence, onset offsets, clipping) to a real
+  fixture, writing derived clips each stamped with parent hash, recipe, seed,
+  tool+version, and an explicit SYNTHETIC designation. A separate synthetic
+  axis, never blended with real evidence.
+- `hotato apply PATCH --clone --name NAME [--battery DIR] [--yes]` -- the only
+  command that can mutate external platform state, and clone-only: it creates a
+  NEW staging assistant (never PUTs the source), dry-run by default, refuses a
+  both-axes threshold-funnel patch, and requires both a yield and a hold
+  fixture. Detail: `docs/APPLY.md`.
+- `hotato fix trial patch.json --before DIR --after DIR` -- compose the guarded
+  primitives into ONE fail-closed before/after report (improved / regressed /
+  inconclusive; inconclusive is not a pass). Creates no clone and touches no
+  network. Detail: `docs/FIX-TRIAL.md`.
+- `hotato investigate [call.wav | --stack X --call-id ID]` -- one recording in,
+  ranked candidate turn-taking moments out: open or pull one call, authenticate
+  its capture origin, run the trust/K6 verdict-eligibility gate, and scan for
+  candidates -- discovery only, no verdict fabricated; a suspected channel swap
+  REFUSES the verdict path. `hotato investigate label` is the human yield/hold
+  decision into a signed, CI-ready contract. Detail: `docs/INVESTIGATE.md`.
+- `hotato card FILE#N --out card.svg` -- render a self-contained, deterministic
+  SVG card (1200x630, no external assets) from a sweep/analyze candidate, a fix
+  plan, or a verify rollup. Names the measured timing moment, never a verdict;
+  redacts identifiers unless --include-identifiers.
+- `hotato issue create ...` / `hotato pr create ...` -- turn a sweep result
+  into a GitHub issue that asks a human to confirm or ignore each candidate, or
+  a directory of promoted fixtures into a GitHub pull request that adds them as
+  regression tests.
+- `hotato fleet init|agent|ingest|discover|review|label|status|experiment|
+  canary|export|trend` -- the local, self-hosted Guardian control plane:
+  register agents (no cap), ingest calls, discover candidate turn-taking
+  failures, hold a human review queue, record labels, and run manifest-bound
+  before/after experiments. Always RECOMMENDS; never auto-labels and never
+  auto-deploys. Zero-dependency local mode (a SQLite registry + a
+  content-addressed store under ~/.hotato/fleet). Detail: `docs/GUARDIAN-FLEET.md`.
+- `hotato serve [--workspace ID] [--host H] [--port P] [--token-file F]` --
+  serve an authenticated, read-only local web app over the fleet registry +
+  conversation artifacts (release readiness, scenario matrix, conversation
+  inspector, failure clusters, production health; each with a ?format=json
+  mirror). Stdlib-only (http.server + sqlite3); binds 127.0.0.1; a bearer token
+  is generated + stored 0600 on first start; nothing leaves the machine.
+  Reviews and labels stay CLI-driven. Detail: `docs/WORKSPACE.md`.
 - `hotato describe [--format json]` -- generated capability manifest of the
   whole CLI: every subcommand's name, purpose, argument list, and documented
   exit codes, plus the tool version and the schema URLs. Pure and
@@ -324,6 +434,36 @@ it, never whether the policy itself was right.
   deterministic:true on every result, split deterministic/judge counts, no
   overall_score, judge quarantined), the two-shelf `hotato report`
   integration, and the CI-gate exit codes.
+- docs/CONVERSATION-TEST.md: `hotato test run`, the end-to-end conversation-QA
+  workflow -- one conversation-test.v1 file, one call, the per-dimension
+  scorecard (outcome / policy / conversation / speech / reliability) bound into
+  a digest-verified hotato.conversation.v1 artifact; boolean success, no
+  overall_score.
+- docs/RUBRIC.md: `hotato rubric run` / `calibrate`, the model-judged lane
+  (rubric.v1) kept structurally separate from the deterministic assert.v1 wall
+  -- a local Ollama judge, full provenance, advisory unless --gate.
+- docs/SIMULATE.md: `hotato simulate`, rendering a scenario.v1 through a
+  deterministic scripted caller into origin=simulated conversation artifacts
+  (byte-identical on a seeded replay); `--init` / `--example` are the
+  from-a-bare-install onboarding path.
+- docs/SUITE-RUN.md: `hotato suite run`, executing a suite.v1 of
+  conversation-tests (scenario-driven ones simulated offline) and recording the
+  Release/Suite/Scenario/Run/Conversation/Evaluation rows into the registry.
+- docs/RELEASE-COMPARE.md: `hotato release compare`, the per-dimension,
+  per-scenario, digest-exact diff of two recorded releases (new failures /
+  fixed-since; never one blended delta).
+- docs/WORKSPACE.md: `hotato serve`, the self-hosted, read-only local web app
+  over the fleet registry (release readiness, scenario matrix, conversation
+  inspector, failure clusters, production health).
+- docs/GUARDIAN-FLEET.md: `hotato fleet`, the private control plane -- ingest,
+  discover, human-label, and run manifest-bound before/after experiments that
+  recommend, never auto-deploy.
+- docs/START.md: `hotato start`, the guided credential-less first run.
+- docs/INVESTIGATE.md: `hotato investigate`, one recording to ranked candidate
+  moments with an authenticated capture origin and the trust gate, then
+  `investigate label` into a signed contract.
+- docs/CONTRACTS.md: `hotato contract create|verify|inspect|pack|unpack`, the
+  portable, CI-enforced <id>.hotato failure-contract bundle.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.
 - docs/CI.md: the GitHub PR check and the sticky results comment.

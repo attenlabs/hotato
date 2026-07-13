@@ -31,6 +31,7 @@ on nothing but the stable registry schema.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 
@@ -156,6 +157,37 @@ def seed(home: str, ws: str) -> None:
         # check-order-status: two clean reps.
         ev("e-st1-o", "conv-status-1", "outcome", "PASS", _DAY2)
         ev("e-st2-o", "conv-status-2", "outcome", "PASS", _DAY2)
+
+        # Reliability dimension (pass^k across the repeated runs), recorded as a
+        # per-scenario verdict on a representative current-release conversation.
+        # Without these the release-readiness landing view shows reliability as
+        # empty (0/0/0) while the other four dimensions carry data; here all five
+        # carry PASS / FAIL / INCONCLUSIVE. The Scenario Matrix derives the same
+        # pass^k operationally from run pass-rates, so the two stay consistent.
+        # evaluator_id names the pass^k basis; provenance cites the rep count so
+        # the failure-clusters view has a signature to group on.
+        def rel(eid, conv, status, reason, ca):
+            reg.add_evaluation(
+                ws, eid, conversation_id=conv, evaluator_id="reliability.passk",
+                dimension="reliability", status=status,
+                provenance=json.dumps(
+                    {"reason": reason, "measure": "pass^k over repeated runs"},
+                    sort_keys=True),
+                created_at=ca)
+
+        # refund-after-cutoff: 1 of 3 current reps fully passed -> unreliable.
+        rel("e-rel-refund", "conv-refund-1", "FAIL",
+            "refund-after-cutoff: 1 of 3 repetitions fully passed on r-2026-07; "
+            "policy failed on 2 reps -- not reliably passing (pass^3)", _DAY1)
+        # check-order-status: 2 of 2 current reps fully passed -> reliable.
+        rel("e-rel-status", "conv-status-1", "PASS",
+            "check-order-status: 2 of 2 repetitions fully passed on r-2026-07 "
+            "(pass^2)", _DAY2)
+        # reschedule-appointment: a single current rep is too few to establish
+        # reliability -> INCONCLUSIVE (a single run cannot show pass^k).
+        rel("e-rel-resched", "conv-resched-1", "INCONCLUSIVE",
+            "reschedule-appointment: a single repetition on r-2026-07 -- too few "
+            "reps to judge reliability (need >= 2)", _DAY2)
 
         # A reviewer decision on the regressed policy evaluation.
         reg.add_review(ws, "rev-policy", evaluation_id="e-r1-p", reviewer="reviewer",

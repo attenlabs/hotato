@@ -263,10 +263,21 @@ def test_gate_flips_exit_code_on_fail():
     assert gated["summary"]["fail"] == 1
 
 
-def test_inconclusive_and_error_never_gate_even_with_gate():
+def test_inconclusive_never_gates_but_a_judge_error_does_under_gate():
+    # INCONCLUSIVE (the model ran but abstained) stays advisory even under --gate.
     inconc = R.evaluate_rubric(_rubric(), transcript=None, judge=FakeJudge([_pass()]))
-    env = R.rubric_envelope([inconc], gate=True)
-    assert env["exit_code"] == 0  # INCONCLUSIVE never gates by itself
+    assert R.rubric_envelope([inconc], gate=True)["exit_code"] == 0
+    # A judge ERROR (backend down/unreachable) is NOT a pass: it gates under
+    # --gate (exit 1) so a broken judge can't masquerade as a clean pass, while
+    # staying advisory (exit 0) without --gate.
+    err = R.evaluate_rubric(
+        _rubric(), transcript=_TX,
+        judge=FakeJudge([], raise_on_call=R.JudgeError("endpoint unreachable")))
+    assert err["status"] == "ERROR"
+    assert R.rubric_envelope([err], gate=False)["exit_code"] == 0
+    gated = R.rubric_envelope([err], gate=True)
+    assert gated["exit_code"] == 1
+    assert gated["summary"]["error"] == 1
 
 
 # =========================================================================

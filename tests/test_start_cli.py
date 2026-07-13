@@ -235,12 +235,14 @@ def test_start_bad_dir_is_a_usage_error(tmp_path):
                      str(tmp_path / "does-not-exist")]) == 2
 
 
-def test_start_stub_mode_routes_to_the_shipped_command(capsys):
-    rc = cli.main(["start", "--stack", "vapi"])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "not yet in this build" in out
-    assert "hotato sweep" in out
+def test_start_dropped_unwired_stack_folder_flags():
+    # --stack/--folder were unfinished stubs on the flagship command; they are
+    # dropped rather than advertised as "[not yet in this build]". They are now
+    # unknown arguments -> argparse usage error (SystemExit 2 at parse time).
+    for flag, val in (("--stack", "vapi"), ("--folder", "x")):
+        with pytest.raises(SystemExit) as ei:
+            cli.main(["start", flag, val])
+        assert ei.value.code == 2
 
 
 # --- K6: --stereo --confirm-channels reaches create_contract's own gate -----

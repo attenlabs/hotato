@@ -190,7 +190,7 @@ hotato conversation verify ./conv-artifact
 declare its `model_id` / `scenario_id` / `seed` -- synthetic is never conflated
 with real.
 
-## The honesty wall (structural)
+## The deterministic/judge split (structural)
 
 * **No blended score.** Success is a boolean conjunction of named conditions;
   the scorecard groups the same results by dimension, each with its own counts.

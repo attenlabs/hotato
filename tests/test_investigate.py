@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import shlex
 import shutil
 import struct
 import wave
@@ -123,8 +124,11 @@ def test_investigate_finds_candidates_and_persists_state(call_wav, tmp_path):
     for i, n in enumerate(result["next"], 1):
         assert n["rank"] == i
         assert n["ref"] == f"{state}#{i}"
+        # The ref (PATH#N) is shell-quoted so a state path with a space --
+        # and the '#' itself -- survives copy-paste as one argument.
         assert n["command"] == (
-            f"hotato investigate label {state}#{i} --expect yield|hold"
+            f"hotato investigate label {shlex.quote(f'{state}#{i}')} "
+            "--expect yield|hold"
         )
 
     st = json.loads(open(state, encoding="utf-8").read())
@@ -150,7 +154,8 @@ def test_investigate_render_text_names_the_label_command(call_wav, tmp_path):
     text = _investigate.render_text(result)
     assert "capture origin: operator-asserted local file" in text
     assert "verdict path: eligible" in text
-    assert f"hotato investigate label {state}#1 --expect yield|hold" in text
+    assert (f"hotato investigate label {shlex.quote(f'{state}#1')} "
+            "--expect yield|hold") in text
 
 
 # --- capture origin: frozen regression -------------------------------------

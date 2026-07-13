@@ -52,6 +52,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
@@ -410,7 +411,8 @@ def run_investigate(
         next_cmds.append({
             "rank": i,
             "ref": ref,
-            "command": f"hotato investigate label {ref} --expect yield|hold",
+            "command": (f"hotato investigate label {shlex.quote(ref)} "
+                        "--expect yield|hold"),
         })
 
     exit_code = 0 if trust_rep.get("scorable") else 2

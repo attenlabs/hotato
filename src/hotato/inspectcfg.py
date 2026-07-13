@@ -184,6 +184,14 @@ def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 30) 
     except Exception:  # pragma: no cover
         _v = "0"
     _h.setdefault("User-Agent", f"hotato/{_v} (+https://hotato.dev)")
+    # Install the hardened opener BEFORE the request: it strips the
+    # Authorization header on a cross-host redirect and re-checks the redirect
+    # target for SSRF, so a 30x response from the vendor host cannot exfiltrate
+    # the Bearer API key to an attacker-controlled host. Mirrors rubric.py and
+    # state_adapter.py -- this credentialed inspect path was the one that
+    # missed it.
+    from . import capture as _capture
+    _capture._ensure_safe_opener()
     req = urllib.request.Request(url, headers=_h)
     if req.get_method() != "GET":  # pragma: no cover - Request with no data is GET
         raise ValueError("inspect only issues read-only GET requests")

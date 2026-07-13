@@ -7,6 +7,51 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [1.3.1] - 2026-07-13
+
+A pre-launch hardening pass driven by an adversarial audit of the 1.3.0 wheel:
+every user-killer, security hole, and broken-quickstart found in a fresh install
+is closed here. No schema or API change; every fix is behavior- or copy-level.
+
+### Fixed
+- **CI gate no longer greens on a judge that could not run.** `hotato rubric run
+  --gate` and `hotato test run --gate-judge` now exit non-zero when the judge
+  backend ERRORs (down/unreachable Ollama, an exception), not only on a FAIL --
+  a judge that did not run is not a pass, and a gated exit 0 must mean the check
+  actually ran. INCONCLUSIVE (the model ran but abstained) stays advisory;
+  suites gate it via `inconclusive_policy`. Advisory (no `--gate`) is unchanged.
+- **`hotato start` no longer prints raw `None`.** A missing decision-margin,
+  time-to-yield, or talk-over value renders as `n/a` (matching the rest of the
+  CLI) instead of `Nones` / `None` on the "top candidate" line.
+- **Credential-safe redirects on the config-inspect path.** `hotato inspect`
+  (`inspect_vapi` / `inspect_retell`) now installs the hardened opener before
+  sending its `Authorization: Bearer <vendor key>` request, so a cross-host
+  redirect can no longer exfiltrate the API key -- closing the one credentialed
+  HTTP path that had missed the SSRF-safe opener the judge and state adapters
+  already use.
+- **Copy-paste-safe machine hints.** Every `--format json` "next" command
+  (`fixture create`/`promote`, `contract create`, `init webhook`/`starter`,
+  `loop`, `investigate label`) shell-quotes interpolated paths, so a workspace
+  path with a space no longer breaks the exact command hotato tells an agent to
+  run.
+- **`hotato start` drops two unfinished flags.** `--stack` / `--folder` were
+  stubs that printed "not yet in this build"; they are removed from the flagship
+  command. Use `hotato sweep` / `hotato analyze` to score a live stack or folder.
+- Self-host docs: the local-model-judge and compose commands in SELF-HOST.md are
+  corrected to the real CLI contract and run as written; the seeded demo now
+  carries data across all five scorecard dimensions.
+- `hotato simulate` has a working first-run path from a bare install (a packaged
+  example / `--init`), a docs/SIMULATE.md quickstart, and clearer scenario errors.
+
+### Changed
+- README and llms.txt lead with the always-works `pip install hotato && hotato
+  start --demo` (the `uvx` form is offered as a zero-install alternative), and
+  now surface the full 1.3.0 conversation-QA surface -- the five-dimension
+  scorecard and the test/suite/rubric/simulate/serve commands -- so the front
+  doors describe the product the release is named for.
+- Reduced authenticity-protest and "honesty wall" branding across user-facing
+  copy in favor of plainly stating what each mechanism does.
+
 ## [1.3.0] - 2026-07-13
 
 The Conversation QA Foundation. Hotato evolves from a turn-taking analyzer into an

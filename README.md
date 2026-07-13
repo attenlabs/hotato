@@ -28,18 +28,27 @@
 ## Quickstart -- no account, no keys, no network
 
 ```bash
+pip install hotato && hotato start --demo
+```
+
+Already have [uv](https://docs.astral.sh/uv/)? Zero-install, same command:
+
+```bash
 uvx hotato start --demo
 ```
 
-It sweeps two bundled recorded calls a provider's default agent failed, writes the candidate dashboard, and turns one missed-interruption candidate into a demo failure contract it immediately verifies:
+It sweeps two bundled recorded calls a provider's default agent failed, writes the candidate dashboard, and turns one missed-interruption candidate into a demo failure contract it verifies on the spot (output abridged):
 
 ```
-[start] demo: swept 2 bundled calls, 5 candidate moments;
-        wrote hotato-sweep.json, hotato-sweep.html, hotato-no-single-threshold.svg
-        wrote contracts/demo-missed-interruption.hotato; verified contract: FAIL as expected
+[start] demo: swept 2 bundled calls, 5 candidate moments; wrote hotato-sweep.json, hotato-sweep.html, hotato-no-single-threshold.svg, contracts/demo-missed-interruption.hotato/contract.json
+hotato start: swept the 2 bundled demo calls offline.
+  sweep dashboard: hotato-sweep.html
+  demo contract:   contracts/demo-missed-interruption.hotato
+  verified contract: FAIL as expected -- the demo call missed the interruption
+  [ ... then the exact next commands: promote a candidate, gate it in CI, re-check it ... ]
 ```
 
-Open `hotato-sweep.html`. This is the actual output -- the ranked candidate moments, each with a hear-the-bug playhead:
+Open `hotato-sweep.html` -- the ranked candidate moments, each with a hear-the-bug playhead:
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/sweep-dashboard.png" alt="The hotato candidate dashboard: 5 candidate moments ranked by salience across 2 calls, each card showing the caller and agent timeline, an embedded hear-the-bug audio playhead, and promote-as-yield / promote-as-hold / ignore buttons." width="820">
@@ -119,6 +128,43 @@ Hotato never calls the weakest level a verdict. Every card, report, and CLI resu
 
 A before/after experiment (`hotato fix trial`, and the fleet loop) re-derives every verdict from the on-disk audio under one pinned trial manifest. It refuses a proof built from an edited verdict, a re-encoded old call, a dropped fixture, or unrelated audio. The number comes from re-scoring the recordings every time, never from a stored field.
 
+## Conversation QA -- the five-dimension scorecard
+
+A voice agent can pass every text assertion and still lose the call: the refund never fires, the recording disclosure gets skipped, the caller gets talked over. `hotato test run` grades one call against a conversation-test file across five dimensions, kept apart and never summed into one number:
+
+- **Outcome** -- did the job get done, graded on tool-call and state evidence, not the transcript's say-so.
+- **Policy** -- required disclosures, PII handling, and the compliance phrases your team owns.
+- **Conversation** -- the deterministic turn-taking core: did the agent yield when the caller took the floor, and how fast.
+- **Speech** -- response latency and the timing around each turn.
+- **Reliability** -- pass@1 / pass@k / pass^k across repeated runs with a Wilson interval, so a flaky check reads as flaky.
+
+Two lanes stay structurally separate. Deterministic checks (phrase, PII, policy, tool-call, sequence, latency, outcome -- pure regex, checksum, and span-lookup) live behind a wall from the model-judged rubric lane; a rubric verdict is `deterministic: false`, advisory, and never merged into a deterministic count. No output carries an `overall_score`, including `--format json`.
+
+```bash
+hotato scenario init refund-check --out conversation-test.yaml   # a starter you edit, not a claim about your call
+hotato test run conversation-test.yaml --agent support-bot
+```
+
+```
+success: FAIL  (required: all_deterministic_assertions_pass, no_rubric_failure)
+per-dimension (grouped view; never blended):
+  outcome       0 pass / 0 fail / 1 inconclusive
+  policy        0 pass / 0 fail / 1 inconclusive
+  conversation  0 pass / 0 fail / 1 inconclusive
+  speech        0 pass / 0 fail / 1 inconclusive
+  reliability   0 pass / 0 fail / 0 inconclusive
+```
+
+Supply the call as `--transcript`, `--trace`, `--state`, and/or `--audio` and each check turns to pass or fail; a check whose evidence is absent stays INCONCLUSIVE, never guessed. Full walkthrough: [`docs/CONVERSATION-TEST.md`](docs/CONVERSATION-TEST.md).
+
+Then scale the one call into a release gate:
+
+- `hotato suite run suite.yaml --agent support-bot` -- run a whole `suite.v1`; scenario-driven tests execute offline through the deterministic scripted-caller simulator, and every run records into the local registry.
+- `hotato simulate --matrix scenario.yaml --out ./conv` -- render a `scenario.v1` with a deterministic scripted caller into `origin=simulated` conversation artifacts; the variation matrix expands into hundreds of runs, seeded and byte-identical on replay.
+- `hotato rubric run --rubrics rubrics.yaml --transcript call.json` -- the model-judged lane on a pinned local model; zero egress, advisory unless `--gate`. [`docs/RUBRIC.md`](docs/RUBRIC.md).
+- `hotato release compare BASELINE CANDIDATE` -- diff two recorded releases per dimension and per scenario, digest-exact, surfacing new failures and fixed-since.
+- `hotato serve` -- a self-hosted, read-only web app over the local registry (release readiness, scenario matrix, conversation inspector, failure clusters, production health) on `127.0.0.1`, bearer-token authenticated. [`docs/WORKSPACE.md`](docs/WORKSPACE.md).
+
 ## Connect a production stack
 
 The demo needs nothing. To point Hotato at real calls, connect once, then sweep on a schedule:
@@ -177,8 +223,8 @@ posture on your own machine with [`deploy/verify-zero-egress.sh`](deploy/verify-
 
 | You want to | Run this |
 | --- | --- |
-| Try the full loop, no credentials | `uvx hotato start --demo` |
-| Sweep the bundled demo calls | `uvx hotato sweep --demo` |
+| Try the full loop, no credentials | `hotato start --demo` |
+| Sweep the bundled demo calls | `hotato sweep --demo` |
 | Sweep recent calls from a real stack | `hotato connect vapi` then `hotato sweep --stack vapi --since 7d` |
 | Add Hotato to an existing repo, CI gate included | `hotato init starter --stack vapi --out .` ([`docs/STARTER.md`](docs/STARTER.md)) |
 | Turn a confirmed failure into a portable contract | `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield --id refund-cutoff-001 --out contracts` ([`docs/CONTRACTS.md`](docs/CONTRACTS.md)) |
@@ -199,7 +245,7 @@ A contract bundle contains call audio. Do not commit a raw customer contract to 
 
 ## Install
 
-`uvx hotato` runs any command with zero install. To add it to a project:
+Add hotato to a project with `pip`; or run any command zero-install with [`uvx`](https://docs.astral.sh/uv/):
 
 ```bash
 pip install hotato                 # core: stdlib-only, zero dependencies
