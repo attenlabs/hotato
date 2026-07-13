@@ -3,12 +3,9 @@
 hotato ships an MCP server, `hotato-mcp`, that speaks MCP over stdio and
 exposes twelve tools: one scoring tool, `voice_eval_run`, which returns the
 identical JSON envelope (`schema_version` "1") the CLI emits, plus eleven fleet
-tools. Eight read, verify, and propose over a local fleet workspace
-(`fleet_status`, `candidate_list`, `candidate_inspect`, `contract_list`,
-`trial_explain`, `experiment_status`, `artifact_verify`, `experiment_propose`);
-three are clone-scoped actions that recompute, never deploy (`experiment_create`,
-`experiment_run`, `clone_cleanup`). None of them deploys to production.
-Everything runs locally; no audio leaves the machine.
+tools. Eight read, verify, and propose over a local fleet workspace; three are
+clone-scoped actions that recompute, never deploy. None of them deploys to
+production. Everything runs locally; no audio leaves the machine.
 
 Every tool response carries a uniform control envelope: four keys ride on every
 response (pure reads included) so an autonomous caller parses one shape:

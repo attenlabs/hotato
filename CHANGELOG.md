@@ -4,8 +4,7 @@ All notable changes to Hotato are recorded here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Every entry reports millisecond measurement error and a confusion matrix, by
-design. See `docs/BENCHMARK.md`.
+Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
 ## [1.3.1] - 2026-07-13
 
@@ -18,7 +17,7 @@ is closed here. No schema or API change; every fix is behavior- or copy-level.
   --gate` and `hotato test run --gate-judge` now exit non-zero when the judge
   backend ERRORs (down/unreachable Ollama, an exception), not only on a FAIL --
   a judge that did not run is not a pass, and a gated exit 0 must mean the check
-  actually ran. INCONCLUSIVE (the model ran but abstained) stays advisory;
+  ran. INCONCLUSIVE (the model ran but abstained) stays advisory;
   suites gate it via `inconclusive_policy`. Advisory (no `--gate`) is unchanged.
 - **`hotato start` no longer prints raw `None`.** A missing decision-margin,
   time-to-yield, or talk-over value renders as `n/a` (matching the rest of the
@@ -76,7 +75,7 @@ structurally separate from a model-judged rubric lane; there is no blended score
   timing_contract, entity_accuracy, sequence, count) read the authenticated trace or a post-call
   state adapter -- never the agent's spoken claim. An LLM verdict is structurally unable to
   satisfy a state/tool_result assertion.
-- **Real state adapters.** `HttpStateAdapter` + `SqlStateAdapter` query a real system of record
+- **Real state adapters.** `HttpStateAdapter` + `SqlStateAdapter` query a system of record
   (injection-safe parameterized SELECT-only; unreachable state -> INCONCLUSIVE, never a guess);
   network paths are egress-opt-in. `docs/STATE-ADAPTERS.md`.
 - **Rubric / local-model judge (`hotato rubric`).** Model-judged assertions run against a real
@@ -138,7 +137,7 @@ structurally separate from a model-judged rubric lane; there is no blended score
 ### Added
 - **`hotato investigate` -- one call to a CI-ready contract.** Takes a local
   dual-channel WAV or a provider `--stack`/`--call-id` and, in one guided flow,
-  pulls or opens the audio, authenticates the capture origin honestly
+  pulls or opens the audio, authenticates the capture origin
   (frozen-regression / provider-pulled / operator-asserted-local), runs the
   channel-eligibility gate, ranks candidate moments, then `investigate label
   <ref> --expect yield|hold` mints a signed label-record and builds a portable
@@ -186,15 +185,14 @@ structurally separate from a model-judged rubric lane; there is no blended score
 ### Changed
 - **HTML report template: deduped boilerplate, no scoring change.** The same
   determinism/reproducibility/ceiling/no-accuracy-score story used to be
-  restated 4-5 times across a header line and three separate footer
-  paragraphs; it is now one Method line. The stamped out-of-scope negation
-  bullet list (no speaker ID, no diarization, no STT, no emotion) is now one
-  link to the canonical explanation instead. The thresholds table is now a
-  single collapsed `<details>` block rather than an always-open section. The
-  analytics rollup now renders after the per-event cards it aggregates
-  (previously before them), and only once a page has at least 3 events --
-  a rollup over one or two cards had nothing to add. Every measured number
-  and event datum on the page is unchanged; this is layout and copy only.
+  restated 4-5 times across a header line and three footer paragraphs; it is
+  now one Method line. The stamped out-of-scope negation bullet list (no
+  speaker ID, no diarization, no STT, no emotion) is now one link to the
+  canonical explanation. The thresholds table is now a single collapsed
+  `<details>` block rather than an always-open section. The analytics rollup
+  now renders after the per-event cards it aggregates (previously before them),
+  and only once a page has at least 3 events. Every measured number and event
+  datum on the page is unchanged; this is layout and copy only.
   `src/hotato/report.py`, `docs/REPORTS.md`.
 
 ### Fixed
@@ -621,9 +619,9 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   round-trip scorability guarantee `fixture create` gives (via
   `--from-candidate FILE#N`, `--stereo`, `--caller`+`--agent`, or the opt-in
   `--mono --diarize` path): a not-scorable moment or a mono recording is
-  refused with the honest reason (exit 2) and no bundle is written; the
+  refused with the reason (exit 2) and no bundle is written; the
   diarized-mono path never silently upgrades an indicative-only verdict, and
-  honestly reports frame-level evidence as unavailable rather than fabricating
+  reports frame-level evidence as unavailable rather than fabricating
   it. `verify` re-scores a contracts directory (or one bundle) against each
   contract's own recorded policy and is the CI gate: exit 0 every contract
   passes, 1 a regression, 2 a usage error; emits text/JSON/HTML/JUnit.
@@ -647,7 +645,7 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   row, reading the bundle's OWN `evidence/frames.jsonl` and `contract.json`
   back in -- it never re-runs the VAD or diarizer, so it works on a
   diarized-mono bundle (no frame-level evidence) without the diarization
-  extra installed, honestly noting the missing base timeline instead of
+  extra installed, noting the missing base timeline instead of
   fabricating one. `export BUNDLE --format otel --out FILE` writes the
   attached trace back out as the same bridge JSONL `ingest` reads, so
   `ingest -> attach -> export -> ingest` round-trips the identical spans.
@@ -724,8 +722,8 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   (`hotato-sweep.html`), and the threshold-funnel card
   (`hotato-no-single-threshold.svg`), then turns one real missed-interruption
   candidate into a demo failure contract (`contracts/demo-missed-interruption.hotato`,
-  `--expect yield`) and verifies it immediately -- it genuinely fails, so the
-  loop is visible end to end in one command: a real failure becomes a
+  `--expect yield`) and verifies it immediately -- it fails, so the
+  loop is visible end to end: a real failure becomes a
   candidate, becomes a portable contract, and `contract verify` catches it.
   It then prints the exact next commands: promote a candidate into a
   permanent fixture, run those fixtures in CI, re-verify the demo contract,
@@ -745,7 +743,7 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   divides by a zero norm and fabricates `cos = 0` (read by the confidence
   gate as adequate separation) for a degenerate (zero-norm / non-finite)
   speaker centroid; it now returns `None` -- "no margin available" -- the
-  same honest no-signal result a missing embeddings array already gave.
+  same no-signal result a missing embeddings array already gave.
 - **New yield-boundary confidence gate signal (`signals.yield_boundary`)**:
   benchmarked against a real pyannote community-1 backend over the AMI
   corpus (in-repo harness: `tools/bench_diarize/`, dev-only, never shipped),
@@ -955,7 +953,7 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   `X-Twilio-Signature`; the `recordingStatusCallback` `completed` status, with
   dual-channel handled read-only by `hotato ingest`). Vapi is the reference
   worker and Retell and Twilio reuse its skeleton, differing only where the
-  platform genuinely differs (verification, event name/shape, recording-fetch
+  platform differs (verification, event name/shape, recording-fetch
   channel handling). Scaffolding is offline: no network and no credentials are
   needed to generate. Gated by `tests/test_init_webhook.py`, which asserts the
   eight files land, `app.py` parses (syntax + AST), `hotato.yaml` matches the
@@ -993,7 +991,7 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   `--expect yield|hold` label and promote reuses the exact `fixture create`
   path: the clipped two-channel `DIR/audio/ID.example.wav` plus
   `DIR/scenarios/ID.json`, scored immediately, with a not-scorable candidate
-  refused with the honest reason (exit 2) and partial outputs removed. The
+  refused with the reason (exit 2) and partial outputs removed. The
   scenario provenance records `created_by: hotato fixture promote`, the
   candidate ref, and the candidate kind. To make refs resolvable from
   anywhere, sweep/analyze envelopes now also record `folder_path` (the
@@ -1065,7 +1063,7 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   from fixmap's verified knob catalogue; for LiveKit/Pipecat, whose config lives
   in agent source, it emits the exact constructor-kwarg source edit instead of a
   fabricated endpoint; for an unknown stack it names the knob family and asks for
-  a target. For the genuine both-axes `do_not_tune_single_threshold` plan it
+  a target. For the both-axes `do_not_tune_single_threshold` plan it
   emits NO config patch and prints the vendor-neutral, numbers-free
   engagement-control pointer instead (which fires ONLY on that case, never as a
   generic upsell). HONEST: patch PRODUCES the change; it never applies it to your
@@ -1108,23 +1106,23 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   `GET /call-logs`, Cartesia `GET /agents/calls`. Where the spec marks a
   list-calls endpoint unconfirmed (Retell) or a platform capture-in-your-infra
   (LiveKit, Pipecat), no endpoint is fabricated -- Retell pulls from explicit
-  `--call-id` values and the limitation is documented honestly. Platform
+  `--call-id` values and the limitation is documented. Platform
   payloads are treated strictly as untrusted data (a malformed payload is a
   clean error, never an action from the payload).
 - **`--allow-mono` capture/pull adapters for Bland AI, ElevenLabs Conversational
   AI, Synthflow, Millis AI, and Cartesia (Line)**: each with the exact
-  spec-verified list + fetch endpoint and the honest mono caveat. These
+  spec-verified list + fetch endpoint and the mono caveat. These
   platforms produce a single combined recording with no documented per-party
   channel, so scoring is degraded and gated behind `--allow-mono` /
   `HOTATO_ALLOW_MONO=1`, labelled indicative only. `capture --stack` now accepts
   these stacks in addition to the original five.
 - **`docs/CONNECT.md`** (the connect/pull/sweep recipe with per-stack
-  credentials) and a comprehensive, honest rewrite of **`docs/ADAPTER-STATUS.md`**
+  credentials) and a comprehensive rewrite of **`docs/ADAPTER-STATUS.md`**
   from the integration spec: build-now dual-channel (Vapi, Retell, Twilio,
   LiveKit, Pipecat), mono-only `--allow-mono` (Bland, ElevenLabs, Synthflow,
   Millis, Cartesia), not integrable (Deepgram Voice Agent, PlayAI), and
   unconfirmed (Regal, Thoughtly, Sindarin, Grok, and channel-layout edge cases),
-  each with the exact verified endpoint and honest notes.
+  each with the exact verified endpoint and notes.
 - **`hotato analyze <folder>`, the zero-config drop-a-folder flagship**: point
   it at a folder of real dual-channel call recordings and it walks EVERY
   recording label-free with the existing whole-call scanner (`hotato scan`),
@@ -1215,7 +1213,7 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   voice, so no third-party speaker is present. No real names, numbers, or
   identifiers are spoken, and the clips are released under MIT with full
   per-scenario provenance and attestation carried in the scenario metadata.
-  Demo copy reworded off "intentionally bad agent" to the honest real-call
+  Demo copy reworded off "intentionally bad agent" to the real-call
   framing.
 
 ### Fixed
@@ -1242,7 +1240,7 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   out-of-range channels, and the global scan flags are validated up front so
   a bad flag is a top-level usage error, never a per-file skip that degrades
   into a false clean "found nothing"; a truncated recording is skipped with
-  an honest reason; and one bad file never aborts an `analyze`/`loop` batch.
+  a reason; and one bad file never aborts an `analyze`/`loop` batch.
   (These landed across five overnight hardening rounds, each fix with a
   regression test; the vendored `_engine` stayed untouched and golden
   envelopes byte-identical throughout.)
@@ -1276,7 +1274,7 @@ evidence a Hotato artifact claims is always bounded by its inputs.
   hitting collection errors. The heavy real and rendered audio stays pruned;
   suite and class audio is regenerated deterministically by
   `tests/conftest.py` (seed = sha256(id)) when absent, and the tests that
-  depend on genuinely-absent heavy real audio skip cleanly rather than error.
+  depend on absent heavy real audio skip cleanly rather than error.
 - **Honest fix-plan wording in `README.md` and `docs/WHY.md`**: reworded the
   claim that every failing event returns a fix that "names the exact setting to
   change in your stack." A `plan()` may correctly refuse to tune a single
@@ -1350,7 +1348,7 @@ and `passed` for every existing fixture are unchanged, and the vendored
   event by default (`--pre` 2.0 s / `--post` 6.0 s) and re-bases the onset to
   the clip; `--no-clip` keeps the full recording. The created fixture is
   validated by scoring it through the suite runner immediately; a not-scorable
-  input is refused with the honest reason (exit 2) and partial outputs are
+  input is refused with the reason (exit 2) and partial outputs are
   removed unless `--force`. Overwrite refused without `--force`. Round-trips
   through `hotato run --scenarios DIR --audio DIR` as written.
 - **`hotato compare`**: the shareable before/after on one fixed moment. Scores
@@ -1466,7 +1464,7 @@ for voice agents. It scores one narrow thing well and is honest about the rest.
   originals byte-for-byte; `latency` adds `response_gap_sec` and
   `premature_start_sec`, pure endpointing timing on the same two VAD tracks.
 - **Fix map**: every failing event carries a concrete fix. `fix_class: "config"`
-  is a stack-specific knob with direction and honest trade-off.
+  is a stack-specific knob with direction and trade-off.
   `fix_class: "engagement-control"` is a both-axes discrimination failure a single
   sensitivity dial cannot solve, pointed high-level and numbers-free at an
   engagement-control / addressee-detection layer. Plus a suite-level funnel that

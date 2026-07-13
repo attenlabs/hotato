@@ -12,9 +12,6 @@ Hotato does not infer intent. A contract's label is always a human call
 timing matched that label, and `contract verify` re-measures the SAME
 recording later and reports pass/fail.
 
-Hotato does not prove authorization, identity, compliance, or policy safety.
-Hotato proves timing behavior against this explicit contract.
-
 > **A contract bundle contains call audio (`audio/event.wav`).** Do not
 > commit a raw customer contract to a public repository -- treat it like any
 > other recording of a real caller. Use sanitized fixtures (synthetic or
@@ -98,8 +95,8 @@ hotato contract create --stereo bad-call.wav --onset 42.18 \
 
 Both forms wrap the SAME round-trip guarantee `hotato fixture create` gives:
 the moment is scored immediately, and a not-scorable input (the agent silent
-at the onset, an unreadable file, a bad channel map) is refused with the
-honest reason and exit code 2 -- no bundle is written. A single-channel
+at the onset, an unreadable file, a bad channel map) is refused with a clear
+reason and exit code 2 -- no bundle is written. A single-channel
 (mono) recording passed as `--stereo` is rejected the same way `fixture
 create` rejects it: caller and agent cannot be told apart on one channel.
 

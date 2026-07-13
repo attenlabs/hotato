@@ -152,10 +152,10 @@ A `success.required` failure makes an otherwise-passing run non-zero; a refuse
 results, the run count, and a real reliability aggregate: **pass@1** (single-run
 pass rate), **pass@k** (>=1 of k passed), **pass^k** (all k passed), plus a
 Wilson 95% CI. Every run scores the same recording, so the deterministic lane
-has zero variance and `pass^k == pass@1` -- reported honestly, never a fabricated
+has zero variance and `pass^k == pass@1`, never a fabricated
 number. With `N > 1` the aggregate is threaded into the report's Reliability
 dimension (`--format html/md`); with no repetition data that dimension shows the
-honest empty-state ("not measured: no repeated runs in this report"). pass^k is
+empty-state ("not measured: no repeated runs in this report"). pass^k is
 its OWN number, never blended into any other dimension and never an
 `overall_score`.
 
@@ -194,7 +194,6 @@ with real.
 
 * **No blended score.** Success is a boolean conjunction of named conditions;
   the scorecard groups the same results by dimension, each with its own counts.
-  No `overall_score` appears anywhere, including `--format json`.
 * **Two separate lanes.** Deterministic checks (regex / checksum / span / state
   lookup -- no model) are evaluated; the model-judged rubric lane is quarantined
   until Phase 3 and reported `INCONCLUSIVE`, never folded into the deterministic

@@ -2,9 +2,8 @@
 
 Hotato measures turn-taking; this ladder turns a failing measurement into a
 reviewable, bounded fix proposal. Levels 0-2 are read-only: no command there
-mutates any platform config. Level 3 (apply / verify) has since shipped as a
-guarded, clone-only staged step -- it applies to a clone, never to a live
-production config, and never auto-deploys.
+mutates any platform config. Level 3 (apply / verify) has shipped as a
+guarded, clone-only staged step.
 
 ## The ladder
 
@@ -15,8 +14,8 @@ production config, and never auto-deploys.
 | 2 | `hotato plan result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | never |
 | 3 | `hotato apply` / `hotato fix trial` / `hotato verify` | Applies a plan to a CLONE and re-scores the battery on it under a pinned manifest | cloned assistant / branch only, never production |
 
-Level 3 has shipped, and it kept the guard it was designed with: it is
-PR-first and clone-first. `hotato apply` applies a plan to a CLONED assistant
+Level 3 kept the guard it was designed with, PR-first and clone-first:
+`hotato apply` applies a plan to a CLONED assistant
 (or a branch config), `hotato fix trial` re-scores the battery on that clone
 under a pinned manifest, and `hotato verify` gates the before/after -- it
 graduates to production only behind an explicit human approval with a recorded

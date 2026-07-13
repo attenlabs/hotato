@@ -17,8 +17,7 @@ These are complementary layers, not competing ones. A team running one of the
 platforms above for broad conversation QA or as the agent runtime itself still
 needs an answer to a narrower question: the specific talk-over or false-stop
 moment a real caller hit last week, is it still fixed after today's prompt
-change? That is the layer Hotato owns, and it is deliberately the only layer
-Hotato owns.
+change? That is the layer Hotato owns, deliberately the only one.
 
 ## What each named platform is built for
 
@@ -91,9 +90,7 @@ to prove the live agent still holds.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the
   same way with `hotato verify`, deterministic for a fixed hotato version
-  (see above). It ships as a self-contained
-  contract bundle -- adding timing evidence, trace evidence, and a CI command
-  in one artifact -- in the release that adds the contract layer.
+  (see above).
 - **Narrow on purpose.** Three timing signals: talking over the caller,
   false-stopping on a backchannel, yielding too slowly. It does not grade
   content, intent, or outcomes.
@@ -111,9 +108,7 @@ scoreboard, of its own results or anyone else's.
 
 ## The short version
 
-Use a QA platform for broad quality, or one of the named orchestration
-platforms as your agent's runtime. Use a runtime layer for live interruption
-handling. Use Hotato when you need to prove, privately and portably, that a
-specific timing bug from a real call is fixed, gate every push on the frozen
-evidence for it, and recapture to confirm it stays that way on your current
-agent. They compose; none of them replaces the others.
+Use a QA platform for broad quality, a runtime layer for live interruption
+handling, and Hotato to prove, privately and portably, that a specific timing
+bug from a real call is fixed, gate every push on the frozen evidence, and
+recapture to confirm it stays that way on your current agent.

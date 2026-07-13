@@ -69,7 +69,7 @@ job. Each requires you to name a stack, a repository, or a webhook you configure
 | `test run --state` **sql adapter over a `dsn`** | your database, over the network | Only when the state-config names `adapter: sql` with a `dsn`, and only with `egress_opt_in: true`. A parameterized, read-only SELECT with the mapped filter values bound as data. A local `sqlite_path` opens no socket. |
 
 The state adapters read a post-call **system of record** to ground an Authority-2
-`state` assertion (did the refund/appointment actually get written?). A record
+`state` assertion (did the refund/appointment get written?). A record
 the system of record can be read and does not hold is a grounded FAIL; a system
 of record Hotato could **not** reach or read (network error, timeout, 5xx,
 non-JSON) is INCONCLUSIVE, never a fabricated verdict. Credentials come from
@@ -165,7 +165,7 @@ threat surface and the controls on it:
   assistant, a phone number, or any other provider resource in place. For Vapi
   the call is originated FROM the staging clone the experiment created, not the
   production source.
-- **The caller side is honestly labelled, never overstated.** The produced
+- **The caller side is labelled precisely, never overstated.** The produced
   conversation carries `origin.kind == "real"` with the provider and its call id,
   and `origin.caller` (`scripted-twiml` for the fixed-timeline Twilio caller,
   `assistant-originated` for a Vapi call the assistant placed) -- it never claims
@@ -188,7 +188,7 @@ listening socket to serve the five conversation-QA views over the fleet registry
 
 - **Localhost-default bind.** The server binds `127.0.0.1` unless the operator
   explicitly passes `--host`. A non-loopback bind (e.g. `--host 0.0.0.0`) prints
-  a prominent warning at start — it is never the default, and it is never done
+  a prominent warning at start; it is never the default, and it is never done
   silently.
 - **Token auth on every request.** A shared bearer token authenticates every
   request, compared in constant time (`hmac.compare_digest`). It is either

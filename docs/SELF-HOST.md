@@ -8,13 +8,13 @@ and upgrade.
 
 The stack is small on purpose:
 
-- **hotato** — the `pip`-installable package. The core is stdlib-only (zero
+- **hotato**: the `pip`-installable package. The core is stdlib-only (zero
   runtime dependencies), so the default image adds no supply-chain surface and
   makes no external calls at run time.
-- **`hotato serve`** — the read-only, token-authenticated team workspace (five
+- **`hotato serve`**: the read-only, token-authenticated team workspace (five
   views: release readiness, scenario matrix, conversation inspector, failure
   clusters, production health). See [`docs/WORKSPACE.md`](WORKSPACE.md).
-- **Ollama** (optional) — a local model judge for the rubric lane, opt-in behind
+- **Ollama** (optional): a local model judge for the rubric lane, opt-in behind
   a compose profile. No hosted API is ever on the default path.
 
 ---
@@ -27,7 +27,7 @@ The stack is small on purpose:
 - ~1 GB of disk for the default image; a persistent volume for `/data`.
 - No account, no API key, and no network access are required to build or run the
   default stack. (The optional judge model download is the one documented
-  exception — see [Enable the local model judge](#enable-the-local-model-judge-optional).)
+  exception; see [Enable the local model judge](#enable-the-local-model-judge-optional).)
 
 The files that make up the deployment:
 
@@ -81,8 +81,8 @@ http://127.0.0.1:8321
 ```
 
 Only that one port is published, and only on `127.0.0.1`. Inside the container
-the server binds `0.0.0.0:8321` by necessity — a published port needs the
-process to bind the container interface rather than loopback — and it prints a
+the server binds `0.0.0.0:8321` by necessity (a published port needs the
+process to bind the container interface rather than loopback), and it prints a
 non-loopback-bind warning at start. That warning is expected here: the compose
 port mapping (`127.0.0.1:8321:8321`) is what keeps the workspace off every
 interface except the host's loopback. To reach it from your laptop, use an SSH
@@ -119,7 +119,7 @@ never starts it. `docker compose run` targets that profiled service directly; th
 `--profile demo` above makes the profile explicit.
 
 > `hotato start --demo` writes a *sweep report* (`hotato-sweep.json` + an HTML
-> dashboard) into a directory — it does not populate the workspace, which reads
+> dashboard) into a directory; it does not populate the workspace, which reads
 > the fleet registry's entity model. The seeder writes that entity model through
 > the same public API the CLI uses.
 
@@ -160,7 +160,7 @@ docker compose run --rm -v /path/to/your/recordings:/calls:ro \
   --agent support-bot /calls/one-call.wav
 ```
 
-Then open the workspace — the conversation, its evidence, and any evaluations
+Then open the workspace: the conversation, its evidence, and any evaluations
 appear in the inspector and the health view. The full lifecycle (register an
 agent, run a suite, compare releases, review failures) uses the same
 `docker compose exec hotato-workspace hotato …` pattern:
@@ -176,7 +176,7 @@ docker compose exec hotato-workspace hotato fleet status --home /data -w default
 read-only and mutates nothing but its own audit log.
 
 Fetching calls from a hosted voice provider (`hotato pull` / `capture`) reaches
-that provider's API with credentials you supply — an opt-in path, listed in
+that provider's API with credentials you supply, an opt-in path listed in
 [`docs/EGRESS.md`](EGRESS.md). It is not part of the default stack.
 
 ---
@@ -190,7 +190,7 @@ The default judge is an Ollama daemon; enable it with the `judge` profile:
 docker compose --profile judge up -d
 ```
 
-The Ollama service publishes **no port** — it is reachable only on the private
+The Ollama service publishes **no port**: it is reachable only on the private
 compose network, wired to the workspace via `HOTATO_JUDGE_ENDPOINT=http://ollama:11434`.
 Pull the pinned judge model once (`qwen2.5vl:3b` is the model `hotato rubric run`
 uses by default, so no `--judge-model` flag is needed later):
@@ -199,7 +199,7 @@ uses by default, so no `--judge-model` flag is needed later):
 docker compose exec ollama ollama pull qwen2.5vl:3b
 ```
 
-> **This pull downloads model weights from the internet** — the one documented
+> **This pull downloads model weights from the internet**: the one documented
 > download, like installing any package that carries model weights. It happens
 > once, into the `ollama-models` volume; after that, inference runs offline.
 
@@ -217,7 +217,7 @@ docker compose exec hotato-workspace hotato rubric run \
   --judge-egress-opt-in --judge-endpoint http://ollama:11434
 ```
 
-The lane is advisory by default — a rubric FAIL is reported but the exit code
+The lane is advisory by default: a rubric FAIL is reported but the exit code
 stays `0`; add `--gate` to fail CI on a FAIL. The judge uses the pinned
 `qwen2.5vl:3b` model you pulled above; pass `--judge-model <id>` to pick another.
 The rubric result is model-judged (`deterministic: false`) and is never merged
@@ -321,9 +321,9 @@ up `/data` before a major upgrade, as with any stateful service.
 
 The `/data` registry and the content-addressed evidence store use the
 **same schemas** the managed cloud uses. Your conversation artifacts, conversation
-tests, and dashboards move between self-hosted and cloud without changing a line
-— self-host is not a cut-down edition, it is the same platform on your own
-infrastructure. Nothing in the QA platform sits behind a hosted login wall.
+tests, and dashboards move between self-hosted and cloud without changing a line.
+Self-host is the same platform on your own infrastructure. Nothing in the QA
+platform sits behind a hosted login wall.
 
 ---
 
@@ -367,8 +367,8 @@ Scope, stated precisely so it holds up:
 
   It (1) confirms only `127.0.0.1:8321` is published, (2) runs the same image on
   an `internal` Docker network where egress is physically removed and shows the
-  workspace still answers a view with `200` — a server that serves with the
-  network unplugged needs no egress to do its job — and (3) lists ESTABLISHED
+  workspace still answers a view with `200` (a server that serves with the
+  network unplugged needs no egress to do its job), and (3) lists ESTABLISHED
   connections inside the running container and confirms none are external.
 
 - **Opt-in paths that do reach the network are named, not hidden.** The local
@@ -380,14 +380,14 @@ Scope, stated precisely so it holds up:
   [`docs/EGRESS.md`](EGRESS.md) and [`docs/THREAT-MODEL.md`](THREAT-MODEL.md).
 
 If a capability lacks its input for a given run, it returns INCONCLUSIVE rather
-than a fabricated verdict — the same behaviour whether you self-host or not.
+than a fabricated verdict: the same behaviour whether you self-host or not.
 
 ---
 
 ## See also
 
-- [`docs/WORKSPACE.md`](WORKSPACE.md) — the five views, auth, and the audit log
-- [`docs/EGRESS.md`](EGRESS.md) — every network call site, command by command
-- [`docs/THREAT-MODEL.md`](THREAT-MODEL.md) — the offline / opt-in split and the
+- [`docs/WORKSPACE.md`](WORKSPACE.md): the five views, auth, and the audit log
+- [`docs/EGRESS.md`](EGRESS.md): every network call site, command by command
+- [`docs/THREAT-MODEL.md`](THREAT-MODEL.md): the offline / opt-in split and the
   workspace's threat-model row
-- [`SECURITY.md`](../SECURITY.md) — posture summary and reporting a vulnerability
+- [`SECURITY.md`](../SECURITY.md): posture summary and reporting a vulnerability

@@ -56,7 +56,7 @@ measured talk-over seconds, expected vs actual, and a PASS or FAIL chip.
 
 After the per-event cards, once the page has at least three of them, sits an
 analytics rollup computed from the same measurements (a page with fewer
-events skips it -- there is nothing left for a rollup to say):
+events skips it):
 
 - a **time-to-yield distribution** strip, one dot per measured yield, with
   mean, median, and p90 (definitions in `METHODOLOGY.md`);
@@ -134,7 +134,7 @@ as production reliability.
 `hotato test run --repetitions N` (with `N > 1`) computes this aggregate over the
 N deterministic runs and threads it into `report.{html,md}` automatically. With
 no repetition data (`reliability=None`, or `--repetitions 1`) the dimension shows
-the honest empty-state -- "not measured: no repeated runs in this report" -- and
+the empty-state -- "not measured: no repeated runs in this report" -- and
 the report is byte-identical to one built without the parameter.
 
 ### Regression deltas with `--base`

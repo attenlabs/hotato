@@ -2,7 +2,7 @@
 
 `hotato fix trial` is the last rung of the fix ladder: it composes the
 already-shipped, already-guarded primitives into ONE before/after report that
-says whether a candidate change actually holds. No new scoring engine, no new
+says whether a candidate change holds. No new scoring engine, no new
 networked path:
 
 * **`hotato apply`'s exact offline gate** (`build_apply`, `clone=True`):
@@ -65,10 +65,10 @@ Recommended: enable or add engagement-control / backchannel-aware turn detection
 
 `hotato apply`'s clone-only gate and `hotato verify`'s battery-scale rollup
 answer "did the numbers move." Neither one asks whether the AFTER evidence
-was actually RE-CAPTURED, or is just the SAME recording the BEFORE run
+was RE-CAPTURED, or is just the SAME recording the BEFORE run
 scored, re-scored under a looser threshold. That gap is exploitable: run the
 same fixture twice with different `--max-time-to-yield` / `--max-talk-over`
-bounds, and you get a genuine-looking "improved" verdict with no code,
+bounds, and you get a convincing "improved" verdict with no code,
 config, or model change behind it at all.
 
 Every run envelope records an `audio_provenance` block per event: a streamed
@@ -77,8 +77,7 @@ sha256 of the raw file bytes AND a streamed sha256 of the decoded PCM samples
 / `hotato capture`. `hotato fix trial` does not trust the string; it VERIFIES
 the identity for every GUARDED fixture -- the fail->pass targets AND the
 still-passing holds (a frozen hold is a re-score too, so holds get the same
-guard). This is an offline tool: a user who controls every input can always
-lie to themselves. The guard's job is narrower and honest -- make the
+guard). The guard's job is narrower: make the
 motivated failure modes impossible or loud, recompute what can be recomputed
 from the actual files, and state exactly what was and was NOT verified:
 
@@ -136,9 +135,9 @@ and none of the following is a bug the guard failed to catch; each is outside
 what an offline recompute over supplied files can ever establish:
 
 * **Fabricated inputs are still yours to fabricate.** Hand fix trial a
-  genuinely fresh recording of a call that never happened, or one that does
-  not actually match the bug you are claiming to fix, and the guard verifies
-  the audio identity honestly and still reaches `improved`. It checks that
+  fresh recording of a call that never happened, or one that does
+  not match the bug you are claiming to fix, and the guard verifies
+  the audio identity and still reaches `improved`. It checks that
   the bytes it scored are what they claim to be, never that the stimulus
   itself is real.
 * **A contract's `MANIFEST.sha256.json` is integrity, not authenticity.** It
@@ -195,7 +194,7 @@ created=False applies_change=False`, plus the plain-English sentence right
 under it), JSON (top-level `apply_dry_run` / `apply_created` /
 `apply_applies_change` / `apply_receipt_note`, alongside `verdict`), and HTML
 (pills and a header line, in the `<header>` block itself). Proving the change
-actually reached the clone or agent is `hotato apply --clone --yes`'s job,
+reached the clone or agent is `hotato apply --clone --yes`'s job,
 recorded in its own receipt -- fix trial only proves what the before/after
 evidence shows once that has already happened.
 

@@ -10,8 +10,7 @@ contract bundle, the bundle's own trust report and policy bounds and an
 attached voice trace when present.
 
 When the evidence cannot support picking ONE root cause, explain REFUSES with
-the reason instead of guessing. A refusal is a first-class, correct output,
-not an error.
+the reason instead of guessing.
 
 ```
 hotato run --suite barge-in --format json > result.json
@@ -82,7 +81,7 @@ cause, so explain says so instead of guessing:
   for BOTH labels and lets a human choose.
 * **a contract's false stop with no disambiguating `candidate_kind`** -- a
   `contract.json` does not carry the raw echo/ambient signal a full run
-  envelope's `diagnose` has, so a false stop on `hold` could be a genuine
+  envelope's `diagnose` has, so a false stop on `hold` could be a
   backchannel-discrimination miss, ambient non-speech noise, or echo bleed.
   Explain refuses rather than pick one; it points back at
   `hotato run --dump-frames` / `hotato diagnose` on the original envelope.
@@ -95,7 +94,7 @@ cause, so explain says so instead of guessing:
  "safe_next_action": one concrete next command}
 ```
 
-## Contract bundles: attributed from the bundle's OWN fields, honestly bounded
+## Contract bundles: attributed from the bundle's OWN fields, bounded
 
 `contract.json` does not carry the scorer's raw `reasons` text a run
 envelope's event does, so a contract-bundle attribution is deliberately
@@ -111,7 +110,7 @@ narrower than a full `diagnose`:
   `echo_correlated_activity` moment); otherwise it is refused (see above);
 * a single bundle never carries opposite-risk coverage on its own (it is one
   moment), so a contract-bundle attribution never reaches `safe_to_patch` --
-  the honest ceiling is `insufficient_evidence` until a companion contract or
+  the ceiling is `insufficient_evidence` until a companion contract or
   fixture on the other axis exists.
 
 When a voice trace is attached (`hotato trace attach`), its findings

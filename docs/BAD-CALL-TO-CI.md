@@ -15,7 +15,7 @@ energy; no timing measurement can tell them apart. What Hotato can measure,
 reproducibly, is whether the agent did what your label says it should have
 done, and how many seconds it took.
 
-Input requirement, stated once: Hotato's main scorer requires separated
+Input requirement: Hotato's main scorer requires separated
 caller and agent tracks: either one two-channel WAV or two aligned mono WAVs.
 A single mixed mono call is not enough to attribute talk-over reliably.
 

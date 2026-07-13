@@ -23,7 +23,7 @@ Every step reuses a shipped primitive: audio-in is the same per-stack fetch
 
 ## The label comes from you
 
-Hotato does not infer intent. You label the expected behavior for the event:
+You label the expected behavior for the event:
 `yield` means the agent should stop for the caller; `hold` means the agent
 should keep speaking through a backchannel, noise, or acknowledgement. Hotato
 then measures whether the timing matched that label. `"mhm"` and `"stop"` can
@@ -112,7 +112,7 @@ directly. `#1` is the top-ranked candidate, `#2` the next, and so on.
 `hotato contract create --from-candidate`, which mints a signed label-record
 bound to the exact decoded audio when a signing key is configured. Without a
 signing key it never crashes and never fabricates a human attestation: the
-contract honestly floors its `label_authority` at `asserted`.
+contract floors its `label_authority` at `asserted`.
 
 ```bash
 hotato investigate label .hotato/investigate-state.json#1 \

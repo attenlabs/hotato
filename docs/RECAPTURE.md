@@ -54,8 +54,7 @@ Note, from the printed fields (or `contract.json` directly with
 
 Human-assisted is fine and expected: place the call (or run the scripted
 test caller) against the agent as it is deployed TODAY, using the same
-scenario that produced the original recording. Nothing about this step is
-automated by Hotato.
+scenario that produced the original recording.
 
 ## Step 3: capture dual-channel audio
 
@@ -63,7 +62,7 @@ Record caller and agent on separate channels (two-channel WAV, or two
 aligned mono files) -- the same input requirement every other Hotato command
 has. A mixed mono recording cannot be scored reliably; see
 [`docs/CONTRACTS.md`](CONTRACTS.md#the-opt-in-diarized-mono-path) for the
-quality-gated diarized-mono fallback if separated channels are genuinely not
+quality-gated diarized-mono fallback if separated channels are not
 available.
 
 ## Step 4: create a NEW contract from the fresh recording, same policy
@@ -99,7 +98,7 @@ Every run envelope Step 3's capture produces (and every `hotato contract
 create`) carries an `audio_provenance` block per event: a streamed sha256 of
 the raw file bytes AND a streamed sha256 of the decoded PCM samples, plus
 sample rate and frame count. This is the mechanical proof that Step 2/3
-actually happened -- a NEW recording, not the old one replayed through a
+happened -- a NEW recording, not the old one replayed through a
 looser threshold.
 
 `hotato fix trial` enforces this automatically, and does not trust the string:
@@ -127,7 +126,7 @@ specifically where a "fix" is being claimed: `fix trial`'s before/after.
 
 The same word ("verified", "fixed", "passed") means something different
 depending on which of these five you are holding. Match what you say to what
-you actually have:
+you have:
 
 | Evidence you have | How you get it | Accurate to say | Inaccurate (common overclaim) |
 | --- | --- | --- | --- |
@@ -138,7 +137,7 @@ you actually have:
 | **Production rerun after deploy** | You (there is no automatic trigger) recaptured again against the LIVE deployed agent post-deploy, per this page, on your own schedule | "As of \[date], a fresh production capture reverified the same labeled stimulus against the live agent." Still one data point per run. | "The fix is confirmed working in production, no further checks needed." This does not run in CI by itself (see Limits below); each rerun is one more independent data point, not a standing guarantee that survives the NEXT deploy. |
 
 Two of these statements are not just guidance in this doc -- they are wired
-into the actual command output, so a reader never has to take the caution on
+into the command output, so a reader never has to take the caution on
 faith:
 
 - **`hotato contract verify`** (the stored-evidence row above) prints, in
@@ -159,7 +158,7 @@ faith:
   [`docs/THREAT-MODEL.md`](THREAT-MODEL.md).
 - **The stimulus match is only as good as your reproduction of it.** A
   scripted test caller reproduces wording and timing more faithfully than an
-  ad hoc human call; Hotato has no way to verify the fresh call actually
+  ad hoc human call; Hotato has no way to verify the fresh call
   matches the original scenario -- that judgment is yours, same as the
   original label.
 - **One recapture is one data point.** A single fresh pass does not establish
@@ -178,8 +177,8 @@ This is an offline tool: a user who controls every input can always lie to
 themselves. Nothing on this page, and nothing `hotato fix trial`'s guard
 recomputes, changes that. Specifically:
 
-- **A genuinely fresh recording of a fabricated stimulus still passes.** If
-  the "same scenario" you reproduced in Step 2 does not actually match the
+- **A fresh recording of a fabricated stimulus still passes.** If
+  the "same scenario" you reproduced in Step 2 does not match the
   original bug, the audio identity check has nothing to say about it -- it
   verifies the bytes are freshly captured, never that the scenario is the
   one you claim.

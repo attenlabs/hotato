@@ -19,7 +19,7 @@ A conversation-test is one file that defines one testable conversation; see
   sandbox come from the scenario's `agent_mock` -- there is no live agent and no
   network. (Authority 2 is grounded state; see [STATE-ADAPTERS.md](STATE-ADAPTERS.md).)
 - A test with no scenario is evaluated once against an empty context: every
-  input-dependent check is honestly INCONCLUSIVE, never a guessed pass/fail.
+  input-dependent check is INCONCLUSIVE, never a guessed pass/fail.
 
 ## The report has no blended score
 

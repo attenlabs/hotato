@@ -2,9 +2,7 @@
 
 `hotato sweep` turns from a command you remember to run into a job that runs
 on its own schedule and only asks for your attention when it finds something
-real. This is the full passive workflow: connect once, sweep on a schedule,
-read the report, promote confirmed bugs into permanent fixtures, and gate CI
-on them.
+real.
 
 Every command below is a shipped `hotato` command (verify with `hotato
 <command> --help`). Try the whole loop right now with `--demo`, no

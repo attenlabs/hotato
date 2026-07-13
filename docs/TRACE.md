@@ -88,7 +88,7 @@ timeline. This reads the bundle's OWN `evidence/frames.jsonl` and
 `contract.json` back in -- it never re-runs the VAD or the diarizer, so
 attaching a trace never needs the diarization extra installed and never
 re-scores the audio. On a diarized-mono bundle (no frame-level evidence),
-the base timeline honestly states that instead of fabricating one, and the
+the base timeline states that instead of fabricating one, and the
 trace row still renders on its own scale.
 
 `contract.json` records the attachment (additive, schema-safe: `trace:
@@ -108,9 +108,9 @@ timeline states the measured delta plainly:
 > Unknowns: no client-side playout trace was attached.
 
 The last line is always present in this release: a client-side audio
-playout trace (the point where the CALLER'S device actually stopped
+playout trace (the point where the CALLER'S device stopped
 rendering audio, as opposed to when the server issued the stop) is not a
-span type this release collects, so the honest gap is always named rather
+span type this release collects, so the gap is always named rather
 than silently omitted.
 
 ## Export
@@ -133,7 +133,7 @@ Hotato does not prove authorization, identity, compliance, or policy
 safety. A voice trace adds timing correlation to a failure contract's
 existing timing measurement; it never adds intent, never a root-cause
 verdict, and never a claim that a client-side playout event happened at a
-particular moment unless one was actually attached.
+particular moment unless one was attached.
 
 ## Read more
 

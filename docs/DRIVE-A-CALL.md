@@ -45,7 +45,7 @@ PUT/PATCH/DELETE surface, so drive-a-call can create a call but can NEVER mutate
 a provider config (an assistant, a number) in place. For Vapi the call is driven
 FROM the staging CLONE, so production is untouched.
 
-A non-`completed` Twilio call (busy / failed / no-answer / canceled) is an honest
+A non-`completed` Twilio call (busy / failed / no-answer / canceled) is a
 dead-end with no recording to score -- it raises, never a fabricated verdict.
 
 ## Credentials and the egress opt-in (both required)
@@ -76,15 +76,15 @@ credential strip, and atomic write. See [`docs/EGRESS.md`](EGRESS.md) and
 ## What it costs and what it does not claim
 
 - It costs one real outbound phone call per scenario run, billed by your
-  provider. There is no way to drive a real agent for free; the fixed-timeline
-  Twilio caller is deterministic but still a billed call.
+  provider. There is no way to drive a real agent for free; even the
+  deterministic Twilio caller is a billed call.
 - It does not claim the caller was human, that the scripted caller reacted to the
   agent, or that the agent "passed" -- scoring is the separate assert layer's job
   over the produced real recording.
 
 ## Retell / LiveKit / Pipecat
 
-Retell has no confirmed create-call API, so `run_scenario` stays honestly
+Retell has no confirmed create-call API, so `run_scenario` stays
 unadvertised for it (capture existing Retell calls with `hotato pull` instead).
 LiveKit and Pipecat capture inside your own infra and have no vendor origination
 API, so they are likewise not wired for drive-a-call.
