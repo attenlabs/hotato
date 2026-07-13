@@ -354,3 +354,21 @@ def test_test_run_single_repetition_shows_empty_state(tmp_path):
     ])
     page = (out / "report.html").read_text(encoding="utf-8")
     assert "not measured: no repeated runs in this report" in page
+
+
+def test_reliability_without_assertions_still_renders_never_dropped():
+    """Real reliability data with NO assertions envelope must still render its
+    Reliability dimension (over an honest empty envelope) -- silent data loss
+    would violate the render-what-you-were-given posture. reliability=None with
+    assertions=None stays byte-identical (covered elsewhere)."""
+    import hotato.simulate as SIM
+    agg = SIM.reliability([{"success": True}, {"success": True},
+                           {"success": False}])
+    html, _ = report.build_report_html(stereo=_bundled_wav(), reliability=agg)
+    assert '<span class="scname">Reliability</span>' in html
+    assert "pass@1 (single-run pass rate)" in html
+    # the empty envelope renders honest zero-counts, never fabricated results
+    assert "0 pass / 0 fail / 0 inconclusive" in html
+    md, _ = report.build_report_md(stereo=_bundled_wav(), reliability=agg)
+    assert "pass@1" in md
+    assert '"overall_score"' not in html
