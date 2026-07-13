@@ -44,7 +44,16 @@ import json
 import os
 from typing import Any, Dict, List, Optional, Sequence
 
-from .errors import open_regular as _open_regular
+from .errors import (
+    load_json_file as _load_json_file,
+    open_regular as _open_regular,
+    reject_overall_score as _reject_overall_score,
+)
+# Canonical-JSON + sha256-of-canonical are the established shared primitives in
+# hotato.manifest (already reused by labelrecord/ledger/receipt); import them
+# here instead of reimplementing (audit finding #2). ``_sha256_json`` stays a
+# local one-line composition of the two.
+from .manifest import canonical_json as _canonical, _sha256_str as _sha256_text
 
 SCHEMA = "rubric.v1"
 KIND = "rubric"
@@ -107,14 +116,6 @@ class EgressRefused(ValueError):
 # =========================================================================
 # Prompt rendering + content addressing
 # =========================================================================
-
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _canonical(obj: Any) -> str:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
-
 
 def _sha256_json(obj: Any) -> str:
     return _sha256_text(_canonical(obj))
@@ -199,8 +200,7 @@ def validate_rubric_object(obj: Any) -> Dict[str, Any]:
     key is rejected structurally, matching every other schema."""
     if not isinstance(obj, dict):
         raise ValueError("a rubric must be a mapping")
-    if "overall_score" in obj:
-        raise ValueError("rubric: 'overall_score' is forbidden (no blended score, ever)")
+    _reject_overall_score(obj, "rubric: 'overall_score' is forbidden (no blended score, ever)")
     rid = obj.get("id")
     if not rid or not isinstance(rid, str):
         raise ValueError("rubric is missing a string 'id'")
@@ -321,6 +321,36 @@ def load_rubrics_file(path: str) -> List[Dict[str, Any]]:
 # Judge backends (REAL)
 # =========================================================================
 
+def _urllib_json_call(url: str, *, data: Optional[bytes], headers: Dict[str, str],
+                      method: str, timeout: float,
+                      unreachable_subject: str, failed_subject: str) -> str:
+    """Shared stdlib-urllib transport for the judge HTTP clients (audit finding
+    #8): install the hardened process-wide opener FIRST, fire the request, and
+    return the decoded body TEXT. Both :class:`OllamaJudge` and
+    :class:`HostedJudge` route through here; each keeps its OWN vendor
+    response-envelope parser (the JSON shapes differ), which is intentionally not
+    merged.
+
+    The ``_ensure_safe_opener`` install (finding #1, added in d054676) lives here
+    so it can never be forgotten on a judge path: the opener strips
+    ``Authorization``/``Cookie`` on cross-host redirects and re-runs the SSRF
+    guard on every redirect target, so a redirecting judge endpoint can never
+    exfiltrate the judge API key. A judge command may be the first
+    network-touching command in a process, so this must run before ANY request."""
+    import urllib.error
+    import urllib.request
+    from . import capture as _capture
+    _capture._ensure_safe_opener()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - opener hardened above
+            return resp.read().decode("utf-8")
+    except urllib.error.URLError as exc:
+        raise JudgeError(f"{unreachable_subject} {url!r} unreachable: {exc}") from exc
+    except (TimeoutError, OSError) as exc:
+        raise JudgeError(f"{failed_subject} request to {url!r} failed: {exc}") from exc
+
+
 class Judge:
     """Judge interface. ``complete(system, user)`` returns the model's RAW text
     for one call (temperature 0). ``model_digest()`` returns the backend's
@@ -366,28 +396,15 @@ class OllamaJudge(Judge):
             )
 
     def _http_json(self, path: str, payload: Optional[dict], method: str = "POST") -> dict:
-        import urllib.error
-        import urllib.request
-        from . import capture as _capture
-        # The hardened process-wide opener (credential-stripping on cross-host
-        # redirects + the SSRF re-check on every redirect target) must be
-        # installed before ANY judge request: a judge command can be the first
-        # network-touching command in a process, and without this a redirect
-        # could carry headers to an unintended host (audit finding #1).
-        _capture._ensure_safe_opener()
         url = f"{self.endpoint}{path}"
         data = _canonical(payload).encode("utf-8") if payload is not None else None
-        req = urllib.request.Request(
-            url, data=data, method=method,
-            headers={"Content-Type": "application/json"},
+        # Shared transport installs the hardened opener before the request
+        # (finding #1) and normalizes transport errors to JudgeError (finding #8).
+        body = _urllib_json_call(
+            url, data=data, headers={"Content-Type": "application/json"},
+            method=method, timeout=self.timeout,
+            unreachable_subject="ollama endpoint", failed_subject="ollama",
         )
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # nosec - local model host
-                body = resp.read().decode("utf-8")
-        except urllib.error.URLError as exc:
-            raise JudgeError(f"ollama endpoint {url!r} unreachable: {exc}") from exc
-        except (TimeoutError, OSError) as exc:
-            raise JudgeError(f"ollama request to {url!r} failed: {exc}") from exc
         try:
             return json.loads(body)
         except json.JSONDecodeError as exc:
@@ -462,14 +479,10 @@ class HostedJudge(Judge):
         return None
 
     def complete(self, system: str, user: str) -> str:
-        import urllib.error
-        import urllib.request
-        from . import capture as _capture
-        # This request carries the judge API key: the hardened opener strips
-        # Authorization on any cross-host redirect and re-runs the SSRF guard
-        # on every redirect target, so a redirecting hosted endpoint can never
-        # exfiltrate the key to another host (audit finding #1).
-        _capture._ensure_safe_opener()
+        # This request carries the judge API key. The shared transport installs
+        # the hardened opener before the request (finding #1) so a redirecting
+        # hosted endpoint can never exfiltrate the key to another host, and
+        # normalizes transport errors to JudgeError (finding #8).
         key = os.environ.get(self.api_key_env)
         headers = {"Content-Type": "application/json"}
         if key:
@@ -483,17 +496,11 @@ class HostedJudge(Judge):
             "temperature": 0,
         }
         url = f"{self.endpoint}/chat/completions"
-        req = urllib.request.Request(
-            url, data=_canonical(payload).encode("utf-8"), method="POST",
-            headers=headers,
+        body = _urllib_json_call(
+            url, data=_canonical(payload).encode("utf-8"), headers=headers,
+            method="POST", timeout=self.timeout,
+            unreachable_subject="hosted judge", failed_subject="hosted judge",
         )
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # nosec - user-opted egress
-                body = resp.read().decode("utf-8")
-        except urllib.error.URLError as exc:
-            raise JudgeError(f"hosted judge {url!r} unreachable: {exc}") from exc
-        except (TimeoutError, OSError) as exc:
-            raise JudgeError(f"hosted judge request to {url!r} failed: {exc}") from exc
         try:
             data = json.loads(body)
             return data["choices"][0]["message"]["content"]
@@ -1066,11 +1073,7 @@ def load_labeled_corpus(directory: str) -> List[Dict[str, Any]]:
         if not name.endswith(".json"):
             continue
         path = os.path.join(directory, name)
-        with _open_regular(path, "r", encoding="utf-8") as fh:
-            try:
-                obj = json.load(fh)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"{path!r} is not valid JSON: {exc}") from exc
+        obj = _load_json_file(path)
         if not isinstance(obj, dict) or "rubric" not in obj or "label" not in obj:
             raise ValueError(
                 f"{path!r}: a calibration item needs a 'rubric' and a human "

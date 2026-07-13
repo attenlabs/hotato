@@ -36,7 +36,13 @@ from .assert_ import (
     INCONCLUSIVE_POLICIES,
     parse_assertions_yaml,
 )
-from .errors import open_regular as _open_regular
+from .errors import (
+    SAFE_BARE_TOKEN_RE as _SAFE_BARE_RE,
+    check_kind_version as _check_kind_version,
+    is_safe_bare_token as _is_safe_bare_token,
+    open_regular as _open_regular,
+    reject_overall_score as _reject_overall_score_impl,
+)
 
 __all__ = [
     "KIND",
@@ -82,12 +88,14 @@ def _reject_overall_score(obj: Any, where: str) -> None:
     """Reject an ``overall_score`` key wherever the honesty invariant forbids
     one (top level and inside ``success``). The schema forbids it structurally
     too; this is the same guard on the code path, so a hand-built dict can
-    never slip a blended score past :func:`validate_conversation_test_doc`."""
-    if isinstance(obj, dict) and "overall_score" in obj:
-        raise ValueError(
-            f"{where}: 'overall_score' is forbidden -- success is a boolean "
-            "over named conditions, never a blended score"
-        )
+    never slip a blended score past :func:`validate_conversation_test_doc`. The
+    reject MECHANISM is shared (:func:`hotato.errors.reject_overall_score`); this
+    conversation-test wording stays local (load-bearing per the invariant)."""
+    _reject_overall_score_impl(
+        obj,
+        f"{where}: 'overall_score' is forbidden -- success is a boolean "
+        "over named conditions, never a blended score",
+    )
 
 
 def _validate_assertion_lane(lane_name: str, items: Any, seen_ids: set) -> None:
@@ -177,16 +185,7 @@ def validate_conversation_test_doc(doc: Any) -> Dict[str, Any]:
         )
     _reject_overall_score(doc, "conversation-test document")
 
-    if doc.get("kind") != KIND:
-        raise ValueError(
-            f"'kind' must be {KIND!r}, got {doc.get('kind')!r}"
-        )
-    version = doc.get("version")
-    if version != VERSION:
-        raise ValueError(
-            f"unsupported conversation-test version {version!r}; this build "
-            f"supports version {VERSION}"
-        )
+    _check_kind_version(doc, kind=KIND, version=VERSION, subject="conversation-test")
 
     for field in ("id", "agent"):
         val = doc.get(field)
@@ -258,11 +257,9 @@ def load_conversation_test_file(path: str) -> Dict[str, Any]:
 
 # A word-shaped token (snake_case / dotted / hyphenated) is rendered bare; any
 # other scalar is quoted so the small YAML subset (parse_assertions_yaml) reads
-# it back verbatim. Mirrors assert_._is_safe_bare_token's intent; kept local so
-# this module needs no import back into assert_'s emitter internals.
-import re as _re
-
-_SAFE_BARE_RE = _re.compile(r"^[A-Za-z0-9_.\-]+$")
+# it back verbatim. The bare-token predicate + its regex are the shared
+# :mod:`hotato.errors` definitions (finding #7) -- assert_'s emitter uses the
+# same ones, so the two can never drift.
 
 
 def _scalar(value: Any) -> str:
@@ -271,7 +268,7 @@ def _scalar(value: Any) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     s = str(value)
-    if _SAFE_BARE_RE.match(s) and s.lower() not in ("true", "false", "null", "~", ""):
+    if _is_safe_bare_token(s):
         return s
     return '"' + s.replace('"', "") + '"'
 
@@ -400,13 +397,7 @@ def validate_suite(doc: Any) -> Dict[str, Any]:
     if not isinstance(doc, dict):
         raise ValueError("suite document must be a mapping")
     _reject_overall_score(doc, "suite document")
-    if doc.get("kind") != SUITE_KIND:
-        raise ValueError(f"'kind' must be {SUITE_KIND!r}, got {doc.get('kind')!r}")
-    if doc.get("version") != SUITE_VERSION:
-        raise ValueError(
-            f"unsupported suite version {doc.get('version')!r}; this build "
-            f"supports version {SUITE_VERSION}"
-        )
+    _check_kind_version(doc, kind=SUITE_KIND, version=SUITE_VERSION, subject="suite")
     for field in ("suite_id", "name"):
         if not doc.get(field) or not isinstance(doc[field], str):
             raise ValueError(f"suite is missing a string {field!r}")
@@ -448,13 +439,7 @@ def validate_release(doc: Any) -> Dict[str, Any]:
     if not isinstance(doc, dict):
         raise ValueError("release document must be a mapping")
     _reject_overall_score(doc, "release document")
-    if doc.get("kind") != RELEASE_KIND:
-        raise ValueError(f"'kind' must be {RELEASE_KIND!r}, got {doc.get('kind')!r}")
-    if doc.get("version") != RELEASE_VERSION:
-        raise ValueError(
-            f"unsupported release version {doc.get('version')!r}; this build "
-            f"supports version {RELEASE_VERSION}"
-        )
+    _check_kind_version(doc, kind=RELEASE_KIND, version=RELEASE_VERSION, subject="release")
     for field in ("release_id", "agent_id", "created_at"):
         if not doc.get(field) or not isinstance(doc[field], str):
             raise ValueError(f"release is missing a string {field!r}")
