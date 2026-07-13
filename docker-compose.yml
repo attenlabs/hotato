@@ -1,0 +1,97 @@
+# hotato self-host — the complete conversation-QA team workspace, in your own
+# cloud/VPC. `docker compose up -d` stands up the read-only workspace on
+# 127.0.0.1:8321 over a private volume; nothing leaves the host on the default
+# path. See docs/SELF-HOST.md.
+#
+#   docker compose up -d                       # workspace only (zero external calls)
+#   docker compose run --rm hotato-init        # optional: seed example data
+#   docker compose --profile judge up -d       # + a LOCAL Ollama model judge (opt-in)
+#
+# Only the workspace port is published, and only to host loopback. The Ollama
+# service (judge profile) publishes NO port — it is reachable only on the private
+# compose network.
+
+name: hotato
+
+services:
+  # ---- the team workspace: `hotato serve`, read-only, token-authenticated -----
+  hotato-workspace:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Flip to "1" to build the local-ASR / signing extras into the image.
+        WITH_TRANSCRIBE: "0"
+        WITH_SIGN: "0"
+    image: hotato-selfhost:local
+    restart: unless-stopped
+    # Token + optional judge wiring. Copy deploy/hotato.env.example to
+    # deploy/hotato.env and edit; it is optional (a token is generated if unset).
+    env_file:
+      - path: ./deploy/hotato.env
+        required: false
+    environment:
+      # Wire the OPTIONAL local judge (only used if you run rubric/test commands
+      # inside the container AND enable the `judge` profile). Reaching the Ollama
+      # container is a non-loopback endpoint, so those commands take
+      # --judge-egress-opt-in; that traffic stays on the private compose network
+      # and never leaves the host. Harmless when the judge profile is off.
+      HOTATO_JUDGE_ENDPOINT: "http://ollama:11434"
+    # PRIVACY: publish ONLY to host loopback. The in-container process binds
+    # 0.0.0.0 by necessity (a published port needs the container interface); the
+    # 127.0.0.1 mapping keeps it off every other interface.
+    ports:
+      - "127.0.0.1:8321:8321"
+    volumes:
+      # The registry + evidence store + serve token/audit. Back this up to back
+      # up the workspace (docs/SELF-HOST.md § Backup).
+      - hotato-data:/data
+    networks:
+      - hotato-net
+    # HEALTHCHECK is defined in the image (authenticated GET over loopback).
+    security_opt:
+      - no-new-privileges:true
+
+  # ---- optional: seed a small, clearly-labelled EXAMPLE dataset (one-shot) -----
+  # `docker compose run --rm hotato-init` populates the five views so a first
+  # boot is not empty. It is EXAMPLE data — clear it before ingesting real calls:
+  #   docker compose exec hotato-workspace python3 /opt/hotato-deploy/seed-demo.py --clear
+  hotato-init:
+    profiles: ["demo"]
+    image: hotato-selfhost:local
+    depends_on:
+      - hotato-workspace
+    entrypoint: ["python3", "/opt/hotato-deploy/seed-demo.py"]
+    command: ["--registry", "/data", "--workspace", "default"]
+    volumes:
+      - hotato-data:/data
+    networks:
+      - hotato-net
+    restart: "no"
+
+  # ---- optional: a LOCAL model judge (Ollama), opt-in via the `judge` profile --
+  # No published port: reachable only on the private compose network. The one-time
+  # `ollama pull <model>` downloads model weights from the internet (documented);
+  # pre-seed the volume for an air-gapped deploy. See docs/SELF-HOST.md § Judge.
+  ollama:
+    profiles: ["judge"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - hotato-net
+    # Intentionally NO `ports:` — the judge is never exposed off the host.
+
+networks:
+  # A private bridge dedicated to this stack (not shared with other compose
+  # projects). Egress is NOT the concern this network solves — the zero-egress
+  # guarantee is the workspace server's runtime behaviour (it opens no outbound
+  # connection), proven by deploy/verify-zero-egress.sh. Published-port privacy
+  # is enforced by the 127.0.0.1 mapping above.
+  hotato-net:
+    driver: bridge
+
+volumes:
+  hotato-data:
+  ollama-models:
