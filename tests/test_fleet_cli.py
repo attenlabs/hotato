@@ -137,6 +137,52 @@ def test_fleet_discover_lists_candidates(tmp_path, capsys):
     assert all(c["candidate_id"].startswith("cand-") for c in payload["candidates"])
 
 
+def test_fleet_discover_then_contract_create_round_trips(tmp_path, capsys):
+    # ingest -> discover -> `contract create --from-candidate` must round-trip:
+    # the candidate discover surfaces has to resolve to the ingested recording's
+    # stored audio, or contract-create fails with "no stored recording" (exit 2).
+    home = _home(tmp_path)
+    _setup_agent(home)
+    wav = str(tmp_path / "call.wav")
+    talkover_call(wav)
+    assert cli.main(["fleet", "ingest", "--home", home, "-w", "ws1",
+                     "--agent", "support-bot", wav]) == 0
+    capsys.readouterr()
+    assert cli.main(["fleet", "discover", "--home", home, "-w", "ws1",
+                     "--agent", "support-bot", wav, "--format", "json"]) == 0
+    cid = json.loads(_out(capsys))["candidates"][0]["candidate_id"]
+    # the id derives from the content-addressed recording, not the wav path
+    assert cid.startswith("cand-rec-")
+    rc = cli.main(["fleet", "contract", "create", "--home", home, "-w", "ws1",
+                   "--from-candidate", cid, "--decision", "yield",
+                   "--reviewer", "alice"])
+    assert rc == 0
+    assert "contract:" in _out(capsys)
+
+
+def test_fleet_experiment_approve_rejects_refused_tier0(tmp_path, capsys):
+    # A refused, evidence-tier-0 trial must NOT be approvable: existence alone
+    # can't clear a deployment approval. The CLI reports the rejection and exits 1
+    # (a policy block, like a legal-hold on delete), never a silent exit-0 success.
+    home = _home(tmp_path)
+    _setup_agent(home)
+    capsys.readouterr()
+    from hotato.fleet.api import FleetAPI
+    with FleetAPI(home=home) as api:
+        api.registry.add_trial("ws1", "tref", agent_id="support-bot",
+                               verdict="refused", evidence_tier=0)
+    rc = cli.main(["fleet", "experiment", "approve", "--home", home, "-w", "ws1",
+                   "--trial-id", "tref", "--approver", "director", "--note", "ship it"])
+    assert rc == 1
+    out = _out(capsys)
+    assert "approved: False" in out
+    # and no approval decision row was written
+    with FleetAPI(home=home) as api:
+        dec = api.registry._all(
+            "SELECT * FROM decisions WHERE workspace_id='ws1' AND trial_id='tref'")
+    assert not [d for d in dec if d["approved"] == 1]
+
+
 def test_fleet_review_and_label(tmp_path, capsys):
     home = _home(tmp_path)
     _setup_agent(home)

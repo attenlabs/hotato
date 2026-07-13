@@ -119,6 +119,19 @@ class FleetAPI:
         """Trust-preflight, then scan for candidate moments. Refuses unscorable
         input; never promotes a timing candidate into a failure (no auto-label).
         Ranking components are stored visibly, not hidden in one opaque score."""
+        # Bind every candidate to a REAL, content-addressed recording. The
+        # standalone `hotato fleet discover <wav>` path is invoked with just the
+        # wav (no recording_id threaded through), so resolve + persist the SAME id
+        # ingest produces from the decoded PCM. Without this the candidate id would
+        # derive from the wav *path* and candidate.recording_id would be NULL, so a
+        # later `fleet contract create --from-candidate` finds no stored audio and
+        # exits 2. ingest_recording is idempotent (dedups on the recording), so a
+        # prior `fleet ingest` is a no-op here and a direct discover self-heals by
+        # persisting the recording before scanning it. The `run()` path passes
+        # recording_id explicitly and skips this.
+        if recording_id is None:
+            recording_id = self.ingest_recording(
+                workspace_id, agent_id, wav_path)["recording_id"]
         job = self.jobs.record_start(workspace_id=workspace_id, capability="discover",
                                      operation="discover", agent_id=agent_id,
                                      source_pcm_hash=str(recording_id or wav_path))
@@ -140,7 +153,7 @@ class FleetAPI:
             onset = c.get("onset_sec")
             if onset is None:
                 onset = c.get("t_sec")
-            cid = f"cand-{_short(recording_id or wav_path)}-{i}"
+            cid = f"cand-{_short(recording_id)}-{i}"
             components = {
                 "severity": salience,
                 "input_health": input_health,
@@ -889,11 +902,31 @@ class FleetAPI:
 
     def approve_trial(self, workspace_id, trial_id, *, approver, note=None) -> dict:
         """Record a HUMAN approval decision on a trial recommendation. Recorded only
-        -- it NEVER deploys (no auto-deploy in this release; plan §10/§16)."""
+        -- it NEVER deploys (no auto-deploy in this release; plan §10/§16).
+
+        Approval is GATED on the trial's OWN evidence, never on mere existence: a
+        refused verdict (a hard-gate refusal) or an evidence tier of 0/none has no
+        green paired proof to deploy, so it is REJECTED here as a structured
+        refusal -- no approval decision row is written -- rather than silently
+        recorded as approved. An unknown trial is still a usage error (ValueError)."""
         trial = self.registry._one(
             "SELECT * FROM trials WHERE workspace_id=? AND trial_id=?", (workspace_id, trial_id))
         if not trial:
             raise ValueError(f"no trial {trial_id!r} in workspace {workspace_id!r}")
+        trial = dict(trial)
+        verdict = trial.get("verdict")
+        tier = trial.get("evidence_tier")
+        tier_val = tier if isinstance(tier, int) else 0
+        if verdict == "refused" or tier_val <= 0:
+            return {
+                "trial_id": trial_id, "approved": False, "refused": True,
+                "verdict": verdict, "evidence_tier": tier, "approver": approver,
+                "reason": (
+                    f"approval rejected: trial {trial_id!r} has verdict {verdict!r} at "
+                    f"evidence tier {tier if tier is not None else 'none'}; approval "
+                    "requires a non-refused verdict at evidence tier >= 1 (a refused or "
+                    "tier-0 trial has no green paired proof to deploy)."),
+            }
         self.registry.add_decision(
             workspace_id, f"approval-{_short(trial_id)}", trial_id=trial_id,
             recommendation=f"approved by {approver}" + (f": {note}" if note else ""),

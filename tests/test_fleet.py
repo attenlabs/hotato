@@ -114,6 +114,69 @@ def test_experiment_run_refuses_same_audio(tmp_path):
     api.close()
 
 
+def test_approve_trial_rejects_refused_or_tier0(tmp_path):
+    """Approval is gated on the trial's OWN evidence, never on mere existence: a
+    refused verdict or a tier-0/none evidence floor has no green paired proof to
+    deploy, so approve_trial must return a structured refusal and write NO
+    approval decision row -- not silently record it as approved."""
+    api = FleetAPI(home=str(tmp_path / "home"))
+    api.init_workspace("ws1")
+    api.agent_add("ws1", "support-bot", stack="vapi")
+    # a refused, evidence-tier-0 trial (a hard-gate refusal) is NOT approvable
+    api.registry.add_trial("ws1", "tref", agent_id="support-bot",
+                           verdict="refused", evidence_tier=0)
+    res = api.approve_trial("ws1", "tref", approver="director", note="ship it")
+    assert res["approved"] is False and res.get("refused") is True
+    assert "refused" in res["reason"]
+    # no approval decision row was written for the rejected trial
+    dec = api.registry._all(
+        "SELECT * FROM decisions WHERE workspace_id='ws1' AND trial_id='tref'")
+    assert not [d for d in dec if d["approved"] == 1]
+    # a non-refused verdict at tier 0 is likewise rejected (evidence floor)
+    api.registry.add_trial("ws1", "tlow", agent_id="support-bot",
+                           verdict="inconclusive", evidence_tier=0)
+    assert api.approve_trial("ws1", "tlow", approver="d")["approved"] is False
+    # a created-but-never-run trial (tier none) is rejected too
+    api.registry.add_trial("ws1", "tnew", agent_id="support-bot",
+                           verdict="created", evidence_tier=None)
+    assert api.approve_trial("ws1", "tnew", approver="d")["approved"] is False
+    # a genuinely improved, paired-or-better trial still approves
+    api.registry.add_trial("ws1", "tok", agent_id="support-bot",
+                           verdict="improved", evidence_tier=3)
+    ok = api.approve_trial("ws1", "tok", approver="director")
+    assert ok["approved"] is True
+    assert [d for d in api.registry._all(
+        "SELECT * FROM decisions WHERE workspace_id='ws1' AND trial_id='tok'")
+        if d["approved"] == 1]
+    api.close()
+
+
+def test_discover_resolves_recording_then_contract_round_trips(tmp_path):
+    """The standalone `fleet discover` path is invoked with just the wav (no
+    recording_id threaded through). discover must resolve + persist the SAME
+    content-addressed recording id ingest produced and bind the candidate to it,
+    so `contract create --from-candidate` finds real stored audio instead of
+    failing with 'no stored recording'."""
+    api = FleetAPI(home=str(tmp_path / "home"))
+    api.init_workspace("ws1")
+    api.agent_add("ws1", "support-bot", stack="vapi")
+    wav = str(tmp_path / "call.wav"); ta.talkover_call(wav)
+    ing = api.ingest_recording("ws1", "support-bot", wav)
+    disc = api.discover("ws1", "support-bot", wav)   # NO recording_id
+    assert disc["scorable"] and disc["candidates"]
+    cid = disc["candidates"][0]["candidate_id"]
+    # the candidate resolved to the ingested recording, not a NULL/path-derived id
+    row = dict(api.registry._one(
+        "SELECT recording_id FROM candidates WHERE workspace_id=? AND candidate_id=?",
+        ("ws1", cid)))
+    assert row["recording_id"] == ing["recording_id"]
+    assert cid.startswith(f"cand-{ing['recording_id'][:12]}")
+    # so contract_from_candidate finds real stored audio and mints a contract
+    res = api.contract_from_candidate("ws1", cid, reviewer="alice", decision="yield")
+    assert res["contract_id"] and res["decision"] == "yield"
+    api.close()
+
+
 def test_private_benchmark_ranks_agents_and_excludes_low_evidence(tmp_path):
     api = FleetAPI(home=str(tmp_path / "home"))
     api.init_workspace("ws1")
