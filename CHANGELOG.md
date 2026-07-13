@@ -8,7 +8,30 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-13
+
+Supplied interaction labels and the capability router that reads them (deltas
+D2, D3), plus the consumer Action hardened to install and gate on itself.
+
 ### Added
+- **Interaction labels v1** (`hotato.interaction-label.v1`, delta D2): optional,
+  backwards-compatible metadata about one event -- `speech_presence`,
+  `addressed_to_agent`, `floor_intent`, `label_authority`, `label_ref`. Every
+  field is supplied by a human, a trusted source, or a marked fixture; Hotato
+  never derives addressee or turn intent from timing, energy, transcript, or a
+  model verdict. An event with no label reads as all-unknown, so existing
+  artifacts stay valid. Stdlib-only validator, cross-checked against the JSON
+  Schema; the never-infer guarantee is asserted in tests.
+- **Capability routing v1** (`hotato.capability-requirement.v1`, delta D3): a
+  pure, deterministic router that reads SUPPLIED interaction labels on a paired
+  addressee-control battery and routes to the narrowest capability the paired
+  evidence supports (a missed addressed floor bid plus a false trigger on the
+  opposite risk), or to no recommendation at all. It never infers addressee or
+  intent, never reads audio, names no vendor, and emits a provider-neutral
+  verdict: capability id, evidence refs, acceptance tests, the input-health
+  causes it checked and cleared, and an optional neutral contract URI.
+  Insufficient or untrusted labels route to `engagement_control` with the
+  missing axes listed. Seven routing fixtures + validator-checked schema.
 - A root composite GitHub Action (`action.yml`): a repository with no hotato
   source runs a committed suite, conversation test, or contract verification,
   gets a five-lane job summary on pass and on failure, reads artifact paths
