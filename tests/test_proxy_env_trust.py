@@ -75,6 +75,13 @@ def fresh_opener(monkeypatch):
     monkeypatch.delenv("HOTATO_NO_PROXY", raising=False)
     monkeypatch.delenv("HTTP_PROXY", raising=False)
     monkeypatch.delenv("http_proxy", raising=False)
+    # Also clear NO_PROXY/no_proxy: urllib's default ProxyHandler consults them
+    # and would bypass a bogus HTTP_PROXY for loopback targets, so an inherited
+    # NO_PROXY=127.0.0.1,localhost (common in CI/dev shells) would make the
+    # honored-by-default case reach the real target and wrongly not raise. This
+    # only sanitizes the test env; product proxy behavior is unchanged.
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
 
 
 def test_ambient_http_proxy_is_honored_by_default(local_server, fresh_opener, monkeypatch):
