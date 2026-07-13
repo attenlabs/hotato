@@ -545,11 +545,19 @@ class Registry:
                 "Retry the command."
             ) from exc
 
-    def _insert(self, table: str, row: dict, *, replace: bool = False):
+    def _insert(self, table: str, row: dict, *, replace: bool = False, ignore: bool = False):
         cols = list(row.keys())
         col_list = ",".join(cols)
         marks = ",".join("?" for _ in cols)
-        if not replace:
+        if ignore:
+            # INSERT OR IGNORE: an idempotent seed. A concurrent constructor
+            # (or a re-ensure of the same key) that already wrote this primary
+            # key makes the duplicate a silent no-op, never a UNIQUE-constraint
+            # IntegrityError -- the same first-writer-wins posture as the
+            # schema_version meta row and assertion_runs. Unlike replace=, the
+            # existing row's other columns are left untouched.
+            sql = f"INSERT OR IGNORE INTO {table} ({col_list}) VALUES ({marks})"
+        elif not replace:
             sql = f"INSERT INTO {table} ({col_list}) VALUES ({marks})"
         else:
             # A real UPSERT keyed on the table's primary key, NOT the old
@@ -599,10 +607,14 @@ class Registry:
 
     # --- entities -------------------------------------------------------
     def ensure_workspace(self, workspace_id: str, name: Optional[str] = None):
+        # INSERT OR IGNORE, not a bare INSERT: two threads can both pass the
+        # get_workspace guard on a fresh db before either commits (the
+        # test_concurrent_registry_construction race), so the loser's insert
+        # must no-op rather than raise UNIQUE constraint failed.
         if not self.get_workspace(workspace_id):
             self._insert("workspaces", {"workspace_id": workspace_id,
                                         "name": name or workspace_id,
-                                        "created_at": self._now()})
+                                        "created_at": self._now()}, ignore=True)
         return workspace_id
 
     def get_workspace(self, workspace_id: str):
