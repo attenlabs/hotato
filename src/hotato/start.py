@@ -106,6 +106,27 @@ def _write_text(path: str, text: str) -> None:
     _atomic_write_text(path, text)
 
 
+def _ensure_out_dir(out_dir: str) -> None:
+    """Resolve ``--dir`` for a guided first run.
+
+    A first run into a brand-new folder is the common case, so a ``--dir`` that
+    does not exist yet is CREATED -- every missing parent in one ``os.makedirs``
+    call, so ``--dir out/2026/first-run`` just works instead of erroring on the
+    missing nesting.
+
+    The containment/refusal check stays: a ``--dir`` that already exists as a
+    NON-directory (a regular file, or a symlink to one) is refused rather than
+    clobbered -- a clean exit-2 usage error via the shared HANDLED boundary, not
+    a truncated file. Any creation ``OSError`` (a parent path component is a
+    file, permission denied, a dangling symlink at the target) is HANDLED the
+    same way, so the failure surface is the same exit-2 it always was."""
+    if os.path.exists(out_dir) and not os.path.isdir(out_dir):
+        raise ValueError(
+            f"--dir {out_dir!r} exists but is not a directory; point it at a "
+            "directory (a missing one is created for you)")
+    os.makedirs(out_dir, exist_ok=True)
+
+
 def _funnel_plan() -> dict:
     """Build the threshold-funnel fix plan from the bundled failing demo
     battery, in process (no subprocess, no network). Same code the CLI's
@@ -264,8 +285,7 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             confirm_channels=confirm_channels)
 
     out_dir = out_dir or "."
-    if not os.path.isdir(out_dir):
-        raise ValueError(f"--dir {out_dir!r} is not a directory")
+    _ensure_out_dir(out_dir)
 
     aggregate = _sweep_demo(out_dir)
 
@@ -378,8 +398,7 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
     from . import evidence as _evidence
     from .core import run_single
 
-    if not os.path.isdir(out_dir):
-        raise ValueError(f"--dir {out_dir!r} is not a directory")
+    _ensure_out_dir(out_dir)
 
     # 1) trust preflight
     report = _trust.trust_report(stereo, caller_channel=caller_channel,
