@@ -1,8 +1,10 @@
 # Fix plans: the guarded ladder
 
 Hotato measures turn-taking; this ladder turns a failing measurement into a
-reviewable, bounded fix proposal. Every level in this phase is read-only: no
-command mutates any platform config, and no apply command exists.
+reviewable, bounded fix proposal. Levels 0-2 are read-only: no command there
+mutates any platform config. Level 3 (apply / verify) has since shipped as a
+guarded, clone-only staged step -- it applies to a clone, never to a live
+production config, and never auto-deploys.
 
 ## The ladder
 
@@ -11,14 +13,18 @@ command mutates any platform config, and no apply command exists.
 | 0 | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the advisory and the tradeoff stated | never |
 | 1 | `hotato inspect --stack ...` | Reads the CURRENT turn-taking config (GET or static parse) and normalizes it | never |
 | 2 | `hotato plan result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | never |
-| 3 | apply / verify | NEXT PHASE, not shipped | see below |
+| 3 | `hotato apply` / `hotato fix trial` / `hotato verify` | Applies a plan to a CLONE and re-scores the battery on it under a pinned manifest | cloned assistant / branch only, never production |
 
-Level 3 is deliberately absent from this release. When it ships it will be
-PR-first and clone-first: apply to a cloned assistant or a branch config,
-re-run the battery, and only then graduate to production behind an explicit
-approval with a recorded rollback value. Every plan already pins
-`"approval": {"default": "manual", "production_apply": false}` so nothing
-built today can be replayed into an auto-apply.
+Level 3 has shipped, and it kept the guard it was designed with: it is
+PR-first and clone-first. `hotato apply` applies a plan to a CLONED assistant
+(or a branch config), `hotato fix trial` re-scores the battery on that clone
+under a pinned manifest, and `hotato verify` gates the before/after -- it
+graduates to production only behind an explicit human approval with a recorded
+rollback value, and never mutates a live production config on its own. Every
+plan still pins `"approval": {"default": "manual", "production_apply": false}`,
+so nothing built here can be replayed into a production auto-apply. See
+[APPLY.md](APPLY.md), [FIX-TRIAL.md](FIX-TRIAL.md), and
+[FIX-LOOP.md](FIX-LOOP.md).
 
 ## Level 0: diagnose
 

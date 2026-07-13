@@ -20,11 +20,13 @@ print(env["exit_code"])   # 0 pass, 1 fail
 Python API: [`docs/API.md`](API.md) covers the scoring envelope this
 complements; the schema is `src/hotato/schema/assert.v1.json`.
 
-## The five kinds
+## The core deterministic kinds
 
 Every kind is 100% deterministic (pure regex, checksum arithmetic, span/dict
 lookup, never a model call), which is why every result carries
 `deterministic: true` -- including a result whose status is `INCONCLUSIVE`.
+The five below are the original core; the full vocabulary is listed under
+[the whole `kind` vocabulary](#the-whole-kind-vocabulary).
 
 | kind | checks | reads |
 | --- | --- | --- |
@@ -39,6 +41,20 @@ claiming a tool ran are not evidence that it ran. Only the ingested trace
 (`hotato trace ingest`, `docs/TRACE.md`) counts. `pii` never echoes the
 matched text anywhere in a result -- only a `[REDACTED]` transcript artifact
 plus hit metadata (detector name, transcript turn index, role).
+
+### The whole `kind` vocabulary
+
+The table above is the original core, but it is not the complete set. The full
+`assert.v1` `kind` vocabulary is **17 deterministic kinds** -- all
+`deterministic: true`, all model-free. Alongside the five core kinds:
+`tool_result` and `tool_error` (a tool's returned value or raised error, read
+from the trace), `state` and `state_change` (a state adapter's snapshot or
+transition -- see [STATE-ADAPTERS.md](STATE-ADAPTERS.md)), `handoff`, `dtmf`,
+`termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`,
+and `count`. Two further NAMED kinds, `human_rubric` and `judge_rubric`, belong
+to the SEPARATE model-judged rubric lane ([RUBRIC.md](RUBRIC.md)); inside a raw
+`assert.v1` document they resolve to a deterministic `INCONCLUSIVE` that points
+at that lane, so no model runs here and the deterministic guarantee holds.
 
 ## Context: transcript, trace, timing
 
@@ -95,7 +111,8 @@ assertions:
     mode: must_not_leak
 ```
 
-Every assertion needs a unique `id` and a `kind` from the table above; the
+Every assertion needs a unique `id` and a recognized `kind` (the core table
+above, or any of the additional deterministic kinds listed with it); the
 kind-specific fields are validated (bad regex, unknown detector, missing
 required field, an unsupported `version`) up front, before anything is
 evaluated -- a malformed file never produces a partial result set.
@@ -106,7 +123,7 @@ This is the entire point of the module, and it is structural, not a
 convention someone can quietly break:
 
 - Every result carries `kind` and `deterministic: true` -- always `true`
-  here, on every one of the five kinds, on every status including
+  here, on every one of the deterministic kinds, on every status including
   `INCONCLUSIVE` (which reflects absent required input, never a
   non-deterministic judgment).
 - The envelope's `summary` **splits** `deterministic` (`{pass, fail,
