@@ -5,8 +5,8 @@ scenario set through YOUR configured voice stack. Every stack is scored on the
 same scenarios, the same labels, and the same thresholds, so the result files
 are directly comparable.
 
-hotato measures timing on the recordings it is given. It ships no vendor
-numbers, no leaderboard, and no accuracy percentage. Results depend on your
+hotato measures timing on the recordings it is given: every number comes from
+your own captures, scored the same way for every stack. Results depend on your
 stack configuration and your captures; a benchmark result describes YOUR
 setup, on the day you captured it.
 
@@ -60,8 +60,8 @@ provenance block: who ran it, on which files, with each file's mtime. The
 result timestamp comes from the input files, not the wall clock, so the same
 inputs reproduce the same result.
 
-Scenarios without a matching recording are listed under `not_captured`. They
-are never scored and never counted as failures. The exit code is 0 when the
+Scenarios without a matching recording are listed under `not_captured`, left
+out of both the scoring and the failure count. The exit code is 0 when the
 run completes; add `--fail-on-regression` to exit 1 when a scored event fails
 its scenario thresholds.
 

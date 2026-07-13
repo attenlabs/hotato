@@ -128,7 +128,7 @@ def test_investigate_finds_candidates_and_persists_state(call_wav, tmp_path):
         # and the '#' itself -- survives copy-paste as one argument.
         assert n["command"] == (
             f"hotato investigate label {shlex.quote(f'{state}#{i}')} "
-            "--expect yield|hold"
+            "--expect yield"
         )
 
     st = json.loads(open(state, encoding="utf-8").read())
@@ -155,7 +155,7 @@ def test_investigate_render_text_names_the_label_command(call_wav, tmp_path):
     assert "capture origin: operator-asserted local file" in text
     assert "verdict path: eligible" in text
     assert (f"hotato investigate label {shlex.quote(f'{state}#1')} "
-            "--expect yield|hold") in text
+            "--expect yield") in text
 
 
 # --- capture origin: frozen regression -------------------------------------

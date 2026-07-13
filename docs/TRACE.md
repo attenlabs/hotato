@@ -2,14 +2,14 @@
 
 A voice trace is a timeline of discrete voice-pipeline events (caller/agent
 audio activity, TTS cancel/stop, ASR partials, tool calls, ...) that
-supplements a failure contract's frame-level timing evidence with the WHY
-layer a caller/agent audio track alone cannot show: "the agent talked over
-the caller" becomes "evidence suggests TTS cancellation lagged: cancel
-requested at 42.40s, audio stopped at 43.60s".
+supplements a failure contract's frame-level timing evidence with a WHY
+layer beyond what a caller/agent audio track alone can show: "the agent
+talked over the caller" becomes "evidence suggests TTS cancellation lagged:
+cancel requested at 42.40s, audio stopped at 43.60s".
 
-Hotato does not prove root cause from a trace. It reports coincidence: a
-pattern of events that lined up with the measured timing. See
-[`docs/OTEL.md`](OTEL.md) for the ingest source formats.
+A voice trace reports coincidence: a pattern of events that lined up with the
+measured timing, not a proof of root cause. See [`docs/OTEL.md`](OTEL.md) for
+the ingest source formats.
 
 Three commands:
 
@@ -45,9 +45,9 @@ reassembled by `hotato.trace.load_voice_trace_jsonl`:
 A span carries an open `type` string; the common ones are
 `caller_audio_active`, `agent_audio_active`, `tts_cancel_requested`,
 `tts_audio_stopped`, `asr_partial`, `tool_call`, `llm_first_token`,
-`handoff`. An unrecognized type is passed through unchanged, never dropped
-(additive, forward-compatible with a pipeline that emits a span type this
-release does not name). Exactly one time shape applies per span: an
+`handoff`. An unrecognized type passes through unchanged (additive,
+forward-compatible with a pipeline that emits a span type this release does
+not name). Exactly one time shape applies per span: an
 interval span carries `start_sec`/`end_sec`, a point event carries
 `time_sec`.
 
@@ -85,11 +85,11 @@ Copies the trace into `<bundle>/traces/voice_trace.jsonl` and re-renders
 `evidence/timeline.html` with the trace's events drawn as an additional row,
 aligned to the SAME [0, duration] scale as the existing caller/agent
 timeline. This reads the bundle's OWN `evidence/frames.jsonl` and
-`contract.json` back in -- it never re-runs the VAD or the diarizer, so
-attaching a trace never needs the diarization extra installed and never
-re-scores the audio. On a diarized-mono bundle (no frame-level evidence),
-the base timeline states that instead of fabricating one, and the
-trace row still renders on its own scale.
+`contract.json` back in, reusing the existing scored evidence as-is:
+attaching a trace needs no diarization extra installed and no re-scoring of
+the audio. On a diarized-mono bundle (no frame-level evidence), the base
+timeline states that plainly, and the trace row still renders on its own
+scale.
 
 `contract.json` records the attachment (additive, schema-safe: `trace:
 {attached, path, span_count, attached_at, source_format}`). Refused (exit 2)
@@ -109,9 +109,8 @@ timeline states the measured delta plainly:
 
 The last line is always present in this release: a client-side audio
 playout trace (the point where the CALLER'S device stopped
-rendering audio, as opposed to when the server issued the stop) is not a
-span type this release collects, so the gap is always named rather
-than silently omitted.
+rendering audio, as opposed to when the server issued the stop) sits outside
+what this release's span types collect, so the gap is always named plainly.
 
 ## Export
 
@@ -127,13 +126,13 @@ for the machine result summary instead of the default text line. Refused
 (exit 2) when the bundle has no attached trace, or `--out` exists without
 `--force`.
 
-## What a voice trace does not prove
+## What a voice trace adds
 
-Hotato does not prove authorization, identity, compliance, or policy
-safety. A voice trace adds timing correlation to a failure contract's
-existing timing measurement; it never adds intent, never a root-cause
-verdict, and never a claim that a client-side playout event happened at a
-particular moment unless one was attached.
+A voice trace adds timing correlation to a failure contract's existing
+timing measurement: a pattern of events lined up with it, named plainly.
+Authorization, identity, compliance, policy safety, intent, and root cause
+stay outside its claims, and a client-side playout moment is named only when
+one was attached.
 
 ## Read more
 

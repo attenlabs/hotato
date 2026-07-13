@@ -246,8 +246,8 @@ def _classify_diagnosis(d: dict, *, coverage: dict, funnel: bool) -> dict:
     if risk_info and coverage.get(risk_info["coverage_key"]):
         fixability, confidence = "safe_to_patch", "high"
         safe_next_action = (
-            "hotato plan <this-result.json> --stack <your-stack> "
-            "--assistant-id/--agent-id/--config <target> for a bounded "
+            "hotato plan result.json --stack YOUR_STACK "
+            "--assistant-id/--agent-id/--config TARGET for a bounded "
             "one-step change, then verify with hotato compare"
         )
     elif risk_info:

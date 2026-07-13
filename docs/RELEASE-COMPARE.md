@@ -2,8 +2,8 @@
 
 `hotato release compare BASELINE CANDIDATE` reads two releases from the fleet
 registry and reports what moved between them. `BASELINE` is first, `CANDIDATE`
-second. It reports movement; it does not gate a release (use a
-`required_for_release` suite for the gate).
+second. It reports movement; gating a release is a separate step (use a
+`required_for_release` suite for that).
 
 Each release is a snapshot recorded by [`hotato suite run`](SUITE-RUN.md). To
 compare, run the same suite twice under two stable `--release` ids in the same
@@ -13,26 +13,26 @@ workspace and registry, then diff them.
 
 - **Per-dimension counts for each side, plus the per-count delta.** Each
   dimension (`outcome`, `policy`, `conversation`, `speech`, `reliability`)
-  keeps its own three counts (pass / fail / inconclusive), and the delta is per
-  count -- never a single blended delta score.
+  keeps its own three counts (pass / fail / inconclusive), each with its own
+  delta -- every dimension scored on its own lane.
 - **New failures** -- a `scenario x dimension` that PASSED on the baseline and
   FAILs on the candidate. **Fixed-since** -- the reverse. Both are diffed
   **only** where BOTH releases ran the same `scenario x dimension`. A scenario
-  one side never ran is new coverage, not a regression.
+  only one side ran counts as new coverage, separate from a regression.
 - **Per-scenario status changes** -- every `scenario x dimension` whose status
   differs between the two, diffed only where both sides have a comparable
   result.
 
 The releases' pinned digests are surfaced, so the reader knows exactly which
-two snapshots were compared: digest-exact, never a fuzzy name match.
+two snapshots were compared: an exact digest match, every time.
 
 ## Empty state
 
-A side with no runs is stated plainly, never a fabricated baseline:
+A side with no runs is stated plainly, as an empty state:
 
-- a release id that is **not registered** in the workspace is reported as such;
-- a release that is registered but **has no runs** is reported plainly as an
-  empty state with nothing to compare on that side.
+- a release id absent from the workspace is reported as unregistered;
+- a release that is registered but has **zero runs** is reported plainly as
+  an empty state.
 
 When no `scenario x dimension` result is comparable across both releases, the
 report says so: new-failures / fixed-since need a scenario BOTH releases ran.
@@ -72,8 +72,7 @@ Two runs over identical fixtures record byte-identical results, so the diff is
 all-zero deltas and no status changes. Edit the fixtures between the two runs
 to see movement.
 
-The text output follows this shape (counts here are schematic, not a
-benchmark):
+The text output follows this shape (counts here are illustrative placeholders):
 
 ```
 hotato release compare: baseline reference-agent-v1 -> candidate reference-agent-rc2  (workspace reference)
@@ -96,7 +95,7 @@ all per-scenario status changes:
 
 | code | meaning |
 | --- | --- |
-| `0` | the two releases were compared (per-dimension deltas + new-failures / fixed-since printed; a side with no runs is an empty state, never an error) |
+| `0` | the two releases were compared (per-dimension deltas + new-failures / fixed-since printed; a side with no runs is reported as an empty state, exit stays `0`) |
 | `2` | a usage error or an unreadable registry `--registry` |
 
 ## See also

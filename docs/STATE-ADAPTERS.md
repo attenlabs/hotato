@@ -1,9 +1,9 @@
 # State adapters: grounding a `state` assertion in your system of record
 
 The `state` and `state_change` assertion kinds are **Authority 2** (post-call
-state verification). They never trust what the agent *said* ("I issued the
-refund"); they query a **system of record** after the call and compare the
-actual state. A state adapter is the small, pluggable seam that does the query.
+state verification). They query a **system of record** after the call and
+compare the actual state against what the agent said ("I issued the refund").
+A state adapter is the small, pluggable seam that does the query.
 
 `hotato test run --state FILE` loads a state adapter from `FILE`. Three adapters
 ship, and the same one method backs all of them:
@@ -15,7 +15,7 @@ query(resource, **filters) -> dict | None
 Return the record for `resource` matching every `filters` key, or `None` when
 the system of record can be read and holds no such record.
 
-## The honesty boundary (why this exists)
+## The three-outcome boundary (why this exists)
 
 A `state` query verifies post-call system state. It has three outcomes, and the
 distinction is the whole point:
@@ -26,17 +26,17 @@ distinction is the whole point:
   record does not confirm.
 - **The system of record could not be reached or read** (network error,
   timeout, a 5xx, a non-JSON response, a DB error) -> `INCONCLUSIVE`, with a
-  reason. Hotato never guesses a verdict from a state it could not observe.
+  reason every time.
 
-An LLM verdict can never satisfy a `state` assertion; there is no model path in
-a state adapter. The query is a lookup plus a dict comparison, deterministic.
+A `state` assertion is satisfied by the query result alone: a lookup plus a
+dict comparison, deterministic, with no model path in a state adapter.
 
 ## The three adapters
 
 ### 1. `mock`: the local sandbox (default, offline)
 
-A JSON or SQLite fixture: `{resource: rows}`. No network, byte-stable, no
-opt-in. Use it for regression suites and for a captured before/after snapshot
+A JSON or SQLite fixture: `{resource: rows}`. Runs offline, byte-stable, ready
+to use with no opt-in. Use it for regression suites and for a captured before/after snapshot
 (`state_change` reads a `{"before": [...], "after": [...]}` shape). This is the
 adapter `--state some_sandbox.json` and `--state some.sqlite3` select today.
 
@@ -131,19 +131,19 @@ The `http` adapter, and a `sql` adapter over a `dsn`, are **network paths** (see
 `"egress_opt_in": true`, an explicit, per-config opt-in, the same discipline
 `--egress-opt-in` applies to the hosted diarizer and `--notify`. Without it, you
 get a clear usage error (the CLI's exit-2 path) before any connection is made.
-A local `sqlite_path` SQL DB and the mock sandbox open no socket and need no
-opt-in.
+A local `sqlite_path` SQL DB and the mock sandbox run entirely on your
+machine, opening no socket, with no opt-in needed.
 
 When an `http` / non-local-`sql` query does fire, only the mapped filter VALUES
 leave the machine (in the URL, query string, or JSON body). Audio, transcript,
-and the config file itself never leave.
+and the config file itself stay on your machine.
 
 ## Credentials
 
-Adapters take environment-variable **names**, never inline secrets, so a config
-file can be committed or shared without a credential in it. Supply the secret at
-run time from the environment (for example, `source` a `0600` file that exports
-it):
+Adapters take environment-variable **names** for credentials, keeping the
+config file free of secrets so it can be committed or shared. Supply the
+secret at run time from the environment (for example, `source` a `0600` file
+that exports it):
 
 - `bearer`: `{ "type": "bearer", "token_env": "RECORDS_API_TOKEN" }`
 - `basic`: `{ "type": "basic", "username_env": "DB_USER", "password_env": "DB_PASS" }`
@@ -152,9 +152,9 @@ it):
   where each header value is either `{ "env": NAME }` (a secret from the environment)
   or `{ "value": LITERAL }` (a non-secret constant).
 
-A missing credential env var fails fast at construction with a message naming the
-variable (never the value). Credential values are never logged and never placed
-in `last_error`.
+A missing credential env var fails fast at construction with a message that
+names the variable, not the value. Credential values stay out of logs and out
+of `last_error`.
 
 ## `state_change` and before/after snapshots
 
@@ -162,8 +162,9 @@ in `last_error`.
 the **mock** adapter provides both (from a captured `{"before": ..., "after":
 ...}` fixture, or `<table>__before` / `<table>__after` SQLite tables). The `http`
 and `sql` adapters answer point-in-time `state` queries (a live API/DB exposes
-only "now"), so their `before` snapshot is reported absent, and a `state_change`
-against them is INCONCLUSIVE rather than a fabricated "no change".
+only "now"), so their `before` snapshot is reported absent, keeping a
+`state_change` against them grounded at INCONCLUSIVE instead of a fabricated
+"no change".
 
 ## See also
 

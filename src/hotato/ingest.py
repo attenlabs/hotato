@@ -584,7 +584,8 @@ def run_ingest(
         print(_scan.render_text(result, top=top))
         print(
             "\nNext: review a candidate, then promote it with "
-            "`hotato fixture create --onset <t> --expect yield|hold`. "
+            "`hotato fixture create --onset 42.18 --expect yield` (use "
+            "--expect hold when the agent was right to keep talking). "
             "ingest never labels for you."
         )
     return 0

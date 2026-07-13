@@ -1,10 +1,11 @@
 # Trust matrix: what Hotato does for each input condition
 
 Before Hotato scores a recording, `hotato trust` inspects the audio and decides
-whether a score would be meaningful. The point is that a bad export must never
-turn into a confident-looking but hollow verdict. This page is the exact
-contract: input condition on the left, Hotato's behavior on the right. Nothing
-here is a turn-taking verdict; `trust` reports input health only.
+whether a score would be meaningful, catching a bad export before it can turn
+into a confident-looking but hollow verdict. This page is the exact
+contract: input condition on the left, Hotato's behavior on the right. This
+table covers input health only; a turn-taking verdict is `scan`'s and `run`'s
+job.
 
 Worked examples with real CLI output for every row are in
 [TRUST-GALLERY.md](TRUST-GALLERY.md).
@@ -19,17 +20,17 @@ Worked examples with real CLI output for every row are in
 | **Channel swap risk** | `eligible for scan` **plus** `possible channel swap` **warning** | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
 | **High crosstalk / echo bleed** | `eligible for scan` **plus** high `crosstalk: coherence` **warning** | 0 | Scores at **lower confidence.** `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
 | **Mixed mono (single channel)** | `NOT SCORABLE: single channel, caller and agent cannot be told apart` | 2 | **Refused by default.** Export dual-channel, or take one of the two opt-in escapes (below). |
-| **Mono, opt-in `--allow-mono`** | accepted in **degraded mode**, results **indicative only** | 0 | On `capture` / `pull` / `sweep` for a mono-only stack. Talk-over cannot be attributed, so no SLA gate fires. Never equivalent to dual-channel. |
-| **Mono, opt-in `--diarize`** | separability **tier**: `high` / `low` / `refuse` | 0 (high/low), 2 (refuse) | The separation front-end. `hotato run --mono call.wav --diarize` scores it; at `low` the verdict is stamped `indicative_only`. Never equivalent to dual-channel. |
-| **Short backchannel ("mhm") overlap** | (not a trust concern) `scan` lists it as a **candidate** | 0 | **Candidate only, human labels.** `trust`/`scan` never decide `yield` vs `hold`; you label the intent. |
-| **Noisy / false-positive candidate** | `trust` warns (clipping, crosstalk, hot capture); `scan` still lists the candidate | 0 | Surfaced **with** the warning. A candidate you inspect and label `hold`, not a bug Hotato asserts. |
+| **Mono, opt-in `--allow-mono`** | accepted in **degraded mode**, results **indicative only** | 0 | On `capture` / `pull` / `sweep` for a mono-only stack. Talk-over cannot be attributed, so no SLA gate fires. The dual-channel path stays the gold reference. |
+| **Mono, opt-in `--diarize`** | separability **tier**: `high` / `low` / `refuse` | 0 (high/low), 2 (refuse) | The separation front-end. `hotato run --mono call.wav --diarize` scores it; at `low` the verdict is stamped `indicative_only`. The dual-channel path stays the gold reference. |
+| **Short backchannel ("mhm") overlap** | outside `trust`'s scope; `scan` lists it as a **candidate** | 0 | **Candidate only, human labels.** `trust`/`scan` report the timing; you always label `yield` vs `hold`. |
+| **Noisy / false-positive candidate** | `trust` warns (clipping, crosstalk, hot capture); `scan` still lists the candidate | 0 | Surfaced **with** the warning, as a candidate for you to inspect and label `hold`. |
 
 **Reading the two axes.** `trust` answers one question: is this audio good enough
 to score? The exit code is the machine contract, `0` = eligible for scan (possibly
 with warnings), `2` = not scorable (with the reason and the next step). Warnings
-(swap, crosstalk, clipping, leading silence) do **not** by themselves make a
-recording unscorable; the three hard refusals do (mono, identical channels, a
-silent required channel).
+(swap, crosstalk, clipping, leading silence) inform the read; the three hard
+refusals (mono, identical channels, a silent required channel) are what
+changes scorability.
 
 ## Why refuse instead of guessing
 

@@ -13,15 +13,16 @@ two caller/agent tracks, and feeds the **existing** scorer -- so a mono call
 becomes scorable. It is **quality-gated** and labeled by tier: above the
 confidence bar the verdict is a `diarized-mono` verdict; below it, the
 verdict is labeled indicative only and no SLA gate fires; a non-separable file is
-refused. A diarized-mono verdict is **never** equivalent to a true dual-channel
-measurement for sub-second talk-over, and the gate enforces that per
-file.
+refused. A diarized-mono verdict is labeled and gated separately from a true
+dual-channel measurement for sub-second talk-over, and the gate enforces that
+per file.
 
-Diarization, not source separation: Hotato scores *timing* (who was active when,
-and overlap), which a diarizer's turn timestamps reconstruct directly. It does
-**not** reconstruct isolated waveforms, and does **not** do speaker
-IDENTIFICATION -- a diarizer assigns anonymous `SPEAKER_00` / `SPEAKER_01`; it
-never says who a person is.
+**Turn-timing reconstruction, from anonymous labels.** Hotato scores *timing*
+(who was active when, and overlap), which a diarizer's turn timestamps
+reconstruct directly: it assigns anonymous `SPEAKER_00` / `SPEAKER_01` labels to
+each turn and hands the boundaries to the existing scorer. The audio stays
+mixed, and the labels carry only channel timing -- no name, no voice-print
+match, no identity.
 
 ## Quickstart
 
@@ -38,16 +39,16 @@ hotato trust --stereo call.wav --diarize            # -> high / low / refuse tie
 hotato run --mono call.wav --diarize --format json  # diarized-mono verdict
 ```
 
-With the extra (or the token/model) absent, `--diarize` errors cleanly and exits
-`2`; it **never** falls back to scoring raw mono.
+Without the extra (or the token/model), `--diarize` exits `2` with a clean
+error: it always requires the diarizer to run before scoring.
 
 ## Backends and extras
 
 A pluggable backend seam (mirroring the neural-VAD seam). Pick with
-`--diarizer`; install only the extra you select. The default backend is chosen by
-the downstream benchmark, not pre-assumed -- `pyannote` is the accessible local
-default but is **not** best on telephone, so a user who needs best-in-class picks
-`sortformer` (local) or `pyannoteai` (hosted).
+`--diarizer`; install only the extra you select. The default backend is chosen
+by the downstream benchmark's measured results: `pyannote` is the accessible
+local default, and a user who needs best-in-class accuracy on telephone audio
+picks `sortformer` (local) or `pyannoteai` (hosted).
 
 | `--diarizer` | extra | where it runs | notes |
 |---|---|---|---|
@@ -83,7 +84,7 @@ If your licensing posture wants a permissive weights license, prefer
 `speaker-diarization-3.1` (MIT weights) over community-1 (CC-BY-4.0) via
 `HOTATO_DIARIZE_MODEL`.
 
-## The confidence gate (the honesty core)
+## The confidence gate (the core safeguard)
 
 Aggregate diarization error is a corpus statistic; the gate is **per file, at
 runtime, with no ground truth**. Six signals feed a `separation_confidence` in
@@ -101,12 +102,12 @@ runtime, with no ground truth**. Six signals feed a `separation_confidence` in
 **Tiers:**
 
 - **high** -- score normally; the verdict is always tagged
-  `source: "diarized-mono"` and `confidence_tier: "high"` (never presented as
-  dual-channel).
+  `source: "diarized-mono"` and `confidence_tier: "high"`, distinct at every
+  step from a dual-channel verdict.
 - **low** -- score, but the envelope carries `indicative_only: true`: the verdict
-  is "indicative only, reconstructed from single-channel diarization." **No
-  pass/fail SLA gate** (`--max-talk-over` / `--max-time-to-yield`) fires on a low
-  tier.
+  is "indicative only, reconstructed from single-channel diarization." The
+  pass/fail SLA gate (`--max-talk-over` / `--max-time-to-yield`) stays off on a
+  low tier.
 - **refuse** -- `scorable: false`, a reason naming the failed signal, exit `2`
   (exactly like today's mono rejection).
 
@@ -114,7 +115,7 @@ The thresholds are provisional and **uncalibrated** -- they are pinned by the
 downstream verdict-agreement benchmark, not asserted as accuracy -- and are
 exposed as constants in `hotato/diarize.py`.
 
-## Caller vs agent assignment (never a silent guess)
+## Caller vs agent assignment (proposed, stated, overridable)
 
 A diarizer returns anonymous `SPEAKER_00` / `SPEAKER_01`; Hotato needs
 caller/agent. The mapping is proposed, stated as an assumption, and overridable:
@@ -123,7 +124,7 @@ caller/agent. The mapping is proposed, stated as an assumption, and overridable:
   possible-swap band): an agent usually holds the floor longer, so the
   higher-talk-time speaker is proposed as the agent. Ambiguous (balanced floor
   time) mappings are broken by who-speaks-first and flagged `balanced: true`,
-  which downgrades the verdict to indicative rather than a coin-flip.
+  which downgrades the verdict to indicative until confirmed.
 - **override** -- `--caller-speaker SPEAKER_00 --agent-speaker SPEAKER_01`; when
   both are given no heuristic runs.
 
@@ -135,8 +136,8 @@ The chosen mapping and its basis are emitted in
 The two reconstructed tracks are slices of **one physical microphone**, so
 `signals.echo` / crosstalk coherence carries no echo information (it is trivially
 high in overlap). On the diarized-mono path the echo block is marked
-`applicable: false` and the `--echo-gate` can never fire -- it is meaningful only
-for two physically separate channels.
+`applicable: false`, since `--echo-gate` is meaningful only across two
+physically separate channels.
 
 ## Limits (what stays indicative or refused)
 
@@ -186,7 +187,6 @@ true` on the event:
 }
 ```
 
-Branch on `diarization.confidence_tier`; treat any event carrying
-`indicative_only: true` as indicative and never as a confident dual-channel
-verdict. A refused file is `scorable: false` with `not_scorable_reason` and exit
-`2`.
+Branch on `diarization.confidence_tier`: an event carrying `indicative_only:
+true` stays indicative-only, distinct from a confident dual-channel verdict. A
+refused file is `scorable: false` with `not_scorable_reason` and exit `2`.

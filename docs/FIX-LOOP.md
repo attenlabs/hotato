@@ -5,8 +5,8 @@ a **proposal**. The closed loop carries it the rest of the way, with the two
 irreversible decisions kept firmly in human hands:
 
 1. **`hotato patch`** turns a plan's abstract `{field, from, to}` into a
-   **literal, paste-ready artifact** for your platform. It PRODUCES the change;
-   it never applies it.
+   **literal, paste-ready artifact** for your platform. It PRODUCES the
+   artifact; applying it is your call.
 2. You apply it, in your own stack, and re-capture the failing moments.
 3. **`hotato verify`** scores the old and new runs against each other and gives
    you a **battery-scale before/after proof**: *N of M fixtures that used to
@@ -14,7 +14,8 @@ irreversible decisions kept firmly in human hands:
 4. **`hotato loop`** orchestrates the whole thing and **remembers where it left
    off**, so you can walk away and come back.
 
-Nothing here mutates a platform, auto-labels a moment, or auto-applies a change.
+Every step here produces a proposal, a label, or a reviewable artifact -- you
+decide what ships to your platform.
 
 ## `hotato patch <fixplan.json>` -- the paste-ready change
 
@@ -43,23 +44,23 @@ Reads a fix plan (schema `hotato.fixplan.v1`) and renders it per platform:
 - **generic / unknown stack**: patch names the knob **family** and asks for a
   concrete stack; it emits no literal body it cannot stand behind.
 
-### The both-axes case: no patch, a pointer instead
+### The both-axes case: an engagement-control pointer
 
 `hotato patch` only handles the config-fixable classes. When the plan's decision
 is `do_not_tune_single_threshold` -- the **both-axes** case, where the
 battery misses a real interruption AND false-stops on a backchannel at once -- no
-single config value fixes both. patch emits **no config patch**. It prints the
-vendor-neutral, numbers-free **engagement-control pointer** instead: it names the
-problem class (discriminating a real bid for the floor from a backchannel) and
-the KIND of fix it needs, names no product, and carries no digits. It is not an
-upsell, and it fires ONLY on this case -- never on an ambiguous slow yield or a
-coverage gap, which get a "no patch, here's why" instead.
+single config value fixes both. patch prints the vendor-neutral, numbers-free
+**engagement-control pointer** instead: it names the problem class
+(discriminating a real bid for the floor from a backchannel) and the KIND of
+fix it needs, naming no product and carrying no digits. It fires ONLY on this
+case; an ambiguous slow yield or a coverage gap gets a "no patch, here's why"
+explanation instead.
 
 Every other non-propose decision (diagnostic checklist, insufficient coverage,
 already at a documented bound, no change) likewise emits no patch, with the
 reason pointing back at the plan.
 
-**Guardrail:** patch makes no network call and pins `applies_change` to false.
+**Guardrail:** patch runs entirely offline and pins `applies_change` to false.
 `--format json` emits the full artifact; `--out PATH` also writes it.
 
 ## `hotato verify --before <old> --after <new>` -- the proof
@@ -89,14 +90,14 @@ shift. The rollup is the two axes that matter:
 
 **Guardrail:**
 
-- verify reports **coincidence, never causation**: it says the improvement
-  *coincides with* your change, never that it *caused* it. Hotato measures
-  timing; it does not run a controlled experiment.
+- verify reports **coincidence**: it says the improvement *coincides with*
+  your change. Hotato measures timing, not a controlled experiment, so a
+  coincidence is exactly the strength of claim the evidence supports.
 - it **refuses** the battery-scale claim when too few fixtures failed to
   characterize (`--min-n`, default 3): the per-fixture facts still print, but the
   headline proof is withheld and said so.
-- an unjudgeable side is `not_scorable`, never an invented verdict; a fixture on
-  only one side is reported unpaired, never silently folded into the rollup.
+- an unjudgeable side reports `not_scorable`; a fixture on only one side is
+  reported unpaired, kept out of the rollup.
 
 By default verify measures and exits 0; `--fail-on-regression` exits 1 if any
 fixture regressed or got worse.
@@ -129,11 +130,11 @@ hotato verify --before before.json --after after.json --policy hotato.verify.yam
   `failed_count`, `false_yield_count`.
 - **`guardrails`** are hard fail conditions. `max_new_false_yields` and
   `max_not_scorable` cap what a naive threshold bandaid would silently trade in;
-  `require_hold_fixture` / `require_yield_fixture` refuse to certify a battery
-  that never even tests the opposite axis.
+  `require_hold_fixture` / `require_yield_fixture` make sure a battery tests
+  the opposite axis before it can be certified.
 
 verify exits `1` unless **every guardrail holds AND every target is met**, so a
-fix cannot pass by improving one axis while regressing (or never testing) the
+fix only passes when it improves one axis without regressing (or skipping) the
 other. A patch that cuts talk-over by making the agent yield to everything meets
 the talk-over target but trips `max_new_false_yields` on the hold fixtures, and
 the whole check fails. The guardrails and targets are shown in the `--out
@@ -155,8 +156,8 @@ in a small local state file (`.hotato/loop-state.json` by default):
 
   > you have N candidate moment(s) awaiting your label.
 
-- **You label the ones that matter** with `hotato fixture create` (loop never
-  labels for you: only a human supplies the yield/hold intent).
+- **You label the ones that matter** with `hotato fixture create` -- the
+  yield/hold intent always comes from a human.
 
 - **Next run, with those fixtures present** (`--fixtures DIR`): it runs them,
   diagnoses the battery (including the threshold-funnel check), and plans a
@@ -172,11 +173,11 @@ hotato fixture create --stereo rec.wav --onset 12.4 \
 hotato loop ./recordings --fixtures tests/hotato   # run 2: plan
 ```
 
-**Hard rules:** the loop NEVER auto-labels (you supply every yield/hold intent),
-NEVER auto-applies (it produces a plan and points at `hotato patch`; applying and
-verifying stay human steps), and mutates no platform. It orchestrates and tracks
-state; you keep the two decisions that matter -- which moment is a real bug, and
-whether to apply the fix.
+**What stays yours:** every yield/hold intent (you supply it), and applying the
+fix (loop produces a plan and points at `hotato patch`; applying and verifying
+stay your steps). loop orchestrates and tracks state across runs, leaving your
+platform untouched -- you keep the two decisions that matter: which moment is
+a real bug, and whether to apply the fix.
 
 ## Exit codes
 

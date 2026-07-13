@@ -2,20 +2,20 @@
 
 Run the complete conversation-QA team workspace on infrastructure you control.
 Call audio, transcripts, traces, and evaluations stay on your machine; the
-default stack opens no outbound connection. This page is the full walk-through:
-build, bring it up, connect your own calls, add a local model judge, back it up,
-and upgrade.
+default stack binds a local port and stops there. This page is the full
+walk-through: build, bring it up, connect your own calls, add a local model
+judge, back it up, and upgrade.
 
 The stack is small on purpose:
 
 - **hotato**: the `pip`-installable package. The core is stdlib-only (zero
-  runtime dependencies), so the default image adds no supply-chain surface and
-  makes no external calls at run time.
+  runtime dependencies), so the default image stays offline at run time, with
+  zero added supply-chain surface.
 - **`hotato serve`**: the read-only, token-authenticated team workspace (five
   views: release readiness, scenario matrix, conversation inspector, failure
   clusters, production health). See [`docs/WORKSPACE.md`](WORKSPACE.md).
 - **Ollama** (optional): a local model judge for the rubric lane, opt-in behind
-  a compose profile. No hosted API is ever on the default path.
+  a compose profile. The default path stays local end to end.
 
 ---
 
@@ -25,9 +25,9 @@ The stack is small on purpose:
   not the legacy `docker-compose`; the optional `env_file` uses the long-form
   `required:` field added in v2.24). Check with `docker compose version`.
 - ~1 GB of disk for the default image; a persistent volume for `/data`.
-- No account, no API key, and no network access are required to build or run the
-  default stack. (The optional judge model download is the one documented
-  exception; see [Enable the local model judge](#enable-the-local-model-judge-optional).)
+- Build and run the default stack with Docker alone -- self-hosted, offline,
+  nothing else to provide. (The optional judge model download is the one
+  documented exception; see [Enable the local model judge](#enable-the-local-model-judge-optional).)
 
 The files that make up the deployment:
 
@@ -62,9 +62,8 @@ docker compose build --build-arg WITH_SIGN=1
 ```
 
 The default build installs the stdlib-only core only, which keeps the image
-small and free of external calls. The heavier live-capture and diarization
-extras run inside your own voice pipeline, not in this container, so they are
-not built in here.
+small and offline. The heavier live-capture and diarization extras run inside
+your own voice pipeline instead, kept out of this container by design.
 
 ---
 
@@ -81,12 +80,12 @@ http://127.0.0.1:8321
 ```
 
 Only that one port is published, and only on `127.0.0.1`. Inside the container
-the server binds `0.0.0.0:8321` by necessity (a published port needs the
-process to bind the container interface rather than loopback), and it prints a
-non-loopback-bind warning at start. That warning is expected here: the compose
-port mapping (`127.0.0.1:8321:8321`) is what keeps the workspace off every
-interface except the host's loopback. To reach it from your laptop, use an SSH
-tunnel or a reverse proxy you control; do not widen the published binding.
+the server binds `0.0.0.0:8321`, the interface a published port requires; it
+prints a non-loopback-bind warning at start as an expected side effect of that
+binding. The compose port mapping (`127.0.0.1:8321:8321`) is what keeps the
+workspace on the host's loopback only. To reach it from your laptop, use an
+SSH tunnel or a reverse proxy you control, and keep the published binding
+as-is.
 
 Open the workspace with the bearer token (see
 [Credentials](#credentials-and-the-bearer-token)):
@@ -115,16 +114,17 @@ docker compose --profile demo run --rm hotato-init
 ```
 
 The seeder lives in the `demo` compose profile, so a plain `docker compose up -d`
-never starts it. `docker compose run` targets that profiled service directly; the
+leaves it out entirely. `docker compose run` targets that profiled service directly; the
 `--profile demo` above makes the profile explicit.
 
 > `hotato start --demo` writes a *sweep report* (`hotato-sweep.json` + an HTML
-> dashboard) into a directory; it does not populate the workspace, which reads
-> the fleet registry's entity model. The seeder writes that entity model through
-> the same public API the CLI uses.
+> dashboard) into a directory -- a separate thing from populating the workspace,
+> which reads the fleet registry's entity model. The seeder writes that entity
+> model through the same public API the CLI uses.
 
-This is example data, not a claim about any agent. `origin` is set per
-conversation (direct vs simulated) so the two are never merged.
+This is example data, labeled and scoped to itself -- it says nothing about
+any agent you run. `origin` is set per conversation (direct vs simulated),
+keeping the two in separate buckets.
 
 To keep your own calls clear of the example rows, ingest into a **different
 workspace id** (the demo lives in `default`), or reset the volume before you
@@ -137,9 +137,9 @@ docker compose exec hotato-workspace hotato fleet ingest --home /data -w acme ..
 docker compose down -v
 ```
 
-`python3 /opt/hotato-deploy/seed-demo.py --clear` prints the reset guidance; this
-build's registry exposes no row-delete API, so a volume reset is the reliable way
-to remove the example data.
+`python3 /opt/hotato-deploy/seed-demo.py --clear` prints the reset guidance; the
+registry resets at the volume level, so a volume reset is the reliable way to
+remove the example data.
 
 ---
 
@@ -172,12 +172,12 @@ docker compose exec hotato-workspace hotato fleet status --home /data -w default
 ```
 
 `--home /data` points the CLI at the same registry the server serves with
-`--registry /data`. Reviews and labels stay CLI-driven; the workspace is
-read-only and mutates nothing but its own audit log.
+`--registry /data`. Reviews and labels stay CLI-driven; the workspace stays
+read-only, writing only to its own audit log.
 
 Fetching calls from a hosted voice provider (`hotato pull` / `capture`) reaches
-that provider's API with credentials you supply, an opt-in path listed in
-[`docs/EGRESS.md`](EGRESS.md). It is not part of the default stack.
+that provider's API with credentials you supply -- an opt-in path, separate
+from the default stack, listed in [`docs/EGRESS.md`](EGRESS.md).
 
 ---
 
@@ -190,8 +190,8 @@ The default judge is an Ollama daemon; enable it with the `judge` profile:
 docker compose --profile judge up -d
 ```
 
-The Ollama service publishes **no port**: it is reachable only on the private
-compose network, wired to the workspace via `HOTATO_JUDGE_ENDPOINT=http://ollama:11434`.
+The Ollama service stays off any published port: it is reachable only on the
+private compose network, wired to the workspace via `HOTATO_JUDGE_ENDPOINT=http://ollama:11434`.
 Pull the pinned judge model once (`qwen2.5vl:3b` is the model `hotato rubric run`
 uses by default, so no `--judge-model` flag is needed later):
 
@@ -206,10 +206,11 @@ docker compose exec ollama ollama pull qwen2.5vl:3b
 Run the rubric lane inside the container, pointing it at a rubrics file and a
 transcript you supply (author a rubric per [`docs/RUBRIC.md`](RUBRIC.md), then
 mount or copy both into the `/data` volume). Because the judge endpoint hostname
-(`ollama`, wired by `HOTATO_JUDGE_ENDPOINT` in the compose file) is not loopback,
+(`ollama`, wired by `HOTATO_JUDGE_ENDPOINT` in the compose file) isn't loopback,
 hotato's endpoint gate asks you to acknowledge it with `--judge-egress-opt-in`.
-That traffic stays on the private compose network and never leaves the host; the
-flag exists because the gate keys on the hostname, not on where the packet goes:
+That traffic stays on the private compose network, inside the host the whole
+way; the flag exists because the gate keys on the hostname, independent of
+where the packet travels:
 
 ```bash
 docker compose exec hotato-workspace hotato rubric run \
@@ -220,8 +221,8 @@ docker compose exec hotato-workspace hotato rubric run \
 The lane is advisory by default: a rubric FAIL is reported but the exit code
 stays `0`; add `--gate` to fail CI on a FAIL. The judge uses the pinned
 `qwen2.5vl:3b` model you pulled above; pass `--judge-model <id>` to pick another.
-The rubric result is model-judged (`deterministic: false`) and is never merged
-into the deterministic assertion counts.
+The rubric result is model-judged (`deterministic: false`) and is kept on its
+own lane, apart from the deterministic assertion counts.
 
 ### Pre-seed the judge model for an air-gapped deploy
 
@@ -249,7 +250,7 @@ Every request to the workspace is authenticated against one shared bearer token,
 compared in constant time. Three ways to provide it (precedence high to low):
 
 1. **A Docker secret** (best). Mount a secret file at `/run/secrets/hotato_token`;
-   the entrypoint passes it as `--token-file`, so the token is never on the
+   the entrypoint passes it as `--token-file`, so the token stays off the
    process command line. Example addition to `docker-compose.yml`:
 
    ```yaml
@@ -273,7 +274,7 @@ compared in constant time. Three ways to provide it (precedence high to low):
 
 The token file and the audit log are written with owner-only (`0600`)
 permissions. Keep `deploy/hotato.env` and any token file `0600` on the host
-too, and do not commit them.
+too, and keep them out of version control.
 
 ---
 
@@ -295,8 +296,8 @@ docker run --rm -v hotato_hotato-data:/data -v "$PWD":/backup alpine \
 ```
 
 Because the evidence store is content-addressed (sha256), a restored artifact is
-the same bytes that produced the original verdict; a digest that does not match
-is detectable rather than silently trusted.
+the same bytes that produced the original verdict; any digest mismatch is
+caught and surfaced explicitly.
 
 ---
 
@@ -322,16 +323,16 @@ up `/data` before a major upgrade, as with any stateful service.
 The `/data` registry and the content-addressed evidence store use the
 **same schemas** the managed cloud uses. Your conversation artifacts, conversation
 tests, and dashboards move between self-hosted and cloud without changing a line.
-Self-host is the same platform on your own infrastructure. Nothing in the QA
-platform sits behind a hosted login wall.
+Self-host is the same platform on your own infrastructure, with the whole QA
+platform available there -- nothing here requires a hosted login.
 
 ---
 
 ## Air-gapped deployment
 
-The default stack (the workspace alone) needs no network at run time, so it runs
-on an air-gapped host once the image is present. Bring the image over rather than
-pulling it on the target:
+The default stack (the workspace alone) runs offline at run time, so it works
+on an air-gapped host once the image is present. Bring the image over instead
+of pulling it on the target:
 
 ```bash
 # on a connected machine
@@ -342,24 +343,24 @@ gunzip -c hotato-selfhost.tar.gz | docker load
 docker compose up -d
 ```
 
-Do not describe this as "air-gapped by default": enabling the judge profile
-needs the one-time model pull described above unless you pre-seed the
+This is air-gapped once its one-time steps are done: enabling the judge
+profile needs the model pull described above unless you pre-seed the
 `ollama-models` volume. With the image loaded and (if you use the judge) the
-model volume pre-seeded, the whole stack runs with no network access.
+model volume pre-seeded, the whole stack runs fully offline.
 
 ---
 
-## What "no external calls" covers
+## What "stays offline" covers
 
 Scope, stated precisely so it holds up:
 
 - The claim is about the **default stack's run-time behaviour**: the workspace
-  server opens no outbound connection. It only binds a listening socket, imports
-  nothing that phones home, and keeps audio, traces, and evaluations on the
-  machine. The workspace is read-only and writes only its append-only audit log.
+  server binds a listening socket and stops there -- it imports nothing that
+  phones home, and keeps audio, traces, and evaluations on the machine. The
+  workspace is read-only, writing only its own append-only audit log.
 - The default workspace runs on a normal Docker bridge so its port can publish;
-  the guarantee is the server's behaviour, not a Docker firewall. You can prove
-  the behaviour on your own machine:
+  the guarantee rests on the server's own behaviour, and you can verify it
+  directly on your own machine, independent of any firewall:
 
   ```bash
   ./deploy/verify-zero-egress.sh
@@ -367,20 +368,22 @@ Scope, stated precisely so it holds up:
 
   It (1) confirms only `127.0.0.1:8321` is published, (2) runs the same image on
   an `internal` Docker network where egress is physically removed and shows the
-  workspace still answers a view with `200` (a server that serves with the
-  network unplugged needs no egress to do its job), and (3) lists ESTABLISHED
-  connections inside the running container and confirms none are external.
+  workspace still answers a view with `200` (proof the server does its job
+  entirely on what's already on the machine), and (3) lists ESTABLISHED
+  connections inside the running container and confirms every one stays
+  internal.
 
-- **Opt-in paths that do reach the network are named, not hidden.** The local
-  judge talks to the in-stack Ollama over the private network (and the one-time
-  model pull downloads weights); `hotato pull` / `capture` fetch calls from a
-  provider you configure; a hosted judge or the pyannoteAI diarizer send data
-  off-box only behind an explicit `--judge-egress-opt-in` / `--egress-opt-in`
-  flag. Every one of these is enumerated, command by command, in
-  [`docs/EGRESS.md`](EGRESS.md) and [`docs/THREAT-MODEL.md`](THREAT-MODEL.md).
+- **Opt-in paths that reach the network are named explicitly, every one of
+  them.** The local judge talks to the in-stack Ollama over the private
+  network (and the one-time model pull downloads weights); `hotato pull` /
+  `capture` fetch calls from a provider you configure; a hosted judge or the
+  pyannoteAI diarizer send data off-box only behind an explicit
+  `--judge-egress-opt-in` / `--egress-opt-in` flag. Every one of these is
+  enumerated, command by command, in [`docs/EGRESS.md`](EGRESS.md) and
+  [`docs/THREAT-MODEL.md`](THREAT-MODEL.md).
 
-If a capability lacks its input for a given run, it returns INCONCLUSIVE rather
-than a fabricated verdict: the same behaviour whether you self-host or not.
+If a capability lacks its input for a given run, it returns INCONCLUSIVE --
+plain and consistent, whether you self-host or not.
 
 ---
 

@@ -412,7 +412,7 @@ def run_investigate(
             "rank": i,
             "ref": ref,
             "command": (f"hotato investigate label {shlex.quote(ref)} "
-                        "--expect yield|hold"),
+                        "--expect yield"),
         })
 
     exit_code = 0 if trust_rep.get("scorable") else 2
@@ -506,6 +506,9 @@ def render_text(result: dict) -> str:
         detail = ", ".join(f"{k}={v}" for k, v in d.items())
         lines.append(f"    [{n['rank']}] t={c['t_sec']}s {c['kind']}  {detail}")
         lines.append(f"        label: {n['command']}")
+    if result["next"]:
+        lines.append("  (each label takes --expect yield, or --expect hold "
+                     "when the agent was right to keep talking)")
     lines.append(f"  state remembered at: {result['state_path']}")
     return "\n".join(lines)
 

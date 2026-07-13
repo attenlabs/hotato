@@ -32,6 +32,8 @@ import json
 import os
 import re
 import sys
+import threading
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional, Tuple
 from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
@@ -201,6 +203,22 @@ class _Handler(BaseHTTPRequestHandler):
 
         ok, who, cookie, via = ctx.authenticate(self.headers, query)
         if not ok:
+            # Courtesy landing page for the workspace HOME opened in a browser
+            # without a token: a clean, on-brand page that explains how to get in,
+            # served 200 so a new user never hits a bare 401 wall. It shares no
+            # workspace data and reveals no token. EVERY other path (and any
+            # ?format=json) stays token-gated with a 401 below. A client that
+            # explicitly presented a bearer credential (right or wrong) is an API
+            # auth attempt, so it gets an honest 401, never the landing.
+            presented_bearer = (self.headers.get("Authorization", "") or ""
+                                )[:7].lower() == "bearer "
+            if path == "/" and fmt != "json" and not presented_bearer:
+                ctx.audit.record(who="-", method=self.command, path=path,
+                                 query=clean_qs, status=200, remote=remote)
+                self._send(200, _render.render_landing_html(
+                    workspace=ctx.workspace, host_display=self._display_host()
+                ).encode("utf-8"), "text/html; charset=utf-8")
+                return
             ctx.audit.record(who="-", method=self.command, path=path,
                              query=clean_qs, status=401, remote=remote)
             if fmt == "json":
@@ -209,8 +227,9 @@ class _Handler(BaseHTTPRequestHandler):
                     "hint": "send Authorization: Bearer <token> or open /?token=<token>",
                 }), "application/json; charset=utf-8", {"WWW-Authenticate": "Bearer"})
             else:
-                self._send(401, _render.render_401_html().encode("utf-8"),
-                           "text/html; charset=utf-8", {"WWW-Authenticate": "Bearer"})
+                self._send(401, _render.render_401_html(
+                    host_display=self._display_host()).encode("utf-8"),
+                    "text/html; charset=utf-8", {"WWW-Authenticate": "Bearer"})
             return
 
         extra = {}
@@ -354,6 +373,18 @@ class _Handler(BaseHTTPRequestHandler):
             doc = "<!doctype html><h1>500</h1>"
         return 500, doc.encode("utf-8"), "text/html; charset=utf-8", {}
 
+    # -- helpers ----------------------------------------------------------
+
+    def _display_host(self) -> str:
+        """A loopback-safe ``host:port`` to echo into the unauthenticated pages.
+        Derived from the server's own bind address (never a client-supplied Host
+        header), so a wildcard bind shows a usable ``127.0.0.1`` link."""
+        ctx: ServeContext = self.server.context  # type: ignore[attr-defined]
+        port = self.server.server_address[1]
+        host = ctx.bind_host
+        disp = "127.0.0.1" if host in ("", "0.0.0.0", "::") else host
+        return "%s:%d" % (disp, port)
+
     # -- response ---------------------------------------------------------
 
     def _send(self, code, body, content_type, extra_headers=None):
@@ -398,10 +429,15 @@ def build_server(context: ServeContext, host: str, port: int) -> _WorkspaceServe
 
 def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
               registry: Optional[str] = None, token: Optional[str] = None,
-              token_file: Optional[str] = None) -> int:
+              token_file: Optional[str] = None, open_browser: bool = True) -> int:
     """Start the workspace server and serve until interrupted. Returns 0 on a
     clean shutdown. Raises ``ValueError``/``OSError`` (HANDLED -> exit 2) on a bad
-    registry, an unusable token, or an unavailable port."""
+    registry, an unusable token, or an unavailable port.
+
+    On start, unless ``open_browser`` is false (or the environment says not to;
+    see :func:`_maybe_open_browser`), the default browser is pointed at the
+    tokenised URL so the first thing a new user sees is a working workspace, not
+    an auth wall."""
     home = os.path.abspath(os.path.expanduser(registry)) if registry else DEFAULT_HOME
 
     # Validate the registry opens (schema-version gate); read-only thereafter.
@@ -418,8 +454,26 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
         bind_host=host,
     )
     server = build_server(ctx, host, port)
+
+    display_host = "127.0.0.1" if host in ("", "0.0.0.0", "::") else host
+    # The one line that carries the secret: the tokenised URL a browser can open
+    # directly. It is printed once (below) and never written to the audit log.
+    url = "http://%s:%d/?token=%s" % (display_host, port, quote(tok, safe=""))
+
     _print_banner(ctx, host, port, source=source, generated=generated,
-                  state_dir=state_dir)
+                  state_dir=state_dir, url=url, display_host=display_host)
+
+    # The listening socket is already bound; a browser opened now queues onto the
+    # accept backlog and is served the moment `serve_forever` runs.
+    if _maybe_open_browser(url, enabled=open_browser):
+        print("  browser:   opening http://%s:%d in your default browser."
+              % (display_host, port), file=sys.stderr)  # no token on this line
+    else:
+        print("  browser:   auto-open off. Open the link above to get in.",
+              file=sys.stderr)
+    print("  stop:      press Ctrl-C", file=sys.stderr)
+    sys.stderr.flush()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -429,15 +483,52 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
     return 0
 
 
-def _print_banner(ctx, host, port, *, source, generated, state_dir):
-    display_host = "127.0.0.1" if host in ("", "0.0.0.0") else host
+def _maybe_open_browser(url: str, *, enabled: bool) -> bool:
+    """Dispatch the default browser to ``url`` once, returning ``True`` if an open
+    was started. It is skipped (returns ``False``) when disabled by ``--no-open``,
+    when stdout is not a TTY (so CI and piped/headless runs never spawn one), when
+    ``$CI`` or ``$HOTATO_NO_BROWSER`` is set, or when no usable browser is
+    registered. The open runs on a daemon thread so a browser that runs in the
+    foreground can never block the serve loop or delay shutdown."""
+    if not enabled:
+        return False
+    if os.environ.get("HOTATO_NO_BROWSER"):
+        return False
+    if os.environ.get("CI"):
+        return False
+    if not (hasattr(sys.stdout, "isatty") and sys.stdout.isatty()):
+        return False
+    try:
+        webbrowser.get()  # raises webbrowser.Error when nothing is registered
+    except Exception:
+        return False
+
+    def _open() -> None:
+        try:
+            webbrowser.open(url, new=2, autoraise=True)
+        except Exception:
+            pass
+
+    threading.Thread(target=_open, name="hotato-serve-open", daemon=True).start()
+    return True
+
+
+def _print_banner(ctx, host, port, *, source, generated, state_dir, url,
+                  display_host):
     base = "http://%s:%d" % (display_host, port)
     out = sys.stderr
-    print("hotato serve — workspace %r" % ctx.workspace, file=out)
-    print("  registry:  %s" % ctx.home, file=out)
+    bar = "  " + "-" * 60
+    print("", file=out)
+    print("  hotato workspace  ·  %r  ·  self-hosted, read-only" % ctx.workspace,
+          file=out)
+    print(bar, file=out)
+    print("  Open this in your browser:", file=out)
+    print("    %s" % url, file=out)
+    print(bar, file=out)
     print("  listening: %s" % base, file=out)
+    print("  registry:  %s" % ctx.home, file=out)
     if host not in _LOOPBACK:
-        print("  WARNING:   bound to %s (not loopback) — this workspace is "
+        print("  WARNING:   bound to %s (not loopback). This workspace is "
               "reachable from your network. Token auth still applies; stop the "
               "server if this was unintended." % host, file=out)
     if generated:
@@ -445,9 +536,8 @@ def _print_banner(ctx, host, port, *, source, generated, state_dir):
               % (ctx.token, os.path.join(state_dir, "token")), file=out)
     else:
         print("  token:     %s   (%s)" % (ctx.token, source), file=out)
-    print("  open:      %s/?token=%s" % (base, quote(ctx.token, safe="")), file=out)
     print("  audit log: %s   (append-only)"
           % os.path.join(state_dir, "audit.jsonl"), file=out)
-    print("  read-only: the server issues only SELECTs; reviews/labels stay "
+    print("  read-only: the server issues only SELECTs; reviews and labels stay "
           "CLI-driven. No telemetry, no external calls.", file=out)
     out.flush()

@@ -9,8 +9,8 @@ passing opposite-risk fixture in the battery, config-only-safe), plus, for a
 contract bundle, the bundle's own trust report and policy bounds and an
 attached voice trace when present.
 
-When the evidence cannot support picking ONE root cause, explain REFUSES with
-the reason instead of guessing.
+When the evidence cannot support picking ONE root cause, explain states the
+reason plainly.
 
 ```
 hotato run --suite barge-in --format json > result.json
@@ -43,7 +43,7 @@ populated in this build:
                      do_not_patch,
  "opposite_risk":    the tradeoff a fix on this axis trades against,
  "evidence_for":     measured fields and notes that support this attribution,
- "evidence_against":  the honest caveats against treating it as settled,
+ "evidence_against":  the caveats against treating it as settled,
  "unknowns":         explicit gaps in the evidence (never silently assumed),
  "safe_next_action": one concrete next command, never an auto-apply}
 ```
@@ -57,25 +57,25 @@ populated in this build:
   opposite-risk fixture is missing, so a change could not be verified; or a
   contract bundle's own policy-bound comparison found a violation with no
   companion moment in the bundle to verify a change against.
-* `needs_human` -- an audio-path problem (echo bleed), never a threshold.
+* `needs_human` -- an audio-path problem (echo bleed).
 * `do_not_patch` -- the threshold funnel: the battery missed a real
   interruption AND false-stopped on a backchannel in the SAME battery. No
   single sensitivity threshold can fix both; the fix class is
-  engagement-control, not calibration. This produces one COMPOSITE
+  engagement-control. This produces one COMPOSITE
   battery-level attribution (`event_id: null`, `type: threshold_funnel`) in
   addition to the two per-event attributions it explains.
 
-## Refusals: correct output, not an error
+## Refusals: a precise account of the gap
 
-A refusal means the evidence in hand cannot support attributing ONE root
-cause, so explain says so instead of guessing:
+A refusal states exactly which gap in the evidence blocks attributing ONE root
+cause:
 
-* **a not-scorable event** -- an input problem, never an agent failure.
+* **a not-scorable event** -- an input problem.
 * **an ambiguous slow yield** (`unknown_root_cause`, no passing opposite-risk
   fixture) -- TTS buffering, transport latency, and VAD smoothing are
   indistinguishable from one recording.
 * **an echo-tagged false stop** -- the agent most likely heard its own TTS
-  bleed, an audio-path problem, not a turn-taking threshold.
+  bleed, an audio-path problem.
 * **a sweep/analyze candidate ref** -- ALWAYS refused. A candidate carries no
   human label (`yield` vs `hold`); explain prints the exact promote command
   for BOTH labels and lets a human choose.
@@ -83,8 +83,9 @@ cause, so explain says so instead of guessing:
   `contract.json` does not carry the raw echo/ambient signal a full run
   envelope's `diagnose` has, so a false stop on `hold` could be a
   backchannel-discrimination miss, ambient non-speech noise, or echo bleed.
-  Explain refuses rather than pick one; it points back at
-  `hotato run --dump-frames` / `hotato diagnose` on the original envelope.
+  Explain names the ambiguity and points back at
+  `hotato run --dump-frames` / `hotato diagnose` on the original envelope for
+  a definitive read.
 
 ```
 {"event_id":         the refused event, or null,
@@ -108,9 +109,8 @@ narrower than a full `diagnose`:
 * a false stop on `hold` is attributed as echo ONLY when the contract's
   `source.candidate_kind` says so (it was created `--from-candidate` an
   `echo_correlated_activity` moment); otherwise it is refused (see above);
-* a single bundle never carries opposite-risk coverage on its own (it is one
-  moment), so a contract-bundle attribution never reaches `safe_to_patch` --
-  the ceiling is `insufficient_evidence` until a companion contract or
+* a single bundle carries coverage for one moment only, so a contract-bundle
+  attribution caps at `insufficient_evidence` until a companion contract or
   fixture on the other axis exists.
 
 When a voice trace is attached (`hotato trace attach`), its findings
@@ -135,12 +135,11 @@ without one. See [`TRACE.md`](TRACE.md).
 | 1 | explained: at least one attribution or refusal was produced |
 | 2 | usage error or unusable input (a bad candidate ref, a file that is not a hotato result, or an unreadable contract bundle) |
 
-## What this is not
+## What explain measures
 
-Hotato does not infer intent and does not prove authorization, identity,
-compliance, or policy safety. Every attribution here is evidence-based, never
-a proof of root cause -- see the `evidence_against` and `unknowns` fields on
-every record. `explain` never mutates anything: it is read-only, exactly like
-`diagnose` and `plan`. Applying a change is still a human decision in your
-own stack; see [`FIX-PLANS.md`](FIX-PLANS.md) and [`FIX-LOOP.md`](FIX-LOOP.md)
-for the guarded ladder from a plan to a proven fix.
+Every attribution here is evidence-based -- a measurement scoped to root
+cause, with its `evidence_against` and `unknowns` stated on every record.
+`explain` is read-only, exactly like `diagnose` and `plan`: applying a change
+stays a human decision in your own stack; see [`FIX-PLANS.md`](FIX-PLANS.md)
+and [`FIX-LOOP.md`](FIX-LOOP.md) for the guarded ladder from a plan to a
+proven fix.

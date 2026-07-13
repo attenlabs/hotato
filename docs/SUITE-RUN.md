@@ -1,7 +1,7 @@
 # `hotato suite run`: execute a suite of conversation-tests
 
 `hotato suite run` loads a `hotato.suite` file (a NAMED SET of
-conversation-test refs, never a blend), resolves each ref relative to the suite
+conversation-test refs, each scored on its own), resolves each ref relative to the suite
 file, executes every test, and emits a per-dimension + reliability report. It
 also records the run into the fleet registry so `hotato serve` can browse it.
 
@@ -16,30 +16,31 @@ A conversation-test is one file that defines one testable conversation; see
   scripted-caller simulator. The scenario's variation matrix expands into
   concrete runs, each rendered, validated, and scored against the test's
   DETERMINISTIC lane. Authority-1 tool spans and the Authority-2 mock-state
-  sandbox come from the scenario's `agent_mock` -- there is no live agent and no
-  network. (Authority 2 is grounded state; see [STATE-ADAPTERS.md](STATE-ADAPTERS.md).)
+  sandbox come from the scenario's `agent_mock`, fully simulated and offline.
+  (Authority 2 is grounded state; see [STATE-ADAPTERS.md](STATE-ADAPTERS.md).)
 - A test with no scenario is evaluated once against an empty context: every
   input-dependent check is INCONCLUSIVE, never a guessed pass/fail.
 
-## The report has no blended score
+## Every dimension scored on its own
 
 The report carries per-dimension counts (`outcome`, `policy`, `conversation`,
 `speech`, `reliability`) plus a reliability aggregate -- `pass@1`, `pass@k`,
-`pass^k` -- and nothing else. There is no `overall_score` and no blended number
-anywhere, including `--format json`. Per-dimension counts are a grouping across
-tests, never a weight. Reliability is its own dimension over every valid
-simulated run, never folded into another dimension.
+`pass^k`. Per-dimension counts group results across tests; reliability stands
+as its own dimension over every valid simulated run. Each dimension keeps its
+own count and its own verdict, exposed as-is, including in `--format json`;
+the schemas reject an `overall_score` key.
 
-A `SIMULATOR_INVALID` run is a broken fixture, not an agent PASS/FAIL. It is
-bucketed separately and reported by test id and run id; it never counts toward
-any dimension or the reliability aggregate.
+A `SIMULATOR_INVALID` run flags a broken fixture. It is bucketed separately
+and reported by test id and run id, kept out of every dimension and the
+reliability aggregate.
 
 ## The suite's policy is authoritative
 
 The SUITE's `inconclusive_policy` is the effective policy for every test it
-names -- a test's own policy never weakens a required CI/compliance suite. So a
-suite with `inconclusive_policy: fail` makes an INCONCLUSIVE (absent required
-input) FAIL the gate; `refuse` withholds the verdict (exit `2`, precedence).
+names, keeping a required CI/compliance suite's gate consistent regardless of
+a test's own policy. So a suite with `inconclusive_policy: fail` makes an
+INCONCLUSIVE (absent required input) FAIL the gate; `refuse` withholds the
+verdict (exit `2`, precedence).
 
 The suite exit code is the **worst** test outcome under that policy
 (`refuse` > `fail` > `pass`), raised to at least `1` by any `SIMULATOR_INVALID`
@@ -87,7 +88,7 @@ hotato serve --workspace reference --registry ./.workspace
 ```
 
 The summary printed to stdout follows this shape (counts here are schematic,
-not a benchmark):
+illustrating the report's shape):
 
 ```
 hotato suite run: reference-agent-suite (...) -- agent reference-agent-v1, release reference-agent-v1 -- exit_code=0
@@ -106,15 +107,15 @@ per-test:
   ...
 ```
 
-Origin is always labelled `simulated`: a simulator's replay reliability is not
-production reliability.
+Origin is always labelled `simulated`, keeping a simulator's replay
+reliability distinct from production reliability.
 
 ## Exit codes
 
 | code | meaning |
 | --- | --- |
 | `0` | every test in the suite passed under the suite's `inconclusive_policy` (and no run was `SIMULATOR_INVALID`) |
-| `1` | at least one test FAILed (a `success.required` condition failed, a deterministic assertion FAILed, or -- under `inconclusive_policy fail` -- an INCONCLUSIVE gated), or a run was `SIMULATOR_INVALID` (a broken fixture, never an agent PASS/FAIL) |
+| `1` | at least one test FAILed (a `success.required` condition failed, a deterministic assertion FAILed, or -- under `inconclusive_policy fail` -- an INCONCLUSIVE gated), or a run was `SIMULATOR_INVALID` (a broken fixture, kept separate from any agent PASS/FAIL) |
 | `2` | under `inconclusive_policy refuse` a scored INCONCLUSIVE withheld the verdict (takes precedence over a FAIL); OR a usage error / unusable input: a malformed suite / conversation-test / scenario file, or an unresolvable test/scenario ref |
 
 ## See also

@@ -6,6 +6,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+## [1.3.3] - 2026-07-13
+
+First-run truth, paste-safe guidance, and a workspace that opens itself.
+
+### Fixed
+- The demo contract is built from the declared missed interruption, selected by
+  evidence fields (never candidate rank). The prior positional selection could
+  present an unscorable stop-without-caller event as the demo failure, with a
+  talk-over of 0.0s contradicting the printed story; the selected event now
+  verifies scorable with a measured talk-over. Zero or ambiguous matches raise
+  loud internal-contract errors instead of shipping the wrong moment.
+- Every example command hotato prints is runnable as-is on one line, across the
+  demo next steps, setup/init scaffolds, scan/fixture/loop/investigate hints,
+  and all help epilogs: angle-bracket placeholders became concrete values or
+  bracket-free names, backslash line-continuations were joined, and inline
+  shell comments moved to prose. A guard test now walks the guided surfaces
+  and the full help tree to keep them paste-safe.
+
+### Changed
+- hotato serve opens the browser to the working token-carrying URL on start
+  (--no-open or a non-interactive terminal skips it), prints that URL
+  prominently, and greets a token-less visit with a short landing page that
+  explains how to get in. The five views were polished; access stays
+  token-gated and read-only.
+- README, docs, and the CLI first-run screen state capabilities from strength:
+  boundary claims were rewritten as what each mechanism does, with genuine
+  scope limits kept and stated plainly.
+
 ## [1.3.2] - 2026-07-13
 
 First-run experience, docs, and metadata.

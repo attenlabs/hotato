@@ -1,9 +1,8 @@
 # Fix plans: the guarded ladder
 
 Hotato measures turn-taking; this ladder turns a failing measurement into a
-reviewable, bounded fix proposal. Levels 0-2 are read-only: no command there
-mutates any platform config. Level 3 (apply / verify) has shipped as a
-guarded, clone-only staged step.
+reviewable, bounded fix proposal. Levels 0-2 are read-only. Level 3
+(apply / verify) has shipped as a guarded, clone-only staged step.
 
 ## The ladder
 
@@ -19,9 +18,9 @@ Level 3 kept the guard it was designed with, PR-first and clone-first:
 (or a branch config), `hotato fix trial` re-scores the battery on that clone
 under a pinned manifest, and `hotato verify` gates the before/after -- it
 graduates to production only behind an explicit human approval with a recorded
-rollback value, and never mutates a live production config on its own. Every
-plan still pins `"approval": {"default": "manual", "production_apply": false}`,
-so nothing built here can be replayed into a production auto-apply. See
+rollback value. Every plan still pins
+`"approval": {"default": "manual", "production_apply": false}`, so every plan
+built here requires a human's manual go-ahead before it reaches production. See
 [APPLY.md](APPLY.md), [FIX-TRIAL.md](FIX-TRIAL.md), and
 [FIX-LOOP.md](FIX-LOOP.md).
 
@@ -64,13 +63,13 @@ Output: one normalized model (`interrupt_min_words`,
 `interrupt_voice_seconds`, `resume_backoff_seconds`,
 `endpointing_wait_seconds`, `backchannel_aware`) plus the raw fields and
 provenance (what was fetched, when, and which docs the field names were
-verified against). Absent or unreadable options are null with a note; values
-are never guessed. Suspicious values (an unusually high word threshold, a long
-endpointing wait) are surfaced as observations, never judgments.
+verified against). Absent or unreadable options are null with a note.
+Suspicious values (an unusually high word threshold, a long endpointing wait)
+are surfaced as observations, for you to judge.
 
 Read-only by construction: Vapi and Retell are one GET each; LiveKit and
-Pipecat files are parsed with `ast` and never imported or executed. Missing
-credentials exit 2 cleanly.
+Pipecat files are parsed with `ast`, statically, as text. Missing credentials
+exit 2 cleanly.
 
 ## Level 2: plan
 
@@ -89,13 +88,13 @@ zero or more changes, the verification gate, and the approval block. Every
 plan also carries `kind: "fix-plan"`, the measured `evidence` behind it, the
 stated `risks`, `next_commands` (apply the step manually, verify with
 `hotato compare`, re-run the battery), not-scorable events as `input_issues`
-(input problems, never fixed), and a `platform_mutation` block whose
-`performed` is always false: hotato plan is read-only.
+(input problems, kept separate from fixes), and a `platform_mutation` block
+whose `performed` is always false: hotato plan is read-only.
 
-Twilio rule: `--stack twilio` (or a Twilio-stack envelope) never yields
-agent-config advice. Twilio carries the audio; it does not decide when the
-agent yields. The plan is a checklist: confirm the dual-channel caller/agent
-assignment, then re-plan against the upstream voice-agent stack.
+Twilio rule: Twilio carries the audio; the upstream voice-agent stack decides
+when the agent yields. So `--stack twilio` (or a Twilio-stack envelope) gets a
+checklist instead of agent-config advice: confirm the dual-channel
+caller/agent assignment, then re-plan against that upstream stack.
 
 ### Policy rules (verbatim, as implemented and tested)
 
@@ -103,10 +102,9 @@ A change is proposed ONLY when ALL of these hold:
 
   (a) the failure class maps cleanly to ONE setting;
   (b) the proposed value is ONE bounded step in an unambiguous direction
-      within documented bounds - never an absolute magic value; `from` is the
-      inspected current value, and when inspection was not run or not
-      possible the plan carries direction and bounds only, with
-      `current_unknown: true`;
+      within documented bounds, anchored to the inspected current value as
+      `from`; when inspection was not run or not possible the plan carries
+      direction and bounds only, with `current_unknown: true`;
   (c) the run's battery contains at least one passing OPPOSITE-RISK fixture,
       else the plan DOWNGRADES to insufficient_coverage ("add an
       opposite-risk fixture before tuning") and names the exact fixture
@@ -123,12 +121,12 @@ And the standing refusals:
   the other -- the threshold treadmill teams describe from the inside: tuned
   endlessly, with no perfect setting, because both failures share one knob.
 * slow_yield without a clear layer: TTS buffering, transport latency, and VAD
-  smoothing are indistinguishable from one recording, so the plan is a
-  diagnostic checklist (instrumentation steps), never a knob change. A slow
-  yield becomes config-only-safe only when the battery contains a passing
-  opposite-risk backchannel fixture that makes a one-step change verifiable.
-* not_scorable events are input problems. They are never diagnosed as agent
-  failures and never feed a plan.
+  smoothing are indistinguishable from one recording, so the plan proposes a
+  diagnostic checklist (instrumentation steps) first. A slow yield becomes
+  config-only-safe only when the battery contains a passing opposite-risk
+  backchannel fixture that makes a one-step change verifiable.
+* not_scorable events are input problems, tracked separately from agent
+  failures and kept out of the plan.
 
 Every plan, of every decision kind, carries the same verification gate:
 
@@ -167,8 +165,8 @@ passes (the opposite-risk coverage the policy requires). Inspection read
 ```
 
 One field, one step, both endpoints of the move visible, the risk named, the
-verification gate attached. Nothing in the plan is an absolute value pulled
-from folklore.
+verification gate attached: every value in the plan traces back to the
+inspected config or a documented bound.
 
 ### Worked example: the refusal
 

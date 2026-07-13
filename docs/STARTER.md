@@ -10,10 +10,10 @@ hotato init starter --stack vapi --out .
 ```
 
 `--stack` is one of `vapi`, `retell`, `twilio`, `livekit`, `pipecat` -- every
-stack hotato has a real, shipped connector for today (see
+stack hotato has a shipped connector for today (see
 [`ADAPTER-STATUS.md`](ADAPTER-STATUS.md)). `--out` is usually `.`, the root of
-the repo you are adding hotato to. Offline: no network, no credentials needed
-to generate.
+the repo you are adding hotato to. Generation runs offline, in one command,
+nothing to connect.
 
 ## What it writes
 
@@ -35,12 +35,12 @@ reports/
   .gitkeep                               # local/CI scratch: doctor/report/sweep output
 ```
 
-Every file is refused if it already exists, unless `--force` is passed --
-nothing is silently merged or overwritten, and nothing partial is left behind
-if the scaffold refuses. The generated file names are deliberately namespaced
-away from a real repo's own files (`HOTATO.md`, not `README.md`;
-`hotato-contracts.yml`, not `hotato.yml`) so a first run does not collide with
-files a voice-agent repo almost always already has.
+Every file writes cleanly only when it doesn't already exist (pass `--force`
+to overwrite); each write lands whole or not at all. The generated file names
+are deliberately namespaced away from an existing repo's own files (`HOTATO.md`,
+distinct from `README.md`; `hotato-contracts.yml`, distinct from
+`hotato.yml`) so a first run drops in cleanly alongside files a voice-agent
+repo almost always already has.
 
 ## Two input paths, chosen for you by `--stack`
 
@@ -50,8 +50,8 @@ exact environment variable(s) (`VAPI_API_KEY`; `RETELL_API_KEY`;
 `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN`) `hotato connect <stack>` also
 reads. `recording.access` is `auto-pull`.
 
-**Capture-in-your-infra** (`livekit`, `pipecat`): there is no vendor
-recording API to pull from, so no credentials are generated or needed.
+**Capture-in-your-infra** (`livekit`, `pipecat`): capture happens inside your
+own deployment, so no credentials are needed.
 `hotato.yaml`'s `credentials.env` is `[]` and `recording.access` is
 `capture-in-your-infra`; `hotato setup --stack <stack>` prints the exact
 two-track capture scaffold, and you point `hotato contract create --stereo`
@@ -60,8 +60,8 @@ at the WAV your own deployment writes.
 ## LiveKit and Pipecat runbook
 
 LiveKit and Pipecat are the two stacks where capture and the turn-taking
-config both live in your own code rather than behind a vendor API. This is
-the operator runbook for both, capture through CI.
+config both live in your own code, ahead of any vendor API. This is the
+operator runbook for both, capture through CI.
 
 ### LiveKit
 
@@ -114,7 +114,7 @@ date. Full field-level detail and provenance: [`ADAPTER-STATUS.md`](ADAPTER-STAT
 ## The CI gate
 
 `.github/workflows/hotato-contracts.yml` runs on push, on pull request, and
-weekly. It is two guarded steps, both a **no-op, never a failure**, until you
+weekly. It is two guarded steps that pass clean, as a **no-op**, until you
 have added a first contract or fixture (a fresh scaffold's normal starting
 state):
 
@@ -128,13 +128,14 @@ whether the gate passed, failed, or had nothing to check yet.
 
 For the three auto-pull stacks, the workflow also carries a `weekly-sweep`
 job: a passive, candidate-only sweep of recent calls
-(`hotato sweep --stack <stack>`), ranked by hotato's own salience -- never a
-verdict, never auto-labeled. It ships **disabled** (`if: false`): flip it to
-`true` once the stack's credential env var(s) are set as repo secrets
-(Settings -> Secrets and variables -> Actions). Hotato never runs a live pull
-against your account on its own initiative; enabling this job is an explicit
-human decision, made once, in your own CI config. `livekit`/`pipecat` carry
-no such job -- there is no vendor recording API to sweep.
+(`hotato sweep --stack <stack>`), ranked by hotato's own salience -- a
+candidate list for you to review and label. It ships **disabled** (`if:
+false`): flip it to `true` once the stack's credential env var(s) are set as
+repo secrets (Settings -> Secrets and variables -> Actions). A live pull
+against your account only runs on your explicit say-so: enabling this job is
+a human decision, made once, in your own CI config. `livekit`/`pipecat` skip
+this job entirely, since capture for those stacks already happens inside
+your own deployment.
 
 ## Turn your first bad call into a contract
 
@@ -142,7 +143,7 @@ no such job -- there is no vendor recording API to sweep.
 # auto-pull stacks
 hotato connect vapi --api-key <key>
 hotato sweep --stack vapi --out hotato-sweep.html
-# open hotato-sweep.html, pick a real candidate moment, then:
+# open hotato-sweep.html, pick a candidate moment, then:
 hotato contract create --from-candidate hotato-sweep.json#1 \
     --expect yield --id refund-cutoff-001 --out contracts
 
@@ -157,10 +158,9 @@ Commit the resulting `contracts/refund-cutoff-001.hotato/` directory. The
 next push runs it through the CI gate above.
 
 **A contract bundle contains call audio** (`audio/event.wav`). If this repo
-is or could become public, do not commit a raw customer contract into it --
-use a sanitized fixture (synthetic or consent-cleared) instead, and keep
-real-customer contracts in a private repository or controlled artifact
-storage. See [`CONTRACTS.md`](CONTRACTS.md).
+is or could become public, commit a sanitized fixture (synthetic or
+consent-cleared), and keep customer contracts in a private repository
+or controlled artifact storage. See [`CONTRACTS.md`](CONTRACTS.md).
 
 ## Read more
 

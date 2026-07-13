@@ -2,7 +2,7 @@
 
 hotato scores turn-taking timing from call recordings, so a pull request can
 carry a running score and fail when the agent gets slower to stop talking for
-an interrupting caller. The workflow runs offline and needs no extra dependencies.
+an interrupting caller. The workflow runs offline with zero extra dependencies.
 
 ## Drop it in
 
@@ -13,7 +13,7 @@ will:
 - install the package with `pip install .`
 - score the bundled barge-in suite to a JSON envelope
 - render a Markdown summary with [`scripts/pr_comment.py`](../scripts/pr_comment.py)
-- post or update one sticky comment (found by a hidden marker, so it never spams)
+- post or update one sticky comment (found by a hidden marker, so it stays a single comment across runs)
 - fail the job on any regression
 
 The sticky comment shows a pass/fail line, a per scenario table (expect, yielded,
@@ -24,8 +24,8 @@ requests it; if your org restricts the default `GITHUB_TOKEN`, allow that scope.
 
 ## Point it at your own recordings
 
-The bundled suite is a self-test: it scores frozen synthetic fixtures to prove
-the harness works, not to judge your agent. The strongest gate is a suite of
+The bundled suite is a self-test: it scores frozen synthetic fixtures, proving
+the harness itself works. The strongest gate for your agent is a suite of
 your OWN bad moments, pinned as fixtures with `hotato fixture create` and run
 with `hotato run --scenarios DIR --audio DIR`; the full loop from one bad call
 to this gate is [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md). Alternatively, replace

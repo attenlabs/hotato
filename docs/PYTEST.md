@@ -1,8 +1,8 @@
 # Pytest: the fixture and the gate
 
-Install hotato and the plugin registers itself (a standard `pytest11` entry
-point). No `conftest.py` line, no import. It adds one fixture and one opt-in
-session gate. Both score with the same engine as the CLI and return the same
+Install hotato and the plugin registers itself automatically (a standard
+`pytest11` entry point): zero `conftest.py` wiring, zero imports needed. It
+adds one fixture and one opt-in session gate. Both score with the same engine as the CLI and return the same
 envelope, the JSON result object every hotato surface emits.
 
 ```bash
@@ -54,7 +54,7 @@ pytest --hotato-suite \
 
 Any directory in the same scenario shape works, including your own labelled
 calls (see `docs/SUITES.md` for the bundled tiers and `docs/SUBMITTING.md` for
-building labelled fixtures from real recordings).
+building labelled fixtures from your own recordings).
 
 ## Where it fits
 
@@ -62,5 +62,5 @@ building labelled fixtures from real recordings).
   along with every `pytest` invocation, locally and in CI.
 - The GitHub workflow (`docs/CI.md`) is the other ready-made gate: it scores on
   every pull request and posts a sticky results comment. Use either, or both.
-- Everything runs offline; the plugin makes no network call and the fixtures
-  are deterministic, so the gate cannot flake on I/O it does not do.
+- Everything runs offline; the plugin and its fixtures are deterministic and
+  self-contained, so results stay stable run to run.

@@ -2501,8 +2501,9 @@ def _init_stub_header(
         f"# from --from-trace {source_trace!r}." if source_trace else "#",
         "# Every check below is inferred from what was actually observed;",
         "# edit ids, add phrase/pii/policy checks, or remove what does not",
-        "# apply. Run it: hotato assert run --assertions <this file> \\",
-        "#   --trace <the same trace> [--transcript FILE] [--stereo WAV]",
+        "# apply. Run it, all on one line, e.g.:",
+        "#   hotato assert run --assertions assertions.yaml --trace voice_trace.jsonl",
+        "# (add --transcript FILE and/or --stereo WAV for phrase and timing checks)",
     ]
     if tool_names:
         lines.append(f"# tool_call spans seen (in order): {', '.join(tool_names)}")

@@ -3,16 +3,17 @@
 `hotato capture` scores a call you already ran. Drive-a-call closes the other
 half: it PLACES the call against a live voice agent, waits for it to finish, and
 feeds the recording into the same validated pull -> score pipeline. The produced
-conversation is a REAL agent conversation, so it flows through scoring unchanged.
+conversation carries the agent's own live turns, unscripted on that side, so
+it flows through scoring unchanged.
 
 It lives in `src/hotato/drive.py` and is wired into the fleet experiment loop as
 the `run_scenario` step of the Vapi and Twilio adapters
 (`src/hotato/fleet/adapters.py`).
 
-## The one honesty note that matters: the caller side is scripted, not human
+## Worth stating plainly: the caller side runs from a script
 
-The agent's half of the conversation is real. The CALLER's half is a script, and
-the origin records that plainly (`origin.caller`), never claiming a human called.
+The agent's half of the conversation is unscripted. The CALLER's half runs
+from a script, and the origin records that plainly as `origin.caller`.
 
 - **Twilio** renders your `scenario.v1` caller script into TwiML: one `<Say>`
   per `say`-turn, `<Pause>` between them. TwiML `<Say>` speaks at **fixed
@@ -40,18 +41,18 @@ never overstates what drove the caller side.
 | Twilio | `POST /2010-04-01/Accounts/{sid}/Calls.json` with `To`/`From`/`Twiml` + `Record=true`, `RecordingChannels=dual` (the REST equivalent of `<Dial record="record-from-answer-dual">`) | `GET .../Calls/{CallSid}.json` -> `status == completed` | `GET .../Recordings.json?CallSid=...` -> `RecordingSid` -> existing `capture_twilio` (`?RequestedChannels=2`) |
 | Vapi | `POST https://api.vapi.ai/call` `{assistantId, phoneNumberId, customer:{number}}` | `GET /call/{id}` -> `status == ended` | existing `capture_vapi` -> `artifact.recording.stereoUrl` |
 
-Only `POST` (create) and `GET` (poll + pull) are ever issued -- there is no
-PUT/PATCH/DELETE surface, so drive-a-call can create a call but can NEVER mutate
-a provider config (an assistant, a number) in place. For Vapi the call is driven
-FROM the staging CLONE, so production is untouched.
+Only `POST` (create) and `GET` (poll + pull) are ever issued: drive-a-call can
+create a call and read its status, and that is the whole surface -- a provider
+config (an assistant, a number) stays untouched. For Vapi the call is driven
+FROM the staging CLONE, so production stays untouched too.
 
 A non-`completed` Twilio call (busy / failed / no-answer / canceled) is a
-dead-end with no recording to score -- it raises, never a fabricated verdict.
+dead-end with no recording to score, so it raises a clear error.
 
 ## Credentials and the egress opt-in (both required)
 
 Placing a call reaches the provider's REST API and **costs a real phone call**.
-So `run_scenario` refuses unless BOTH are present:
+So `run_scenario` requires BOTH before it dials:
 
 1. **Credentials** -- `VAPI_API_KEY`, or `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN`
    (via `hotato connect` or the environment).
@@ -73,18 +74,17 @@ allowlist, default-deny SSRF (a `127.0.0.1` local test recording server needs
 credential strip, and atomic write. See [`docs/EGRESS.md`](EGRESS.md) and
 [`docs/THREAT-MODEL.md`](THREAT-MODEL.md) for the per-command rows.
 
-## What it costs and what it does not claim
+## What it costs, and what the recording proves
 
 - It costs one real outbound phone call per scenario run, billed by your
-  provider. There is no way to drive a real agent for free; even the
-  deterministic Twilio caller is a billed call.
-- It does not claim the caller was human, that the scripted caller reacted to the
-  agent, or that the agent "passed" -- scoring is the separate assert layer's job
-  over the produced real recording.
+  provider -- even the deterministic Twilio caller is a billed call.
+- The recording captures a real agent conversation. Scoring it -- whether the
+  agent "passed," whether the scripted caller's timing matched a real one --
+  is the separate assert layer's job, run over that produced recording.
 
 ## Retell / LiveKit / Pipecat
 
-Retell has no confirmed create-call API, so `run_scenario` stays
-unadvertised for it (capture existing Retell calls with `hotato pull` instead).
-LiveKit and Pipecat capture inside your own infra and have no vendor origination
-API, so they are likewise not wired for drive-a-call.
+Retell calls are captured after the fact with `hotato pull`, since Retell has
+no confirmed create-call API to originate from. LiveKit and Pipecat capture
+inside your own infra, so drive-a-call isn't wired for them either -- point
+your own capture path at the recording instead.

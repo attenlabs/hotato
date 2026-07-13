@@ -1,23 +1,23 @@
 # From a bad call to a CI gate
 
 One bad call moment becomes a permanent, offline regression test in five
-steps. Everything below runs locally; no audio leaves your machine.
+steps. Everything, audio included, runs locally on your machine.
 
 ## The label comes from you
 
-Hotato does not infer intent. You label the expected behavior for the event:
-yield means the agent should stop for the caller. hold means the agent should
-keep speaking through a backchannel/noise/acknowledgement. Hotato then
-measures whether the timing matched that label.
+You label the expected behavior for the event: yield means the agent should
+stop for the caller, hold means the agent should keep speaking through a
+backchannel/noise/acknowledgement. Hotato measures whether the timing matched
+that label.
 
 That is the whole contract. "mhm" and "stop" can carry identical speech
-energy; no timing measurement can tell them apart. What Hotato can measure,
-reproducibly, is whether the agent did what your label says it should have
-done, and how many seconds it took.
+energy, indistinguishable by timing alone. What Hotato measures, reproducibly,
+is whether the agent did what your label says it should have done, and how
+many seconds it took.
 
-Input requirement: Hotato's main scorer requires separated
-caller and agent tracks: either one two-channel WAV or two aligned mono WAVs.
-A single mixed mono call is not enough to attribute talk-over reliably.
+Input requirement: Hotato's main scorer requires separated caller and agent
+tracks -- either one two-channel WAV or two aligned mono WAVs -- the level of
+separation needed to attribute talk-over reliably.
 
 ## Step 1: turn the moment into a fixture
 
@@ -36,7 +36,7 @@ This writes `tests/hotato/scenarios/refund-interruption-001.json` (the label,
 with provenance) and `tests/hotato/audio/refund-interruption-001.example.wav`
 (a two-channel clip around the event, onset re-based to the clip). The
 fixture is scored immediately on creation; an input that cannot be judged is
-refused with the reason and exit code 2, never written silently.
+refused with the reason and exit code 2.
 
 Do not know the onset? List the candidate moments first:
 
@@ -80,7 +80,7 @@ result: fixed
 If the moment shifted between takes, pass `--before-onset` and
 `--after-onset` separately. `--out report.html` writes the shareable HTML
 report with the before take as the base. A side that cannot be judged renders
-NOT SCORABLE and exits 2; no verdict is invented.
+NOT SCORABLE and exits 2.
 
 ## Step 4: gate CI on it
 
@@ -115,10 +115,10 @@ hotato plan result.json --stack vapi --assistant-id <id>
 ```
 
 `plan` is read-only and guarded: it proposes at most one bounded step on one
-setting, refuses to tune a single threshold when the battery fails on both
+setting, holds off tuning a single threshold when the battery fails on both
 axes at once, and downgrades to a checklist when the evidence cannot isolate
-the layer. It never applies anything (`platform_mutation.performed` is always
-false). Details: [FIX-PLANS.md](FIX-PLANS.md).
+the layer. It only proposes -- `platform_mutation.performed` is always false.
+Details: [FIX-PLANS.md](FIX-PLANS.md).
 
 ## Use Hotato when
 
@@ -130,18 +130,18 @@ false). Details: [FIX-PLANS.md](FIX-PLANS.md).
 
 ## When not to use Hotato
 
-Hotato measures turn-taking timing from separated audio tracks. It is the
-wrong tool for:
+Hotato measures turn-taking timing from separated audio tracks. Outside that
+lane:
 
-- Transcript quality or wording checks. Nothing here transcribes.
-- Task success or goal completion. Hotato does not know what the call was
+- Transcript quality or wording checks -- Hotato doesn't transcribe.
+- Task success or goal completion -- Hotato doesn't know what the call was
   for.
-- Sentiment, tone, or emotion. Out of scope, permanently.
+- Sentiment, tone, or emotion -- permanently out of scope.
 - Compliance or script adherence review.
 - Tool-call or API-behavior testing.
-- Mixed mono recordings. One summed channel cannot attribute talk-over to a
+- Mixed mono recordings -- a summed channel can't attribute talk-over to a
   speaker.
-- Live, in-call decisions. Hotato scores recordings after the fact; it does
-  not predict at runtime.
-- Unlabeled whole-call analysis. `hotato scan` surfaces candidate moments,
-  but every verdict needs your yield or hold label; Hotato never invents one.
+- Live, in-call decisions -- Hotato scores recordings after the fact, not at
+  runtime.
+- Unlabeled whole-call analysis -- `hotato scan` surfaces candidate moments,
+  and every verdict needs your yield or hold label.

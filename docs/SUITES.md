@@ -51,7 +51,7 @@ for the session gate (`docs/PYTEST.md`).
 
 ## Deterministic builder
 
-The suites are generated, not hand-edited, and the generator is the proof:
+The suites are generator-built end to end, and the generator is the proof:
 
 ```bash
 python3 corpus/suites/build_suites.py           # rebuild in place
@@ -70,15 +70,15 @@ and Windows -- see `.github/workflows/tests.yml`, jobs `portability` and
 `corpus/classes/` ships four small, deterministic classes on top of the four
 suites above, built the same way (synthetic shaped noise, seed
 `sha256(scenario_id)`, `--check` byte-compares a rebuild): `mid-utterance-pause`
-(a multi-second thinking gap mid-turn, not a true turn end), `backchannel-multilingual`
-(short non-English acknowledgement tokens; Hotato's VAD is energy-based and
-does not detect language), `noise-hold` (sustained background presence, not a
-brief backchannel, that the agent should hold through), and
+(a multi-second thinking gap mid-turn, distinct from a true turn end), `backchannel-multilingual`
+(short non-English acknowledgement tokens, since Hotato's energy-based VAD
+treats them the same as English ones), `noise-hold` (sustained background
+presence, distinct from a brief backchannel, that the agent should hold through), and
 `telephony-degraded` (an existing gold scenario re-rendered through G.711
 mu-law plus a fixed packet-loss schedule, to prove the verdict is stable
 across codec degradation). Kept separate from `corpus/suites/` because
-`mid-utterance-pause` needs a non-default `turn_end_silence_sec` that the
-generic suite tests do not apply. Full per-class detail: `corpus/classes/README.md`.
+`mid-utterance-pause` needs a non-default `turn_end_silence_sec` beyond what the
+generic suite tests apply. Full per-class detail: `corpus/classes/README.md`.
 
 ## Against a live stack
 

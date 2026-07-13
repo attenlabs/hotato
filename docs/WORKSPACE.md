@@ -3,9 +3,9 @@
 A self-hosted, local web app for a team to read a voice agent's conversation-QA
 state: release readiness, the scenario matrix, a conversation inspector, failure
 clusters, and production health. It is stdlib-only (`http.server` + `sqlite3`):
-no framework, no build step, no external services, no telemetry. It serves the
-same fleet registry and evidence store the CLI writes; it never passes a database
-file around.
+self-hosted, with no framework or build step, and nothing that phones home. It
+serves the same fleet registry and evidence store the CLI writes, reading that
+data directly instead of passing a database file around.
 
 ```
 hotato serve --workspace default
@@ -68,13 +68,14 @@ agents and scripts can drive the workspace without scraping HTML.
 4. **Failure clusters** (`/clusters`): failed evaluations and assertions grouped
    by **observable signature** (dimension + assertion kind + reason-class), with
    counts and drill-through lists into the inspector. Labelled *clusters by
-   observable signature*: it groups what was observed and does not claim a cause.
+   observable signature*: it groups what was observed, and the cause stays
+   yours to determine.
 5. **Production health** (`/health`): ingest counts, evaluated coverage, and
    per-dimension failure rate over time, computed **separately for real and
-   simulated** conversations (never merged). Days with no evaluated sample get no
-   point, and a dimension with fewer than two days of data reads *not enough
-   history*, matching the trend report. There is no single combined quality number
-   anywhere.
+   simulated** conversations, kept distinct. A day with no evaluated sample
+   gets no point plotted, and a dimension with fewer than two days of data
+   reads *not enough history*, matching the trend report. Each dimension
+   keeps its own number -- there's no single combined quality score.
 
 ## Auth
 
@@ -105,8 +106,8 @@ writes.
 
 ## Read-only in v1
 
-The server mutates nothing except the audit log. It issues only `SELECT`s against
-your workspace and never exposes a write endpoint. Reviews, labels, and
+The server writes only the audit log. It issues only `SELECT`s against your
+workspace, exposing reads and nothing more: no write endpoint. Reviews, labels, and
 adjudications stay CLI-driven (`hotato fleet review …`, `hotato label …`); the UI
 states this in its footer.
 
@@ -120,7 +121,7 @@ reverse proxy you control over binding a wide interface directly.
 
 ## Zero egress
 
-The server only opens a **listening** socket. It never makes an outbound
-connection and imports nothing that phones home; audio, traces, and evaluations
+The server only opens a **listening** socket, making no outbound connection
+and importing nothing that phones home -- audio, traces, and evaluations
 stay on the machine. This is covered by a test that whitelists loopback and fails
 if any view attempts an external connection, and by the threat-model row below.

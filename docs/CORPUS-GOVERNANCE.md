@@ -110,8 +110,8 @@ Redaction guidance:
 
 ## Data-handling policy
 
-- **The tool runs local-only.** `hotato` reads local audio and writes local
-  reports, offline, with no telemetry. Contributing to the corpus is a deliberate,
+- **The tool is self-hosted.** `hotato` reads local audio and writes local
+  reports, offline; your recordings stay on your machine. Contributing to the corpus is a deliberate,
   manual act of committing a de-identified, consented clip.
 - **Storage.** Corpus audio lives in the repository alongside its scenario JSON,
   under the same MIT terms as the rest of the project. Keep working copies local
@@ -151,10 +151,9 @@ We publish:
   talking over a real interruption). The two error cells are the ones operators
   feel, so we surface them directly.
 
-The distribution and the four-cell matrix are the report. A single percentage would
-collapse the two failure modes into one number and hide the trade-off between them,
-so we keep them separate. The scorer works on speech energy over time, so validity
-is timing agreement and decision agreement.
+The distribution and the four-cell matrix are the report -- each failure mode
+scored on its own, so the trade-off between them stays visible. The scorer works
+on speech energy over time, so validity is timing agreement and decision agreement.
 
 ### Reading a corpus report
 

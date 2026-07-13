@@ -4,8 +4,8 @@ hotato ships an MCP server, `hotato-mcp`, that speaks MCP over stdio and
 exposes twelve tools: one scoring tool, `voice_eval_run`, which returns the
 identical JSON envelope (`schema_version` "1") the CLI emits, plus eleven fleet
 tools. Eight read, verify, and propose over a local fleet workspace; three are
-clone-scoped actions that recompute, never deploy. None of them deploys to
-production. Everything runs locally; no audio leaves the machine.
+clone-scoped actions that recompute and hand the deploy decision back to you.
+Everything, including audio, runs and stays on your machine.
 
 Every tool response carries a uniform control envelope: four keys ride on every
 response (pure reads included) so an autonomous caller parses one shape:
@@ -95,8 +95,8 @@ pick:
 | `report_path` | str | None | also write the HTML report here; the envelope then carries `report_path` (absolute) |
 
 Pass exactly one input mode: `stereo`, OR `caller` + `agent` together, OR
-`suite`. Mixing modes (or passing none) is a structured error, never a raw
-exception; see below.
+`suite`. Mixing modes (or passing none) returns a structured error you can
+parse programmatically, with a stable `error_code` and message; see below.
 
 ## Output
 
@@ -109,16 +109,15 @@ Every expected failure (a missing / mono / mismatched / not-found file, an
 unknown suite, an ambiguous input mode, or a well-formed input with no
 scorable event) comes back as a structured error object, `ok: false` with a
 stable `error_code` and an actionable `message`, schema at
-[`https://hotato.dev/schema/error.v1.json`](https://hotato.dev/schema/error.v1.json)
--- never a raw uncaught exception. The MCP tool and the CLI share this one
-error shape, so a caller (human or agent) parses one contract across both
-surfaces.
+[`https://hotato.dev/schema/error.v1.json`](https://hotato.dev/schema/error.v1.json).
+The MCP tool and the CLI share this one error shape, so a caller (human or
+agent) parses one contract across both surfaces.
 
 ## The fleet tools
 
 Eleven tools drive the local, self-hosted fleet control plane
 ([`GUARDIAN-FLEET.md`](GUARDIAN-FLEET.md)). They read and reason over a
-workspace; they never auto-label and never deploy to production.
+workspace, surfacing findings for a human to label and deploy.
 
 | Tool | Scope | Does |
 | --- | --- | --- |
@@ -128,11 +127,11 @@ workspace; they never auto-label and never deploy to production.
 | `contract_list` | read-only | contracts in a workspace |
 | `trial_explain` | read-only | a recorded trial's verdict, evidence tier, and any pending human-gated action |
 | `experiment_status` | read-only | a trial's current verdict, evidence tier, recommendation, and manifest hash |
-| `artifact_verify` | read-only | a contract bundle's authenticity + evidence, without trusting it |
-| `experiment_propose` | read-only | a bounded variant set with expected effects; does not clone, apply, or deploy |
-| `experiment_create` | clone-scoped | precommit a trial manifest from a committed battery BEFORE any capture; never captures, never deploys |
-| `experiment_run` | clone-scoped | recompute a before/after trial offline (no network, no production mutation) and record a recommendation |
-| `clone_cleanup` | clone-scoped | delete a STAGING clone an experiment created; never touches production |
+| `artifact_verify` | read-only | verifies a contract bundle's authenticity + evidence on its own terms |
+| `experiment_propose` | read-only | a bounded variant set with expected effects, ready for a human to clone, apply, or deploy |
+| `experiment_create` | clone-scoped | precommit a trial manifest from a committed battery BEFORE any capture; capture and deploy stay separate, later steps |
+| `experiment_run` | clone-scoped | recompute a before/after trial offline, entirely within the clone, and record a recommendation |
+| `clone_cleanup` | clone-scoped | delete a STAGING clone an experiment created, scoped entirely to that clone |
 
 ## More
 

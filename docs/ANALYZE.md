@@ -1,8 +1,7 @@
 # `hotato analyze <folder>`: drop a folder, hear the bug
 
-Zero-config discovery over a whole folder of real dual-channel call recordings.
-No scenarios, no labels, no onset, no flags required: point it at the folder and
-it does the rest.
+Zero-config discovery over a whole folder of dual-channel call recordings:
+point it at the folder and it does the rest.
 
 ```bash
 hotato analyze ./recordings
@@ -39,8 +38,9 @@ a yield marker where the scanner measured the agent going silent).
 ### 2. The hear-the-bug player
 
 For the top `--audio-top` moments (default 8) the audio around the moment
-is embedded inline as a base64 WAV data URI. Nothing is uploaded, the page has
-zero external requests. Press play and a **playhead** sweeps that moment's
+is embedded inline as a base64 WAV data URI, so the page is fully
+self-contained with zero external requests. Press play and a **playhead**
+sweeps that moment's
 timeline in lockstep with `audio.currentTime` (via `requestAnimationFrame`), so
 you HEAR the agent talk over the caller, or the dead-air gap, land exactly where
 the chart marks it. Reduced-motion safe: with `prefers-reduced-motion: reduce`
@@ -63,10 +63,10 @@ by `--top`. Pass `--out FILE` to also write the full ranked JSON.
 
 ## Framing
 
-These are **measured candidate timing moments**, not verdicts and not intent.
-Energy is not intent: the scanner cannot know whether a caller sound was "mhm"
-or "stop", so nothing here is a pass/fail, a failure count, or an accuracy
-number. You decide the expected behavior and label the moments that matter:
+These are **measured candidate timing moments**: a timestamp and a number,
+not a verdict on intent. Energy sounds the same whether a caller said "mhm"
+or "stop", so you decide the expected behavior and label the moments that
+matter:
 
 ```bash
 hotato fixture create --stereo <call>.wav --onset <t> \
@@ -75,7 +75,7 @@ hotato fixture create --stereo <call>.wav --onset <t> \
 
 Non-dual-channel or otherwise unreadable files are reported cleanly in a
 "Skipped files" section with their reason (a mono mix cannot attribute
-talk-over); a bad file never crashes the run.
+talk-over), and the run keeps going through the rest of the folder.
 
 ## Flags
 
@@ -94,8 +94,7 @@ talk-over); a bad file never crashes the run.
 
 ## Exit codes
 
-- **0**: ran (candidate moments listed across the folder, possibly zero; never
-  a pass/fail and never a verdict).
+- **0**: ran -- candidate moments listed across the folder, possibly zero.
 - **2**: usage error (the path is not a folder) or an IO error reading it.
 
-Everything runs offline; no audio leaves the machine.
+Everything, audio included, stays on your machine.

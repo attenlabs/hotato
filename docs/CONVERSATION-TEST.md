@@ -6,8 +6,8 @@ environment, two SEPARATE assertion lanes, and an explicit success condition.
 `hotato test run` evaluates a supplied call against that file and produces a
 **conversation artifact** (`hotato.conversation.v1`) whose evidence is bound by
 sha256, plus a **per-dimension scorecard**. Success is a boolean over a small
-closed vocabulary of named conditions -- there is no `overall_score` and no
-blended number anywhere, including in `--format json`.
+closed vocabulary of named conditions, with every dimension counted on its
+own, including in `--format json`.
 
 This is the single documented end-to-end conversation-QA workflow:
 
@@ -88,8 +88,7 @@ one of `outcome`, `policy`, `conversation`, `speech`, `reliability`; an
 a scored recording (`--audio`), an ingested trace (`--trace`, see
 [`docs/TRACE.md`](TRACE.md)), a transcript (`--transcript`), and a post-call
 state sandbox (`--state`, Authority 2). Each supplied piece feeds the
-assertions; each ABSENT piece leaves the checks that need it `INCONCLUSIVE`,
-never a guessed pass/fail.
+assertions; each ABSENT piece leaves the checks that need it `INCONCLUSIVE`.
 
 ```bash
 hotato test run refund.yaml --agent support-v3 \
@@ -149,15 +148,14 @@ A `success.required` failure makes an otherwise-passing run non-zero; a refuse
 ### Reliability and repetitions
 
 `--repetitions N` runs the deterministic lane N times and reports the per-run
-results, the run count, and a real reliability aggregate: **pass@1** (single-run
+results, the run count, and a reliability aggregate: **pass@1** (single-run
 pass rate), **pass@k** (>=1 of k passed), **pass^k** (all k passed), plus a
 Wilson 95% CI. Every run scores the same recording, so the deterministic lane
-has zero variance and `pass^k == pass@1`, never a fabricated
-number. With `N > 1` the aggregate is threaded into the report's Reliability
-dimension (`--format html/md`); with no repetition data that dimension shows the
-empty-state ("not measured: no repeated runs in this report"). pass^k is
-its OWN number, never blended into any other dimension and never an
-`overall_score`.
+has zero variance and `pass^k == pass@1`. With `N > 1` the aggregate is
+threaded into the report's Reliability dimension (`--format html/md`); with no
+repetition data that dimension shows the empty-state ("not measured: no
+repeated runs in this report"). pass^k stays its OWN number, kept separate
+from every other dimension and from `overall_score`.
 
 ## 3. Verify the artifact
 
@@ -175,8 +173,8 @@ conv-artifact/
 ```
 
 `hotato conversation verify` re-hashes every bound child and REFUSES (exit 2) on
-any digest mismatch or missing file -- a tampered or absent artifact is refused,
-never silently accepted:
+any digest mismatch or missing file -- a tampered or absent artifact is refused
+outright:
 
 ```bash
 hotato conversation verify ./conv-artifact
@@ -187,23 +185,24 @@ hotato conversation verify ./conv-artifact
 
 `origin.kind` is `real` by default (a supplied recording is evaluated as-is) and
 `simulated` only when the test file carries a `simulator` block, which must
-declare its `model_id` / `scenario_id` / `seed` -- synthetic is never conflated
-with real.
+declare its `model_id` / `scenario_id` / `seed` -- synthetic and live origins
+are never conflated.
 
 ## The deterministic/judge split (structural)
 
-* **No blended score.** Success is a boolean conjunction of named conditions;
-  the scorecard groups the same results by dimension, each with its own counts.
+* **Each dimension scored on its own.** Success is a boolean conjunction of
+  named conditions; the scorecard groups the same results by dimension, each
+  with its own counts.
 * **Two separate lanes.** Deterministic checks (regex / checksum / span / state
   lookup -- no model) are evaluated; the model-judged rubric lane is quarantined
-  until Phase 3 and reported `INCONCLUSIVE`, never folded into the deterministic
-  summary or the exit code.
-* **Authority, not the agent's word.** `tool_result` / `tool_error` (Authority
+  until Phase 3, reported `INCONCLUSIVE` and kept out of the deterministic
+  summary and the exit code.
+* **Grounded in authority.** `tool_result` / `tool_error` (Authority
   1) read the ingested trace spans; `state` / `state_change` (Authority 2) query
-  a post-call state adapter. An agent's spoken claim can satisfy none of them --
-  there is no model/LLM path.
+  a post-call state adapter -- the trace and the adapter are the evidence a
+  tool ran or a state changed, deterministic and model-free.
 * **Missing input is `INCONCLUSIVE`.** A check whose evidence was not supplied
-  reports `INCONCLUSIVE`, never a guessed pass/fail.
+  reports `INCONCLUSIVE`.
 
 ## The bundled end-to-end example
 

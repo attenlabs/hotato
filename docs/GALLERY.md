@@ -1,17 +1,16 @@
 # Gallery
 
-Every image and worked example Hotato ships, in one place. Nothing here is
-generated for this page; every card and every CLI block is reproducible with
-the command shown next to it.
+Every image and worked example Hotato ships, in one place, each one reproducible
+with the command shown next to it.
 
 ## Cards: shareable findings
 
-Three self-contained SVGs, offline, no font/image/script/CDN reference, byte-stable
-from the same input. Full spec: [CARDS.md](CARDS.md).
+Three self-contained SVGs: offline, byte-stable from the same input, with every
+font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
 
 | Card | What it shows | Regenerate |
 |---|---|---|
-| ![threshold funnel](assets/cards/no-single-threshold-card.svg) | **The hero.** A battery where a missed interruption and a false stop fail together, so no single sensitivity dial can fix both. Hotato refuses to name one threshold. | `hotato card fix-plan.json --out card.svg` |
+| ![threshold funnel](assets/cards/no-single-threshold-card.svg) | **The hero.** A battery where a missed interruption and a false stop fail together -- Hotato names the failure class (engagement-control) instead of picking one sensitivity dial. | `hotato card fix-plan.json --out card.svg` |
 | ![talk-over candidate](assets/cards/talk-over-card.svg) | A measured talk-over moment: the agent kept the floor while the caller was speaking. | `hotato card hotato-sweep.json#N --out card.svg` |
 | ![false-stop candidate](assets/cards/false-stop-card.svg) | A measured false-stop moment: the agent went quiet with no caller nearby to explain it. | `hotato card hotato-sweep.json#N --out card.svg` |
 
@@ -43,9 +42,9 @@ Summary:
 
 ## Case studies
 
-Real-audio write-ups, each following
+Recorded-audio write-ups, each following
 [case-study-TEMPLATE.md](evidence/case-study-TEMPLATE.md) and each carrying a
-mandatory "what Hotato did not prove" section:
+mandatory "What Hotato did not prove" scope section:
 
 - [`case-studies/vapi-01-hard-interruption.md`](case-studies/vapi-01-hard-interruption.md)
 

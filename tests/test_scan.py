@@ -135,8 +135,8 @@ def test_header_states_the_labeling_contract(long_call, capsys):
     assert cli.main(["scan", "--stereo", path]) == 0
     out = capsys.readouterr().out
     assert ("Candidates are timing events. You decide the expected behavior; "
-            "label with: hotato fixture create --onset <t> "
-            "--expect yield|hold") in out
+            "label with: hotato fixture create --onset 42.18 "
+            "--expect yield") in out
 
 
 # --- agent self-truncation with a silent caller ---------------------------
