@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hotato"
 version = "1.2.0"
-description = "Offline turn-taking analysis and regression evidence for dual-channel voice-agent recordings, MIT."
+description = "Open-source, self-hosted conversation QA for voice agents: simulate, evaluate, review, and track calls across five dimensions with the evidence behind every result. MIT."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"

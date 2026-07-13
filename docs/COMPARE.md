@@ -1,6 +1,6 @@
 # Compare: Hotato vs broad QA platforms
 
-Hotato is not your full QA platform.
+Hotato is an open-source, self-hosted conversation-QA system; this page maps where it sits next to runtime layers and hosted platforms.
 
 **Use Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell for:** broad
 session QA, synthetic simulation, task success, transcript rubrics, compliance
