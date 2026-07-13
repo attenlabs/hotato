@@ -22,8 +22,8 @@ FILE: README.md
 <p align="center"><b>Open-source, self-hosted conversation QA for voice agents.</b></p>
 
 <p align="center">
-  Score every call across five dimensions reported on their own (outcome, policy, conversation, speech, reliability), with the evidence behind every result. Deterministic checks stay separate from the model-judged rubric; never one blended number.<br>
-  Offline by default &middot; MIT &middot; zero runtime dependencies.
+  Score every call across five dimensions reported on their own (outcome, policy, conversation, speech, reliability), with the evidence behind every result. Deterministic checks and the model-judged rubric each score on their own lane.<br>
+  Runs offline &middot; MIT &middot; zero dependencies.
 </p>
 
 <p align="center">
@@ -38,7 +38,7 @@ FILE: README.md
 
 Your voice agent passes every text assertion and still loses the call. It talks over the caller, skips a required disclosure, or confirms a refund that never posted. hotato scores the conversation and the outcome, with the timing evidence behind every flag, then turns a caught bug into a CI contract so it stays caught.
 
-## Quickstart: no account, no keys, no network
+## Quickstart: one command, on your machine
 
 ```bash
 pip install hotato && hotato start --demo
