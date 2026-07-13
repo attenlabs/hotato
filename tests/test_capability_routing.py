@@ -229,3 +229,63 @@ def test_router_does_not_mutate_input_fixtures():
     before = json.dumps([a, b], sort_keys=True)
     cr.route_capability([a, b], contract_uri=cr.DEFAULT_CONTRACT_URI)
     assert json.dumps([a, b], sort_keys=True) == before
+
+
+# ---- D3 correctness regressions -----------------------------------------
+
+def test_pair_from_different_battery_is_not_paired():
+    """An addressed miss and a false trigger from DIFFERENT batteries are not
+    opposite-risk evidence for one bid and must never be narrowed into one
+    requirement."""
+    a = _fixture(ADDRESSED_MISS)
+    b = _fixture(NON_ADDRESSED)
+    b["battery_id"] = "some-other-battery"
+    assert cr.route_capability([a, b]) is None
+
+
+def test_pair_from_different_configuration_is_not_paired():
+    """The same battery under a DIFFERENT agent configuration is a different
+    system; its false trigger cannot pair with this bid."""
+    a = _fixture(ADDRESSED_MISS)
+    b = _fixture(NON_ADDRESSED)
+    b["configuration_id"] = "agent-config-b"
+    assert cr.route_capability([a, b]) is None
+
+
+def test_all_unknown_missed_yield_degrades_to_engagement_not_none():
+    """A behavioral missed-yield (expected yield, observed hold) whose labels
+    are ALL unknown, paired with a known false trigger, must degrade to
+    engagement_control/insufficient_labels, never silently return None."""
+    a = _fixture(ADDRESSED_MISS)  # expected yield / observed hold
+    a["interaction"] = {
+        "kind": "hotato.interaction-label.v1",
+        "speech_presence": "unknown",
+        "addressed_to_agent": None,
+        "floor_intent": "unknown",
+        "label_authority": "unknown",
+        "label_ref": None,
+    }
+    req = cr.route_capability([a, _fixture(NON_ADDRESSED)])
+    assert req is not None
+    assert req["required_capability"] == "engagement_control"
+    assert req["trigger"] == "insufficient_labels"
+    assert "addressed_to_agent" in req["missing_evidence"]
+    assert "floor_intent" in req["missing_evidence"]
+    assert "label_authority" in req["missing_evidence"]
+    _assert_schema_valid(req)
+
+
+def test_vendor_contract_uri_is_rejected():
+    """An arbitrary caller-supplied URI (vendor/product text) must fail loud,
+    never be copied verbatim into a neutral verdict."""
+    with pytest.raises(cr.RoutingInputError):
+        cr.route_capability(
+            _pair(ADDRESSED_MISS, NON_ADDRESSED),
+            contract_uri="https://vapi.example/inject",
+        )
+    # even a plausible-looking non-Hotato host is refused.
+    with pytest.raises(cr.RoutingInputError):
+        cr.route_capability(
+            _pair(ADDRESSED_MISS, NON_ADDRESSED),
+            contract_uri="https://hotato.dev.evil.example/spec",
+        )

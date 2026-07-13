@@ -117,16 +117,30 @@ def _norm_event(ev: Mapping) -> dict:
     }
 
 
-def _is_addressed_miss(ev: Mapping) -> bool:
-    """The addressed floor bid that the agent failed to yield to."""
-    label = ev["label"]
+def _is_missed_yield(ev: Mapping) -> bool:
+    """The BEHAVIORAL signature of a missed yield, independent of labels: the
+    agent was expected to yield the floor but held it.
+
+    The A role is identified by behavior, not by a complete label, so an event
+    whose interaction labels are missing still reaches the insufficient-labels
+    fallback (engagement_control) instead of silently returning ``None``.
+    """
     return (
         ev["scorable"] is True
+        and ev["expected_behavior"] == "yield"
+        and ev["observed_behavior"] == "hold"
+    )
+
+
+def _is_addressed_miss(ev: Mapping) -> bool:
+    """The addressed floor bid that the agent failed to yield to: a missed yield
+    (see :func:`_is_missed_yield`) carrying a complete addressed/take label."""
+    label = ev["label"]
+    return (
+        _is_missed_yield(ev)
         and label["speech_presence"] == "speech"
         and label["addressed_to_agent"] is True
         and label["floor_intent"] == "take"
-        and ev["expected_behavior"] == "yield"
-        and ev["observed_behavior"] == "hold"
     )
 
 
@@ -196,19 +210,42 @@ def route_capability(
     finding, or no paired discrimination claim).
 
     ``contract_uri`` optionally attaches a neutral Hotato spec URI to the
-    verdict; pass :data:`DEFAULT_CONTRACT_URI` to opt in. The verdict never
-    carries any implementation, product, or vendor identifier.
+    verdict; pass :data:`DEFAULT_CONTRACT_URI` to opt in. It must be ``None`` or
+    exactly that single documented URI: any other value is refused so vendor or
+    product text can never be copied verbatim into a neutral verdict. The verdict
+    never carries any implementation, product, or vendor identifier.
     """
+    # A caller may attach ONLY the neutral Hotato spec URI (or nothing). Reject
+    # anything else, loud, before doing any work: the neutrality contract is not
+    # a suggestion the caller can override by passing arbitrary URI text.
+    if contract_uri is not None and contract_uri != DEFAULT_CONTRACT_URI:
+        raise RoutingInputError(
+            "contract_uri must be None or " + repr(DEFAULT_CONTRACT_URI)
+            + "; refusing to copy an unrecognised URI into a neutral verdict"
+        )
+
     evs = [_norm_event(e) for e in _as_events(events)]
 
     # A lone event carries no opposite-risk pair: no paired discrimination claim.
     if len(evs) < 2:
         return None
 
-    a = next((e for e in evs if _is_addressed_miss(e)), None)
+    # Identify the A role by BEHAVIOR (a missed yield), not by a complete label,
+    # so an unlabelled miss still reaches the insufficient-labels fallback below.
+    a = next((e for e in evs if _is_missed_yield(e)), None)
     if a is None:
         return None
-    b = next((e for e in evs if e is not a and _is_false_trigger(e)), None)
+    # Only pair with a false trigger from the SAME battery AND configuration; an
+    # event from a different battery/config is not opposite-risk evidence for
+    # this bid and must never be narrowed into one requirement.
+    b = next(
+        (e for e in evs
+         if e is not a
+         and _is_false_trigger(e)
+         and e["battery_id"] == a["battery_id"]
+         and e["configuration_id"] == a["configuration_id"]),
+        None,
+    )
     if b is None:
         return None
 
@@ -220,7 +257,9 @@ def route_capability(
     evidence_refs = [a["event_id"], b["event_id"]]
     excluded = list(_ALL_CLEARED_CAUSES)
 
-    # Insufficient trusted labels: no implementation is resolved.
+    # Insufficient trusted labels on EITHER paired event: no implementation is
+    # resolved. This runs before the label-specific narrowing, so an all-unknown
+    # A degrades to engagement_control instead of silently returning None.
     missing = _missing_axes(a, b)
     if missing:
         return _requirement(
@@ -232,6 +271,11 @@ def route_capability(
             excluded_causes=excluded,
             contract_uri=contract_uri,
         )
+
+    # Both events now carry trusted, known labels. A label-specific claim is only
+    # made when A is genuinely an ADDRESSED floor-bid miss; otherwise withhold.
+    if not _is_addressed_miss(a):
+        return None
 
     lb = b["label"]
 
