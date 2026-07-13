@@ -156,6 +156,11 @@ _EXIT_CODES: dict = {
         (2, "usage error, missing credentials, --allow-mono required, or a stack "
             "with no list endpoint and no explicit ids"),
     ),
+    "serve": (
+        (0, "the workspace server ran and shut down cleanly (Ctrl-C)"),
+        (2, "usage error: an unusable registry/token, or the port was "
+            "unavailable"),
+    ),
     "report": (
         (0, "report written, every scorable event passed"),
         (1, "a scorable event failed"),
@@ -3601,6 +3606,15 @@ def _cmd_start(args) -> int:
     )
 
 
+def _cmd_serve(args) -> int:
+    from . import serve as _serve  # lazy: the workspace server + its stdlib deps
+
+    return _serve.run_serve(
+        workspace=args.workspace, host=args.host, port=args.port,
+        registry=args.registry, token=args.token, token_file=args.token_file,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hotato",
@@ -7026,6 +7040,38 @@ def build_parser() -> argparse.ArgumentParser:
                     help="where to write the dashboard (default "
                          "hotato-fleet-trend.html)")
     ft.set_defaults(func=_cmd_fleet_trend)
+
+    srv = sub.add_parser(
+        "serve",
+        help="run the self-hosted local team workspace (five conversation-QA views)",
+        description=(
+            "Serve an authenticated, read-only local web app over the fleet "
+            "registry + conversation artifacts: release readiness, scenario "
+            "matrix, conversation inspector, failure clusters, and production "
+            "health (each with a ?format=json mirror). Stdlib-only "
+            "(http.server + sqlite3); binds 127.0.0.1 by default; a bearer "
+            "token is generated + stored 0600 on first start if not supplied; "
+            "every request is authenticated and audited; nothing leaves the "
+            "machine. Read-only: reviews and labels stay CLI-driven."),
+        epilog=_exit_codes_epilog("serve"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    srv.add_argument("--workspace", "-w", default="default", metavar="ID",
+                     help="workspace id to serve (default 'default')")
+    srv.add_argument("--host", default="127.0.0.1", metavar="HOST",
+                     help="bind address (default 127.0.0.1; a non-loopback host "
+                          "exposes the workspace to your network and prints a "
+                          "warning)")
+    srv.add_argument("--port", type=int, default=8321, metavar="PORT",
+                     help="listen port (default 8321)")
+    srv.add_argument("--registry", default=None, metavar="PATH",
+                     help="registry home directory (default ~/.hotato/fleet)")
+    srv.add_argument("--token", default=None, metavar="TOKEN",
+                     help="bearer token (default: reuse the stored one, else "
+                          "generate + store 0600 under the workspace state dir)")
+    srv.add_argument("--token-file", default=None, metavar="PATH",
+                     help="read the bearer token from PATH instead of --token")
+    srv.set_defaults(func=_cmd_serve)
 
     return p
 
