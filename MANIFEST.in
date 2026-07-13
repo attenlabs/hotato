@@ -16,6 +16,15 @@ recursive-include src/hotato/templates *.tmpl *.py
 # time) ships in the wheel (package-data) and the sdist (here).
 include src/hotato/data/evidence_language.json
 
+# Self-host deployment bundle: the Dockerfile, compose file, and deploy/
+# helpers are part of the source distribution the same way docs/, ci/, and
+# .github/ are -- the sdist is a full-repo mirror, and the shipped
+# tests/test_selfhost_config.py asserts these files exist and lint clean so a
+# broken container config fails the sdist-guard, not a customer's VPC. Without
+# these the extracted sdist has tests/ but not the files those tests check.
+include Dockerfile docker-compose.yml .dockerignore
+recursive-include deploy *
+
 # Internal, gitignored demonstration artifacts (curated 2026-07-05 in
 # .gitignore): kept local, never published. MANIFEST.in reads the working
 # tree, not git, so without these excludes a locally-built sdist ships files
