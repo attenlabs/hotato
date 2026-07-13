@@ -215,7 +215,7 @@ pip install 'hotato[pipecat]'      # Pipecat live capture
 
 ## What Hotato is not
 
-- **Not a full QA platform.** It does not grade the whole conversation, task success, or content -- it isolates turn-taking timing and pins it to reproducible evidence. See [`docs/COMPARE.md`](docs/COMPARE.md) for how it fits alongside broader voice-agent testing tools.
+- **A conversation-QA system that shows its work.** It evaluates calls across five dimensions -- Outcome (grounded in tool/state evidence, never the transcript's claim), Policy, Conversation (the deterministic turn-taking core), Speech, and Reliability (pass^k across repetitions) -- as a per-dimension scorecard, never one blended score. Deterministic checks stay structurally separate from the model-judged rubric lane. See [`docs/COMPARE.md`](docs/COMPARE.md) for how it fits alongside runtime voice layers.
 - **Not transcript scoring.** It measures audio timing, not what was said. The opt-in `--transcribe` flag attaches an ASR transcript purely as context to read next to the verdict; it never changes the timing score. See [`docs/TRANSCRIBE.md`](docs/TRANSCRIBE.md).
 - **Not speaker ID.** Channels are anonymous; nothing identifies who a person is.
 - **Not semantic intent detection.** It produces candidate timing evidence. Humans label intent. CI enforces confirmed contracts.
@@ -4819,7 +4819,7 @@ FILE: docs/COMPARE.md
 
 # Compare: Hotato vs broad QA platforms
 
-Hotato is not your full QA platform.
+Hotato is an open-source, self-hosted conversation-QA system; this page maps where it sits next to runtime layers and hosted platforms.
 
 **Use Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell for:** broad
 session QA, synthetic simulation, task success, transcript rubrics, compliance
