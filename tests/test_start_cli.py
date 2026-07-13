@@ -6,8 +6,9 @@ Pinned here:
     (hotato-sweep.html), the threshold-funnel card
     (hotato-no-single-threshold.svg), and one demo failure contract
     (contracts/demo-missed-interruption.hotato/) into --dir;
-  * the demo contract is created from the bundled sweep's #2 candidate (the
-    real missed-interruption call) with --expect yield, and verified
+  * the demo contract is created from the sweep candidate matching the packaged
+    scenario's declared missed interruption (selected by evidence, never rank)
+    with --expect yield, and verified
     immediately: it genuinely FAILS that policy (the agent talked over the
     caller instead of yielding), so --demo prints "verified contract: FAIL as
     expected";
