@@ -25,10 +25,13 @@ documented-and-hoped:
   counts and nothing is blended.
 * Missing transcript/trace/state leaves the depending assertions INCONCLUSIVE
   (the evaluators' own posture) -- never a guessed PASS/FAIL.
-* Reliability (pass^k) is NOT computed in Phase 1: ``repetitions > 1`` runs the
-  deterministic lane N times and reports the per-run results plus a plain run
-  COUNT, with an explicit "pass^k in Phase 2" note -- never a fabricated
-  reliability number.
+* Reliability (pass@1 / pass@k / pass^k) is REAL (Phase 2 shipped):
+  ``repetitions > 1`` runs the deterministic lane N times and reports the per-run
+  results, the run count, AND a real :func:`hotato.simulate.reliability`
+  aggregate (pass@1 / pass@k / pass^k + a Wilson CI). Every run scores the SAME
+  supplied recording, so the deterministic lane has zero variance and
+  ``pass^k == pass@1`` -- reported honestly, not a fabricated number. pass^k is
+  its OWN dimension, never blended into any other and never an ``overall_score``.
 
 The exit code is the deterministic envelope's own ``exit_code`` (which already
 honors ``inconclusive_policy``), raised to a non-zero when the file's
@@ -243,6 +246,24 @@ def evaluate_conversation_test(
 
     breakdown = dimension_breakdown(det_env["results"])
 
+    # Reliability (pass@1 / pass@k / pass^k) over the ``reps`` deterministic runs
+    # (Phase 2 shipped). A run passes iff its deterministic envelope's exit_code
+    # is 0 (which already honors inconclusive_policy). Every run scores the SAME
+    # supplied recording, so the lane has zero variance and pass^k == pass@1 --
+    # reported honestly, not fabricated variance. Reused from the same
+    # reliability() the simulator matrix uses, so the number means exactly what it
+    # does everywhere else.
+    from . import simulate as _sim
+    origin_kind = _origin_from_doc(doc)["kind"]
+    per_run_pass = [env["exit_code"] == 0 for env in per_run]
+    rel_note = (
+        f"reliability over {reps} repeated run(s) of the deterministic lane on "
+        f"the same supplied {origin_kind} recording; the lane has zero variance, "
+        "so pass^k == pass@1 -- reported honestly, not fabricated variance"
+    )
+    rel_aggregate = dict(_sim.reliability(per_run_pass))
+    rel_aggregate["note"] = rel_note
+
     result: Dict[str, Any] = {
         "kind": KIND,
         "version": VERSION,
@@ -254,11 +275,25 @@ def evaluate_conversation_test(
         "assertions": det_env,
         "rubric": rubric_env,
         "dimensions": breakdown["dimensions"],
-        # Reliability (pass^k) is a Phase-2 capability. Report the plain run
-        # count and the per-run outcomes; never a fabricated reliability number.
+        # Reliability (pass@1 / pass@k / pass^k) over the reps runs, plus the run
+        # count and the per-run outcomes. A real aggregate now (Phase 2 shipped) --
+        # never a fabricated number, never blended into any other dimension. The
+        # ``aggregate`` is the same reliability() dict the simulator matrix emits;
+        # ``origin`` labels whether these runs were over a REAL or SIMULATED
+        # recording (a simulator's replay reliability is never production
+        # reliability). The report threads this into the scorecard's Reliability
+        # dimension when reps > 1.
         "reliability": {
+            "aggregate": rel_aggregate,
+            "origin": origin_kind,
             "runs": reps,
-            "note": f"reliability: {reps} runs; pass^k in Phase 2 (not computed)",
+            "basis": "agent_deterministic_replay",
+            "note": rel_note,
+            "per_run": [
+                {"run": i + 1, "exit_code": env["exit_code"],
+                 "passed": env["exit_code"] == 0}
+                for i, env in enumerate(per_run)
+            ],
         },
         "repetitions": {
             "runs": reps,
@@ -400,7 +435,16 @@ def render_summary_text(result: Dict[str, Any]) -> str:
             f"{ung['inconclusive']} inconclusive"
         )
 
-    lines.append(result["reliability"]["note"])
+    rel = result["reliability"]
+    agg = rel.get("aggregate") or {}
+    if rel.get("runs", 1) > 1 and agg:
+        lines.append(
+            f"reliability [{rel.get('basis')}, origin={rel.get('origin')}]: "
+            f"pass@1={agg.get('pass_at_1', 0.0):.3f} "
+            f"pass@k={agg.get('pass_at_k', 0.0):.3f} "
+            f"pass^k={agg.get('pass_caret_k', 0.0):.3f} (n={agg.get('n', 0)})"
+        )
+    lines.append(rel["note"])
 
     det = result["assertions"]["summary"]["deterministic"]
     lines.append(

@@ -11,8 +11,9 @@ reliability) plus an "Ungrouped" bucket. Pins the honesty invariants:
     NO blended or overall number across dimensions or within one, and NO
     ``overall_score`` field anywhere.
   * untagged results go to Ungrouped; nothing is ever silently dropped.
-  * Reliability (pass^k, Phase 2) shows an explicit "not yet measured"
-    placeholder, never a fabricated value.
+  * Reliability (pass@1 / pass@k / pass^k) with NO repetition data shows the
+    honest empty-state ("not measured: no repeated runs in this report"), never a
+    fabricated value. Real repetition data is covered in test_report_reliability.
   * the deterministic / model-assisted (quarantined) shelf split stays intact.
   * absent by default -- an assertions envelope with NO dimensions renders the
     flat deterministic shelf byte-identically to before the scorecard existed,
@@ -215,21 +216,27 @@ def test_ungrouped_absent_when_every_result_is_tagged():
     assert "Ungrouped (no dimension tag)" not in html
 
 
-# --- Reliability placeholder (Phase 2, never fabricated) --------------------
+# --- Reliability empty-state (no repetition data, never fabricated) ---------
 
-def test_reliability_shows_phase2_placeholder_html():
+def test_reliability_shows_empty_state_html():
+    """With NO reliability data (the default), the Reliability dimension shows
+    the honest empty-state -- Phase 2 shipped, so the old "Phase 2" placeholder
+    is retired and never appears."""
     html, _ = report.build_report_html(stereo=_bundled_wav(),
                                        assertions=_dim_envelope())
     assert '<span class="scname">Reliability</span>' in html
-    assert "not yet measured" in html and "Phase 2" in html
+    assert "not measured: no repeated runs in this report" in html
     assert "scplaceholder" in html
+    # the retired Phase-2 framing is gone
+    assert "Phase 2" not in html and "not yet measured" not in html
 
 
-def test_reliability_shows_phase2_placeholder_md():
+def test_reliability_shows_empty_state_md():
     md, _ = report.build_report_md(stereo=_bundled_wav(),
                                    assertions=_dim_envelope())
     assert "#### Reliability" in md
-    assert "not yet measured" in md and "Phase 2" in md
+    assert "not measured: no repeated runs in this report" in md
+    assert "Phase 2" not in md and "not yet measured" not in md
 
 
 # --- deterministic vs model-assisted shelf split stays intact ---------------

@@ -100,6 +100,43 @@ spoken content the trace itself already withheld. The same `trace=` parameter
 is on `build_report_html` / `build_report_md`; see `docs/TRACE.md` for the
 trace format and `hotato trace ingest`.
 
+### Reliability in the scorecard (pass@1 / pass@k / pass^k)
+
+When a report carries an `assert.v1` envelope whose results are dimension-tagged,
+the "Deterministic" shelf renders as a per-dimension **scorecard** (outcome /
+policy / conversation / speech / reliability). The **Reliability** dimension is
+pass^k's home, and it renders REAL repetition data when you thread it in:
+
+```python
+from hotato import report, simulate
+
+summary = simulate.run_matrix(scenario, conversation_test=ct)   # a matrix aggregate
+html, _ = report.build_report_html(stereo="call.wav",
+                                   assertions=env, reliability=summary)
+```
+
+`reliability=` accepts a `simulate.run_matrix` summary, a bare
+`simulate.reliability()` dict, or a `{"aggregate": <reliability dict>, "origin":
+...}` wrapper. The dimension then shows each number **labeled**, tabular mono:
+
+- **pass@1** (single-run pass rate), **pass@k** (>=1 of k passed), and **pass^k**
+  (ALL k passed), with `n`, `k`, `passes`, and a **Wilson 95% CI** on pass@1;
+- a **per-variation-cell** breakdown (each cell its own pass^k) when the summary
+  carries one;
+- a **SIMULATOR_INVALID** bucket -- broken fixtures, shown separately and
+  **excluded from n**, never an agent PASS/FAIL.
+
+pass^k is its OWN number: it is never blended into any other dimension, and there
+is no `overall_score` anywhere. When the runs were simulated the section is
+labeled **origin=simulated** -- a simulator's replay reliability, never presented
+as production reliability.
+
+`hotato test run --repetitions N` (with `N > 1`) computes this aggregate over the
+N deterministic runs and threads it into `report.{html,md}` automatically. With
+no repetition data (`reliability=None`, or `--repetitions 1`) the dimension shows
+the honest empty-state -- "not measured: no repeated runs in this report" -- and
+the report is byte-identical to one built without the parameter.
+
 ### Regression deltas with `--base`
 
 Save an envelope, then compare a later run against it:
