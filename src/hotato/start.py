@@ -26,15 +26,74 @@ _SWEEP_HTML = "hotato-sweep.html"
 _FUNNEL_CARD = "hotato-no-single-threshold.svg"
 _CONTRACTS_DIR = "contracts"
 _DEMO_CONTRACT_ID = "demo-missed-interruption"
-# The demo sweep's candidates are ranked by salience over the two FIXED
-# bundled recordings, so this index is stable (asserted in
-# tests/test_start_cli.py): candidate #2 is the real missed-interruption call
-# (fd-01-missed-interruption.example.wav's agent-talks-over moment), the left
-# failure the threshold-funnel card advertises. Scored with --expect yield it
-# genuinely FAILS -- the agent talked over the caller instead of yielding --
-# which is the point: the first run creates a contract from a real failure,
-# not a contrived pass.
-_DEMO_CONTRACT_CANDIDATE = 2
+# The demo contract's moment is selected SEMANTICALLY, never by rank. The
+# packaged should-yield scenario (fd-01-missed-interruption.json) declares the
+# audio file, the caller onset, and the expectation; the selector below finds
+# the one sweep candidate that matches that declaration (an
+# overlap_while_agent_talking event in that audio at that onset). Rank-based
+# selection shipped a wrong moment once: the sweep's #2 candidate was an
+# agent_stop_no_caller event, so the "the agent talked over the caller" story
+# verified with talk_over=0.0.
+_DEMO_ONSET_TOLERANCE_SEC = 0.5
+
+
+class DemoSelectionError(RuntimeError):
+    """Internal contract: the packaged demo sweep and the packaged scenario
+    declaration no longer agree. The first run must fail loudly here rather
+    than build the demo contract from the wrong moment."""
+
+
+class DemoCandidateNotFound(DemoSelectionError):
+    """No sweep candidate matches the scenario's declared event."""
+
+
+class DemoCandidateAmbiguous(DemoSelectionError):
+    """More than one sweep candidate matches the scenario's declared event."""
+
+
+def _demo_scenario() -> dict:
+    """The packaged should-yield demo scenario (the missed interruption)."""
+    import json as _json
+
+    path = resources.files("hotato").joinpath(
+        "data", "demo", "failing", "scenarios", "fd-01-missed-interruption.json")
+    with path.open(encoding="utf-8") as fh:
+        return _json.load(fh)
+
+
+def _select_demo_candidate(sweep: dict, scenario: dict) -> int:
+    """Return the 1-based rank of the sweep candidate that IS the scenario's
+    declared missed interruption: an overlap-while-agent-talking event in the
+    scenario's audio at the declared caller onset. Malformed candidate entries
+    are skipped and can never be selected. Zero and multiple matches raise
+    distinct internal-contract errors; reordering the sweep cannot change
+    which moment is chosen."""
+    audio = scenario["audio"]
+    onset = float(scenario["caller_onset_sec"])
+    matches = []
+    for i, cand in enumerate(sweep.get("candidates") or [], 1):
+        if not isinstance(cand, dict):
+            continue
+        if cand.get("kind") != "overlap_while_agent_talking":
+            continue
+        if cand.get("source") != audio:
+            continue
+        try:
+            t_sec = float(cand.get("t_sec"))
+        except (TypeError, ValueError):
+            continue
+        if abs(t_sec - onset) <= _DEMO_ONSET_TOLERANCE_SEC:
+            matches.append(i)
+    if not matches:
+        raise DemoCandidateNotFound(
+            f"no sweep candidate matches the declared demo event "
+            f"(kind=overlap_while_agent_talking, source={audio!r}, "
+            f"t within {_DEMO_ONSET_TOLERANCE_SEC}s of {onset}s)")
+    if len(matches) > 1:
+        raise DemoCandidateAmbiguous(
+            f"{len(matches)} sweep candidates match the declared demo event "
+            f"at ranks {matches}; the declaration must identify exactly one")
+    return matches[0]
 
 
 def _demo_audio_dir() -> str:
@@ -98,8 +157,8 @@ def _demo_contract_bundle_rel() -> str:
 
 def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict:
     """Create ``contracts/demo-missed-interruption.hotato`` from the bundled
-    demo sweep's ``#_DEMO_CONTRACT_CANDIDATE`` candidate (the real
-    missed-interruption call) with ``--expect yield``, then verify it
+    demo sweep candidate that matches the packaged scenario's declared
+    missed interruption (selected by evidence fields, never by rank) with ``--expect yield``, then verify it
     immediately with ``hotato contract verify``. This turns the whole loop
     the README promises -- a real failure becomes a candidate, becomes a
     portable contract, and ``contract verify`` catches it -- into something a
@@ -111,11 +170,18 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
     the caller treats a failure here the same defensive way it treats a card
     render failure -- the guided run still finishes.
     """
+    import json as _json
+
     from . import contract as _contract
+    from .errors import open_regular as _open_regular
+
+    with _open_regular(sweep_json_path, "r", encoding="utf-8") as fh:
+        sweep = _json.load(fh)
+    rank = _select_demo_candidate(sweep, _demo_scenario())
 
     contracts_dir = os.path.join(out_dir, _CONTRACTS_DIR)
     create_result = _contract.create_contract(
-        from_candidate=f"{sweep_json_path}#{_DEMO_CONTRACT_CANDIDATE}",
+        from_candidate=f"{sweep_json_path}#{rank}",
         contract_id=_DEMO_CONTRACT_ID,
         expect="yield",
         out_dir=contracts_dir,
@@ -123,6 +189,11 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
     )
     verify = _contract.verify_contracts(contracts_dir)
     result = verify["results"][0]
+    if result["scorable"] is not True:
+        raise DemoSelectionError(
+            "internal contract: the selected demo candidate verified as "
+            f"not scorable ({result.get('not_scorable_reason')!r}); the demo "
+            "must never present an unscorable moment as a failure")
     return {
         "bundle_dir": create_result["dir"],
         "bundle_rel": _demo_contract_bundle_rel(),
@@ -216,7 +287,12 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
     try:
         contract_info = _create_and_verify_demo_contract(
             out_dir, os.path.join(out_dir, _SWEEP_JSON))
-    except Exception:  # pragma: no cover - the bundled candidate is always scorable
+    except DemoSelectionError:
+        # Internal contract violated: the packaged sweep and the packaged
+        # scenario declaration disagree. Fail loudly; a first run must never
+        # quietly drop (or fake) the contract step.
+        raise
+    except Exception:  # pragma: no cover - defensive for non-contract hiccups
         contract_info = None
     contract_written = contract_info is not None
 
