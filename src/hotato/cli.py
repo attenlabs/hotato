@@ -335,6 +335,30 @@ _EXIT_CODES: dict = {
             "unreadable --transcript/--trace/--state file, an unscorable "
             "--audio recording, or html/md without --out and --audio"),
     ),
+    "suite": (
+        (2, "no subcommand given (see hotato suite run --help)"),
+    ),
+    "suite run": (
+        (0, "every test in the suite passed under the suite's inconclusive_policy "
+            "(and no run was SIMULATOR_INVALID)"),
+        (1, "at least one test FAILed (a success.required condition failed, a "
+            "deterministic assertion FAILed, or -- under inconclusive_policy fail "
+            "-- an INCONCLUSIVE gated), or a run was SIMULATOR_INVALID (a broken "
+            "fixture, never an agent PASS/FAIL)"),
+        (2, "under inconclusive_policy refuse a scored INCONCLUSIVE withheld the "
+            "verdict (takes precedence over a FAIL); OR a usage error / unusable "
+            "input: a malformed suite / conversation-test / scenario file, or an "
+            "unresolvable test/scenario ref"),
+    ),
+    "release": (
+        (2, "no subcommand given (see hotato release compare --help)"),
+    ),
+    "release compare": (
+        (0, "the two releases were compared (per-dimension deltas + new-failures "
+            "/ fixed-since printed; a side with no runs is an honest empty state, "
+            "never an error and never a blended delta score)"),
+        (2, "a usage error or an unreadable registry --registry"),
+    ),
     "rubric": (
         (2, "no subcommand given (see hotato rubric run/calibrate --help)"),
     ),
@@ -2755,6 +2779,71 @@ def _cmd_test_run(args) -> int:
         if report_path:
             print(f"wrote report to {report_path}", file=sys.stderr)
     return result["exit_code"]
+
+
+def _cmd_suite_run(args) -> int:
+    from . import suite_run as SR
+
+    suite_doc, base_dir = SR.load_suite_file(args.suite_file)
+
+    reg = None
+    if not getattr(args, "no_registry", False):
+        from .fleet.registry import DEFAULT_HOME, Registry
+        reg = Registry(args.registry or DEFAULT_HOME)
+    try:
+        result = SR.run_suite(
+            suite_doc, base_dir,
+            agent_id=args.agent, release_id=args.release,
+            workspace=args.workspace, registry=reg,
+            out_dir=args.out, max_workers=args.parallel,
+        )
+    finally:
+        if reg is not None:
+            reg.close()
+
+    report_paths = []
+    if args.out:
+        os.makedirs(args.out, exist_ok=True)
+        md_path = os.path.join(args.out, "suite-report.md")
+        html_path = os.path.join(args.out, "suite-report.html")
+        json_path = os.path.join(args.out, "suite-run.json")
+        _atomic_write_text(md_path, SR.render_report_md(result))
+        _atomic_write_text(html_path, SR.render_report_html(result))
+        _atomic_write_text(json_path, _errors.safe_json_dumps(result, indent=2) + "\n")
+        report_paths = [md_path, html_path, json_path]
+
+    if args.format == "json":
+        payload = {"tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+                   **result}
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(SR.render_summary_text(result), end="")
+        for pth in report_paths:
+            print(f"wrote {pth}", file=sys.stderr)
+        if reg is not None:
+            print(f"recorded runs into the fleet registry (workspace "
+                  f"{result['workspace']}); browse with `hotato serve -w "
+                  f"{result['workspace']}`", file=sys.stderr)
+    return result["exit_code"]
+
+
+def _cmd_release_compare(args) -> int:
+    from . import release_compare as RC
+
+    cmp = RC.compare_releases(
+        args.release_a, args.release_b,
+        registry_home=args.registry, workspace=args.workspace,
+    )
+    if args.format == "json":
+        payload = {"tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+                   **cmp}
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(RC.render_text(cmp), end="")
+    # A comparison always succeeds (exit 0) -- it REPORTS movement, it does not
+    # gate a release (use `hotato gate` / a required suite for that). A side with
+    # no runs is an honest empty state, not an error.
+    return 0
 
 
 def _cmd_scenario_init(args) -> int:
@@ -5362,6 +5451,128 @@ def build_parser() -> argparse.ArgumentParser:
                           "(model-judged results are ADVISORY by default and "
                           "never gate CI on their own)")
     tr_.set_defaults(func=_cmd_test_run)
+
+    # --- suite: run a suite.v1 of conversation-tests -------------------------
+    su = sub.add_parser(
+        "suite",
+        help="run a suite.v1 of conversation-tests and emit a per-dimension + "
+             "reliability suite report",
+        description=(
+            "Execute a named set of conversation-tests (a suite.v1) and record "
+            "the Release / Suite / Scenario / Run / Conversation / Evaluation "
+            "rows into the fleet registry so `hotato serve` renders the five "
+            "views. Success is per-dimension + reliability, never a blended "
+            "score."
+        ),
+        epilog=_exit_codes_epilog("suite"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    susub = su.add_subparsers(dest="suite_command", required=True, metavar="run")
+    sur = susub.add_parser(
+        "run",
+        help="run a suite.yaml against an agent (scenario-driven tests execute "
+             "offline via the deterministic simulator)",
+        description=(
+            "Load + validate a suite.v1 file, resolve its conversation-test refs "
+            "(relative to the suite file), and execute each. A test that "
+            "declares a `scenario` runs OFFLINE through the deterministic "
+            "scripted-caller simulator (its variation matrix expands into "
+            "concrete runs, each rendered + validated + scored against the "
+            "test's DETERMINISTIC lane; Authority-1 tool spans and the "
+            "Authority-2 mock-state sandbox come from the scenario's agent_mock; "
+            "no live agent, no network). The SUITE's inconclusive_policy is the "
+            "effective policy for every test, so a required CI/compliance suite "
+            "can make an INCONCLUSIVE (absent required input) FAIL the gate. The "
+            "report carries per-dimension counts + reliability (pass@1 / pass@k "
+            "/ pass^k) only -- there is NO blended score. A SIMULATOR_INVALID "
+            "run is a broken fixture, never an agent PASS/FAIL. The exit code is "
+            "the WORST test outcome under the policy."
+        ),
+        epilog=(
+            _exit_codes_epilog("suite run") + "\n\n"
+            "Examples:\n"
+            "  hotato suite run smoke.suite.yaml --agent support-v3\n"
+            "  hotato suite run examples/reference-agent/suite.yaml \\\n"
+            "      --agent reference-v1 --out ./suite-out --parallel 8\n"
+            "  hotato suite run ci.suite.yaml --agent support-v3 \\\n"
+            "      --release support-v3-rc2 --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sur.add_argument("suite_file", metavar="suite.yaml",
+                     help="the suite.v1 file to run")
+    sur.add_argument("--agent", required=True, metavar="ID",
+                     help="agent_id under test (recorded on every conversation + "
+                          "the release)")
+    sur.add_argument("--release", default=None, metavar="ID",
+                     help="release id to record the runs under (default: "
+                          "'<agent>@<suite_id>'); use a stable id per release so "
+                          "`release compare` can diff two of them")
+    sur.add_argument("--parallel", type=int, default=None, metavar="N",
+                     help="max worker threads for each scenario's matrix "
+                          "(default: a CPU-based cap); the worker count never "
+                          "changes the byte-identical result")
+    sur.add_argument("--out", default=None, metavar="DIR",
+                     help="write the per-test simulated conversation artifacts + "
+                          "suite-report.md / suite-report.html / suite-run.json "
+                          "here")
+    sur.add_argument("--workspace", "-w", default="default", metavar="ID",
+                     help="fleet-registry workspace to record into (default "
+                          "'default'); browse it with `hotato serve -w ID`")
+    sur.add_argument("--registry", default=None, metavar="PATH",
+                     help="registry home directory (default ~/.hotato/fleet)")
+    sur.add_argument("--no-registry", action="store_true",
+                     help="do NOT record into the fleet registry (report only)")
+    _add_format_arg(sur, choices=("text", "json"))
+    sur.set_defaults(func=_cmd_suite_run)
+
+    # --- release compare: digest-exact per-dimension release diff ------------
+    rl = sub.add_parser(
+        "release",
+        help="compare two releases from the registry (per-dimension deltas, "
+             "new-failures / fixed-since)",
+        description=(
+            "Operate on releases recorded by `hotato suite run`. `compare` "
+            "diffs two of them per dimension and per scenario, digest-exact -- "
+            "there is NO single blended delta score."
+        ),
+        epilog=_exit_codes_epilog("release"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rlsub = rl.add_subparsers(dest="release_command", required=True, metavar="compare")
+    rlc = rlsub.add_parser(
+        "compare",
+        help="compare a baseline release to a candidate release from the "
+             "registry",
+        description=(
+            "Compare two releases (baseline first, candidate second) from the "
+            "fleet registry: per-dimension counts for each side + their per-count "
+            "delta (never a single blended delta score), NEW FAILURES (a "
+            "scenario x dimension that PASSED on the baseline and FAILs on the "
+            "candidate), FIXED-SINCE (the reverse), and every per-scenario "
+            "status change. New-failures / fixed-since are diffed only where "
+            "BOTH releases ran the same scenario x dimension -- a scenario one "
+            "side never ran is new coverage, not a regression. A side with no "
+            "runs is stated plainly, never a fabricated baseline."
+        ),
+        epilog=(
+            _exit_codes_epilog("release compare") + "\n\n"
+            "Examples:\n"
+            "  hotato release compare support-v3-rc1 support-v3-rc2\n"
+            "  hotato release compare rc1 rc2 -w team --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rlc.add_argument("release_a", metavar="BASELINE",
+                     help="the baseline release id")
+    rlc.add_argument("release_b", metavar="CANDIDATE",
+                     help="the candidate release id")
+    rlc.add_argument("--workspace", "-w", default="default", metavar="ID",
+                     help="fleet-registry workspace (default 'default')")
+    rlc.add_argument("--registry", default=None, metavar="PATH",
+                     help="registry home directory (default ~/.hotato/fleet)")
+    _add_format_arg(rlc, choices=("text", "json"))
+    rlc.set_defaults(func=_cmd_release_compare)
 
     # --- rubric: the REAL model-judge lane (schema rubric.v1) ----------------
     rb = sub.add_parser(
