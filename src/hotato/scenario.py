@@ -153,6 +153,65 @@ def _validate_caller(caller: Any) -> None:
     _validate_behavior(caller.get("behavior"))
 
 
+def _validate_agent_mock(am: Any) -> None:
+    """Validate the OPTIONAL ``agent_mock`` block: the deterministic MOCK agent
+    a scenario may declare so an OFFLINE simulation can exercise the outcome/
+    policy authorities end-to-end (Phase-2 "tool mocks + deterministic state
+    sandbox", 1.3 item 9). It is ADDITIVE and gated -- a scenario without it
+    renders byte-identically. A mock is never a real agent: the produced
+    conversation stays ``origin=simulated`` and the mock tool/state evidence is
+    labelled as the simulator's, never a live agent's.
+
+    * ``tools`` -- an ordered list of ``{name, arguments?, result?|error?,
+      latency_ms?}`` the mock agent "invokes"; :mod:`hotato.simulate` renders
+      each as a ``tool_call`` span (Authority 1) the ``tool_result``/
+      ``tool_error`` assertions read.
+    * ``handoff`` -- ``{to}``; rendered as a ``handoff`` span.
+    * ``termination`` -- ``{reason?, by?}``; rendered as a ``termination`` span.
+    * ``state`` -- a ``{resource: rows}`` post-call sandbox (Authority 2) a
+      :class:`hotato.state_adapter.MockStateAdapter` serves to ``state`` /
+      ``state_change`` assertions.
+
+    This block declares AGENT-side evidence, never caller turns -- the caller
+    script stays the only place caller words live (the "did not solve the task
+    for the agent" invariant is unaffected: there is no real agent here)."""
+    if am is None:
+        return
+    if not isinstance(am, dict):
+        raise ValueError("'agent_mock' must be a mapping")
+    _reject_overall_score(am, "agent_mock")
+    tools = am.get("tools")
+    if tools is not None:
+        if not isinstance(tools, list):
+            raise ValueError("agent_mock.tools must be a list")
+        for j, t in enumerate(tools):
+            if not isinstance(t, dict):
+                raise ValueError(f"agent_mock.tools[{j}] must be a mapping")
+            name = t.get("name")
+            if not name or not isinstance(name, str):
+                raise ValueError(f"agent_mock.tools[{j}] is missing a string 'name'")
+            if "arguments" in t and not isinstance(t["arguments"], dict):
+                raise ValueError(f"agent_mock.tools[{j}].arguments must be a mapping")
+            if "result" in t and not isinstance(t["result"], dict):
+                raise ValueError(f"agent_mock.tools[{j}].result must be a mapping")
+            lat = t.get("latency_ms")
+            if lat is not None and (isinstance(lat, bool)
+                                    or not isinstance(lat, (int, float)) or lat < 0):
+                raise ValueError(
+                    f"agent_mock.tools[{j}].latency_ms must be a number >= 0")
+    handoff = am.get("handoff")
+    if handoff is not None:
+        if not isinstance(handoff, dict) or not handoff.get("to"):
+            raise ValueError("agent_mock.handoff must be a mapping with a 'to'")
+    term = am.get("termination")
+    if term is not None and not isinstance(term, dict):
+        raise ValueError("agent_mock.termination must be a mapping")
+    state = am.get("state")
+    if state is not None and not isinstance(state, dict):
+        raise ValueError(
+            "agent_mock.state must be a {resource: rows} post-call sandbox")
+
+
 def _validate_variation_matrix(vm: Any) -> None:
     if vm is None:
         return
@@ -224,6 +283,7 @@ def validate_scenario_doc(doc: Any) -> Dict[str, Any]:
         raise ValueError("'environment' must be a mapping")
 
     _validate_variation_matrix(doc.get("variation_matrix"))
+    _validate_agent_mock(doc.get("agent_mock"))
 
     seed = doc.get("seed", 0)
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:

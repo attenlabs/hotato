@@ -144,6 +144,67 @@ def _u01(rng) -> float:
     return (next(rng) + 1.0) / 2.0
 
 
+# --- the mock agent (Phase-2 tool mocks + state sandbox; gated, additive) ---
+_TOOL_SEC = 0.4  # nominal duration of a mock tool call
+
+
+def _render_agent_mock(agent_mock: Dict[str, Any], cursor: float) -> List[Dict[str, Any]]:
+    """Render a scenario's optional ``agent_mock`` block into AGENT-side trace
+    spans, deterministically placed after the caller turns (or at each tool's
+    declared ``latency_ms`` offset). This is the deterministic MOCK agent
+    (Phase-2 tool mocks; 1.3 item 9) -- the produced conversation stays
+    ``origin=simulated`` and these spans are the SIMULATOR's mock evidence,
+    never a live agent's. ``tool_call`` spans (Authority 1) carry the declared
+    ``arguments`` and ``result``/``error`` so :mod:`hotato.assert_`'s
+    ``tool_result``/``tool_error`` read them; an optional ``handoff`` /
+    ``termination`` render as their own spans. No wallclock enters any span, so
+    a fixed ``(scenario, seed)`` stays byte-stable. Absent ``agent_mock`` this
+    function is never called, so a scenario without a mock is byte-identical."""
+    spans: List[Dict[str, Any]] = []
+    t = round(cursor, 3)
+    for tool in agent_mock.get("tools") or []:
+        # A tool may pin its START at an explicit ``at_ms`` (e.g. to model a call
+        # placed mid-turn); otherwise it renders SEQUENTIALLY after the previous
+        # tool, so the declared tool ORDER is preserved for `sequence` assertions.
+        # ``latency_ms`` is the tool's DURATION/latency (what the `latency`
+        # assertion reads), never its position.
+        at = tool.get("at_ms")
+        lat = tool.get("latency_ms")
+        start = round(int(at) / 1000.0, 3) if at is not None else round(t, 3)
+        dur = (int(lat) / 1000.0) if lat is not None else _TOOL_SEC
+        end = round(start + dur, 3)
+        span: Dict[str, Any] = {
+            "type": "tool_call", "name": tool["name"],
+            "start_sec": start, "end_sec": end,
+            "latency_ms": int(lat) if lat is not None else int(_TOOL_SEC * 1000),
+        }
+        if "arguments" in tool:
+            span["arguments"] = tool["arguments"]
+        if "error" in tool:
+            span["error"] = tool["error"]
+            span["status"] = "error"
+        else:
+            # A tool with no declared result still records an empty result dict,
+            # so a `tool_result` with no `result_subset` sees the call succeeded.
+            span["result"] = tool.get("result", {})
+        spans.append(span)
+        t = round(end + _GAP_SEC, 3)
+    handoff = agent_mock.get("handoff")
+    if handoff:
+        spans.append({"type": "handoff", "to": handoff["to"],
+                      "time_sec": round(t, 3)})
+        t = round(t + _GAP_SEC, 3)
+    term = agent_mock.get("termination")
+    if term:
+        span = {"type": "termination", "time_sec": round(t, 3)}
+        if term.get("reason") is not None:
+            span["reason"] = term["reason"]
+        if term.get("by") is not None:
+            span["by"] = term["by"]
+        spans.append(span)
+    return spans
+
+
 def render(scenario: Dict[str, Any], seed: int) -> Dict[str, Any]:
     """Render ``scenario`` at ``seed`` into the deterministic caller-side
     conversation (no live agent, no TTS, no network).
@@ -204,6 +265,15 @@ def render(scenario: Dict[str, Any], seed: int) -> Dict[str, Any]:
         off = round(int(itr["offset_ms"]) / 1000.0, 3)
         spans.append({"type": "caller_barge_in", "time_sec": off,
                       "attributes": {"trigger": itr["trigger"]}})
+
+    # The OPTIONAL deterministic mock agent (Phase-2 tool mocks; 1.3 item 9):
+    # gated on an explicit ``agent_mock`` block, so a scenario without one is
+    # byte-identical. Renders AGENT-side tool/handoff/termination spans (never a
+    # caller turn); the transcript stays caller-only, so the content_hash (over
+    # the transcript) is unchanged and the caller-only invariant still holds.
+    agent_mock = doc.get("agent_mock")
+    if agent_mock:
+        spans.extend(_render_agent_mock(agent_mock, cursor))
 
     segments.sort(key=lambda s: (s["start"], s["end"], s["text"]))
     spans.sort(key=lambda s: (
@@ -447,6 +517,20 @@ def validate_simulation(
             checks)
     checks["perturbation_applied"] = True
 
+    # (5) OPTIONAL mock agent (gated): every declared mock tool renders as a
+    # tool_call span, in order. Absent agent_mock -> this check is skipped and
+    # the verdict is byte-identical to a scenario without a mock.
+    agent_mock = doc.get("agent_mock")
+    if agent_mock:
+        want_tools = [t["name"] for t in (agent_mock.get("tools") or [])]
+        got_tools = [s.get("name") for s in spans if s.get("type") == "tool_call"]
+        if got_tools != want_tools:
+            return _invalid(
+                f"agent_mock declared tools {want_tools} but the produced "
+                f"tool_call spans are {got_tools}; the mock agent's declared "
+                "tool calls must be rendered", checks)
+        checks["agent_mock_rendered"] = True
+
     return {
         "ok": True,
         "status": "ok",
@@ -662,7 +746,8 @@ def _cell_sort_key(cell: Dict[str, Any]) -> tuple:
 
 
 def _score_produced(
-    ct_doc: Dict[str, Any], produced: Dict[str, Any], policy: str
+    ct_doc: Dict[str, Any], produced: Dict[str, Any], policy: str,
+    *, state_adapter: Any = None,
 ) -> Dict[str, Any]:
     """Score one produced simulated conversation against a conversation-test's
     DETERMINISTIC lane -- the SAME Phase-1 assert layer, over a context built
@@ -676,6 +761,7 @@ def _score_produced(
     ctx = _assert.build_context(
         transcript=produced["transcript"]["segments"],
         spans=produced["trace"]["spans"],
+        state_adapter=state_adapter,
     )
     det_list = list((ct_doc.get("assertions") or {}).get("deterministic") or [])
     if det_list:
@@ -701,6 +787,7 @@ def _run_one(
     index: int, run_id: str, run: Dict[str, Any], *,
     out_dir: Optional[str], created_at: str,
     ct_doc: Optional[Dict[str, Any]], policy: Optional[str], agent_id: str,
+    state_adapter: Any = None,
 ) -> Dict[str, Any]:
     """Render + validate (+ optionally score + write) ONE concrete run. Pure
     with respect to every OTHER run: it reads only its own ``run`` (a fixed
@@ -740,7 +827,8 @@ def _run_one(
     if not verdict["ok"]:
         rec["reason"] = verdict["reason"]
     elif ct_doc is not None:
-        rec["score"] = _score_produced(ct_doc, produced, policy)
+        rec["score"] = _score_produced(ct_doc, produced, policy,
+                                       state_adapter=state_adapter)
     return rec
 
 
@@ -801,6 +889,18 @@ def run_matrix(
     scored = ct_doc is not None
     policy = ct_doc["inconclusive_policy"] if scored else None
 
+    # The OPTIONAL post-call state sandbox (Authority 2) a scenario's mock agent
+    # declares. Built ONCE from the immutable scenario doc and shared read-only
+    # across workers (MockStateAdapter.query returns copies, never mutates), so
+    # it never affects the byte-identical-under-parallelism guarantee. Absent
+    # agent_mock.state -> None -> state assertions stay INCONCLUSIVE, exactly as
+    # before.
+    state_data = (doc.get("agent_mock") or {}).get("state")
+    state_adapter = None
+    if scored and state_data:
+        from .state_adapter import MockStateAdapter
+        state_adapter = MockStateAdapter(state_data)
+
     runs = expand(doc)
     workers = _default_workers(len(runs)) if max_workers is None else max(
         1, int(max_workers))
@@ -821,6 +921,7 @@ def run_matrix(
         return _run_one(
             index, run_id, run, out_dir=out_dir, created_at=created_at,
             ct_doc=ct_doc, policy=policy, agent_id="unbound",
+            state_adapter=state_adapter,
         )
 
     # executor.map yields results in SUBMISSION order (not completion order), so
