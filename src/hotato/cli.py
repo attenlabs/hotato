@@ -518,8 +518,8 @@ _EXIT_CODES: dict = {
             "that is not a fix plan / verify result / sweep candidate"),
     ),
     "start": (
-        (0, "the guided first run completed (or a stubbed mode printed the "
-            "shipped command to use instead)"),
+        (0, "the guided first run completed (--demo, or --stereo on your own "
+            "recording)"),
         (2, "usage error: no mode given, or --dir is not a directory"),
     ),
     "init": (
