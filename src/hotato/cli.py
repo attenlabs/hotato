@@ -197,6 +197,18 @@ _EXIT_CODES: dict = {
             "result, a source recording that does not resolve, or a "
             "not-scorable candidate"),
     ),
+    "regression": (
+        (2, "no subcommand given (see hotato regression prepare --help)"),
+    ),
+    "regression prepare": (
+        (0, "regression candidate bundle prepared locally (not uploaded, "
+            "committed, or promoted); a human review is still required"),
+        (2, "refused: missing/malformed metadata, a digest mismatch, an "
+            "unsafe path, unsupported/mixed audio, a remaining redaction "
+            "sentinel, an ambiguous channel mapping, a public request for a "
+            "private-only artifact, or a source that does not reproduce a "
+            "failure; no partial output is left at --out"),
+    ),
     "contract": (
         (2, "no subcommand given (see hotato contract create/verify/inspect/"
             "pack/unpack --help)"),
@@ -1799,6 +1811,27 @@ def _cmd_fixture_promote(args) -> int:
             _fixture.promote_result_json(result), indent=2))
     else:
         print(_fixture.render_promote_text(result))
+    return 0
+
+
+def _cmd_regression_prepare(args) -> int:
+    from . import regression as _regression
+
+    result = _regression.prepare(
+        from_arg=args.source,
+        rights_path=args.rights,
+        redaction_path=args.redaction,
+        out_dir=args.out,
+        workspace=args.workspace,
+        record_path=args.record,
+        force=args.force,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_regression.result_json(result), indent=2))
+    else:
+        print(_regression.render_text(result))
+    # A prepared bundle exits 0; a human review is still required (printed
+    # above). Every refusal raises through the shared HANDLED boundary (exit 2).
     return 0
 
 
@@ -4915,6 +4948,96 @@ def build_parser() -> argparse.ArgumentParser:
     fp.add_argument("--agent-channel", type=int, default=1)
     _add_format_arg(fp, choices=("text", "json"))
     fp.set_defaults(func=_cmd_fixture_promote)
+
+    # --- regression: confirmed failure -> committed regression candidate -----
+    #
+    # `hotato regression prepare` projects ONE confirmed failure into a
+    # sanitized, deterministic, committed regression candidate bundle LOCALLY.
+    # It reuses the Failure Record projection (share-safe, no raw payload), the
+    # conversation-test schema, and the corpus validator; it never uploads,
+    # commits, opens a PR, or changes an agent. Consent/rights/license/redaction
+    # metadata is read from VERSIONED files, never free-form on the command line.
+    reg = sub.add_parser(
+        "regression",
+        help="prepare a committed regression candidate from one confirmed "
+             "failure (hotato regression prepare)",
+        description=(
+            "Turn one confirmed failure into a sanitized, deterministic, "
+            "committed regression candidate on disk. Prepares files locally "
+            "and stops; it never uploads, commits, opens a pull request, or "
+            "changes an agent."
+        ),
+        epilog=_exit_codes_epilog("regression"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    regsub = reg.add_subparsers(dest="regression_command", required=True,
+                                metavar="prepare")
+    rp2 = regsub.add_parser(
+        "prepare",
+        help="project one confirmed failure + versioned rights/redaction "
+             "metadata into a share-safe regression candidate bundle",
+        description=(
+            "Project ONE confirmed failure into a sanitized, deterministic, "
+            "committed regression candidate bundle, then stop for a human "
+            "review. The source is a `hotato test run` / `suite run` / "
+            "`contract verify` result saved with --format json (append "
+            "SOURCE#SELECTOR to pick one failing entry), or an already-"
+            "projected hotato.failure-record.v1 document. Rights and redaction "
+            "metadata are read from VERSIONED files (never free-form "
+            "consent/license strings on the command line); the tool validates "
+            "that the required statements are PRESENT and well-typed but "
+            "cannot judge whether they are correct. The bundle omits raw "
+            "audio, transcript, tool, and state payloads and keeps evidence "
+            "references and sha256 digests only; a private regression and a "
+            "public corpus candidate use separate profiles. Identical inputs "
+            "produce byte-identical files. Every refusal fails closed with no "
+            "partial output at --out."
+        ),
+        epilog=(
+            _exit_codes_epilog("regression prepare") + "\n\n"
+            "Examples:\n"
+            "  hotato test run checks.yaml --transcript call.json "
+            "--format json > result.json\n"
+            "  hotato regression prepare --from result.json --rights rights.json "
+            "--redaction redaction.json --out staged/refund-postcondition\n"
+            "  hotato regression prepare --from suite-run.json#refund-test "
+            "--rights rights.json --redaction redaction.json --workspace . "
+            "--out staged/refund-postcondition"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rp2.add_argument(
+        "--from", dest="source", required=True, metavar="SOURCE",
+        help="the confirmed-failure source: a hotato test-run / suite-run / "
+             "contract-verify result JSON (append SOURCE#SELECTOR to pick one "
+             "failing entry), or a hotato.failure-record.v1 document")
+    rp2.add_argument(
+        "--rights", required=True, metavar="FILE",
+        help="versioned rights.json: contributor, source description, rights "
+             "basis, license, consent/permitted-use, private-data review "
+             "state, origin (captured|simulated), intended_use, public_release")
+    rp2.add_argument(
+        "--redaction", required=True, metavar="FILE",
+        help="versioned redaction.json: method, reviewer, "
+             "completeness_declared, optional unredacted_sentinels and audio "
+             "codec/channel mapping")
+    rp2.add_argument(
+        "--out", required=True, metavar="DIR",
+        help="destination bundle directory (must not exist unless --force); "
+             "built in a temp dir and moved into place with one atomic rename")
+    rp2.add_argument(
+        "--workspace", default=None, metavar="DIR",
+        help="the declared workspace evidence locators must resolve inside "
+             "(default: the source file's directory); a traversal or symlink "
+             "escape is refused")
+    rp2.add_argument(
+        "--record", default=None, metavar="FILE",
+        help="optional already-projected hotato.failure-record.v1 to cross-"
+             "check by content address; a mismatch is refused")
+    rp2.add_argument("--force", action="store_true",
+                     help="replace an existing --out directory")
+    _add_format_arg(rp2, choices=("text", "json"))
+    rp2.set_defaults(func=_cmd_regression_prepare)
 
     # --- contract: the portable failure contract -----------------------------
     ct = sub.add_parser(

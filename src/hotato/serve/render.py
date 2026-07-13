@@ -139,14 +139,16 @@ a.drill{color:%(agent)s;text-decoration:none}a.drill:hover{text-decoration:under
 """) % _C
 
 
-_STATUS_COLOR = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember"}
+_STATUS_COLOR = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember",
+                 "ERROR": "red", "NOT_RUN": "muted", "UNAVAILABLE": "muted"}
 
-# The four top tabs. The conversation inspector is a drill-in, not a tab.
+# The top tabs. The conversation inspector + a single record are drill-ins.
 _TABS = (
     ("/", "Release readiness"),
     ("/scenarios", "Scenario matrix"),
     ("/clusters", "Failure clusters"),
     ("/health", "Production health"),
+    ("/records", "Failure records"),
 )
 
 
@@ -898,6 +900,182 @@ def render_production_health(m: dict) -> str:
             parts.append(f'<span class="dimtag"><span class="rel">{_esc(mk["release_id"])}</span> '
                          f'<span class="mono">{_esc(mk.get("day") or "-")}</span></span>')
         parts.append('</div></section>')
+    return "".join(parts)
+
+
+# =========================================================================
+# View 6 -- Failure records (read-only viewer over hotato.failure-record.v1)
+# =========================================================================
+
+_RECORD_LANES = ("outcome", "policy", "conversation", "speech", "reliability")
+
+
+def _record_origin_cls(origin: Optional[str]) -> str:
+    """A record's origin is ``captured`` or ``simulated`` (never ``real`` -- that
+    axis belongs to conversations). Simulated keeps the machine-track colour; a
+    captured or unspecified origin stays muted."""
+    return "simulated" if origin == "simulated" else "muted"
+
+
+def render_records_list(m: dict) -> str:
+    """The read-only Failure Record index. Each row keeps its five dimensions
+    separate and the deterministic gate apart from the model advisory; there is
+    no combined number. An empty workspace renders an explicit empty state, never
+    a fabricated record."""
+    parts = ['<h2 class="vh">Failure records</h2>',
+             '<p class="vsub">Share-safe Failure Records projected from failing '
+             'results. Each keeps its five dimensions separate, with the '
+             'deterministic gate shown apart from the model advisory. Read-only.</p>']
+
+    records = m.get("records") or []
+    if not records:
+        parts.append('<div class="notice">No failure records in this workspace. '
+                     'Render one with <span class="mono">hotato record render '
+                     'RESULT --out DIR</span> and place it under the workspace '
+                     '<span class="mono">records/</span> directory to view it '
+                     'here.</div>')
+        return "".join(parts)
+
+    parts.append(f'<div class="cldim" style="margin-bottom:10px">'
+                 f'<span class="mono">{m.get("record_count", len(records))}</span> '
+                 'records.</div>')
+    parts.append('<div class="tablewrap"><table class="ws"><thead><tr>'
+                 '<th>record</th><th>status</th><th>dimensions</th>'
+                 '<th>gate</th><th>advisory</th><th>origin</th>'
+                 '</tr></thead><tbody>')
+    for r in records:
+        rid = _esc(r.get("record_id_ref"))
+        head = (f'<div class="cldim">{_esc(r.get("headline"))}</div>'
+                if r.get("headline") else "")
+        subj = (f'<div class="cldim">{_esc(r.get("test_id"))}</div>'
+                if r.get("test_id") else "")
+        origin = r.get("origin")
+        parts.append(
+            f'<tr><td class="mono"><a class="drill" href="/records/{rid}">{rid}</a>'
+            f'{subj}{head}</td>'
+            f'<td>{_status_chip(r.get("status"))}</td>'
+            f'<td>{_dim_row(r.get("lane_status") or {})}</td>'
+            f'<td>{_status_chip(r.get("gate_status"))}</td>'
+            f'<td class="mono">{_esc(r.get("advisory_status"))}</td>'
+            f'<td><span class="origin {_record_origin_cls(origin)}">'
+            f'{_esc(origin)}</span></td></tr>')
+    parts.append('</tbody></table></div>')
+    return "".join(parts)
+
+
+def _record_lane_observed(dim: dict) -> str:
+    assertions = dim.get("assertions") or []
+    if not assertions:
+        return "No assertion ran in this dimension."
+    return assertions[0].get("observed") or ""
+
+
+def _record_reliability_line(rel: dict) -> str:
+    if not rel or rel.get("pass_at_1") is None:
+        return ("no repetition data (trials=%s); rates and interval are not "
+                "shown for a single run" % (rel or {}).get("trials", 0))
+    interval = rel.get("wilson_interval")
+    line = ("pass@1=%.3f pass@k=%.3f pass^k=%.3f (%s of %s trials passed)" % (
+        rel["pass_at_1"], rel["pass_at_k"], rel["pass_caret_k"],
+        rel.get("passes"), rel.get("trials")))
+    if interval:
+        line += ("; %g%% Wilson interval [%.6f, %.6f]" % (
+            interval["confidence"] * 100, interval["lower"], interval["upper"]))
+    return line
+
+
+def render_record_detail(record: dict) -> str:
+    """One Failure Record in the workspace chrome: its headline, the five lanes
+    each with its own status and observed line, the deterministic gate shown
+    apart from the model advisory, reliability with denominators, the evidence
+    references (id, kind, relative locator, clipped digest -- never a payload),
+    and the relative reproduction command. Every record string is escaped; the
+    page carries no script and no remote asset. The record is already share-safe
+    (validated: no absolute path, no embedded payload), so every field shown is
+    safe to display."""
+    subj = record.get("subject") or {}
+    gate = record.get("gate") or {}
+    advisory = record.get("advisory") or {}
+    dims = record.get("dimensions") or {}
+
+    parts = [
+        '<h2 class="vh">Failure record '
+        f'<span class="mono">{_esc(subj.get("test_id"))}</span></h2>',
+        f'<p class="vsub">{_esc(record.get("headline"))}</p>',
+    ]
+
+    # summary card
+    parts.append('<section class="card"><div class="grid">')
+    parts.append(_kv("status", record.get("status") or "-"))
+    parts.append(_kv("origin", (record.get("origin") or {}).get("kind") or "-"))
+    parts.append(_kv("gate", gate.get("status") or "-"))
+    parts.append(_kv("advisory", advisory.get("status") or "-"))
+    parts.append('</div>')
+    parts.append('<div class="dg" style="margin-top:12px">record id: '
+                 f'{_esc(record.get("record_id"))}</div>')
+    parts.append('</section>')
+
+    # five lanes, each scored on its own (no blend)
+    parts.append('<section class="card"><div class="cvsub">Five dimensions, each '
+                 'scored on its own (never combined)</div>'
+                 '<div class="tablewrap"><table class="ws"><thead><tr>'
+                 '<th>dimension</th><th>status</th><th>observed</th>'
+                 '</tr></thead><tbody>')
+    for lane in _RECORD_LANES:
+        d = dims.get(lane) or {}
+        parts.append(
+            f'<tr><td class="rel">{_esc(lane)}</td>'
+            f'<td>{_status_chip(d.get("status"))}</td>'
+            f'<td>{_esc(_record_lane_observed(d))}</td></tr>')
+    parts.append('</tbody></table></div></section>')
+
+    # gate authority (deterministic) shown APART from the model advisory
+    adv_gate = "enabled" if advisory.get("gate_enabled") else "not enabled"
+    adv_reason = (f' &middot; reason <span class="mono">'
+                  f'{_esc(advisory.get("reason_code"))}</span>'
+                  if advisory.get("reason_code") else "")
+    parts.append('<section class="card"><div class="cvsub">Gate authority</div>'
+                 '<div class="cldim">Deterministic gate: '
+                 f'{_status_chip(gate.get("status"))} &middot; policy '
+                 f'<span class="mono">{_esc(gate.get("policy"))}</span> &middot; '
+                 f'exit <span class="mono">{_esc(gate.get("exit_code"))}</span></div>'
+                 '<div class="cldim" style="margin-top:6px">Model advisory: '
+                 f'{_status_chip(advisory.get("status"))} &middot; gate '
+                 f'<span class="mono">{_esc(adv_gate)}</span>{adv_reason}</div>'
+                 '</section>')
+
+    # reliability, values copied with denominators
+    rel = dims.get("reliability") or {}
+    parts.append('<section class="card"><div class="cvsub">Reliability</div>'
+                 f'<div class="cldim mono">{_esc(_record_reliability_line(rel))}</div>'
+                 '</section>')
+
+    # evidence references: id / kind / relative locator / clipped digest -- no payloads
+    evidence = record.get("evidence") or []
+    parts.append('<section class="card"><div class="cvsub">Evidence references</div>')
+    if not evidence:
+        parts.append('<div class="cldim">No evidence entries.</div>')
+    else:
+        parts.append('<div class="tablewrap"><table class="ws"><thead><tr>'
+                     '<th>reference</th><th>kind</th><th>locator</th><th>digest</th>'
+                     '</tr></thead><tbody>')
+        for item in evidence:
+            digest = item.get("digest") or ""
+            short = digest if len(digest) <= 27 else digest[:24] + "..."
+            parts.append(
+                f'<tr><td class="mono">{_esc(item.get("evidence_id"))}</td>'
+                f'<td class="mono">{_esc(item.get("kind"))}</td>'
+                f'<td class="mono">{_esc(item.get("locator") or "(digest only)")}</td>'
+                f'<td class="dg">{_esc(short)}</td></tr>')
+        parts.append('</tbody></table></div>')
+    parts.append('</section>')
+
+    # reproduction: relative argv only (the record guarantees no absolute path)
+    repro = record.get("reproduction") or {}
+    argv = repro.get("argv") or []
+    cmd = " ".join(str(a) for a in argv)
+    parts.append('<section class="card"><div class="cvsub">Reproduce</div>'
+                 f'<div class="dg">{_esc(cmd)}</div></section>')
     return "".join(parts)
 
 

@@ -585,3 +585,152 @@ def test_safe_dirname_blocks_traversal():
     assert _safe_dirname("..") == "default"
     assert _safe_dirname("") == "default"
     assert _safe_dirname("team-alpha_1") == "team-alpha_1"
+
+
+# =========================================================================
+# read-only Failure Record viewer (/records + /records/<id>)
+# =========================================================================
+
+# A sentinel that would only exist if a raw evaluator payload leaked into a
+# record; the share-safe projection never carries it, so it must never render.
+_RECORD_PAYLOAD_SECRET = "PAYLOAD_LEAK_9f3a"
+
+
+def _make_record():
+    """Project ONE real, valid hotato.failure-record.v1 from a minimal failing
+    test-run source (a policy FAIL). Returns the canonical record dict."""
+    from hotato.failure_record import project
+    doc = {
+        "kind": "hotato.test-run", "version": "1",
+        "test_id": "cancel-after-cutoff", "agent": "appt-agent", "exit_code": 1,
+        "assertions": {"results": [
+            {"id": "required_disclosure", "kind": "policy", "status": "FAIL",
+             "dimension": "policy",
+             "reason": "required_disclosure cancellation_policy_v2 not spoken "
+                       "before tool cancel_appointment"},
+        ]},
+        "success": {"required": []},
+    }
+    return project(doc)
+
+
+def _seed_record(home, record_id="rec-policy-fail"):
+    """Write a validated record under ``<home>/records/<record_id>/`` in the
+    ``hotato record render --out`` layout. Returns (record_id, record)."""
+    from hotato.failure_render import render_json
+    record = _make_record()
+    rdir = os.path.join(home, "records", record_id)
+    os.makedirs(rdir, exist_ok=True)
+    with open(os.path.join(rdir, "failure-record.json"), "w", encoding="utf-8") as fh:
+        fh.write(render_json(record))
+    return record_id, record
+
+
+def test_records_empty_state_when_none(live):
+    # the default fixture seeds NO records: the list route 200s with an explicit
+    # empty state, never a fabricated record.
+    code, body, _h = _req(live.base, "/records", token=live.token)
+    assert code == 200
+    assert "Failure records" in body
+    assert "No failure records" in body
+
+
+def test_records_routes_require_token(live):
+    _seed_record(live.home)
+    for path in ["/records", "/records/rec-policy-fail", "/records?format=json",
+                 "/records/rec-policy-fail?format=json"]:
+        code, body, headers = _req(live.base, path)
+        assert code == 401, path
+        assert "bearer" in headers.get("WWW-Authenticate", "").lower(), path
+        assert "cancel-after-cutoff" not in body, path   # no record data leaks
+
+
+def test_records_list_and_detail_render(live):
+    rid, record = _seed_record(live.home)
+
+    # list: the record row is present with its status + subject
+    code, body, _h = _req(live.base, "/records", token=live.token)
+    assert code == 200
+    assert rid in body
+    assert "cancel-after-cutoff" in body
+    assert "/records/" + rid in body                 # drill-through link
+
+    # detail: five lanes, evidence refs, reproduce -- no payload/secret/abs path
+    code, body, _h = _req(live.base, "/records/" + rid, token=live.token)
+    assert code == 200
+    for lane in ("outcome", "policy", "conversation", "speech", "reliability"):
+        assert lane in body
+    assert record["record_id"] in body               # content address shown
+    assert record["evidence"][0]["evidence_id"] in body   # an evidence ref
+    assert "deterministic" in body.lower() or "gate" in body.lower()
+    # the deterministic gate is shown APART from the model advisory
+    assert "advisory" in body.lower()
+    # share-safe: no absolute path (the registry home) and no raw payload leak
+    assert live.home not in body
+    assert _RECORD_PAYLOAD_SECRET not in body
+    # inert: no script element, no remote asset
+    low = body.lower()
+    assert "<script" not in low
+    assert "http://" not in body and "https://" not in body
+    assert "src=" not in low
+    # no blended/overall score
+    assert "overall_score" not in low and "blended" not in low
+
+
+def test_records_json_mirror(live):
+    rid, record = _seed_record(live.home)
+    # list mirror
+    code, body, headers = _req(live.base, "/records?format=json", token=live.token)
+    assert code == 200
+    assert "application/json" in headers.get("Content-Type", "")
+    m = json.loads(body)
+    assert m["view"] == "failure_records"
+    assert any(r["record_id_ref"] == rid for r in m["records"])
+    # detail mirror IS the canonical record (one source of truth for both surfaces)
+    code, body, headers = _req(live.base, "/records/" + rid + "?format=json",
+                               token=live.token)
+    assert code == 200
+    assert "application/json" in headers.get("Content-Type", "")
+    obj = json.loads(body)
+    assert obj["kind"] == "hotato.failure-record.v1"
+    assert obj["record_id"] == record["record_id"]
+    assert set(obj["dimensions"]) == {
+        "outcome", "policy", "conversation", "speech", "reliability"}
+
+
+def test_unknown_record_is_404(live):
+    code, _b, _h = _req(live.base, "/records/no-such-record", token=live.token)
+    assert code == 404
+
+
+def test_hostile_record_id_is_rejected(live):
+    _seed_record(live.home)
+    # percent-encoded traversal / separators never resolve outside the records
+    # root: each is refused (404), never a 200 that discloses another file.
+    for bad in ["/records/%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+                "/records/%2e%2e",
+                "/records/a%2fb",
+                "/records/%2e%2e%2fapp.py"]:
+        code, body, _h = _req(live.base, bad, token=live.token)
+        assert code == 404, bad
+        assert "root:" not in body                   # no /etc/passwd contents
+        assert "def _record_detail" not in body      # no source file contents
+
+
+def test_record_symlink_escape_is_rejected(live, tmp_path):
+    # a symlink inside the records root that points OUTSIDE it is not followed:
+    # even a valid record behind the link is refused (realpath containment).
+    from hotato.failure_render import render_json
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "failure-record.json").write_text(
+        render_json(_make_record()), encoding="utf-8")
+    root = os.path.join(live.home, "records")
+    os.makedirs(root, exist_ok=True)
+    os.symlink(str(outside), os.path.join(root, "escape"))
+
+    code, _b, _h = _req(live.base, "/records/escape", token=live.token)
+    assert code == 404
+    # and the escaped record is excluded from the list too
+    _c, body, _h = _req(live.base, "/records", token=live.token)
+    assert "escape" not in body
