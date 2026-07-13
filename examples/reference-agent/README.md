@@ -86,6 +86,25 @@ material for the failure-cluster view and the production-to-regression flow:
 The suite therefore exits non-zero, and `hotato serve` clusters these failures by
 observable signature.
 
+## Determinism — what is byte-identical, and what is not
+
+Two seeded runs of the reference procedure write **byte-identical conversation
+artifacts** under `./.out`: the `transcript.json` and `trace.jsonl` carry no
+timestamp, and the `conversation.json` manifest's `created_at` defaults to a
+reproducible instant rather than the wall clock. That default follows the
+reproducible-builds [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
+convention — set `SOURCE_DATE_EPOCH` (integer seconds) to pin a specific instant;
+unset, it is a fixed placeholder (`1970-01-01T00:00:00Z`), never `now()`.
+
+The fleet registry (`./.workspace/fleet.db`) is deliberately **outside** that
+byte-identical claim: it is mutable runtime index state, and its bookkeeping
+columns (every `*_at` timestamp, plus `last_watermark`) are wall-clock. The
+defined comparison for the registry is therefore its **deterministic content with
+those columns excluded** — two seeded runs agree on every id, edge, and
+per-dimension verdict, differing only on the excluded runtime clocks. The
+canonicalization and both claims are pinned by
+[`tests/test_determinism_reference.py`](../../tests/test_determinism_reference.py).
+
 See [../../docs/SUITE-RUN.md](../../docs/SUITE-RUN.md),
 [../../docs/CONVERSATION-TEST.md](../../docs/CONVERSATION-TEST.md), and
 [../../docs/STATE-ADAPTERS.md](../../docs/STATE-ADAPTERS.md).
