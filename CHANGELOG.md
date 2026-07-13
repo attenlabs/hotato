@@ -7,6 +7,87 @@ the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.
 Every entry reports millisecond measurement error and a confusion matrix, by
 design. See `docs/BENCHMARK.md`.
 
+## [1.3.0] - 2026-07-13
+
+The Conversation QA Foundation. Hotato evolves from a turn-taking analyzer into an
+open-source, self-hosted conversation-QA system for voice agents: simulate, evaluate,
+review, and track calls across five dimensions -- outcome, policy, conversation, speech,
+reliability -- with the evidence behind every result. Deterministic checks stay
+structurally separate from a model-judged rubric lane; there is no blended score.
+
+### Added
+- **Conversation Test + Conversation Artifact.** `hotato.conversation-test.v1` is the
+  primary unit -- one file defining a caller goal + facts + behavior, environment,
+  expected tools, deterministic and rubric assertions, and repetitions. `hotato.conversation.v1`
+  is the canonical evidence artifact binding audio, transcript, trace, evaluations, review,
+  and provenance by digest; `hotato conversation verify` re-hashes every child and refuses on
+  tamper. `hotato test run <conversation-test>` evaluates one call end to end into an artifact
+  plus a per-dimension scorecard.
+- **The five-dimension scorecard.** Results group by dimension (outcome / policy / conversation
+  / speech / reliability), each with its own pass/fail/inconclusive counts -- never a merged or
+  blended number, structurally forbidden in every schema.
+- **State-grounded outcomes (Authority 1 & 2).** Twelve new deterministic assertion kinds
+  (tool_result, tool_error, state, state_change, handoff, dtmf, termination, latency,
+  timing_contract, entity_accuracy, sequence, count) read the authenticated trace or a post-call
+  state adapter -- never the agent's spoken claim. An LLM verdict is structurally unable to
+  satisfy a state/tool_result assertion.
+- **Real state adapters.** `HttpStateAdapter` + `SqlStateAdapter` query a real system of record
+  (injection-safe parameterized SELECT-only; unreachable state -> INCONCLUSIVE, never a guess);
+  network paths are egress-opt-in. `docs/STATE-ADAPTERS.md`.
+- **Rubric / local-model judge (`hotato rubric`).** Model-judged assertions run against a real
+  local model (Ollama by default -- zero egress) or an opt-in hosted endpoint, with pinned model
+  digest, content-addressed verdict cache (byte-identical replay, `--no-cache` drift diff),
+  citations, and a human-review queue. Advisory by default; `--gate` opts into CI failure.
+  Structurally separate schema/shelf from the deterministic layer. `hotato[judge]`. `docs/RUBRIC.md`.
+- **Deterministic simulation at scale.** `scenario.v1` + `hotato simulate` render a scripted
+  caller into a byte-stable simulated conversation (origin=simulated, never conflated with real;
+  bad sims marked SIMULATOR_INVALID). `hotato simulate --matrix` expands a variation matrix and
+  runs it in parallel, reproducible across worker counts, with pass@1/pass@k/pass^k reliability
+  (Wilson CI).
+- **Drive-a-call.** Real Twilio (TwiML scripted caller) and Vapi call origination wired into
+  `run_scenario`, credential- and egress-gated; recordings flow into the existing capture path.
+  `docs/DRIVE-A-CALL.md`.
+- **Self-hosted team workspace (`hotato serve`).** A local web application over the fleet
+  registry with five views (release readiness, scenario matrix, conversation inspector, failure
+  clusters, production health), token auth, an append-only audit log, read-only, zero external
+  calls. `docs/WORKSPACE.md`.
+- **Suites & releases.** `hotato suite run` executes a suite of conversation-tests into the
+  registry and gates on the suite's `inconclusive_policy`; `hotato release compare A B` gives
+  digest-exact per-dimension deltas and new-vs-fixed. Plus `hotato scenario init/validate`.
+- **Self-host deployment.** A container + `docker compose` (optional local Ollama judge profile)
+  that runs the whole platform in your own cloud/VPC with zero external calls on the default path,
+  plus a zero-egress verification script and the zero-migration promise. `docs/SELF-HOST.md`.
+- **Conversation QA Foundation reference agent + benchmark.** A 375-run reference agent
+  (25 scenarios x caller behaviors x environments x repetitions, offline) and a five-part
+  benchmark proving simulation validity, outcome-grounding, assertion determinism, report
+  reproducibility, and failure-to-regression promotion. `examples/reference-agent/`.
+- **`inconclusive_policy`** (report | fail | refuse) so a suite can make INCONCLUSIVE gate CI.
+- **Unified report** now carries timing + transcript + trace + assertions + reliability + the
+  conversation-artifact provenance in one file.
+
+### Changed
+- **Positioning.** Hotato is now the open-source, self-hosted conversation-QA system for voice
+  agents. The deterministic turn-taking engine is the crown-jewel Conversation dimension within
+  the suite, not the whole product. README, CLI help, `__init__`, llms.txt, server.json, CITATION,
+  and pyproject unified to one definition (guarded by a positioning-lockstep test).
+- The 8-entity data model (agents / releases / suites / scenarios / runs / conversations /
+  evaluations / reviews + assertion_runs) migrated additively into the fleet registry,
+  concurrency-safe.
+
+### Security
+- The rubric judge HTTP paths install the hardened, credential-stripping redirect opener (with
+  the SSRF re-check) before any request, so a hosted-judge endpoint cannot exfiltrate the API key
+  via a cross-host redirect.
+
+### Fixed
+- Concurrent `Registry()` construction on a fresh database no longer deadlocks (the CI-hang class),
+  via autocommit + retry + `INSERT OR IGNORE`.
+- Reliability data supplied without an assertions envelope is never silently dropped.
+- The source distribution now imports on Python 3.9-3.11 (two 3.12-only f-strings
+  rewritten) and ships the full self-host deployment bundle (Dockerfile,
+  `docker-compose.yml`, `deploy/`), so `pip download hotato` extracts to a complete,
+  buildable self-host tarball.
+
 ## [1.2.0] - 2026-07-12
 
 ### Added
