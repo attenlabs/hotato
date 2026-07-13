@@ -62,7 +62,11 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .errors import open_regular as _open_regular
+from .errors import (
+    is_safe_bare_token as _is_safe_bare_token,
+    load_json_file as _load_json_file,
+    open_regular as _open_regular,
+)
 
 __all__ = [
     "SCHEMA",
@@ -262,11 +266,7 @@ def load_transcript_file(path: str) -> List[Dict[str, Any]]:
     optional ``[transcribe]`` extra, on any transcript an operator already
     has. Routed through :func:`hotato.errors.open_regular`, so a FIFO/named
     pipe path raises immediately instead of blocking forever."""
-    with _open_regular(path, "r", encoding="utf-8") as fh:
-        try:
-            doc = json.load(fh)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{path!r} is not valid JSON: {exc}") from exc
+    doc = _load_json_file(path)
     return _turns_from_doc(doc, path)
 
 
@@ -2400,12 +2400,10 @@ def render_run_text(env: Dict[str, Any]) -> str:
 # escaping support (see its docstring), so a name outside this pattern is
 # reported back to the caller as skipped rather than risking a corrupt
 # (or, worse, silently-misparsed) generated file.
-_SAFE_BARE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
-_YAML_RESERVED_BARE = ("true", "false", "null", "~", "")
-
-
-def _is_safe_bare_token(s: str) -> bool:
-    return bool(_SAFE_BARE_TOKEN_RE.match(s)) and s.lower() not in _YAML_RESERVED_BARE
+# The bare-token predicate (regex + reserved-scalar tuple) is the shared
+# hotato.errors.is_safe_bare_token (finding #7), imported above as
+# _is_safe_bare_token, so this emitter and conversation_test's starter emitter
+# use one definition and can never drift.
 
 
 def _tool_call_names_seen(spans: Sequence[Dict[str, Any]]) -> Tuple[List[str], List[str]]:

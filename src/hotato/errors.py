@@ -18,6 +18,7 @@ surfaced message instructs the model in its own vocabulary. The shape and the
 from __future__ import annotations
 
 import json as _json
+import re as _re
 
 from ._engine.vad import BackendUnavailable
 
@@ -89,6 +90,70 @@ def safe_json_dumps(obj, **kwargs) -> str:
             "a value in the output is not a finite number (NaN/Infinity); "
             "check the input fix plan / config for non-finite numbers."
         ) from exc
+
+
+# =========================================================================
+# Shared structural / parse helpers.
+#
+# These centralize idioms that were reimplemented across the schema validators
+# (conversation / conversation-test / scenario / rubric) and the file loaders.
+# The MECHANISM is shared here; each caller keeps its own schema-specific
+# message text, which is load-bearing per that schema's honesty invariant.
+# This module is a leaf (only ``_engine.vad``), so every caller can import it
+# with no cycle.
+# =========================================================================
+
+def load_json_file(path, label=None, *, encoding: str = "utf-8"):
+    """Open a regular file (FIFO-safe via :func:`open_regular`) and ``json.load``
+    it, converting a ``JSONDecodeError`` into the standard usage ``ValueError``
+    (the caller's exit-2 path). ``label`` overrides how the file is named in that
+    error message (default ``repr(path)``)."""
+    with open_regular(path, "r", encoding=encoding) as fh:
+        try:
+            return _json.load(fh)
+        except _json.JSONDecodeError as exc:
+            subject = label if label is not None else repr(path)
+            raise ValueError(f"{subject} is not valid JSON: {exc}") from exc
+
+
+def reject_overall_score(obj, message: str) -> None:
+    """The honesty-wall mechanism: refuse a mapping that carries a forbidden
+    ``overall_score`` key. One check, shared by every schema validator; the
+    ``message`` stays the caller's, because each schema's wording is load-bearing
+    (a scenario 'never scores anything', a conversation-test 'success is a
+    boolean', ...)."""
+    if isinstance(obj, dict) and "overall_score" in obj:
+        raise ValueError(message)
+
+
+def check_kind_version(doc, *, kind, version, subject: str) -> None:
+    """Structural ``kind``+``version`` const check shared by the schema
+    validators. The ``kind`` mismatch message is identical across schemas; the
+    version-mismatch message differs only by ``subject`` (e.g. ``"conversation"``,
+    ``"suite"``). Raises ``ValueError`` on a mismatch."""
+    if doc.get("kind") != kind:
+        raise ValueError(f"'kind' must be {kind!r}, got {doc.get('kind')!r}")
+    if doc.get("version") != version:
+        raise ValueError(
+            f"unsupported {subject} version {doc.get('version')!r}; "
+            f"this build supports version {version}"
+        )
+
+
+# A word-shaped token (snake_case / dotted / hyphenated) may be emitted BARE in
+# the small YAML/flow subset the assertion + scenario + conversation-test
+# emitters share (and the parser reads back); any other scalar must be quoted so
+# the subset reads it back verbatim. ONE definition -- both assert_'s emitter and
+# conversation_test's starter emitter import it (it had been copy-pasted between
+# them to avoid an import cycle; there is none through this leaf module).
+SAFE_BARE_TOKEN_RE = _re.compile(r"^[A-Za-z0-9_.\-]+$")
+YAML_RESERVED_BARE = ("true", "false", "null", "~", "")
+
+
+def is_safe_bare_token(s: str) -> bool:
+    """True if ``s`` may be rendered as a bare token in the shared YAML/flow
+    subset: a word-shaped token that is not a reserved scalar."""
+    return bool(SAFE_BARE_TOKEN_RE.match(s)) and s.lower() not in YAML_RESERVED_BARE
 
 
 class ChannelRangeError(ValueError):
