@@ -773,6 +773,21 @@ _REPORT_DIMENSIONS = ("outcome", "policy", "conversation", "speech", "reliabilit
 # carries NONE, the dimension shows an honest empty-state -- never a fabricated
 # value, and pass^k is never blended into any other dimension.
 _RELIABILITY_DIMENSION = "reliability"
+# An honest empty assert.v1 envelope: used ONLY when real reliability data is
+# supplied with no assertions envelope, so the Reliability dimension still
+# renders instead of the data being silently dropped (0 assertions is stated
+# plainly; nothing is fabricated).
+_EMPTY_ASSERT_ENVELOPE = {
+    "schema": "assert.v1",
+    "exit_code": 0,
+    "results": [],
+    "summary": {
+        "deterministic": {"pass": 0, "fail": 0, "inconclusive": 0},
+        "judge": {"pass": 0, "fail": 0},
+        "note": "no assertions in this run (reliability-only report)",
+    },
+}
+
 _RELIABILITY_EMPTY_NOTE = (
     "Reliability (pass@1 / pass@k / pass^k across repeated runs) not measured: "
     "no repeated runs in this report."
@@ -3331,6 +3346,12 @@ def build_report_html(*, base: Optional[dict] = None,
     if cv is not None:
         env["conversation"] = cv
     rel = _normalize_reliability(reliability)
+    if rel is not None and assertions is None:
+        # Data supplied = data rendered, never silently dropped: real reliability
+        # numbers with no assertions envelope still render their Reliability
+        # dimension, over an honest empty envelope (0 assertions, stated in the
+        # note). assertions=None WITH reliability=None stays byte-identical.
+        assertions = _EMPTY_ASSERT_ENVELOPE
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
                         audio_mode=mode, assertions=assertions,
                         trace=env.get("trace_context"), conversation=cv,
@@ -3392,6 +3413,12 @@ def build_report_md(*, base: Optional[dict] = None,
     if cv is not None:
         env["conversation"] = cv
     rel = _normalize_reliability(reliability)
+    if rel is not None and assertions is None:
+        # Data supplied = data rendered, never silently dropped: real reliability
+        # numbers with no assertions envelope still render their Reliability
+        # dimension, over an honest empty envelope (0 assertions, stated in the
+        # note). assertions=None WITH reliability=None stays byte-identical.
+        assertions = _EMPTY_ASSERT_ENVELOPE
     return (
         _render_md(env, models, cfg, base_env=base, base_label=base_label,
                   assertions=assertions, trace=env.get("trace_context"),
