@@ -144,6 +144,45 @@ def test_isolation_is_registry_layer_not_blob_layer(tmp_path):
     reg.close()
 
 
+def test_artifact_reference_is_the_workspace_scoped_authorization_boundary(tmp_path):
+    """The reference-edge/root-reachability primitive that gates every CAS
+    evidence read. Identical bytes collapse to ONE shared blob, but authority to
+    read it is scoped to the workspace that ROOTS the digest: a foreign workspace
+    is refused, and deleting the last live root REVOKES access (CAS presence is
+    never authority)."""
+    store = ArtifactStore(str(tmp_path / "art"))
+    same = b"one blob, two workspaces"
+    dA = store.put_bytes(same, kind="conversation", workspace_id="wsA")
+    dB = store.put_bytes(same, kind="conversation", workspace_id="wsB")
+    assert dA == dB and store.has(dA)          # shared CAS: one physical blob
+
+    reg = Registry(home=str(tmp_path / "reg"))
+    reg.add_conversation("wsA", "conv-1", artifact_digest=dA)  # rooted in wsA only
+
+    # authority is scoped to the workspace that named the digest
+    assert reg.has_artifact_reference("wsA", dA) is True
+    assert reg.has_artifact_reference("wsB", dA) is False
+    assert dA in reg.list_root_digests("wsA")
+    assert dA not in reg.list_root_digests("wsB")
+    # a non-digest string is never a reference
+    assert reg.has_artifact_reference("wsA", "not-a-digest") is False
+
+    # a JSON evidence_refs root counts too (sha256:<hex> form), scoped to wsA
+    reg.add_evaluation("wsA", "ev-1", conversation_id="conv-1", dimension="policy",
+                       status="FAIL", evidence_refs=json.dumps(["sha256:" + ("ab" * 32)]))
+    assert reg.has_artifact_reference("wsA", "ab" * 32) is True
+    assert reg.has_artifact_reference("wsB", "ab" * 32) is False
+
+    # deleting the ONLY live root revokes authority; the blob is orphaned, present
+    reg.conn.execute("DELETE FROM conversations WHERE workspace_id=? AND conversation_id=?",
+                     ("wsA", "conv-1"))
+    reg.conn.commit()
+    assert store.has(dA)                        # still physically present
+    assert reg.has_artifact_reference("wsA", dA) is False
+    assert dA not in reg.list_root_digests("wsA")
+    reg.close()
+
+
 def test_scoring_path_carries_no_provider_credentials():
     """The scoring/offline path carries no provider secret. Asserted against
     ACTUAL capability OUTPUTS (not the capability NAME strings, which trivially

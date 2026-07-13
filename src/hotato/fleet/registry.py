@@ -58,6 +58,73 @@ TABLE_PK = {
     "assertion_runs": ("workspace_id", "assertion_run_id"),
 }
 
+# The reference-edge table: every column that NAMES a content-addressed store
+# digest, grouped by the workspace-scoped table it lives in. A workspace is
+# authorized to READ a CAS evidence blob iff one of ITS rows (workspace_id-scoped)
+# names that digest here -- this is the registry-root authority boundary. The
+# content-addressed store is a SHARED blob pool keyed by digest (identical bytes
+# collapse across workspaces), so blob PRESENCE is never authority; the row that
+# names a digest is what is workspace-scoped. CAS lineage (the store's own
+# parent/child graph) is NEVER consulted for authorization -- lineage is not an
+# ACL. Keep in sync with the *_digest columns in _SCHEMA.
+ARTIFACT_REFERENCE_COLUMNS = {
+    "agents": ("configuration_digest",),
+    "recordings": ("artifact_digest",),
+    "contracts": ("canonical_digest", "artifact_digest"),
+    "trials": ("manifest_digest",),
+    "deployment_receipts": ("receipt_digest",),
+    "attestations": ("subject_digest",),
+    "releases": ("prompt_digest", "tool_schema_digest", "workflow_digest",
+                 "provider_config_digest"),
+    "conversations": ("artifact_digest",),
+}
+
+# Columns holding a JSON list of authenticated evidence refs (digests/spans).
+# Refs may be bare 64-hex, "sha256:<hex>", or a {..., "sha256"/"digest": <hex>}
+# object; any embedded 64-hex value is a workspace-scoped root reference.
+ARTIFACT_REFERENCE_JSON_COLUMNS = {
+    "evaluations": ("evidence_refs",),
+    "assertion_runs": ("evidence_refs",),
+}
+
+_HEX64_CHARS = set("0123456789abcdef")
+
+
+def _is_hex64(s) -> bool:
+    return isinstance(s, str) and len(s) == 64 and _HEX64_CHARS.issuperset(s)
+
+
+def _digests_in_json_field(raw) -> "set[str]":
+    """Every 64-hex store digest embedded in a JSON evidence_refs field. Accepts a
+    list/scalar of bare hex, ``sha256:<hex>`` strings, or ``{...: <hex>}`` objects.
+    Malformed JSON yields nothing (never raises)."""
+    if raw in (None, ""):
+        return set()
+    val = raw
+    if isinstance(raw, (str, bytes)):
+        try:
+            val = json.loads(raw)
+        except (ValueError, TypeError):
+            return set()
+    out: "set[str]" = set()
+
+    def _collect(x):
+        if _is_hex64(x):
+            out.add(x)
+        elif isinstance(x, str) and ":" in x:
+            tail = x.rsplit(":", 1)[-1]
+            if _is_hex64(tail):
+                out.add(tail)
+        elif isinstance(x, dict):
+            for v in x.values():
+                _collect(v)
+        elif isinstance(x, (list, tuple)):
+            for v in x:
+                _collect(v)
+
+    _collect(val)
+    return out
+
 
 class RegistrySchemaVersionError(ValueError):
     """The on-disk fleet registry's meta.schema_version is missing/unparseable
@@ -1138,6 +1205,58 @@ class Registry:
         return out
 
     # --- low-level ------------------------------------------------------
+    # --- content-addressed store authorization (reference-edge reachability) ---
+    def list_root_digests(self, workspace_id) -> "set[str]":
+        """Every content-addressed store digest that is a LIVE registry ROOT of
+        this workspace: each digest named by a workspace_id-scoped row in a
+        reference-edge column (see ARTIFACT_REFERENCE_COLUMNS + the JSON
+        evidence_refs columns). This is the authorization boundary for serving a
+        CAS evidence blob -- a workspace that never rooted a digest cannot reach
+        it, and deleting the last row that names a digest revokes access. CAS
+        lineage (the store's own parent/child graph) is NEVER consulted; lineage
+        is not an ACL."""
+        roots: "set[str]" = set()
+        for table, cols in ARTIFACT_REFERENCE_COLUMNS.items():
+            sel = ", ".join(cols)
+            for row in self._all(
+                    "SELECT %s FROM %s WHERE workspace_id=?" % (sel, table),
+                    (workspace_id,)):
+                for c in cols:
+                    if _is_hex64(row.get(c)):
+                        roots.add(row[c])
+        for table, cols in ARTIFACT_REFERENCE_JSON_COLUMNS.items():
+            sel = ", ".join(cols)
+            for row in self._all(
+                    "SELECT %s FROM %s WHERE workspace_id=?" % (sel, table),
+                    (workspace_id,)):
+                for c in cols:
+                    roots |= _digests_in_json_field(row.get(c))
+        return roots
+
+    def has_artifact_reference(self, workspace_id, digest) -> bool:
+        """Whether ``digest`` is directly named by a live reference-edge row of
+        this workspace (a registry root). Does NOT resolve transitive children of
+        a rooted manifest -- callers that serve child evidence blobs layer that on
+        top (the manifest's OWN declared artifacts), still without touching CAS
+        lineage. A non-64-hex digest is never a reference."""
+        if not _is_hex64(digest):
+            return False
+        for table, cols in ARTIFACT_REFERENCE_COLUMNS.items():
+            where = " OR ".join("%s=?" % c for c in cols)
+            if self._one(
+                    "SELECT 1 FROM %s WHERE workspace_id=? AND (%s)" % (table, where),
+                    (workspace_id, *([digest] * len(cols)))) is not None:
+                return True
+        for table, cols in ARTIFACT_REFERENCE_JSON_COLUMNS.items():
+            sel = ", ".join(cols)
+            for row in self._all(
+                    "SELECT %s FROM %s WHERE workspace_id=?" % (sel, table),
+                    (workspace_id,)):
+                for c in cols:
+                    if digest in _digests_in_json_field(row.get(c)):
+                        return True
+        return False
+
     def _one(self, q, args=()):
         cur = self.conn.execute(q, args)
         return cur.fetchone()

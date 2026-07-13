@@ -428,6 +428,66 @@ def _parse_trace_bytes(data: bytes) -> Any:
         return spans
 
 
+# Manifests are tiny JSON; never JSON-parse a blob larger than this while
+# resolving a rooted manifest's declared children (a large blob -- e.g. raw
+# audio -- declares nothing).
+_MANIFEST_SCAN_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _manifest_child_digests(store, digest: str) -> "set[str]":
+    """The child artifact digests a manifest blob DECLARES: the ``sha256`` values
+    of its ``artifacts`` map. Only small JSON blobs are parsed; a non-JSON or
+    oversized blob declares nothing. Never raises."""
+    try:
+        if os.path.getsize(store.path_for(digest)) > _MANIFEST_SCAN_MAX_BYTES:
+            return set()
+    except OSError:
+        return set()
+    try:
+        man = store.get_json(digest)
+    except Exception:
+        return set()
+    if not isinstance(man, dict):
+        return set()
+    out: "set[str]" = set()
+    for ref in (man.get("artifacts") or {}).values():
+        sha = ref.get("sha256") if isinstance(ref, dict) else None
+        if _looks_like_digest(sha):
+            out.add(sha)
+    return out
+
+
+def evidence_digest_authorized(reg: Registry, ws: str, store, digest: str) -> bool:
+    """Authorization gate for serving a content-addressed EVIDENCE blob by digest.
+    True iff ``digest`` is reachable from a LIVE registry ROOT of workspace ``ws``:
+
+      1. named directly by a workspace-scoped reference-edge row (registry root), or
+      2. declared as a child artifact by a manifest that IS such a root -- one hop
+         through the manifest's OWN ``artifacts`` map (e.g. the transcript/trace of
+         a rooted conversation manifest).
+
+    The content-addressed store is a SHARED blob pool keyed by digest, so blob
+    presence is NEVER authority; and CAS lineage (the store's parent/child graph)
+    is NEVER consulted -- an orphaned blob whose only root was deleted is
+    unreachable. A non-digest string, or a workspace that never rooted the digest,
+    is refused. (Existence of the blob is checked separately by the caller so an
+    authorized-but-absent artifact is refused, never fabricated.)"""
+    if store is None or not _looks_like_digest(digest):
+        return False
+    roots = reg.list_root_digests(ws)
+    if digest in roots:
+        return True
+    # One transitive hop THROUGH a workspace-rooted manifest's declared artifacts.
+    # This is registry authority (the row that names the manifest is scoped), not
+    # CAS lineage: only artifacts the rooted manifest itself declares are trusted.
+    for root in roots:
+        if root == digest or not store.has(root):
+            continue
+        if digest in _manifest_child_digests(store, root):
+            return True
+    return False
+
+
 def build_conversation_inspector(reg: Registry, ws: str, conversation_id: str,
                                  store=None) -> Optional[dict]:
     """One conversation = its manifest (origin + provenance + digests),
