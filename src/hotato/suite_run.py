@@ -176,16 +176,21 @@ def _representative_eval(
 def _run_scenario_test(
     test_doc: Dict[str, Any], scenario_path: str, *, agent_id: str,
     out_dir: Optional[str], max_workers: Optional[int],
+    created_at: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute one scenario-driven conversation-test through the deterministic
-    simulator matrix + compute its representative per-dimension breakdown."""
+    simulator matrix + compute its representative per-dimension breakdown.
+
+    ``created_at`` pins the written conversation manifests' timestamp; omitted,
+    run_matrix uses a reproducible SOURCE_DATE_EPOCH-style default (never the wall
+    clock), so re-running the suite writes byte-identical artifacts."""
     scenario_doc = SCN.load_scenario_file(scenario_path)
     runs = SIM.expand(scenario_doc)
 
     test_out = os.path.join(out_dir, test_doc["id"]) if out_dir else None
     summary = SIM.run_matrix(
         scenario_doc, conversation_test=test_doc, out_dir=test_out,
-        max_workers=max_workers,
+        max_workers=max_workers, created_at=created_at,
     )
 
     # The representative breakdown is computed over the FIRST valid run. When
@@ -365,6 +370,7 @@ def run_suite(
     out_dir: Optional[str] = None,
     max_workers: Optional[int] = None,
     created_at_epoch: Optional[float] = None,
+    created_at: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run every conversation-test the suite names and return a suite-run
     envelope (per-dimension + reliability, never a blended score).
@@ -372,7 +378,16 @@ def run_suite(
     ``registry`` (a :class:`hotato.fleet.registry.Registry`, or ``None`` to skip
     indexing) receives the Release/Suite/Scenario/Run/Conversation/Evaluation
     rows so ``hotato serve`` renders them. ``out_dir`` (optional) receives the
-    per-test simulated conversation artifacts. The SUITE's ``inconclusive_policy``
+    per-test simulated conversation artifacts.
+
+    Two independent provenance knobs, deliberately distinct: ``created_at`` (ISO
+    string) pins the written conversation manifests' timestamp and DEFAULTS to a
+    reproducible SOURCE_DATE_EPOCH-style instant (never the wall clock), so the
+    immutable artifacts are byte-identical across re-runs. ``created_at_epoch``
+    (float) stamps the registry ROWS, which are runtime bookkeeping (the fleet.db
+    is mutable index state, explicitly NOT part of the byte-identical artifact
+    claim); left ``None`` the registry uses its own runtime clock. The SUITE's
+    ``inconclusive_policy``
     is the effective policy for every test (so a required CI suite can make an
     INCONCLUSIVE FAIL the gate); the suite exit code is the WORST test outcome
     under it, raised to >=1 by any SIMULATOR_INVALID run."""
@@ -394,6 +409,7 @@ def run_suite(
             per_test.append(_run_scenario_test(
                 overridden, scenario_path, agent_id=agent_id,
                 out_dir=out_dir, max_workers=max_workers,
+                created_at=created_at,
             ))
         else:
             per_test.append(_run_static_test(overridden, agent_id=agent_id))

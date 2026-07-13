@@ -63,6 +63,8 @@ __all__ = [
     "expand",
     "reliability",
     "run_matrix",
+    "resolve_source_date_epoch",
+    "deterministic_created_at",
 ]
 
 # The simulator's model_id: this is a SCRIPTED caller, not a generative model.
@@ -131,6 +133,63 @@ def _write_owned(path: str, text: str) -> None:
     # posture hotato.test_run._write_json documents for the artifact children).
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
+
+
+# =========================================================================
+# deterministic provenance timestamp (the manifest created_at)
+# =========================================================================
+#
+# A written conversation.v1 manifest carries a ``created_at``. For a DETERMINISTIC
+# replay (same scenario -> same seeds -> byte-identical artifact) the default
+# MUST NOT be the wall clock, or two seeded runs of the same matrix diverge on
+# that one field alone. So the default is a fixed, reproducible instant, honoring
+# the reproducible-builds ``SOURCE_DATE_EPOCH`` convention:
+#
+#   explicit caller value  >  $SOURCE_DATE_EPOCH  >  fixed default (epoch 0)
+#
+# A caller who genuinely wants the mint wall-clock (e.g. a one-off `hotato
+# simulate ... --out`) passes it explicitly; run_matrix's own default stays
+# reproducible so the "simulate hundreds -> byte-identical" contract holds for
+# the WRITTEN artifacts, not just the summary.
+_DEFAULT_SOURCE_DATE_EPOCH = 0  # 1970-01-01T00:00:00Z -- an obvious placeholder
+
+
+def resolve_source_date_epoch(explicit: Optional[int] = None) -> int:
+    """Resolve the reproducible-build epoch (integer seconds since 1970 UTC) used
+    for a deterministic artifact's ``created_at``. ``explicit`` wins; else the
+    ``SOURCE_DATE_EPOCH`` environment variable (the reproducible-builds
+    convention); else a fixed default (epoch 0) -- NEVER the wall clock, so two
+    seeded runs are byte-identical. Raises ``ValueError`` on a non-integer env
+    value."""
+    if explicit is not None:
+        return int(explicit)
+    env = os.environ.get("SOURCE_DATE_EPOCH")
+    if env is not None and env.strip() != "":
+        try:
+            return int(env.strip())
+        except ValueError as exc:
+            raise ValueError(
+                "SOURCE_DATE_EPOCH must be an integer number of seconds since "
+                f"the Unix epoch, got {env!r}"
+            ) from exc
+    return _DEFAULT_SOURCE_DATE_EPOCH
+
+
+def _epoch_to_iso(epoch: int) -> str:
+    """Format an integer epoch (seconds, UTC) as the ``%Y-%m-%dT%H:%M:%SZ`` string
+    the conversation.v1 manifest's ``created_at`` uses."""
+    return _dt.datetime.fromtimestamp(
+        int(epoch), _dt.timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def deterministic_created_at(explicit: Optional[str] = None) -> str:
+    """The manifest ``created_at`` for a deterministic replay: the caller's
+    explicit ISO string when given, else a reproducible instant derived from
+    :func:`resolve_source_date_epoch` (NEVER the wall clock)."""
+    if explicit is not None:
+        return explicit
+    return _epoch_to_iso(resolve_source_date_epoch())
 
 
 # =========================================================================
@@ -838,6 +897,7 @@ def run_matrix(
     conversation_test: Optional[Dict[str, Any]] = None,
     out_dir: Optional[str] = None,
     max_workers: Optional[int] = None,
+    created_at: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run a scenario's FULL variation matrix in parallel -- the Phase-2
     "simulate hundreds of scenarios" deterministic exit -- and return a
@@ -855,12 +915,17 @@ def run_matrix(
     Phase-1 assert layer; NO live agent) into a per-run pass/fail/inconclusive.
 
     DETERMINISM UNDER PARALLELISM (scoped: "same scenario -> same seeds ->
-    byte-identical summary", never "the model is deterministic" -- there is no
-    model): per-run seeds are pure hashes from :func:`expand`, no mutable state
-    is shared across workers, and every collected result is SORTED
-    deterministically (runs by index, cells by variation tuple) before the
-    summary is built. The returned summary is therefore byte-identical regardless
-    of ``max_workers`` or worker completion order.
+    byte-identical summary AND byte-identical written artifacts", never "the model
+    is deterministic" -- there is no model): per-run seeds are pure hashes from
+    :func:`expand`, no mutable state is shared across workers, and every collected
+    result is SORTED deterministically (runs by index, cells by variation tuple)
+    before the summary is built. The returned summary is therefore byte-identical
+    regardless of ``max_workers`` or worker completion order. The WRITTEN
+    conversation.v1 artifacts are byte-identical too: the transcript/trace carry
+    no timestamp, and the manifest ``created_at`` defaults to a reproducible
+    instant (``SOURCE_DATE_EPOCH``-style, never the wall clock). Pass
+    ``created_at`` (an ISO-8601 string) to pin the manifest timestamp explicitly;
+    omit it for the reproducible default.
 
     HONESTY INVARIANTS (structural): every produced artifact is
     ``origin=simulated`` (never real, never merged into a real bucket); a run
@@ -905,10 +970,13 @@ def run_matrix(
     workers = _default_workers(len(runs)) if max_workers is None else max(
         1, int(max_workers))
 
-    # A single, caller-independent created_at for every written manifest. It is
-    # NEVER placed in the summary, so the summary stays byte-identical across
-    # calls even though a manifest records when it was minted.
-    created_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # A single created_at stamped on every written manifest. It DEFAULTS to a
+    # reproducible instant (SOURCE_DATE_EPOCH-style, never the wall clock) so two
+    # seeded runs of the same matrix write byte-identical conversation.json --
+    # the "simulate hundreds -> byte-identical" contract must hold for the WRITTEN
+    # artifacts, not only the summary. A caller who wants the real mint time
+    # passes ``created_at`` explicitly.
+    created_at = deterministic_created_at(created_at)
     if out_dir is not None:
         os.makedirs(out_dir, exist_ok=True)
 
