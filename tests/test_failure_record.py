@@ -322,6 +322,52 @@ def test_absolute_paths_are_scrubbed_out_of_summaries():
     FR.validate_record(record)
 
 
+def test_windows_and_unc_absolute_paths_are_scrubbed_out_of_summaries():
+    # A Windows drive path, a UNC path, and a mixed-separator path -- all
+    # EMBEDDED inside a sentence, none at the start -- must be scrubbed just
+    # like a POSIX absolute path, and the projected record must still validate.
+    rows = [det_row(
+        "state-check", "state", "FAIL", dimension="outcome",
+        reason=(r"state adapter query for C:\Users\alice\secret\db.json and "
+                r"\\fileserver\private\creds.json (mixed C:\a/b\c.txt) failed"))]
+    record = FR.project(make_test_run(rows))
+    observed = record["dimensions"]["outcome"]["assertions"][0]["observed"]
+    assert "C:\\Users" not in observed
+    assert "alice" not in observed
+    assert "fileserver" not in observed
+    assert "creds.json" not in observed
+    assert "[path]" in observed
+    FR.validate_record(record)
+
+
+@pytest.mark.parametrize("planted", [
+    r"failure at C:\Users\alice\secret\db.json during replay",
+    r"see \\fileserver\share\private\evidence.json for detail",
+    "the log said /var/log/hotato/secret.log was truncated mid-sentence",
+    r"mixed C:\a/b\c.txt embedded here",
+])
+def test_embedded_absolute_path_anywhere_is_refused(planted):
+    # The share-safe profile forbids an absolute path ANYWHERE in the record,
+    # not only as a value that STARTS with one. A drive/UNC/POSIX path smuggled
+    # mid-sentence into any string field must be refused by the oracle.
+    record = FR.project(make_test_run())
+    record["headline"] = planted
+    record["record_id"] = FR.compute_record_id(record)
+    with pytest.raises(ValueError) as err:
+        FR.validate_record(record)
+    assert "absolute path embedded" in str(err.value)
+
+
+def test_relative_locators_are_not_mistaken_for_absolute_paths():
+    # The embedded detector must NOT flag legitimate relative locators or
+    # media types (their separators are preceded by a path/segment character).
+    record = FR.project(make_test_run())
+    # sanity: the reference record carries relative locators + media types.
+    strings = [v for _p, v in FR._walk(record) if isinstance(v, str)]
+    assert any("/" in s for s in strings)  # e.g. "application/json"
+    FR.validate_record(record)
+
+
 def test_privacy_flags_are_all_false_by_construction():
     record = FR.project(make_test_run())
     for field in FR.PRIVACY_FALSE_FIELDS:

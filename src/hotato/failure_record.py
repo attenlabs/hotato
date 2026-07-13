@@ -142,9 +142,24 @@ _ARTIFACT_EVIDENCE = {
 _SUMMARY_LIMIT = 240
 
 # Path-like substrings are scrubbed out of evaluator reason text before it
-# enters the record: an exception message can embed an absolute filesystem
-# path, and the safe projection excludes absolute paths outright.
-_ABS_PATH_RE = re.compile(r"(?:[A-Za-z]:)?(?:/[^\s/'\":]+){2,}/?|~(?:/[^\s/'\":]+)+/?")
+# enters the record, and refused ANYWHERE in the record at validation time: an
+# exception message can embed an absolute filesystem path, and the safe
+# projection excludes absolute paths outright. Recognizes a POSIX root, a ``~``
+# home path, a Windows drive path (``C:\``), and a UNC path
+# (``\\server\share``) -- either separator, mixed, and EMBEDDED mid-sentence,
+# not only as a value that starts with one. The leading boundary keeps it off
+# relative locators (``artifacts/foo/bar``, ``application/json``) and URL
+# schemes (``https://...``), whose separators are preceded by a path/segment
+# character.
+_PATH_SEG = r"[^\s\\/'\":]+"
+_ABS_PATH_RE = re.compile(
+    r"(?<![\w.~/\\-])(?:"
+    r"[A-Za-z]:[\\/](?:" + _PATH_SEG + r"[\\/]?)*"             # C:\...  /  C:/...
+    r"|\\\\" + _PATH_SEG + r"(?:[\\/]" + _PATH_SEG + r")*[\\/]?"  # \\server\share\...
+    r"|~(?:[\\/]" + _PATH_SEG + r")+[\\/]?"                     # ~/...
+    r"|(?:[\\/]" + _PATH_SEG + r"){2,}[\\/]?"                  # /a/b  /  \a\b (mixed)
+    r")"
+)
 
 
 class NoFailureError(ValueError):
@@ -1071,6 +1086,15 @@ def _looks_absolute(text: str) -> bool:
     return text.startswith(("/", "\\")) or bool(re.match(r"^[A-Za-z]:[\\/]", text))
 
 
+def _has_absolute_path(text: str) -> bool:
+    """True if *text* IS, or CONTAINS anywhere, an absolute filesystem path: a
+    POSIX root, a ``~`` home path, a Windows drive path (``C:\\``), or a UNC
+    path (``\\\\server``) -- start-anchored OR embedded mid-sentence, with
+    either separator. The share-safe profile forbids all of them, so the
+    privacy scan refuses a record that smuggles one into any string field."""
+    return _looks_absolute(text) or bool(_ABS_PATH_RE.search(text))
+
+
 def validate_record(record: Dict[str, Any], *, root: Optional[str] = None) -> List[str]:
     """Verify one Failure Record against the reference conformance oracle:
     the closed top-level contract, content address, five separate lanes with
@@ -1197,7 +1221,7 @@ def validate_record(record: Dict[str, Any], *, root: Optional[str] = None) -> Li
         if privacy.get(field) is not False:
             raise ValueError(f"share-safe privacy field must be false: {field}")
     for path, value in _walk(record):
-        if isinstance(value, str) and _looks_absolute(value):
+        if isinstance(value, str) and _has_absolute_path(value):
             raise ValueError(f"absolute path embedded at {path}")
     checks.append("share-safe privacy profile")
 
