@@ -1,0 +1,29 @@
+{
+  "kind": "hotato.atlas-contract.v1",
+  "version": "1.0",
+  "family": "turn-intent-discriminator",
+  "spec_version": "v1",
+  "capability": "turn_intent_discriminator",
+  "fix_class": "engagement-control",
+  "title": "Turn-intent discriminator",
+  "summary": "Required when a paired battery shows an addressed floor bid the agent missed AND a false trigger on an ADDRESSED backchannel (feedback like \"mhm\", \"right\", \"okay\" that the caller directed at the agent but never intended to take the floor with). Both events in the pair are addressed to the agent; what the agent needs is a way to tell floor-taking intent apart from feedback intent, not a way to filter non-addressed speech. This is the capability the funnel-demo battery's own paired evidence (fd-01 + fd-02) routes to -- see /failures/patterns/addressed-backchannel-yielded/.",
+  "acceptance_tests": [
+    "addressed_feedback_does_not_take_floor",
+    "opposite_risk_fixture_does_not_regress"
+  ],
+  "excluded_causes": [
+    "self_echo",
+    "non_speech_ambient",
+    "invalid_channel_map",
+    "unscorable_input"
+  ],
+  "missing_evidence_axes": [],
+  "spec_uri": "https://hotato.dev/spec/capability-requirement/v1",
+  "backchannel_exclusion": false,
+  "related_pattern_classes": [
+    "addressed-interruption-missed",
+    "addressed-backchannel-yielded"
+  ],
+  "recorded_date": "2026-07-13",
+  "content_digest": "sha256:1bcf4586f7ba687c03da770b19e6e12bba1b1b3d59e13b571e530e54525eb1d8"
+}

@@ -1,0 +1,18 @@
+{
+  "kind": "hotato.atlas-implementation.v1",
+  "version": "1.0",
+  "implementation_id": "utterance-addressee-gate-generic",
+  "capability": "utterance_addressee_gate",
+  "stack": "generic",
+  "title": "Addressee gate ahead of the yield decision (generic)",
+  "approach": "Insert an addressee-classification step between VAD/ASR onset detection and the turn-taking controller's yield decision. Speech energy on the caller channel is not, by itself, evidence the speech was directed at the agent -- it may be side conversation, a phone call in the background, or speech to a third party in the room. The gate evaluates whether detected speech is addressed to the agent using signals independent of simple audio energy (for example: acoustic proximity/orientation cues, or an explicit push-to-talk / wake-phrase channel where the stack has one), and only speech classified as addressed is forwarded to the controller as a candidate floor-taking or interruption event.",
+  "integration_points": [
+    "sits between the VAD/ASR event stream and the turn-taking controller's yield decision",
+    "requires an addressee signal the controller does not otherwise have (proximity/orientation, explicit push-to-talk, or an equivalent addressed-speech channel) -- this is the part current energy-only VAD pipelines are missing",
+    "emits an addressed_to_agent classification (true | false | unknown) per caller utterance onset; only true is forwarded as a floor-taking event, unknown degrades to the existing energy-only behavior rather than guessing"
+  ],
+  "status": "documented",
+  "verified_against": [],
+  "recorded_date": "2026-07-13",
+  "content_digest": "sha256:6686150920c47aab15f61193cefe88172d5670126eb48292042df890d9a0b564"
+}

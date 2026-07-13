@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schemas/atlas-implementation.v1.schema.json",
+  "title": "Hotato Voice Failure Atlas implementation recipe v1",
+  "description": "A typed source for one neutral, per-stack implementation recipe for an engagement-control capability. approach/title/summary text is lint-checked by the atlas builder and tests against a vendor/product blocklist: a Hotato verdict never names an implementation, and this recipe describes an architecture pattern, not a product. status=evidenced requires verified_against to name at least one atlas record the builder independently confirms the real router actually routed to this capability; status=documented carries no evidence claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind", "version", "implementation_id", "capability", "stack", "title",
+    "approach", "integration_points", "status", "verified_against", "recorded_date",
+    "content_digest"
+  ],
+  "properties": {
+    "kind": { "const": "hotato.atlas-implementation.v1" },
+    "version": { "const": "1.0" },
+    "implementation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "capability": {
+      "enum": ["engagement_control", "utterance_addressee_gate", "turn_intent_discriminator"]
+    },
+    "stack": {
+      "enum": ["generic", "vapi", "twilio", "livekit", "pipecat", "retell"]
+    },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "approach": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "integration_points": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    },
+    "status": { "enum": ["documented", "evidenced"] },
+    "verified_against": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+      "uniqueItems": true
+    },
+    "recorded_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "content_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "documented" } }, "required": ["status"] },
+      "then": { "properties": { "verified_against": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "evidenced" } }, "required": ["status"] },
+      "then": { "properties": { "verified_against": { "minItems": 1 } } }
+    }
+  ]
+}

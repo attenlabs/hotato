@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schemas/atlas-record.v1.schema.json",
+  "title": "Hotato Voice Failure Atlas record v1",
+  "description": "A typed source for one Voice Failure Atlas page. NEVER a source of new numbers: it carries a real hotato.failure-record.v1 projection (produced by an actual `hotato` CLI run against a bundled, share-safe fixture) plus the routing-fixture event the capability router reads, publication-gate metadata, and a content digest. The atlas builder computes the capability verdict by CALLING the real router (hotato.capability_routing.route_capability) over routing_fixture + its siblings; this schema never carries a pre-baked capability verdict, so a typed source cannot assert a routing outcome the code itself did not derive.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "version",
+    "content_id",
+    "pattern_class",
+    "title",
+    "summary",
+    "stack",
+    "origin",
+    "recorded_date",
+    "release",
+    "routing_fixture",
+    "interface_conformance",
+    "behavioral_evidence",
+    "failure_record",
+    "evidence_provenance",
+    "cli_transcript",
+    "content_digest"
+  ],
+  "properties": {
+    "kind": { "const": "hotato.atlas-record.v1" },
+    "version": { "const": "1.0" },
+    "content_id": { "$ref": "#/$defs/slug" },
+    "pattern_class": { "$ref": "#/$defs/slug" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "stack": {
+      "enum": ["generic", "vapi", "twilio", "livekit", "pipecat", "retell"]
+    },
+    "origin": {
+      "enum": ["fixture", "synthetic", "benchmark", "cleared-captured"]
+    },
+    "recorded_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "paired_with": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/slug" },
+      "uniqueItems": true
+    },
+    "release": { "$ref": "#/$defs/release" },
+    "routing_fixture": { "$ref": "#/$defs/routingFixture" },
+    "interface_conformance": { "$ref": "#/$defs/interfaceConformance" },
+    "behavioral_evidence": { "$ref": "#/$defs/behavioralEvidence" },
+    "failure_record": { "$ref": "#/$defs/embeddedFailureRecord" },
+    "evidence_provenance": { "$ref": "#/$defs/evidenceProvenance" },
+    "cli_transcript": {
+      "description": "Verbatim CLI output for every command listed in evidence_provenance.source_cli_commands, in the docs/TRUST-GALLERY.md worked-example style: a real command run against the bundled fixture, and its exact stdout. Never hand-typed or paraphrased.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "output"],
+        "properties": {
+          "command": { "type": "string", "minLength": 1, "maxLength": 400 },
+          "output": { "type": "string", "minLength": 1, "maxLength": 8000 }
+        }
+      }
+    },
+    "content_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_permission",
+        "consent_and_rights_attestation",
+        "license",
+        "share_safe_profile"
+      ],
+      "properties": {
+        "release_permission": { "const": true },
+        "consent_and_rights_attestation": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "license": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "share_safe_profile": { "const": "share-safe-v1" }
+      }
+    },
+    "routingFixture": {
+      "description": "hotato.routing-fixture.v1 (see src/hotato/capability_routing.py). The atlas record's own event; the builder pairs it with sibling records named in paired_with (matched by battery_id/configuration_id) before calling the real router.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind", "event_id", "battery_id", "configuration_id", "scorable",
+        "expected_behavior", "observed_behavior", "failure", "input_health",
+        "interaction"
+      ],
+      "properties": {
+        "kind": { "const": "hotato.routing-fixture.v1" },
+        "event_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "battery_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "configuration_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "scorable": { "type": "boolean" },
+        "expected_behavior": { "enum": ["yield", "hold"] },
+        "observed_behavior": { "enum": ["yield", "hold"] },
+        "failure": { "enum": ["missed_interruption", "false_trigger"] },
+        "input_health": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["self_echo", "non_speech_ambient", "invalid_channel_map"],
+          "properties": {
+            "self_echo": { "type": "boolean" },
+            "non_speech_ambient": { "type": "boolean" },
+            "invalid_channel_map": { "type": "boolean" }
+          }
+        },
+        "interaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "speech_presence", "addressed_to_agent", "floor_intent", "label_authority"],
+          "properties": {
+            "kind": { "const": "hotato.interaction-label.v1" },
+            "speech_presence": { "enum": ["speech", "non-speech", "unknown"] },
+            "addressed_to_agent": { "type": ["boolean", "null"] },
+            "floor_intent": { "enum": ["take", "feedback", "none", "unknown"] },
+            "label_authority": { "enum": ["human", "trusted-source", "fixture", "unknown"] },
+            "label_ref": { "type": ["string", "null"], "maxLength": 512 }
+          }
+        }
+      }
+    },
+    "interfaceConformance": {
+      "description": "Whether the input STRUCTURALLY conforms to what the engine can score at all (channel map, scorability). Kept separate from behavioral_evidence: a call can conform perfectly and still fail behaviorally, or vice versa.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "scorable", "input_health"],
+      "properties": {
+        "status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+        "scorable": { "type": "boolean" },
+        "input_health": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["self_echo", "non_speech_ambient", "invalid_channel_map"],
+          "properties": {
+            "self_echo": { "type": "boolean" },
+            "non_speech_ambient": { "type": "boolean" },
+            "invalid_channel_map": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "behavioralEvidence": {
+      "description": "The measured timing behavior itself, straight from a real `hotato run` / `hotato contract verify` result. Kept separate from interface_conformance.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_behavior", "observed_behavior", "did_yield", "seconds_to_yield", "talk_over_sec"],
+      "properties": {
+        "expected_behavior": { "enum": ["yield", "hold"] },
+        "observed_behavior": { "enum": ["yield", "hold"] },
+        "did_yield": { "type": "boolean" },
+        "seconds_to_yield": { "type": ["number", "null"] },
+        "talk_over_sec": { "type": ["number", "null"] }
+      }
+    },
+    "embeddedFailureRecord": {
+      "description": "A real hotato.failure-record.v1 document, byte-identical to what `hotato record render` wrote. Structurally re-validated against schema/failure-record.v1.json by the atlas builder and tests; this schema only pins its kind/version/status here so a wildly wrong object cannot slip through atlas-record validation alone.",
+      "type": "object",
+      "required": ["kind", "version", "record_id", "status", "dimensions"],
+      "properties": {
+        "kind": { "const": "hotato.failure-record.v1" },
+        "version": { "const": "1.0" },
+        "record_id": { "$ref": "#/$defs/digest" },
+        "status": { "enum": ["FAIL", "INCONCLUSIVE", "ERROR"] },
+        "dimensions": {
+          "type": "object",
+          "required": ["outcome", "policy", "conversation", "speech", "reliability"]
+        }
+      }
+    },
+    "evidenceProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_cli_commands", "fixture_paths"],
+      "properties": {
+        "source_cli_commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1, "maxLength": 400 }
+        },
+        "fixture_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "maxLength": 240,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?![A-Za-z]:).+$"
+          }
+        }
+      }
+    }
+  }
+}

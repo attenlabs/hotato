@@ -1,0 +1,29 @@
+{
+  "kind": "hotato.atlas-contract.v1",
+  "version": "1.0",
+  "family": "utterance-addressee-gate",
+  "spec_version": "v1",
+  "capability": "utterance_addressee_gate",
+  "fix_class": "engagement-control",
+  "title": "Utterance addressee gate",
+  "summary": "Required when a paired battery shows an addressed floor bid the agent missed AND a false trigger on speech that was NOT addressed to the agent (an addressee the agent should have filtered before its turn-taking logic ever saw a floor-take signal). This capability is explicitly NOT about addressed backchannels: an addressed \"mhm\" is in scope, not this gate. As of this Atlas build, the bundled share-safe funnel-demo battery contains no cleared paired fixture with an explicit non-addressed-speech label, so no record in this Atlas is indexed under this capability yet (0 of 2 bundled records qualify) -- see /failures/patterns/side-speech-triggered-agent/ for the open, unindexed pattern page and what evidence would clear it.",
+  "acceptance_tests": [
+    "addressed_interruption_reaches_agent",
+    "non_addressed_speech_does_not_reach_agent",
+    "opposite_risk_fixture_does_not_regress"
+  ],
+  "excluded_causes": [
+    "self_echo",
+    "non_speech_ambient",
+    "invalid_channel_map",
+    "unscorable_input"
+  ],
+  "missing_evidence_axes": [],
+  "spec_uri": "https://hotato.dev/spec/capability-requirement/v1",
+  "backchannel_exclusion": true,
+  "related_pattern_classes": [
+    "side-speech-triggered-agent"
+  ],
+  "recorded_date": "2026-07-13",
+  "content_digest": "sha256:8a752a979e1955608e1e6d2993429c41db3e4e9ba3e40d8a84fb7d23c8765d59"
+}

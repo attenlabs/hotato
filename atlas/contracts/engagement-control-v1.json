@@ -1,0 +1,30 @@
+{
+  "kind": "hotato.atlas-contract.v1",
+  "version": "1.0",
+  "family": "engagement-control",
+  "spec_version": "v1",
+  "capability": "engagement_control",
+  "fix_class": "engagement-control",
+  "title": "Engagement control: insufficient labels to route a capability",
+  "summary": "One engagement-control timing threshold can fail in both directions, so a lone \"the agent talked over me\" or \"the agent cut in\" report does not, on its own, say which mechanism to fix. This is the umbrella contract Hotato's router falls back to whenever a paired addressed-miss and opposite-risk event exists but one or both events lack a trusted addressee/intent label: it names the missing axes instead of guessing a capability.",
+  "acceptance_tests": [
+    "collect_trusted_addressee_label"
+  ],
+  "excluded_causes": [
+    "self_echo",
+    "non_speech_ambient",
+    "invalid_channel_map",
+    "unscorable_input"
+  ],
+  "missing_evidence_axes": [
+    "addressed_to_agent",
+    "floor_intent",
+    "label_authority",
+    "opposite_risk_fixture"
+  ],
+  "spec_uri": "https://hotato.dev/spec/capability-requirement/v1",
+  "backchannel_exclusion": false,
+  "related_pattern_classes": [],
+  "recorded_date": "2026-07-13",
+  "content_digest": "sha256:5b5de7462a32b7718fd77f137a75e734494402b626305d566eecd666865d60b1"
+}

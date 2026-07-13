@@ -64,6 +64,10 @@ corpus/classes/*/audio/
 examples/reference-agent/.workspace/
 examples/reference-agent/.out/
 
+# Voice Failure Atlas (delta D5): scripts/build_atlas.py renders atlas/*
+# typed sources into this static site, deterministically. Never committed.
+_atlas_site/
+
 # local QA/scratch artifacts
 .hotato/
 hotato-analyze*.html
