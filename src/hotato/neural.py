@@ -120,4 +120,36 @@ def build_silero_backend() -> Callable[[List[float], int, float, int], List[bool
     return _activity
 
 
-__all__ = ["build_silero_backend"]
+# Stable identity of the OPTIONAL, NON-REFERENCE neural VAD backend. A result
+# produced with ``--backend neural`` carries this descriptor so the
+# reference-vs-non-reference backend is IDENTIFIED in provenance -- never left
+# indistinguishable from the deterministic energy reference. ``reference`` is
+# False by construction: the energy backend yields every published/golden/bundled
+# number and is the default, so an energy run carries NO such block and its
+# output stays byte-identical.
+NEURAL_BACKEND = "neural"
+NEURAL_MODEL = "silero-vad"
+
+
+def neural_backend_provenance() -> dict:
+    """Provenance descriptor naming the neural VAD backend (a fresh dict per call).
+
+    Present on a result ONLY when the neural backend actually produced a track;
+    the energy reference (the default) attaches nothing, so its bytes are
+    unchanged. ``reference: False`` states plainly that this is the non-reference
+    cross-check, not the number-of-record backend.
+    """
+    return {
+        "backend": NEURAL_BACKEND,
+        "model": NEURAL_MODEL,
+        "runtime": "onnxruntime-cpu",
+        "reference": False,
+    }
+
+
+__all__ = [
+    "build_silero_backend",
+    "neural_backend_provenance",
+    "NEURAL_BACKEND",
+    "NEURAL_MODEL",
+]
