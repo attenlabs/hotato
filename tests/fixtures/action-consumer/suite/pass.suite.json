@@ -1,0 +1,12 @@
+{
+  "inconclusive_policy": "fail",
+  "kind": "hotato.suite",
+  "name": "Action consumer fixture suite (all passing)",
+  "purpose": "Conformance fixture for the root GitHub Action: a single offline simulated conversation test that passes, so the all-pass summary and the zero exit are exercised end to end.",
+  "required_for_release": true,
+  "suite_id": "action-consumer-pass-suite",
+  "tests": [
+    "tests/faq-store-hours.test.json"
+  ],
+  "version": 1
+}

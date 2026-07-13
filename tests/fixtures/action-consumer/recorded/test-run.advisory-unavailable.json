@@ -1,0 +1,210 @@
+{
+  "kind": "hotato.test-run",
+  "version": 1,
+  "test_id": "refund-flow",
+  "agent": "consumer-agent",
+  "inconclusive_policy": "report",
+  "exit_code": 0,
+  "success": {
+    "required": [
+      "all_deterministic_assertions_pass",
+      "no_rubric_failure"
+    ],
+    "conditions": {
+      "all_deterministic_assertions_pass": true,
+      "no_rubric_failure": false
+    },
+    "passed": true,
+    "rubric_gated": false
+  },
+  "assertions": {
+    "schema": "assert.v1",
+    "exit_code": 0,
+    "inconclusive_policy": "report",
+    "results": [
+      {
+        "id": "disclosure-said",
+        "kind": "phrase",
+        "deterministic": true,
+        "dimension": "policy",
+        "status": "PASS"
+      },
+      {
+        "id": "refund-tool-called",
+        "kind": "tool_call",
+        "deterministic": true,
+        "dimension": "outcome",
+        "status": "PASS",
+        "span_ids": [
+          "s_1"
+        ]
+      },
+      {
+        "id": "lookup-then-refund",
+        "kind": "sequence",
+        "deterministic": true,
+        "dimension": "conversation",
+        "status": "PASS",
+        "span_ids": [
+          "s_0",
+          "s_1"
+        ]
+      },
+      {
+        "id": "refund-latency",
+        "kind": "latency",
+        "deterministic": true,
+        "dimension": "speech",
+        "measured_ms": 420,
+        "span_ids": [
+          "s_1"
+        ],
+        "status": "PASS"
+      }
+    ],
+    "summary": {
+      "deterministic": {
+        "pass": 4,
+        "fail": 0,
+        "inconclusive": 0
+      },
+      "judge": {
+        "pass": 0,
+        "fail": 0
+      },
+      "note": "inconclusive_policy=report: 4 pass, 0 fail, 0 inconclusive across 4 deterministic assertion(s); 0 judge-scored assertions (a judge kind is a separate, quarantined capability, not built here)"
+    }
+  },
+  "rubric": {
+    "schema": "rubric.v1",
+    "exit_code": 0,
+    "advisory": true,
+    "gated": false,
+    "results": [
+      {
+        "id": "was-empathetic",
+        "kind": "rubric",
+        "deterministic": false,
+        "dimension": "conversation",
+        "input_refs": {
+          "transcript_sha256": "90a451e4af559873e4938d699c2813cc333dcb8012d5367bcd472bfb9c9bfa42",
+          "trace_sha256": "89ae910fe9a3e2885930f3234f8757d7d7c0fbfd52f3b33007bd92b7efd5b325"
+        },
+        "status": "ERROR",
+        "rationale": "judge backend failed: ollama endpoint 'http://127.0.0.1:9/api/chat' unreachable: <urlopen error [Errno 111] Connection refused>",
+        "review": {
+          "human_required": false,
+          "reasons": []
+        },
+        "judge": {
+          "model": "qwen2.5vl:3b",
+          "model_digest": null,
+          "provider": "ollama",
+          "prompt_id": "rubric/categorical-verdict",
+          "prompt_version": 1,
+          "prompt_sha256": "4f251f3b1580cabc418cb1f26769dc991ca279bb10235f5fbbc68252231ddea7",
+          "temperature": 0,
+          "input_sha256": "9f5a67f1e100a18f6db72aa9a0a1761b309bc5f754c17d19fdd0a31a131d022f",
+          "cache_key": "3224ec24ab50e6aca90ea1430e09f876f343d7c88c688fa31018e6af8d5ae99a",
+          "cached": false,
+          "votes": [],
+          "repetitions": 1,
+          "aggregation": "unanimous_or_inconclusive",
+          "disagreement": false,
+          "confidence": 0.0,
+          "confidence_required": 0.85,
+          "citations": []
+        }
+      }
+    ],
+    "summary": {
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0,
+      "error": 1,
+      "note": "0 pass, 0 fail, 0 inconclusive, 1 error across 1 rubric result(s); model-judged (advisory), deterministic:false, never merged into the deterministic counts and never a blended or overall number. ADVISORY: no verdict gates CI."
+    }
+  },
+  "dimensions": {
+    "outcome": {
+      "pass": 1,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": [
+        "refund-tool-called"
+      ]
+    },
+    "policy": {
+      "pass": 1,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": [
+        "disclosure-said"
+      ]
+    },
+    "conversation": {
+      "pass": 1,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": [
+        "lookup-then-refund"
+      ]
+    },
+    "speech": {
+      "pass": 1,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": [
+        "refund-latency"
+      ]
+    },
+    "reliability": {
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": []
+    }
+  },
+  "reliability": {
+    "aggregate": {
+      "pass_at_1": 1.0,
+      "pass_at_k": 1.0,
+      "pass_caret_k": 1.0,
+      "n": 1,
+      "k": 1,
+      "passes": 1,
+      "ci": {
+        "low": 0.206543,
+        "high": 1.0,
+        "method": "wilson",
+        "z": 1.96
+      },
+      "note": "reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; the lane has zero variance, so pass^k == pass@1 -- reported honestly, not fabricated variance"
+    },
+    "origin": "real",
+    "runs": 1,
+    "basis": "agent_deterministic_replay",
+    "note": "reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; the lane has zero variance, so pass^k == pass@1 -- reported honestly, not fabricated variance",
+    "per_run": [
+      {
+        "run": 1,
+        "exit_code": 0,
+        "passed": true
+      }
+    ]
+  },
+  "repetitions": {
+    "runs": 1,
+    "per_run": [
+      {
+        "run": 1,
+        "exit_code": 0,
+        "summary": {
+          "pass": 4,
+          "fail": 0,
+          "inconclusive": 0
+        }
+      }
+    ]
+  }
+}

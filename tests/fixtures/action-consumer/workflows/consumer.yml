@@ -1,0 +1,33 @@
+# The consumer workflow shape for the root Action, exercised against the
+# local checkout through the `uses: ./` Action-path fixture mechanism. This
+# exact job runs in hotato's own CI (job `action-smoke` in
+# .github/workflows/tests.yml). A consumer repository uses the same shape
+# with a pinned revision of attenlabs/hotato instead of `./`; docs/CI.md has
+# the copy-paste version with the pinning rule.
+name: conversation QA (fixture consumer)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conversation-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: hotato
+        uses: ./
+        with:
+          suite: tests/fixtures/action-consumer/suite/consumer.suite.json
+          agent: consumer-agent
+          output: .hotato/results
+      # Artifact upload is an explicit consumer step, pinned by full commit
+      # SHA; the Action itself never uploads.
+      - if: always()
+        uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+        with:
+          name: hotato-conversation-qa
+          path: ${{ steps.hotato.outputs.output }}
+          if-no-files-found: error

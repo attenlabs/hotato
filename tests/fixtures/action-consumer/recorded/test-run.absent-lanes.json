@@ -1,0 +1,144 @@
+{
+  "kind": "hotato.test-run",
+  "version": 1,
+  "test_id": "two-lane-flow",
+  "agent": "consumer-agent",
+  "inconclusive_policy": "report",
+  "exit_code": 0,
+  "success": {
+    "required": [
+      "all_deterministic_assertions_pass"
+    ],
+    "conditions": {
+      "all_deterministic_assertions_pass": true
+    },
+    "passed": true,
+    "rubric_gated": false
+  },
+  "assertions": {
+    "schema": "assert.v1",
+    "exit_code": 0,
+    "inconclusive_policy": "report",
+    "results": [
+      {
+        "id": "disclosure-said",
+        "kind": "phrase",
+        "deterministic": true,
+        "dimension": "policy",
+        "status": "PASS"
+      },
+      {
+        "id": "caller-spoke",
+        "kind": "count",
+        "deterministic": true,
+        "dimension": "conversation",
+        "observed": 1,
+        "status": "PASS"
+      }
+    ],
+    "summary": {
+      "deterministic": {
+        "pass": 2,
+        "fail": 0,
+        "inconclusive": 0
+      },
+      "judge": {
+        "pass": 0,
+        "fail": 0
+      },
+      "note": "inconclusive_policy=report: 2 pass, 0 fail, 0 inconclusive across 2 deterministic assertion(s); 0 judge-scored assertions (a judge kind is a separate, quarantined capability, not built here)"
+    }
+  },
+  "rubric": {
+    "schema": "rubric.v1",
+    "exit_code": 0,
+    "advisory": true,
+    "gated": false,
+    "results": [],
+    "summary": {
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0,
+      "error": 0,
+      "note": "0 pass, 0 fail, 0 inconclusive, 0 error across 0 rubric result(s); model-judged (advisory), deterministic:false, never merged into the deterministic counts and never a blended or overall number. ADVISORY: no verdict gates CI."
+    }
+  },
+  "dimensions": {
+    "outcome": {
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": []
+    },
+    "policy": {
+      "pass": 1,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": [
+        "disclosure-said"
+      ]
+    },
+    "conversation": {
+      "pass": 1,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": [
+        "caller-spoke"
+      ]
+    },
+    "speech": {
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": []
+    },
+    "reliability": {
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0,
+      "ids": []
+    }
+  },
+  "reliability": {
+    "aggregate": {
+      "pass_at_1": 1.0,
+      "pass_at_k": 1.0,
+      "pass_caret_k": 1.0,
+      "n": 1,
+      "k": 1,
+      "passes": 1,
+      "ci": {
+        "low": 0.206543,
+        "high": 1.0,
+        "method": "wilson",
+        "z": 1.96
+      },
+      "note": "reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; the lane has zero variance, so pass^k == pass@1 -- reported honestly, not fabricated variance"
+    },
+    "origin": "real",
+    "runs": 1,
+    "basis": "agent_deterministic_replay",
+    "note": "reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; the lane has zero variance, so pass^k == pass@1 -- reported honestly, not fabricated variance",
+    "per_run": [
+      {
+        "run": 1,
+        "exit_code": 0,
+        "passed": true
+      }
+    ]
+  },
+  "repetitions": {
+    "runs": 1,
+    "per_run": [
+      {
+        "run": 1,
+        "exit_code": 0,
+        "summary": {
+          "pass": 2,
+          "fail": 0,
+          "inconclusive": 0
+        }
+      }
+    ]
+  }
+}

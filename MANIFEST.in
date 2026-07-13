@@ -1,4 +1,8 @@
 include README.md LICENSE SECURITY.md CHANGELOG.md CONTRIBUTING.md METHODOLOGY.md llms.txt llms-full.txt sync_engine.py server.json CITATION.cff
+# The root composite GitHub Action: the shipped tests
+# (tests/test_action_consumer.py) parse and pin-check it, so the sdist must
+# carry it or the sdist-guard reddens on a file the checkout always has.
+include action.yml
 recursive-include docs *
 prune docs/assets
 recursive-include adapters *

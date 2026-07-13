@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Added
+- A root composite GitHub Action (`action.yml`): a repository with no hotato
+  source runs a committed suite, conversation test, or contract verification,
+  gets a five-lane job summary on pass and on failure, reads artifact paths
+  from step outputs, and gates on hotato's own exit code. The default run
+  installs the pinned Action revision itself with `--no-deps` (no package
+  index, no model, no ASR, no Node tool, no external judge) and needs only
+  `permissions: contents: read`; artifact upload stays an explicit consumer
+  step. A conformance fixture (`tests/fixtures/action-consumer/`) plus a
+  local harness (`tests/test_action_consumer.py`) cover pass, mixed-fail,
+  inconclusive, absent-lane, advisory-unavailable, malformed, and
+  path-with-spaces cases against recorded machine results, and the
+  `action-smoke` CI job runs the consumer shape against the local checkout.
+  Consumer usage: docs/CI.md, "The root Action".
+
 ## [1.3.3] - 2026-07-13
 
 First-run truth, paste-safe guidance, and a workspace that opens itself.

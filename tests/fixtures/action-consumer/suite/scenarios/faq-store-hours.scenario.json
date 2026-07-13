@@ -1,0 +1,52 @@
+{
+  "agent_mock": {
+    "tools": [
+      {
+        "arguments": {
+          "topic": "hours"
+        },
+        "latency_ms": 230,
+        "name": "lookup_faq",
+        "result": {
+          "answer": "9 to 5"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "what are your store hours on saturday"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {},
+  "goal": {
+    "target": "store hours",
+    "type": "answer_faq"
+  },
+  "id": "faq-store-hours",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      1.0
+    ]
+  },
+  "version": 1
+}

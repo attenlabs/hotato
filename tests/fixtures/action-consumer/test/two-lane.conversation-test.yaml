@@ -1,0 +1,32 @@
+# Conformance fixture for the root GitHub Action: a conversation test whose
+# deterministic lane covers ONLY the policy and conversation dimensions, so the
+# job summary's absent-lane rendering (outcome and speech as NOT_RUN) is
+# exercised against a recorded machine result.
+kind: hotato.conversation-test
+version: 1
+id: two-lane-flow
+agent: consumer-agent
+caller:
+  persona: a customer confirming a disclosure was read
+  goal: hear the recording disclosure
+  facts: {}
+environment:
+  locale: en-US
+  route: phone
+assertions:
+  deterministic:
+    - id: disclosure-said
+      kind: phrase
+      regex: "recorded for quality"
+      role: agent
+      dimension: policy
+    - id: caller-spoke
+      kind: count
+      phrase: "[A-Za-z]"
+      role: caller
+      count: {min: 1}
+      dimension: conversation
+repetitions: 1
+success:
+  required: [all_deterministic_assertions_pass]
+  report_dimensions: [outcome, policy, conversation, speech, reliability]
