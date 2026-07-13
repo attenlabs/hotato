@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schemas/interaction-label.v1.schema.json",
+  "title": "Hotato interaction label v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "speech_presence",
+    "addressed_to_agent",
+    "floor_intent",
+    "label_authority"
+  ],
+  "properties": {
+    "kind": {
+      "const": "hotato.interaction-label.v1"
+    },
+    "speech_presence": {
+      "enum": [
+        "speech",
+        "non-speech",
+        "unknown"
+      ]
+    },
+    "addressed_to_agent": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "floor_intent": {
+      "enum": [
+        "take",
+        "feedback",
+        "none",
+        "unknown"
+      ]
+    },
+    "label_authority": {
+      "enum": [
+        "human",
+        "trusted-source",
+        "fixture",
+        "unknown"
+      ]
+    },
+    "label_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 512
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "speech_presence": {
+            "const": "non-speech"
+          }
+        },
+        "required": [
+          "speech_presence"
+        ]
+      },
+      "then": {
+        "properties": {
+          "addressed_to_agent": {
+            "type": "null"
+          },
+          "floor_intent": {
+            "const": "none"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "label_authority": {
+            "const": "unknown"
+          }
+        },
+        "required": [
+          "label_authority"
+        ]
+      },
+      "then": {
+        "properties": {
+          "label_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "description": "Optional, backwards-compatible interaction metadata for one event. SUPPLIED by a human, a trusted source, or a marked fixture; Hotato never infers addressee or turn intent from timing, energy, transcript, or a model verdict. An event with no label reads as unknown/null. speech_presence=non-speech forces addressed_to_agent=null and floor_intent=none."
+}
