@@ -52,4 +52,9 @@ recursive-include examples *.json *.py *.md *.sh *.yaml
 # heavy audio (~0.4 MB); ship it so test_corpus_validate has its example.
 include corpus/examples/sample-contribution.example.wav
 
+# Voice Failure Atlas (delta D5) typed sources: tests/test_atlas.py loads
+# every atlas/{records,contracts,implementations}/*.json directly, so the
+# sdist needs them the same way it needs corpus/ and examples/ above.
+recursive-include atlas *.json
+
 global-exclude __pycache__ *.py[cod]
