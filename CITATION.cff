@@ -1,11 +1,12 @@
 cff-version: 1.2.0
 message: If you use hotato, please cite it as below.
-title: "hotato: offline turn-taking regression tests for voice agents"
+title: "hotato: open-source, self-hosted conversation QA for voice agents"
 abstract: >-
-  Find where your voice agent talks over callers, and keep it from coming
-  back. Offline regression tests from your own call recordings: score a
-  real call recording, keep it as a fixture, fail CI when the timing
-  regresses.
+  Simulate, evaluate, review, and track voice-agent conversations across
+  five dimensions (outcome, policy, conversation, speech, reliability) with
+  the evidence behind every result. Self-hosted and offline by default;
+  deterministic checks stay separate from the model-judged rubric lane; no
+  blended score. Freeze any failing call into a CI-gating regression.
 type: software
 authors:
   - name: "Attention Labs, Inc."
