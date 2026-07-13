@@ -79,7 +79,7 @@ def render(*, color: bool = False, width: int | None = None) -> str:
     out.append("  " + b + "Conversation QA for voice agents." + r)
     out.append("  See exactly why a call passed, or failed.")
     out.append("")
-    out.append("  " + b + "Try it now." + r + " No account, no keys, no network:")
+    out.append("  " + b + "Try it now." + r + " One command, on your machine:")
     out.append("")
     out.append("      " + e + "hotato start --demo" + r)
     out.append("")
