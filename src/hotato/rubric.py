@@ -368,6 +368,13 @@ class OllamaJudge(Judge):
     def _http_json(self, path: str, payload: Optional[dict], method: str = "POST") -> dict:
         import urllib.error
         import urllib.request
+        from . import capture as _capture
+        # The hardened process-wide opener (credential-stripping on cross-host
+        # redirects + the SSRF re-check on every redirect target) must be
+        # installed before ANY judge request: a judge command can be the first
+        # network-touching command in a process, and without this a redirect
+        # could carry headers to an unintended host (audit finding #1).
+        _capture._ensure_safe_opener()
         url = f"{self.endpoint}{path}"
         data = _canonical(payload).encode("utf-8") if payload is not None else None
         req = urllib.request.Request(
@@ -457,6 +464,12 @@ class HostedJudge(Judge):
     def complete(self, system: str, user: str) -> str:
         import urllib.error
         import urllib.request
+        from . import capture as _capture
+        # This request carries the judge API key: the hardened opener strips
+        # Authorization on any cross-host redirect and re-runs the SSRF guard
+        # on every redirect target, so a redirecting hosted endpoint can never
+        # exfiltrate the key to another host (audit finding #1).
+        _capture._ensure_safe_opener()
         key = os.environ.get(self.api_key_env)
         headers = {"Content-Type": "application/json"}
         if key:
