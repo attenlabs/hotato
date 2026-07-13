@@ -1,0 +1,128 @@
+{
+  "proof": "machine-cold credentialless path, hotato 1.5.0 (built wheel, clean install)",
+  "environment": "fresh venv install of the 1.5.0 wheel, no dev tree, fresh HOME, empty project dir, no SAA_API_KEY, no connected stack",
+  "intervention": "none (fully automated)",
+  "batteries": [
+    {
+      "battery": "credentialless_first_run (hotato start)",
+      "command": "start --demo",
+      "exit": 0,
+      "seconds": 0.79,
+      "artifact_count": 20,
+      "artifacts": [
+        {
+          "name": "contracts/demo-missed-interruption.hotato/attestation.json",
+          "bytes": 844,
+          "sha256_16": "091746def48fab8b"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/audio/event.wav",
+          "bytes": 512044,
+          "sha256_16": "8235d985d1a2939e"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/ci/github-action.yml",
+          "bytes": 617,
+          "sha256_16": "2dc6ac213bdca9a1"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/ci/junit.xml",
+          "bytes": 316,
+          "sha256_16": "e6b7d9d78561745e"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/contract.json",
+          "bytes": 4341,
+          "sha256_16": "db03777cae15f8fb"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/evidence/card.svg",
+          "bytes": 2080,
+          "sha256_16": "e99b167aac9c9c6d"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/evidence/frames.jsonl",
+          "bytes": 186868,
+          "sha256_16": "36014ede8e78572a"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/evidence/label_record.json",
+          "bytes": 5,
+          "sha256_16": "38e0b9de817f645c"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/evidence/timeline.html",
+          "bytes": 4486,
+          "sha256_16": "2acb748189e7de69"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/evidence/trust.json",
+          "bytes": 1719,
+          "sha256_16": "ace11090e3f7c7a2"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/policy/verify.yaml",
+          "bytes": 439,
+          "sha256_16": "79943d9ce90d944c"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/provenance.json",
+          "bytes": 325,
+          "sha256_16": "7762c5268aed6c97"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/reports/after.html",
+          "bytes": 742,
+          "sha256_16": "aabbfeaf0653f5cb"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/reports/initial.html",
+          "bytes": 93456,
+          "sha256_16": "e6eaba9b2e94b457"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/source/call_metadata.json",
+          "bytes": 392,
+          "sha256_16": "f38653d69391cbf1"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/source/stack_config_snapshot.json",
+          "bytes": 272,
+          "sha256_16": "59921a896cd10bbc"
+        },
+        {
+          "name": "contracts/demo-missed-interruption.hotato/traces/.gitkeep",
+          "bytes": 97,
+          "sha256_16": "376b745b165bc570"
+        },
+        {
+          "name": "hotato-no-single-threshold.svg",
+          "bytes": 2653,
+          "sha256_16": "eaf1cbc5ab4aeb3a"
+        },
+        {
+          "name": "hotato-sweep.html",
+          "bytes": 2110543,
+          "sha256_16": "73434549cabd9241"
+        },
+        {
+          "name": "hotato-sweep.json",
+          "bytes": 3078,
+          "sha256_16": "6ab1dfed913dc4d3"
+        }
+      ],
+      "stdout_tail": "arios tests/hotato/scenarios --audio tests/hotato/audio\n\n  3. Render a shareable card from any candidate:\n     hotato card hotato-sweep.json#1 --out candidate.svg\n\n  4. Re-verify the demo failure contract in CI (or create your own from any candidate with `hotato contract create`):\n     hotato contract verify contracts/\n\nThe threshold-funnel card is already rendered: hotato-no-single-threshold.svg\n",
+      "stderr_tail": "[start] demo: swept 2 bundled calls, 5 candidate moments; wrote hotato-sweep.json, hotato-sweep.html, hotato-no-single-threshold.svg, contracts/demo-missed-interruption.hotato/contract.json\n"
+    },
+    {
+      "battery": "bundled_failing_battery (hotato demo)",
+      "command": "demo",
+      "exit": 0,
+      "seconds": 5.35,
+      "artifact_count": 0,
+      "artifacts": [],
+      "stdout_tail": "nt-control]: False barge-in: a backchannel was treated as a bid for the floor\n            -> a learned engagement-control / addressee-detection layer\n  note: no single sensitivity threshold satisfies this battery; see funnel pointer in --format json.\n  exit_code=1\nthese are two recorded calls on a provider's default settings; run it to see what Hotato catches.\nreport: <tmp>\n",
+      "stderr_tail": ""
+    }
+  ]
+}
