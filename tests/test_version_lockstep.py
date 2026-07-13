@@ -179,3 +179,40 @@ def test_docs_hotato_version_claims_match_pyproject():
         f"docs/*.md pin a 'hotato X.Y.Z' version that disagrees with "
         f"pyproject.toml ({pv}) -- update each prose version claim: {stale}"
     )
+
+
+# --- docs/CI.md copy-paste ADOPTION examples ----------------------------------
+# The CI.md "root Action" section teaches full-SHA pinning and shows the exact
+# version a user should adopt in three copy-paste forms: the `git ls-remote
+# refs/tags/vX.Y.Z` resolve command, the `# vX.Y.Z` comment on the
+# `attenlabs/hotato@<sha>` pin, and the `hotato==X.Y.Z` pip example. Those three
+# must all name the CURRENT release, or the doc ships a stale example (it carried
+# v1.5.1 and 1.3.3 while the package was 1.5.2). The "available ... from release
+# vX.Y.Z onward" AVAILABILITY-FLOOR sentence is a distinct, historical first-ship
+# fact (the release that first shipped action.yml) and is deliberately NOT matched
+# by these adoption-example patterns.
+_CI_MD = os.path.join(ROOT, "docs", "CI.md")
+_CI_ADOPTION_PATTERNS = {
+    "git ls-remote refs/tags pin": re.compile(r"refs/tags/v(\d+\.\d+\.\d+)"),
+    "attenlabs/hotato@<sha> # vX.Y.Z comment": re.compile(
+        r"attenlabs/hotato@\S+\s+#\s*v(\d+\.\d+\.\d+)"
+    ),
+    "hotato==X.Y.Z pip example": re.compile(r"hotato==(\d+\.\d+\.\d+)"),
+}
+
+
+def test_ci_md_adoption_example_pins_match_pyproject():
+    if not os.path.exists(_CI_MD):
+        return  # doc not present in this tree
+    with open(_CI_MD, encoding="utf-8") as fh:
+        text = fh.read()
+    pv = _pyproject_version()
+    stale = []
+    for label, rx in _CI_ADOPTION_PATTERNS.items():
+        for found in rx.findall(text):
+            if found != pv:
+                stale.append(f"{label}: found {found}, expected {pv}")
+    assert not stale, (
+        "docs/CI.md adoption examples must name the current release "
+        f"({pv}); reconcile these stale example pins: {stale}"
+    )
