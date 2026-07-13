@@ -80,3 +80,4 @@ hotato-review.html
 
 # Claude Code local working dir (agent worktrees, session config) -- never publish
 .claude/
+.audit/
