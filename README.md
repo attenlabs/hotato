@@ -156,6 +156,23 @@ A before/after experiment refuses a proof built from an edited verdict, a re-enc
 
 Once a workspace has some history, `hotato fleet trend -w acme` reads the same local SQLite registry and writes one self-contained HTML page: per-agent talk-over and time-to-yield trend lines (p50/p95 per day), candidate moments discovered over time, and experiment outcomes (improved/inconclusive/refused) -- offline, no external assets, hand-rendered inline SVG in the same house style as the sweep dashboard. A day with no measurements gets no point, and a series with fewer than two days of history is reported plainly as "not enough history to trend" instead of a faked or interpolated line.
 
+### Run it in your own cloud / VPC
+
+The whole team workspace ships as a container. One command stands up the read-only,
+token-authenticated workspace (`hotato serve`) on host loopback over a private
+volume; the default stack makes no external call at run time.
+
+```bash
+docker compose up -d                    # workspace on 127.0.0.1:8321
+docker compose run --rm hotato-init     # optional: seed example data
+docker compose --profile judge up -d    # optional: a local Ollama model judge
+```
+
+Full walk-through -- build, connect your own calls, the local judge, air-gap,
+backup, and the zero-migration promise (self-host and cloud share one set of
+schemas): [`docs/SELF-HOST.md`](docs/SELF-HOST.md). Prove the no-external-calls
+posture on your own machine with [`deploy/verify-zero-egress.sh`](deploy/verify-zero-egress.sh).
+
 ## Choose your path
 
 | You want to | Run this |
