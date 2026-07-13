@@ -47,13 +47,27 @@ def test_capture_demo_json_format(capsys):
     import json
 
     # the JSON envelope must be the standard hotato shape
-    payload = capsys.readouterr().out.strip().splitlines()
-    # find the JSON block (report prints demo lines to stdout before the envelope)
-    text = "\n".join(payload)
-    start = text.index("{")
-    env = json.loads(text[start:])
+    env = json.loads(capsys.readouterr().out)
     assert env["tool"] == "hotato"
     assert env["limits"]["accuracy_claim"] is None
+
+
+def test_capture_demo_json_stdout_is_pure_json(capsys):
+    """--format json puts NOTHING but the envelope on stdout: json.loads(stdout)
+    parses the whole stream. The human '[demo]' progress lines are logging, so
+    they go to stderr (like the live vapi/retell/twilio '[stack] downloaded'
+    lines already do), never contaminating the machine surface."""
+    import json
+
+    rc = cli.main(["capture", "--stack", "vapi", "--demo", "--format", "json"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    # whole stdout is one JSON object, with no '[demo]' prefix ahead of the '{'
+    env = json.loads(captured.out)
+    assert env["tool"] == "hotato"
+    assert "[demo]" not in captured.out
+    # progress is not dropped -- it is just routed to stderr
+    assert "[demo]" in captured.err
 
 
 # --- scoring an already-captured file (the universal escape hatch) --------

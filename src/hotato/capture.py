@@ -300,8 +300,13 @@ def demo(stack: str, fmt: str = "text") -> int:
 
     with resources.as_file(_bundled_audio(scenario_id + ".example.wav")) as src:
         shutil.copyfile(src, out)
-    print(f"[demo] {stack}: bundled two-channel reference '{scenario_id}' ({title})")
-    print(f"[demo] wrote two-channel capture -> {out}")
+    # Progress is logging, not output: it goes to STDERR so that under
+    # --format json stdout stays a single, parseable envelope (the live
+    # vapi/retell/twilio paths already log their '[stack] downloaded' lines to
+    # stderr for the same reason). In text mode it still shows, just on stderr.
+    sys.stderr.write(
+        f"[demo] {stack}: bundled two-channel reference '{scenario_id}' ({title})\n")
+    sys.stderr.write(f"[demo] wrote two-channel capture -> {out}\n")
     env = score(out, stack=stack, onset_sec=onset, expect=expect)
     return report(env, fmt)
 
