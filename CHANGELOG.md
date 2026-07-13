@@ -8,6 +8,56 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-13
+
+Security and correctness hardening from an independent validation pass.
+
+### Security
+- **Evidence reads are authorized by live workspace registry roots, not content
+  presence.** `hotato serve`'s `/evidence/<digest>` previously served any blob
+  present in the shared content-addressed store, so a digest acted as a
+  cross-workspace capability: an authenticated request could read another
+  workspace's evidence by digest, and a blob orphaned by deleting its
+  workspace's only live root stayed readable. Every evidence read now requires
+  the digest to be reachable from a live registry root scoped to the caller's
+  workspace (a direct reference edge, or one hop through a rooted manifest's own
+  declared artifacts -- registry authority, never CAS lineage), and returns an
+  identical 404 for unreachable and absent digests so no existence oracle
+  remains.
+- **Share-safe Failure Records reject embedded Windows-absolute paths.** The
+  scrubber and validator now recognize drive-letter (`C:\...`), UNC
+  (`\\server\...`), and embedded/mixed-separator absolute paths anywhere in a
+  string, closing a local-filesystem-identity disclosure under the
+  `share-safe-v1` profile.
+
+### Fixed
+- **Capability routing** rejects an arbitrary caller `contract_uri` (only the
+  documented Hotato spec URI or none), pairs a missed addressed bid with a false
+  trigger only when both share the same battery and configuration, and degrades
+  an under-labelled addressed event to `engagement_control` instead of silently
+  returning no requirement.
+- **Reference-run artifacts are byte-reproducible.** The conversation manifest
+  timestamp resolves deterministically (an explicit value, then
+  `SOURCE_DATE_EPOCH`, then a fixed epoch) instead of the wall clock, so two
+  seeded runs produce byte-identical conversation artifacts.
+- **Voice Failure Atlas**: the publication gate rejects drive/UNC/backslash
+  paths OS-independently, stored render transcripts match the CLI exactly, and
+  attribution is footer-only.
+- **Fleet**: a trial is approvable only with an approval-eligible verdict above
+  the evidence floor (a refused, evidence-tier-zero experiment can no longer be
+  approved), and `discover` binds the resolved recording id so a contract can be
+  created from the ingested call.
+- **MCP**: the server reports hotato's application version (not the transport
+  SDK's), and the tool inventory is a single canonical source shared by the
+  server, docs, and tests.
+
+### Changed
+- The reference reference-agent kit and shipped shell scripts are pinned to LF
+  line endings, so a normal Windows checkout no longer rewrites digest-pinned
+  evidence to CRLF and invalidates its byte oracle.
+- `hotato init` machine-JSON locators are normalized to `/` on every platform.
+
+
 ## [1.5.1] - 2026-07-13
 
 ### Changed
