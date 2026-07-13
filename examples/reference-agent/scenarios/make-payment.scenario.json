@@ -1,0 +1,82 @@
+{
+  "agent_mock": {
+    "state": {
+      "invoices": [
+        {
+          "invoice_id": "inv_88",
+          "status": "paid"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "account_id": "acct_450"
+        },
+        "latency_ms": 430,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "account_id": "acct_450",
+          "invoice_id": "inv_88"
+        },
+        "latency_ms": 900,
+        "name": "charge_card",
+        "result": {
+          "amount": 120,
+          "status": "paid"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "account acct_450, i'd like to pay invoice inv_88"
+      },
+      {
+        "say": "please charge my card on file"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "account_id": "acct_450",
+    "invoice_id": "inv_88"
+  },
+  "goal": {
+    "target": "invoice inv_88",
+    "type": "make_payment"
+  },
+  "id": "make-payment",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

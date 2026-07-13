@@ -1,0 +1,80 @@
+{
+  "agent_mock": {
+    "state": {
+      "claims": [
+        {
+          "claim_id": "c_12",
+          "status": "filed"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "device_id": "dev_31"
+        },
+        "latency_ms": 330,
+        "name": "lookup_device",
+        "result": {
+          "under_warranty": true
+        }
+      },
+      {
+        "arguments": {
+          "device_id": "dev_31"
+        },
+        "latency_ms": 700,
+        "name": "file_claim",
+        "result": {
+          "claim_id": "c_12",
+          "status": "filed"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "my device dev_31 stopped working"
+      },
+      {
+        "say": "i want to file a warranty claim"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "device_id": "dev_31"
+  },
+  "goal": {
+    "target": "device dev_31",
+    "type": "file_warranty_claim"
+  },
+  "id": "warranty-claim",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

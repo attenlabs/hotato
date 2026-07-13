@@ -1,0 +1,90 @@
+{
+  "agent_mock": {
+    "state": {
+      "appointments": [
+        {
+          "appointment_id": "appt_772",
+          "status": "cancelled"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "patient_id": "patient_104"
+        },
+        "latency_ms": 400,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "policy": "cancellation_policy_v2"
+        },
+        "latency_ms": 210,
+        "name": "read_disclosure",
+        "result": {
+          "read": true
+        }
+      },
+      {
+        "arguments": {
+          "appointment_id": "appt_772"
+        },
+        "latency_ms": 650,
+        "name": "cancel_appointment",
+        "result": {
+          "status": "cancelled"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "hello, patient_104 here"
+      },
+      {
+        "say": "i need to cancel appointment appt_772 please"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "appointment_id": "appt_772",
+    "patient_id": "patient_104"
+  },
+  "goal": {
+    "target": "appt_772",
+    "type": "cancel_appointment"
+  },
+  "id": "appointment-cancel-after-cutoff",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

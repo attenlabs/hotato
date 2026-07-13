@@ -1,0 +1,74 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "order",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "update_shipping",
+        "result_subset": {
+          "status": "updated"
+        }
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "ship_to": "9 pine road"
+        },
+        "filters": {
+          "order_id": "A-7010"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "orders"
+      },
+      {
+        "dimension": "conversation",
+        "id": "ordered-flow",
+        "kind": "sequence",
+        "steps": [
+          {
+            "tool": "lookup_order"
+          },
+          {
+            "tool": "update_shipping"
+          }
+        ]
+      }
+    ]
+  },
+  "id": "shipping-address-correction-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/shipping-address-correction.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

@@ -1,0 +1,81 @@
+{
+  "agent_mock": {
+    "state": {
+      "tickets": [
+        {
+          "status": "logged",
+          "ticket_id": "t_55"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "account_id": "acct_810"
+        },
+        "latency_ms": 400,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "account_id": "acct_810",
+          "category": "delivery"
+        },
+        "latency_ms": 470,
+        "name": "log_complaint",
+        "result": {
+          "status": "logged",
+          "ticket_id": "t_55"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "account acct_810, i want to file a complaint"
+      },
+      {
+        "say": "the delivery driver was rude"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "account_id": "acct_810"
+  },
+  "goal": {
+    "target": "acct_810",
+    "type": "log_complaint"
+  },
+  "id": "log-complaint",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

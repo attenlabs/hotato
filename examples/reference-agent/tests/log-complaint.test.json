@@ -1,0 +1,61 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "account",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "log_complaint",
+        "result_subset": {
+          "status": "logged"
+        }
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "status": "logged"
+        },
+        "filters": {
+          "ticket_id": "t_55"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "tickets"
+      }
+    ]
+  },
+  "id": "log-complaint-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/log-complaint.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

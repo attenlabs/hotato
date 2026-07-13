@@ -1,0 +1,80 @@
+{
+  "agent_mock": {
+    "state": {
+      "orders": [
+        {
+          "order_id": "A-7010",
+          "ship_to": "9 pine road"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "order_id": "A-7010"
+        },
+        "latency_ms": 300,
+        "name": "lookup_order",
+        "result": {
+          "status": "processing"
+        }
+      },
+      {
+        "arguments": {
+          "address": "9 pine road",
+          "order_id": "A-7010"
+        },
+        "latency_ms": 520,
+        "name": "update_shipping",
+        "result": {
+          "status": "updated"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "order A-7010 has the wrong shipping address"
+      },
+      {
+        "say": "please change it to 9 pine road before it ships"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "order_id": "A-7010"
+  },
+  "goal": {
+    "target": "order A-7010",
+    "type": "correct_shipping"
+  },
+  "id": "shipping-address-correction",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

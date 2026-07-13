@@ -1,0 +1,58 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "account",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "escalated": true
+        },
+        "filters": {
+          "account_id": "acct_77"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "tickets"
+      },
+      {
+        "dimension": "policy",
+        "id": "escalation-handoff",
+        "kind": "handoff",
+        "to": "human_supervisor"
+      }
+    ]
+  },
+  "id": "escalate-to-human-supervisor-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/escalate-to-human-supervisor.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

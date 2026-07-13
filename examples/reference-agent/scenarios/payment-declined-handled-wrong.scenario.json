@@ -1,0 +1,76 @@
+{
+  "agent_mock": {
+    "state": {
+      "invoices": [
+        {
+          "invoice_id": "inv_99",
+          "status": "unpaid"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "account_id": "acct_451"
+        },
+        "latency_ms": 420,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "account_id": "acct_451",
+          "invoice_id": "inv_99"
+        },
+        "error": "card_declined",
+        "latency_ms": 880,
+        "name": "charge_card"
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "account acct_451, pay invoice inv_99 please"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "account_id": "acct_451",
+    "invoice_id": "inv_99"
+  },
+  "goal": {
+    "target": "invoice inv_99",
+    "type": "make_payment"
+  },
+  "id": "payment-declined-handled-wrong",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}
