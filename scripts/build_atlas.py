@@ -280,6 +280,15 @@ def record_gate_reasons(record: Dict[str, Any]) -> List[str]:
         if os.path.isabs(path) or ".." in path.split("/"):
             reasons.append(f"evidence_provenance.fixture_paths contains an unsafe path: {path!r}")
 
+    # 'fixture' origin is a VERIFIABLE property, not a self-asserted label: every
+    # cited fixture must resolve to a shipped file under examples/. This applies
+    # the same "compute, never trust a stored claim" discipline used for routing.
+    if record.get("origin") == "fixture":
+        for path in (record.get("evidence_provenance") or {}).get("fixture_paths", []):
+            if not (path.startswith("examples/") and os.path.isfile(os.path.join(REPO, path))):
+                reasons.append(
+                    f"origin=fixture but cited fixture does not resolve under examples/: {path!r}")
+
     return reasons
 
 

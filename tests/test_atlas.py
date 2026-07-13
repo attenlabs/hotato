@@ -260,6 +260,19 @@ def test_hard_gate_refuses_an_absolute_fixture_path():
     assert any("unsafe path" in r for r in reasons)
 
 
+def test_hard_gate_refuses_fixture_origin_that_does_not_resolve():
+    """origin=fixture is a verifiable property: a cited fixture that does not
+    resolve to a shipped file under examples/ fails the gate, so the label
+    cannot be self-asserted the way a stored verdict never is."""
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    doc = copy.deepcopy(_load_json(records[0]))
+    doc["origin"] = "fixture"
+    doc["evidence_provenance"]["fixture_paths"] = ["examples/does-not-exist.example.wav"]
+    reasons = build_atlas.record_gate_reasons(doc)
+    assert any("does not resolve under examples/" in r for r in reasons)
+
+
 def test_seeded_records_pass_the_hard_gate_and_are_indexed():
     build_atlas = _load_build_atlas()
     records, _, _ = _all_sources()
