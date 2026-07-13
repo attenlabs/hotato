@@ -1,0 +1,74 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "this",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "issue_refund",
+        "result_subset": {
+          "status": "refunded"
+        }
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "refund_status": "refunded"
+        },
+        "filters": {
+          "order_id": "A-5000"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "orders"
+      },
+      {
+        "dimension": "conversation",
+        "id": "ordered-flow",
+        "kind": "sequence",
+        "steps": [
+          {
+            "tool": "lookup_order"
+          },
+          {
+            "tool": "issue_refund"
+          }
+        ]
+      }
+    ]
+  },
+  "id": "angry-caller-deescalate-refund-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/angry-caller-deescalate-refund.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

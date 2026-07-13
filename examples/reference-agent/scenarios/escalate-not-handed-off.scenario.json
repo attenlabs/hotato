@@ -1,0 +1,69 @@
+{
+  "agent_mock": {
+    "state": {
+      "tickets": [
+        {
+          "account_id": "acct_91",
+          "escalated": false
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "account_id": "acct_91"
+        },
+        "latency_ms": 410,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "account acct_91, this is unacceptable"
+      },
+      {
+        "say": "get me a manager immediately"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "account_id": "acct_91"
+  },
+  "goal": {
+    "target": "angry caller",
+    "type": "escalate"
+  },
+  "id": "escalate-not-handed-off",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

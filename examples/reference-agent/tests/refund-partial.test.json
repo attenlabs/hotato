@@ -1,0 +1,81 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "order",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "issue_refund",
+        "result_subset": {
+          "status": "refunded"
+        }
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "refund_status": "partial"
+        },
+        "filters": {
+          "order_id": "A-2044"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "orders"
+      },
+      {
+        "dimension": "conversation",
+        "id": "ordered-flow",
+        "kind": "sequence",
+        "steps": [
+          {
+            "tool": "lookup_order"
+          },
+          {
+            "tool": "issue_refund"
+          }
+        ]
+      },
+      {
+        "dimension": "speech",
+        "id": "tool-latency",
+        "kind": "latency",
+        "max_ms": 1500,
+        "tool": "issue_refund"
+      }
+    ]
+  },
+  "id": "refund-partial-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/refund-partial.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

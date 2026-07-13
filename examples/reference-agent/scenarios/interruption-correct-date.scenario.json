@@ -1,0 +1,87 @@
+{
+  "agent_mock": {
+    "state": {
+      "appointments": [
+        {
+          "day": "thursday",
+          "patient_id": "patient_640"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "patient_id": "patient_640"
+        },
+        "latency_ms": 400,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "day": "thursday",
+          "patient_id": "patient_640"
+        },
+        "latency_ms": 760,
+        "name": "book_appointment",
+        "result": {
+          "day": "thursday",
+          "status": "confirmed"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      },
+      "interruptions": [
+        {
+          "offset_ms": 2200,
+          "trigger": "agent_confirms_date"
+        }
+      ]
+    },
+    "script": [
+      {
+        "say": "patient_640, i want a dermatology appointment on tuesday"
+      },
+      {
+        "say": "actually make it thursday not tuesday"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "patient_id": "patient_640"
+  },
+  "goal": {
+    "target": "dermatology",
+    "type": "book_appointment"
+  },
+  "id": "interruption-correct-date",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

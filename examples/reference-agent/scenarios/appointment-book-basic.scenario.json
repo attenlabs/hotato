@@ -1,0 +1,82 @@
+{
+  "agent_mock": {
+    "state": {
+      "appointments": [
+        {
+          "appointment_id": "appt_900",
+          "status": "confirmed"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "patient_id": "patient_104"
+        },
+        "latency_ms": 420,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "clinic": "cardiology",
+          "patient_id": "patient_104"
+        },
+        "latency_ms": 780,
+        "name": "book_appointment",
+        "result": {
+          "appointment_id": "appt_900",
+          "status": "confirmed"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "hi, this is for patient_104"
+      },
+      {
+        "say": "i would like to book a cardiology follow-up next week"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "clinic": "cardiology",
+    "patient_id": "patient_104"
+  },
+  "goal": {
+    "target": "cardiology follow-up",
+    "type": "book_appointment"
+  },
+  "id": "appointment-book-basic",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

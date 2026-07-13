@@ -1,0 +1,74 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "i'd",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "book_reservation",
+        "result_subset": {
+          "status": "confirmed"
+        }
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "status": "confirmed"
+        },
+        "filters": {
+          "reservation_id": "r_77"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "reservations"
+      },
+      {
+        "dimension": "conversation",
+        "id": "ordered-flow",
+        "kind": "sequence",
+        "steps": [
+          {
+            "tool": "check_availability"
+          },
+          {
+            "tool": "book_reservation"
+          }
+        ]
+      }
+    ]
+  },
+  "id": "restaurant-reservation-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/restaurant-reservation.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

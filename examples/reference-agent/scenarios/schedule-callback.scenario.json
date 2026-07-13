@@ -1,0 +1,80 @@
+{
+  "agent_mock": {
+    "state": {
+      "callbacks": [
+        {
+          "account_id": "acct_940",
+          "status": "scheduled"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "account_id": "acct_940"
+        },
+        "latency_ms": 410,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "account_id": "acct_940",
+          "when": "tomorrow_am"
+        },
+        "latency_ms": 430,
+        "name": "schedule_callback",
+        "result": {
+          "status": "scheduled"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "account acct_940, i can't talk now"
+      },
+      {
+        "say": "can someone call me back tomorrow morning"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "account_id": "acct_940"
+  },
+  "goal": {
+    "target": "tomorrow morning",
+    "type": "schedule_callback"
+  },
+  "id": "schedule-callback",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

@@ -1,0 +1,81 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "this",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "reschedule_appointment",
+        "result_subset": {
+          "status": "rescheduled"
+        }
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "day": "thursday"
+        },
+        "filters": {
+          "appointment_id": "appt_512"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "appointments"
+      },
+      {
+        "dimension": "policy",
+        "id": "identity-before-action",
+        "kind": "sequence",
+        "steps": [
+          {
+            "tool": "verify_identity"
+          },
+          {
+            "tool": "reschedule_appointment"
+          }
+        ]
+      },
+      {
+        "dimension": "speech",
+        "id": "tool-latency",
+        "kind": "latency",
+        "max_ms": 1500,
+        "tool": "reschedule_appointment"
+      }
+    ]
+  },
+  "id": "appointment-reschedule-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/appointment-reschedule.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

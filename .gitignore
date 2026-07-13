@@ -60,6 +60,10 @@ corpus/suites/*/audio/
 # rendered class-corpus audio regenerates byte-identically: python3 corpus/classes/build_classes.py
 corpus/classes/*/audio/
 
+# reference-agent runtime output (regenerates via `make reference`)
+examples/reference-agent/.workspace/
+examples/reference-agent/.out/
+
 # local QA/scratch artifacts
 .hotato/
 hotato-analyze*.html

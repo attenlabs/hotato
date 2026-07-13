@@ -1,0 +1,52 @@
+{
+  "agent_mock": {
+    "termination": {
+      "by": "agent",
+      "reason": "wrong_number"
+    },
+    "tools": []
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "oh sorry, i think i dialed the wrong number"
+      },
+      {
+        "say": "i was trying to reach the pharmacy"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {},
+  "goal": {
+    "target": "misdial",
+    "type": "handle_wrong_number"
+  },
+  "id": "wrong-number-polite-exit",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}
