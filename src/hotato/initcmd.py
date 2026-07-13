@@ -116,6 +116,15 @@ _FILES = {
 }
 
 
+def _as_posix(rel: str) -> str:
+    """Normalize a native relative locator to ``/`` separators for the PUBLIC
+    machine-JSON ``files`` list. Only the reported locator is normalized;
+    ``os.path.join`` native paths are still used for every filesystem write, so
+    a Windows run does the same I/O but emits the same portable JSON a POSIX
+    run does (no ``\\`` leaks into the public contract)."""
+    return rel.replace("\\", "/")
+
+
 def _template_text(*parts: str) -> str:
     return (
         resources.files("hotato")
@@ -198,7 +207,7 @@ def scaffold_webhook(
     for tmpl, dest in dests.items():
         _write(dest, _render(_template_text(tmpl), tokens))
 
-    files = sorted(os.path.relpath(p, out_dir) for p in dests.values())
+    files = sorted(_as_posix(os.path.relpath(p, out_dir)) for p in dests.values())
     return {
         "tool": _errors.TOOL,
         "kind": "init-webhook",
@@ -784,7 +793,7 @@ def scaffold_starter(stack: str, out_dir: str, *, force: bool = False) -> dict:
     for rel, dest in dests.items():
         _write(dest, _STARTER_BUILDERS[rel](stack))
 
-    files = sorted(os.path.relpath(p, out_dir) for p in dests.values())
+    files = sorted(_as_posix(os.path.relpath(p, out_dir)) for p in dests.values())
     auto_pull = stack in _STARTER_AUTO_PULL
     return {
         "tool": _errors.TOOL,

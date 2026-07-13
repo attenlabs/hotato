@@ -12,6 +12,7 @@ CLI flag (cross-checked against `hotato describe`'s own manifest, so the
 starter's docs cannot silently drift from the CLI)."""
 
 import json
+import os
 import re
 
 import pytest
@@ -318,3 +319,44 @@ def test_render_text_capture_only_next_steps(tmp_path):
     text = initcmd.render_starter_text(result)
     assert "hotato setup --stack pipecat" in text
     assert "hotato connect" not in text
+
+
+# --- public locators are '/'-separated on every platform ---------------------
+
+def test_public_locator_is_normalized_to_forward_slashes():
+    # The public machine-JSON 'files' locators must never carry native
+    # (Windows) backslash separators. The helper normalizes only the public
+    # locator; native paths are still used for I/O.
+    assert initcmd._as_posix(r".github\workflows\deploy.yml") == \
+        ".github/workflows/deploy.yml"
+    assert initcmd._as_posix("fixtures/scenarios/.gitkeep") == \
+        "fixtures/scenarios/.gitkeep"
+
+
+def test_starter_files_use_forward_slashes_on_a_windows_style_checkout(
+        tmp_path, monkeypatch):
+    # Simulate os.path.relpath returning native backslash separators (its
+    # Windows behavior): the public 'files' list must still be '/'-separated.
+    real_relpath = os.path.relpath
+
+    def windows_relpath(path, start=None):
+        return real_relpath(path, start).replace("/", "\\")
+
+    monkeypatch.setattr(initcmd.os.path, "relpath", windows_relpath)
+    result = initcmd.scaffold_starter("vapi", str(tmp_path))
+    assert all("\\" not in f for f in result["files"]), result["files"]
+    assert ".github/workflows/hotato-contracts.yml" in result["files"]
+
+
+def test_webhook_files_use_forward_slashes_on_a_windows_style_checkout(
+        tmp_path, monkeypatch):
+    real_relpath = os.path.relpath
+
+    def windows_relpath(path, start=None):
+        return real_relpath(path, start).replace("/", "\\")
+
+    monkeypatch.setattr(initcmd.os.path, "relpath", windows_relpath)
+    result = initcmd.scaffold_webhook("vapi", "fastapi", str(tmp_path))
+    assert all("\\" not in f for f in result["files"]), result["files"]
+    assert ".github/workflows/deploy.yml" in result["files"]
+    assert "tests/test_webhook_contract.py" in result["files"]
