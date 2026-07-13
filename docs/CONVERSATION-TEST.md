@@ -118,7 +118,7 @@ per-dimension (grouped view; never blended):
   conversation  1 pass / 0 fail / 0 inconclusive
   speech        1 pass / 0 fail / 0 inconclusive
   reliability   0 pass / 0 fail / 0 inconclusive
-reliability: 1 runs; pass^k in Phase 2 (not computed)
+reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; the lane has zero variance, so pass^k == pass@1 -- reported honestly, not fabricated variance
 rubric lane: 1 assertion(s) INCONCLUSIVE (quarantined, Phase 3 -- no model ran)
 deterministic: 4 pass, 0 fail, 0 inconclusive
 judge: 0 pass, 0 fail (no judge/rubric kind is built in this release)
@@ -149,9 +149,15 @@ A `success.required` failure makes an otherwise-passing run non-zero; a refuse
 ### Reliability and repetitions
 
 `--repetitions N` runs the deterministic lane N times and reports the per-run
-results plus a plain run count. Reliability (`pass^k`) is a Phase-2 capability:
-the run states `reliability: N runs; pass^k in Phase 2` and never fabricates a
-number.
+results, the run count, and a real reliability aggregate: **pass@1** (single-run
+pass rate), **pass@k** (>=1 of k passed), **pass^k** (all k passed), plus a
+Wilson 95% CI. Every run scores the same recording, so the deterministic lane
+has zero variance and `pass^k == pass@1` -- reported honestly, never a fabricated
+number. With `N > 1` the aggregate is threaded into the report's Reliability
+dimension (`--format html/md`); with no repetition data that dimension shows the
+honest empty-state ("not measured: no repeated runs in this report"). pass^k is
+its OWN number, never blended into any other dimension and never an
+`overall_score`.
 
 ## 3. Verify the artifact
 

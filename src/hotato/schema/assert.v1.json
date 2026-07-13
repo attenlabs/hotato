@@ -72,7 +72,7 @@
         },
         "dimension": {
           "enum": ["outcome", "policy", "conversation", "speech", "reliability"],
-          "description": "OPTIONAL, additive. The report DIMENSION this result is grouped under in the per-dimension scorecard, copied verbatim from the assertion's `dimension` TAG. A grouping key only -- never a weight and never part of any blended or overall number (the scorecard shows each dimension's own pass/fail/inconclusive counts, never a merged score). Absent on an untagged assertion's result and on envelopes built before this field existed; a consumer must not require it. Reliability (pass^k) is not computed in Phase 1, so a Reliability dimension with no results renders as an explicit 'not yet measured (Phase 2)' placeholder, never a fabricated value."
+          "description": "OPTIONAL, additive. The report DIMENSION this result is grouped under in the per-dimension scorecard, copied verbatim from the assertion's `dimension` TAG. A grouping key only -- never a weight and never part of any blended or overall number (the scorecard shows each dimension's own pass/fail/inconclusive counts, never a merged score). Absent on an untagged assertion's result and on envelopes built before this field existed; a consumer must not require it. The Reliability dimension carries pass@1 / pass@k / pass^k when real repetition data is supplied to the report (a run_matrix aggregate or a reliability() dict); with none it renders the honest empty-state ('not measured: no repeated runs in this report'), never a fabricated value."
         },
         "reason": { "type": "string" },
         "met": { "type": "integer", "minimum": 0, "description": "outcome kind only: sub-predicates satisfied." },
