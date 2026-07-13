@@ -8,10 +8,10 @@
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/mascot.svg" alt="" width="26" align="top"> hotato
 </h1>
 
-<p align="center"><b>The open-source flight recorder for production voice agents.</b></p>
+<p align="center"><b>Open-source, self-hosted conversation QA for voice agents.</b></p>
 
 <p align="center">
-  Catch where it talks over callers, pin the failure to a portable contract, and re-check it in CI.<br>
+  Simulate, evaluate, review, and track every call across five dimensions &mdash; outcome, policy, conversation, speech, reliability &mdash; with the evidence behind every result. Offline and self-hosted; deterministic checks stay separate from the model-judged rubric; never one blended score.<br>
   Offline by default &middot; MIT &middot; zero runtime dependencies.
 </p>
 
