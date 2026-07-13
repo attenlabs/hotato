@@ -1,11 +1,12 @@
-"""hotato: the open turn-taking eval for voice agents.
+"""hotato: open-source, self-hosted conversation QA for voice agents.
 
-Does your agent drop the turn, or hog it? Free (MIT), self-hostable,
-zero-install, and offline. Its primary consumer is an AI agent: grab it as a CLI
-(``uvx hotato ...``) or as a one-tool MCP server mid-task. It scores voice-agent
-turn-taking - barge-in, overlap/talk-over, and backchannel handling - from a
-call recording, returns a machine-readable verdict, and is the only such tool
-that points a surfaced failure at the KIND of fix it needs. Discrimination
+Simulate, evaluate, review, and track calls across five dimensions (outcome,
+policy, conversation, speech, reliability) with the evidence behind every result.
+Free (MIT), self-hostable, zero-install, and offline. Its primary consumer is an
+AI agent: grab it as a CLI (``uvx hotato ...``) or as a one-tool MCP server
+mid-task. Deterministic checks stay separate from the model-judged rubric lane;
+there is no blended score. The turn-taking (conversation) dimension is the
+deterministic crown jewel, and it points a surfaced failure at the KIND of fix it needs. Discrimination
 failures are not solvable by one timing threshold; where your stack provides an
 interruption/backchannel classifier, use it, otherwise a learned
 engagement-control / addressee-detection layer is needed. The pointer is

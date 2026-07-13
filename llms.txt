@@ -1,9 +1,11 @@
 # hotato
 
-> Offline turn-taking analysis and regression evidence for dual-channel
-> voice-agent recordings, MIT and zero-install: score a real call recording,
-> keep it as a fixture, fail CI when the timing regresses. Hotato measures
-> whether the agent stopped talking when the caller started (a yield), how
+> Open-source, self-hosted conversation QA for voice agents, MIT and
+> zero-install: simulate, evaluate, review, and track calls across five
+> dimensions (outcome, policy, conversation, speech, reliability) with the
+> evidence behind every result. Deterministic checks stay separate from the
+> model-judged rubric; no blended score. The conversation (turn-taking) dimension
+> measures whether the agent stopped talking when the caller started (a yield), how
 > many seconds that took, and how many seconds both were talking at once
 > (talk-over).
 > Some timing signatures map to a likely fix class; root cause may remain

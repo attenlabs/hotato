@@ -3726,11 +3726,11 @@ def _cmd_serve(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hotato",
-        description="Hotato: the open turn-taking eval for voice agents (barge-in / "
-        "turn-taking / overlap / backchannel). Does your agent drop the turn, or hog "
-        "it? Offline. MIT. There is NO accuracy percentage anywhere: results are "
-        "reproducible timing measurements with an exposed method and an explicit "
-        "ceiling.",
+        description="Hotato: open-source, self-hosted conversation QA for voice "
+        "agents. Simulate, evaluate, review, and track calls across five dimensions "
+        "(outcome, policy, conversation, speech, reliability) with the evidence behind "
+        "every result. Offline. MIT. Deterministic checks stay separate from the "
+        "model-judged rubric; there is no blended score and no accuracy percentage.",
     )
     p.add_argument("--version", action="version", version=f"hotato {__version__}")
     # Not required: bare `hotato` prints the first-run guide (score your OWN call),
