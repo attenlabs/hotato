@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schemas/atlas-contract.v1.schema.json",
+  "title": "Hotato Voice Failure Atlas contract page v1",
+  "description": "A typed source describing one neutral engagement-control capability contract (hotato.capability-requirement.v1's required_capability vocabulary, see src/hotato/capability_routing.py). This is documentation/spec content, not an evidence claim: it names no vendor, product, or implementation. backchannel_exclusion is a machine-checked flag (asserted in tests) so the utterance_addressee_gate contract can never silently start covering addressed backchannels.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind", "version", "family", "spec_version", "capability", "fix_class",
+    "title", "summary", "acceptance_tests", "excluded_causes",
+    "missing_evidence_axes", "spec_uri", "backchannel_exclusion",
+    "related_pattern_classes", "recorded_date", "content_digest"
+  ],
+  "properties": {
+    "kind": { "const": "hotato.atlas-contract.v1" },
+    "version": { "const": "1.0" },
+    "family": {
+      "enum": ["engagement-control", "utterance-addressee-gate", "turn-intent-discriminator"]
+    },
+    "spec_version": { "const": "v1" },
+    "capability": {
+      "enum": ["engagement_control", "utterance_addressee_gate", "turn_intent_discriminator"]
+    },
+    "fix_class": { "const": "engagement-control" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "acceptance_tests": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "addressed_interruption_reaches_agent",
+          "non_addressed_speech_does_not_reach_agent",
+          "addressed_feedback_does_not_take_floor",
+          "opposite_risk_fixture_does_not_regress",
+          "collect_trusted_addressee_label"
+        ]
+      }
+    },
+    "excluded_causes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["self_echo", "non_speech_ambient", "invalid_channel_map", "unscorable_input"]
+      }
+    },
+    "missing_evidence_axes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["addressed_to_agent", "floor_intent", "label_authority", "opposite_risk_fixture"]
+      }
+    },
+    "spec_uri": { "type": "string", "format": "uri", "maxLength": 512 },
+    "backchannel_exclusion": { "type": "boolean" },
+    "related_pattern_classes": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+      "uniqueItems": true
+    },
+    "recorded_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "content_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

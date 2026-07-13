@@ -1,0 +1,250 @@
+{
+  "kind": "hotato.atlas-record.v1",
+  "version": "1.0",
+  "content_id": "addressed-backchannel-yielded",
+  "pattern_class": "addressed-backchannel-yielded",
+  "title": "Voice agent yielded to an addressed backchannel",
+  "summary": "The caller only signals a bare, addressed backchannel (\"mhm\") at 2.20s while the agent is mid-sentence. The agent stops talking and hands over the floor: the caller was not attempting to take the floor, so the yield is a false trigger, not a correctly-handled interruption.",
+  "stack": "generic",
+  "origin": "fixture",
+  "recorded_date": "2026-07-13",
+  "paired_with": [
+    "addressed-interruption-missed"
+  ],
+  "release": {
+    "release_permission": true,
+    "consent_and_rights_attestation": "Bundled Hotato example fixture (MIT-licensed, packaged with the hotato distribution for this exact purpose). Synthetic audio rendered by examples/render_examples.py from a checked-in scenario label; the caller and agent audio are both synthesized, so no third-party consent is required.",
+    "license": "MIT",
+    "share_safe_profile": "share-safe-v1"
+  },
+  "routing_fixture": {
+    "kind": "hotato.routing-fixture.v1",
+    "event_id": "fd-02-backchannel-yielded",
+    "battery_id": "funnel-demo",
+    "configuration_id": "funnel-demo-bad-agent",
+    "scorable": true,
+    "expected_behavior": "hold",
+    "observed_behavior": "yield",
+    "failure": "false_trigger",
+    "input_health": {
+      "self_echo": false,
+      "non_speech_ambient": false,
+      "invalid_channel_map": false
+    },
+    "interaction": {
+      "kind": "hotato.interaction-label.v1",
+      "speech_presence": "speech",
+      "addressed_to_agent": true,
+      "floor_intent": "feedback",
+      "label_authority": "fixture",
+      "label_ref": "examples/funnel-demo/scenarios/fd-02-backchannel-yielded.json"
+    }
+  },
+  "interface_conformance": {
+    "status": "PASS",
+    "scorable": true,
+    "input_health": {
+      "self_echo": false,
+      "non_speech_ambient": false,
+      "invalid_channel_map": false
+    }
+  },
+  "behavioral_evidence": {
+    "expected_behavior": "hold",
+    "observed_behavior": "yield",
+    "did_yield": true,
+    "seconds_to_yield": 0.25,
+    "talk_over_sec": 0.25
+  },
+  "failure_record": {
+    "advisory": {
+      "gate_enabled": false,
+      "reason_code": "backend-not-requested",
+      "status": "UNAVAILABLE"
+    },
+    "dimensions": {
+      "conversation": {
+        "assertions": [
+          {
+            "assertion_id": "fd-02-backchannel-yielded-timing",
+            "authority": "deterministic",
+            "dimension": "conversation",
+            "evidence_refs": [
+              "timing-measurement-ref"
+            ],
+            "expected": "The re-scored timing meets the contract's policy pass_conditions.",
+            "missing_evidence": [],
+            "observed": "The contract's re-scored timing no longer meets its policy pass_conditions.",
+            "rule_id": "contract.timing-policy",
+            "rule_version": "1",
+            "source_result_digest": "sha256:79831a4bd3532e13172ced975ba340a3b5c81beea57fd0acd6b9743a1603645b",
+            "status": "FAIL"
+          }
+        ],
+        "evaluated": 1,
+        "failed": 1,
+        "inconclusive": 0,
+        "passed": 0,
+        "status": "FAIL"
+      },
+      "outcome": {
+        "assertions": [],
+        "evaluated": 0,
+        "failed": 0,
+        "inconclusive": 0,
+        "passed": 0,
+        "status": "NOT_RUN"
+      },
+      "policy": {
+        "assertions": [],
+        "evaluated": 0,
+        "failed": 0,
+        "inconclusive": 0,
+        "passed": 0,
+        "status": "NOT_RUN"
+      },
+      "reliability": {
+        "assertions": [],
+        "k": null,
+        "pass_at_1": null,
+        "pass_at_k": null,
+        "pass_caret_k": null,
+        "passes": 0,
+        "status": "NOT_RUN",
+        "trials": 0,
+        "wilson_interval": null
+      },
+      "speech": {
+        "assertions": [],
+        "evaluated": 0,
+        "failed": 0,
+        "inconclusive": 0,
+        "passed": 0,
+        "status": "NOT_RUN"
+      }
+    },
+    "evidence": [
+      {
+        "authority": "machine",
+        "digest": "sha256:692956fc561d483a7885e45a7454cf064ddb990430d3ee1726d1c4ff770686fa",
+        "evidence_id": "timing-measurement-ref",
+        "kind": "timing_measurement",
+        "media_type": "application/json",
+        "redacted": false,
+        "redaction_classes": []
+      }
+    ],
+    "gate": {
+      "exit_code": 1,
+      "policy": "all-deterministic-assertions-pass",
+      "status": "FAIL"
+    },
+    "headline": "fd-02-backchannel-yielded-timing failed: The contract's re-scored timing no longer meets its policy pass_conditions.",
+    "kind": "hotato.failure-record.v1",
+    "origin": {
+      "kind": "captured",
+      "source": "contract-verify"
+    },
+    "privacy": {
+      "absolute_path_embedded": false,
+      "credential_embedded": false,
+      "profile": "share-safe-v1",
+      "raw_audio_embedded": false,
+      "redaction_classes": [
+        "absolute-paths",
+        "credentials",
+        "state-values",
+        "tool-payload",
+        "transcript-body"
+      ],
+      "state_value_embedded": false,
+      "tool_payload_embedded": false,
+      "transcript_body_embedded": false
+    },
+    "provenance": {
+      "hotato": {
+        "name": "hotato",
+        "version": "1.4.1"
+      },
+      "inputs": [
+        {
+          "digest": "sha256:79831a4bd3532e13172ced975ba340a3b5c81beea57fd0acd6b9743a1603645b",
+          "name": "source-result"
+        }
+      ],
+      "rules": [
+        {
+          "name": "contract.timing-policy",
+          "version": "1"
+        }
+      ],
+      "schemas": [
+        {
+          "name": "failure-record",
+          "version": "1.0"
+        },
+        {
+          "name": "contract-verify",
+          "version": "1"
+        }
+      ],
+      "scorers": [
+        {
+          "name": "hotato-failure-record-projection",
+          "version": "1"
+        }
+      ],
+      "source_result_digest": "sha256:79831a4bd3532e13172ced975ba340a3b5c81beea57fd0acd6b9743a1603645b"
+    },
+    "record_id": "sha256:5f770124478c481630bc48b54c0d256c6597c3984ec6ed2923dbc0a7d1d6f33b",
+    "reproduction": {
+      "argv": [
+        "hotato",
+        "record",
+        "render",
+        "verify.json#fd-02-backchannel-yielded",
+        "--out",
+        "record"
+      ],
+      "required_artifacts": [
+        {
+          "digest": "sha256:79831a4bd3532e13172ced975ba340a3b5c81beea57fd0acd6b9743a1603645b",
+          "relative_path": "verify.json",
+          "role": "source-result"
+        }
+      ],
+      "working_directory": "."
+    },
+    "status": "FAIL",
+    "subject": {
+      "test_id": "fd-02-backchannel-yielded"
+    },
+    "version": "1.0"
+  },
+  "evidence_provenance": {
+    "source_cli_commands": [
+      "hotato contract create --stereo fd-02-backchannel-yielded.example.wav --onset 2.20 --expect hold --id fd-02-backchannel-yielded --out contracts --stack generic --rationale \"...\"",
+      "hotato contract verify contracts --format json > verify.json",
+      "hotato record render verify.json#fd-02-backchannel-yielded --out record"
+    ],
+    "fixture_paths": [
+      "examples/funnel-demo/audio/fd-02-backchannel-yielded.example.wav",
+      "examples/funnel-demo/scenarios/fd-02-backchannel-yielded.json"
+    ]
+  },
+  "cli_transcript": [
+    {
+      "command": "hotato contract create --stereo fd-02-backchannel-yielded.example.wav --onset 2.20 --expect hold --id fd-02-backchannel-yielded --out contracts --stack generic --rationale \"...\"",
+      "output": "created hotato contract: fd-02-backchannel-yielded\n  dir:      contracts/fd-02-backchannel-yielded.hotato\n  expect:   hold\n  scorable: yes\n  label:    asserted (reviewer=hotato-examples; no signing key configured, so this is an operator-asserted expectation, not a cryptographically signed human label)\n  passed:   False\n  measured: did_yield=True seconds_to_yield=0.25 talk_over=0.25\nnext:\n  hotato contract verify contracts\n"
+    },
+    {
+      "command": "hotato contract verify contracts --format json > verify.json",
+      "output": "{\n  \"tool\": \"hotato\",\n  \"kind\": \"contract-verify\",\n  \"schema_version\": \"1\",\n  \"offline\": true,\n  \"dir\": \"contracts\",\n  \"count\": 2,\n  \"results\": [\n    {\n      \"id\": \"fd-01-missed-interruption\",\n      \"dir\": \"contracts/fd-01-missed-interruption.hotato\",\n      \"expect\": \"yield\",\n      \"passed\": false,\n      \"scorable\": true,\n      \"verdict_eligible\": true,\n      \"verdict_ineligible_reason\": null,\n      \"not_scorable_reason\": null,\n      \"measurement\": {\n        \"did_yield\": false,\n        \"seconds_to_yield\": null,\n        \"talk_over_sec\": 2.65\n      },\n      \"authenticity\": \"unsigned\",\n      \"authenticated\": false,\n      \"authenticity_reason\": \"unsigned, internally consistent evidence\",\n      \"assertions\": null\n    },\n    {\n      \"id\": \"fd-02-backchannel-yielded\",\n      \"dir\": \"contracts/fd-02-backchannel-yielded.hotato\",\n      \"expect\": \"hold\",\n      \"passed\": false,\n      \"scorable\": true,\n      \"verdict_eligible\": true,\n      \"verdict_ineligible_reason\": null,\n      \"not_scorable_reason\": null,\n      \"measurement\": {\n        \"did_yield\": true,\n        \"seconds_to_yield\": 0.25,\n        \"talk_over_sec\": 0.25\n      },\n      \"authenticity\": \"unsigned\",\n      \"authenticated\": false,\n      \"authenticity_reason\": \"unsigned, internally consistent evidence\",\n      \"assertions\": null\n    }\n  ],\n  \"summary\": {\n    \"passed\": 0,\n    \"failed\": 2\n  },\n  \"tampered\": 0,\n  \"refused\": 0,\n  \"assertions_failed\": 0,\n  \"exit_code\": 1\n}\n"
+    },
+    {
+      "command": "hotato record render verify.json#fd-02-backchannel-yielded --out record",
+      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record-fd02/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:5f770124478c481630bc48b54c0d256c6597c3984ec6ed2923dbc0a7d1d6f33b\n"
+    }
+  ],
+  "content_digest": "sha256:28d2008b731414c76cb6f23434a49a6425a1b37762a9eac0ae473dd6d01d21a7"
+}

@@ -8,6 +8,29 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **Voice Failure Atlas builder** (delta D5, not yet published): a
+  deterministic, static, server-rendered site generator
+  (`scripts/build_atlas.py`, stdlib-only) built from typed sources under
+  `atlas/{records,contracts,implementations}/`, schema-validated against three
+  new schemas (`hotato.atlas-record.v1`, `hotato.atlas-contract.v1`,
+  `hotato.atlas-implementation.v1`). Every seeded record embeds a real
+  `hotato.failure-record.v1` projection and a verbatim CLI transcript, both
+  produced by actually running `hotato contract create` / `verify` / `record
+  render` against the bundled share-safe `examples/funnel-demo/` fixtures --
+  never invented. The builder computes every capability verdict by calling
+  the real D3 router (`hotato.capability_routing.route_capability`); a typed
+  source never carries a pre-baked routing outcome. A hard publication gate
+  (schema+digest validity, evidence traced, release/consent/license present,
+  share-safe profile, safe relative paths) decides what is indexed, and the
+  bundled funnel-demo battery's own paired evidence demonstrates the
+  backchannel-exclusion rule end to end: the "yielded to an addressed
+  backchannel" record routes to `turn_intent_discriminator`, and the
+  addressee-gate-eligible pattern class ships as an honest, unindexed,
+  zero-record stub since no cleared non-addressed-speech fixture exists yet.
+  Two builds from the same sources are byte-identical. `tests/test_atlas.py`
+  (26 tests). See `implementation-notes/D5-ATLAS.md`.
+
 ## [1.4.1] - 2026-07-13
 
 Supplied interaction labels and the capability router that reads them (deltas

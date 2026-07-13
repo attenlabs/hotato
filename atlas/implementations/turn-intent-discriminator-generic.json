@@ -1,0 +1,22 @@
+{
+  "kind": "hotato.atlas-implementation.v1",
+  "version": "1.0",
+  "implementation_id": "turn-intent-discriminator-generic",
+  "capability": "turn_intent_discriminator",
+  "stack": "generic",
+  "title": "Turn-intent discrimination ahead of the yield decision (generic)",
+  "approach": "Insert a classification step between VAD/ASR onset detection and the turn-taking controller's yield decision. Instead of a single words-to-interrupt or min-silence threshold deciding yield/hold for every caller utterance, the step classifies the utterance's floor intent (taking the floor vs. giving feedback) using signals beyond raw energy -- lexical content, prosody, and duration together -- and only a take-intent classification is forwarded to the controller as a floor-taking event. A feedback-intent utterance is logged but does not interrupt the agent's turn.",
+  "integration_points": [
+    "sits between the VAD/ASR event stream and the turn-taking controller's yield decision",
+    "consumes the same caller-channel audio and partial transcript the controller already has, adds no new audio input",
+    "emits a floor_intent classification (take | feedback | none) per caller utterance onset, not a raw VAD boolean",
+    "the controller's existing interruption-sensitivity threshold stays in place as a pre-filter; this step only re-classifies events that already crossed it"
+  ],
+  "status": "evidenced",
+  "verified_against": [
+    "addressed-interruption-missed",
+    "addressed-backchannel-yielded"
+  ],
+  "recorded_date": "2026-07-13",
+  "content_digest": "sha256:591a6f96901b42cb201ef66fc982762c387dc2b4b3c683e87800bed8cc7a4349"
+}
