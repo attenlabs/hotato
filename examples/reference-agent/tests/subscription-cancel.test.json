@@ -1,0 +1,80 @@
+{
+  "agent": "reference-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "dimension": "conversation",
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "account",
+        "role": "caller"
+      },
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "outcome",
+        "id": "outcome-tool",
+        "kind": "tool_result",
+        "name": "cancel_subscription",
+        "result_subset": {
+          "status": "cancelled"
+        }
+      },
+      {
+        "dimension": "outcome",
+        "expect": {
+          "status": "cancelled"
+        },
+        "filters": {
+          "subscription_id": "sub_12"
+        },
+        "id": "outcome-state",
+        "kind": "state",
+        "resource": "subscriptions"
+      },
+      {
+        "dimension": "policy",
+        "id": "identity-before-action",
+        "kind": "sequence",
+        "steps": [
+          {
+            "tool": "verify_identity"
+          },
+          {
+            "tool": "cancel_subscription"
+          }
+        ]
+      },
+      {
+        "dimension": "policy",
+        "id": "required-disclosure",
+        "kind": "tool_call",
+        "name": "read_disclosure"
+      }
+    ]
+  },
+  "id": "subscription-cancel-test",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/subscription-cancel.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}

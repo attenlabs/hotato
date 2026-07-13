@@ -33,6 +33,8 @@ _ALL_SUBCOMMANDS = [
     "trace", "trace ingest", "trace attach", "trace export",
     "assert", "assert init", "assert run",
     "test", "test run",
+    "suite", "suite run",
+    "release", "release compare",
     "rubric", "rubric run", "rubric calibrate",
     "scenario", "scenario init", "scenario validate",
     "conversation", "conversation verify",

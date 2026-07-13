@@ -1,0 +1,83 @@
+{
+  "agent_mock": {
+    "state": {
+      "appointments": [
+        {
+          "appointment_id": "appt_512",
+          "day": "thursday",
+          "status": "rescheduled"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "patient_id": "patient_221"
+        },
+        "latency_ms": 390,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "arguments": {
+          "appointment_id": "appt_512",
+          "to": "thursday"
+        },
+        "latency_ms": 910,
+        "name": "reschedule_appointment",
+        "result": {
+          "new_day": "thursday",
+          "status": "rescheduled"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "this is patient_221"
+      },
+      {
+        "say": "can we move appointment appt_512 to thursday instead of tuesday"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "appointment_id": "appt_512",
+    "patient_id": "patient_221"
+  },
+  "goal": {
+    "target": "appt_512",
+    "type": "reschedule_appointment"
+  },
+  "id": "appointment-reschedule",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

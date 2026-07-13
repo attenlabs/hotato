@@ -67,6 +67,32 @@
       "minimum": 0,
       "default": 0,
       "description": "The base seed. A seeded replay is byte-identical; different seeds vary only where the scenario allows (probabilistic backchannels). Never Math.random / time-based."
+    },
+    "agent_mock": {
+      "type": "object",
+      "additionalProperties": true,
+      "not": { "required": ["overall_score"] },
+      "description": "OPTIONAL deterministic MOCK agent (Phase-2 tool mocks + state sandbox; 1.3 item 9). Additive and gated -- a scenario without it renders byte-identically. Lets an OFFLINE simulation exercise the outcome/policy authorities end-to-end: `tools` render as tool_call spans (Authority 1, read by tool_result/tool_error), an optional `handoff`/`termination` render as their own spans, and `state` is a {resource: rows} post-call sandbox (Authority 2) served by a MockStateAdapter to state/state_change. A mock is never a real agent: the produced conversation stays origin=simulated and this evidence is labelled the simulator's, never a live agent's. It declares AGENT-side evidence only -- the caller script stays the only place caller words live.",
+      "properties": {
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": true,
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "arguments": { "type": "object" },
+              "result": { "type": "object" },
+              "error": {},
+              "latency_ms": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        "handoff": { "type": "object", "required": ["to"], "additionalProperties": true },
+        "termination": { "type": "object", "additionalProperties": true },
+        "state": { "type": "object", "description": "A {resource: rows} post-call state sandbox (Authority 2)." }
+      }
     }
   },
   "definitions": {

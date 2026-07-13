@@ -1,0 +1,84 @@
+{
+  "agent_mock": {
+    "state": {
+      "reservations": [
+        {
+          "reservation_id": "r_77",
+          "status": "confirmed"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "day": "friday",
+          "party": 4,
+          "time": "7pm"
+        },
+        "latency_ms": 350,
+        "name": "check_availability",
+        "result": {
+          "available": true
+        }
+      },
+      {
+        "arguments": {
+          "day": "friday",
+          "party": 4,
+          "time": "7pm"
+        },
+        "latency_ms": 610,
+        "name": "book_reservation",
+        "result": {
+          "reservation_id": "r_77",
+          "status": "confirmed"
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "i'd like a table for 4"
+      },
+      {
+        "say": "friday at 7pm if you have it"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "party_size": "4"
+  },
+  "goal": {
+    "target": "friday 7pm",
+    "type": "book_reservation"
+  },
+  "id": "restaurant-reservation",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

@@ -1,0 +1,72 @@
+{
+  "agent_mock": {
+    "handoff": {
+      "to": "human_supervisor"
+    },
+    "state": {
+      "tickets": [
+        {
+          "account_id": "acct_77",
+          "escalated": true
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "account_id": "acct_77"
+        },
+        "latency_ms": 400,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "account acct_77, i have a billing dispute"
+      },
+      {
+        "say": "i want to speak to a human supervisor now"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "account_id": "acct_77"
+  },
+  "goal": {
+    "target": "billing dispute",
+    "type": "escalate"
+  },
+  "id": "escalate-to-human-supervisor",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}

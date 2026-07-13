@@ -1,0 +1,71 @@
+{
+  "agent_mock": {
+    "state": {
+      "sessions": [
+        {
+          "authenticated": true,
+          "patient_id": "patient_500"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "arguments": {
+          "dob": "1980-02-11",
+          "patient_id": "patient_500"
+        },
+        "latency_ms": 460,
+        "name": "verify_identity",
+        "result": {
+          "verified": true
+        }
+      }
+    ]
+  },
+  "caller": {
+    "behavior": {
+      "backchannels": {
+        "probability": 0.0
+      }
+    },
+    "script": [
+      {
+        "say": "i'm patient_500, date of birth 1980-02-11"
+      },
+      {
+        "say": "i need to access my records"
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "facts": {
+    "dob": "1980-02-11",
+    "patient_id": "patient_500"
+  },
+  "goal": {
+    "target": "patient_500",
+    "type": "verify_identity"
+  },
+  "id": "identity-verify-success",
+  "kind": "hotato.scenario",
+  "seed": 0,
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe",
+      "street"
+    ],
+    "repetitions": 1,
+    "speaking_rate": [
+      0.7,
+      0.85,
+      1.0,
+      1.2,
+      1.4
+    ]
+  },
+  "version": 1
+}
