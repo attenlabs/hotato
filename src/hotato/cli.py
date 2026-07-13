@@ -3191,8 +3191,12 @@ def _cmd_simulate_matrix(args) -> int:
     ct = (_ct.load_conversation_test_file(args.conversation_test)
           if args.conversation_test else None)
 
+    # --created-at (if any) pins the manifest timestamp; omitted, run_matrix uses
+    # a reproducible SOURCE_DATE_EPOCH-style default (never the wall clock) so a
+    # seeded --matrix run writes byte-identical conversation.json.
     summary = SIM.run_matrix(
         doc, conversation_test=ct, out_dir=args.out, max_workers=args.parallel,
+        created_at=args.created_at,
     )
 
     if args.format == "json":
@@ -6117,8 +6121,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "the caller-side stimulus is not bound to an agent until "
                          "a later live-play slice)")
     sm.add_argument("--created-at", default=None, metavar="ISO8601",
-                    help="the artifact's created_at (default: now, UTC); set it "
-                         "for a byte-reproducible manifest")
+                    help="the artifact's created_at (single-run default: now, "
+                         "UTC; --matrix default: a reproducible "
+                         "SOURCE_DATE_EPOCH-style instant, never the wall clock, "
+                         "so a seeded matrix writes byte-identical manifests); "
+                         "set it to pin the manifest timestamp")
     _add_format_arg(sm, choices=("text", "json"))
     sm.set_defaults(func=_cmd_simulate)
 
