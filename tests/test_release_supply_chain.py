@@ -19,6 +19,7 @@ present (e.g. a minimal sdist without them), rather than hard-failing.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -221,3 +222,66 @@ def test_gen_sbom_list_profiles_includes_core():
     assert res.returncode == 0, f"--list-profiles failed: {res.stderr or res.stdout}"
     profiles = res.stdout.split()
     assert "core" in profiles, f"--list-profiles must include 'core'; got {profiles}"
+
+
+# ---------------------------------------------------------------------------
+# (f) the SBOM MACHINE-DECLARES its scope: declared-direct deps, NOT a resolved
+#     transitive closure. gen_sbom is offline/stdlib-only and never resolves,
+#     downloads, or introspects installed packages, so the document must SAY SO
+#     in machine-readable form -- a consumer parsing the CycloneDX JSON must be
+#     able to tell it is the manifest-level surface, not the full resolved graph,
+#     and must never mistake it for a pinned closure.
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(
+    not os.path.exists(GEN_SBOM) or sys.version_info < (3, 11),
+    reason="gen_sbom.py is release tooling that needs Python 3.11+ (tomllib)",
+)
+def test_gen_sbom_declares_declared_direct_scope(tmp_path):
+    out = str(tmp_path / "hotato.sbom.cdx.json")
+    gen = _run(["--out", out])
+    assert gen.returncode == 0, f"gen_sbom failed: {gen.stderr or gen.stdout}"
+    with open(out, encoding="utf-8") as fh:
+        doc = json.load(fh)
+
+    props = {p["name"]: p["value"] for p in doc["metadata"].get("properties", [])}
+    assert props.get("hotato:dependency-scope") == "declared-direct", (
+        "the SBOM must machine-declare metadata.properties "
+        "hotato:dependency-scope=declared-direct so consumers know it lists the "
+        "declared direct surface, not the resolved transitive graph"
+    )
+    assert props.get("hotato:transitive-resolved") == "false", (
+        "the SBOM must machine-declare hotato:transitive-resolved=false: it "
+        "never resolves, pins, or introspects the transitive closure"
+    )
+
+    # Every dependency component is UNRESOLVED (empty version == declared range,
+    # not a pin), so the document can never be read as a resolved closure.
+    deps = [c for c in doc["components"] if c.get("name") != "hotato"]
+    assert deps, "expected at least one dependency component in the whole-surface SBOM"
+    unpinned = [c["name"] for c in deps if c.get("version") != ""]
+    assert not unpinned, (
+        "dependency components must carry an empty (unresolved) version -- a "
+        f"non-empty version implies a resolved pin the tool never produces: {unpinned}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# (g) every publish path builds byte-reproducibly. The OIDC workflow already
+#     sets SOURCE_DATE_EPOCH + a pinned backend; the manual twine FALLBACK in
+#     the release checklist must do the same, or a hand-published wheel's ZIP
+#     timestamps/modes drift from a rebuild and the byte-reproducibility claim
+#     would not hold for that artifact.
+# ---------------------------------------------------------------------------
+def test_fallback_publish_path_builds_reproducibly():
+    checklist = os.path.join(ROOT, "docs", "RELEASE-CHECKLIST.md")
+    if not os.path.exists(checklist):
+        pytest.skip("RELEASE-CHECKLIST.md not present (minimal sdist?)")
+    text = _read(checklist)
+    idx = text.find("Fallback: manual token upload")
+    assert idx != -1, "no 'Fallback: manual token upload' section in the checklist"
+    fallback = text[idx:]
+    assert "SOURCE_DATE_EPOCH" in fallback, (
+        "the manual twine fallback must build with SOURCE_DATE_EPOCH (and the "
+        "pinned backend) so a hand-published wheel is byte-reproducible; "
+        "otherwise its ZIP timestamps/modes drift from a rebuild"
+    )

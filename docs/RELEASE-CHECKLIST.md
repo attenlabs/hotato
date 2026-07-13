@@ -8,7 +8,7 @@ Run top to bottom for every release. Each item is a gate: green means proceed.
 - [ ] `python3 sync_engine.py --check` passes: the vendored `_engine` is byte-identical to upstream.
 - [ ] CI is green on the release commit (`.github/workflows/tests.yml`).
 - [ ] GitHub Actions stay SHA-pinned: every `uses:` in `.github/workflows/*.yml` references an action by full 40-char commit SHA with a trailing `# vX.Y.Z` comment (never a mutable `@v4` tag or `@release/v1` branch). When bumping an action, update the SHA and the comment together; do not revert to a floating tag. The same rule covers the root `action.yml` and `tests/fixtures/action-consumer/workflows/consumer.yml` (`tests/test_action_consumer.py` gates both).
-- [ ] Root Action docs match the release: the `attenlabs/hotato@vX.Y.Z` pin named in `docs/CI.md` ("The root Action" section) is the tag of the first release that ships `action.yml`; once that tag exists, resolve it with `git ls-remote` and confirm the documented resolve command prints it.
+- [ ] Root Action docs match the release: `docs/CI.md` ("The root Action" section) names v1.4.0 as the availability floor (the first release that ships `action.yml`, a fixed historical fact) AND shows the CURRENT release as the copy-paste adoption example -- the `git ls-remote refs/tags/vX.Y.Z` resolve command, the `# vX.Y.Z` comment on the `attenlabs/hotato@<sha>` pin, and the `hotato==X.Y.Z` pip example all name the release being cut. `tests/test_version_lockstep.py::test_ci_md_adoption_example_pins_match_pyproject` gates those three; resolve the current tag with `git ls-remote` and confirm the documented command prints its SHA.
 - [ ] Version bumped in EVERY lockstep site: `pyproject.toml`, `src/hotato/__init__.py` (`__version__` -- this is what `hotato --version`, `hotato describe`, and stackbench provenance self-report), `server.json` (both `version` fields), `CITATION.cff` (`version` + `date-released`), the `llms.txt` version line; `CHANGELOG.md` has a dated entry for it. `tests/test_version_lockstep.py` gates the ones tests can see -- it now parses and compares `pyproject.toml`, `__init__.py`, the `describe` manifest, installed dist metadata, `llms.txt`'s `Version` line, `server.json` (top-level + each package), and `CITATION.cff`'s `version:`, so a missed bump in any of those reddens CI.
 
 ## README and assets
@@ -76,11 +76,33 @@ from the pending-publisher flow for unpublished names:
 ### Fallback: manual token upload (twine)
 
 If Trusted Publishing is unavailable (e.g. the publisher is not yet registered
-and a release must go out), publish by hand with a project-scoped API token:
-`python3 -m twine upload dist/*` using a token scoped to the `hotato` project.
+and a release must go out), publish by hand with a project-scoped API token.
+Build the SAME way the OIDC path does -- a pinned backend plus
+`SOURCE_DATE_EPOCH` from the release commit -- so the hand-uploaded wheel is
+byte-reproducible instead of carrying wall-clock ZIP timestamps that no rebuild
+can match:
+
+```bash
+python3 -m pip install "build==1.2.2.post1" "setuptools==83.0.0" "wheel==0.45.1" "twine"
+SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)" python3 -m build --no-isolation
+python3 -m twine check dist/*
+python3 -m twine upload dist/*    # token scoped to the `hotato` project
+```
+
 This path uses a long-lived credential and skips build-provenance attestation,
 so prefer the OIDC path above; treat twine as the fallback, and still attach
 the generated `dist/*.cdx.json` SBOMs to the GitHub release.
+
+**Reproducibility scope (what actually holds).** The wheel is byte-for-byte
+reproducible ONLY when built with the exact backend pins above and
+`SOURCE_DATE_EPOCH`; both publish paths do this, and the OIDC workflow rebuilds
+a second time and compares the wheel's raw `sha256sum` to prove it. The sdist is
+NOT byte-reproducible: setuptools does not normalize the gzip mtime or the tar
+member mtimes, so its `.tar.gz` bytes vary run-to-run even at a fixed
+`SOURCE_DATE_EPOCH`. What is stable for the sdist is its CONTENT (member names,
+modes, and file bytes), which the workflow compares instead -- a changed or
+injected file still fails, timestamp noise does not. Do not describe the sdist
+`.tar.gz` as byte-reproducible; it is content-reproducible.
 
 ## After release
 
