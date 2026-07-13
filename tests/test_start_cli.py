@@ -231,9 +231,26 @@ def test_start_requires_a_mode(capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_start_bad_dir_is_a_usage_error(tmp_path):
-    assert cli.main(["start", "--demo", "--dir",
-                     str(tmp_path / "does-not-exist")]) == 2
+def test_start_demo_creates_missing_nested_dir(tmp_path):
+    """--dir at a not-yet-existing nested path is CREATED (validated), not
+    refused: the guided first run into a brand-new folder must just work, and
+    it writes its artifacts into the created path."""
+    target = tmp_path / "new" / "nested" / "run"
+    rc = cli.main(["start", "--demo", "--dir", str(target)])
+    assert rc == 0
+    assert target.is_dir()
+    assert (target / "hotato-sweep.json").is_file()
+
+
+def test_start_dir_that_is_an_existing_file_is_refused(tmp_path):
+    # A missing --dir is now created (see test_start_demo_creates_missing_nested_dir);
+    # the refusal that remains is a --dir that already exists as a NON-directory,
+    # which must never be clobbered -- a clean exit-2 usage error, not a traceback.
+    a_file = tmp_path / "not-a-dir"
+    a_file.write_text("x")
+    assert cli.main(["start", "--demo", "--dir", str(a_file)]) == 2
+    # the file is left untouched -- nothing was written over it
+    assert a_file.read_text() == "x"
 
 
 def test_start_dropped_unwired_stack_folder_flags():
