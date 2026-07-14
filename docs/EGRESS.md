@@ -2,32 +2,32 @@
 
 Derived from the code: every `urllib`/`http`/`subprocess`-to-a-network-tool
 call site in `src/hotato/`, mapped to the CLI command that reaches it. Every
-command listed under "Fully local" below runs entirely on your machine -- no
-`urllib` import, no socket, no networked subprocess.
+command under "Fully local" runs entirely on your machine -- no `urllib` import,
+no socket, no networked subprocess.
 
 ## Fully local -- everything runs on your machine
 
-`run`, `report`, `doctor`, `team`, `export`, `benchmark`, `compare` (the
-batch result-comparison command, `stackbench.py`), `demo`, `start`, `card`,
-`diagnose`, `plan`, `explain`, `fixture create`, `fixture promote`,
-`contract create` (stereo / caller+agent / local-file mono), `contract
-verify`, `contract inspect`, `contract pack`, `contract unpack`, `trace
-attach`, `trace export`, `scan`, `trust`, `analyze`, `patch`, `verify`, `fix
-trial`, `loop`, `describe`, `init starter`, `init webhook` (the scaffold
-generator -- the server it scaffolds is a local listener, see below), `setup`.
+`run`, `report`, `doctor`, `team`, `export`, `benchmark`, `compare` (the batch
+result-comparison command, `stackbench.py`), `demo`, `start`, `card`,
+`diagnose`, `plan`, `explain`, `fixture create`, `fixture promote`, `contract
+create` (stereo / caller+agent / local-file mono), `contract verify`, `contract
+inspect`, `contract pack`, `contract unpack`, `trace attach`, `trace export`,
+`scan`, `trust`, `analyze`, `patch`, `verify`, `fix trial`, `loop`, `describe`,
+`init starter`, `init webhook` (the scaffold generator -- the server it
+scaffolds is a local listener, see below), `setup`.
 
-These read local files (recordings, scenarios, `hotato.yaml`, connection
-files) and write local files. `connect` also belongs here: it validates and
-stores credentials at `~/.hotato/connections.json` (mode `0600`) without a
-network round trip (`src/hotato/connections.py`: "nothing in this module
-makes a network call").
+These read local files (recordings, scenarios, `hotato.yaml`, connection files)
+and write local files. `connect` also belongs here: it validates and stores
+credentials at `~/.hotato/connections.json` (mode `0600`) with no network round
+trip (`src/hotato/connections.py`: "nothing in this module makes a network
+call").
 
 `rubric run`, `rubric calibrate`, and the `test run` rubric lane also belong
 here **on the default path**: the model judge is a **LOCAL Ollama** daemon
-(default `http://localhost:11434`), so everything stays on your machine. The
-verdict cache (`~/.hotato/rubric-cache`) is local. Two ways a rubric command DOES reach
-the network -- both explicit, both in the extras table below: a non-local
-Ollama endpoint, or `--judge-provider hosted`.
+(default `http://localhost:11434`), and the verdict cache
+(`~/.hotato/rubric-cache`) is local. Two ways a rubric command DOES reach the
+network -- both explicit, both in the extras table below: a non-local Ollama
+endpoint, or `--judge-provider hosted`.
 
 ## Reaches your configured vendor -- only when the command's job is to
 
@@ -53,10 +53,10 @@ Ollama endpoint, or `--judge-provider hosted`.
 
 `load_state_adapter` requires `egress_opt_in: true` before an `http` adapter or
 a `sql` adapter over a `dsn` connects (absent it, it raises before any
-connection -- the CLI's exit-2 usage-error path). The default `--state`
-adapters -- the local mock JSON/SQLite sandbox and a local `sqlite_path` SQL DB
--- run entirely on your machine and need no opt-in.
-Full config format: [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md).
+connection -- the CLI's exit-2 usage-error path). The default `--state` adapters
+-- the local mock JSON/SQLite sandbox and a local `sqlite_path` SQL DB -- run
+entirely on your machine and need no opt-in. Full config format:
+[`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md).
 
 ## Optional extras that add a hosted call
 
@@ -75,9 +75,9 @@ Full config format: [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md).
 
 `capture.py` installs a process-wide `urllib` redirect handler
 (`_CredentialSafeRedirectHandler`) so a 3xx redirect from a vendor API keeps
-your Authorization header and API key scoped to the original host. This
-applies to every fetch path in the table above that goes through
-`capture.py`'s `_http_get`/`_download`.
+your Authorization header and API key scoped to the original host. This applies
+to every fetch path in the table above that goes through `capture.py`'s
+`_http_get`/`_download`.
 
 ## Read more
 
