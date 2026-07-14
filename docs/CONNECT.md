@@ -1,16 +1,17 @@
 # Connect, pull, sweep: score every call across your stack
 
-`hotato sweep` is the "connect once, see every turn-taking problem across all
-your calls" flow. It has three steps you can also run on their own:
+`hotato sweep` is the "connect once, see every turn-taking problem across
+all your calls" flow. It runs in three steps you can also run on their
+own:
 
 1. **`hotato connect <stack>`**: store a stack's credentials once, locally.
 2. **`hotato pull`**: bulk-fetch your recent recordings into a folder.
-3. **`hotato sweep`**: pull, then run the zero-config `analyze` over them and
-   write one offline dashboard of the ranked turn-taking moments.
+3. **`hotato sweep`**: pull, then run the zero-config `analyze` over them
+   and write one offline dashboard of the ranked turn-taking moments.
 
-Everything scores offline. The only network is the direct recording download
-from your vendor to your machine; your audio and your keys stay between you
-and the vendor.
+Everything scores offline. The only network call is the direct recording
+download from your vendor to your machine; your audio and your keys stay
+between you and the vendor.
 
 ## 1. Connect once
 
@@ -18,11 +19,11 @@ and the vendor.
 hotato connect vapi --api-key <key>
 ```
 
-This does a lightweight live auth check (it lists one recent call), then writes
-the credentials to `~/.hotato/connections.json` with file mode `0600` (directory
-`0700`). The key stays out of any printed output and travels only to the
-vendor's own API. Credentials also fall back to the stack's environment variable,
-so this works too:
+This runs a lightweight live auth check (it lists one recent call), then
+writes the credentials to `~/.hotato/connections.json` with file mode
+`0600` (directory `0700`). The key stays out of any printed output and
+travels only to the vendor's own API. Credentials also fall back to the
+stack's environment variable, so this works too:
 
 ```
 VAPI_API_KEY=<key> hotato connect vapi
@@ -41,14 +42,14 @@ Per-stack credentials:
 | millis | `--api-key` / `MILLIS_API_KEY` (+ `--base-url` for the EU region) |
 | cartesia | `--api-key` / `CARTESIA_API_KEY` (+ `--agent-id` / `CARTESIA_AGENT_ID` to list) |
 
-Retell has no list endpoint to verify against, so `connect retell` stores the
-key and validates it on the first pull. Use `--no-verify` to skip the live check
-for any stack. LiveKit and Pipecat are capture-in-your-infra: there's no
-vendor recording to pull, so connect them via `hotato setup
---stack livekit|pipecat` instead.
+Retell has no list endpoint to verify against, so `connect retell` stores
+the key and validates it on the first pull. Use `--no-verify` to skip the
+live check for any stack. LiveKit and Pipecat capture in your own infra,
+so connect them through `hotato setup --stack livekit|pipecat` instead of
+a vendor pull.
 
-After connecting, `--stack` and the credential flags are optional for `pull` and
-`sweep`: when exactly one stack is connected, Hotato uses it.
+After connecting, `--stack` and the credential flags are optional for
+`pull` and `sweep`: when exactly one stack is connected, Hotato uses it.
 
 ## 2. Pull recent recordings
 
@@ -57,15 +58,16 @@ hotato pull --stack vapi --since 7d --limit 50
 hotato pull                                   # the only connected stack
 ```
 
-`pull` lists your recent recordings with the vendor's verified list endpoint and
-downloads each one by looping the same single-call fetch `hotato capture` uses,
-into `hotato-pull-<stack>/` (override with `--out DIR`). `--since` accepts `7d`,
-`12h`, `30m`, `2w`. A recording that cannot be fetched (missing URL, HTTP error,
-wrong channel count) is reported as a clean skip with its reason, and the pull
-keeps going through the rest.
+`pull` lists your recent recordings with the vendor's verified list
+endpoint and downloads each one by looping the same single-call fetch
+`hotato capture` uses, into `hotato-pull-<stack>/` (override with
+`--out DIR`). `--since` accepts `7d`, `12h`, `30m`, `2w`. A recording that
+cannot be fetched (missing URL, HTTP error, wrong channel count) is
+reported as a clean skip with its reason, and the pull keeps going through
+the rest.
 
-**Retell has no verified list endpoint.** Pull it from explicit ids instead
-(Hotato ships only verified endpoints):
+**Retell has no verified list endpoint.** Pull it from explicit ids
+instead (Hotato ships only verified endpoints):
 
 ```
 hotato pull --stack retell --call-id c1 --call-id c2
@@ -73,9 +75,10 @@ hotato pull --stack retell --call-id c1 --call-id c2
 
 For Twilio, `--call-id` values are Recording SIDs (`RE...`).
 
-**Mono / mixed stacks** (bland, elevenlabs, synthflow, millis, cartesia) produce
-a single combined recording with no per-party channel; attributing talk-over
-needs the `--allow-mono` opt-in, and results are indicative only:
+**Mono / mixed stacks** (bland, elevenlabs, synthflow, millis, cartesia)
+produce a single combined recording with no per-party channel;
+attributing talk-over needs the `--allow-mono` opt-in, and results stay
+indicative only:
 
 ```
 hotato pull --stack bland --allow-mono --limit 20
@@ -88,23 +91,25 @@ hotato sweep --stack vapi --since 7d
 hotato sweep                                  # the only connected stack
 ```
 
-`sweep` pulls (as above) into `hotato-sweep-<stack>/` (override with `--dir`),
-then runs the exact same zero-config `analyze` over the folder and writes one
-self-contained, offline HTML dashboard (`hotato-sweep-<stack>.html`, override
-with `--out`) of the ranked candidate turn-taking moments across every call,
-with the hear-the-bug audio player on the top moments. `--format json` emits the
-ranked candidates plus a pull summary instead.
+`sweep` pulls (as above) into `hotato-sweep-<stack>/` (override with
+`--dir`), then runs the exact same zero-config `analyze` over the folder
+and writes one self-contained, offline HTML dashboard
+(`hotato-sweep-<stack>.html`, override with `--out`) of the ranked
+candidate turn-taking moments across every call, with the hear-the-bug
+audio player on the top moments. `--format json` emits the ranked
+candidates plus a pull summary instead.
 
-Dual-channel stacks give separated scoring. Mono/mixed stacks can be swept with
-`--allow-mono`; lacking per-party separation, their calls surface in the
+Dual-channel stacks get separated scoring. Mono/mixed stacks sweep with
+`--allow-mono`; without per-party separation, their calls surface in the
 dashboard's Skipped section.
 
-Candidates are MEASURED timing moments you review and label with `hotato fixture
-create`: a timestamp and a number, not a verdict on intent.
+Candidates are MEASURED timing moments you review and label with
+`hotato fixture create`: a timestamp and a number, not a verdict on
+intent.
 
 ## What is and isn't pullable
 
-See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full map:
-which stacks auto-pull dual-channel, which are mono-only behind `--allow-mono`,
-which are capture-in-your-infra, and which are not integrable, each with the
-exact verified endpoint and the gaps.
+See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full map: which
+stacks auto-pull dual-channel, which are mono-only behind `--allow-mono`,
+which capture in your own infra, and which fall outside today's adapter
+set, each against the exact verified endpoint it uses.
