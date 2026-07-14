@@ -1,8 +1,8 @@
 # What Hotato validates
 
 A turn handoff is not one number. Hotato is validated on **three separate
-jobs**, each measured on its own terms, each with an explicit reported
-output. Judge each job on its own terms when you decide whether to trust it.
+jobs**, each with its own question and its own reported output. Judge each
+on its own terms when you decide whether to trust it.
 
 Everything below runs offline against recordings you control. Every threshold
 is exposed and every frame is inspectable (`hotato run --dump-frames`).
@@ -11,14 +11,13 @@ is exposed and every frame is inspectable (`hotato run --dump-frames`).
 
 ## Job 1: timing reproducibility
 
-**The question:** given the same recording and the same reference config, does
-Hotato produce the same timing measurements every run? (Deterministic for a
-fixed hotato version; byte-identical re-runs are verified in CI on Linux
-x86_64, Python 3.10, 3.11, and 3.12 -- `.github/workflows/tests.yml`, job
-`pytest`. The same double-run check also runs in CI on macOS and Windows,
-with the digest additionally compared ACROSS those OSes -- jobs `portability`
-and `determinism` in the same file. Cross-OS agreement is measured and
-reported there; it is a separate finding, not part of this claim.)
+**The question:** given the same recording and the same reference config,
+does Hotato produce the same timing measurements every run? (Deterministic
+for a fixed hotato version; byte-identical re-runs are verified in CI on
+Linux x86_64, Python 3.10-3.12 -- `.github/workflows/tests.yml`, job
+`pytest`. macOS and Windows run the same double-run check, with digests
+also compared ACROSS those OSes -- jobs `portability` and `determinism`.
+Cross-OS agreement is a separate finding, reported there.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used
@@ -71,13 +70,13 @@ Candidates are timing events. You decide the expected behavior; label with: hota
   [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.56s  agent did not go silent within 3.0s
 ```
 
-The usefulness bar is **recall of human-notable moments at a workable candidate
-count**, not precision against a ground-truth intent label (there is no such
-label at scan time, by design). A candidate that turns out to be a harmless
-backchannel is simply one you label `hold` and move on. The validation
-artifact is the [trust gallery](TRUST-GALLERY.md), which
-includes a deliberate false positive so you can see what an unhelpful candidate
-looks like and why Hotato still surfaces it.
+The usefulness bar is **recall of human-notable moments at a workable
+candidate count**, not precision against a ground-truth intent label (no
+such label exists at scan time, by design). A candidate that turns out to be
+a harmless backchannel is simply one you label `hold` and move on. The
+validation artifact is the [trust gallery](TRUST-GALLERY.md): it includes a
+deliberate false positive, showing what an unhelpful candidate looks like
+and why Hotato still surfaces it.
 
 **What this job establishes.** That scan widens the net for you to make the
 call. It is a claim about recall, not that every candidate is a bug or that a
@@ -94,13 +93,12 @@ explicit, portable, CI-enforced policy?
 
 Today this job runs on a fixture (`hotato fixture create` / `hotato run`): a
 labelled recording plus an explicit threshold policy, scored the same way on
-every machine covered by CI (Linux, established; macOS and Windows now run the
-same scoring code path too, pending a first green determinism run -- see Job 1
-above). The portable contract bundle (`hotato contract create` /
-`hotato contract verify`, audio plus timing evidence plus trace evidence plus
-label plus policy plus a CI command in one artifact) carries this exact job
-forward into a single self-contained object once it ships; the verdict this
-job validates keeps its shape, only the artifact it travels in changes.
+every CI machine (Linux, established; macOS and Windows now run the same
+path, pending a first green determinism run -- see Job 1). The portable
+contract bundle (`hotato contract create` / `hotato contract verify` --
+audio, timing evidence, trace evidence, label, policy, and a CI command, all
+in one artifact) carries this job forward once it ships; only the artifact
+changes, not the verdict's shape.
 
 **What is reported.** Per fixture: the verdict (`PASS`/`FAIL`), the measured
 signals behind it, and the named fix class when the failure maps cleanly to a
@@ -121,9 +119,9 @@ hotato [suite] stack=generic offline=True
 ```
 
 Both labelled failures are caught, and the battery-level note reports the
-disagreement plainly when a missed interruption and a false stop fail in the
-same run -- no single threshold satisfies both. Reporting that disagreement
-instead of inventing a fix is part of the validated behavior.
+disagreement plainly: a missed interruption and a false stop failing in the
+same run means no single threshold satisfies both. Reporting that
+disagreement, instead of inventing a fix, is part of the validated behavior.
 
 **What this job establishes.** That the verdict follows the audio and the
 label consistently. It is a claim about consistency, not that the label was
@@ -140,9 +138,9 @@ Read this as the scope of the claim, stated once, plainly.
   sound meant "stop" or "mhm, go on" is a label you supply.
 - **A likely layer, not certainty.** A slow yield can be TTS buffering,
   transport, or VAD. `diagnose` names a likely layer and stays
-  `unknown_root_cause` when one recording cannot separate them. A voice trace
+  `unknown_root_cause` when one recording can't separate them. A voice trace
   (once the trace layer ships) narrows the candidates further, short of
-  turning one into a proof.
+  proof.
 - **Timing, not task success.** Whether the call booked the appointment,
   resolved the ticket, or satisfied the caller is a QA platform's job (see
   [COMPARE.md](COMPARE.md)).

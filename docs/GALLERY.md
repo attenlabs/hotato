@@ -5,7 +5,7 @@ reproducible with the command shown beside it.
 
 ## Cards: shareable findings
 
-Three self-contained SVGs: offline, byte-stable from the same input, with every
+Three self-contained SVGs: offline, byte-stable from the same input, every
 font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
 
 - ![threshold funnel](assets/cards/no-single-threshold-card.svg)
@@ -52,7 +52,7 @@ Summary:
 ## Case studies
 
 Recorded-audio write-ups, each following
-[case-study-TEMPLATE.md](evidence/case-study-TEMPLATE.md) and each carrying a
+[case-study-TEMPLATE.md](evidence/case-study-TEMPLATE.md), each carrying a
 mandatory "What Hotato did not prove" scope section:
 
 - [`case-studies/vapi-01-hard-interruption.md`](case-studies/vapi-01-hard-interruption.md)
@@ -64,6 +64,6 @@ consented fixtures, 1 before/after, 1 public PR) is in
 
 ## Where this fits
 
-This page is the visual survey. For the standard behind what counts as evidence
-and how it is ranked, see [EVIDENCE-PACK.md](EVIDENCE-PACK.md) and
+This page is the visual survey. For what counts as evidence and how it's
+ranked, see [EVIDENCE-PACK.md](EVIDENCE-PACK.md) and
 [evidence/README.md](evidence/README.md).
