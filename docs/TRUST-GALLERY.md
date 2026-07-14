@@ -4,13 +4,13 @@ Eight named input conditions, each with the `hotato` output it produces.
 Every block below is verbatim CLI output from hotato 1.6.1, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
-The clean case and the echo case use the bundled examples
+The clean and echo cases use the bundled examples
 `01-hard-interruption.example.wav` and `07-echo-bleed.example.wav` (shipped in
-`src/hotato/data/audio/`), and the backchannel case uses the bundled
-`02-backchannel-mhm.example.wav`. The four defect cases (silent caller, silent
-agent, swap, mono) are the deterministic synthetic two-channel fixtures the test
-suite pins in `tests/test_trust.py`, each isolating one input defect, so every
-verdict reproduces byte-for-byte from the shipped builders.
+`src/hotato/data/audio/`); the backchannel case uses `02-backchannel-mhm.example.wav`.
+The four defect cases (silent caller, silent agent, swap, mono) are
+deterministic synthetic two-channel fixtures pinned in `tests/test_trust.py`,
+each isolating one input defect, so every verdict reproduces byte-for-byte
+from the shipped builders.
 
 ---
 
@@ -30,7 +30,7 @@ hotato trust: 01-hard-interruption.example.wav
   => eligible for scan
 ```
 
-**Verdict:** `eligible for scan`, exit 0. Score it. This is the only condition
+**Verdict:** `eligible for scan`, exit 0. Score it -- the only condition
 where a full turn-taking verdict is trustworthy without a caveat.
 
 ---
@@ -52,9 +52,9 @@ hotato trust: silent-caller.wav
      next step: verify channel mapping or export dual-channel again
 ```
 
-**Verdict:** `NOT SCORABLE`, exit 2. A yield is a response to a caller; with no
-caller there is nothing to be late to, so Hotato names the gap instead of
-printing a hollow pass.
+**Verdict:** `NOT SCORABLE`, exit 2. A yield is a response to a caller --
+with no caller, there is nothing to be late to. Hotato names the gap instead
+of printing a hollow pass.
 
 ---
 
@@ -77,16 +77,16 @@ hotato trust: silent-agent.wav
 ```
 
 **Verdict:** `NOT SCORABLE`, exit 2. Hotato also flags a possible channel
-swap here, because a caller-only recording looks like a mis-mapped agent. Two
-independent checks point at the same fix: re-check the export.
+swap here: a caller-only recording looks like a mis-mapped agent. Two
+independent checks point at the same fix -- re-check the export.
 
 ---
 
 ## 4. Swapped channels: candidate-eligible, verdict pending confirmation
 
-Both channels carry speech, but the long floor-holder is on the channel mapped
-as the caller. `trust` keeps the input candidate-eligible and holds the verdict
-until the mapping is confirmed.
+Both channels carry speech, but the long floor-holder is on the channel
+mapped as the caller. `trust` keeps the input candidate-eligible and holds
+the verdict until the mapping is confirmed.
 
 ```text
 $ hotato trust --stereo swapped-warn.wav
@@ -102,11 +102,11 @@ hotato trust: swapped-warn.wav
   [!] not verdict-eligible (scan mode): channel mapping unconfirmed: suspected swap/crosstalk; confirm mapping or supply provider metadata
 ```
 
-**Verdict:** `scan with caution`, exit 0: candidate-eligible, with verdict
-eligibility waiting on your confirmation. A swap would invert every yield into
-a hold, so Hotato surfaces candidates for review and holds the turn-taking
-verdict until the mapping is confirmed. Confirm the mapping (set
-`--caller-channel` / `--agent-channel`, or supply provider metadata) to
+**Verdict:** `scan with caution`, exit 0: candidate-eligible, verdict
+eligibility waiting on your confirmation. A swap would invert every yield
+into a hold, so Hotato surfaces candidates for review and holds the
+turn-taking verdict until the mapping is confirmed. Set
+`--caller-channel` / `--agent-channel`, or supply provider metadata, to
 restore verdict eligibility.
 
 ---
@@ -130,11 +130,11 @@ hotato trust: 07-echo-bleed.example.wav
   [!] not verdict-eligible (scan mode): channel mapping unconfirmed: suspected swap/crosstalk; confirm mapping or supply provider metadata
 ```
 
-**Verdict:** `scan with caution`, exit 0: candidate-eligible, with verdict
-eligibility waiting on confirmation. The "caller" activity may be leaked TTS,
-so Hotato still surfaces candidates for review (the scan step, example 8,
-names the specific moment) and holds the turn-taking verdict until the
-mapping is confirmed.
+**Verdict:** `scan with caution`, exit 0: candidate-eligible, verdict
+eligibility waiting on confirmation. The "caller" activity may be leaked
+TTS, so Hotato still surfaces candidates for review (example 8's scan names
+the specific moment) and holds the turn-taking verdict until the mapping is
+confirmed.
 
 ---
 
@@ -151,13 +151,13 @@ hotato trust: mono-mixed.wav
      next step: export a dual-channel recording with the caller on one channel and the agent on the other
 ```
 
-**Verdict:** `NOT SCORABLE`, exit 2. This is the gold-standard refusal. Two
-opt-in escapes exist, both marked indicative only: `--allow-mono` on
-`capture` / `pull` / `sweep` accepts a mono-only stack in degraded mode (talk-over
-unattributable, no SLA gate), and the `--diarize` separation front-end reports a
-`high` / `low` / `refuse` tier, with `hotato run --mono call.wav --diarize`
-stamping the verdict `indicative_only` at the `low` tier. Neither stands in
-for dual-channel. See [TRUST-MATRIX.md](TRUST-MATRIX.md) and
+**Verdict:** `NOT SCORABLE`, exit 2 -- the gold-standard refusal. Two
+opt-in escapes exist, both indicative only: `--allow-mono` on `capture` /
+`pull` / `sweep` accepts a mono-only stack in degraded mode (talk-over
+unattributable, no SLA gate), and the `--diarize` separation front-end
+reports a `high` / `low` / `refuse` tier, with `hotato run --mono call.wav
+--diarize` stamping the verdict `indicative_only` at `low`. Neither stands
+in for dual-channel. See [TRUST-MATRIX.md](TRUST-MATRIX.md) and
 [DIARIZE.md](DIARIZE.md).
 
 ---
@@ -177,10 +177,10 @@ Candidates are timing events. You decide the expected behavior; label with: hota
 ```
 
 **Verdict:** three candidates, exit 0. Whether "agent did not go silent" is
-correct (it held the floor through a backchannel, good) or a bug (it talked
-over a caller trying to take the floor) is **your** call. `scan` reports the
+correct (held the floor through a backchannel, good) or a bug (talked over a
+caller trying to take the floor) is **your** call. `scan` reports the
 timing; you label `hold` or `yield` -- the intent behind a caller sound is
-always your call.
+always yours to decide.
 
 ---
 
@@ -197,12 +197,11 @@ Candidates are timing events. You decide the expected behavior; label with: hota
   [ 2] t=0.31s  echo_correlated_activity     WARNING likely agent echo: coherence=1.00 at lag 0.12s  (caller channel looks like leaked TTS; a yield here may be the agent hearing itself)
 ```
 
-**Verdict:** two candidates, exit 0. Candidate 1 looks like a bad talk-over.
-Candidate 2 is Hotato telling you the overlap is probably the agent hearing
-its own audio rather than the caller interrupting. This is the failure mode
-of candidate discovery: the net is wide, and Hotato labels the reason a
-wide-net candidate is likely spurious instead of hiding it. You label it
-`hold` (or fix
+**Verdict:** two candidates, exit 0. Candidate 1 looks like a bad
+talk-over. Candidate 2 is Hotato telling you the overlap is probably the
+agent hearing its own audio, not the caller interrupting. This is candidate
+discovery's failure mode: the net is wide, and Hotato labels a
+likely-spurious candidate instead of hiding it. You label it `hold` (or fix
 the echo capture) and it never becomes a fixture.
 
 ---
@@ -215,11 +214,10 @@ The eight cases fall into three buckets:
 - **Candidate-eligible, verdict pending confirmation** (4, 5): swap and
   crosstalk keep `scan` surfacing candidates (exit 0), with the turn-taking
   verdict waiting on your confirmation of the channel mapping. Example 8 is
-  that same echo call under `scan`, where the specific leaked moment is
-  named.
-- **Refuse** (2, 3, 6): silent caller, silent agent, and mono are not scorable;
-  Hotato names the reason and the next step and exits 2.
+  that same echo call under `scan`, naming the specific leaked moment.
+- **Refuse** (2, 3, 6): silent caller, silent agent, and mono are not
+  scorable; Hotato names the reason and the next step, and exits 2.
 
 Case 7 is the everyday case: a candidate with no defect, waiting for your
-label. The design goal is a Hotato verdict you act on has already survived
-this gauntlet.
+label. The goal: any Hotato verdict you act on has already survived this
+gauntlet.
