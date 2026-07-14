@@ -1,8 +1,8 @@
-"""The MCP scoring tool must return the EXACT same envelope as the core, and the
-server must register the expected tool set: the ``voice_eval_run`` scorer plus
-the eight read/verify/propose and clone-scoped fleet tools. The envelope-parity
-check needs no MCP SDK (``_run_tool`` does not import mcp); the registration
-check is skipped if the SDK is absent.
+"""The MCP scoring tool must preserve the exact core envelope and add its
+uniform control fields, and the server must register the expected tool set: the
+``voice_eval_run`` scorer plus the read/verify/propose and clone-scoped fleet
+tools. The envelope-parity check needs no MCP SDK (``_run_tool`` does not import
+mcp); the registration check is skipped if the SDK is absent.
 """
 
 import json
@@ -14,11 +14,22 @@ from hotato import mcp_server
 
 
 def test_run_tool_envelope_matches_core():
-    via_tool = json.dumps(
-        mcp_server._run_tool(suite="barge-in", stack="generic"), sort_keys=True
-    )
+    response = mcp_server._run_tool(suite="barge-in", stack="generic")
+    control = {
+        key: response.pop(key)
+        for key in (
+            "evidence_status", "refusal_reason", "artifact_digests",
+            "pending_irreversible_action",
+        )
+    }
+    via_tool = json.dumps(response, sort_keys=True)
     via_core = json.dumps(run_suite(suite="barge-in", stack="generic"), sort_keys=True)
     assert via_tool == via_core
+    assert control["evidence_status"] == 2
+    assert control["refusal_reason"] is None
+    assert control["pending_irreversible_action"] is None
+    assert len(control["artifact_digests"]) == 8
+    assert all(len(digest) == 64 for digest in control["artifact_digests"])
 
 
 def test_expected_tools_registered():
