@@ -2,17 +2,17 @@
 
 hotato ships an MCP server, `hotato-mcp`, that speaks MCP over stdio and
 exposes twelve tools: one scoring tool, `voice_eval_run`, which returns the
-identical JSON envelope (`schema_version` "1") the CLI emits, plus eleven fleet
-tools. Eight read, verify, and propose over a local fleet workspace; three are
-clone-scoped actions that recompute and hand the deploy decision back to you.
-Everything, including audio, runs and stays on your machine.
+identical JSON envelope (`schema_version` "1") the CLI emits, plus eleven
+fleet tools. Eight read, verify, and propose over a local fleet workspace;
+three are clone-scoped actions that recompute and hand the deploy decision
+back to you. Everything, including audio, runs and stays on your machine.
 
-Every tool response carries a uniform control envelope: four keys ride on every
-response (pure reads included) so an autonomous caller parses one shape:
-`evidence_status` (or null for a pure read with no verdict), `refusal_reason`
-(or null), `artifact_digests` (a list, or `[]`), and
-`pending_irreversible_action` (the exact human-gated action still pending, e.g.
-deployment approval, or null).
+Every tool response carries a uniform control envelope: four keys ride on
+every response (pure reads included) so an autonomous caller parses one
+shape: `evidence_status` (or null for a pure read with no verdict),
+`refusal_reason` (or null), `artifact_digests` (a list, or `[]`), and
+`pending_irreversible_action` (the exact human-gated action still pending,
+e.g. deployment approval, or null).
 
 ## Run it (zero-install)
 
@@ -23,10 +23,10 @@ uvx --from "hotato[mcp]" hotato-mcp
 **Common mistake:** `uvx hotato-mcp` (no `--from`) FAILS. uv then looks for a
 package literally named `hotato-mcp` on PyPI, which does not exist; the
 console script `hotato-mcp` lives inside the `hotato` distribution, installed
-with its `mcp` extra. If you (or an agent) just tried the bare form and got a
-"package not found" error, retry with `--from "hotato[mcp]"` exactly as
-written above. If hotato is already installed in your environment,
-`python -m hotato.mcp_server` also works and needs no extra invocation syntax.
+with its `mcp` extra. If you (or an agent) hit that "package not found"
+error, retry with `--from "hotato[mcp]"` exactly as written above. If hotato
+is already installed in your environment, `python -m hotato.mcp_server` also
+works and needs no extra invocation syntax.
 
 ## Add it to a client
 

@@ -1,35 +1,27 @@
 # Fix plans: the guarded ladder
 
-Hotato measures turn-taking; this ladder turns a failing measurement into a
-reviewable, bounded fix proposal. Levels 0-2 are read-only. Level 3
-(apply / verify) has shipped as a guarded, clone-only staged step.
+Hotato turns a failing turn-taking measurement into a reviewable, bounded fix
+proposal. Four rungs, each gated tighter than the last: the first three read
+only, the fourth touches a clone.
 
 ## The ladder
 
-- **Level 0** -- `hotato diagnose result.json`. What it does: per-failure
-  diagnosis + a battery decision, with the advisory and the tradeoff
-  stated. Writes to your stack: never.
-- **Level 1** -- `hotato inspect --stack ...`. What it does: reads the
-  CURRENT turn-taking config (GET or static parse) and normalizes it.
-  Writes to your stack: never.
-- **Level 2** -- `hotato plan result.json [target]`. What it does:
-  combines diagnosis + inspected config into a fix-plan JSON
-  (`hotato.fixplan.v1`). Writes to your stack: never.
-- **Level 3** -- `hotato apply` / `hotato fix trial` / `hotato verify`.
-  What it does: applies a plan to a CLONE and re-scores the battery on it
-  under a pinned manifest. Writes to your stack: cloned assistant / branch
-  only, never production.
+| Level | Command | Does | Writes to your stack |
+|---|---|---|---|
+| **0** | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the advisory and the tradeoff stated | Never |
+| **1** | `hotato inspect --stack ...` | Reads the CURRENT turn-taking config (GET or static parse) and normalizes it | Never |
+| **2** | `hotato plan result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | Never |
+| **3** | `hotato apply` / `hotato fix trial` / `hotato verify` | Applies a plan to a CLONE and re-scores the battery under a pinned manifest | Cloned assistant / branch only, never production |
 
-Level 3 kept the guard it was designed with, PR-first and clone-first:
-`hotato apply` applies a plan to a CLONED assistant
-(or a branch config), `hotato fix trial` re-scores the battery on that clone
-under a pinned manifest, and `hotato verify` gates the before/after -- it
-graduates to production only behind an explicit human approval with a recorded
-rollback value. Every plan still pins
-`"approval": {"default": "manual", "production_apply": false}`, so every plan
-built here requires a human's manual go-ahead before it reaches production. See
-[APPLY.md](APPLY.md), [FIX-TRIAL.md](FIX-TRIAL.md), and
-[FIX-LOOP.md](FIX-LOOP.md).
+Level 3 keeps the guard it was designed with, PR-first and clone-first:
+`hotato apply` applies a plan to a CLONED assistant (or a branch config),
+`hotato fix trial` re-scores the battery on that clone under a pinned
+manifest, and `hotato verify` gates the before/after -- production is a
+human call, behind an explicit approval with a recorded rollback value.
+Every plan pins `"approval": {"default": "manual", "production_apply":
+false}`, so every plan built here waits on a human go-ahead before it
+reaches production. See [APPLY.md](APPLY.md), [FIX-TRIAL.md](FIX-TRIAL.md),
+and [FIX-LOOP.md](FIX-LOOP.md).
 
 ## Level 0: diagnose
 
@@ -53,7 +45,7 @@ One diagnosis per failing event:
 plus one battery-level decision. The text mode is the Level 0 advisory, for
 example: "Missed real interruption. Likely config layer. Try lowering the
 stop-speaking word threshold one step. Tradeoff: may increase false stops on
-short acknowledgements." The tradeoff is always stated.
+short acknowledgements." Every advisory states its tradeoff.
 
 Exit codes: 0 no failing events, 1 failing events diagnosed, 2 unusable input.
 
@@ -75,8 +67,8 @@ Suspicious values (an unusually high word threshold, a long endpointing wait)
 are surfaced as observations, for you to judge.
 
 Read-only by construction: Vapi and Retell are one GET each; LiveKit and
-Pipecat files are parsed with `ast`, statically, as text. Missing credentials
-exit 2 cleanly.
+Pipecat files are parsed with `ast`, statically, as text. Missing
+credentials exit 2 cleanly.
 
 ## Level 2: plan
 
@@ -96,7 +88,7 @@ plan also carries `kind: "fix-plan"`, the measured `evidence` behind it, the
 stated `risks`, `next_commands` (apply the step manually, verify with
 `hotato compare`, re-run the battery), not-scorable events as `input_issues`
 (input problems, kept separate from fixes), and a `platform_mutation` block
-whose `performed` is always false: hotato plan is read-only.
+whose `performed` is always false: `hotato plan` reads, it never writes.
 
 Twilio rule: Twilio carries the audio; the upstream voice-agent stack decides
 when the agent yields. So `--stack twilio` (or a Twilio-stack envelope) gets a
@@ -120,19 +112,19 @@ A change is proposed ONLY when ALL of these hold:
 
 And the standing refusals:
 
-* threshold_funnel: when the battery contains BOTH a missed real interruption
-  AND a false stop on a backchannel, the plan is a refusal:
+* **threshold_funnel** -- when the battery contains BOTH a missed real
+  interruption AND a false stop on a backchannel, the plan is a refusal:
   `"decision": "do_not_tune_single_threshold"` with a vendor-neutral
   engagement-control pointer (no product names, no digits in the pointer
-  text). No single threshold satisfies both axes; raising it for one worsens
+  text). One threshold cannot satisfy both axes: raising it for one worsens
   the other -- the threshold treadmill teams describe from the inside: tuned
   endlessly, with no perfect setting, because both failures share one knob.
-* slow_yield without a clear layer: TTS buffering, transport latency, and VAD
-  smoothing are indistinguishable from one recording, so the plan proposes a
-  diagnostic checklist (instrumentation steps) first. A slow yield becomes
-  config-only-safe only when the battery contains a passing opposite-risk
-  backchannel fixture that makes a one-step change verifiable.
-* not_scorable events are input problems, tracked separately from agent
+* **slow_yield without a clear layer** -- TTS buffering, transport latency,
+  and VAD smoothing are indistinguishable from one recording, so the plan
+  proposes a diagnostic checklist (instrumentation steps) first. A slow
+  yield becomes config-only-safe once the battery contains a passing
+  opposite-risk backchannel fixture that makes a one-step change verifiable.
+* **not_scorable events** are input problems, tracked separately from agent
   failures and kept out of the plan.
 
 Every plan, of every decision kind, carries the same verification gate:
