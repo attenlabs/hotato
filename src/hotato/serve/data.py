@@ -27,14 +27,14 @@ correctness bound for an aggregate.
 from __future__ import annotations
 
 import json
-from ..errors import open_regular as _open_regular
 import os
 import re
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 
-from ..failure_record import LANES as _FR_LANES
+from ..errors import open_regular as _open_regular
 from ..failure_record import KIND as _FR_KIND
+from ..failure_record import LANES as _FR_LANES
 from ..failure_record import validate_record as _validate_record
 from ..fleet.registry import Registry
 from ..fleet.trend import _day as _utc_day  # reuse the exact UTC-day bucketing

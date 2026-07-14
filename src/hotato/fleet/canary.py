@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .. import evidence as _evidence
+
 # Canonical-JSON + sha256-of-canonical: the shared manifest primitives (finding
 # #2). ``manifest`` imports no fleet module, so this is non-circular -- fleet's
 # adapters/api already import it the same way.

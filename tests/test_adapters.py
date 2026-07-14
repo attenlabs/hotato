@@ -4,7 +4,10 @@ import os
 
 import pytest
 
-from hotato import core, evidence as ev, manifest as m, recompute as rc
+from hotato import core
+from hotato import evidence as ev
+from hotato import manifest as m
+from hotato import recompute as rc
 from hotato.fleet import adapters
 from tests import _trial_audio as ta
 

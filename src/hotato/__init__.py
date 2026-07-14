@@ -17,9 +17,8 @@ The numbers are reproducible timing measurements with an exposed method and an
 explicit ceiling.
 """
 
-from .core import LIMITS, SUITE_ID, run_single, run_suite
-
 from ._engine.vad import register_neural_backend as _register_neural_backend
+from .core import LIMITS, SUITE_ID, run_single, run_suite
 from .neural import build_silero_backend as _build_silero_backend
 
 # Register the OPTIONAL, non-reference neural VAD backend (Silero VAD, MIT). This
@@ -40,8 +39,14 @@ _register_neural_backend(_build_silero_backend)
 # BackendUnavailable (never a silent fallback that scores raw mono).
 from .diarize import (  # noqa: E402
     build_pyannote_backend as _build_pyannote_backend,
+)
+from .diarize import (
     build_pyannoteai_backend as _build_pyannoteai_backend,
+)
+from .diarize import (
     build_sortformer_backend as _build_sortformer_backend,
+)
+from .diarize import (
     register_diarizer_backend as _register_diarizer_backend,
 )
 

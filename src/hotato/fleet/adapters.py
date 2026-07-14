@@ -41,11 +41,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import Dict, List, Optional, Set
+from typing import Dict, Optional, Set
 
 from .. import errors as _errors
 from .. import manifest as _manifest
-
 
 # A successful DELETE body is diagnostic-only and normally empty.  Keep the
 # same small ceiling used for notification acknowledgements: enough for a
@@ -440,7 +439,9 @@ class VapiAdapter(_CredentialGatedAdapter):
         cid = clone_ref.get("clone_id") if isinstance(clone_ref, dict) else clone_ref
         if not cid:
             return {"deleted": False, "reason": "no clone id"}
-        import urllib.request, urllib.error
+        import urllib.error
+        import urllib.request
+
         from .. import apply as _apply
         cid = _validated_source_id(cid, self.stack)
         url = _apply._CLONE_ENDPOINTS[self.stack]["read_url_template"].format(id=cid)
@@ -485,8 +486,10 @@ class VapiAdapter(_CredentialGatedAdapter):
         take its stereo recording url, and download it. Returns
         {recording, call_id, stereo}."""
         self._require("capture_result"); self._need_key("capture_result")
+        import os
+        import tempfile
+
         from .. import capture as _cap
-        import os, tempfile
         h = {"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"}
         if call_id is None:
             calls = _cap._http_get_json("https://api.vapi.ai/call?limit=1", headers=h, timeout=30)

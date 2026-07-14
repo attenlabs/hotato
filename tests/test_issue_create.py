@@ -19,9 +19,7 @@ import sys
 
 import pytest
 
-from hotato import cli
-from hotato import issuecmd
-
+from hotato import cli, issuecmd
 
 # --- a real sweep --demo result on disk --------------------------------------
 

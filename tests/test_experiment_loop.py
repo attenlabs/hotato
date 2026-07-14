@@ -4,11 +4,10 @@ Runs end to end offline via the mock adapter (plan rank 5 / §22.5). With a live
 adapter the networked steps refuse without credentials; nothing here mutates
 production and the test clone is cleaned up."""
 import json
-import os
 
 from hotato import core
-from hotato.fleet.api import FleetAPI
 from hotato.fleet import adapters
+from hotato.fleet.api import FleetAPI
 from tests import _trial_audio as ta
 
 

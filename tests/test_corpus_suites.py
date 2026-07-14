@@ -24,9 +24,9 @@ import sys
 
 import pytest
 
-from hotato.core import run_single, run_suite
 from hotato._engine.score import ScoreConfig
 from hotato._engine.vad import VADParams
+from hotato.core import run_single, run_suite
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUITES_DIR = os.path.join(REPO, "corpus", "suites")

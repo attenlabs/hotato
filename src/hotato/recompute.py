@@ -15,11 +15,8 @@ uses.
 """
 from __future__ import annotations
 
-from .errors import wav_read as _wav_read
-
 import hashlib
 import os
-import wave
 from typing import Optional
 
 from . import core as _core
@@ -27,6 +24,7 @@ from . import evidence as _evidence
 from . import manifest as _manifest
 from . import receipt as _receipt
 from ._engine.score import ScoreConfig
+from .errors import wav_read as _wav_read
 
 
 def _resolve_base(path: str) -> str:

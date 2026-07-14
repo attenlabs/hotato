@@ -38,8 +38,6 @@ with their reason; a bad file never crashes the run.
 
 from __future__ import annotations
 
-from .errors import wav_read as _wav_read
-
 import base64
 import io
 import os
@@ -49,6 +47,7 @@ from typing import List, Optional, Tuple
 
 from ._engine.score import ScoreConfig
 from .errors import ChannelRangeError
+from .errors import wav_read as _wav_read
 from .scan import SCAN_NOTE, activity_tracks, scan_recording
 
 __all__ = [

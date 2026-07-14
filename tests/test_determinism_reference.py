@@ -29,7 +29,6 @@ from hotato import simulate as SIM
 from hotato import suite_run as SR
 from hotato.fleet.registry import Registry
 
-
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REFERENCE_DIR = os.path.join(REPO_ROOT, "examples", "reference-agent")
 

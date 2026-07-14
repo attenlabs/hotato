@@ -23,7 +23,6 @@ parsed with the stdlib HTML parser, never substring-matched):
 
 import json
 import os
-import re
 import shlex
 import shutil
 from html.parser import HTMLParser

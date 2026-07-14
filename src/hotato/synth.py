@@ -12,18 +12,16 @@ Zero-dependency: stdlib ``wave``/``struct``/``math`` only, mirroring the numeric
 """
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
-from .errors import wav_read as _wav_read
-
 import hashlib
 import math
 import os
 import struct
 import wave
-from typing import List, Optional
+from typing import List
 
 from . import __version__
+from .errors import open_regular as _open_regular
+from .errors import wav_read as _wav_read
 
 SCHEMA_VERSION = "1"
 TOOL = f"hotato-synth/{__version__}"

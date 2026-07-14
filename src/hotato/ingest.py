@@ -59,17 +59,15 @@ field could not be confirmed from the live docs it is parsed DEFENSIVELY:
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
-
-from . import errors as _errors
 import os
 import sys
 from typing import Optional
 
 from . import capture as _capture
+from . import errors as _errors
 from . import scan as _scan
+from .errors import open_regular as _open_regular
 
 __all__ = [
     "STACKS",

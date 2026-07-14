@@ -13,7 +13,6 @@ import pytest
 from hotato import suite_run as SR
 from hotato.fleet.registry import Registry
 
-
 # =========================================================================
 # tiny inline fixtures (one PASSing job, one job with a genuine outcome DEFECT)
 # =========================================================================

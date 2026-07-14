@@ -28,7 +28,6 @@ from hotato import fixplan as _fixplan
 from hotato import patch as _patch
 from hotato.diagnose import OPPOSITE_RISK
 
-
 # --- fixtures: real patches, and an opposite-risk battery on disk ------------
 
 def _diagnosis(finding: str) -> dict:

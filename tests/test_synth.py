@@ -1,7 +1,6 @@
 """Deterministic synthetic perturbations stay separate from real evidence."""
-import os
 
-from hotato import synth, core
+from hotato import core, synth
 from tests import _trial_audio as ta
 
 

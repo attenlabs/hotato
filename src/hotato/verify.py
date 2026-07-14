@@ -37,8 +37,6 @@ Fixtures pair by ``event_id`` (falling back to ``scenario_id``).
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 from typing import Optional, Tuple
@@ -47,6 +45,7 @@ from . import compare as _compare
 from . import evidence as _evidence
 from ._stats import dist_summary
 from .aggregate import is_envelope
+from .errors import open_regular as _open_regular
 
 SCHEMA_ID = "hotato.verify.v1"
 
@@ -765,9 +764,9 @@ def render_html(v: dict) -> str:
         'regressed.</div>'
         + _cmp_table(esc, opp_rows)
         + '<div class="stats">'
-        + f'<div class="stat"><span class="k">new false yields introduced</span>'
+        + '<div class="stat"><span class="k">new false yields introduced</span>'
         + f'<span class="v">{nfy} &nbsp; {guard_fy}</span></div>'
-        + f'<div class="stat"><span class="k">not-scorable pairs</span>'
+        + '<div class="stat"><span class="k">not-scorable pairs</span>'
         + f'<span class="v">{ns} &nbsp; {guard_ns}</span></div>'
         + '</div></section>'
     )

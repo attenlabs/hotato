@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 import os
 
-import pytest
-
 from hotato import cli
 from hotato.fleet.registry import DEFAULT_HOME
 from tests._trial_audio import talkover_call

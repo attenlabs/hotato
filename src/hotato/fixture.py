@@ -27,8 +27,6 @@ meaningless verdict. Everything runs offline; no audio leaves the machine.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 import re
@@ -36,6 +34,7 @@ import shlex
 import tempfile
 from typing import Optional
 
+from . import labelrecord as _labelrecord
 from ._engine.audio import write_wav
 from .core import (
     _read_wav,
@@ -44,7 +43,7 @@ from .core import (
     _stream_pcm_sha256,
     run_suite,
 )
-from . import labelrecord as _labelrecord
+from .errors import open_regular as _open_regular
 
 __all__ = [
     "create_fixture",

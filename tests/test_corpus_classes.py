@@ -243,8 +243,8 @@ def test_mid_utterance_pause_scores_to_label(fn):
     non-default config used anywhere in this file, and it is read straight
     from the label rather than hand-picked in the test."""
     _require_audio("mid-utterance-pause")
-    from hotato.core import run_single
     from hotato._engine.score import ScoreConfig
+    from hotato.core import run_single
 
     sc = _load("mid-utterance-pause", fn)
     b = sc["latency_bounds"]

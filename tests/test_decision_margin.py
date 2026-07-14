@@ -12,7 +12,7 @@ to upstream. Deterministic: thresholds are derived from the measured value.
 from __future__ import annotations
 
 from hotato.core import run_single
-from tests._trial_audio import yielding_call, write_stereo
+from tests._trial_audio import write_stereo, yielding_call
 
 
 def _measure(path, **kw):

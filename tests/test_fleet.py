@@ -1,12 +1,11 @@
 """Fleet local-mode control plane: registry, store, jobs, and the Guardian loop."""
 import json
-import os
 
-from hotato import core, evidence as ev
+from hotato import core
 from hotato.fleet.api import FleetAPI
+from hotato.fleet.jobs import JobQueue
 from hotato.fleet.registry import Registry
 from hotato.fleet.store import ArtifactStore
-from hotato.fleet.jobs import JobQueue, idempotency_key
 from tests import _trial_audio as ta
 
 

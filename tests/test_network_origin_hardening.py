@@ -14,10 +14,7 @@ import urllib.request
 
 import pytest
 
-from hotato import capture
-from hotato import errors
-from hotato import notify
-
+from hotato import capture, errors, notify
 
 _SECRET_URL = (
     "https://alice:hunter2@hooks.example.test/deliver"

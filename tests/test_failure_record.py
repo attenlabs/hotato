@@ -26,7 +26,6 @@ import pytest
 
 from hotato import failure_record as FR
 from hotato import failure_render as FRR
-
 from tests._failure_sources import (
     det_row,
     make_contract_result,

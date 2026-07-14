@@ -18,7 +18,6 @@ Synthetic sources only (tests/_failure_sources.py): they establish schema,
 privacy, determinism, and refusal behaviour, never agent performance.
 """
 
-import copy
 import json
 import os
 import subprocess
@@ -26,15 +25,14 @@ import sys
 
 import pytest
 
-from hotato import cli, regression, failure_record as FR
-
+from hotato import cli, regression
+from hotato import failure_record as FR
 from tests._failure_sources import (
     det_row,
     make_contract_result,
     make_contract_verify,
     make_test_run,
 )
-
 
 # --------------------------------------------------------------------------
 # helpers

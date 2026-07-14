@@ -34,7 +34,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
-from typing import List, Optional, Sequence
+from typing import List, Sequence
 
 from .analyze import (
     _detail_text,

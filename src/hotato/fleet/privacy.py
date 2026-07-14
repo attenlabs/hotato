@@ -16,12 +16,9 @@ claim that the original was preserved.
 """
 from __future__ import annotations
 
-from ..errors import wav_read as _wav_read
-
 import hashlib
 import math
 import os
-import struct
 import tempfile
 import wave
 from typing import List, Optional
@@ -29,6 +26,7 @@ from typing import List, Optional
 # sha256-of-canonical for the deletion receipt reuses the shared manifest
 # primitives (finding #2); ``hashlib`` stays for the streaming PCM hash below.
 from .. import manifest as _manifest
+from ..errors import wav_read as _wav_read
 
 
 # --- retention / consent policy -------------------------------------------

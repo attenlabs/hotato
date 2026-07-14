@@ -56,8 +56,8 @@ import shlex
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
-from .errors import open_regular as _open_regular
 from ._engine.score import ScoreConfig
+from .errors import open_regular as _open_regular
 
 STATE_SCHEMA_ID = "hotato.investigate-state.v1"
 DEFAULT_OUT_DIR = "contracts"

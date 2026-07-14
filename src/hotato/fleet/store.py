@@ -20,8 +20,6 @@ never embeds raw customer audio by default (privacy reversal, plan §4/§14).
 """
 from __future__ import annotations
 
-from ..errors import open_regular as _open_regular
-
 import hashlib
 import json
 import os
@@ -37,6 +35,7 @@ from typing import Optional
 # separators) is byte-identical to the inline dump it replaces, so every stored
 # blob's content-addressed digest is unchanged.
 from .. import manifest as _manifest
+from ..errors import open_regular as _open_regular
 
 SCHEMA_VERSION = "1"
 

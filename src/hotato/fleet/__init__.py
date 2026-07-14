@@ -9,7 +9,7 @@ Distributed self-hosted mode (Postgres + object store + worker pools) shares the
 same domain API and is added behind an optional extra; nothing here requires a
 hosted account.
 """
+from .registry import DEFAULT_HOME, Registry
 from .store import ArtifactStore
-from .registry import Registry, DEFAULT_HOME
 
 __all__ = ["ArtifactStore", "Registry", "DEFAULT_HOME"]

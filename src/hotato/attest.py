@@ -37,8 +37,6 @@ only (mirrors the manifest module's zero-dependency posture).
 """
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import hashlib
 import hmac
 import json
@@ -47,6 +45,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from . import __version__
+from .errors import open_regular as _open_regular
 
 SCHEMA_VERSION = "1"
 STATEMENT = "hotato contract canonical identity digest v1"

@@ -30,13 +30,13 @@ decisions -- which moment is a real bug, and whether to apply the fix.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 import shlex
 from datetime import datetime, timezone
 from typing import Optional, Tuple
+
+from .errors import open_regular as _open_regular
 
 STATE_SCHEMA_ID = "hotato.loop-state.v1"
 

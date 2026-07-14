@@ -28,8 +28,8 @@ Pinned contract:
      ``capture._ensure_safe_opener()`` before issuing its request).
 """
 
-import json
 import http.server
+import json
 import threading
 
 import pytest

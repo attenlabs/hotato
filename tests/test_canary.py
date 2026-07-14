@@ -1,7 +1,7 @@
 """Approval-gated canary + tested rollback (plan §10)."""
 import pytest
 
-from hotato.fleet import canary, adapters
+from hotato.fleet import adapters, canary
 
 
 def _policy():

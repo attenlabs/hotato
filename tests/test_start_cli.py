@@ -23,12 +23,10 @@ Pinned here:
 
 import json
 import math
-import os
 import socket
 import struct
 import urllib.request
 import wave
-from importlib import resources
 
 import pytest
 

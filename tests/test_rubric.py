@@ -23,7 +23,6 @@ import pytest
 
 from hotato import rubric as R
 
-
 # =========================================================================
 # The deterministic FAKE judge (canned responses, injected) -- test double only
 # =========================================================================
@@ -285,7 +284,8 @@ def test_inconclusive_never_gates_but_a_judge_error_does_under_gate():
 # =========================================================================
 
 def test_report_shelf_populates_and_never_blends():
-    from hotato import report, assert_ as A
+    from hotato import assert_ as A
+    from hotato import report
     ctx = A.build_context(
         transcript=[{"role": "agent", "text": "thank you, so sorry"}], spans=[])
     assert_env = A.run_assertions(
@@ -313,7 +313,8 @@ def test_report_shelf_populates_and_never_blends():
 
 
 def test_report_shelf_stays_empty_without_a_rubric_envelope():
-    from hotato import report, assert_ as A
+    from hotato import assert_ as A
+    from hotato import report
     ctx = A.build_context(transcript=[{"role": "agent", "text": "hi"}], spans=[])
     env = A.run_assertions(
         {"version": 1, "assertions": [

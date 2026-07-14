@@ -60,9 +60,9 @@ from importlib import util as _importlib_util
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
+from . import conversation_test as _ct
 from . import failure_record as _fr
 from . import failure_render as _frr
-from . import conversation_test as _ct
 from .errors import load_json_file as _load_json_file
 from .errors import open_regular as _open_regular
 from .errors import safe_json_dumps as _safe_json_dumps

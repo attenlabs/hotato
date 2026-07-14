@@ -391,11 +391,11 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
     to finish; with ``--label yield|hold`` (a HUMAN decision) it creates the
     contract and writes its result card. A single recording is MEASURED evidence,
     never a paired fresh-recapture proof -- the flow says so explicitly."""
-    from . import trust as _trust
-    from . import scan as _scan
-    from . import ingest as _ingest
     from . import contract as _contract
     from . import evidence as _evidence
+    from . import ingest as _ingest
+    from . import scan as _scan
+    from . import trust as _trust
     from .core import run_single
 
     _ensure_out_dir(out_dir)

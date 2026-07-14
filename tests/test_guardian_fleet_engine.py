@@ -14,10 +14,9 @@ import os
 
 import pytest
 
-from tests import _trial_audio as ta
 import hotato.core as core
-from hotato.fleet.api import FleetAPI
 from hotato.fleet.adapters import MockAdapter
+from hotato.fleet.api import FleetAPI
 
 
 def _yield_hold_battery(root):
@@ -41,7 +40,9 @@ def _yield_hold_battery(root):
 
 
 def _stereo_wav(path, *, onset=3.0, agent_end=8.0, total=10.0, rate=16000):
-    import wave, struct, math
+    import math
+    import struct
+    import wave
     with wave.open(path, "wb") as w:
         w.setnchannels(2); w.setsampwidth(2); w.setframerate(rate)
         fr = []
@@ -64,7 +65,9 @@ def test_clone_run_reaches_attested_tier_with_key(tmp_path, monkeypatch):
     # trust a real one for every fixture so this trial genuinely earns ATTESTED,
     # isolated from the real machine's own key store.
     monkeypatch.setenv("HOME", str(tmp_path / "sign-home"))
-    from hotato import labelrecord as _labelrecord, manifest as _manifest_mod, sign as _sign
+    from hotato import labelrecord as _labelrecord
+    from hotato import manifest as _manifest_mod
+    from hotato import sign as _sign
     _priv, _pub, _key_id = _sign.keygen()
     _sign.save_signing_key(_key_id, _priv)
     _sign.save_trust(_key_id, _pub)
