@@ -18,8 +18,7 @@ x86_64, Python 3.10, 3.11, and 3.12 -- `.github/workflows/tests.yml`, job
 `pytest`. The same double-run check now also runs in CI on macOS and Windows,
 with the digest additionally compared ACROSS those OSes -- jobs `portability`
 and `determinism` in the same file. Cross-OS agreement is measured and
-reported there, not asserted: it has not yet run green, so it is not part of
-this claim.)
+reported there, not asserted -- it is not part of this claim.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used

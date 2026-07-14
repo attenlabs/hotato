@@ -196,8 +196,7 @@ member order, fixed timestamps, and every other value written into each member's
 ZipInfo, including its `create_system` byte): a contract's pack is a pure
 function of its bundle contents, deterministic for a fixed hotato version.
 Byte-identical re-runs are verified in CI on Linux x86_64, Python 3.10, 3.11,
-and 3.12; the same suite now also runs on macOS and Windows in CI, not yet green
--- see [VALIDATION.md](VALIDATION.md) Job 1.
+and 3.12 -- see [VALIDATION.md](VALIDATION.md) Job 1.
 
 ### Security: unpack treats an archive as hostile input
 

@@ -59,8 +59,7 @@ python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte
 `--check` regenerating byte-identical output is the reproducibility guarantee:
 the audio on disk is exactly what the labelled timings say, deterministic for a
 fixed hotato version (byte-identical re-runs verified in CI on Linux x86_64,
-Python 3.10, 3.11, 3.12; also now checked, not yet green, on macOS and Windows
--- see `.github/workflows/tests.yml`, jobs `portability` and `determinism`). CI
+Python 3.10, 3.11, 3.12 -- see `.github/workflows/tests.yml`, job `determinism`). CI
 can run it as a drift gate.
 
 ## Additive scenario classes

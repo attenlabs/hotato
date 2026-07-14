@@ -118,8 +118,7 @@ bounds at least one hop away from a value you need to hold.
 ```bash
 # render the synthetic fixtures deterministically (sha256-seeded; byte-identical
 # for a fixed hotato version -- verified in CI on Linux x86_64, Python 3.10,
-# 3.11, and 3.12; also now checked, not yet green, on macOS and Windows -- see
-# .github/workflows/tests.yml), then run the harness over them
+# 3.11, and 3.12 -- see .github/workflows/tests.yml), then run the harness over them
 python3 examples/render_examples.py
 PYTHONPATH=src python3 -m hotato.benchmark
 ```
