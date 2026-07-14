@@ -1,9 +1,9 @@
 # Assertions (`assert.v1`): deterministic, typed, each scored on its own lane
 
-`hotato.assert_` evaluates a small, fixed set of assertions against a call's
-transcript, ingested trace, and timing -- each kind scored on its own lane, by
-construction. Every kind here is regex, checksum, or span/dict lookup. None is a
-model call.
+`hotato.assert_` checks a call's transcript, ingested trace, and timing
+against a fixed set of typed assertions, each kind scored on its own lane by
+construction. Every kind is a regex, checksum, or span/dict lookup: deterministic
+end to end, with no model call in the loop.
 
 ```python
 from hotato import assert_ as A
@@ -22,9 +22,9 @@ complements; the schema is `src/hotato/schema/assert.v1.json`.
 
 ## The core deterministic kinds
 
-Every kind is deterministic, so every result carries `deterministic: true` --
-including an `INCONCLUSIVE` one. The five below are the original core; the full
-vocabulary is under [the whole `kind` vocabulary](#the-whole-kind-vocabulary).
+Every kind is deterministic, so every result carries `deterministic: true`,
+including an `INCONCLUSIVE` one. The five below are the original core; the
+full vocabulary is under [the whole `kind` vocabulary](#the-whole-kind-vocabulary).
 
 - **`phrase`** -- checks: a regex is present (or, in `absent` mode, never
   present), with an optional `role` filter and `position`
@@ -78,11 +78,11 @@ against, each built from hotato's existing primitives:
   [`docs/API.md`](API.md)) passed straight through as read-only context for
   `outcome`'s `field_present` sub-predicate. Nothing here recomputes it.
 
-Context never supplied stays `None` -- distinct from `[]` or `{}`, a value that
-WAS supplied and happens to be empty. An assertion whose required input is
-simply absent reports `INCONCLUSIVE`. `tool_call` with `spans=[]` (a trace WAS
-ingested, it just has zero spans) is a `FAIL` -- distinct from `tool_call` with
-no trace at all, which is `INCONCLUSIVE`.
+Context you never supply stays `None`, distinct from `[]` or `{}`: a value
+that was supplied and happens to be empty. An assertion whose required input
+is absent reports `INCONCLUSIVE`. `tool_call` with `spans=[]` (a trace was
+ingested, it just has zero spans) is a `FAIL`, distinct from `tool_call` with
+no trace at all, which reports `INCONCLUSIVE`.
 
 ## `assertions.yaml`
 
@@ -130,10 +130,10 @@ someone can quietly break:
   schema (`src/hotato/schema/assert.v1.json`) enforces this with
   `"overall_score": false` and a `not: {required: [overall_score]}` on the
   summary object.
-- `judge` -- an LLM-scored rubric kind -- is a separate, quarantined capability
-  reserved for a future release. `summary.judge` is always `{"pass": 0, "fail":
-  0}`, and `summary.note` states how many judge-scored assertions ran (zero, in
-  this build).
+- `judge` -- an LLM-scored rubric kind -- is kept structurally quarantined
+  from the deterministic count, so a model-scored result can never blend
+  into it. `summary.judge` reports `{"pass": 0, "fail": 0}`, and
+  `summary.note` states how many judge-scored assertions ran.
 - Same inputs, same file, same result, every time: `run_assertions` is
   byte-stable across repeated calls on identical input -- no wall-clock
   timestamp or random id in the mix.
@@ -167,19 +167,20 @@ When present, it adds one "Assertions" section:
   `pii` card's hit detail and redacted transcript, a `policy` card's matched
   rules and pack name, a `tool_call` card's grounding span ids, an `outcome`
   card's met/of fraction).
-- **Model-assisted (advisory, quarantined)**: reserved for a future release;
-  empty in this build, with a note explaining why.
+- **Model-assisted (advisory, quarantined)**: stays empty here by design,
+  with a note pointing at the model-judged rubric lane
+  ([RUBRIC.md](RUBRIC.md)) where that scoring runs.
 
 `assertions=None` (the default) is byte-identical to a report built before this
 parameter existed.
 
 ## `inconclusive_policy`: making missing input gate CI
 
-By default an `INCONCLUSIVE` result -- a check whose required input was simply
+By default an `INCONCLUSIVE` result -- a check whose required input was
 absent -- leaves the run's exit code unaffected, the right default for an
-exploratory run. But it means a suite whose transcript or trace never arrived
-stays silently green. `inconclusive_policy` lets a suite opt into gating on
-that:
+exploratory run. `inconclusive_policy` lets a suite opt into gating on that,
+so a transcript or trace that never arrived fails loudly instead of leaving
+the suite silently green:
 
 | value | how `INCONCLUSIVE` gates | `exit_code` |
 | --- | --- | --- |

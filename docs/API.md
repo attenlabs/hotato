@@ -1,8 +1,9 @@
 # Python API reference
 
-Everything the CLI, the pytest plugin, and the MCP server do is a plain Python
-call. The core is stdlib only, fully offline, and deterministic: the same audio
-and config always produce the same envelope. Import and score:
+Every function the CLI, the pytest plugin, and the MCP server call is a plain
+Python function you can call directly. The core is stdlib only, offline, and
+deterministic: the same audio and config always produce the same envelope.
+Import and score:
 
 ```python
 from hotato.core import run_single, run_suite
@@ -88,9 +89,9 @@ Each event:
 An event that lacks the input to be judged (a silent caller channel with no
 onset label, or a should-yield expectation with the agent silent at onset)
 additionally carries `"scorable": False` and a plain `"not_scorable_reason"`.
-It's reported as an input problem: it sits outside `passed`/`failed` and
-outside the fix router and the funnel. Envelopes for valid recordings are
-byte-identical to before these keys existed.
+It reports as an input problem: it sits outside `passed`/`failed` and outside
+the fix router and the funnel, keeping envelopes for valid recordings
+byte-identical.
 
 ## hotato.core
 
@@ -116,13 +117,13 @@ run_single(
 ) -> dict
 ```
 
-Scores one recording and returns the envelope. Provide either `stereo` or both
-`caller` and `agent`. `expect="hold"` means the caller's speech is a
+Scores one recording and returns the envelope. Provide either `stereo` or
+both `caller` and `agent`. `expect="hold"` means the caller's speech is a
 backchannel, a short acknowledgement like "mhm", and a correct agent keeps
 talking through it. The two `max_*` thresholds tighten the pass criteria.
 `echo_gate` is opt-in and off by default; `signals.echo` is always computed
-and reported either way. Malformed or truncated WAVs raise a clean `ValueError` with the
-ffmpeg export line to fix them.
+and reported either way. A malformed or truncated WAV raises a clean
+`ValueError` carrying the ffmpeg export line to fix it.
 
 ### run_suite
 
@@ -141,9 +142,9 @@ run_suite(
 ) -> dict
 ```
 
-Runs a labelled battery and returns the envelope with a `suite` key. Defaults
-to the bundled 8-scenario battery shipped inside the package, zero external
-files. Point `scenarios_dir` and `audio_dir` at your own labelled set (for
+Runs a labelled battery and returns the envelope with a `suite` key. The
+bundled 8-scenario battery ships inside the package, zero external files;
+point `scenarios_dir` and `audio_dir` at your own labelled set instead (for
 example `corpus/suites/gold/scenarios` and `.../audio`). Suite audio must be
 two-channel.
 
@@ -168,8 +169,8 @@ Every reported signal is re-derivable by hand from this dump.
 
 ### LIMITS and SUITE_ID
 
-`hotato.core.LIMITS` is the scope dict embedded in every envelope
-(method, ceiling, best input, what it does not do). `SUITE_ID` is `"barge-in"`.
+`hotato.core.LIMITS` is the scope dict embedded in every envelope: method,
+ceiling, best input, and boundaries. `SUITE_ID` is `"barge-in"`.
 
 ### ScoreConfig
 
@@ -215,12 +216,12 @@ write_report(path: str, fmt: str = "html", **kwargs) -> dict
 ```
 
 `build_report_html` scores the input and returns `(html, envelope)`: one
-self-contained file, inline CSS and SVG, per-event timelines, analytics, a
-frame inspector, and print CSS for PDF. `build_report_md` mirrors it as
-Markdown tables. `write_report` builds in `fmt` (`"html"` or `"md"`), writes to
-`path`, and returns the envelope. Pass `base` (a previous envelope dict, for
-example loaded from `hotato run --format json` output) to render per-scenario
-regression deltas; `base_label` names it in the page.
+self-contained file with inline CSS and SVG, per-event timelines, analytics,
+a frame inspector, and print CSS for PDF. `build_report_md` mirrors it as
+Markdown tables. `write_report` builds in `fmt` (`"html"` or `"md"`), writes
+to `path`, and returns the envelope. Pass `base` (a previous envelope dict,
+for example loaded from `hotato run --format json` output) to render
+per-scenario regression deltas; `base_label` names it on the page.
 
 ```python
 from hotato.report import write_report
@@ -275,11 +276,11 @@ run_export(
 ```
 
 Writes `events.csv` (one row per event, columns in
-`hotato.export.EVENT_COLUMNS`), `frames.csv` (one row per VAD frame, columns in
-`FRAME_COLUMNS`), and `envelope.json` into `out_dir` (created if missing).
-Column meanings are documented in `#` comment lines at the top of each CSV.
-An empty cell marks a value that could not be derived from the input; every
-filled cell is a direct measurement.
+`hotato.export.EVENT_COLUMNS`), `frames.csv` (one row per VAD frame, columns
+in `FRAME_COLUMNS`), and `envelope.json` into `out_dir` (created if missing).
+`#` comment lines at the top of each CSV document the column meanings. An
+empty cell marks a value not derivable from that input; every filled cell is
+a direct measurement.
 
 ## hotato.stackbench
 
@@ -303,12 +304,12 @@ run_stackbench(
 ) -> dict
 ```
 
-Returns a result dict (`kind: "stack-benchmark"`) with the envelope fields plus
-`config`, `scenarios {total, captured, not_captured}`, and `provenance`.
-Scoring is `run_suite` unchanged. Scenarios with no matching recording are
+Returns a result dict (`kind: "stack-benchmark"`) with the envelope fields
+plus `config`, `scenarios {total, captured, not_captured}`, and `provenance`.
+Scoring is `run_suite`, unchanged. Scenarios with no matching recording are
 listed under `not_captured`, left out of both the scoring and the failure
 counts. The timestamp derives from input file mtimes, so the same inputs
-reproduce the same result file.
+always reproduce the same result file.
 
 ### load_result, compare_results, render_comparison_md
 
@@ -336,8 +337,8 @@ print(render_comparison_md(cmp))
 
 ## Pytest fixture
 
-Installed automatically via the `pytest11` entry point (or load explicitly with
-`-p hotato.pytest_plugin`). Inert unless used.
+Installs automatically via the `pytest11` entry point (or load it explicitly
+with `-p hotato.pytest_plugin`). Sits inert until your test calls it.
 
 ```python
 def test_call_yields(hotato_score):
@@ -346,9 +347,10 @@ def test_call_yields(hotato_score):
     assert env["events"][0]["verdict"]["seconds_to_yield"] < 1.0
 ```
 
-`hotato_score(**kwargs)` takes the same keyword arguments as `run_single`; pass
-`suite="barge-in"` (plus `run_suite` keywords) to score a battery instead. It
-returns the envelope; write your own assertions against it.
+`hotato_score(**kwargs)` takes the same keyword arguments as `run_single`;
+pass `suite="barge-in"` (plus `run_suite` keywords) to score a battery
+instead. It returns the envelope, so you write your own assertions against
+it.
 
 Session gate flags: `pytest --hotato-suite` runs the battery after your tests
 and fails the session (exit 1) on a regression; `--hotato-suite-scenarios DIR`
@@ -359,10 +361,10 @@ and `--hotato-suite-audio DIR` point it at your own labelled set. Detail:
 
 `hotato-mcp` (or `python -m hotato.mcp_server`) speaks MCP over stdio and
 exposes nine tools. Its scoring tool, `voice_eval_run`, returns the identical
-envelope the CLI emits; the other eight read, verify, and propose over a local
-fleet workspace (`fleet_status`, `candidate_list`, `contract_list`,
+envelope the CLI emits; the other eight read, verify, and propose over a
+local fleet workspace (`fleet_status`, `candidate_list`, `contract_list`,
 `trial_explain`, `artifact_verify`, `experiment_propose`, `experiment_run`,
-`clone_cleanup`) and are documented in [`MCP.md`](MCP.md). Install:
+`clone_cleanup`), documented in [`MCP.md`](MCP.md). Install:
 `uvx --from "hotato[mcp]" hotato-mcp`.
 
 The parameters below are `voice_eval_run`'s, all optional:
@@ -386,10 +388,10 @@ The parameters below are `voice_eval_run`'s, all optional:
 
 Envelopes carry `exit_code`: 0 all scorable events passed, 1 regression.
 `hotato.core.process_exit_code(env)` maps the finished envelope to the CLI
-process exit: a single-recording run whose event is not scorable (silent
-caller with no onset label, or agent silent at onset; the reason is in
+process exit: a single-recording run whose event isn't scorable (silent
+caller with no onset label, or agent silent at onset; the reason lands in
 `not_scorable_reason`) exits 2, because that is an input problem, not an
 agent verdict. Suite runs count such events in `summary.not_scorable` and
 keep their 0/1 semantics. Malformed input (bad WAV, out-of-range channel,
 negative onset, unknown suite or stack) raises `ValueError`, which the CLI
-surfaces as exit code 2. Only a file the scorer can fully read gets scored.
+surfaces as exit code 2 -- only a file the scorer can fully read gets scored.

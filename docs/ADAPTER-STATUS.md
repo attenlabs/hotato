@@ -1,9 +1,9 @@
 # Adapter status
 
-What each capture adapter is built against, verified verbatim against the
-vendor's live documentation on the date shown (integration research:
-`hotato-launch/INTEGRATION-SPEC-2026-07-07.md`). This file is the map of
-what Hotato can pull from each stack, and why.
+Which stack Hotato pulls recordings from, which endpoint it calls, and how it
+gets separated caller/agent channels out of each one. Every entry is checked
+verbatim against the vendor's live documentation on the date shown
+(integration research: `hotato-launch/INTEGRATION-SPEC-2026-07-07.md`).
 
 Terms:
 
@@ -18,14 +18,15 @@ Terms:
   opt-in and labels the result indicative only. Separated turn-taking
   analysis runs on a dual-channel file.
 
-Honesty rule (enforced): an adapter ships only with endpoints verified verbatim
-in the spec. Where the spec marks a list-calls endpoint or a channel layout
-**unconfirmed / none**, Hotato supports the fallback (explicit ids) and
-documents the gap here.
+Each adapter ships with only the endpoints confirmed verbatim in the spec.
+Where the spec marks a list-calls endpoint or a channel layout **unconfirmed
+/ none**, Hotato falls back to explicit call ids and documents the gap here.
 
-## Build now: dual-channel (auto-pull, separated scoring)
+## Dual-channel: auto-pull, separated scoring
 
-Each entry below is one stack, verified 2026-07-07 unless noted otherwise.
+One entry per stack, verified 2026-07-07 unless noted otherwise. Each of
+these auto-pulls a recording with per-party channels, so Hotato scores full
+separated turn-taking without `--allow-mono`.
 
 - **Vapi**
   - List recent calls: `GET https://api.vapi.ai/call` (params `limit`, `createdAtGt/Lt`) → JSON array of Call objects (`id`, `createdAt`)
@@ -48,13 +49,12 @@ Each entry below is one stack, verified 2026-07-07 unless noted otherwise.
   - Fetch recording: `AudioBufferProcessor(num_channels=2)` in-pipeline (user left, bot right); you write the WAV
   - Channel basis: 2-channel in-pipeline
 
-## Build now: mono / mixed only (auto-pull, `--allow-mono`, indicative only)
+## Mono / mixed: auto-pull, `--allow-mono`, indicative only
 
 Each of these has a verified list + fetch, but the vendor produces a single
-combined recording with **no documented per-party channel**, so scoring is
-degraded and gated behind `--allow-mono`.
-
-Each entry below is one stack, verified 2026-07-07.
+combined recording with **no documented per-party channel**. Hotato scores it
+indicative-only, behind `--allow-mono`. One entry per stack, verified
+2026-07-07.
 
 - **Bland AI**
   - List recent calls: `GET https://api.bland.ai/v1/calls` → `calls[].call_id`
@@ -81,23 +81,24 @@ Each entry below is one stack, verified 2026-07-07.
 `--stack cartesia` needs `--agent-id`; `--stack millis` accepts `--base-url` for
 the EU region. Single-call `capture`/`pull` by explicit id needs none of these.
 
-## Not integrable (no vendor recording to pull)
+## No vendor recording to pull
 
 - **Deepgram Voice Agent API** (2026-07-07, confirmed absent) -- real-time
-  WebSocket (`wss://agent.deepgram.com/v1/agent/converse`) with no REST
-  list-calls, no fetch-recording endpoint, and no recording-ready webhook.
-  Deepgram does not store the call. If you want a recording, capture it in
-  your own infra (LiveKit/Pipecat pattern).
+  WebSocket (`wss://agent.deepgram.com/v1/agent/converse`), with no REST
+  list-calls, fetch-recording endpoint, or recording-ready webhook: the call
+  itself is never stored vendor-side. Capture the recording in your own
+  infra instead (the LiveKit/Pipecat pattern above).
 - **PlayAI (formerly Play.ht)** (2026-07-07, dead endpoints verified) -- the
-  conversational-agent product is dead: `play.ai` DNS does not resolve and
+  conversational-agent product is retired: `play.ai` DNS does not resolve and
   `docs.play.ai` returns `DEPLOYMENT_NOT_FOUND`. The only live domain,
   `docs.play.ht`, is TTS-only with no calls/recordings API.
 
-## Unconfirmed: needs credentials or a live probe before shipping
+## Needs credentials or a live probe before shipping
 
 Documented weakly or behind a login/SPA; the spec could not verify a recording
-field-path or a channel layout. Not shipped as adapters. Listed here so
-nobody assumes support that was never confirmed.
+field-path or a channel layout for these, so they ship as fallbacks (explicit
+call ids or the vendor's own webhook URL) rather than full adapters. Listed
+here so the supported set stays exact.
 
 - **Regal.ai**: no list-calls and no REST fetch-recording endpoint. The
   recording arrives only via the `call.recording.available` webhook's
@@ -122,19 +123,19 @@ nobody assumes support that was never confirmed.
   but neither vendor documents or guarantees it; unconfirmed until tested against
   a live account.
 
-Other enterprise/partial platforms researched but not shipped (login-gated,
-SPA-only docs, or transcript-only APIs): Daily, Ultravox, Hume EVI, Telnyx,
-Infobip, OpenAI Realtime, Amazon Connect, Parloa, Sierra, Decagon, PolyAI,
-Voiceflow, Cognigy, Dialogflow CX, Genesys Cloud, NICE CXone. See the
-integration spec for the per-platform verified facts and gaps.
+Also researched, login-gated or SPA-only docs or transcript-only APIs: Daily,
+Ultravox, Hume EVI, Telnyx, Infobip, OpenAI Realtime, Amazon Connect, Parloa,
+Sierra, Decagon, PolyAI, Voiceflow, Cognigy, Dialogflow CX, Genesys Cloud,
+NICE CXone. The integration spec carries the per-platform verified facts and
+gaps.
 
-## Invariants
+## What holds across every adapter
 
 Every adapter validates that a dual-channel file it scores has one party per
 channel (2 channels) before producing separated talk-over numbers; mono stacks
-are scored degraded only behind `--allow-mono`. All live fetch/list paths are
-stdlib-only (`urllib`); stack SDKs import lazily and only inside your own infra.
-Credentials captured by `hotato connect` are stored locally at
-`~/.hotato/connections.json` (mode 0600) and go straight to the vendor's own
-API -- Hotato stays out of that exchange. Scoring is always offline; the only
-network is the direct recording download.
+score degraded, only behind `--allow-mono`. Every live fetch/list path is
+stdlib-only (`urllib`); stack SDKs import lazily, and only inside your own
+infra. Credentials captured by `hotato connect` sit locally at
+`~/.hotato/connections.json` (mode 0600) and go straight from your machine to
+the vendor's own API, with Hotato out of that exchange. Scoring runs offline;
+the only network call is the direct recording download.
