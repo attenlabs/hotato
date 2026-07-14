@@ -1,21 +1,22 @@
 # Benchmark methodology
 
-`hotato` ships a reproducible measurement-error harness: `src/hotato/benchmark.py`.
-Given a set of labelled dual-channel recordings, it reports how far the scorer's
-measured event times land from the rendered or labelled ground truth, and how its
-yield/hold decisions line up with the human labels. That is the whole output.
+`hotato` ships a reproducible measurement-error harness, `src/hotato/benchmark.py`.
+Given a set of labelled dual-channel recordings, it reports how far the
+scorer's measured event times land from the rendered or labelled ground
+truth, and how its yield/hold decisions line up with the human labels. That
+is the whole output.
 
 ```bash
 PYTHONPATH=src python3 -m hotato.benchmark
 ```
 
-This runs on every synthetic fixture in the checkout (the bundled battery, the
-`examples/` reference set, and the deliberately-bad `funnel-demo` set), prints a
-markdown table, and writes `benchmark-report/measurement-error.json` and
-`benchmark-report/measurement-error.md`.
+This runs on every synthetic fixture in the checkout (the bundled battery,
+the `examples/` reference set, and the deliberately-bad `funnel-demo` set),
+prints a markdown table, and writes `benchmark-report/measurement-error.json`
+and `benchmark-report/measurement-error.md`.
 
-The harness is a standalone measurement tool you run against fixtures. The `hotato`
-CLI scores a single call or the battery.
+The harness is a standalone measurement tool you run against fixtures. The
+`hotato` CLI scores a single call or the battery.
 
 ---
 
@@ -41,16 +42,17 @@ block) or the value a contributor labelled by hand:
     agent's next onset.
   - Rendered/true reference: the fixture's rendered response gap.
 
-Errors are reported as a distribution: median, mean, worst case, best case, and n.
-A signal is scored where a rendered or true reference exists and the scorer
-produced a value; a missing reference yields a `-`. (The echo-of-agent fixture has
-no independent caller speech, so it has no onset or yield error: a gap.)
+Errors are reported as a distribution: median, mean, worst case, best case,
+and n. A signal is scored where a rendered or true reference exists and the
+scorer produced a value; a missing reference yields a `-`. (The echo-of-agent
+fixture has no independent caller speech, so its onset/yield error is a gap
+by construction.)
 
 Onset is measured in **detect mode** (the scorer gets no onset hint), so it
-tests the onset detector directly. Yield, talk-over, response gap, and `did_yield`
-are measured in **label mode** (the scorer is given the human `caller_onset_sec`,
-exactly as the shipped battery runs), so those are the numbers a user
-sees.
+tests the onset detector directly. Yield, talk-over, response gap, and
+`did_yield` are measured in **label mode** (the scorer is given the human
+`caller_onset_sec`, exactly as the shipped battery runs) -- those are the
+numbers a user sees.
 
 ### 2. A `did_yield` confusion matrix
 
@@ -69,34 +71,35 @@ operator feels, so the report surfaces them directly.
 
 ## Why milliseconds and a matrix
 
-The report is a per-signal error distribution plus a four-cell confusion matrix.
-The cells stay separate because a missed yield and a false yield are different
-failures with different fixes; averaging them into one number would hide which
-one you have. This is the rule the corpus governance doc enforces
-(`docs/CORPUS-GOVERNANCE.md`, "Validity metrics"), applied to the tooling.
+The report pairs a per-signal error distribution with a four-cell confusion
+matrix, and keeps the cells separate: a missed yield and a false yield are
+different failures with different fixes, so averaging them into one number
+would hide which one you have. The corpus governance doc enforces this same
+rule (`docs/CORPUS-GOVERNANCE.md`, "Validity metrics"); the benchmark applies
+it to the tooling itself.
 
-The reported error is what the default shipped config measures, so it is
-the number you get. On the synthetic fixtures the yield error equals the exposed VAD
-hangover and the onset/gap error is one frame hop, both documented `ScoreConfig`
-parameters. Set the hangover to zero
-(`caller_vad.hangover_sec = agent_vad.hangover_sec = 0`) and every signal collapses
-to within one hop of the rendered ground truth; the test suite asserts exactly
-this, so the claim is checkable.
+The reported error is what the default shipped config measures, so it is the
+number you get. On the synthetic fixtures, the yield error equals the exposed
+VAD hangover, and the onset/gap error is one frame hop, both documented
+`ScoreConfig` parameters. Set the hangover to zero
+(`caller_vad.hangover_sec = agent_vad.hangover_sec = 0`) and every signal
+collapses to within one hop of the rendered ground truth -- the test suite
+asserts exactly this, so the claim is checkable against the code.
 
-The scorer works on speech energy over time, so the harness reports timing and
-decisions.
+The scorer reads speech energy over time, so that is what the harness reports:
+timing and decisions.
 
 ---
 
-## Quantization: a reported time is not infinitely precise
+## Quantization: every reported time has a resolution floor
 
 Every timing signal the scorer reports is quantized to the frame hop
 (`ScoreConfig.hop_ms`, default `10.0` ms) plus, for yield/talk-over, the VAD
-hangover (`caller_vad.hangover_sec` / `agent_vad.hangover_sec`, default `0.15`
-s): the measured value can land up to one hop off the true underlying event
-purely from where that event falls inside a 10 ms frame, before hangover is
-even counted. This sub-frame-phase rounding is deterministic, driven purely
-by where the event lands inside the frame, and it is the same one-hop
+hangover (`caller_vad.hangover_sec` / `agent_vad.hangover_sec`, default
+`0.15` s): the measured value can land up to one hop off the true underlying
+event purely from where that event falls inside a 10 ms frame, before
+hangover is even counted. This sub-frame-phase rounding is deterministic,
+driven purely by where the event lands inside the frame -- the same one-hop
 collapse the section above already pins down (hangover zero -> every signal
 within one hop of ground truth).
 
@@ -112,9 +115,8 @@ either way on that recording.
 
 **Read policy bounds accordingly: a margin of less than one hop (10 ms
 default) from the true value sits inside the scorer's quantization noise.**
-This is a disclosure of an existing property. `hotato` surfaces the margin
-plainly (see `docs/FIX-PLANS.md`'s no-single-threshold rule, which the same
-logic extends to quantization); the fix is to know the margin exists and set
+`hotato` surfaces that margin plainly (see `docs/FIX-PLANS.md`'s
+no-single-threshold rule, which the same logic extends to quantization); set
 bounds at least one hop away from a value you need to hold.
 
 ---
@@ -129,23 +131,24 @@ python3 examples/render_examples.py
 PYTHONPATH=src python3 -m hotato.benchmark
 ```
 
-The report has no wall-clock timestamp and the render is deterministic, so two runs
-on the same code produce byte-identical artifacts. The JSON carries a `config`
-snapshot of every threshold that produced the numbers, so a reader can re-derive
-any value. `tests/test_benchmark.py` pins the whole thing: it asserts the harness
-runs, the confusion matrix matches the known rendered behaviour, and every ms-error
-is within its known, config-derived tolerance.
+The report carries no wall-clock timestamp, and the render is deterministic,
+so two runs on the same code produce byte-identical artifacts. The JSON
+carries a `config` snapshot of every threshold that produced the numbers, so
+a reader can re-derive any value. `tests/test_benchmark.py` pins the whole
+thing: it asserts the harness runs, the confusion matrix matches the known
+rendered behaviour, and every ms-error sits within its known, config-derived
+tolerance.
 
-The synthetic fixtures are a floor: deterministic rendered audio with exact known
-timings. They prove the scorer behaves as specified and guard against regressions.
-See `examples/README.md` and `docs/CORPUS-GOVERNANCE.md`.
+The synthetic fixtures are a floor: deterministic rendered audio with exact
+known timings, showing the scorer behaves as specified and guarding against
+regressions. See `examples/README.md` and `docs/CORPUS-GOVERNANCE.md`.
 
 ---
 
 ## Extending to your own recordings (bring your own labelled data)
 
-The synthetic floor tells you the scorer does what the spec says. A labelled
-recording from a live phone line tells you what it measures under production
+The synthetic floor shows the scorer does what the spec says. A labelled
+recording from a live phone line shows what it measures under production
 conditions. The harness runs on your own labelled data with no code change:
 
 ```bash

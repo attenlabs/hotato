@@ -1,23 +1,23 @@
 # From a bad call to a CI gate
 
-One bad call moment becomes a permanent, offline regression test in five
+Turn one bad call moment into a permanent, offline regression test in five
 steps. Everything, audio included, runs locally on your machine.
 
 ## The label comes from you
 
 You label the expected behavior for the event: yield means the agent should
 stop for the caller, hold means the agent should keep speaking through a
-backchannel/noise/acknowledgement. Hotato measures whether the timing matched
-that label.
+backchannel, noise, or acknowledgement. Hotato measures whether the timing
+matched that label.
 
 That is the whole contract. "mhm" and "stop" can carry identical speech
-energy, indistinguishable by timing alone. What Hotato measures, reproducibly,
-is whether the agent did what your label says it should have done, and how
-many seconds it took.
+energy, indistinguishable by timing alone, so Hotato measures the one thing
+timing can settle, reproducibly: whether the agent did what your label says
+it should have done, and how many seconds it took.
 
-Input requirement: Hotato's main scorer requires separated caller and agent
-tracks -- either one two-channel WAV or two aligned mono WAVs -- the level of
-separation needed to attribute talk-over reliably.
+Hotato's main scorer requires separated caller and agent tracks -- either one
+two-channel WAV or two aligned mono WAVs -- the level of separation needed to
+attribute talk-over reliably.
 
 ## Step 1: turn the moment into a fixture
 
@@ -38,7 +38,7 @@ with provenance) and `tests/hotato/audio/refund-interruption-001.example.wav`
 fixture is scored immediately on creation; an input that cannot be judged is
 refused with the reason and exit code 2.
 
-Do not know the onset? List the candidate moments first:
+Don't know the onset? List the candidate moments first:
 
 ```bash
 hotato scan --stereo bad-call.wav
@@ -128,15 +128,14 @@ Details: [FIX-PLANS.md](FIX-PLANS.md).
 - You want a local, deterministic regression test that fails CI when the
   turn-taking timing regresses.
 
-## When not to use Hotato
+## Outside the timing lane
 
-Hotato measures turn-taking timing from separated audio tracks. Outside that
-lane:
+Hotato measures turn-taking timing from separated audio tracks. Reach for
+other tooling for:
 
-- Transcript quality or wording checks -- Hotato doesn't transcribe.
-- Task success or goal completion -- Hotato doesn't know what the call was
-  for.
-- Sentiment, tone, or emotion -- permanently out of scope.
+- Transcript quality or wording checks -- Hotato scores timing, not text.
+- Task success or goal completion -- Hotato scores timing, not call outcome.
+- Sentiment, tone, or emotion.
 - Compliance or script adherence review.
 - Tool-call or API-behavior testing.
 - Mixed mono recordings -- a summed channel can't attribute talk-over to a
