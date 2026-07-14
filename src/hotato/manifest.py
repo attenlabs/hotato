@@ -36,8 +36,13 @@ SCHEMA_VERSION = "1"
 
 def canonical_json(obj) -> str:
     """Deterministic JSON: sorted keys, no insignificant whitespace, so two
-    equal objects hash identically regardless of key order."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    equal objects hash identically regardless of key order. ``allow_nan=False``
+    rejects nan/inf/-inf (not RFC 8259 numbers) so a digest is never taken over
+    a value that cannot round-trip through a standard JSON reader."""
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True, allow_nan=False,
+    )
 
 
 def _sha256_str(s: str) -> str:

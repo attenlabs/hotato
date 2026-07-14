@@ -9,7 +9,8 @@ for the whole call lifecycle. Pinned here:
     path, AND the same-error_code object from the MCP tool;
   * --format text still prints a plain "error:" line (unchanged);
   * MCP messages are rewritten from CLI flags to the tool's parameter names;
-  * the SUCCESS envelope is byte-identical on both surfaces (no ok key);
+  * the MCP success core is byte-identical to the CLI/core after its four
+    uniform control fields are removed (no ok key);
   * the "exactly one input mode" constraint is a clean structured error, not a
     raw throw (only-caller, and suite-plus-a-recording).
 """
@@ -284,8 +285,28 @@ def test_cli_success_single_envelope_byte_identical(capsys):
 def test_mcp_success_envelope_byte_identical():
     env = mcp_server._run_tool(suite="barge-in", stack="generic")
     assert "ok" not in env
+    controls = {
+        key: env.pop(key)
+        for key in (
+            "evidence_status", "refusal_reason", "artifact_digests",
+            "pending_irreversible_action",
+        )
+    }
     assert json.dumps(env, sort_keys=True) == json.dumps(
         run_suite(suite="barge-in", stack="generic"), sort_keys=True)
+    assert controls["evidence_status"] == 2
+    assert controls["refusal_reason"] is None
+    assert controls["artifact_digests"]
+    assert controls["pending_irreversible_action"] is None
+
+
+def test_mcp_error_carries_uniform_control_envelope():
+    obj = mcp_server._run_tool(caller="x.wav")
+    _assert_error_shape(obj, "missing_input")
+    assert obj["evidence_status"] is None
+    assert obj["refusal_reason"] == obj["message"]
+    assert obj["artifact_digests"] == []
+    assert obj["pending_irreversible_action"] is None
 
 
 # --- the schema file itself is the published, stable contract ---------------

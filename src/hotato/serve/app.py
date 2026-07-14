@@ -36,7 +36,9 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional, Tuple
-from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qs, parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit,
+)
 
 from ..fleet.registry import DEFAULT_HOME, Registry
 from . import data as _data
@@ -148,18 +150,21 @@ def _cookie_value(header: str, name: str) -> Optional[str]:
 def _strip_token_qs(raw_query: str) -> str:
     """A query string with any ``token`` parameter removed, for the audit log and
     the post-login redirect (the bearer secret must never be recorded or kept in
-    the address bar)."""
+    the address bar).
+
+    The key is percent-DECODED before matching, exactly as authentication decodes
+    it (``parse_qs``), so a bearer token smuggled under a percent-encoded key
+    spelling (``%74oken=...``) is stripped rather than silently logged/echoed. The
+    kept pairs are re-encoded canonically from their decoded form, so the output
+    can never re-expose an encoded ``token`` key."""
     if not raw_query:
         return ""
-    kept = []
-    for part in raw_query.split("&"):
-        if not part:
-            continue
-        key = part.split("=", 1)[0]
-        if key == "token":
-            continue
-        kept.append(part)
-    return "&".join(kept)
+    kept = [
+        (key, value)
+        for key, value in parse_qsl(raw_query, keep_blank_values=True)
+        if key != "token"
+    ]
+    return urlencode(kept)
 
 
 def _q(query, name) -> Optional[str]:
