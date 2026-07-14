@@ -8,6 +8,17 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **`hotato init ci`: the turn-taking gate for GitLab CI, Jenkins, Azure
+  Pipelines, and CircleCI.** `hotato init ci --system
+  {gitlab,jenkins,azure,circleci}` writes the one canonical config each
+  system reads (`.gitlab-ci.yml`, `Jenkinsfile`, `azure-pipelines.yml`,
+  `.circleci/config.yml`): install the pinned hotato release, verify
+  `contracts/`, re-score `fixtures/`, publish the JSON reports plus the
+  JUnit file, and fail the pipeline on a regression. Gates are guarded, so
+  an empty `contracts/` or `fixtures/` directory stays a green starting
+  state. See `docs/CI.md`.
+
 ## [1.6.1] - 2026-07-14
 
 ### Changed
