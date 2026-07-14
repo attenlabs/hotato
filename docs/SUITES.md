@@ -10,7 +10,7 @@ calls ([`docs/SUBMITTING.md`](SUBMITTING.md)).
 ## The four suites
 
 | Suite | Scenarios | Conditions | Expected exit |
-|---------------------|-----------|-----------------------------------------------------------------------|---------------|
+| --- | --- | --- | --- |
 | `silver` | 40 | clean, 16 kHz, default noise floor | `0` |
 | `silver-defects` | 16 | clean conditions, deliberate defect renders | `1` |
 | `gold` | 40 | hard conditions: noise floors, 8 kHz, gain extremes, echo, edge timings, endurance | `0` |

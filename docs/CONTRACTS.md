@@ -22,12 +22,27 @@ A contract's label always comes from a human call (`label_source` is frozen to
 
 ## Two lanes: what `verify` proves depends on which recording you feed it
 
-| | `contract verify` on the frozen recording | `contract verify` on a fresh recapture |
-| --- | --- | --- |
-| **What it re-scores** | The SAME `audio/event.wav` the contract was created from | A new recording of the SAME stimulus against your CURRENT agent |
-| **What a pass proves** | The evidence, the policy, and the scorer are still intact and still agree with the human label | The CURRENT agent's behavior on that stimulus still matches the label |
-| **What a pass does NOT prove** | That the deployed agent's behavior has not changed since | Nothing extra -- this is the one that speaks to the live agent |
-| **When it runs** | Every push, in the shipped `ci/github-action.yml` (`contract verify contracts/`) | Only when you recapture by hand or on a schedule; see [`docs/RECAPTURE.md`](RECAPTURE.md) |
+**Lane A -- `contract verify` on the frozen recording:**
+
+- **What it re-scores:** the SAME `audio/event.wav` the contract was created
+  from.
+- **What a pass proves:** the evidence, the policy, and the scorer are still
+  intact and still agree with the human label.
+- **What a pass does NOT prove:** that the deployed agent's behavior has not
+  changed since.
+- **When it runs:** every push, in the shipped `ci/github-action.yml`
+  (`contract verify contracts/`).
+
+**Lane B -- `contract verify` on a fresh recapture:**
+
+- **What it re-scores:** a new recording of the SAME stimulus against your
+  CURRENT agent.
+- **What a pass proves:** the CURRENT agent's behavior on that stimulus still
+  matches the label.
+- **What a pass does NOT prove:** nothing extra -- this is the one that speaks
+  to the live agent.
+- **When it runs:** only when you recapture by hand or on a schedule; see
+  [`docs/RECAPTURE.md`](RECAPTURE.md).
 
 A frozen-recording pass is necessary but not sufficient to know the agent bug
 stayed fixed: it can only fail if someone edits the bundle's audio or policy,
@@ -185,7 +200,8 @@ hotato contract pack contracts/refund-cutoff-001.hotato
 # -> contracts/refund-cutoff-001.hotato.pack (deterministic; a MANIFEST.sha256.json
 #    of every member travels inside it)
 
-hotato contract unpack contracts/refund-cutoff-001.hotato.pack --out contracts/refund-cutoff-001.hotato
+hotato contract unpack contracts/refund-cutoff-001.hotato.pack \
+    --out contracts/refund-cutoff-001.hotato
 # every member is verified against the packed sha256 manifest; any mismatch
 # (a corrupt or tampered archive) is refused (exit 2) and nothing partial is
 # left behind
@@ -228,7 +244,8 @@ manifest.
 The shipped `ci/github-action.yml` is the minimal wiring:
 
 ```bash
-uvx hotato contract verify contracts/ --junit contracts-junit.xml --format json > contracts-verify.json
+uvx hotato contract verify contracts/ --junit contracts-junit.xml \
+    --format json > contracts-verify.json
 ```
 
 Gate a pull request or a scheduled job on the process exit code; do not parse

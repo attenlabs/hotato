@@ -6,12 +6,19 @@ reviewable, bounded fix proposal. Levels 0-2 are read-only. Level 3
 
 ## The ladder
 
-| Level | Command | What it does | Writes to your stack |
-|---|---|---|---|
-| 0 | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the advisory and the tradeoff stated | never |
-| 1 | `hotato inspect --stack ...` | Reads the CURRENT turn-taking config (GET or static parse) and normalizes it | never |
-| 2 | `hotato plan result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | never |
-| 3 | `hotato apply` / `hotato fix trial` / `hotato verify` | Applies a plan to a CLONE and re-scores the battery on it under a pinned manifest | cloned assistant / branch only, never production |
+- **Level 0** -- `hotato diagnose result.json`. What it does: per-failure
+  diagnosis + a battery decision, with the advisory and the tradeoff
+  stated. Writes to your stack: never.
+- **Level 1** -- `hotato inspect --stack ...`. What it does: reads the
+  CURRENT turn-taking config (GET or static parse) and normalizes it.
+  Writes to your stack: never.
+- **Level 2** -- `hotato plan result.json [target]`. What it does:
+  combines diagnosis + inspected config into a fix-plan JSON
+  (`hotato.fixplan.v1`). Writes to your stack: never.
+- **Level 3** -- `hotato apply` / `hotato fix trial` / `hotato verify`.
+  What it does: applies a plan to a CLONE and re-scores the battery on it
+  under a pinned manifest. Writes to your stack: cloned assistant / branch
+  only, never production.
 
 Level 3 kept the guard it was designed with, PR-first and clone-first:
 `hotato apply` applies a plan to a CLONED assistant

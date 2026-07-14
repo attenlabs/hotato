@@ -43,10 +43,15 @@ With the extra absent, `--transcribe` always fails loud: a clean error, exit
 ## Usage
 
 ```bash
-hotato run --stereo call.wav --transcribe                                   # base.en, device auto-detected
+# base.en, device auto-detected:
+hotato run --stereo call.wav --transcribe
+
+# pick a model + device:
 hotato run --stereo call.wav --transcribe --transcribe-model small.en \
-  --transcribe-device cpu                                                    # pick a model + device
-hotato run --mono call.wav --diarize --transcribe                            # also works on the diarized-mono path
+  --transcribe-device cpu
+
+# also works on the diarized-mono path:
+hotato run --mono call.wav --diarize --transcribe
 ```
 
 `--transcribe` needs a **single** audio file: `--stereo`, or `--mono` when
@@ -72,9 +77,11 @@ applied."
 
 ## Backend and extra
 
-| extra | brings in | where it runs |
-|---|---|---|
-| `[transcribe]` | `faster-whisper` (a CTranslate2 re-implementation of OpenAI's Whisper) | local, CPU-viable, GPU-optional, fully offline once the model is cached |
+- **`[transcribe]`**
+  - Brings in: `faster-whisper` (a CTranslate2 re-implementation of OpenAI's
+    Whisper).
+  - Where it runs: local, CPU-viable, GPU-optional, fully offline once the
+    model is cached.
 
 ```toml
 transcribe = ["faster-whisper>=1.0"]
@@ -120,7 +127,12 @@ it:
 {
   "mode": "single",
   "events": [{
-    "verdict": {"did_yield": true, "seconds_to_yield": 0.42, "talk_over_sec": 0.18, "reasons": []}
+    "verdict": {
+      "did_yield": true,
+      "seconds_to_yield": 0.42,
+      "talk_over_sec": 0.18,
+      "reasons": []
+    }
   }],
   "transcript": {
     "text": "I need to check on my refund -- hold on, let me pull that up for you.",

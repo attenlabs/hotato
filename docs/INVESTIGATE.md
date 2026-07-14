@@ -139,17 +139,19 @@ unless you explicitly pull it from your own stack ([THREAT-MODEL.md](THREAT-MODE
 
 `hotato investigate`:
 
-| code | meaning |
-| --- | --- |
-| `0` | the recording is candidate-eligible: trust + scan ran and candidates (if any) were persisted; a yield/hold VERDICT may still be refused (K6) -- see `verdict_status` |
-| `2` | usage error (neither `SOURCE` nor `--stack/--call-id`, both given, a bad channel/`--min-gap` flag, a missing credential, or an unreadable state file), or the recording is NOT SCORABLE at all |
+- **`0`** -- the recording is candidate-eligible: trust + scan ran and
+  candidates (if any) were persisted; a yield/hold VERDICT may still be
+  refused (K6) -- see `verdict_status`.
+- **`2`** -- usage error (neither `SOURCE` nor `--stack/--call-id`, both
+  given, a bad channel/`--min-gap` flag, a missing credential, or an
+  unreadable state file), or the recording is NOT SCORABLE at all.
 
 `hotato investigate label`:
 
-| code | meaning |
-| --- | --- |
-| `0` | a signed, CI-ready contract was written from this candidate |
-| `2` | usage error (a bad `--expect`, a bad candidate ref, an unresolved source recording, or an existing contract without `--force`), or the candidate turned out not scorable |
+- **`0`** -- a signed, CI-ready contract was written from this candidate.
+- **`2`** -- usage error (a bad `--expect`, a bad candidate ref, an
+  unresolved source recording, or an existing contract without `--force`),
+  or the candidate turned out not scorable.
 
 ## See also
 

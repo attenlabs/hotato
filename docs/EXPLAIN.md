@@ -19,11 +19,15 @@ hotato explain result.json
 
 ## Three input shapes, auto-detected
 
-| Input | Example | What happens |
-|---|---|---|
-| a run envelope | `hotato explain result.json` | full diagnose + policy-gate attribution, per failing event |
-| a sweep/analyze candidate ref | `hotato explain hotato-sweep.json#1` | ALWAYS refused: a candidate carries no human label |
-| a contract bundle directory | `hotato explain contracts/refund-cutoff-001.hotato` | attributed from the contract's own measurement + policy bounds, or refused when disambiguation needs a signal the bundle does not carry |
+- **A run envelope** -- example: `hotato explain result.json`. What happens:
+  full diagnose + policy-gate attribution, per failing event.
+- **A sweep/analyze candidate ref** -- example:
+  `hotato explain hotato-sweep.json#1`. What happens: ALWAYS refused -- a
+  candidate carries no human label.
+- **A contract bundle directory** -- example:
+  `hotato explain contracts/refund-cutoff-001.hotato`. What happens:
+  attributed from the contract's own measurement + policy bounds, or
+  refused when disambiguation needs a signal the bundle does not carry.
 
 ## The attribution shape
 

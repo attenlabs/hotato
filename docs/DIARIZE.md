@@ -50,16 +50,30 @@ by the downstream benchmark's measured results: `pyannote` is the accessible
 local default, and a user who needs best-in-class accuracy on telephone audio
 picks `sortformer` (local) or `pyannoteai` (hosted).
 
-| `--diarizer` | extra | where it runs | notes |
-|---|---|---|---|
-| `pyannote` (default) | `[diarize]` | local, CPU-viable, offline | richest confidence signals (posterior + embedding margin); gated HF weights |
-| `sortformer` | `[diarize-sortformer]` | local, GPU-leaning | best self-hostable on 2-speaker telephone; EEND (no embedding margin) |
-| `pyannoteai` | `[diarize-hosted]` | HOSTED (audio leaves the machine) | best absolute accuracy; requires `--egress-opt-in` |
+- **`pyannote`** (default)
+  - Extra: `[diarize]`
+  - Where it runs: local, CPU-viable, offline
+  - Notes: richest confidence signals (posterior + embedding margin); gated
+    HF weights
+- **`sortformer`**
+  - Extra: `[diarize-sortformer]`
+  - Where it runs: local, GPU-leaning
+  - Notes: best self-hostable on 2-speaker telephone; EEND (no embedding
+    margin)
+- **`pyannoteai`**
+  - Extra: `[diarize-hosted]`
+  - Where it runs: HOSTED (audio leaves the machine)
+  - Notes: best absolute accuracy; requires `--egress-opt-in`
 
 ```toml
-diarize            = ["pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "numpy>=1.21"]  # default; needs system ffmpeg
-diarize-sortformer = ["nemo-toolkit[asr]>=2.7", "torch>=2.8", "numpy>=1.21"]                   # best self-hostable, GPU
-diarize-hosted     = ["pyannoteai-sdk>=0.3"]                                                   # hosted, egress opt-in
+# default; needs system ffmpeg
+diarize = ["pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "numpy>=1.21"]
+
+# best self-hostable, GPU
+diarize-sortformer = ["nemo-toolkit[asr]>=2.7", "torch>=2.8", "numpy>=1.21"]
+
+# hosted, egress opt-in
+diarize-hosted = ["pyannoteai-sdk>=0.3"]
 ```
 
 The `[diarize]` path raises the effective Python floor to **>=3.10** (pyannote
@@ -172,17 +186,35 @@ true` on the event:
     "backend": "pyannote",
     "model": "pyannote/speaker-diarization-community-1",
     "num_speakers": 2,
-    "speaker_map": {"caller": "SPEAKER_00", "agent": "SPEAKER_01", "basis": "floor-dominance", "balanced": false},
+    "speaker_map": {
+      "caller": "SPEAKER_00",
+      "agent": "SPEAKER_01",
+      "basis": "floor-dominance",
+      "balanced": false
+    },
     "separation_confidence": 0.86,
     "confidence_tier": "high",
     "overlap_ratio": 0.14,
     "licenses": {"pyannote-audio": "MIT (code)", "...": "..."}
   },
   "events": [{
-    "verdict": {"did_yield": true, "seconds_to_yield": 0.5, "talk_over_sec": 0.5, "reasons": []},
+    "verdict": {
+      "did_yield": true,
+      "seconds_to_yield": 0.5,
+      "talk_over_sec": 0.5,
+      "reasons": []
+    },
     "diarization": { "...": "same block" },
-    "scorability": {"separation": {"confidence_tier": "high", "separation_confidence": 0.86, "signals": {"...": "..."}}},
-    "signals": {"echo": {"applicable": false, "reason": "single physical channel ..."}}
+    "scorability": {
+      "separation": {
+        "confidence_tier": "high",
+        "separation_confidence": 0.86,
+        "signals": {"...": "..."}
+      }
+    },
+    "signals": {
+      "echo": {"applicable": false, "reason": "single physical channel ..."}
+    }
   }]
 }
 ```

@@ -25,13 +25,28 @@ documents the gap here.
 
 ## Build now: dual-channel (auto-pull, separated scoring)
 
-| Stack | List recent calls | Fetch recording | Channel basis | Last verified |
-| --- | --- | --- | --- | --- |
-| Vapi | `GET https://api.vapi.ai/call` (params `limit`, `createdAtGt/Lt`) → JSON array of Call objects (`id`, `createdAt`) | `GET /call/{id}` → `artifact.recording.stereoUrl` (current); deprecated fallbacks `artifact.stereoRecordingUrl`, `call.stereoRecordingUrl` | `stereoUrl` is a distinct 2-channel file (customer ch0, assistant ch1) | 2026-07-07 |
-| Twilio | `GET .../Accounts/{Sid}/Recordings.json` (params `PageSize`, `DateCreatedAfter/Before`, `callSid`) → `recordings[].sid` | `GET .../Recordings/{RE...}.wav?RequestedChannels=2` (HTTP Basic) | dual-channel only if the recording was created `RecordingChannels=dual`; 400 → clean stop or `--allow-mono` → `RequestedChannels=1`. Two-party order: ch0 = caller, ch1 = agent; conference: ch0 = first participant | 2026-07-07 |
-| Retell | **none confirmed**: the spec marks list-calls unconfirmed; do not fabricate one. Pull from explicit `--call-id` | `GET https://api.retellai.com/v2/get-call/{id}` (Bearer) → `scrubbed_recording_multi_channel_url` preferred, then `recording_multi_channel_url`; plain mono `recording_url` rejected unless `--allow-mono` | per-party channels on the `*_multi_channel_url` fields | 2026-07-07 |
-| LiveKit | **capture-in-your-infra**: `ListEgress` is an RPC method name only; no REST list. `hotato setup --stack livekit` | Two audio-only Track egresses (one per party); recording location in `egress_info.file_results[].location` | separated by running one Track egress per participant | 2026-07-07 |
-| Pipecat | **capture-in-your-infra**: Pipecat Cloud session-list has no recording field; OSS has no list at all | `AudioBufferProcessor(num_channels=2)` in-pipeline (user left, bot right); you write the WAV | 2-channel in-pipeline | 2026-07-07 |
+Each entry below is one stack, verified 2026-07-07 unless noted otherwise.
+
+- **Vapi**
+  - List recent calls: `GET https://api.vapi.ai/call` (params `limit`, `createdAtGt/Lt`) → JSON array of Call objects (`id`, `createdAt`)
+  - Fetch recording: `GET /call/{id}` → `artifact.recording.stereoUrl` (current); deprecated fallbacks `artifact.stereoRecordingUrl`, `call.stereoRecordingUrl`
+  - Channel basis: `stereoUrl` is a distinct 2-channel file (customer ch0, assistant ch1)
+- **Twilio**
+  - List recent calls: `GET .../Accounts/{Sid}/Recordings.json` (params `PageSize`, `DateCreatedAfter/Before`, `callSid`) → `recordings[].sid`
+  - Fetch recording: `GET .../Recordings/{RE...}.wav?RequestedChannels=2` (HTTP Basic)
+  - Channel basis: dual-channel only if the recording was created `RecordingChannels=dual`; 400 → clean stop or `--allow-mono` → `RequestedChannels=1`. Two-party order: ch0 = caller, ch1 = agent; conference: ch0 = first participant
+- **Retell**
+  - List recent calls: **none confirmed** -- the spec marks list-calls unconfirmed; do not fabricate one. Pull from explicit `--call-id`
+  - Fetch recording: `GET https://api.retellai.com/v2/get-call/{id}` (Bearer) → `scrubbed_recording_multi_channel_url` preferred, then `recording_multi_channel_url`; plain mono `recording_url` rejected unless `--allow-mono`
+  - Channel basis: per-party channels on the `*_multi_channel_url` fields
+- **LiveKit**
+  - List recent calls: **capture-in-your-infra** -- `ListEgress` is an RPC method name only; no REST list. `hotato setup --stack livekit`
+  - Fetch recording: two audio-only Track egresses (one per party); recording location in `egress_info.file_results[].location`
+  - Channel basis: separated by running one Track egress per participant
+- **Pipecat**
+  - List recent calls: **capture-in-your-infra** -- Pipecat Cloud session-list has no recording field; OSS has no list at all
+  - Fetch recording: `AudioBufferProcessor(num_channels=2)` in-pipeline (user left, bot right); you write the WAV
+  - Channel basis: 2-channel in-pipeline
 
 ## Build now: mono / mixed only (auto-pull, `--allow-mono`, indicative only)
 
@@ -39,13 +54,28 @@ Each of these has a verified list + fetch, but the vendor produces a single
 combined recording with **no documented per-party channel**, so scoring is
 degraded and gated behind `--allow-mono`.
 
-| Stack | List recent calls | Fetch recording | Mono basis (verbatim) | Last verified |
-| --- | --- | --- | --- | --- |
-| Bland AI | `GET https://api.bland.ai/v1/calls` → `calls[].call_id` | `GET /v1/calls/{id}` → `recording_url` | no stereo/channel field in the recording or call-details schema | 2026-07-07 |
-| ElevenLabs Conversational AI | `GET https://api.elevenlabs.io/v1/convai/conversations` (params `page_size`, `call_start_after_unix`) → `conversations[].conversation_id` | `GET /v1/convai/conversations/{id}/audio` → combined audio | docs state the audio "does not include separate caller/agent channels, only a combined full conversation MP3" | 2026-07-07 |
-| Synthflow | `GET https://api.synthflow.ai/v2/calls?model_id=…` (params `limit`, `from_date` epoch-ms) → `response.response.calls[].call_id` | `GET /v2/calls/{id}` → `response.response.calls[0].recording_url` (a Twilio Recordings URL) | Synthflow documents no dual-channel option; `recording_url` is a bare Twilio URL | 2026-07-07 |
-| Millis AI | `GET {base}/call-logs` (US `api-west`, EU `api-eu-west`; param `limit`) → `histories[].session_id` | `GET /call-logs/{session_id}` → `recording.recording_url` | schema exposes only `recording_url`; `CallSettings` has only a boolean `enable_recording` | 2026-07-07 |
-| Cartesia (Line) | `GET https://api.cartesia.ai/agents/calls?agent_id=…` (param `limit`; needs `Cartesia-Version` header) → `data[].id` | `GET /agents/calls/{id}/audio` → `audio/wav` | dual-vs-mono **unconfirmed** in the docs; treated as mono until a live channel-count check proves otherwise | 2026-07-07 |
+Each entry below is one stack, verified 2026-07-07.
+
+- **Bland AI**
+  - List recent calls: `GET https://api.bland.ai/v1/calls` → `calls[].call_id`
+  - Fetch recording: `GET /v1/calls/{id}` → `recording_url`
+  - Mono basis (verbatim): no stereo/channel field in the recording or call-details schema
+- **ElevenLabs Conversational AI**
+  - List recent calls: `GET https://api.elevenlabs.io/v1/convai/conversations` (params `page_size`, `call_start_after_unix`) → `conversations[].conversation_id`
+  - Fetch recording: `GET /v1/convai/conversations/{id}/audio` → combined audio
+  - Mono basis (verbatim): docs state the audio "does not include separate caller/agent channels, only a combined full conversation MP3"
+- **Synthflow**
+  - List recent calls: `GET https://api.synthflow.ai/v2/calls?model_id=…` (params `limit`, `from_date` epoch-ms) → `response.response.calls[].call_id`
+  - Fetch recording: `GET /v2/calls/{id}` → `response.response.calls[0].recording_url` (a Twilio Recordings URL)
+  - Mono basis (verbatim): Synthflow documents no dual-channel option; `recording_url` is a bare Twilio URL
+- **Millis AI**
+  - List recent calls: `GET {base}/call-logs` (US `api-west`, EU `api-eu-west`; param `limit`) → `histories[].session_id`
+  - Fetch recording: `GET /call-logs/{session_id}` → `recording.recording_url`
+  - Mono basis (verbatim): schema exposes only `recording_url`; `CallSettings` has only a boolean `enable_recording`
+- **Cartesia (Line)**
+  - List recent calls: `GET https://api.cartesia.ai/agents/calls?agent_id=…` (param `limit`; needs `Cartesia-Version` header) → `data[].id`
+  - Fetch recording: `GET /agents/calls/{id}/audio` → `audio/wav`
+  - Mono basis (verbatim): dual-vs-mono **unconfirmed** in the docs; treated as mono until a live channel-count check proves otherwise
 
 `--stack synthflow` needs `--model-id` (its list endpoint requires `model_id`);
 `--stack cartesia` needs `--agent-id`; `--stack millis` accepts `--base-url` for
@@ -53,10 +83,15 @@ the EU region. Single-call `capture`/`pull` by explicit id needs none of these.
 
 ## Not integrable (no vendor recording to pull)
 
-| Stack | Why | Basis |
-| --- | --- | --- |
-| Deepgram Voice Agent API | Real-time WebSocket (`wss://agent.deepgram.com/v1/agent/converse`) with no REST list-calls, no fetch-recording endpoint, and no recording-ready webhook. Deepgram does not store the call. If you want a recording, capture it in your own infra (LiveKit/Pipecat pattern) | 2026-07-07, confirmed absent |
-| PlayAI (formerly Play.ht) | The conversational-agent product is dead: `play.ai` DNS does not resolve and `docs.play.ai` returns `DEPLOYMENT_NOT_FOUND`. The only live domain, `docs.play.ht`, is TTS-only with no calls/recordings API | 2026-07-07, dead endpoints verified |
+- **Deepgram Voice Agent API** (2026-07-07, confirmed absent) -- real-time
+  WebSocket (`wss://agent.deepgram.com/v1/agent/converse`) with no REST
+  list-calls, no fetch-recording endpoint, and no recording-ready webhook.
+  Deepgram does not store the call. If you want a recording, capture it in
+  your own infra (LiveKit/Pipecat pattern).
+- **PlayAI (formerly Play.ht)** (2026-07-07, dead endpoints verified) -- the
+  conversational-agent product is dead: `play.ai` DNS does not resolve and
+  `docs.play.ai` returns `DEPLOYMENT_NOT_FOUND`. The only live domain,
+  `docs.play.ht`, is TTS-only with no calls/recordings API.
 
 ## Unconfirmed: needs credentials or a live probe before shipping
 
