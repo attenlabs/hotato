@@ -1,21 +1,22 @@
 # CI: gate a PR on turn-taking
 
-hotato scores turn-taking timing from call recordings, so a pull request can
-carry a running score and fail when the agent gets slower to stop talking for
-an interrupting caller. The workflow runs offline with zero extra dependencies.
+hotato scores turn-taking timing from call recordings, so a pull request
+carries a running score and fails when the agent gets slower to stop
+talking for an interrupting caller. The workflow runs offline with zero
+extra dependencies.
 
 ## The root Action: run a committed suite from any repository
 
-The repository root ships a composite GitHub Action, so a repository with no
-hotato source can run a committed suite, conversation test, or contract
-verification and gate on hotato's exit status. The default run is offline: it
-runs the pinned Action revision itself off PYTHONPATH (no pip, no package index), installs no
-model, no ASR, no Node tool, and calls no external judge. No secret is read
-or needed.
+The repository root ships a composite GitHub Action, so a repository with
+no hotato source can run a committed suite, conversation test, or contract
+verification and gate on hotato's exit status. The default run is offline:
+it runs the pinned Action revision itself off PYTHONPATH (no pip, no
+package index), installs no model, no ASR, no Node tool, and calls no
+external judge. No secret is read or needed.
 
-The Action is available as a composite Action from release v1.4.0 onward. Adopt
-the current release (v1.5.4) and pin the revision you adopt by its full commit
-SHA; resolve a tag to its SHA first:
+The Action ships as a composite Action from release v1.4.0 onward. Adopt
+the current release (v1.5.4) and pin the revision you adopt by its full
+commit SHA; resolve a tag to its SHA first:
 
 ```bash
 git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.5.4
@@ -55,34 +56,36 @@ jobs:
 ```
 
 `permissions: contents: read` is sufficient. The Action never posts a
-comment, never uploads an artifact, and never sends a notification; retention
-and publication stay under the consumer workflow's control, as above.
+comment, uploads an artifact, or sends a notification; retention and
+publication stay under the consumer workflow's control, as above.
 
 ### Inputs
 
 Exactly one of `suite`, `test`, `contracts` selects what runs; each is a
 workspace-relative committed path. `agent` names the agent under test for
-suite and test runs. Everything else is optional: `release` (defaults to the
-commit SHA), `output` (defaults to `.hotato/results`), `parallel` (suite
-worker cap; never changes result bytes), `transcript` / `trace` / `state`
-(evidence files for a test run), `gate-advisory` (test runs only; passes
-hotato's own `--gate-judge` so the model-judged rubric lane gates), and
-`hotato-version`.
+suite and test runs. Everything else is optional: `release` (defaults to
+the commit SHA), `output` (defaults to `.hotato/results`), `parallel`
+(suite worker cap; never changes result bytes), `transcript` / `trace` /
+`state` (evidence files for a test run), `gate-advisory` (test runs only;
+passes hotato's own `--gate-judge` so the model-judged rubric lane gates),
+and `hotato-version`.
 
-`hotato-version` controls the install and refuses anything unpinned:
+`hotato-version` pins the install to one of three forms:
 
 - `action` (default): install the pinned Action revision itself, with
-  `--no-deps` and no package-index egress. The code that runs is exactly the
-  revision your workflow pinned.
+  `--no-deps` and no package-index egress. The code that runs is exactly
+  the revision your workflow pinned.
 - an exact version such as `1.5.4`: `pip install --no-deps hotato==1.5.4`.
 - `preinstalled`: skip installation (hotato is already on the runner).
 
-Ranges and `latest` are refused. Suite policy lives in the committed suite
-file; the Action never overrides a suite's `inconclusive_policy`.
+A range or `latest` is refused, so the pin always names one exact
+revision. Suite policy lives in the committed suite file; the Action never
+overrides a suite's `inconclusive_policy`.
 
 ### Outputs and the exit contract
 
-The step exit IS hotato's exit code, so the job gates without any extra step:
+The step exit IS hotato's exit code, so the job gates without any extra
+step:
 
 | Exit | Meaning |
 |---|---|
@@ -99,44 +102,49 @@ Markdown), `records` (Failure Record directory when produced, else empty),
 
 The five-lane job summary (Outcome, Policy, Conversation, Speech,
 Reliability) is appended to the job page on pass AND on failure, with the
-exact reproduce command and the evaluated check ids. A lane with no evaluated
-check renders NOT_RUN; a lane whose checks lack required evidence renders
-INCONCLUSIVE, never PASS. The model-judged rubric lane reports in its own
-advisory section with `gate enabled: true|false` and never changes the exit
-unless the run opted in with `gate-advisory: true`; when no local judge is
-reachable it reports ERROR, never a fabricated verdict.
+exact reproduce command and the evaluated check ids. A lane with no
+evaluated check renders NOT_RUN; a lane whose checks lack required
+evidence renders INCONCLUSIVE, never PASS. The model-judged rubric lane
+reports in its own advisory section with `gate enabled: true|false` and
+changes the exit only when the run opted in with `gate-advisory: true`;
+when no local judge is reachable it reports ERROR, holding the verdict
+rather than guessing at one.
 
 The conformance fixture for all of this is
-[`tests/fixtures/action-consumer/`](../tests/fixtures/action-consumer/), and
-`.github/workflows/tests.yml` runs the same consumer shape against the local
-checkout on every pull request (job `action-smoke`).
+[`tests/fixtures/action-consumer/`](../tests/fixtures/action-consumer/),
+and `.github/workflows/tests.yml` runs the same consumer shape against the
+local checkout on every pull request (job `action-smoke`).
 
 ## Drop it in
 
-Copy [`.github/workflows/hotato.yml`](../.github/workflows/hotato.yml) into your
-repository at the same path. That is the whole setup. On the next pull request it
-will:
+Copy [`.github/workflows/hotato.yml`](../.github/workflows/hotato.yml) into
+your repository at the same path. That is the whole setup. On the next
+pull request it will:
 
 - install the package with `pip install .`
 - score the bundled barge-in suite to a JSON envelope
 - render a Markdown summary with [`scripts/pr_comment.py`](../scripts/pr_comment.py)
-- post or update one sticky comment (found by a hidden marker, so it stays a single comment across runs)
+- post or update one sticky comment (found by a hidden marker, so it stays
+  a single comment across runs)
 - fail the job on any regression
 
-The sticky comment shows a pass/fail line, a per scenario table (expect, yielded,
-time to yield, talk over, result), and a short regressions section.
+The sticky comment shows a pass/fail line, a per scenario table (expect,
+yielded, time to yield, talk over, result), and a short regressions
+section.
 
-The job needs `pull-requests: write` to post the comment. The workflow already
-requests it; if your org restricts the default `GITHUB_TOKEN`, allow that scope.
+The job needs `pull-requests: write` to post the comment. The workflow
+already requests it; if your org restricts the default `GITHUB_TOKEN`,
+grant that scope.
 
 ## Point it at your own recordings
 
-The bundled suite is a self-test: it scores frozen synthetic fixtures, proving
-the harness itself works. The strongest gate for your agent is a suite of
-your OWN bad moments, pinned as fixtures with `hotato fixture create` and run
-with `hotato run --scenarios DIR --audio DIR`; the full loop from one bad call
-to this gate is [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md). Alternatively, replace
-one step, `Score turn-taking (head)`, with your own capture and score:
+The bundled suite is a self-test: it scores frozen synthetic fixtures,
+proving the harness itself works. The strongest gate for your agent is a
+suite of your OWN bad moments, pinned as fixtures with
+`hotato fixture create` and run with `hotato run --scenarios DIR --audio
+DIR`; the full loop from one bad call to this gate is
+[BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md). Alternatively, replace one step,
+`Score turn-taking (head)`, with your own capture and score:
 
 1. play each corpus `*.caller.wav` into your agent
 2. record your agent's reply
@@ -146,24 +154,24 @@ one step, `Score turn-taking (head)`, with your own capture and score:
 hotato run --stereo your_call.wav --expect yield --format json --no-fail > head.json
 ```
 
-The envelope shape and exit codes are identical, so the render, comment, and gate
-steps stay exactly as they are. Keep `--no-fail` on the score step so the comment
-still posts on a regression; the true pass/fail lives in the envelope's
-`exit_code`, which the `Fail on regression` step reads.
+The envelope shape and exit codes are identical, so the render, comment,
+and gate steps stay exactly as they are. Keep `--no-fail` on the score
+step so the comment still posts on a regression; the true pass/fail lives
+in the envelope's `exit_code`, which the `Fail on regression` step reads.
 
 ## Deltas against the base branch
 
-When the workflow can install and score the base branch, it runs the same suite
-there in an isolated venv and uses it as the baseline. Any scenario where the
-overlap grew (talk-over up) or the agent stopped later (time to yield up) is
-listed under Regressions with the delta. This step is best effort: if it cannot
-run, the comment falls back to the current pass/fail table and the gate still
-holds.
+When the workflow can install and score the base branch, it runs the same
+suite there in an isolated venv and uses it as the baseline. Any scenario
+where the overlap grew (talk-over up) or the agent stopped later (time to
+yield up) is listed under Regressions with the delta. This step is best
+effort: when it cannot run, the comment falls back to the current
+pass/fail table and the gate still holds.
 
 ## Render a comment yourself
 
-`scripts/pr_comment.py` is stdlib only and reads the same JSON the CLI emits, so
-you can preview the comment locally:
+`scripts/pr_comment.py` is stdlib only and reads the same JSON the CLI
+emits, so you can preview the comment locally:
 
 ```bash
 hotato run --suite barge-in --format json | python3 scripts/pr_comment.py
@@ -173,10 +181,10 @@ Add `--base base.json` to include deltas against a saved baseline run.
 
 ## The other ready-made gate: pytest
 
-If your CI already runs pytest, one flag adds the same regression gate to that
-run instead: `pytest --hotato-suite` scores the battery after your tests and
+If your CI already runs pytest, one flag adds the same regression gate to
+that run: `pytest --hotato-suite` scores the battery after your tests and
 fails the session on a regression. Point it at your own labelled sets with
 `--hotato-suite-scenarios` and `--hotato-suite-audio`. Details:
 [`PYTEST.md`](PYTEST.md). For richer artifacts on a gate failure,
-`hotato report` renders the visual report and `hotato team` tracks the trend
-across runs ([`REPORTS.md`](REPORTS.md)).
+`hotato report` renders the visual report and `hotato team` tracks the
+trend across runs ([`REPORTS.md`](REPORTS.md)).
