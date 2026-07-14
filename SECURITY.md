@@ -98,7 +98,7 @@ Do not open a public GitHub issue for:
 - vulnerabilities in Hotato or its packaging
 - anything involving call recordings, consent, PII, PHI, or private audio
 
-Email: security@attentionlabs.ai
+Email: contact@attentionlabs.ai
 
 Include what you found, how to reproduce it, and your version
 (`hotato --version`). You will get an acknowledgement within 3 business days.
