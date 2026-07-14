@@ -1162,8 +1162,8 @@ def build_server():
         name="counterexample_reproduce",
         description=(
             "Run a private capsule's reduced fixture under the current Hotato "
-            "evaluator. Permits evaluator-version drift while requiring the exact "
-            "typed failure atom. Read-only."
+            "evaluator. Permits evaluator-version drift while requiring the "
+            "source-selected structured failure branch. Read-only."
         ),
     )
     def counterexample_reproduce(path: str) -> dict:

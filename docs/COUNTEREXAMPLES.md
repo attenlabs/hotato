@@ -16,8 +16,8 @@ scenario + conversation test + target assertion
 
 Every accepted deletion is evaluated through Hotato's existing scripted
 simulator and deterministic assertion engine. A candidate is retained only
-when the same assertion fails through the same typed witness and failure
-fingerprint.
+when the same assertion still contains the source-selected structured failure
+branch and therefore retains the same failure fingerprint.
 
 The v1 boundary is narrow:
 
@@ -104,6 +104,29 @@ assertion fails with identical result, content, and trace identities. It
 refuses a passing, inconclusive, advisory, missing, duplicated, or unsupported
 target.
 
+### Exact failure branch identity
+
+A deterministic `FAIL` can contain more than one reason. The oracle maps those
+reasons into a closed set of payload-free failure atoms, sorts and de-duplicates
+them canonically, and selects the first source atom as the preservation anchor.
+The private capsule records both that selected atom and the complete ordered
+source atom set. A candidate is `PRESERVED` only when the selected source atom
+is still present in the candidate's atom set.
+
+An atom carries only the discriminator needed to keep failure branches apart:
+for example, an assertion index, detector, policy rule/type, state field, or
+entity key. Tool arguments that disagree therefore remain a
+`tool-arguments-mismatch`; deleting the only named call changes the branch to
+`tool-missing` and is `DRIFTED`, even though the assertion still reports
+`FAIL`. Payload values, transcript text, and broad diagnostic counts are not
+part of the atom.
+
+The fingerprint binds the test and assertion identity, assertion bytes, kind,
+dimension, deterministic authority, required `FAIL` status, and selected
+source atom. It does not bind every diagnostic field in the assertion result.
+This keeps irrelevant evidence reducible without allowing the preserved
+failure to collapse into a different branch.
+
 The emitted `input/conversation-test.json` is a canonical projection containing
 only the selected deterministic assertion. Other source assertions and the
 rubric lane are outside the preservation oracle. Their removal is normalization
@@ -150,13 +173,13 @@ supports this exact statement:
 
 After hierarchical reduction, the compiler repeatedly tries every remaining
 single-unit deletion. It reaches `one_minimal` only when none of those
-deletions preserves the selected failure fingerprint. `verify` recomputes the
+deletions preserves the selected source failure branch. `verify` recomputes the
 single-unit check instead of trusting `minimality.json`.
 
 This is a local claim over the named deletion algebra. It is not a global
 minimum, a root-cause determination, or a semantic-equivalence claim. A
-remaining deletion can make the target `PASS`, change the typed failure
-witness, invalidate the scenario, or make required evidence unavailable. All
+remaining deletion can make the target `PASS`, change the selected failure
+branch, invalidate the scenario, or make required evidence unavailable. All
 of those outcomes mean that deletion did not preserve the recorded exact
 failure identity; the individual outcome remains recorded in
 `minimality.json`.
@@ -240,6 +263,24 @@ limits:
 Each source JSON file is limited to 16 MiB and 96 JSON levels. The scripted
 scenario also caps caller turns and mock tools at 10,000 each.
 
+Counterexample compilation and replay add a narrower proof-lane budget:
+
+- the selected assertion is at most 256 KiB in canonical JSON;
+- a candidate scenario is at most 2 MiB in canonical JSON;
+- rendered transcript text is at most 256 KiB of UTF-8;
+- one deterministic assertion result is at most 2 MiB in canonical JSON;
+- `hits` and `matched_rules` evidence collections are capped at 10,000 rows;
+- each proof-lane regex is at most 1,024 UTF-8 bytes and belongs to a closed
+  replay subset: groups, alternation, backreferences, and more than one
+  variable quantifier are refused.
+
+The selected structured failure branch is still the preservation identity;
+these limits bound the repeated work needed to establish it. A candidate that
+crosses an execution limit is `UNRESOLVED` with
+`resource_limit_exceeded`, never treated as preserved or absent. These are
+counterexample compiler/replay limits. They do not narrow the regex or result
+surface of Hotato's deterministic evaluator outside the proof lane.
+
 The capsule directory must remain unchanged for the duration of `verify`,
 `reproduce`, `inspect`, or `export`. Persistent mutation, a root replacement,
 and symlink or special-file substitution are detected. A privileged local
@@ -262,9 +303,9 @@ These commands answer different questions.
 
 | Command | Question | Evaluator rule | Work performed |
 |---|---|---|---|
-| `verify` | Is this the same intact proof produced by the recorded evaluator source? | Recorded package version and evaluator source digest must match the installed implementation. | Replays source and final cases twice, reconstructs every accepted deletion, checks the exact failure identity and expected result, re-renders derived artifacts, and recomputes claimed single-unit minimality. |
-| `reproduce` | Does the reduced fixture still produce the exact typed failure under the installed evaluator? | Evaluator drift is allowed and reported. | Checks capsule integrity and the delete-only chain, then runs the reduced fixture twice. It does not reassert historical intermediate verdicts or renew the original minimality proof under changed code. |
-| `inspect` | What does the intact capsule claim? | No evaluator execution. | Checks the manifest and capsule schema, then prints target, reduction, minimality, preservation, and profile metadata. |
+| `verify` | Is this the same intact proof produced by the recorded evaluator source? | Recorded package version and evaluator source digest must match the installed implementation. | Replays source and final cases twice, reconstructs every accepted deletion, checks the selected source failure branch and expected result, re-renders derived artifacts, and recomputes claimed single-unit minimality. |
+| `reproduce` | Does the reduced fixture still produce the selected source failure branch under the installed evaluator? | Evaluator drift is allowed and reported. | Checks capsule integrity and the delete-only chain, then runs the reduced fixture twice. It does not reassert historical intermediate verdicts or renew the original minimality proof under changed code. |
+| `inspect` | What does the intact capsule claim? | No evaluator execution. | Checks the closed member inventory, source/oracle/artifact bindings, canonical human files, manifest, and capsule schema, then prints target, reduction, minimality, preservation, and profile metadata. |
 
 Use `verify` for proof audit and artifact integrity with the recorded Hotato
 package version and evaluator source closure. The evaluator digest does not
@@ -287,7 +328,7 @@ payloads. Treat the directory as sensitive even when its origin is simulated.
 The compiler applies restrictive POSIX modes where supported, but permissions
 do not establish publication rights or de-identification.
 
-Create a content-free projection only after the private capsule verifies:
+Create a payload-free projection only after the private capsule verifies:
 
 ```bash
 hotato counterexample export /tmp/refund-not-posted.hotato-repro \
@@ -295,10 +336,34 @@ hotato counterexample export /tmp/refund-not-posted.hotato-repro \
   --out /tmp/refund-not-posted.share-safe
 ```
 
-The exported directory contains the capsule projection, Markdown/HTML/SVG
-reports, README, and manifest. It omits runnable inputs, scenario and assertion
-bodies, transcript or audio content, tool payloads, state values, credentials,
-provider identifiers, and absolute paths. SHA-256 values remain correlators.
+The exported directory has one closed inventory: `capsule.json`, `report.md`,
+`report.html`, `card.svg`, `README.md`, and `MANIFEST.sha256.json`. Extra,
+missing, renamed, symlinked, or special-file members are refused even when a
+manifest declares them. `inspect` re-renders every human-facing file and
+requires byte-for-byte equality with its canonical rendering, so rebinding
+modified report text into a new manifest does not make the projection valid.
+
+Those canonical renderer bytes are part of the capsule v1 exchange contract.
+A compatible implementation must retain the v1 renderer; changing its output
+requires a versioned renderer/profile or a capsule format version bump.
+
+The projection omits runnable inputs, scenario and assertion bodies,
+transcript or audio content, tool payloads, state values, credentials, provider
+identifiers, absolute paths, and source-derived reducer paths. Private
+single-unit rows become an aggregate count by outcome; the projection contains
+no reducer paths or per-candidate digests.
+
+The share target and canonical reports expose the selected failure code, such
+as `tool-arguments-mismatch` or `state-field-value-mismatch`, so the failure
+category remains readable without a payload. Atom discriminators such as a
+field, key, rule, detector, or index stay private. `failure_atom_digest` binds
+the complete selected atom without publishing those discriminator values.
+
+`share-safe-v1` is an engineering access boundary, not an anonymity claim.
+Capsule, source, assertion, evaluator, fingerprint, and failure-atom digests
+remain correlators. Low-entropy or externally known source material can be
+tested against those values. Keep a projection within the same review,
+artifact-retention, and disclosure controls used for engineering metadata.
 
 The projection cannot reproduce the failure. Keep the private capsule when a
 reviewer, CI job, or coding agent must execute the fixture.
@@ -325,7 +390,7 @@ reviewer, CI job, or coding agent must execute the fixture.
 
 | Exit | Meaning |
 |---:|---|
-| `0` | The exact typed failure reproduced twice under the installed evaluator. |
+| `0` | The selected source failure branch reproduced twice under the installed evaluator. |
 | `1` | The capsule is intact, but that exact failure is absent. |
 | `2` | No reproduction verdict: malformed, tampered, unsafe, unsupported, disagreeing, or inconclusive capsule. |
 

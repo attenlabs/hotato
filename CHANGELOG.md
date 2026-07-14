@@ -11,7 +11,7 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ### Added
 - **Proof-preserving counterexample compiler.** `hotato counterexample compile`
   reduces one failing deterministic scripted scenario to a private runnable
-  capsule while preserving the exact typed failure identity. The closed
+  capsule while preserving a source-selected structured failure branch. The closed
   `hotato.reducers.v1` deletion algebra can earn a replay-verified 1-minimal
   claim or report budget exhaustion without upgrading the claim. Strict
   verification binds the source-to-final transform chain, evaluator source
@@ -19,6 +19,21 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   resource-bounded manifest. Current-evaluator reproduction, `git bisect`
   predicate semantics, share-safe export, machine JSON, and MCP parity ship on
   the same local, deterministic path.
+
+### Security
+- **Counterexample capsules fail closed under tampering and resource pressure.**
+  Private inspection binds the embedded source, oracle, target identity, every
+  proof artifact, and canonical human projection. Share-safe capsules use an
+  exact member allowlist and canonical reports. Manifest members, streaming
+  journals, JSON depth/number handling, scripted evidence, and proof-regex work
+  have explicit limits before replay.
+
+### Fixed
+- Failure identity distinguishes missing evidence from mismatched values across
+  tools, state, entities, handoffs, termination, DTMF, counts, and ordering, so
+  minimization cannot delete the decisive evidence and retain a coarser failure.
+- Share-safe reports expose a closed payload-free failure code while omitting
+  source fields, keys, rule names, reducer paths, and runnable inputs.
 
 ## [1.5.4] - 2026-07-14
 

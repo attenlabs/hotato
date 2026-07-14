@@ -217,146 +217,58 @@ def test_privacy_and_provenance_are_profile_specific_and_closed(validators, docu
     _assert_invalid(validator, document)
 
 
-WITNESSES = [
-    ("phrase", {"type": "phrase-failure", "mode": "required-missing", "matches": 0}),
-    (
-        "pii",
-        {
-            "type": "pii-failure",
-            "detector_roles": [["email", "caller"]],
-            "hits": 1,
-            "hit_anchors": [
-                {
-                    "detector": "email",
-                    "role": "caller",
-                    "turn_text_digest": "sha256:" + "1" * 64,
-                }
-            ],
-        },
-    ),
+ATOMS = [
+    ("phrase", {"code": "required-match-missing"}),
+    ("pii", {"code": "pii-detected", "detector": "email"}),
     (
         "policy",
         {
-            "type": "policy-failure",
-            "violations": [{"rule": "disclosure", "type": "required_disclosure_missing"}],
-            "pack": {"name": "default", "version": 1},
+            "code": "policy-violation",
+            "rule": "disclosure",
+            "type": "required_disclosure_missing",
         },
     ),
-    (
-        "tool_call",
-        {
-            "type": "tool_call-failure",
-            "named_matches": 0,
-            "count": {"observed": 0, "min": 1, "max": None},
-            "order_prefix": 1,
-            "order_steps": 2,
-            "never_before": {"offenders": 1, "until_present": False},
-        },
-    ),
-    (
-        "outcome",
-        {
-            "type": "outcome-failure",
-            "mode": "all_of",
-            "met": 1,
-            "of": 3,
-            "predicates": [
-                {"index": 0, "kind": "tool_called", "matches": 0},
-                {
-                    "index": 1,
-                    "kind": "phrase",
-                    "matches": 1,
-                    "turn_text_digests": ["sha256:" + "2" * 64],
-                },
-                {"index": 2, "kind": "field_present", "present": False},
-            ],
-        },
-    ),
-    ("tool_result", {"type": "tool_result-failure", "calls": 1, "matching_results": 0}),
-    (
-        "tool_error",
-        {"type": "tool_error-failure", "mode": "error-required", "matching_errors": 0},
-    ),
-    (
-        "state",
-        {
-            "type": "state-failure",
-            "record": "present",
-            "mismatched": [{"path": "refund.status", "observed": None}],
-        },
-    ),
-    (
-        "state_change",
-        {
-            "type": "state_change-failure",
-            "before_present": True,
-            "after_present": True,
-            "checks": ["unchanged"],
-            "before_value": "sha256:" + "3" * 64,
-            "after_value": "sha256:" + "3" * 64,
-        },
-    ),
-    ("handoff", {"type": "handoff-failure", "mode": "required", "matches": 0}),
-    (
-        "dtmf",
-        {
-            "type": "dtmf-failure",
-            "mode": "required",
-            "contains": False,
-            "stream_digest": "sha256:" + "4" * 64,
-        },
-    ),
-    (
-        "termination",
-        {"type": "termination-failure", "mode": "forbidden", "matches": 1},
-    ),
-    ("latency", {"type": "latency-failure", "measured": None, "measured_ms": 900}),
-    (
-        "entity_accuracy",
-        {
-            "type": "entity_accuracy-failure",
-            "met": 1,
-            "of": 2,
-            "require": "all",
-            "mismatched_keys": ["order_id"],
-            "observed_value_digests": {"order_id": "sha256:" + "5" * 64},
-        },
-    ),
-    ("sequence", {"type": "sequence-failure", "matched_prefix": 1, "steps": 2}),
-    (
-        "count",
-        {
-            "type": "count-failure",
-            "count": {"observed": 1, "expected": 2, "relation": "equal"},
-        },
-    ),
+    ("tool_call", {"code": "tool-arguments-mismatch"}),
+    ("outcome", {"code": "predicate-unmet", "index": 0}),
+    ("tool_result", {"code": "result-subset-mismatch"}),
+    ("tool_error", {"code": "tool-error-missing"}),
+    ("state", {"code": "state-field-value-mismatch", "field": "refund.status"}),
+    ("state_change", {"code": "state-unchanged", "field": "balance"}),
+    ("handoff", {"code": "handoff-missing"}),
+    ("dtmf", {"code": "dtmf-missing"}),
+    ("termination", {"code": "unexpected-termination"}),
+    ("latency", {"code": "latency-threshold-exceeded"}),
+    ("entity_accuracy", {"code": "entity-value-mismatch", "key": "order_id"}),
+    ("sequence", {"code": "sequence-step-missing", "index": 1}),
+    ("count", {"code": "count-below"}),
 ]
 
 
-@pytest.mark.parametrize("kind,witness", WITNESSES, ids=[row[0] for row in WITNESSES])
-def test_every_supported_typed_witness_validates_in_capsule_and_oracle(
-    validators, documents, kind, witness
+@pytest.mark.parametrize("kind,atom", ATOMS, ids=[row[0] for row in ATOMS])
+def test_every_supported_failure_atom_validates_in_capsule_and_oracle(
+    validators, documents, kind, atom
 ):
     capsule = copy.deepcopy(documents["private"])
     capsule["target"]["kind"] = kind
-    capsule["target"]["witness"] = copy.deepcopy(witness)
+    capsule["target"]["failure_atom"] = copy.deepcopy(atom)
+    capsule["target"]["source_failure_atoms"] = [copy.deepcopy(atom)]
     _assert_valid(validators[CAPSULE_SCHEMA], capsule)
 
     oracle = copy.deepcopy(documents["oracle"])
     oracle["target"]["kind"] = kind
-    oracle["target"]["witness"] = copy.deepcopy(witness)
+    oracle["target"]["failure_atom"] = copy.deepcopy(atom)
+    oracle["target"]["source_failure_atoms"] = [copy.deepcopy(atom)]
     _assert_valid(validators[ORACLE_SCHEMA], oracle)
 
 
-def test_witness_kind_coupling_and_nested_closure_are_enforced(validators, documents):
+def test_failure_atom_nested_closure_is_enforced(validators, documents):
     for schema_name, key in ((CAPSULE_SCHEMA, "private"), (ORACLE_SCHEMA, "oracle")):
         document = copy.deepcopy(documents[key])
-        document["target"]["kind"] = "phrase"
-        document["target"]["witness"] = copy.deepcopy(WITNESSES[1][1])
+        document["target"]["failure_atom"] = {"code": "unknown-branch"}
         _assert_invalid(validators[schema_name], document)
 
         document = copy.deepcopy(documents[key])
-        document["target"]["witness"]["aggregate_score"] = 1
+        document["target"]["failure_atom"]["aggregate_score"] = 1
         _assert_invalid(validators[schema_name], document)
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import ctypes
 import errno
+import io
 import json
 import os
 import posixpath
@@ -46,7 +47,14 @@ from .model import (
     sha256_bytes,
     validate_budget,
 )
-from .oracle import FailureOracle, projected_test, target_assertion
+from .oracle import (
+    FAILURE_ATOM_FIELDS,
+    FailureOracle,
+    failure_atom_sort_key,
+    failure_identity_digest,
+    projected_test,
+    target_assertion,
+)
 from .reducers import (
     enumerate_units,
     final_single_unit_pass,
@@ -76,6 +84,20 @@ _REDUCER_COMPONENTS = frozenset({
     "handoff", "termination-field", "termination", "state",
     "agent-mock-optional", "agent_mock",
 })
+_MINIMALITY_CODES = frozenset({
+    None,
+    "budget_exhausted",
+    "simulator_invalid",
+    "assertion_contract_invalid",
+    "assertion_inconclusive",
+    "target_failed",
+    "target_absent",
+    "candidate_invalid",
+    "failure_identity_drift",
+    "failure_atom_unavailable",
+    "resource_limit_exceeded",
+})
+_MAX_JOURNAL_ROWS = MAX_BUDGET * 8 + 1
 _PROOF_ARTIFACTS = {
     "source_scenario": "source/scenario.json",
     "source_conversation_test": "source/conversation-test.json",
@@ -96,11 +118,17 @@ _DERIVED_ARTIFACTS = {
     "predicate_script": "predicate.sh",
 }
 _ARTIFACTS = {**_PROOF_ARTIFACTS, **_DERIVED_ARTIFACTS}
+_PRIVATE_MEMBER_PATHS = frozenset({
+    "capsule.json", "oracle.json", *_ARTIFACTS.values(),
+})
+_SHARE_MEMBER_PATHS = frozenset({
+    "capsule.json", "report.md", "report.html", "card.svg", "README.md",
+})
 _PRIVATE_CONTENT = ["scenario", "conversation_test", "assertion_result"]
 _SHARE_OMITTED = [
     "audio", "transcript_body", "scenario_body", "assertion_body",
     "tool_payload", "state_value", "credentials", "absolute_paths",
-    "provider_identifiers",
+    "provider_identifiers", "deletion_paths",
 ]
 _MINIMALITY_CLAIMS = {
     "one_minimal": (
@@ -111,6 +139,13 @@ _MINIMALITY_CLAIMS = {
         "failure preserved; minimality incomplete because the candidate budget ended"
     ),
 }
+_SHARE_README = (
+    "# Share-safe Hotato counterexample\n\n"
+    "This projection contains no runnable conversation, transcript, audio, "
+    "tool payload, state value, source-derived reducer path, credential, "
+    "provider identifier, or absolute path. Verify the corresponding private "
+    "capsule to reproduce the failure. SHA-256 values are correlators.\n"
+)
 _VERSION_STRING = re.compile(
     r"^[0-9]+(?:\.[0-9]+){1,3}(?:[A-Za-z0-9._+-]*)?$"
 )
@@ -453,6 +488,28 @@ def _verify_derived_artifacts(root: str, capsule: Dict[str, Any]) -> None:
             )
 
 
+def _share_artifact_bytes(capsule: Dict[str, Any]) -> Dict[str, bytes]:
+    renderable = copy.deepcopy(capsule)
+    renderable["target"]["assertion_id"] = capsule["target"]["assertion_ref"][:22]
+    return {
+        "capsule.json": canonical_json(capsule, pretty=True).encode("utf-8"),
+        "report.md": render_markdown(renderable).encode("utf-8"),
+        "report.html": render_html(renderable).encode("utf-8"),
+        "card.svg": render_svg(renderable).encode("utf-8"),
+        "README.md": _SHARE_README.encode("utf-8"),
+    }
+
+
+def _verify_share_artifacts(root: str, capsule: Dict[str, Any]) -> None:
+    for relative, expected in _share_artifact_bytes(capsule).items():
+        observed = read_regular_bytes(_bundle_member(root, relative))
+        if observed != expected:
+            raise CounterexampleRefusal(
+                "derived_artifact_mismatch",
+                f"share artifact {relative!r} is not the canonical capsule projection",
+            )
+
+
 def compile_counterexample(
     scenario_path: str,
     test_path: str,
@@ -755,6 +812,11 @@ def _verify_manifest(root: str) -> Dict[str, Any]:
             raise CounterexampleRefusal("manifest_schema", "manifest sha256 value is malformed")
         if isinstance(size, bool) or not isinstance(size, int) or size < 0:
             raise CounterexampleRefusal("manifest_schema", "manifest byte count is malformed")
+        if size > MAX_CAPSULE_MEMBER_BYTES:
+            raise CounterexampleRefusal(
+                "capsule_member_too_large",
+                f"bundle member {relative!r} exceeds {MAX_CAPSULE_MEMBER_BYTES} bytes",
+            )
         declared_bytes += size
         if declared_bytes > MAX_CAPSULE_BYTES:
             raise CounterexampleRefusal(
@@ -768,7 +830,9 @@ def _verify_manifest(root: str) -> Dict[str, Any]:
         )
 
     for row in rows:
-        member = _bundle_member(root, row["path"], max_bytes=MAX_CAPSULE_BYTES)
+        member = _bundle_member(
+            root, row["path"], max_bytes=MAX_CAPSULE_MEMBER_BYTES
+        )
         data = read_regular_bytes(member, max_bytes=MAX_CAPSULE_MEMBER_BYTES)
         if len(data) != row["bytes"] or sha256_bytes(data) != row["sha256"]:
             raise CounterexampleRefusal("digest_mismatch", f"bundle member {row['path']!r} failed sha256 verification")
@@ -800,6 +864,25 @@ def _verify_manifest(root: str) -> Dict[str, Any]:
     return manifest
 
 
+def _validate_profile_inventory(
+    manifest: Dict[str, Any], capsule: Dict[str, Any]
+) -> None:
+    profile = capsule.get("privacy", {}).get("profile")
+    expected = (
+        _PRIVATE_MEMBER_PATHS
+        if profile == PRIVATE_PROFILE
+        else _SHARE_MEMBER_PATHS
+        if profile == SHARE_PROFILE
+        else frozenset()
+    )
+    observed = {row["path"] for row in manifest["files"]}
+    if observed != expected:
+        raise CounterexampleRefusal(
+            "profile_inventory",
+            f"{profile!r} capsule members do not match the closed profile inventory",
+        )
+
+
 def _valid_digest(value: Any, *, prefixed: bool = True) -> bool:
     if not isinstance(value, str):
         return False
@@ -818,274 +901,39 @@ def _nonnegative_integer(value: Any, *, maximum: Optional[int] = None) -> bool:
     )
 
 
-def _validate_count_bounds(value: Any) -> None:
-    if not isinstance(value, dict):
-        raise CounterexampleRefusal("capsule_schema", "count bounds are malformed")
-    if set(value) == {"observed", "expected", "relation"}:
-        valid = (
-            _nonnegative_integer(value.get("observed"))
-            and _nonnegative_integer(value.get("expected"))
-            and value.get("relation") == "equal"
+def _validate_failure_atom(kind: str, atom: Any) -> None:
+    branches = FAILURE_ATOM_FIELDS.get(kind)
+    if not isinstance(atom, dict) or not branches:
+        raise CounterexampleRefusal("capsule_schema", "failure atom is malformed")
+    code = atom.get("code")
+    fields = branches.get(code) if isinstance(code, str) else None
+    if fields is None or set(atom) != {"code", *fields}:
+        raise CounterexampleRefusal(
+            "capsule_schema", "failure atom branch or fields are malformed"
         )
-    elif set(value) == {"observed", "min", "max"}:
-        minimum = value.get("min")
-        maximum = value.get("max")
-        valid = (
-            _nonnegative_integer(value.get("observed"))
-            and (minimum is None or _nonnegative_integer(minimum))
-            and (maximum is None or _nonnegative_integer(maximum))
-            and (minimum is not None or maximum is not None)
-            and not (
-                minimum is not None
-                and maximum is not None
-                and minimum > maximum
-            )
-        )
-    else:
-        valid = False
-    if not valid:
-        raise CounterexampleRefusal("capsule_schema", "count bounds are malformed")
-
-
-def _validate_typed_witness(kind: str, witness: Any) -> None:
-    """Fail closed on the closed witness vocabulary without jsonschema.
-
-    The shipped schemas are the exchange contract. Core installs remain
-    dependency-free, so this runtime boundary enforces their discriminators,
-    closed field sets, and security-relevant scalar domains directly.
-    """
-    shapes = {
-        "phrase": ({"type", "mode", "matches"}, set()),
-        "pii": ({"type", "detector_roles", "hits", "hit_anchors"}, set()),
-        "policy": ({"type", "violations", "pack"}, set()),
-        "tool_call": ({"type", "named_matches"}, {
-            "count", "order_prefix", "order_steps", "never_before",
-        }),
-        "outcome": ({"type", "mode", "met", "of", "predicates"}, set()),
-        "tool_result": ({"type", "calls", "matching_results"}, set()),
-        "tool_error": ({"type", "mode", "matching_errors"}, set()),
-        "state": ({"type", "record"}, {"mismatched"}),
-        "state_change": ({
-            "type", "before_present", "after_present", "checks",
-            "before_value", "after_value",
-        }, set()),
-        "handoff": ({"type", "mode", "matches"}, set()),
-        "dtmf": ({"type", "mode", "contains", "stream_digest"}, set()),
-        "termination": ({"type", "mode", "matches"}, set()),
-        "latency": ({"type", "measured", "measured_ms"}, set()),
-        "entity_accuracy": ({
-            "type", "met", "of", "require", "mismatched_keys",
-            "observed_value_digests",
-        }, set()),
-        "sequence": ({"type", "matched_prefix", "steps"}, set()),
-        "count": ({"type", "count"}, set()),
-    }
-    if kind not in shapes or not isinstance(witness, dict):
-        raise CounterexampleRefusal("capsule_schema", "typed witness is malformed")
-    required, optional = shapes[kind]
-    if not required.issubset(witness) or not set(witness).issubset(required | optional):
-        raise CounterexampleRefusal("capsule_schema", "typed witness fields are malformed")
-    if witness.get("type") != f"{kind}-failure":
-        raise CounterexampleRefusal("capsule_schema", "typed witness discriminator is malformed")
-
-    nonnegative_fields = {
-        "matches", "hits", "named_matches", "order_prefix", "order_steps",
-        "met", "of", "calls", "matching_results", "matching_errors",
-        "matched_prefix", "steps",
-    }
-    for name in nonnegative_fields.intersection(witness):
-        if not _nonnegative_integer(witness[name]):
-            raise CounterexampleRefusal("capsule_schema", f"typed witness {name} is malformed")
-    if kind in {"outcome", "entity_accuracy"} and witness.get("of", 0) < 1:
-        raise CounterexampleRefusal("capsule_schema", "typed witness total is malformed")
-    if kind in {"outcome", "entity_accuracy"} and witness.get("met", 0) > witness["of"]:
-        raise CounterexampleRefusal("capsule_schema", "typed witness tally is malformed")
-    if kind == "sequence" and witness.get("steps", 0) < 1:
-        raise CounterexampleRefusal("capsule_schema", "typed witness steps are malformed")
-    if kind == "sequence" and witness.get("matched_prefix", 0) > witness["steps"]:
-        raise CounterexampleRefusal("capsule_schema", "sequence witness prefix is malformed")
-    if kind == "phrase" and (
-        not isinstance(witness.get("mode"), str)
-        or witness.get("mode") not in {"forbidden-present", "required-missing"}
-    ):
-        raise CounterexampleRefusal("capsule_schema", "phrase witness mode is malformed")
-    if kind in {"handoff", "termination", "dtmf"} and (
-        not isinstance(witness.get("mode"), str)
-        or witness.get("mode") not in {"forbidden", "required"}
-    ):
-        raise CounterexampleRefusal("capsule_schema", f"{kind} witness mode is malformed")
-    if kind == "tool_error" and (
-        not isinstance(witness.get("mode"), str)
-        or witness.get("mode") not in {"error-forbidden", "error-required"}
-    ):
-        raise CounterexampleRefusal("capsule_schema", "tool_error witness mode is malformed")
-    if kind == "latency":
-        measured = witness.get("measured_ms")
-        if witness.get("measured") is not None or isinstance(measured, bool) or not isinstance(
-            measured, (int, float)
-        ) or measured < 0:
-            raise CounterexampleRefusal("capsule_schema", "latency witness is malformed")
-    if kind == "dtmf" and (
-        not isinstance(witness.get("contains"), bool)
-        or not _valid_digest(witness.get("stream_digest"))
-    ):
-        raise CounterexampleRefusal("capsule_schema", "dtmf witness is malformed")
-    if kind == "pii":
-        detectors = {"ssn", "card_luhn", "email", "phone"}
-        roles = witness.get("detector_roles")
-        anchors = witness.get("hit_anchors")
-        valid_roles = isinstance(roles, list) and all(
-            isinstance(row, list)
-            and len(row) == 2
-            and isinstance(row[0], str)
-            and row[0] in detectors
-            and (row[1] is None or isinstance(row[1], str))
-            for row in roles
-        )
-        valid_anchors = isinstance(anchors, list) and all(
-            isinstance(row, dict)
-            and set(row) == {"detector", "role", "turn_text_digest"}
-            and isinstance(row.get("detector"), str)
-            and row.get("detector") in detectors
-            and (row.get("role") is None or isinstance(row.get("role"), str))
-            and (
-                row.get("turn_text_digest") is None
-                or _valid_digest(row.get("turn_text_digest"))
-            )
-            for row in anchors
-        )
-        if not valid_roles or not valid_anchors or len(anchors) != witness["hits"]:
-            raise CounterexampleRefusal("capsule_schema", "PII witness is malformed")
-    if kind == "policy":
-        violations = witness.get("violations")
-        pack = witness.get("pack")
-        valid_violations = isinstance(violations, list) and all(
-            isinstance(row, dict)
-            and set(row) == {"rule", "type"}
-            and isinstance(row.get("rule"), str)
-            and isinstance(row.get("type"), str)
-            and row.get("type") in {"banned", "required_disclosure_missing"}
-            for row in violations
-        )
-        valid_pack = (
-            isinstance(pack, dict)
-            and set(pack) == {"name", "version"}
-            and (pack.get("name") is None or isinstance(pack.get("name"), str))
-            and (
-                pack.get("version") is None
-                or (
-                    not isinstance(pack.get("version"), bool)
-                    and isinstance(pack.get("version"), (int, str))
+    for field in fields:
+        value = atom[field]
+        if field == "index":
+            if not _nonnegative_integer(value):
+                raise CounterexampleRefusal(
+                    "capsule_schema", "failure atom index is malformed"
                 )
+        elif not isinstance(value, str) or not value:
+            raise CounterexampleRefusal(
+                "capsule_schema", f"failure atom {field} is malformed"
             )
+    if kind == "pii" and atom.get("detector") not in {
+        "ssn", "card_luhn", "email", "phone",
+    }:
+        raise CounterexampleRefusal(
+            "capsule_schema", "failure atom detector is unsupported"
         )
-        if not valid_violations or not valid_pack:
-            raise CounterexampleRefusal("capsule_schema", "policy witness is malformed")
-    if kind == "tool_call":
-        has_prefix = "order_prefix" in witness
-        has_steps = "order_steps" in witness
-        if has_prefix != has_steps:
-            raise CounterexampleRefusal("capsule_schema", "tool-call ordering witness is malformed")
-        if has_prefix and witness["order_steps"] < 1:
-            raise CounterexampleRefusal("capsule_schema", "tool-call ordering witness is malformed")
-        if has_prefix and witness["order_prefix"] > witness["order_steps"]:
-            raise CounterexampleRefusal("capsule_schema", "tool-call ordering witness is malformed")
-        if "count" in witness:
-            _validate_count_bounds(witness["count"])
-        if "never_before" in witness:
-            value = witness["never_before"]
-            if (
-                not isinstance(value, dict)
-                or set(value) != {"offenders", "until_present"}
-                or not _nonnegative_integer(value.get("offenders"))
-                or not isinstance(value.get("until_present"), bool)
-            ):
-                raise CounterexampleRefusal("capsule_schema", "tool-call boundary witness is malformed")
-    if kind == "outcome":
-        if not isinstance(witness.get("mode"), str) or witness.get("mode") not in {"all_of", "any_of"}:
-            raise CounterexampleRefusal("capsule_schema", "outcome witness mode is malformed")
-        predicates = witness.get("predicates")
-        if not isinstance(predicates, list) or not predicates:
-            raise CounterexampleRefusal("capsule_schema", "outcome witness predicates are malformed")
-        indices: List[int] = []
-        for row in predicates:
-            if not isinstance(row, dict) or not _nonnegative_integer(row.get("index")):
-                raise CounterexampleRefusal("capsule_schema", "outcome predicate is malformed")
-            indices.append(row["index"])
-            if row.get("kind") == "tool_called":
-                valid = set(row) == {"index", "kind", "matches"} and _nonnegative_integer(row.get("matches"))
-            elif row.get("kind") == "phrase":
-                digests = row.get("turn_text_digests")
-                valid = (
-                    set(row) == {"index", "kind", "matches", "turn_text_digests"}
-                    and _nonnegative_integer(row.get("matches"))
-                    and isinstance(digests, list)
-                    and all(_valid_digest(value) for value in digests)
-                    and len(digests) == row.get("matches")
-                )
-            elif row.get("kind") == "field_present":
-                valid = set(row) == {"index", "kind", "present"} and row.get("present") is False
-            else:
-                valid = False
-            if not valid:
-                raise CounterexampleRefusal("capsule_schema", "outcome predicate is malformed")
-        if indices != list(range(len(predicates))) or len(predicates) != witness["of"]:
-            raise CounterexampleRefusal("capsule_schema", "outcome predicate indices are malformed")
-    if kind == "state":
-        if not isinstance(witness.get("record"), str) or witness.get("record") not in {"absent", "present"}:
-            raise CounterexampleRefusal("capsule_schema", "state witness record is malformed")
-        if witness["record"] == "absent" and set(witness) != required:
-            raise CounterexampleRefusal("capsule_schema", "absent state witness is malformed")
-        if witness["record"] == "present":
-            rows = witness.get("mismatched")
-            if not isinstance(rows, list) or not all(
-                isinstance(row, dict)
-                and set(row) == {"path", "observed"}
-                and isinstance(row.get("path"), str)
-                and bool(row.get("path"))
-                and (row.get("observed") is None or _valid_digest(row.get("observed")))
-                for row in rows
-            ):
-                raise CounterexampleRefusal("capsule_schema", "present state witness is malformed")
-            paths = [row["path"] for row in rows]
-            if len(paths) != len(set(paths)):
-                raise CounterexampleRefusal("capsule_schema", "state witness paths are duplicated")
-    if kind == "state_change":
-        if not isinstance(witness.get("before_present"), bool) or not isinstance(
-            witness.get("after_present"), bool
-        ):
-            raise CounterexampleRefusal("capsule_schema", "state-change presence is malformed")
-        if (
-            not isinstance(witness.get("checks"), list)
-            or not all(isinstance(item, str) for item in witness["checks"])
-            or len(witness["checks"]) != len(set(witness["checks"]))
-            or not set(witness["checks"]).issubset({
-                "from-mismatch", "to-mismatch", "unchanged",
-            })
-        ):
-            raise CounterexampleRefusal("capsule_schema", "state-change checks are malformed")
-        for name in ("before_value", "after_value"):
-            if witness[name] is not None and not _valid_digest(witness[name]):
-                raise CounterexampleRefusal("capsule_schema", "state-change value is malformed")
-    if kind == "entity_accuracy":
-        if not isinstance(witness.get("require"), str) or witness.get("require") not in {"all", "any"}:
-            raise CounterexampleRefusal("capsule_schema", "entity witness requirement is malformed")
-        if not isinstance(witness.get("mismatched_keys"), list) or not all(
-            isinstance(key, str) and key for key in witness["mismatched_keys"]
-        ):
-            raise CounterexampleRefusal("capsule_schema", "entity witness keys are malformed")
-        if len(witness["mismatched_keys"]) != len(set(witness["mismatched_keys"])):
-            raise CounterexampleRefusal("capsule_schema", "entity witness keys are duplicated")
-        values = witness.get("observed_value_digests")
-        if not isinstance(values, dict) or not all(
-            isinstance(key, str) and key and _valid_digest(value)
-            for key, value in values.items()
-        ):
-            raise CounterexampleRefusal("capsule_schema", "entity witness values are malformed")
-    if kind == "count":
-        _validate_count_bounds(witness.get("count"))
-
-
+    if kind == "policy" and atom.get("type") not in {
+        "banned", "required_disclosure_missing",
+    }:
+        raise CounterexampleRefusal(
+            "capsule_schema", "failure atom policy type is unsupported"
+        )
 def _validate_oracle_document(document: Any, target: Dict[str, Any]) -> None:
     if not isinstance(document, dict) or set(document) != {
         "kind", "version", "authority", "ci_gate_eligible", "target",
@@ -1118,8 +966,8 @@ def _validate_oracle_document(document: Any, target: Dict[str, Any]) -> None:
         or scope.get("minimum_caller_turns") != 1
         or scope.get("transforms") != "deletion-only"
         or scope.get("rule") != (
-            "candidate is a complete schema-valid scripted session and must "
-            "reproduce the exact typed failure fingerprint"
+            "candidate is a complete schema-valid scripted session and must preserve "
+            "the source-selected structured failure branch"
         )
     ):
         raise CounterexampleRefusal("oracle_schema", "oracle observation scope is malformed")
@@ -1207,15 +1055,15 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
         raise CounterexampleRefusal("capsule_schema", "delete-only reduction statistics grew")
 
     minimality = capsule.get("minimality")
-    if not isinstance(minimality, dict) or set(minimality) != {
-        "status", "reducer_set", "claim", "remaining_unit_checks", "frozen_components",
-    }:
+    expected_minimality = {
+        "status", "reducer_set", "claim", "frozen_components",
+        "remaining_unit_checks" if profile == PRIVATE_PROFILE else "check_summary",
+    }
+    if not isinstance(minimality, dict) or set(minimality) != expected_minimality:
         raise CounterexampleRefusal("capsule_schema", "minimality summary is malformed")
     if minimality.get("status") != reduction["termination"] or minimality.get("reducer_set") != REDUCER_SET:
         raise CounterexampleRefusal("capsule_schema", "minimality status does not match reduction")
-    if minimality.get("claim") != _MINIMALITY_CLAIMS[minimality["status"]] or not isinstance(
-        minimality.get("remaining_unit_checks"), list
-    ):
+    if minimality.get("claim") != _MINIMALITY_CLAIMS[minimality["status"]]:
         raise CounterexampleRefusal("capsule_schema", "minimality evidence is malformed")
     frozen = minimality.get("frozen_components")
     if (
@@ -1225,22 +1073,51 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
         or not set(frozen).issubset(_FROZEN_COMPONENTS)
     ):
         raise CounterexampleRefusal("capsule_schema", "minimality frozen components are malformed")
-    for row in minimality["remaining_unit_checks"]:
-        if not isinstance(row, dict) or set(row) != {
-            "path", "component", "outcome", "code", "candidate_digest",
-        }:
-            raise CounterexampleRefusal("capsule_schema", "minimality check is malformed")
+    if profile == PRIVATE_PROFILE:
+        checks = minimality.get("remaining_unit_checks")
+        if not isinstance(checks, list):
+            raise CounterexampleRefusal(
+                "capsule_schema", "minimality checks are malformed"
+            )
+        for row in checks:
+            if not isinstance(row, dict) or set(row) != {
+                "path", "component", "outcome", "code", "candidate_digest",
+            }:
+                raise CounterexampleRefusal("capsule_schema", "minimality check is malformed")
+            if (
+                not isinstance(row["path"], str)
+                or not row["path"]
+                or not isinstance(row["component"], str)
+                or row["component"] not in _REDUCER_COMPONENTS
+                or not isinstance(row["outcome"], str)
+                or row["outcome"]
+                not in {"PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED"}
+                or (
+                    row["code"] is not None
+                    and not isinstance(row["code"], str)
+                )
+                or row["code"] not in _MINIMALITY_CODES
+                or not digest(row["candidate_digest"], prefixed=False)
+            ):
+                raise CounterexampleRefusal(
+                    "capsule_schema", "minimality check values are malformed"
+                )
+    else:
+        summary = minimality.get("check_summary")
+        outcomes = summary.get("outcomes") if isinstance(summary, dict) else None
+        expected_outcomes = {"PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED"}
         if (
-            not isinstance(row["path"], str)
-            or not row["path"]
-            or not isinstance(row["component"], str)
-            or not row["component"]
-            or not isinstance(row["outcome"], str)
-            or row["outcome"] not in {"PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED"}
-            or (row["code"] is not None and not isinstance(row["code"], str))
-            or not digest(row["candidate_digest"], prefixed=False)
+            not isinstance(summary, dict)
+            or set(summary) != {"count", "outcomes"}
+            or not _nonnegative_integer(summary.get("count"))
+            or not isinstance(outcomes, dict)
+            or set(outcomes) != expected_outcomes
+            or any(not _nonnegative_integer(value) for value in outcomes.values())
+            or sum(outcomes.values()) != summary["count"]
         ):
-            raise CounterexampleRefusal("capsule_schema", "minimality check values are malformed")
+            raise CounterexampleRefusal(
+                "capsule_schema", "share-safe minimality summary is malformed"
+            )
 
     preservation = capsule.get("preservation")
     expected_preservation = {
@@ -1275,7 +1152,8 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
             raise CounterexampleRefusal("capsule_schema", "private source references are malformed")
         target_keys = {
             "test_id", "assertion_digest", "assertion_id", "kind", "dimension",
-            "authority", "required_status", "witness", "fingerprint",
+            "authority", "required_status", "failure_atom",
+            "source_failure_atoms", "fingerprint",
         }
         if not isinstance(target, dict) or set(target) != target_keys:
             raise CounterexampleRefusal("capsule_schema", "private target is malformed")
@@ -1292,12 +1170,29 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
             raise CounterexampleRefusal("capsule_schema", "private target vocabulary is malformed")
         if target.get("authority") != "deterministic" or target.get("required_status") != "FAIL":
             raise CounterexampleRefusal("capsule_schema", "private target authority/status is malformed")
-        if not digest(target.get("assertion_digest")) or not digest(target.get("fingerprint")) or not isinstance(target.get("witness"), dict):
+        if not digest(target.get("assertion_digest")) or not digest(target.get("fingerprint")):
             raise CounterexampleRefusal("capsule_schema", "private target proof fields are malformed")
-        _validate_typed_witness(target["kind"], target["witness"])
-        identity = copy.deepcopy(target)
-        fingerprint = identity.pop("fingerprint")
-        if prefixed_digest(identity) != fingerprint:
+        _validate_failure_atom(target["kind"], target.get("failure_atom"))
+        source_atoms = target.get("source_failure_atoms")
+        if (
+            not isinstance(source_atoms, list)
+            or not source_atoms
+            or any(not isinstance(atom, dict) for atom in source_atoms)
+        ):
+            raise CounterexampleRefusal(
+                "capsule_schema", "source failure atoms are malformed"
+            )
+        for atom in source_atoms:
+            _validate_failure_atom(target["kind"], atom)
+        atom_keys = [failure_atom_sort_key(atom) for atom in source_atoms]
+        if (
+            atom_keys != sorted(set(atom_keys))
+            or target["failure_atom"] != source_atoms[0]
+        ):
+            raise CounterexampleRefusal(
+                "capsule_schema", "source failure atoms are not sorted and anchored"
+            )
+        if failure_identity_digest(target) != target["fingerprint"]:
             raise CounterexampleRefusal("capsule_schema", "private target fingerprint is inconsistent")
         if not isinstance(provenance, dict) or set(provenance) != {
             "hotato_version", "evaluator_digest", "seed", "scenario_selection",
@@ -1356,7 +1251,7 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
             raise CounterexampleRefusal("capsule_schema", "share-safe source references are malformed")
         target_keys = {
             "assertion_ref", "kind", "dimension", "authority", "required_status",
-            "fingerprint", "witness_digest",
+            "fingerprint", "failure_atom_digest", "failure_code",
         }
         if not isinstance(target, dict) or set(target) != target_keys:
             raise CounterexampleRefusal("capsule_schema", "share-safe target is malformed")
@@ -1365,8 +1260,16 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
                 not isinstance(target.get("dimension"), str)
                 or target.get("dimension") not in _DIMENSIONS
             )
-        ) or not digest(target.get("assertion_ref")) or not digest(target.get("fingerprint")) or not digest(target.get("witness_digest")):
+        ) or not digest(target.get("assertion_ref")) or not digest(target.get("fingerprint")) or not digest(target.get("failure_atom_digest")):
             raise CounterexampleRefusal("capsule_schema", "share-safe target values are malformed")
+        branches = FAILURE_ATOM_FIELDS.get(target["kind"], {})
+        if (
+            not isinstance(target.get("failure_code"), str)
+            or target["failure_code"] not in branches
+        ):
+            raise CounterexampleRefusal(
+                "capsule_schema", "share-safe failure code is malformed"
+            )
         if target.get("authority") != "deterministic" or target.get("required_status") != "FAIL":
             raise CounterexampleRefusal("capsule_schema", "share-safe target authority/status is malformed")
         if not isinstance(provenance, dict) or set(provenance) != {
@@ -1427,6 +1330,7 @@ def _load_private_bundle(
     _validate_capsule(capsule)
     if capsule.get("privacy", {}).get("profile") != PRIVATE_PROFILE:
         raise CounterexampleRefusal("not_runnable", "this projection is not a private runnable capsule")
+    _validate_profile_inventory(verified_manifest, capsule)
     artifacts = capsule.get("artifacts")
     required_artifacts = set(_ARTIFACTS)
     if not isinstance(artifacts, dict) or set(artifacts) != required_artifacts:
@@ -1509,6 +1413,10 @@ def _operation_shape(operation: Any, *, journal: bool = False) -> None:
     if not isinstance(operation, dict):
         raise CounterexampleRefusal("certificate_schema", "reducer operation is malformed")
     kind = operation.get("kind")
+    if not isinstance(kind, str):
+        raise CounterexampleRefusal(
+            "certificate_schema", "reducer operation kind is malformed"
+        )
     if kind == "remove-field":
         required = {"kind", "phase", "path"}
         valid = set(operation) == required
@@ -1631,14 +1539,14 @@ def _validate_certificate_document(certificate: Any) -> None:
     for index, step in enumerate(steps):
         if not isinstance(step, dict) or set(step) != {
             "step", "parent_digest", "child_digest", "operation", "transform",
-            "oracle_result_digest", "witness_digest",
+            "oracle_result_digest", "failure_atom_digest",
         }:
             raise CounterexampleRefusal("certificate_schema", "accepted step is malformed")
         if not _nonnegative_integer(step.get("step")) or step.get("step") != index + 1 or not _valid_digest(
             step.get("parent_digest"), prefixed=False
         ) or not _valid_digest(step.get("child_digest"), prefixed=False) or not _valid_digest(
             step.get("oracle_result_digest")
-        ) or not _valid_digest(step.get("witness_digest")):
+        ) or not _valid_digest(step.get("failure_atom_digest")):
             raise CounterexampleRefusal("certificate_schema", "accepted-step values are malformed")
         _operation_matches_transform(step["operation"], step["transform"])
 
@@ -1646,23 +1554,35 @@ def _validate_certificate_document(certificate: Any) -> None:
 def _validate_journal(
     journal: bytes, certificate: Dict[str, Any], reduction: Dict[str, Any]
 ) -> None:
-    try:
-        text = journal.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise CounterexampleRefusal("journal_schema", "reduction journal is not UTF-8") from exc
-    rows: List[Dict[str, Any]] = []
-    for number, line in enumerate(text.splitlines(), 1):
+    evaluated = 0
+    cached = 0
+    accepted = certificate["accepted_steps"]
+    accepted_index = 0
+    row_count = 0
+    for number, raw_line in enumerate(io.BytesIO(journal), 1):
+        if number > _MAX_JOURNAL_ROWS:
+            raise CounterexampleRefusal(
+                "journal_too_many_rows",
+                f"reduction journal exceeds {_MAX_JOURNAL_ROWS} rows",
+            )
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise CounterexampleRefusal(
+                "journal_schema", "reduction journal is not UTF-8"
+            ) from exc
         try:
             row = json.loads(line)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, ValueError, RecursionError) as exc:
             raise CounterexampleRefusal(
                 "journal_schema", f"reduction journal line {number} is not JSON"
             ) from exc
+        assert_finite(row, f"reduction journal line {number}")
         if not isinstance(row, dict) or set(row) not in ({
             "attempt", "operation", "candidate_digest", "status", "code", "cached",
         }, {
             "attempt", "operation", "candidate_digest", "status", "code", "cached",
-            "witness_digest",
+            "failure_atom_digest",
         }):
             raise CounterexampleRefusal("journal_schema", "reduction journal row is malformed")
         if (
@@ -1673,54 +1593,51 @@ def _validate_journal(
             or row.get("status") not in {"PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED"}
             or not isinstance(row.get("cached"), bool)
             or (row.get("code") is not None and not isinstance(row.get("code"), str))
-            or ("witness_digest" in row and not _valid_digest(row["witness_digest"]))
+            or (
+                "failure_atom_digest" in row
+                and not _valid_digest(row["failure_atom_digest"])
+            )
         ):
             raise CounterexampleRefusal("journal_schema", "reduction journal values are malformed")
         _operation_shape(row["operation"], journal=True)
-        rows.append(row)
-    if _jsonl(rows).encode("utf-8") != journal:
-        raise CounterexampleRefusal("journal_schema", "reduction journal is not canonical JSONL")
-    evaluated = sum(
-        1 for row in rows
-        if not row["cached"] and row.get("code") != "budget_exhausted"
-    )
-    cached = sum(1 for row in rows if row["cached"])
+        if canonical_json(row).encode("utf-8") != raw_line:
+            raise CounterexampleRefusal(
+                "journal_schema", "reduction journal is not canonical JSONL"
+            )
+        row_count = number
+        if row["cached"]:
+            cached += 1
+        elif row.get("code") != "budget_exhausted":
+            evaluated += 1
+        if row["status"] == "PRESERVED":
+            if accepted_index >= len(accepted):
+                raise CounterexampleRefusal(
+                    "journal_chain_mismatch",
+                    "a preserved journal candidate is absent from the accepted proof chain",
+                )
+            step = accepted[accepted_index]
+            if (
+                row["candidate_digest"] != step["child_digest"]
+                or row["operation"] != step["operation"]
+                or row.get("failure_atom_digest")
+                != step["failure_atom_digest"]
+            ):
+                raise CounterexampleRefusal(
+                    "journal_chain_mismatch",
+                    "a preserved journal candidate is absent from the accepted proof chain",
+                )
+            accepted_index += 1
     if (
-        len(rows) != reduction["attempts"]
+        row_count != reduction["attempts"]
         or evaluated != certificate["candidate_evaluations"]
         or cached != certificate["cache_hits"]
     ):
         raise CounterexampleRefusal("journal_stats_mismatch", "journal counts do not match proof statistics")
-    preserved_rows = [
-        (row["candidate_digest"], row["operation"], row.get("witness_digest"))
-        for row in rows
-        if row["status"] == "PRESERVED"
-    ]
-    accepted_rows = [
-        (step["child_digest"], step["operation"], step["witness_digest"])
-        for step in certificate["accepted_steps"]
-    ]
-    if preserved_rows != accepted_rows:
+    if accepted_index != len(accepted):
         raise CounterexampleRefusal(
             "journal_chain_mismatch",
-            "a preserved journal candidate is absent from the accepted proof chain",
+            "an accepted proof step is absent from the reduction journal",
         )
-    cursor = 0
-    for step in certificate["accepted_steps"]:
-        while cursor < len(rows):
-            row = rows[cursor]
-            cursor += 1
-            if (
-                row["status"] == "PRESERVED"
-                and row["candidate_digest"] == step["child_digest"]
-                and row["operation"] == step["operation"]
-                and row.get("witness_digest") == step["witness_digest"]
-            ):
-                break
-        else:
-            raise CounterexampleRefusal(
-                "journal_chain_mismatch", "accepted step is absent from the reduction journal"
-            )
 
 
 def _verify_certificate(
@@ -1770,7 +1687,7 @@ def _verify_certificate(
     for index, step in enumerate(steps):
         if not isinstance(step, dict) or set(step) != {
             "step", "parent_digest", "child_digest", "operation", "transform",
-            "oracle_result_digest", "witness_digest",
+            "oracle_result_digest", "failure_atom_digest",
         }:
             raise CounterexampleRefusal("certificate_schema", "accepted step is malformed")
         if not _nonnegative_integer(step.get("step")) or step.get("step") != index + 1 or "sha256:" + step.get("parent_digest", "") != previous:
@@ -1790,8 +1707,13 @@ def _verify_certificate(
                 raise CounterexampleRefusal("certificate_oracle", "accepted transform no longer preserves the target failure")
             if observed.get("result_digest") != step.get("oracle_result_digest"):
                 raise CounterexampleRefusal("certificate_oracle", "accepted transform result digest mismatch")
-            if observed.get("witness_digest") != step.get("witness_digest"):
-                raise CounterexampleRefusal("certificate_oracle", "accepted transform witness digest mismatch")
+            if observed.get("failure_atom_digest") != step.get(
+                "failure_atom_digest"
+            ):
+                raise CounterexampleRefusal(
+                    "certificate_oracle",
+                    "accepted transform failure-atom digest mismatch",
+                )
         current = child
         previous = child_digest
     if steps and previous != certificate.get("final_scenario_digest"):
@@ -1800,6 +1722,29 @@ def _verify_certificate(
         raise CounterexampleRefusal("certificate_chain", "empty accepted-step chain cannot change the scenario")
     if current != scenario:
         raise CounterexampleRefusal("certificate_chain", "replayed accepted-step chain does not equal the reduced scenario")
+
+
+def _validate_target_binding(
+    source_test: Dict[str, Any],
+    assertion: Dict[str, Any],
+    target: Dict[str, Any],
+) -> None:
+    """Bind historical proof identity fields to the embedded source contract."""
+    expected = {
+        "test_id": source_test["id"],
+        "assertion_digest": prefixed_digest(assertion),
+        "assertion_id": assertion["id"],
+        "kind": assertion["kind"],
+        "dimension": assertion.get("dimension"),
+        "authority": "deterministic",
+        "required_status": "FAIL",
+    }
+    observed = {key: target.get(key) for key in expected}
+    if observed != expected:
+        raise CounterexampleRefusal(
+            "target_binding_mismatch",
+            "capsule target identity does not match the embedded source assertion",
+        )
 
 
 def verify_counterexample(path: str) -> Dict[str, Any]:
@@ -1822,8 +1767,7 @@ def verify_counterexample(path: str) -> Dict[str, Any]:
         )
     target = capsule["target"]
     assertion = target_assertion(source_test, target["assertion_id"])
-    if prefixed_digest(assertion) != target.get("assertion_digest"):
-        raise CounterexampleRefusal("assertion_digest_mismatch", "source assertion digest does not match target")
+    _validate_target_binding(source_test, assertion, target)
     if projected_test(source_test, assertion) != test_doc:
         raise CounterexampleRefusal("projected_test_mismatch", "reduced test is not the canonical one-assertion projection")
     oracle = FailureOracle(source_test, assertion, int(capsule["provenance"]["seed"]))
@@ -1931,8 +1875,7 @@ def reproduce_counterexample(path: str) -> Dict[str, Any]:
     ) = _load_private_bundle(path)
     target = capsule["target"]
     assertion = target_assertion(source_test, target["assertion_id"])
-    if prefixed_digest(assertion) != target.get("assertion_digest"):
-        raise CounterexampleRefusal("assertion_digest_mismatch", "source assertion digest does not match target")
+    _validate_target_binding(source_test, assertion, target)
     if projected_test(source_test, assertion) != test_doc:
         raise CounterexampleRefusal("projected_test_mismatch", "reduced test is not the canonical one-assertion projection")
     if oracle_doc.get("target") != target:
@@ -2003,11 +1946,37 @@ def inspect_counterexample(path: str) -> Dict[str, Any]:
         raise CounterexampleRefusal(
             "capsule_missing", f"counterexample {path!r} is not a directory"
         )
-    _verify_manifest(root)
+    verified_manifest = _verify_manifest(root)
     capsule = load_json(
         _bundle_member(root, "capsule.json"), max_bytes=MAX_CAPSULE_MEMBER_BYTES
     )
     _validate_capsule(capsule)
+    _validate_profile_inventory(verified_manifest, capsule)
+    if capsule["privacy"]["profile"] == SHARE_PROFILE:
+        _verify_share_artifacts(root, capsule)
+    else:
+        (
+            _private_root,
+            bound_capsule,
+            _oracle_doc,
+            _source_scenario,
+            source_test,
+            _scenario,
+            _test_doc,
+        ) = _load_private_bundle(root)
+        if bound_capsule != capsule:
+            raise CounterexampleRefusal(
+                "capsule_changed", "private capsule changed during inspection"
+            )
+        assertion = target_assertion(
+            source_test, capsule["target"]["assertion_id"]
+        )
+        _validate_target_binding(source_test, assertion, capsule["target"])
+        _verify_derived_artifacts(root, capsule)
+    if _verify_manifest(root) != verified_manifest:
+        raise CounterexampleRefusal(
+            "capsule_changed", "counterexample contents changed during inspection"
+        )
     return {
         "kind": "counterexample-inspect",
         "exit_code": 0,
@@ -2023,6 +1992,25 @@ def inspect_counterexample(path: str) -> Dict[str, Any]:
 
 def _share_capsule(private: Dict[str, Any]) -> Dict[str, Any]:
     target = private["target"]
+    private_minimality = private["minimality"]
+    outcome_counts = {
+        outcome: sum(
+            1
+            for row in private_minimality["remaining_unit_checks"]
+            if row["outcome"] == outcome
+        )
+        for outcome in ("PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED")
+    }
+    minimality = {
+        "status": private_minimality["status"],
+        "reducer_set": private_minimality["reducer_set"],
+        "claim": private_minimality["claim"],
+        "check_summary": {
+            "count": len(private_minimality["remaining_unit_checks"]),
+            "outcomes": outcome_counts,
+        },
+        "frozen_components": list(private_minimality["frozen_components"]),
+    }
     projection: Dict[str, Any] = {
         "kind": KIND,
         "version": VERSION,
@@ -2038,10 +2026,11 @@ def _share_capsule(private: Dict[str, Any]) -> Dict[str, Any]:
             "authority": "deterministic",
             "required_status": "FAIL",
             "fingerprint": target["fingerprint"],
-            "witness_digest": prefixed_digest(target["witness"]),
+            "failure_atom_digest": prefixed_digest(target["failure_atom"]),
+            "failure_code": target["failure_atom"]["code"],
         },
         "reduction": private["reduction"],
-        "minimality": private["minimality"],
+        "minimality": minimality,
         "preservation": private["preservation"],
         "privacy": {
             "profile": SHARE_PROFILE,
@@ -2077,21 +2066,12 @@ def export_counterexample(path: str, *, out_dir: str, profile: str = SHARE_PROFI
             "source_changed", "private capsule changed while export verification was running"
         )
     projection = _share_capsule(private)
-    renderable = copy.deepcopy(projection)
-    renderable["target"]["assertion_id"] = projection["target"]["assertion_ref"][:22]
-
     output, parent = _safe_output_parent(out_dir)
     stage = tempfile.mkdtemp(prefix=".hotato-counterexample-share-", dir=parent)
     mode_private(stage)
     try:
-        _write_json(os.path.join(stage, "capsule.json"), projection)
-        _write_text(os.path.join(stage, "report.md"), render_markdown(renderable))
-        _write_text(os.path.join(stage, "report.html"), render_html(renderable))
-        _write_text(os.path.join(stage, "card.svg"), render_svg(renderable))
-        _write_text(
-            os.path.join(stage, "README.md"),
-            "# Share-safe Hotato counterexample\n\nThis projection contains no runnable conversation, transcript, audio, tool payload, state value, credential, provider identifier, or absolute path. Verify the corresponding private capsule to reproduce the failure. SHA-256 values are correlators.\n",
-        )
+        for relative, data in _share_artifact_bytes(projection).items():
+            _write(os.path.join(stage, relative), data)
         _finalize_manifest(stage)
         _rename_no_replace(stage, output)
         stage = ""
@@ -2112,6 +2092,15 @@ def predicate_counterexample(path: str) -> int:
     """Map verifier semantics to `git bisect run`: bad=1, good=0, skip=125."""
     try:
         result = reproduce_counterexample(path)
-    except (CounterexampleRefusal, ValueError, OSError, RecursionError, MemoryError):
+    except (
+        CounterexampleRefusal,
+        ValueError,
+        TypeError,
+        AttributeError,
+        OverflowError,
+        OSError,
+        RecursionError,
+        MemoryError,
+    ):
         return 125
     return 1 if result.get("exit_code") == 0 else 0

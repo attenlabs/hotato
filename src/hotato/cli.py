@@ -223,7 +223,7 @@ _EXIT_CODES: dict = {
         (2, "refused: malformed, tampered, unsafe, unsupported, or inconclusive capsule"),
     ),
     "counterexample reproduce": (
-        (0, "the reduced fixture reproduced the exact typed failure twice under the current evaluator"),
+        (0, "the reduced fixture reproduced the source-selected structured failure branch twice under the current evaluator"),
         (1, "the capsule is intact but the exact target failure is absent under the current evaluator"),
         (2, "refused: malformed, tampered, unsafe, unsupported, or inconclusive capsule"),
     ),
@@ -5358,7 +5358,8 @@ def build_parser() -> argparse.ArgumentParser:
         "reproduce",
         help="run the reduced fixture under the current evaluator without asserting provenance equality",
         description=(
-            "Check whether the exact typed failure still occurs under the current "
+            "Check whether the source-selected structured failure branch still "
+            "occurs under the current "
             "Hotato evaluator. Integrity and the delete-only source-to-fixture chain "
             "remain enforced. Historical intermediate verdicts are not replayed when "
             "the evaluator differs; use verify for the full proof audit."

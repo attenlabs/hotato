@@ -26,6 +26,7 @@ from hotato.counterexample.model import (
     prefixed_digest,
     sha256_bytes,
 )
+from hotato.counterexample.oracle import failure_identity_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).parent / "fixtures" / "counterexample"
@@ -267,6 +268,50 @@ def test_undeclared_file_is_refused_by_manifest_inventory(templates, tmp_path):
     assert raised.value.code == "manifest_inventory"
 
 
+@pytest.mark.parametrize("profile", ["private", "share"])
+def test_rebound_manifest_cannot_extend_closed_profile_inventory(
+    templates, tmp_path, profile
+):
+    root = _clone(templates[profile], tmp_path)
+    (root / "credentials.txt").write_text("declared-but-forbidden", encoding="utf-8")
+    _seal_manifest(root)
+
+    with pytest.raises(CounterexampleRefusal) as raised:
+        inspect_counterexample(str(root))
+    assert raised.value.code == "profile_inventory"
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["report.md", "report.html", "card.svg", "README.md"],
+)
+def test_rebound_share_human_artifact_must_be_canonical(
+    templates, tmp_path, relative
+):
+    root = _clone(templates["share"], tmp_path)
+    (root / relative).write_text("attacker-controlled projection", encoding="utf-8")
+    _seal_manifest(root)
+
+    with pytest.raises(CounterexampleRefusal) as raised:
+        inspect_counterexample(str(root))
+    assert raised.value.code == "derived_artifact_mismatch"
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["input/scenario.json", "report.md", "oracle.json"],
+)
+def test_private_inspect_binds_every_claimed_artifact(
+    templates, tmp_path, relative
+):
+    root = _clone(templates["private"], tmp_path)
+    (root / relative).write_text("{}\n", encoding="utf-8")
+    _seal_manifest(root)
+
+    with pytest.raises(CounterexampleRefusal):
+        inspect_counterexample(str(root))
+
+
 def test_manifest_member_traversal_is_refused(templates, tmp_path):
     root = _clone(templates["private"], tmp_path)
     manifest = _read_json(root / "MANIFEST.sha256.json")
@@ -311,7 +356,7 @@ def _mutate_schema_invalid_share(capsule: dict, case: str) -> None:
     elif case == "unknown-frozen-component":
         capsule["minimality"]["frozen_components"] = ["speaker_id"]
     elif case == "malformed-minimality-check":
-        capsule["minimality"]["remaining_unit_checks"] = [{"accepted": True}]
+        capsule["minimality"]["check_summary"] = {"count": -1, "outcomes": {}}
     else:  # pragma: no cover - parametrization is closed above
         raise AssertionError(case)
 
@@ -394,7 +439,7 @@ PRIVATE_NESTED_DIVERGENCES = (
     "empty-artifacts",
     "malformed-oracle-reference",
     "empty-artifact-digests",
-    "untyped-witness",
+    "untyped-failure-atom",
     "false-content-inventory",
 )
 
@@ -406,11 +451,11 @@ def _mutate_schema_invalid_private(capsule: dict, case: str) -> None:
         capsule["oracle"] = {"path": 7, "digest": "not-a-digest"}
     elif case == "empty-artifact-digests":
         capsule["artifact_digests"] = {}
-    elif case == "untyped-witness":
-        capsule["target"]["witness"] = {"type": "unknown-failure"}
-        identity = copy.deepcopy(capsule["target"])
-        identity.pop("fingerprint")
-        capsule["target"]["fingerprint"] = prefixed_digest(identity)
+    elif case == "untyped-failure-atom":
+        capsule["target"]["failure_atom"] = {"code": "unknown-failure"}
+        capsule["target"]["source_failure_atoms"] = [
+            {"code": "unknown-failure"}
+        ]
     elif case == "false-content-inventory":
         capsule["privacy"]["content_included"] = []
     else:  # pragma: no cover - parametrization is closed above
@@ -431,199 +476,26 @@ def test_inspect_rejects_schema_invalid_private_capsule(
         inspect_counterexample(str(root))
 
 
-NESTED_WITNESS_DIVERGENCES = (
-    "pii-role-tuple",
-    "policy-rule",
-    "tool-call-dependency",
-    "outcome-predicates",
-    "state-mismatch-row",
-    "state-change-duplicates",
-    "entity-key-duplicates",
-    "count-bounds",
+@pytest.mark.parametrize(
+    "atom",
+    [
+        {"code": []},
+        {"code": "sequence-step-missing", "index": True},
+        {"code": "pii-detected", "detector": {}},
+        {"code": "policy-violation", "rule": [], "type": "banned"},
+        {"code": "state-field-value-mismatch", "field": []},
+        {"code": "entity-value-mismatch", "key": []},
+        {"code": "forbidden-match", "reason": "payload"},
+    ],
 )
-
-
-def _set_schema_invalid_nested_witness(target: dict, case: str) -> None:
-    if case == "pii-role-tuple":
-        target["kind"] = "pii"
-        target["witness"] = {
-            "type": "pii-failure",
-            "detector_roles": [["email"]],
-            "hits": 1,
-            "hit_anchors": [],
-        }
-    elif case == "policy-rule":
-        target["kind"] = "policy"
-        target["witness"] = {
-            "type": "policy-failure",
-            "violations": [{"rule": 7, "type": "banned"}],
-            "pack": {"name": None, "version": None},
-        }
-    elif case == "tool-call-dependency":
-        target["kind"] = "tool_call"
-        target["witness"] = {
-            "type": "tool_call-failure",
-            "named_matches": 0,
-            "order_prefix": 0,
-        }
-    elif case == "outcome-predicates":
-        target["kind"] = "outcome"
-        target["witness"] = {
-            "type": "outcome-failure",
-            "mode": "invented",
-            "met": 0,
-            "of": 1,
-            "predicates": [],
-        }
-    elif case == "state-mismatch-row":
-        target["kind"] = "state"
-        target["witness"] = {
-            "type": "state-failure",
-            "record": "present",
-            "mismatched": [7],
-        }
-    elif case == "state-change-duplicates":
-        target["kind"] = "state_change"
-        target["witness"] = {
-            "type": "state_change-failure",
-            "before_present": True,
-            "after_present": True,
-            "checks": ["unchanged", "unchanged"],
-            "before_value": None,
-            "after_value": None,
-        }
-    elif case == "entity-key-duplicates":
-        target["kind"] = "entity_accuracy"
-        target["witness"] = {
-            "type": "entity_accuracy-failure",
-            "met": 0,
-            "of": 1,
-            "require": "all",
-            "mismatched_keys": ["id", "id"],
-            "observed_value_digests": {},
-        }
-    elif case == "count-bounds":
-        target["kind"] = "count"
-        target["witness"] = {
-            "type": "count-failure",
-            "count": {"observed": -1, "expected": 0, "relation": "equal"},
-        }
-    else:  # pragma: no cover - parametrization is closed above
-        raise AssertionError(case)
-    identity = copy.deepcopy(target)
-    identity.pop("fingerprint", None)
-    target["fingerprint"] = prefixed_digest(identity)
-
-
-@pytest.mark.parametrize("case", NESTED_WITNESS_DIVERGENCES)
-def test_inspect_rejects_schema_invalid_nested_witness(
-    validators, templates, tmp_path, case
+def test_inspect_fails_cleanly_on_malformed_failure_atom(
+    validators, templates, tmp_path, atom
 ):
     root = _clone(templates["private"], tmp_path)
     capsule = _read_json(root / "capsule.json")
-    _set_schema_invalid_nested_witness(capsule["target"], case)
+    capsule["target"]["failure_atom"] = atom
+    capsule["target"]["source_failure_atoms"] = [copy.deepcopy(atom)]
     assert not validators["counterexample.v1.json"].is_valid(capsule)
-    _seal_capsule(root, capsule)
-
-    with pytest.raises(CounterexampleRefusal):
-        inspect_counterexample(str(root))
-
-
-@pytest.mark.parametrize("field", ["detector-role", "anchor-detector"])
-def test_inspect_fails_cleanly_on_unhashable_pii_witness_value(
-    templates, tmp_path, field
-):
-    root = _clone(templates["private"], tmp_path)
-    capsule = _read_json(root / "capsule.json")
-    witness = capsule["target"]["witness"]
-    if field == "detector-role":
-        witness["detector_roles"][0][0] = []
-    else:
-        witness["hit_anchors"][0]["detector"] = {}
-    identity = copy.deepcopy(capsule["target"])
-    identity.pop("fingerprint")
-    capsule["target"]["fingerprint"] = prefixed_digest(identity)
-    _seal_capsule(root, capsule)
-
-    with pytest.raises(CounterexampleRefusal):
-        inspect_counterexample(str(root))
-
-
-UNHASHABLE_WITNESS_ENUMS = (
-    ("phrase", {"type": "phrase-failure", "mode": [], "matches": 0}),
-    (
-        "policy",
-        {
-            "type": "policy-failure",
-            "violations": [{"rule": "r", "type": []}],
-            "pack": {"name": None, "version": None},
-        },
-    ),
-    (
-        "outcome",
-        {
-            "type": "outcome-failure",
-            "mode": [],
-            "met": 0,
-            "of": 1,
-            "predicates": [{"index": 0, "kind": "tool_called", "matches": 0}],
-        },
-    ),
-    (
-        "tool_error",
-        {"type": "tool_error-failure", "mode": [], "matching_errors": 0},
-    ),
-    ("state", {"type": "state-failure", "record": [], "mismatched": []}),
-    (
-        "state_change",
-        {
-            "type": "state_change-failure",
-            "before_present": True,
-            "after_present": True,
-            "checks": [[]],
-            "before_value": None,
-            "after_value": None,
-        },
-    ),
-    ("handoff", {"type": "handoff-failure", "mode": [], "matches": 0}),
-    (
-        "dtmf",
-        {
-            "type": "dtmf-failure",
-            "mode": [],
-            "contains": False,
-            "stream_digest": "sha256:" + "0" * 64,
-        },
-    ),
-    (
-        "termination",
-        {"type": "termination-failure", "mode": [], "matches": 0},
-    ),
-    (
-        "entity_accuracy",
-        {
-            "type": "entity_accuracy-failure",
-            "met": 0,
-            "of": 1,
-            "require": [],
-            "mismatched_keys": [],
-            "observed_value_digests": {},
-        },
-    ),
-)
-
-
-@pytest.mark.parametrize("kind,witness", UNHASHABLE_WITNESS_ENUMS)
-def test_inspect_fails_cleanly_on_unhashable_witness_enum(
-    templates, tmp_path, kind, witness
-):
-    root = _clone(templates["private"], tmp_path)
-    capsule = _read_json(root / "capsule.json")
-    capsule["target"]["kind"] = kind
-    capsule["target"]["witness"] = witness
-    identity = copy.deepcopy(capsule["target"])
-    identity.pop("fingerprint")
-    capsule["target"]["fingerprint"] = prefixed_digest(identity)
     _seal_capsule(root, capsule)
 
     with pytest.raises(CounterexampleRefusal):
@@ -642,6 +514,62 @@ def test_reproduce_rejects_schema_invalid_oracle(validators, templates, tmp_path
 
     with pytest.raises(CounterexampleRefusal):
         reproduce_counterexample(str(root))
+
+
+def test_reproduce_binds_target_kind_to_embedded_source_assertion(tmp_path):
+    scenario = {
+        "kind": "hotato.scenario",
+        "version": 1,
+        "id": "cross-kind-source",
+        "goal": {"type": "support", "target": "account"},
+        "caller": {"script": [{"say": "help"}]},
+    }
+    test_doc = {
+        "kind": "hotato.conversation-test",
+        "version": 1,
+        "id": "cross-kind-test",
+        "agent": "fixture-agent",
+        "assertions": {
+            "deterministic": [
+                {
+                    "id": "result",
+                    "kind": "tool_result",
+                    "name": "issue_refund",
+                    "result_subset": {"status": "posted"},
+                }
+            ],
+            "rubric": [],
+        },
+    }
+    scenario_path = tmp_path / "scenario.json"
+    test_path = tmp_path / "test.json"
+    _write_json(scenario_path, scenario)
+    _write_json(test_path, test_doc)
+    root = tmp_path / "private"
+    compile_counterexample(
+        str(scenario_path),
+        str(test_path),
+        target="result",
+        out_dir=str(root),
+        workspace=str(tmp_path),
+    )
+
+    capsule = _read_json(root / "capsule.json")
+    capsule["target"]["kind"] = "tool_call"
+    capsule["target"]["fingerprint"] = failure_identity_digest(
+        capsule["target"]
+    )
+    oracle = _read_json(root / "oracle.json")
+    oracle["target"] = copy.deepcopy(capsule["target"])
+    _write_json(root / "oracle.json", oracle)
+    certificate = _read_json(root / "certificate.json")
+    certificate["failure_fingerprint"] = capsule["target"]["fingerprint"]
+    _write_json(root / "certificate.json", certificate)
+    _refresh_private_bindings(root, capsule)
+
+    with pytest.raises(CounterexampleRefusal) as raised:
+        reproduce_counterexample(str(root))
+    assert raised.value.code == "target_binding_mismatch"
 
 
 def test_reproduce_fails_cleanly_on_unhashable_oracle_freeze(templates, tmp_path):
@@ -690,6 +618,43 @@ def test_verify_rejects_schema_invalid_certificate_top_level(
 
     with pytest.raises(CounterexampleRefusal):
         verify_counterexample(str(root))
+
+
+@pytest.mark.parametrize("kind", [[], {}])
+def test_verify_fails_cleanly_on_unhashable_certificate_operation_kind(
+    templates, tmp_path, kind
+):
+    root = _clone(templates["private"], tmp_path)
+    certificate = _read_json(root / "certificate.json")
+    certificate["accepted_steps"][0]["operation"]["kind"] = kind
+    _write_json(root / "certificate.json", certificate)
+    _refresh_private_bindings(root)
+
+    with pytest.raises(CounterexampleRefusal) as raised:
+        verify_counterexample(str(root))
+    assert raised.value.code == "certificate_schema"
+
+
+def test_verify_fails_cleanly_on_unhashable_journal_operation_kind(
+    templates, tmp_path
+):
+    root = _clone(templates["private"], tmp_path)
+    journal_path = root / "reduction.jsonl"
+    rows = [
+        json.loads(line)
+        for line in journal_path.read_text(encoding="utf-8").splitlines()
+    ]
+    rows[0]["operation"]["kind"] = []
+    journal = "".join(canonical_json(row) for row in rows).encode("utf-8")
+    journal_path.write_bytes(journal)
+    certificate = _read_json(root / "certificate.json")
+    certificate["journal_sha256"] = "sha256:" + sha256_bytes(journal)
+    _write_json(root / "certificate.json", certificate)
+    _refresh_private_bindings(root)
+
+    with pytest.raises(CounterexampleRefusal) as raised:
+        verify_counterexample(str(root))
+    assert raised.value.code == "certificate_schema"
 
 
 def test_verify_binds_claimed_operation_to_replayed_transform(
@@ -874,7 +839,9 @@ def test_verify_rejects_unaccepted_preserved_journal_row(templates, tmp_path):
     )
     row["status"] = "PRESERVED"
     row["code"] = "target_failed"
-    row["witness_digest"] = certificate["accepted_steps"][0]["witness_digest"]
+    row["failure_atom_digest"] = certificate["accepted_steps"][0][
+        "failure_atom_digest"
+    ]
     journal = "".join(canonical_json(item) for item in rows).encode("utf-8")
     journal_path.write_bytes(journal)
     certificate["journal_sha256"] = "sha256:" + sha256_bytes(journal)
@@ -896,7 +863,7 @@ def test_verify_rejects_extra_preserved_row_reusing_accepted_child(templates, tm
         "status": "PRESERVED",
         "code": "target_failed",
         "candidate_digest": accepted["child_digest"],
-        "witness_digest": accepted["witness_digest"],
+        "failure_atom_digest": accepted["failure_atom_digest"],
     })
     journal = "".join(canonical_json(item) for item in rows).encode("utf-8")
     journal_path.write_bytes(journal)
@@ -1032,6 +999,16 @@ def test_verify_fails_cleanly_on_non_string_step_digest(templates, tmp_path):
 def test_predicate_skips_malformed_certificate_instead_of_crashing(templates, tmp_path):
     root = _clone(templates["private"], tmp_path)
     _write_json(root / "certificate.json", [])
+    _refresh_private_bindings(root)
+
+    assert predicate_counterexample(str(root)) == 125
+
+
+def test_predicate_skips_unhashable_operation_kind(templates, tmp_path):
+    root = _clone(templates["private"], tmp_path)
+    certificate = _read_json(root / "certificate.json")
+    certificate["accepted_steps"][0]["operation"]["kind"] = []
+    _write_json(root / "certificate.json", certificate)
     _refresh_private_bindings(root)
 
     assert predicate_counterexample(str(root)) == 125

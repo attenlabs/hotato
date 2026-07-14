@@ -26,6 +26,14 @@ def _markdown_code(value: Any) -> str:
     return _visible(value).replace("`", "\\`")
 
 
+def _failure_code(target: Dict[str, Any]) -> str:
+    atom = target.get("failure_atom")
+    if isinstance(atom, dict) and isinstance(atom.get("code"), str):
+        return atom["code"]
+    code = target.get("failure_code")
+    return code if isinstance(code, str) else "undisclosed"
+
+
 def render_markdown(capsule: Dict[str, Any]) -> str:
     target = capsule["target"]
     initial = capsule["reduction"]["initial"]
@@ -36,10 +44,11 @@ def render_markdown(capsule: Dict[str, Any]) -> str:
         "",
         f"- Dimension: `{_markdown_code(target.get('dimension') or 'ungrouped')}`",
         f"- Assertion kind: `{_markdown_code(target['kind'])}`",
+        f"- Failure branch: `{_markdown_code(_failure_code(target))}`",
         "- Authority: `deterministic`",
         f"- Failure fingerprint: `{target['fingerprint']}`",
         f"- Minimality: `{minimality['status']}` under `{minimality['reducer_set']}`",
-        f"- Candidate evaluations: `{capsule['reduction']['attempts']}`",
+        f"- Reduction attempts: `{capsule['reduction']['attempts']}`",
         f"- Source qualification: `{capsule['preservation']['source_matching_failures']}/{capsule['preservation']['source_executions']}` matching failures",
         f"- Final verification: `{capsule['preservation']['final_matching_failures']}/{capsule['preservation']['final_executions']}` matching failures",
         "",
@@ -77,7 +86,7 @@ def render_markdown(capsule: Dict[str, Any]) -> str:
             "",
         ])
     lines.extend([
-        "The claim is local: the reduced input reproduces the same typed deterministic failure and is 1-minimal only when the recorded final deletion pass completed. It does not establish root cause or a global minimum.",
+        "The claim is local: the reduced input preserves the source-selected structured failure branch and is 1-minimal only when the recorded final deletion pass completed. It does not establish root cause or a global minimum.",
         "",
     ])
     return "\n".join(lines)
@@ -117,11 +126,12 @@ table{border-collapse:separate;border-spacing:0;width:100%;overflow:hidden}th,td
 <div class="grid">
  <div class="card"><div class="label">Dimension</div><div class="value">{html.escape(_visible(target.get('dimension') or 'ungrouped'))}</div></div>
  <div class="card"><div class="label">Assertion</div><div class="value">{html.escape(_visible(target['kind']))}</div></div>
+ <div class="card"><div class="label">Failure branch</div><div class="value">{html.escape(_visible(_failure_code(target)))}</div></div>
  <div class="card"><div class="label">Minimality</div><div class="value">{html.escape(capsule['minimality']['status'])}</div></div>
  <div class="card"><div class="label">Final replay</div><div class="value">{capsule['preservation']['final_matching_failures']}/{capsule['preservation']['final_executions']}</div></div>
 </div>
 <table><thead><tr><th>Measure</th><th>Source</th><th>Reduced</th><th>Reduction</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
-<p>{'Run <code>./reproduce.sh</code> from this private capsule.' if capsule.get('privacy', {}).get('profile') == 'private-runnable-v1' else 'This share-safe projection is non-runnable; use the corresponding private capsule.'} The verifier requires the same typed deterministic failure; an inconclusive candidate never counts.</p>
+<p>{'Run <code>./reproduce.sh</code> from this private capsule.' if capsule.get('privacy', {}).get('profile') == 'private-runnable-v1' else 'This share-safe projection is non-runnable; use the corresponding private capsule.'} The verifier requires the source-selected structured failure branch; an inconclusive candidate never counts.</p>
 </main></body></html>"""
 
 
@@ -132,6 +142,7 @@ def render_svg(capsule: Dict[str, Any]) -> str:
     title = html.escape(_visible(target["assertion_id"]))
     fingerprint = html.escape(target["fingerprint"])
     status = html.escape(capsule["minimality"]["status"])
+    failure_code = html.escape(_visible(_failure_code(target)))
     turns = f"{initial.get('turns', 0)} -> {final.get('turns', 0)} turns"
     spans = f"{initial.get('trace_spans', 0)} -> {final.get('trace_spans', 0)} spans"
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="t d">
@@ -140,9 +151,9 @@ def render_svg(capsule: Dict[str, Any]) -> str:
 <rect width="1200" height="630" fill="#0b0d10"/><rect x="58" y="56" width="1084" height="518" rx="26" fill="#13171c" stroke="#2a3139"/>
 <text x="96" y="116" fill="url(#g)" font-family="ui-monospace,monospace" font-size="22" font-weight="700">HOTATO · COUNTEREXAMPLE</text>
 <text x="96" y="210" fill="#f5f1e8" font-family="system-ui,sans-serif" font-size="54" font-weight="750">{title}</text>
-<text x="96" y="264" fill="#9da6af" font-family="ui-monospace,monospace" font-size="18">{html.escape(_visible(target.get('dimension') or 'ungrouped'))} · {html.escape(_visible(target['kind']))} · deterministic</text>
+<text x="96" y="264" fill="#9da6af" font-family="ui-monospace,monospace" font-size="18">{html.escape(_visible(target.get('dimension') or 'ungrouped'))} · {html.escape(_visible(target['kind']))} · {failure_code}</text>
 <rect x="96" y="318" width="300" height="112" rx="14" fill="#0b0d10"/><text x="120" y="354" fill="#9da6af" font-family="ui-monospace,monospace" font-size="16">INPUT</text><text x="120" y="394" fill="#f5f1e8" font-family="ui-monospace,monospace" font-size="24">{html.escape(turns)}</text>
 <rect x="420" y="318" width="300" height="112" rx="14" fill="#0b0d10"/><text x="444" y="354" fill="#9da6af" font-family="ui-monospace,monospace" font-size="16">EVIDENCE</text><text x="444" y="394" fill="#f5f1e8" font-family="ui-monospace,monospace" font-size="24">{html.escape(spans)}</text>
 <rect x="744" y="318" width="360" height="112" rx="14" fill="#0b0d10"/><text x="768" y="354" fill="#9da6af" font-family="ui-monospace,monospace" font-size="16">MINIMALITY</text><text x="768" y="394" fill="#ff9b70" font-family="ui-monospace,monospace" font-size="24">{status}</text>
 <text x="96" y="494" fill="#707b86" font-family="ui-monospace,monospace" font-size="14">{fingerprint}</text>
-<text x="96" y="536" fill="#f5f1e8" font-family="ui-monospace,monospace" font-size="18">Same typed failure. Every accepted deletion re-evaluated.</text></svg>"""
+<text x="96" y="536" fill="#f5f1e8" font-family="ui-monospace,monospace" font-size="18">Selected failure branch preserved. Every accepted deletion re-evaluated.</text></svg>"""

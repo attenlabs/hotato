@@ -206,6 +206,12 @@ def load_json(path: str, *, max_bytes: int = MAX_INPUT_BYTES) -> Any:
         raise CounterexampleRefusal("invalid_utf8", f"{path!r} is not UTF-8: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise CounterexampleRefusal("invalid_json", f"{path!r} is not JSON: {exc}") from exc
+    except CounterexampleRefusal:
+        raise
+    except (ValueError, RecursionError) as exc:
+        raise CounterexampleRefusal(
+            "invalid_json", f"{path!r} cannot be decoded safely: {exc}"
+        ) from exc
     assert_finite(value, os.path.basename(path))
     return value
 
