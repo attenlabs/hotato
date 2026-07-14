@@ -7,16 +7,15 @@ extra dependencies.
 
 ## The root Action: run a committed suite from any repository
 
-The repository root ships a composite GitHub Action, so a repository with
-no hotato source can run a committed suite, conversation test, or contract
-verification and gate on hotato's exit status. The default run is offline:
-it runs the pinned Action revision itself off PYTHONPATH (no pip, no
-package index), installs no model, no ASR, no Node tool, and calls no
-external judge. No secret is read or needed.
+The repository root ships a composite GitHub Action: a repository with no
+hotato source can run a committed suite, conversation test, or contract
+verification and gate on hotato's exit status. The default run is
+offline -- it runs the pinned Action revision itself off PYTHONPATH (no
+pip, no package index), installs no model, no ASR, no Node tool, calls no
+external judge, and reads no secret.
 
-The Action ships as a composite Action from release v1.4.0 onward. Adopt
-the current release (v1.6.1) and pin the revision you adopt by its full
-commit SHA; resolve a tag to its SHA first:
+Composite Action since v1.4.0. Adopt the current release (v1.6.1), pinned
+by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
 git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.6.1
@@ -56,31 +55,35 @@ jobs:
 ```
 
 `permissions: contents: read` is sufficient. The Action never posts a
-comment, uploads an artifact, or sends a notification; retention and
-publication stay under the consumer workflow's control, as above.
+comment, uploads an artifact, or sends a notification -- retention and
+publication stay under your workflow's control.
 
 ### Inputs
 
-Exactly one of `suite`, `test`, `contracts` selects what runs; each is a
-workspace-relative committed path. `agent` names the agent under test for
-suite and test runs. Everything else is optional: `release` (defaults to
-the commit SHA), `output` (defaults to `.hotato/results`), `parallel`
-(suite worker cap; never changes result bytes), `transcript` / `trace` /
-`state` (evidence files for a test run), `gate-advisory` (test runs only;
-passes hotato's own `--gate-judge` so the model-judged rubric lane gates),
-and `hotato-version`.
+Exactly one of `suite`, `test`, `contracts` selects what runs (a
+workspace-relative committed path); `agent` names the agent under test.
+Everything else is optional:
+
+| Input | Meaning |
+|---|---|
+| `release` | Defaults to the commit SHA |
+| `output` | Defaults to `.hotato/results` |
+| `parallel` | Suite worker cap; never changes result bytes |
+| `transcript` / `trace` / `state` | Evidence files for a test run |
+| `gate-advisory` | Test runs only; passes `--gate-judge` so the model-judged rubric lane gates |
+| `hotato-version` | Which install to use -- see below |
 
 `hotato-version` pins the install to one of three forms:
 
-- `action` (default): install the pinned Action revision itself, with
-  `--no-deps` and no package-index egress. The code that runs is exactly
-  the revision your workflow pinned.
-- an exact version such as `1.6.1`: `pip install --no-deps hotato==1.6.1`.
-- `preinstalled`: skip installation (hotato is already on the runner).
+| Value | Effect |
+|---|---|
+| `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
+| an exact version, e.g. `1.6.1` | `pip install --no-deps hotato==1.6.1` |
+| `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
-revision. Suite policy lives in the committed suite file; the Action never
-overrides a suite's `inconclusive_policy`.
+revision. Suite policy lives in the committed suite file -- the Action
+never overrides a suite's `inconclusive_policy`.
 
 ### Outputs and the exit contract
 
@@ -93,26 +96,30 @@ step:
 | 1 | a deterministic check or a `success.required` condition failed |
 | 2 | the verdict was withheld (refuse policy), or a usage/validation error |
 
-The machine JSON stays primary. Outputs: `output` (results directory),
-`suite-result` (the machine result JSON path), `summary` (the rendered
-Markdown), `records` (Failure Record directory when produced, else empty),
-`exit-code` (as a string), `status` (`pass`, `fail`, `inconclusive`, or
-`error`, read from the machine result; presentation only), and
-`hotato-version` (the executed package version).
+The machine JSON stays primary:
 
-The five-lane job summary (Outcome, Policy, Conversation, Speech,
-Reliability) is appended to the job page on pass AND on failure, with the
-exact reproduce command and the evaluated check ids. A lane with no
-evaluated check renders NOT_RUN; a lane whose checks lack required
-evidence renders INCONCLUSIVE, never PASS. The model-judged rubric lane
-reports in its own advisory section with `gate enabled: true|false` and
-changes the exit only when the run opted in with `gate-advisory: true`;
-when no local judge is reachable it reports ERROR, holding the verdict
-rather than guessing at one.
+| Output | Meaning |
+|---|---|
+| `output` | Results directory |
+| `suite-result` | The machine result JSON path |
+| `summary` | The rendered Markdown |
+| `records` | Failure Record directory when produced, else empty |
+| `exit-code` | As a string |
+| `status` | `pass`, `fail`, `inconclusive`, or `error`, read from the machine result -- presentation only |
+| `hotato-version` | The executed package version |
 
-The conformance fixture for all of this is
-[`tests/fixtures/action-consumer/`](../tests/fixtures/action-consumer/),
-and `.github/workflows/tests.yml` runs the same consumer shape against the
+The five-lane summary (Outcome, Policy, Conversation, Speech, Reliability)
+appends to the job page on pass AND failure, with the reproduce command
+and evaluated check ids. A lane with no evaluated check renders NOT_RUN; a
+lane whose checks lack required evidence renders INCONCLUSIVE, never
+PASS. The model-judged rubric lane reports in its own advisory section
+with `gate enabled: true|false` and changes the exit only when
+`gate-advisory: true` was set; with no local judge reachable it reports
+ERROR instead of guessing.
+
+The conformance fixture:
+[`tests/fixtures/action-consumer/`](../tests/fixtures/action-consumer/);
+`.github/workflows/tests.yml` runs the same consumer shape against the
 local checkout on every pull request (job `action-smoke`).
 
 ## Drop it in
@@ -132,19 +139,18 @@ The sticky comment shows a pass/fail line, a per scenario table (expect,
 yielded, time to yield, talk over, result), and a short regressions
 section.
 
-The job needs `pull-requests: write` to post the comment. The workflow
+The job needs `pull-requests: write` to post the comment -- the workflow
 already requests it; if your org restricts the default `GITHUB_TOKEN`,
 grant that scope.
 
 ## Point it at your own recordings
 
 The bundled suite is a self-test: it scores frozen synthetic fixtures,
-proving the harness itself works. The strongest gate for your agent is a
-suite of your OWN bad moments, pinned as fixtures with
-`hotato fixture create` and run with `hotato run --scenarios DIR --audio
-DIR`; the full loop from one bad call to this gate is
-[BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md). Alternatively, replace one step,
-`Score turn-taking (head)`, with your own capture and score:
+proving the harness works. The strongest gate for your agent is a suite of
+your OWN bad moments, pinned with `hotato fixture create` and run with
+`hotato run --scenarios DIR --audio DIR`; full loop:
+[BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md). Or replace one step, `Score
+turn-taking (head)`, with your own capture and score:
 
 1. play each corpus `*.caller.wav` into your agent
 2. record your agent's reply
@@ -154,19 +160,19 @@ DIR`; the full loop from one bad call to this gate is
 hotato run --stereo your_call.wav --expect yield --format json --no-fail > head.json
 ```
 
-The envelope shape and exit codes are identical, so the render, comment,
-and gate steps stay exactly as they are. Keep `--no-fail` on the score
-step so the comment still posts on a regression; the true pass/fail lives
-in the envelope's `exit_code`, which the `Fail on regression` step reads.
+The envelope shape and exit codes are identical, so render, comment, and
+gate steps stay exactly as they are. Keep `--no-fail` on the score step so
+the comment still posts on a regression -- the true pass/fail lives in the
+envelope's `exit_code`, which the `Fail on regression` step reads.
 
 ## Deltas against the base branch
 
 When the workflow can install and score the base branch, it runs the same
-suite there in an isolated venv and uses it as the baseline. Any scenario
-where the overlap grew (talk-over up) or the agent stopped later (time to
-yield up) is listed under Regressions with the delta. This step is best
-effort: when it cannot run, the comment falls back to the current
-pass/fail table and the gate still holds.
+suite there in an isolated venv as the baseline. Any scenario where
+overlap grew (talk-over up) or the agent stopped later (time to yield up)
+lists under Regressions with the delta. Best effort: when it can't run,
+the comment falls back to the current pass/fail table and the gate still
+holds.
 
 ## Render a comment yourself
 
@@ -181,13 +187,13 @@ Add `--base base.json` to include deltas against a saved baseline run.
 
 ## The other ready-made gate: pytest
 
-If your CI already runs pytest, one flag adds the same regression gate to
-that run: `pytest --hotato-suite` scores the battery after your tests and
-fails the session on a regression. Point it at your own labelled sets with
+If your CI already runs pytest, one flag adds the same regression gate:
+`pytest --hotato-suite` scores the battery after your tests and fails the
+session on a regression. Point it at your own labelled sets with
 `--hotato-suite-scenarios` and `--hotato-suite-audio`. Details:
-[`PYTEST.md`](PYTEST.md). For richer artifacts on a gate failure,
-`hotato report` renders the visual report and `hotato team` tracks the
-trend across runs ([`REPORTS.md`](REPORTS.md)).
+[`PYTEST.md`](PYTEST.md). For richer artifacts on a gate failure, `hotato
+report` renders the visual report and `hotato team` tracks the trend
+([`REPORTS.md`](REPORTS.md)).
 
 ## GitLab CI, Jenkins, Azure Pipelines, CircleCI: `hotato init ci`
 
