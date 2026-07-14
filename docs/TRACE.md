@@ -1,14 +1,10 @@
-# Voice traces
+# Voice traces: coincidence, not root cause
 
 A voice trace is a timeline of discrete voice-pipeline events
 (caller/agent audio activity, TTS cancel/stop, ASR partials, tool calls,
-...) that adds a WHY layer beyond what a caller/agent audio track alone
-shows: "the agent talked over the caller" becomes "evidence suggests TTS
-cancellation lagged: cancel requested at 42.40s, audio stopped at 43.60s".
-
-A voice trace reports coincidence: a pattern of events that lined up with
-the measured timing, not root cause. See [`docs/OTEL.md`](OTEL.md) for the
-ingest source formats.
+...): "the agent talked over the caller" becomes "evidence suggests TTS
+cancellation lagged: cancel requested at 42.40s, audio stopped at 43.60s."
+See [`docs/OTEL.md`](OTEL.md) for the ingest source formats.
 
 Three commands:
 
@@ -57,21 +53,21 @@ reassembled by `hotato.trace.load_voice_trace_jsonl`:
 }
 ```
 
-A span carries an open `type` string; the common ones are
+A span carries an open `type` string; common ones are
 `caller_audio_active`, `agent_audio_active`, `tts_cancel_requested`,
 `tts_audio_stopped`, `asr_partial`, `tool_call`, `llm_first_token`,
-`handoff`. An unrecognized type passes through unchanged (additive,
-forward-compatible with a pipeline that emits a span type this release does
-not name). Exactly one time shape applies per span: an interval span
-carries `start_sec`/`end_sec`, a point event carries `time_sec`.
+`handoff`. An unrecognized type passes through unchanged -- additive,
+forward-compatible with a span type this release doesn't name. One time
+shape per span: an interval carries `start_sec`/`end_sec`, a point event
+carries `time_sec`.
 
 ## Redaction by default
 
 `call_id` and `deployment.agent_id` are dropped (`null`) unless
-`--include-identifiers` is passed at ingest time. An `asr_partial` span's
+`--include-identifiers` is passed at ingest. An `asr_partial` span's
 transcript text is dropped (`text_redacted: true`, no `text` key) unless
 `--include-text` is passed. `deployment.stack` / `git_sha` / `config_hash`
-are not treated as identifiers and are kept by default.
+are kept by default -- not treated as identifiers.
 
 ## Ingest
 
@@ -81,13 +77,12 @@ hotato trace ingest --otel export.json --out voice_trace.jsonl \
     --stack vapi --include-identifiers --include-text
 ```
 
-`--otel FILE` accepts either a standard OTel JSON export (a document with a
-top-level `resourceSpans` array) or hotato's own documented OTel bridge
-JSONL (see [`docs/OTEL.md`](OTEL.md)). `--stack` / `--call-id` /
-`--agent-id` / `--git-sha` / `--config-hash` override or fill in whatever
-the source's own resource attributes carried. Refused (exit 2, nothing
-written) for an unreadable file, an empty file, or a source with zero
-spans.
+`--otel FILE` accepts a standard OTel JSON export (a document with a
+top-level `resourceSpans` array) or hotato's own OTel bridge JSONL (see
+[`docs/OTEL.md`](OTEL.md)). `--stack` / `--call-id` / `--agent-id` /
+`--git-sha` / `--config-hash` override or fill in the source's resource
+attributes. Refused (exit 2, nothing written) for an unreadable file, an
+empty file, or a source with zero spans.
 
 ## Attach
 
@@ -96,35 +91,34 @@ hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl
 ```
 
 Copies the trace into `<bundle>/traces/voice_trace.jsonl` and re-renders
-`evidence/timeline.html` with the trace's events drawn as an additional
-row, aligned to the same [0, duration] scale as the existing caller/agent
+`evidence/timeline.html` with the trace's events as an additional row,
+aligned to the same [0, duration] scale as the existing caller/agent
 timeline. This reads the bundle's own `evidence/frames.jsonl` and
-`contract.json` back in, reusing the existing scored evidence as-is:
-attaching a trace needs no diarization extra installed and no re-scoring
-of the audio. On a diarized-mono bundle (no frame-level evidence), the
-base timeline states that plainly, and the trace row still renders on its
-own scale.
+`contract.json` back in, reusing the scored evidence as-is: attaching a
+trace needs no diarization extra and no re-scoring. On a diarized-mono
+bundle (no frame-level evidence), the base timeline says so plainly, and
+the trace row still renders on its own scale.
 
 `contract.json` records the attachment (additive, schema-safe: `trace:
 {attached, path, span_count, attached_at, source_format}`). Refused (exit
-2) for a missing bundle, a trace file that does not validate as a
+2) for a missing bundle, a trace file that doesn't validate as
 `hotato.voice_trace.v1` JSONL, or an already-attached trace without
 `--force`.
 
 ### Report wording
 
 When a `tts_cancel_requested` / `tts_audio_stopped` pair is present, the
-timeline states the measured delta plainly:
+timeline states the delta plainly:
 
 > Evidence suggests TTS cancellation delay: cancel requested at 2.60s,
 > audio stopped at 2.90s (delta 0.30s).
 > Hotato does not prove root cause.
 > Unknowns: no client-side playout trace was attached.
 
-The last line is always present in this release: a client-side audio
-playout trace (the point where the caller's device stopped rendering
-audio, as opposed to when the server issued the stop) sits outside what
-this release's span types collect, so the gap is always named plainly.
+The last line always appears in this release: a client-side playout trace
+(when the caller's device stopped rendering audio, not when the server
+issued the stop) sits outside what this release's span types collect, so
+the gap is always named.
 
 ## Export
 
@@ -134,19 +128,17 @@ hotato trace export contracts/refund-cutoff-001.hotato --format otel --out otel.
 
 Writes the bundle's attached trace back out as hotato's OTel bridge JSONL
 -- the exact shape `trace ingest` reads, so `ingest -> attach -> export ->
-ingest` round-trips the identical spans. `--format` is claimed by the
-export format on this subcommand (only `otel` is supported today); pass
-`--json` for the machine result summary instead of the default text line.
-Refused (exit 2) when the bundle has no attached trace, or `--out` exists
-without `--force`.
+ingest` round-trips identical spans. `--format` is claimed by the export
+format here (only `otel` is supported today); pass `--json` for the
+machine summary instead of the default text line. Refused (exit 2) when
+the bundle has no attached trace, or `--out` exists without `--force`.
 
 ## What a voice trace adds
 
-A voice trace adds timing correlation to a failure contract's existing
-timing measurement: a pattern of events lined up with it, named plainly.
-Authorization, identity, compliance, policy safety, intent, and root cause
-stay outside its claims, and a client-side playout moment is named only
-when one was attached.
+Timing correlation only: a pattern of events lined up with the contract's
+timing measurement, named plainly. Authorization, identity, compliance,
+policy safety, intent, and root cause stay outside its claims; a
+client-side playout moment is named only when one was attached.
 
 ## Read more
 
