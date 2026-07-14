@@ -814,6 +814,23 @@ class Registry:
         sql = f"UPDATE recordings SET {', '.join(sets)} WHERE workspace_id=? AND recording_id=?"
         self._busy_wrap(lambda: (self.conn.execute(sql, tuple(args)), self.conn.commit()))
 
+    def clear_recording_artifact(self, workspace_id, recording_id):
+        """Revoke a recording's POINTER to its content-addressed audio blob
+        (set ``artifact_digest = NULL``) WITHOUT touching the shared blob.
+
+        After this the workspace no longer ROOTS that digest, so serve/authz and
+        GC stop treating the audio as referenced BY THIS recording; the shared
+        blob is unlinked separately, and only when NO reference remains anywhere
+        (see ``referencing_workspaces``). This is the durable half of a deletion:
+        it survives the audio and, unlike deleting the row, keeps the deletion
+        receipt/attestation lineage intact. Idempotent."""
+        self._busy_wrap(lambda: (
+            self.conn.execute(
+                "UPDATE recordings SET artifact_digest=NULL "
+                "WHERE workspace_id=? AND recording_id=?",
+                (workspace_id, recording_id)),
+            self.conn.commit()))
+
     def add_contract_set(self, workspace_id, set_id, member_contract_hashes, *,
                          created_at=None):
         """Record an immutable ORDERED contract-set membership (plan §7.1). The
@@ -1256,6 +1273,40 @@ class Registry:
                     if digest in _digests_in_json_field(row.get(c)):
                         return True
         return False
+
+    def referencing_workspaces(self, digest) -> "set[str]":
+        """Every workspace that holds a LIVE reference to ``digest`` in any
+        reference-edge column (recordings/contracts/trials/conversations and the
+        other *_digest columns + the JSON ``evidence_refs`` columns), across ALL
+        workspaces.
+
+        This is the durable authority for whether a SHARED content-addressed
+        blob may be garbage-collected: because identical bytes from two
+        workspaces collapse to ONE physical blob, the blob is safe to unlink only
+        when this set is EMPTY -- otherwise unlinking would destroy another
+        workspace's (or table's) evidence. CAS lineage is NEVER consulted here
+        (lineage is provenance, not an ACL). A non-canonical digest is named by
+        nothing (returns an empty set, matching ``has_artifact_reference``)."""
+        out: "set[str]" = set()
+        if not _is_hex64(digest):
+            return out
+        for table, cols in ARTIFACT_REFERENCE_COLUMNS.items():
+            where = " OR ".join("%s=?" % c for c in cols)
+            for row in self._all(
+                    "SELECT DISTINCT workspace_id FROM %s WHERE (%s)" % (table, where),
+                    tuple([digest] * len(cols))):
+                if row.get("workspace_id") is not None:
+                    out.add(row["workspace_id"])
+        for table, cols in ARTIFACT_REFERENCE_JSON_COLUMNS.items():
+            sel = ", ".join(("workspace_id", *cols))
+            for row in self._all("SELECT %s FROM %s" % (sel, table), ()):
+                if row.get("workspace_id") is None:
+                    continue
+                for c in cols:
+                    if digest in _digests_in_json_field(row.get(c)):
+                        out.add(row["workspace_id"])
+                        break
+        return out
 
     def _one(self, q, args=()):
         cur = self.conn.execute(q, args)
