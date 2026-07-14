@@ -40,10 +40,10 @@ def _ingest_sandbox(tmp_path, monkeypatch):
 
 class _Resp:
     def __init__(self, data):
-        self._data = data
+        self._stream = io.BytesIO(data)
 
-    def read(self):
-        return self._data
+    def read(self, size=-1):
+        return self._stream.read(size)
 
     def __enter__(self):
         return self

@@ -44,11 +44,15 @@ import json
 import os
 from typing import Any, Dict, List, Optional, Sequence
 
+from . import errors as _errors
 from .errors import (
     load_json_file as _load_json_file,
     open_regular as _open_regular,
     reject_overall_score as _reject_overall_score,
 )
+
+
+_HTTP_MODEL_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
 # Canonical-JSON + sha256-of-canonical are the established shared primitives in
 # hotato.manifest (already reused by labelrecord/ledger/receipt); import them
 # here instead of reimplementing (audit finding #2). ``_sha256_json`` stays a
@@ -342,13 +346,28 @@ def _urllib_json_call(url: str, *, data: Optional[bytes], headers: Dict[str, str
     from . import capture as _capture
     _capture._ensure_safe_opener()
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    safe_url = _errors.sanitize_url(url)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - opener hardened above
-            return resp.read().decode("utf-8")
+            return _errors.read_bounded_http_body(
+                resp,
+                max_bytes=_HTTP_MODEL_RESPONSE_MAX_BYTES,
+                subject=f"judge response from {safe_url}",
+            ).decode("utf-8")
+    except _errors.HttpResponseTooLarge as exc:
+        raise JudgeError(
+            f"{failed_subject} response from {safe_url!r} refused: {exc}"
+        ) from exc
     except urllib.error.URLError as exc:
-        raise JudgeError(f"{unreachable_subject} {url!r} unreachable: {exc}") from exc
+        raise JudgeError(
+            f"{unreachable_subject} {safe_url!r} unreachable: "
+            f"{_errors.sanitize_urls_in_text(exc)}"
+        ) from exc
     except (TimeoutError, OSError) as exc:
-        raise JudgeError(f"{failed_subject} request to {url!r} failed: {exc}") from exc
+        raise JudgeError(
+            f"{failed_subject} request to {safe_url!r} failed: "
+            f"{_errors.sanitize_urls_in_text(exc)}"
+        ) from exc
 
 
 class Judge:
