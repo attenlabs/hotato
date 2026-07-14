@@ -1,11 +1,11 @@
 # Set and forget: passive turn-taking regression monitoring
 
 `hotato sweep` turns from a command you remember to run into a job that runs
-on its own schedule and only asks for your attention when it finds something
+on its own schedule and asks for your attention only when it finds something
 worth acting on.
 
 Every command below is a shipped `hotato` command (verify with `hotato
-<command> --help`). Try the whole loop right now with `--demo`, no
+<command> --help`). Run the whole loop right now with `--demo`, no
 credentials needed, before pointing it at your own stack.
 
 ## The loop
@@ -17,7 +17,7 @@ connect (once) -> sweep (on a schedule) -> read the dashboard
 
 Sweeping only reads: it lists candidate timing moments for you to judge. You
 decide which ones are bugs and label them; `hotato fixture create` /
-`hotato fixture promote` are what turn a candidate into a permanent test.
+`hotato fixture promote` turn a candidate into a permanent test.
 
 ## 1. Connect once
 
@@ -28,11 +28,10 @@ hotato connect vapi --api-key <key>
 
 This runs a lightweight live auth check (skip with `--no-verify`) and stores
 the credential in `~/.hotato/connections.json`, file mode `0600`. The key
-travels only to the vendor's own API, kept out of Hotato's hands entirely.
-Full per-stack
-credential table (Vapi, Twilio, Retell, Bland, ElevenLabs, Synthflow, Millis,
-Cartesia): [`CONNECT.md`](CONNECT.md). LiveKit and Pipecat are
-capture-in-your-infra; use `hotato setup --stack
+travels only to the vendor's own API, kept out of hotato's hands entirely.
+Full per-stack credential table (Vapi, Twilio, Retell, Bland, ElevenLabs,
+Synthflow, Millis, Cartesia): [`CONNECT.md`](CONNECT.md). LiveKit and
+Pipecat are capture-in-your-infra; use `hotato setup --stack
 livekit|pipecat` instead.
 
 Once a stack is connected, `--stack` and the credential flags are optional
@@ -51,9 +50,9 @@ hotato sweep --stack vapi --since 7d --out hotato-sweep.html --no-open
   reads; redirect it to a file every time (`--out` writes the HTML
   dashboard; capture stdout for the JSON).
 - `--out FILE.html --no-open` writes the shareable dashboard without popping
-  a browser, the right mode when nothing is watching the screen.
-- `--since 7d` scopes the pull to recent calls; a nightly job narrows this to
-  `--since 1d` so it only re-scores what came in since the last run.
+  a browser -- the right mode when nothing is watching the screen.
+- `--since 7d` scopes the pull to recent calls; a nightly job narrows this
+  to `--since 1d` so it only re-scores what came in since the last run.
 
 A crontab entry, 03:00 daily:
 
@@ -65,7 +64,8 @@ See [`examples/set-and-forget/`](../examples/set-and-forget/README.md) for a
 runnable version of this, plus the CI half of the loop.
 
 No stack connected yet? Everything above works with `--demo` instead of
-`--stack ... --since ...`, credential-less, against two bundled recorded calls:
+`--stack ... --since ...`, credential-free, against two bundled recorded
+calls:
 
 ```bash
 hotato sweep --demo --format json > hotato-sweep.json
@@ -91,7 +91,7 @@ the agent should have yielded or held.
 
 Once you have listened to a candidate and decided what should have
 happened, `hotato fixture promote` turns it into a permanent regression test
-in one command, no `--stereo` / `--onset` needed, since the candidate ref
+in one command -- no `--stereo` / `--onset` needed, since the candidate ref
 already carries the recording and the moment:
 
 ```bash
@@ -108,11 +108,11 @@ talking through a backchannel. The fixture is scored immediately: a
 candidate that isn't scorable is refused (exit 2), so only a scorable
 candidate becomes a fixture.
 
-This is the most important step in the loop. It is how a suspicious moment
-becomes a fact your CI enforces forever, instead of something you noticed
-once and forgot. (`hotato fixture create --stereo ...
---onset ...` does the same thing from a raw recording and a timestamp you
-already know, if you are not starting from a sweep/analyze result.)
+This is the loop's most important step -- the moment a suspicious call
+becomes a fact your CI enforces forever instead of something you noticed
+once and forgot. (`hotato fixture create --stereo ... --onset ...` does the
+same thing from a raw recording and a timestamp you already know, when you
+are not starting from a sweep/analyze result.)
 
 ## 5. Gate CI on your fixtures
 
@@ -136,7 +136,7 @@ complete cron + CI pairing.
 ## Worked example (zero setup, verified end to end)
 
 Every command above works right now on the bundled demo calls, so you can
-see a failure get pinned before wiring anything to your own stack:
+watch a failure get pinned before wiring anything to your own stack:
 
 ```bash
 hotato sweep --demo --format json > hotato-sweep.json
@@ -146,9 +146,9 @@ hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
 # exit code 1: the demo agent never yielded for an interruption -- pinned
 ```
 
-That last `run` prints the fix card too (fix class, the config knob, the
-direction to move it), because the fixture that just failed is a
-labelled bad-agent moment from the bundled demo battery.
+That last `run` also prints the fix card (fix class, the config knob, the
+direction to move it), because the fixture that just failed is a labelled
+bad-agent moment from the bundled demo battery.
 
 ## What you control in this loop
 
@@ -158,5 +158,4 @@ labelled bad-agent moment from the bundled demo battery.
   [`docs/INGEST.md`](INGEST.md)) both report candidates as timing facts;
   fixtures scored with `hotato run` are what produce a pass/fail verdict.
 - This runs entirely as processes you control: cron, CI, and a webhook
-  handler all just shell out to the same CLI, on a schedule that's yours to
-  own.
+  handler all shell out to the same CLI, on a schedule that's yours to own.
