@@ -1,12 +1,12 @@
 # The team workspace: `hotato serve`
 
 A self-hosted, local web app for a team to read a voice agent's
-conversation-QA state: release readiness, the scenario matrix, a conversation
-inspector, failure clusters, and production health. It is stdlib-only
-(`http.server` + `sqlite3`): self-hosted, no framework or build step, nothing
-that phones home. It serves the same fleet registry and evidence store the
-CLI writes, reading that data directly instead of passing a database file
-around.
+conversation-QA state: release readiness, the scenario matrix, a
+conversation inspector, failure clusters, and production health.
+Stdlib-only (`http.server` + `sqlite3`) -- no framework, no build step,
+nothing that phones home. It serves the same fleet registry and evidence
+store the CLI writes, reading that data directly instead of passing a
+database file around.
 
 ```
 hotato serve --workspace default
@@ -47,36 +47,13 @@ token, or the port was unavailable).
 Every view has a machine mirror at `?format=json` (same auth, same data) so
 agents and scripts can drive the workspace without scraping HTML.
 
-1. **Release readiness** (`/`): the pre-ship home screen. Per-release rollup
-   from `suites`/`runs`/`evaluations`: whether required suites are complete,
-   scenario and run counts, **failures by dimension** (outcome / policy /
-   conversation / speech / reliability), the inconclusive count, the origin split
-   (real vs simulated, kept separate), and **new-vs-fixed since the previous
-   release** compared per (scenario, dimension). Small samples are flagged
-   (`low sample, N=3`), never smoothed.
-2. **Scenario matrix** (`/scenarios`): rows are scenarios, columns are the
-   current and previous release, with a per-dimension status and **reliability**
-   (`pass^k` where a scenario has repetitions). Filter by `agent`, `release`,
-   `suite`, and `status` via query parameters (there is a filter form at the top).
-3. **Conversation inspector** (`/conversation/<id>`): one conversation. Its
-   evidence manifest (`conversation.v1`: origin, provider/caller provenance,
-   child digests), transcript, trace spans, per-dimension evaluations with
-   rationale and citations (deterministic checks and model-judged/advisory
-   results shown in **separate lanes**), and reviewer decisions. Every digest is
-   a link to the raw evidence blob (`/evidence/<digest>`) to drill straight to the
-   source. Redacted transcript segments and trace spans render as `[redacted]`,
-   scrubbed from both the HTML and the JSON mirror.
-4. **Failure clusters** (`/clusters`): failed evaluations and assertions grouped
-   by **observable signature** (dimension + assertion kind + reason-class), with
-   counts and drill-through lists into the inspector. Labelled *clusters by
-   observable signature*: it groups what was observed, and the cause stays
-   yours to determine.
-5. **Production health** (`/health`): ingest counts, evaluated coverage, and
-   per-dimension failure rate over time, computed **separately for real and
-   simulated** conversations, kept distinct. A day with no evaluated sample
-   gets no point plotted, and a dimension with fewer than two days of data
-   reads *not enough history*, matching the trend report. Each dimension
-   keeps its own number -- there's no single combined quality score.
+| View | URL | Shows |
+|---|---|---|
+| **Release readiness** | `/` | Pre-ship home screen: per-release rollup of suites/runs/evaluations -- required-suite completion, scenario/run counts, **failures by dimension** (outcome / policy / conversation / speech / reliability), inconclusive count, real-vs-simulated split, and **new-vs-fixed since the previous release**. Small samples flagged (`low sample, N=3`), never smoothed. |
+| **Scenario matrix** | `/scenarios` | Rows are scenarios, columns are the current and previous release, with a per-dimension status and **reliability** (`pass^k` where a scenario has repetitions). Filterable by `agent`, `release`, `suite`, `status`. |
+| **Conversation inspector** | `/conversation/<id>` | One conversation: evidence manifest, transcript, trace spans, per-dimension evaluations with rationale and citations (deterministic checks and model-judged/advisory results in **separate lanes**), reviewer decisions. Every digest links to the raw evidence (`/evidence/<digest>`); redacted transcript segments and trace spans render `[redacted]`, in both HTML and JSON. |
+| **Failure clusters** | `/clusters` | Failed evaluations and assertions grouped by **observable signature** (dimension + assertion kind + reason-class), with counts and drill-through into the inspector -- it groups what was observed; the cause stays yours to determine. |
+| **Production health** | `/health` | Ingest counts, evaluated coverage, and per-dimension failure rate over time, **separated for real and simulated** conversations. Sparse days/dimensions read *not enough history* rather than a misleading point. No single combined quality score -- each dimension keeps its own number. |
 
 ## Auth
 
@@ -86,11 +63,11 @@ Every request is authenticated against one shared **bearer token**:
   HttpOnly session cookie and redirects to remove the token from the URL.
 - **Agent / API / `curl`:** send `Authorization: Bearer <token>`.
 
-The token is compared in constant time (`hmac.compare_digest`). If you do not
-pass `--token`/`--token-file`, one is generated with `secrets.token_urlsafe` on
-first start and stored `0600` at `<registry>/serve/<workspace>/token`, so a
-restart keeps the same URL. Sessions live only in memory, never persisted and
-never cross-tenant.
+The token is compared in constant time (`hmac.compare_digest`). Without
+`--token`/`--token-file`, one is generated with `secrets.token_urlsafe` on
+first start and stored `0600` at `<registry>/serve/<workspace>/token`, so
+a restart keeps the same URL. Sessions live only in memory, never
+persisted, never cross-tenant.
 
 ## Audit log
 
@@ -101,21 +78,21 @@ Every request appends one JSONL line to
 {"ts":"2026-07-12T18:04:11Z","who":"Ab3xQ_p1…","method":"GET","path":"/scenarios","query":"status=FAIL","status":200,"remote":"127.0.0.1"}
 ```
 
-`who` is a token/session **prefix**, never the secret; the `token` parameter is
-stripped from the recorded query. The audit log is the **only** file the server
-writes.
+`who` is a token/session **prefix**, never the secret; the `token`
+parameter is stripped from the recorded query. The audit log is the
+**only** file the server writes.
 
 ## Binding 127.0.0.1 by default
 
-The server binds loopback (`127.0.0.1`) unless you explicitly pass `--host`. A
-non-loopback bind (for example `--host 0.0.0.0`, to reach the workspace from
-another machine) prints a prominent warning, because it exposes the workspace to
-your local network. Token auth still applies; an SSH tunnel or a reverse proxy
-you control is the tighter choice over binding a wide interface directly.
+The server binds loopback (`127.0.0.1`) unless you pass `--host`. A
+non-loopback bind (e.g. `--host 0.0.0.0`, to reach the workspace from
+another machine) prints a prominent warning -- it exposes the workspace to
+your local network. Token auth still applies; an SSH tunnel or a reverse
+proxy you control is the tighter choice over binding a wide interface.
 
 ## Zero egress
 
 The server only opens a **listening** socket: no outbound connection, and
-nothing it imports phones home -- audio, traces, and evaluations stay on the
-machine. A test whitelists loopback and fails if any view attempts an
-external connection, backed by the threat-model row below.
+nothing it imports phones home -- audio, traces, and evaluations stay on
+the machine. A test whitelists loopback and fails if any view attempts an
+external connection, backed by a threat-model row.

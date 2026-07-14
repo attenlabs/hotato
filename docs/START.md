@@ -1,10 +1,9 @@
 # Start here: the guided first run
 
-`hotato start --demo` runs the whole hotato loop on one bundled call and
-shows you the result: it sweeps the two demo recordings (the same calls
-`hotato demo` scores), builds and verifies one failure contract from them,
-writes every artifact you need to see the flow, and prints the exact next
-commands.
+`hotato start --demo` runs the whole hotato loop on one bundled call: it
+sweeps the two demo recordings (the same calls `hotato demo` scores),
+builds and verifies one failure contract from them, writes every artifact
+you need to see the flow, and prints the exact next commands.
 
 ```bash
 hotato start --demo
@@ -14,25 +13,20 @@ hotato start --demo
 
 Into the current directory (or `--dir DIR`):
 
-- `hotato-sweep.json` -- the sweep result: every candidate timing moment across
-  the two demo calls, ranked. This is an `analyze` result, so a `FILE#N` ref
-  off it drives `hotato fixture promote` and `hotato card` unchanged.
-- `hotato-sweep.html` -- a self-contained dashboard (embedded audio, no external
-  assets) that opens in any browser.
-- `hotato-no-single-threshold.svg` -- the threshold-funnel card: the demo battery
-  misses an interruption **and** false-stops on a backchannel, so no single
-  dial fixes both. See `docs/CARDS.md`.
-- `contracts/demo-missed-interruption.hotato/` -- one failure contract, built
-  from the sweep's missed-interruption candidate with `--expect yield` and
-  verified on the spot. See `docs/CONTRACTS.md`.
+| File | What it is |
+|---|---|
+| `hotato-sweep.json` | Every candidate timing moment across the two demo calls, ranked. An `analyze` result -- `FILE#N` off it drives `fixture promote` / `card` unchanged. |
+| `hotato-sweep.html` | Self-contained dashboard (embedded audio, no external assets), opens in any browser. |
+| `hotato-no-single-threshold.svg` | Threshold-funnel card: the demo battery misses an interruption **and** false-stops on a backchannel, so no single dial fixes both. See `docs/CARDS.md`. |
+| `contracts/demo-missed-interruption.hotato/` | One failure contract, built from the sweep's missed-interruption candidate with `--expect yield`, verified on the spot. See `docs/CONTRACTS.md`. |
 
-Everything runs offline: the demo pulls from packaged audio, and the
-analyze/card/contract steps run on packaged audio and local files alone.
+Everything runs offline: demo, analyze, card, and contract steps all run
+on packaged audio and local files alone.
 
 ## The demo failure contract
 
-`start --demo` runs the whole loop once, on one of the bundled recordings --
-not just a ranked list of candidates:
+`start --demo` runs the whole loop once, on a bundled recording -- not
+just a ranked list of candidates:
 
 ```bash
 hotato contract create --from-candidate hotato-sweep.json#2 --expect yield \
@@ -40,9 +34,9 @@ hotato contract create --from-candidate hotato-sweep.json#2 --expect yield \
 hotato contract verify contracts/
 ```
 
-Candidate #2 in the bundled sweep is the missed-interruption call: the agent
-talked over the caller instead of yielding. Scored against `--expect yield`,
-it fails -- so `start --demo` prints:
+Candidate #2 in the bundled sweep is the missed-interruption call: the
+agent talked over the caller instead of yielding. Scored against
+`--expect yield`, it fails -- so `start --demo` prints:
 
 ```
 verified contract: FAIL as expected -- the demo call missed the
@@ -53,13 +47,11 @@ docs/RECAPTURE.md)
 see the contract's CI exit 1: hotato contract verify contracts/)
 ```
 
-`hotato contract verify contracts/` re-scores that same bundled audio and
-reports the same regression (exit code `1`); a CI job wired to it fails the
-same way if the bundled evidence or policy ever changes. On this frozen
-recording, telling whether a currently deployed agent still has the bug
-takes a fresh capture -- re-running the same caller stimulus against it and
-verifying that; see [`docs/RECAPTURE.md`](RECAPTURE.md). The full two-lane
-breakdown is in
+`hotato contract verify contracts/` re-scores that same audio and reports
+the same regression (exit `1`); a CI job wired to it fails the same way if
+the evidence or policy ever changes. Telling whether a currently deployed
+agent still has the bug takes a fresh recapture:
+[`docs/RECAPTURE.md`](RECAPTURE.md). Two-lane breakdown:
 [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it).
 Run it yourself:
 
@@ -100,23 +92,24 @@ The exact next commands, ready to copy:
 
 ## Other modes
 
-`--stack`, `--folder`, and `--stereo` each hand you the shipped command that
-does the job:
+`--stack`, `--folder`, and `--stereo` each hand you the shipped command
+for the job:
 
-- `--stack` -> `hotato sweep --stack <stack>` (connect once, sweep your own
-  calls).
-- `--folder` -> `hotato analyze <folder>` (scan a directory of recordings).
-- `--stereo` -> `hotato run --stereo <call.wav>` (score one dual-channel call).
+| Flag | Command | Does |
+|---|---|---|
+| `--stack` | `hotato sweep --stack <stack>` | Connect once, sweep your own calls |
+| `--folder` | `hotato analyze <folder>` | Scan a directory of recordings |
+| `--stereo` | `hotato run --stereo <call.wav>` | Score one dual-channel call |
 
 ## Output and exit codes
 
-`--format json` emits a machine object (the files written, the next commands,
-and a `contract` block with the demo contract's id, expect, scorable, passed,
-and `verified_fail_as_expected`) for an agent to drive.
+`--format json` emits a machine object (the files written, the next
+commands, and a `contract` block with the demo contract's id, expect,
+scorable, passed, and `verified_fail_as_expected`) for an agent to drive.
 
 - **0**: the guided first run completed -- including when `--stack`,
-  `--folder`, or `--stereo` printed the shipped command to use instead. This
-  holds even though the demo contract itself FAILS its policy: `start --demo`
-  finishing is a separate claim from the demo contract passing, which
-  `hotato contract verify contracts/` reports (exit `1`, by design).
+  `--folder`, or `--stereo` printed the shipped command to use instead.
+  This holds even though the demo contract itself FAILS its policy:
+  `start --demo` finishing is separate from the demo contract passing,
+  which `hotato contract verify contracts/` reports (exit `1`, by design).
 - **2**: usage error -- no mode given, or `--dir` is not a directory.
