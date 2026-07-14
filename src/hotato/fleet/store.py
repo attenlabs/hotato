@@ -46,12 +46,35 @@ SCHEMA_VERSION = "1"
 # second ArtifactStore opens the same root.
 _STALE_TMP_AGE_SECONDS = 3600
 
+# A content address is exactly 64 LOWERCASE hexadecimal characters (a sha256
+# hexdigest). A digest is this store's capability token and is joined straight
+# into a filesystem path, so anything that is not canonical -- a path fragment
+# ("../x", "/tmp/x"), the wrong length, uppercase, or a non-hex character --
+# must be refused BEFORE it can traverse the store. There is never a blob at a
+# non-canonical address, so refusing is loss-free.
+_HEX64_CHARS = frozenset("0123456789abcdef")
+
+
+def _canonical_digest(digest):
+    if not (isinstance(digest, str) and len(digest) == 64
+            and _HEX64_CHARS.issuperset(digest)):
+        raise ValueError(
+            "a canonical content digest (64 lowercase hexadecimal characters) "
+            "is required, got %r" % (digest,))
+    return digest
+
 
 class ArtifactStore:
-    def __init__(self, root: str):
+    def __init__(self, root: str, *, registry=None):
         self.root = os.path.abspath(root)
         self.blobs = os.path.join(self.root, "blobs")
         self.lineage_path = os.path.join(self.root, "lineage.jsonl")
+        # Optional durable reference source (a fleet Registry). When wired,
+        # ``referencing_workspaces`` / ``workspace_has_reference`` answer from
+        # the workspace-scoped reference-edge rows (the authority). A bare store
+        # (e.g. the read-only serve view) has none and falls back to lineage as
+        # a PROVENANCE view only -- lineage is never an ACL.
+        self._registry = registry
         os.makedirs(self.blobs, exist_ok=True)
         try:
             self._cleanup_stale_tmp()
@@ -66,11 +89,33 @@ class ArtifactStore:
         return hashlib.sha256(data).hexdigest()
 
     def _blob_path(self, digest: str) -> str:
-        # fan out by first two hex chars to avoid one giant directory
+        # fan out by first two hex chars to avoid one giant directory. This is a
+        # pure path builder (no validation): callers that resolve a blob for a
+        # read/GC go through _resolved_blob_path, which validates the digest and
+        # enforces realpath-containment. Internal writers pass a freshly computed
+        # sha256 hexdigest, so it is canonical by construction.
         return os.path.join(self.blobs, digest[:2], digest)
 
+    def _resolved_blob_path(self, digest: str) -> str:
+        """Validated, contained blob path for every read and the GC unlink.
+
+        The digest MUST be canonical (64 lowercase hex) and the resolved path
+        MUST stay inside this store's blob root. A planted directory symlink in
+        the fan-out (e.g. ``blobs/ab -> /etc``) would otherwise let a
+        valid-looking digest read or unlink a file OUTSIDE the store; such a path
+        is refused. Routing every read and the GC unlink through here keeps
+        validation + containment uniform."""
+        _canonical_digest(digest)
+        path = self._blob_path(digest)
+        root = os.path.realpath(self.blobs)
+        resolved = os.path.realpath(path)
+        if resolved != root and not resolved.startswith(root + os.sep):
+            raise ValueError(
+                "blob path for %s resolves outside the content store" % digest)
+        return path
+
     def has(self, digest: str) -> bool:
-        return os.path.isfile(self._blob_path(digest))
+        return os.path.isfile(self._resolved_blob_path(digest))
 
     # --- writes ---------------------------------------------------------
     def _write_via_tmp(self, dest: str, writer) -> None:
@@ -148,9 +193,10 @@ class ArtifactStore:
     # no workspace_id parameter here -- cross-workspace isolation is a property
     # of the registry/reference layer that hands out digests, not of this CAS.
     def get_bytes(self, digest: str) -> bytes:
-        # open-ok: content-addressed blob path derived from a digest this store minted,
-        # not a user-supplied path; blobs are regular files this store wrote
-        with open(self._blob_path(digest), "rb") as fh:
+        # open-ok: content-addressed blob path validated (canonical digest +
+        # realpath-containment) by _resolved_blob_path; blobs are regular files
+        # this store wrote and a non-canonical/escaping digest is refused here
+        with open(self._resolved_blob_path(digest), "rb") as fh:
             return fh.read()
 
     def get_json(self, digest: str):
@@ -163,7 +209,70 @@ class ArtifactStore:
         return self._digest_bytes(self.get_bytes(digest)) == digest
 
     def path_for(self, digest: str) -> str:
-        return self._blob_path(digest)
+        return self._resolved_blob_path(digest)
+
+    # --- garbage collection (shared-blob safe) --------------------------
+    def remove(self, digest: str) -> bool:
+        """Unlink the shared content-addressed blob for ``digest``. Returns True
+        if a blob was removed, False if none was present (or the unlink failed).
+
+        LOW-LEVEL GC primitive: it validates the digest and realpath-containment
+        (so a non-canonical digest, or a path that escapes the store via a
+        planted symlink, is refused rather than deleting an out-of-store file)
+        but it does NOT check references -- the CALLER must first confirm no live
+        reference survives anywhere (see ``referencing_workspaces`` /
+        ``Registry.referencing_workspaces``). Because the store is a SHARED,
+        content-addressed pool, unlinking a still-referenced blob would destroy
+        another workspace's evidence; that check is the caller's contract.
+        ``lineage.jsonl`` is left intact -- provenance survives the bytes and is
+        never treated as an authorization record."""
+        path = self._resolved_blob_path(digest)
+        try:
+            os.remove(path)
+            return True
+        except OSError:
+            # FileNotFoundError -> nothing to remove; any other OSError leaves
+            # the blob present. Either way it was not removed: report honestly.
+            return False
+
+    # --- reference queries (durable authority = the Registry) -----------
+    def referencing_workspaces(self, digest: str) -> "set[str]":
+        """Every workspace that holds a LIVE reference to ``digest``.
+
+        A shared blob is safe to GC only when this is EMPTY. The durable
+        authority is the Registry's workspace-scoped reference-edge rows
+        (recordings/contracts/trials/conversations + the non-recording and JSON
+        reference tables); a bare store with no registry falls back to the
+        store's own lineage workspace_ids, a PROVENANCE view only. Validates the
+        digest first (a non-canonical digest references nothing)."""
+        _canonical_digest(digest)
+        if self._registry is not None:
+            return set(self._registry.referencing_workspaces(digest))
+        return self._lineage_workspaces(digest)
+
+    def workspace_has_reference(self, digest: str, workspace_id: str) -> bool:
+        """Whether ``workspace_id`` holds a live reference to ``digest`` in the
+        durable Registry. A bare store (no registry) reports its own lineage
+        provenance instead -- and a lineage record is NOT an ACL: read
+        authorization is gated on live registry roots
+        (``hotato.serve.data.evidence_digest_authorized``), never on lineage."""
+        _canonical_digest(digest)
+        if self._registry is not None:
+            return bool(self._registry.has_artifact_reference(workspace_id, digest))
+        return workspace_id in self._lineage_workspaces(digest)
+
+    def _lineage_workspaces(self, digest: str) -> "set[str]":
+        """Workspaces named as the WRITER of ``digest`` in this store's lineage
+        (provenance only). Records naming the digest merely as a parent are not
+        writers and are excluded; a ``None`` writer contributes nothing."""
+        out: "set[str]" = set()
+        for rec in self.lineage(digest):
+            if rec.get("digest") != digest:
+                continue
+            ws = rec.get("workspace_id")
+            if ws is not None:
+                out.add(ws)
+        return out
 
     # --- maintenance ------------------------------------------------------
     def _cleanup_stale_tmp(self, max_age_seconds: int = _STALE_TMP_AGE_SECONDS) -> None:
