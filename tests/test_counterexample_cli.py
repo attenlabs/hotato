@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
+import sys
 
 from hotato import cli
 
@@ -123,8 +125,23 @@ def test_generated_scripts_are_executable_and_predicate_maps_present_failure(tmp
     assert cli.main(_compile_args(workspace, scenario, test, output)) == 0
     reproduce = output / "reproduce.sh"
     predicate = output / "predicate.sh"
-    assert os.access(reproduce, os.X_OK)
-    assert os.access(predicate, os.X_OK)
+    if sys.platform == "win32":
+        # Windows records no POSIX execute bit; the helpers run through the
+        # interpreter. Exercise the documented `sh reproduce.sh` form when a
+        # shell and the entry point are present, and the CLI verb the helper
+        # wraps either way.
+        sh = shutil.which("sh")
+        if sh and shutil.which("hotato"):
+            completed = subprocess.run(
+                [sh, str(reproduce)], capture_output=True, text=True
+            )
+            assert completed.returncode == 0, completed.stderr
+        assert cli.main(
+            ["counterexample", "reproduce", str(output), "--format", "json"]
+        ) == 0
+    else:
+        assert os.access(reproduce, os.X_OK)
+        assert os.access(predicate, os.X_OK)
     assert "counterexample reproduce" in reproduce.read_text(encoding="utf-8")
     assert "counterexample reproduce" in predicate.read_text(encoding="utf-8")
     assert "counterexample verify" not in predicate.read_text(encoding="utf-8")
