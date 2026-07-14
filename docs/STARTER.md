@@ -1,16 +1,16 @@
 # The starter kit: `hotato init starter`
 
-The fastest way to add hotato to an existing voice-agent repository. It
+The fastest way to add hotato to an existing voice-agent repo: one command
 scaffolds the CI gate, a stack-tuned config file, and the three directories
-the rest of the docs assume already exist, so you can go straight to turning
-your first bad call into a contract instead of wiring plumbing by hand.
+the rest of the docs assume already exist. Skip the plumbing and go straight
+to turning your first bad call into a contract.
 
 ```bash
 hotato init starter --stack vapi --out .
 ```
 
 `--stack` is one of `vapi`, `retell`, `twilio`, `livekit`, `pipecat` -- every
-stack hotato has a shipped connector for today (see
+stack hotato has a shipped connector for (see
 [`ADAPTER-STATUS.md`](ADAPTER-STATUS.md)). `--out` is usually `.`, the root of
 the repo you are adding hotato to. Generation runs offline, in one command,
 nothing to connect.
@@ -36,13 +36,13 @@ reports/
 ```
 
 Every file writes cleanly only when it doesn't already exist (pass `--force`
-to overwrite); each write lands whole or not at all. The generated file names
-are deliberately namespaced away from an existing repo's own files (`HOTATO.md`,
-distinct from `README.md`; `hotato-contracts.yml`, distinct from
-`hotato.yml`) so a first run drops in cleanly alongside files a voice-agent
-repo almost always already has.
+to overwrite); each write lands whole or not at all. The generated names are
+namespaced away from a repo's own files (`HOTATO.md`, distinct from
+`README.md`; `hotato-contracts.yml`, distinct from `hotato.yml`), so a first
+run drops in cleanly alongside files a voice-agent repo almost always
+already has.
 
-## Two input paths, chosen for you by `--stack`
+## Two input paths, chosen by `--stack`
 
 **Auto-pull** (`vapi`, `retell`, `twilio`): hotato fetches the recording
 itself once you connect a key. `hotato.yaml`'s `credentials.env` names the
@@ -51,11 +51,11 @@ exact environment variable(s) (`VAPI_API_KEY`; `RETELL_API_KEY`;
 reads. `recording.access` is `auto-pull`.
 
 **Capture-in-your-infra** (`livekit`, `pipecat`): capture happens inside your
-own deployment, so no credentials are needed.
-`hotato.yaml`'s `credentials.env` is `[]` and `recording.access` is
-`capture-in-your-infra`; `hotato setup --stack <stack>` prints the exact
-two-track capture scaffold, and you point `hotato contract create --stereo`
-at the WAV your own deployment writes.
+own deployment, so no credentials are needed. `hotato.yaml`'s
+`credentials.env` is `[]` and `recording.access` is `capture-in-your-infra`;
+`hotato setup --stack <stack>` prints the exact two-track capture scaffold,
+and you point `hotato contract create --stereo` at the WAV your own
+deployment writes.
 
 ## LiveKit and Pipecat runbook
 
@@ -76,8 +76,8 @@ operator runbook for both, capture through CI.
    `"manual"`), `endpointing` (`min_delay`, `max_delay`), and `interruption`
    (`enabled`, `mode`, `min_duration`, `min_words`,
    `false_interruption_timeout`, `resume_false_interruption`). Read what a
-   given agent file is running, statically, before you propose
-   changing anything: `hotato inspect --stack livekit --config agent.py`.
+   given agent file is running, statically, before proposing any change:
+   `hotato inspect --stack livekit --config agent.py`.
 3. **Score it.**
    `hotato capture --stack livekit --caller caller.wav --agent agent.wav --onset <sec> --expect yield`
    (convert the egress output to WAV first, e.g. `ffmpeg -i caller.ogg caller.wav`).
@@ -114,26 +114,25 @@ date. Full field-level detail and provenance: [`ADAPTER-STATUS.md`](ADAPTER-STAT
 ## The CI gate
 
 `.github/workflows/hotato-contracts.yml` runs on push, on pull request, and
-weekly. It is two guarded steps that pass clean, as a **no-op**, until you
-have added a first contract or fixture (a fresh scaffold's normal starting
-state):
+weekly. It is two guarded steps that pass clean, as a no-op, until you have
+added a first contract or fixture (a fresh scaffold's normal starting state):
 
 ```bash
 hotato contract verify contracts --junit hotato.xml --format json > contracts-verify.json
 hotato run --scenarios fixtures/scenarios --audio fixtures/audio --format json > fixtures-run.json
 ```
 
-The JUnit file is published as a build artifact on every run (`always()`),
+The JUnit file publishes as a build artifact on every run (`always()`),
 whether the gate passed, failed, or had nothing to check yet.
 
 For the three auto-pull stacks, the workflow also carries a `weekly-sweep`
 job: a passive, candidate-only sweep of recent calls
 (`hotato sweep --stack <stack>`), ranked by hotato's own salience -- a
-candidate list for you to review and label. It ships **disabled** (`if:
-false`): flip it to `true` once the stack's credential env var(s) are set as
-repo secrets (Settings -> Secrets and variables -> Actions). A live pull
-against your account only runs on your explicit say-so: enabling this job is
-a human decision, made once, in your own CI config. `livekit`/`pipecat` skip
+candidate list for you to review and label. It ships disabled (`if: false`):
+flip it to `true` once the stack's credential env var(s) are set as repo
+secrets (Settings -> Secrets and variables -> Actions). A live pull against
+your account runs only on your explicit say-so -- enabling this job is a
+human decision, made once, in your own CI config. `livekit`/`pipecat` skip
 this job entirely, since capture for those stacks already happens inside
 your own deployment.
 

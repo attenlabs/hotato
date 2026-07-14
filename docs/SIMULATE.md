@@ -1,16 +1,16 @@
 # Simulate (`hotato simulate`): a scenario to a deterministic, labelled conversation
 
 `hotato simulate` renders a **scenario** (`hotato.scenario.v1`) through a
-DETERMINISTIC scripted caller into one or more **conversation artifacts**
+deterministic scripted caller into one or more **conversation artifacts**
 (`hotato.conversation.v1`), each labelled `origin=simulated`. It runs fully
-offline, scripted-caller only: the deterministic INPUT side of a simulation --
-the ground-truth a caller holds, the caller's scripted turns, the environment,
-and an optional variation matrix.
+offline with a scripted caller only -- the deterministic input side of a
+simulation: the ground truth a caller holds, the caller's scripted turns,
+the environment, and an optional variation matrix.
 
-It is the trustworthy regression foundation you build BEFORE any generative
-caller: a fixed `(scenario, seed)` reproduces the transcript **byte-for-byte**
-(the produced transcript is content-hashed), so a run is a stable, reusable
-fixture.
+Use it to build the regression foundation you want in place before any
+generative caller: a fixed `(scenario, seed)` reproduces the transcript
+byte-for-byte (the produced transcript is content-hashed), so a run is a
+stable, reusable fixture.
 
 ## Quickstart (works from a bare `pip install`)
 
@@ -27,8 +27,8 @@ hotato simulate demo.scenario.json --out ./sim
 hotato conversation verify ./sim
 ```
 
-Prefer zero files? The package ships a minimal scenario you can run directly --
-no file on disk:
+Prefer zero files? The package ships a minimal scenario you can run
+directly, no file on disk:
 
 ```bash
 hotato simulate --example --out ./sim
@@ -43,7 +43,7 @@ hotato simulate: demo -- 1 run(s), origin=simulated (never real)
 reliability: pass@1=1.000 pass@k=1.000 pass^k=1.000 (n=1)
 ```
 
-The `./sim` directory holds a `conversation.json` plus its bound transcript and
+`./sim` holds a `conversation.json` plus its bound transcript and
 `voice_trace.jsonl`, all `origin.kind=simulated`.
 
 > **Two different `scenario` concepts, one name.** `hotato simulate` consumes a
@@ -56,9 +56,9 @@ The `./sim` directory holds a `conversation.json` plus its bound transcript and
 
 ## What `--init` writes
 
-`hotato simulate --init demo.scenario.json` writes a MINIMAL, valid
-`hotato.scenario.v1` doc. It is a starter you edit for your own agent -- shape
-the caller turns to match your own call. The scenario id is derived from the
+`hotato simulate --init demo.scenario.json` writes a minimal, valid
+`hotato.scenario.v1` doc -- a starter you edit for your own agent, shaping
+the caller turns to match your own call. The scenario id derives from the
 filename stem.
 
 ```json
@@ -80,45 +80,44 @@ filename stem.
 }
 ```
 
-The caller's script holds only the caller's own turns -- a `say` is the caller
-speaking. The schema enforces this structurally: there's no field for the
-agent's words, so a scenario stays scoped to the caller's side by construction,
-at the schema level.
+The caller's script holds only the caller's own turns -- a `say` is the
+caller speaking. The schema enforces this structurally: there's no field
+for the agent's words, so a scenario stays scoped to the caller's side by
+construction, at the schema level.
 
 Required fields: `kind`, `version`, `id`, `goal` (`type` + `target`), and
-`caller.script` (at least one `say`). The full schema, including `variation_matrix`
-and the optional deterministic `agent_mock`, is
+`caller.script` (at least one `say`). The full schema, including
+`variation_matrix` and the optional deterministic `agent_mock`, is
 [`schema/scenario.v1.json`](../src/hotato/schema/scenario.v1.json).
 
-## The invariants (enforced structurally)
+## The invariants, enforced structurally
 
 - **`origin=simulated` on every produced conversation**, kept in its own
-  bucket, apart from real calls. `write_artifact` only writes artifacts whose
-  origin is simulated.
+  bucket, apart from real calls. `write_artifact` only writes artifacts
+  whose origin is simulated.
 - **A bad rendering is `SIMULATOR_INVALID`, kept distinct from an agent
-  PASS/FAIL.** The simulator only decides whether the produced conversation is
-  a FAITHFUL rendering of its scenario. Scoring is the SEPARATE assert layer's
+  PASS/FAIL.** The simulator only decides whether the produced conversation
+  faithfully renders its scenario. Scoring is the separate assert layer's
   job, over the produced artifact.
-- **Reproducibility means a SEEDED REPLAY is byte-identical** -- there's no
-  model in this path. A fixed `(scenario, seed)` produces the same transcript
-  bytes every time; different seeds differ ONLY where the scenario allows it
-  (probabilistic backchannels).
-- **Each dimension scored on its own lane** -- enforced structurally in both
+- **A seeded replay is byte-identical** -- there's no model in this path. A
+  fixed `(scenario, seed)` produces the same transcript bytes every time;
+  different seeds differ only where the scenario allows it (probabilistic
+  backchannels).
+- **Each dimension scores on its own lane**, enforced structurally in both
   the schema, which rejects an `overall_score` key, and the code path.
 
 ## Reliability: pass@1 / pass@k / pass^k
 
-`simulate` reports **Reliability** as its own dimension, scored on its own lane:
+`simulate` reports Reliability as its own dimension, scored on its own lane:
 
 - `pass@1` -- the fraction of runs that rendered faithfully.
 - `pass@k` -- at-least-one-passes across `k` runs.
 - `pass^k` -- all-`k`-pass.
 
-For the scripted deterministic caller `pass^k == pass@1`: a seeded replay is
-byte-identical, so every run has the same outcome. That is the correct,
-plainly reported outcome; variance shows up only where the scenario
-introduces it. `--repetitions N` expands the variation matrix so Reliability
-is measured over `N` runs.
+For the scripted deterministic caller, `pass^k == pass@1`: a seeded replay
+is byte-identical, so every run has the same outcome. Variance shows up
+only where the scenario introduces it. `--repetitions N` expands the
+variation matrix so Reliability is measured over `N` runs.
 
 ## Simulate many scenarios in parallel (`--matrix`)
 
@@ -139,9 +138,9 @@ attributed to its own variation cell, each scored on its own lane.
 
 ## Exit codes
 
-- **`0`** -- every produced conversation is `origin=simulated` and
-  validated as a faithful rendering (and, under `--matrix
-  --conversation-test`, every scored aggregate passed).
+- **`0`** -- every produced conversation is `origin=simulated` and validated
+  as a faithful rendering (and, under `--matrix --conversation-test`, every
+  scored aggregate passed).
 - **`1`** -- at least one produced simulation was `SIMULATOR_INVALID` -- a
   broken fixture, kept distinct from an agent PASS/FAIL -- or, under
   `--matrix --conversation-test`, a scored aggregate FAILed.
@@ -154,5 +153,5 @@ attributed to its own variation cell, each scored on its own lane.
 
 - [CONVERSATION-TEST.md](CONVERSATION-TEST.md) -- `hotato scenario init` /
   `hotato test run`: score a real call against a conversation-test.
-- [`schema/scenario.v1.json`](../src/hotato/schema/scenario.v1.json) -- the full
-  scenario schema.
+- [`schema/scenario.v1.json`](../src/hotato/schema/scenario.v1.json) -- the
+  full scenario schema.
