@@ -1,0 +1,10 @@
+Silero VAD (silero_vad.onnx)
+Copyright (c) Silero Team
+Licensed under the MIT License.
+https://github.com/snakers4/silero-vad
+
+This ONNX file is the Silero VAD model, shipped unmodified. It backs the
+OPTIONAL, non-reference neural VAD cross-check in hotato (the `[neural]` extra,
+`hotato run --backend neural`). It is loaded directly on onnxruntime; the
+segmentation post-processing in hotato/neural.py is a numpy re-implementation of
+silero-vad's get_speech_timestamps (also MIT). No torch/torchaudio is used.

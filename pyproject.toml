@@ -65,11 +65,13 @@ pipecat = ["pipecat-ai"]
 # OPTIONAL, NON-REFERENCE neural VAD cross-check (Silero VAD, MIT). Strictly
 # opt-in via `--backend neural`; the zero-dependency energy core stays the
 # reference for every published/golden number and is never affected by this
-# extra. Inference executes through onnxruntime on CPU with the weights bundled
-# in the silero-vad package (no download at run time); silero-vad itself depends
-# on torch for its segmentation utilities, so this extra installs torch. Absent
-# this extra, `--backend neural` errors cleanly, never falling back to energy.
-neural = ["silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21"]
+# extra. The Silero VAD ONNX weights (~2.33 MB, MIT) ship INSIDE this package
+# (src/hotato/data/silero_vad.onnx) and run DIRECTLY on onnxruntime (CPU) with a
+# numpy re-implementation of silero-vad's segmentation -- so this extra installs
+# only onnxruntime + numpy, no torch/torchaudio/CUDA (a ~526 MB transitive
+# saving over the silero-vad wrapper). No download at run time. Absent this
+# extra, `--backend neural` errors cleanly, never falling back to energy.
+neural = ["onnxruntime>=1.16", "numpy>=1.21"]
 # OPTIONAL asymmetric Ed25519 signing layer (hotato.sign): provenance/
 # eligibility, never the reference scoring math, which this never touches.
 # Strictly opt-in: `cryptography` is imported lazily, only inside
@@ -117,7 +119,7 @@ transcribe = ["faster-whisper>=1.0"]
 # unsigned verdict is used -- never a hollow signature.
 judge = []
 # Everything a contributor might want to exercise the live capture paths locally.
-all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "silero-vad>=5", "onnxruntime>=1.16", "numpy>=1.21", "cryptography>=41", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "faster-whisper>=1.0"]
+all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "onnxruntime>=1.16", "numpy>=1.21", "cryptography>=41", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "faster-whisper>=1.0"]
 
 [project.scripts]
 hotato = "hotato.cli:main"
@@ -144,6 +146,10 @@ where = ["src"]
 [tool.setuptools.package-data]
 hotato = [
     "data/evidence_language.json",
+    # Bundled Silero VAD ONNX weights (MIT) + its attribution notice for the
+    # OPTIONAL [neural] extra; loaded directly on onnxruntime (no torch).
+    "data/silero_vad.onnx",
+    "data/silero_vad.onnx.NOTICE",
     "data/scenarios/*.json",
     "data/simulate/*.json",
     "data/audio/*.wav",

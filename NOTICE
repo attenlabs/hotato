@@ -1,0 +1,21 @@
+hotato
+Copyright (c) Attention Labs, Inc.
+Licensed under the MIT License (see LICENSE).
+
+------------------------------------------------------------------------
+Bundled third-party model
+------------------------------------------------------------------------
+
+src/hotato/data/silero_vad.onnx
+
+    Silero VAD
+    Copyright (c) Silero Team
+    Licensed under the MIT License.
+    https://github.com/snakers4/silero-vad
+
+    Shipped unmodified as the ONNX weights for the OPTIONAL, non-reference
+    neural VAD cross-check (the `[neural]` extra, `--backend neural`). Loaded
+    directly on onnxruntime; the segmentation post-processing in
+    src/hotato/neural.py is a numpy re-implementation of silero-vad's
+    get_speech_timestamps (also MIT). The deterministic energy backend, which
+    produces every published/golden number, uses no third-party model.
