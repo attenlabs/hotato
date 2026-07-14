@@ -60,6 +60,7 @@ def test_run_suite_happy_path_bundled_battery():
     assert result.exit_code == 0
     assert result.summary.events == 8
     assert result.summary.passed == 8
+    assert result.suite == "barge-in"
     assert len(result.events) == 8
     assert all(isinstance(e, sdk.Event) for e in result.events)
 
@@ -75,6 +76,7 @@ def test_run_single_happy_path():
     )
     assert isinstance(result, sdk.SuiteResult)
     assert result.mode == "single"
+    assert result.suite is None
     assert len(result.events) == 1
     ev = result.events[0]
     # The four convenience properties read straight from the nested verdict.
@@ -95,6 +97,7 @@ def test_suite_result_fields_match_json_keys():
     _assert_no_invented_fields(result, raw)
     _assert_no_invented_fields(result.summary, raw["summary"], optional={"not_scorable"})
     # value round-trip at every level
+    assert result.suite == raw["suite"]
     assert result.exit_code == raw["exit_code"]
     assert result.summary.failed == raw["summary"]["failed"]
     assert result.summary.passed == raw["summary"]["passed"]
