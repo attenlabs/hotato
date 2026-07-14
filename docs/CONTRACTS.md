@@ -1,60 +1,43 @@
 # Failure contracts
 
-A failure contract turns ONE call moment into a portable, private,
-vendor-neutral bundle: the audio, frame-level timing evidence, an
-input-health report, a shareable card, a CI pass/fail policy, and the
-exact commands to replay and re-verify it. It is the CI object:
-`hotato contract verify` re-scores a directory of contracts and exits
-non-zero when one regresses.
+A failure contract packages ONE call moment into a portable, private
+bundle: audio, frame-level timing evidence, an input-health report, a
+shareable card, a CI pass/fail policy, and the commands to replay and
+re-verify it. It is the CI object -- `hotato contract verify` re-scores
+a directory of contracts and exits non-zero when one regresses.
 
-A contract's label always comes from a human call (`label_source` is
-frozen to `"human"`); Hotato measures whether the recorded timing matched
-that label, and `contract verify` re-measures the SAME recording later
-and reports pass/fail.
+A contract's label always comes from a human (`label_source` is frozen
+to `"human"`). Hotato measures whether the recorded timing matched that
+label; `contract verify` re-measures the SAME recording later and
+reports pass/fail.
 
 > **A contract bundle contains call audio (`audio/event.wav`).** Do not
-> commit a raw customer contract to a public repository -- treat it like
-> any other recording of a caller. Use sanitized fixtures (synthetic or
-> consent-cleared) for anything public, and put customer contracts in a
-> private repository or controlled artifact storage.
-> `--include-identifiers` additionally writes a source basename and
-> candidate ref into `contract.json` and the card; leave it off by
-> default for the same reason. That redaction covers metadata only -- the
+> commit a raw customer contract to a public repository; treat it like
+> any recording of a caller. Use sanitized fixtures (synthetic or
+> consent-cleared) for anything public, and keep customer contracts in a
+> private repository or controlled artifact storage. `--include-identifiers`
+> also writes a source basename and candidate ref into `contract.json`
+> and the card; leave it off by default. This covers metadata only --
 > full audio-handling rules are in
 > [`SECURITY.md`](../SECURITY.md#audio-handling).
 
-## Two lanes: what `verify` proves depends on which recording you feed it
+## Two lanes: same command, two different proofs
 
-**Lane A -- `contract verify` on the frozen recording:**
+| | Lane A -- frozen recording | Lane B -- fresh recapture |
+| --- | --- | --- |
+| **Re-scores** | the SAME `audio/event.wav` the contract was created from | a new recording of the SAME stimulus against your CURRENT agent |
+| **A pass proves** | the evidence, policy, and scorer are still intact and still agree with the human label | the CURRENT agent's behavior on that stimulus still matches the label |
+| **Leaves open** | whether the deployed agent's behavior has changed since | nothing extra -- this lane speaks to the live agent |
+| **Runs** | every push, in the shipped `ci/github-action.yml` (`contract verify contracts/`) | only when you recapture by hand or on a schedule -- see [`docs/RECAPTURE.md`](RECAPTURE.md) |
 
-- **What it re-scores:** the SAME `audio/event.wav` the contract was
-  created from.
-- **What a pass proves:** the evidence, the policy, and the scorer are
-  still intact and still agree with the human label.
-- **What a pass leaves open:** whether the deployed agent's behavior has
-  changed since.
-- **When it runs:** every push, in the shipped `ci/github-action.yml`
-  (`contract verify contracts/`).
-
-**Lane B -- `contract verify` on a fresh recapture:**
-
-- **What it re-scores:** a new recording of the SAME stimulus against
-  your CURRENT agent.
-- **What a pass proves:** the CURRENT agent's behavior on that stimulus
-  still matches the label.
-- **What a pass leaves open:** nothing extra -- this is the lane that
-  speaks to the live agent.
-- **When it runs:** only when you recapture by hand or on a schedule; see
-  [`docs/RECAPTURE.md`](RECAPTURE.md).
-
-A frozen-recording pass is necessary but not sufficient to know the agent
-bug stayed fixed: it can only fail if someone edits the bundle's audio or
-policy, because the recording never changes. Confirming the CURRENT agent
-still yields correctly takes re-running the same caller stimulus against
-it and re-verifying the fresh capture, by hand
-([`docs/RECAPTURE.md`](RECAPTURE.md)). Run the frozen gate on every push
-to catch evidence/policy drift for free, and recapture periodically (or
-after an agent change) to catch what only a fresh capture can.
+A frozen-recording pass is necessary but not sufficient: the recording
+never changes, so it can only fail if someone edits the bundle's audio
+or policy. Confirming the CURRENT agent still yields correctly takes
+re-running the same stimulus and re-verifying the fresh capture, by
+hand ([`docs/RECAPTURE.md`](RECAPTURE.md)). Run the frozen gate on
+every push to catch evidence/policy drift for free, and recapture
+periodically (or after an agent change) to catch what the frozen
+recording cannot.
 
 ## The bundle
 
@@ -108,9 +91,9 @@ Both forms wrap the SAME round-trip guarantee `hotato fixture create`
 gives: the moment is scored immediately, and a not-scorable input (the
 agent silent at the onset, an unreadable file, a bad channel map) is
 refused with a clear reason and exit code 2 -- no bundle is written. A
-single-channel (mono) recording passed as `--stereo` is rejected the same
-way `fixture create` rejects it: caller and agent cannot be told apart on
-one channel.
+single-channel (mono) recording passed as `--stereo` is rejected the
+same way `fixture create` rejects it: caller and agent cannot be told
+apart on one channel.
 
 `--caller FILE --agent FILE` (two mono WAVs) is a third input form,
 scored and clipped identically.
@@ -123,8 +106,9 @@ recording's basename. Pass `--include-identifiers` to show them (in
 
 ### The opt-in diarized-mono path
 
-A single-channel recording can still become a contract through the SAME
-quality-gated diarizer front-end `hotato run --mono --diarize` uses:
+A single-channel recording can still become a contract, through the
+SAME quality-gated diarizer front-end `hotato run --mono --diarize`
+uses:
 
 ```bash
 hotato contract create --mono call.wav --diarize \
@@ -132,14 +116,14 @@ hotato contract create --mono call.wav --diarize \
 ```
 
 This keeps an indicative-only verdict in its tier: a `low`-confidence
-separation tier carries `measurement.indicative_only: true` all the way
-into `contract.json` and every renderer, and a `refuse` tier (not two
-clean parties, extreme overlap, unstable segmentation, voices too
-similar) is refused exactly like a plain mono file, with the specific
-reason. This path's evidence lives in `evidence/trust.json`'s separation
-confidence tier: `evidence/timeline.html` points there instead of
-rendering the frame-level to-scale timeline (`evidence/frames.jsonl`)
-that a dual-channel contract carries.
+separation tier carries `measurement.indicative_only: true` into
+`contract.json` and every renderer; a `refuse` tier (not two clean
+parties, extreme overlap, unstable segmentation, voices too similar) is
+refused exactly like a plain mono file, with the specific reason. This
+evidence lives in `evidence/trust.json`'s separation confidence tier:
+`evidence/timeline.html` points there instead of the frame-level
+to-scale timeline (`evidence/frames.jsonl`) a dual-channel contract
+carries.
 
 ## Verify
 
@@ -149,49 +133,51 @@ hotato contract verify contracts/ --format json --junit contracts-junit.xml
 hotato contract verify contracts/refund-cutoff-001.hotato --html verify.html
 ```
 
-`DIR` is a contracts directory (every `*.hotato` subdirectory that
-carries a `contract.json`) or one bundle directly. For each contract,
-`verify` re-scores the SAME bundled audio against the SAME policy
-recorded in its own `contract.json` -- this is what changes after an
-engine upgrade, a threshold change, or a re-captured recording swapped
-into `audio/event.wav` -- and reports pass/fail per contract and overall.
+`DIR` is a contracts directory (every `*.hotato` subdirectory carrying a
+`contract.json`) or one bundle directly. For each contract, `verify`
+re-scores the SAME bundled audio against the SAME policy in its own
+`contract.json` -- this is what changes after an engine upgrade, a
+threshold change, or a re-captured recording swapped into
+`audio/event.wav` -- and reports pass/fail per contract and overall.
 
-Exit codes are the CI contract: `0` every contract passes, `1` at least
-one regressed (or is no longer scorable) OR at least one embedded
-assertion deterministically FAILed (reported separately below, but it
-still contributes to this nonzero exit), `2` a usage error, an empty
-directory, or a corrupt `contract.json`. `--junit` writes one
-`<testcase>` per contract; the shipped `ci/github-action.yml` scaffold
-runs this on push, on PR, and weekly, and publishes the JUnit file as an
-artifact.
+Exit codes are the CI contract:
+
+| Exit | Meaning |
+| ---: | --- |
+| `0` | every contract passes |
+| `1` | at least one regressed (or is no longer scorable), or an embedded assertion deterministically FAILed (below -- it still counts toward this exit) |
+| `2` | usage error, empty directory, or corrupt `contract.json` |
+
+`--junit` writes one `<testcase>` per contract; the shipped
+`ci/github-action.yml` scaffold runs this on push, on PR, and weekly,
+and publishes the JUnit file as an artifact.
 
 Every text and HTML render of `verify` also prints, verbatim: *"This
 result re-measures stored evidence. It does not test the current
-agent."* -- a green CI run here means the evidence, policy, and scorer
-are still intact; checking today's deployed agent takes the
-fresh-recapture lane above. See
+agent."* A green CI run here means the evidence, policy, and scorer are
+still intact; checking today's deployed agent takes the fresh-recapture
+lane above. See
 [`docs/RECAPTURE.md`](RECAPTURE.md#claim-language-what-each-kind-of-evidence-lets-you-accurately-say)
 for exactly what each kind of evidence lets you claim.
 
 ### Embedded assertions (optional)
 
 A contract can carry its own `assertions` block (schema
-`hotato.contract.v1` -- see `schema/contract.v1.json`), the same
-`{version, assertions}` document `hotato assert` reads from an
-`assertions.yaml` file. When present, `contract verify` evaluates it
-through the SAME `assert.v1` engine and reports the result as a
-per-contract `assertions` field, kept separate from the timing pass/fail
-in `summary`/`passed`. Pass `--transcript FILE` (a plain JSON array of
+`hotato.contract.v1`; see `schema/contract.v1.json`) -- the same
+`{version, assertions}` document `hotato assert` reads from
+`assertions.yaml`. When present, `contract verify` evaluates it through
+the SAME `assert.v1` engine and reports it as a per-contract
+`assertions` field, separate from the timing pass/fail in
+`summary`/`passed`. Pass `--transcript FILE` (a plain JSON array of
 `{role, text, start, end}` turns, or hotato's own `{"segments": [...]}`
-shape) to supply transcript context for `phrase`/`pii`/`policy`
+shape) to give transcript context to `phrase`/`pii`/`policy`
 assertions; `tool_call` assertions read the bundle's own attached trace
-(`hotato trace attach`) if one exists. Missing context (no `--transcript`,
-no attached trace) reports `INCONCLUSIVE`. A deterministic assertion FAIL
-contributes to the batch's nonzero exit code exactly like a timing
-regression; the batch result also carries a separate `assertions_failed`
-count. See [`schema/assert.v1.json`](../src/hotato/schema/assert.v1.json)
-for the result shape and `hotato.assert_` for the five deterministic
-kinds.
+(`hotato trace attach`) if one exists. Missing context reports
+`INCONCLUSIVE`. A deterministic FAIL contributes to the batch's nonzero
+exit code exactly like a timing regression; the batch result also
+carries a separate `assertions_failed` count. See
+[`schema/assert.v1.json`](../src/hotato/schema/assert.v1.json) for the
+result shape and `hotato.assert_` for the five deterministic kinds.
 
 ## Inspect
 
@@ -216,34 +202,32 @@ hotato contract unpack contracts/refund-cutoff-001.hotato.pack \
 # left behind
 ```
 
-Packing the SAME bundle directory twice produces byte-identical archives
-(sorted member order, fixed timestamps, and every other value written
-into each member's ZipInfo, including its `create_system` byte): a
-contract's pack is a pure function of its bundle contents, deterministic
-for a fixed hotato version. Byte-identical re-runs are verified in CI on
-Linux x86_64, Python 3.10, 3.11, and 3.12 -- see
+Packing the SAME bundle directory twice produces byte-identical
+archives (sorted member order, fixed timestamps, and every other value
+written into each member's ZipInfo, including its `create_system`
+byte): a contract's pack is a pure function of its bundle contents,
+deterministic for a fixed hotato version. Byte-identical re-runs are
+verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12 -- see
 [VALIDATION.md](VALIDATION.md) Job 1.
 
 ### Security: unpack treats an archive as hostile input
 
-A `.hotato` archive is meant to be sent between teams, so `contract
-unpack` verifies everything about it before trusting a single byte.
-Before or during extraction it refuses (exit 2) on any of the following,
-writing only inside a scratch temp directory that's removed on any
-failure:
+A `.hotato` archive travels between teams, so `contract unpack`
+verifies everything about it before trusting a single byte. Before or
+during extraction it refuses (exit 2) on any of the following, writing
+only inside a scratch temp directory removed on any failure:
 
 * path traversal (`..`), absolute paths, and Windows-style backslash /
   drive-letter paths (`C:\...`) in a member name;
 * symlink members and encrypted members;
 * duplicate member names;
-* any member the archive carries that its own `MANIFEST.sha256.json` does
-  not declare;
+* any member not declared in its own `MANIFEST.sha256.json`;
 * more members than a legitimate bundle could plausibly need;
-* a declared or measured decompressed size past the cap (default 512 MiB,
-  set `HOTATO_CONTRACT_MAX_UNPACK_BYTES` or pass `--max-bytes` to raise it
-  for a trusted archive) -- checked against the bytes measured live during
-  extraction, beyond what the archive's own (untrusted) size metadata
-  claims;
+* a declared or measured decompressed size past the cap (default 512
+  MiB; set `HOTATO_CONTRACT_MAX_UNPACK_BYTES` or pass `--max-bytes` to
+  raise it for a trusted archive) -- checked against the bytes measured
+  live during extraction, beyond what the archive's own (untrusted)
+  size metadata claims;
 * a single member whose compression ratio is far beyond anything a
   legitimate bundle member produces (a zip-bomb signal), even under the
   total-bytes cap.
