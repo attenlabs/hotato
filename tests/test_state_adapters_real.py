@@ -40,7 +40,6 @@ from hotato.state_adapter import (
     load_state_adapter,
 )
 
-
 # ===========================================================================
 # A real local HTTP system of record (stdlib http.server)
 # ===========================================================================

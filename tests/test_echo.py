@@ -16,7 +16,6 @@ Everything is deterministic and stdlib-only; the detector lives entirely in
 hotato's own layer (``hotato.echo``), never in the vendored engine.
 """
 
-import json
 import math
 import struct
 import wave
@@ -25,13 +24,12 @@ from importlib import resources
 import pytest
 
 from hotato import cli
+from hotato._engine import read_wav
 from hotato.core import run_single, run_suite
 from hotato.diagnose import diagnose_envelope, echo_warnings
 from hotato.diagnose import render_text as diagnose_text
 from hotato.echo import echo_block_from_samples, echo_signal
 from hotato.scan import scan_recording
-from hotato._engine import read_wav
-
 
 SR = 16000
 

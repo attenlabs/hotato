@@ -20,7 +20,6 @@ of scope. Everything is deterministic and stdlib-only; the detector lives entire
 in hotato's own layer (``hotato.resume``), never in the vendored engine.
 """
 
-import json
 import math
 import os
 import struct

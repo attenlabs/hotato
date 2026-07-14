@@ -5,11 +5,9 @@ low-signal -> caution (not 'eligible for scan'), channel inversion -> possible-s
 caution, and hop-grid boundary-sensitivity. Uses deterministic synthetic
 perturbations of a real fixture.
 """
-import os
 
-import pytest
 
-from hotato import core, trust, synth
+from hotato import core, synth, trust
 from tests import _trial_audio as ta
 
 

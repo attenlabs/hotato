@@ -28,7 +28,6 @@ import os
 import shlex
 import stat
 from importlib import resources
-from typing import Optional
 
 from . import __version__
 from . import errors as _errors
@@ -444,8 +443,8 @@ def _starter_workflow_yaml(stack: str) -> str:
         lines += [
             "",
             "  weekly-sweep:",
-            f"    # Candidate discovery only (never a verdict, never "
-            f"auto-labeled): a",
+            "    # Candidate discovery only (never a verdict, never "
+            "auto-labeled): a",
             f"    # passive sweep of recent {title} calls, ranked by "
             "hotato's own",
             "    # salience (docs/CONNECT.md). Disabled by default -- flip "

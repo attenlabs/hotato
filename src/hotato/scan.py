@@ -37,7 +37,6 @@ Everything runs offline; no audio leaves the machine.
 from __future__ import annotations
 
 import array
-import math
 import os
 import struct
 import sys
@@ -468,8 +467,7 @@ def scan_recording(
     #    the echo lag, then each caller run is scored locally at that lag. Runs
     #    above the coherence threshold are flagged so a "barge-in" that is really
     #    the agent hearing itself is not mistaken for a real caller event.
-    from .echo import (echo_signal, window_cosine,
-                       DEFAULT_COHERENCE_THRESHOLD)
+    from .echo import DEFAULT_COHERENCE_THRESHOLD, echo_signal, window_cosine
     echo = echo_signal(rms_c[:n], rms_a[:n], hop)
     if echo["echo_suspected"]:
         lag_frames = int(round(echo["lag_sec"] / hop))

@@ -54,16 +54,14 @@ Field-name basis (recorded per result in ``fetched_at_provenance``):
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import ast
 import json
-
-from . import errors as _errors
 import os
 from datetime import datetime, timezone
 from typing import Optional
 
+from . import errors as _errors
+from .errors import open_regular as _open_regular
 
 _HTTP_JSON_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
 _HTTP_ERROR_DETAIL_MAX_BYTES = 4 * 1024

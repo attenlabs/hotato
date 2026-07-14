@@ -21,16 +21,15 @@ from typing import Optional
 from .. import core as _core
 from .. import evidence as _evidence
 from .. import manifest as _manifest
-from .. import recompute as _recompute
 from .. import receipt as _receipt
+from .. import recompute as _recompute
 from .. import scan as _scan
-from .. import verify as _verify
 from .. import trust as _trust
-from .registry import Registry, DEFAULT_HOME
-from .store import ArtifactStore
-from .jobs import JobQueue
+from .. import verify as _verify
 from . import privacy as _privacy
-from . import canary as _canary
+from .jobs import JobQueue
+from .registry import DEFAULT_HOME, Registry
+from .store import ArtifactStore
 
 
 def _short(s: str, n: int = 12) -> str:
@@ -361,7 +360,9 @@ class FleetAPI:
         # record the human label (also enforces the candidate exists)
         lbl = self.label(workspace_id, candidate_id, decision=decision, reviewer=reviewer,
                          rationale=rationale)
-        import tempfile as _tf, os as _os
+        import os as _os
+        import tempfile as _tf
+
         from .. import contract as _contract
         data = self.store.get_bytes(rec["artifact_digest"])
         cdir = _os.path.join(self.home, "contracts", workspace_id)
@@ -470,8 +471,8 @@ class FleetAPI:
         # API-driven trial reaches PAIRED for a genuinely clean fix rather than
         # stalling at MEASURED.
         try:
-            from .. import fix_trial as _fix_trial
             from .. import evidence as _ev
+            from .. import fix_trial as _fix_trial
             ih, cm = _fix_trial._trust_preflight(before_dir, after_dir, before_env, after_env)
             vec = dict(rc["evidence"]["vector"])
             if ih is not None:
@@ -489,7 +490,8 @@ class FleetAPI:
         # all-pass-after battery has zero fail->pass transitions and is
         # inconclusive, never "improved"; --min-n is ENFORCED here, not merely
         # recorded in the manifest.
-        import tempfile as _tempfile, shutil as _shutil
+        import shutil as _shutil
+        import tempfile as _tempfile
         vm = None
         _tmpd = _tempfile.mkdtemp(prefix="hotato-fleet-trial-")
         try:
@@ -566,7 +568,9 @@ class FleetAPI:
         With the mock adapter this runs fully offline; with a live adapter the
         networked steps refuse without credentials (production is never mutated).
         Returns the same shape as experiment_run plus the clone/capture record."""
-        import os as _os, json as _json
+        import json as _json
+        import os as _os
+
         from .. import core as _core
         work_dir = work_dir or _os.path.join(self.home, "clones", trial_id)
         _os.makedirs(work_dir, exist_ok=True)
@@ -904,7 +908,8 @@ class FleetAPI:
         dig = rec.get("artifact_digest")
         if not dig:
             raise ValueError(f"recording {recording_id!r} has no stored audio to redact")
-        import os as _os, tempfile as _tf
+        import os as _os
+        import tempfile as _tf
         data = self.store.get_bytes(dig)
         src = _tf.NamedTemporaryFile(suffix=".wav", delete=False)
         out = _tf.NamedTemporaryFile(suffix=".wav", delete=False)

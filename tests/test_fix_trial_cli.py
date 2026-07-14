@@ -8,9 +8,8 @@ import copy
 import json
 import shutil
 
-import pytest
-
-from hotato import cli, core, patch as _patch
+from hotato import cli, core
+from hotato import patch as _patch
 from tests import _trial_audio as ta
 from tests import test_fix_trial as _T
 

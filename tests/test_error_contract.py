@@ -17,7 +17,6 @@ for the whole call lifecycle. Pinned here:
 
 import json
 import math
-import os
 import struct
 import wave
 from importlib import resources

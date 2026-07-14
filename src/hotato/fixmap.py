@@ -26,7 +26,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-
 # --- vendor-specific knob catalogue --------------------------------------
 #
 # These parameter names are the knobs each stack exposes for interruption /

@@ -19,7 +19,6 @@ from hotato.diagnose import (
     render_text,
 )
 
-
 # --- helpers ----------------------------------------------------------------
 
 def _event(

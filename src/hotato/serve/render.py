@@ -24,14 +24,28 @@ from typing import Any, List, Optional
 # --- house style, imported from the report with a same-look fallback ---------
 try:
     from ..report import (
-        _C as _C,
-        _esc as _esc,
-        _CSS as _REPORT_CSS,
-        _TRACE_CSS as _TRACE_CSS,
-        _TRANSCRIPT_CSS as _TRANSCRIPT_CSS,
-        _CONVERSATION_CSS as _CONVERSATION_CSS,
-        _SCORECARD_CSS as _SCORECARD_CSS,
         _ASSERTIONS_CSS as _ASSERTIONS_CSS,
+    )
+    from ..report import (
+        _C as _C,
+    )
+    from ..report import (
+        _CONVERSATION_CSS as _CONVERSATION_CSS,
+    )
+    from ..report import (
+        _CSS as _REPORT_CSS,
+    )
+    from ..report import (
+        _SCORECARD_CSS as _SCORECARD_CSS,
+    )
+    from ..report import (
+        _TRACE_CSS as _TRACE_CSS,
+    )
+    from ..report import (
+        _TRANSCRIPT_CSS as _TRANSCRIPT_CSS,
+    )
+    from ..report import (
+        _esc as _esc,
     )
     _HAVE_REPORT = True
 except Exception:  # pragma: no cover - report is a hard sibling; fallback is belt-and-braces

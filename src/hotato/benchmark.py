@@ -33,8 +33,6 @@ It scores with the vendored engine (``hotato._engine``) unchanged.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import argparse
 import json
 import os
@@ -46,6 +44,7 @@ from typing import List, Optional, Tuple
 
 from ._engine.score import ScoreConfig, score_stereo
 from .core import _read_wav
+from .errors import open_regular as _open_regular
 
 __all__ = [
     "rendered_references",

@@ -1,7 +1,6 @@
 """Agent-native MCP fleet tools: read / verify / propose, no production mutation.
 
 Tested via the standalone functions (no MCP transport / mcp extra required)."""
-import os
 
 from hotato import mcp_server as m
 from hotato.fleet.api import FleetAPI
@@ -63,7 +62,8 @@ def test_artifact_verify_flags_unsigned(tmp_path):
 
 
 def test_experiment_run_action_is_offline_and_gates_deploy(tmp_path):
-    import json, os
+    import json
+
     from hotato import core
     from hotato.fleet.api import FleetAPI
     scen = tmp_path / "scen"; bdir = tmp_path / "before"; adir = tmp_path / "after"

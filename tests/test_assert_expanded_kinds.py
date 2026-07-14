@@ -28,7 +28,6 @@ import pytest
 from hotato import assert_ as A
 from hotato.state_adapter import MockStateAdapter
 
-
 # --- fixtures / helpers -----------------------------------------------------
 
 def _turn(role, text, start=0.0, end=1.0):

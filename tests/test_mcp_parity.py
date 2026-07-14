@@ -9,8 +9,8 @@ import json
 
 import pytest
 
-from hotato.core import run_suite
 from hotato import mcp_server
+from hotato.core import run_suite
 
 
 def test_run_tool_envelope_matches_core():

@@ -26,7 +26,6 @@ import pytest
 
 from hotato import cli
 
-
 # --- deterministic synthetic fixture (same shape as test_not_scorable.py) ---
 
 def _write_stereo(path, caller_segments, agent_segments, duration_sec=3.0, sr=16000):

@@ -37,7 +37,13 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional, Tuple
 from urllib.parse import (
-    parse_qs, parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit,
+    parse_qs,
+    parse_qsl,
+    quote,
+    unquote,
+    urlencode,
+    urlsplit,
+    urlunsplit,
 )
 
 from ..fleet.registry import DEFAULT_HOME, Registry

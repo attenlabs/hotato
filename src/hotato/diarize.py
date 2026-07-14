@@ -74,7 +74,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence
 
-from ._engine.audio import frame_rms, to_dbfs
+from ._engine.audio import frame_rms
 from ._engine.score import ScoreConfig
 from ._engine.vad import BackendUnavailable, energy_vad, first_active_sec
 
@@ -1429,7 +1429,6 @@ def build_pyannoteai_backend() -> BackendFn:
     try:
         import os
 
-        from pyannoteai.sdk import Client  # type: ignore
     except Exception as exc:
         raise BackendUnavailable(
             "the 'pyannoteai' hosted diarizer requires the optional extra: "

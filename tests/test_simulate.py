@@ -25,7 +25,6 @@ import pytest
 from hotato import assert_ as A
 from hotato import cli
 from hotato import conversation as CV
-from hotato import scenario as SC
 from hotato import simulate as SIM
 
 

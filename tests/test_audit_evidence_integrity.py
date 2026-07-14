@@ -17,15 +17,14 @@ import wave
 
 import pytest
 
-from tests import _trial_audio as ta
+import hotato.contract as contract
 import hotato.core as core
 import hotato.evidence as ev
 import hotato.manifest as manifest
-import hotato.recompute as recompute
 import hotato.receipt as receipt
-import hotato.contract as contract
+import hotato.recompute as recompute
 from hotato.fleet.api import FleetAPI
-
+from tests import _trial_audio as ta
 
 # --- helpers ---------------------------------------------------------------
 
@@ -286,8 +285,9 @@ def test_p1_8_orphan_label_is_rejected(tmp_path):
 # --- P1-9: start --stereo emits no verdict before a human label ------------
 
 def test_p1_9_start_stereo_no_verdict_before_label(tmp_path):
-    import io
     import contextlib
+    import io
+
     from hotato.start import _run_stereo_flow
     wav = str(tmp_path / "h1.wav"); ta.talkover_call(wav, onset=5.0, total=12)
     out = str(tmp_path / "un"); os.makedirs(out)

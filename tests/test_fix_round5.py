@@ -25,7 +25,6 @@ import pytest
 from hotato import capture as cap
 from hotato import ingest as ing
 
-
 # --- unit-level: the canonicalization helper itself ------------------------
 
 @pytest.mark.parametrize("a, b", [

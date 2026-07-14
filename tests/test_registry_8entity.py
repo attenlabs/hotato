@@ -19,8 +19,7 @@ import json
 import sqlite3
 import threading
 
-from hotato.fleet.registry import Registry, SCHEMA_VERSION
-
+from hotato.fleet.registry import SCHEMA_VERSION, Registry
 
 # The 8 entities of §F (Agent..Review) + the assertion_runs index.
 _ENTITY_TABLES = ("agents", "releases", "suites", "scenarios", "runs",

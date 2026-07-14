@@ -12,8 +12,6 @@ These lock in two things the plan calls out as acceptance criteria:
 
 from importlib import resources
 
-import pytest
-
 from hotato.core import run_single, run_suite
 from hotato.fixmap import (
     ENGAGEMENT_CONTROL_POINTER,

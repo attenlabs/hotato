@@ -10,17 +10,16 @@ measurement can be checked to within one frame hop of what was rendered.
 """
 
 import json
+import os
 import random
 import tempfile
-import os
 
 import pytest
 
-from hotato.core import dump_frames_for_input, run_suite
 from hotato import cli
 from hotato._engine.score import ScoreConfig, score_channels, score_stereo
 from hotato._engine.vad import VADParams
-
+from hotato.core import dump_frames_for_input, run_suite
 
 SR = 16000
 

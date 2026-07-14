@@ -31,14 +31,13 @@ Pinned here:
 from __future__ import annotations
 
 import json
+import os as _os
 from importlib import resources
 
 import pytest
 
 from hotato import cli
 from hotato import contract as _contract
-
-import os as _os
 
 HARD = str(resources.files("hotato").joinpath(
     "data", "audio", "01-hard-interruption.example.wav"))          # yields at 2.40

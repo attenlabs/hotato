@@ -28,13 +28,11 @@ from hotato import cli
 from hotato import diarize as _diarize
 from hotato import trust as trust_mod
 from hotato.trust import (
-    MIN_ACTIVITY_SEC,
     NEXT_STEP_CHANNEL_MAP,
     NEXT_STEP_DUAL_CHANNEL,
     SAFE_RECOMMENDATION,
     trust_report,
 )
-
 
 # --- deterministic synthetic fixtures ---------------------------------------
 

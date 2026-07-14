@@ -44,12 +44,6 @@ does not produce) is honestly reported as unavailable rather than fabricated.
 
 from __future__ import annotations
 
-from .errors import require_regular_file as _require_regular_file
-
-from .errors import open_regular as _open_regular
-
-from .errors import wav_read as _wav_read
-
 import hashlib
 import json
 import os
@@ -57,19 +51,21 @@ import re
 import shlex
 import shutil
 import tempfile
-import wave
 import zipfile
 from datetime import datetime, timezone
 from typing import Optional
 
-from ._engine.score import ScoreConfig
 from . import attest as _attest
 from . import card as _card
 from . import fixture as _fixture
 from . import labelrecord as _labelrecord
 from . import report as _report
 from . import trust as _trust
+from ._engine.score import ScoreConfig
 from .core import dump_frames_for_input, run_single
+from .errors import open_regular as _open_regular
+from .errors import require_regular_file as _require_regular_file
+from .errors import wav_read as _wav_read
 
 __all__ = [
     "SCHEMA",

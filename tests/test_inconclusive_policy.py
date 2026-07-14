@@ -32,7 +32,6 @@ import pytest
 from hotato import assert_ as A
 from hotato import cli
 
-
 # --- helpers ----------------------------------------------------------------
 
 def _res(status, aid="x", kind="phrase"):

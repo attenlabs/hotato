@@ -6,9 +6,7 @@ import json
 
 import pytest
 
-from hotato import cli
-from hotato import inspectcfg
-
+from hotato import cli, inspectcfg
 
 # --- mocked HTTP -------------------------------------------------------------
 

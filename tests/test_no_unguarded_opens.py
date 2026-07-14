@@ -15,8 +15,6 @@ grep memory.
 import ast
 import os
 
-import pytest
-
 SRC = os.path.join(os.path.dirname(__file__), "..", "src", "hotato")
 
 OPEN_NAMES = {"open", "ZipFile"}

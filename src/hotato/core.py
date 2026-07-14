@@ -15,18 +15,12 @@ the honest limits block. It introduces no new accuracy claim.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-from .errors import require_regular_file as _require_regular_file
-
-from .errors import wav_read as _wav_read
-
 import array
 import hashlib
 import json
 import math
 import os
 import re
-import stat
 import struct
 import sys
 import wave
@@ -41,6 +35,9 @@ from ._engine.score import (
     score_stereo,
 )
 from .errors import ChannelRangeError
+from .errors import open_regular as _open_regular
+from .errors import require_regular_file as _require_regular_file
+from .errors import wav_read as _wav_read
 from .fixmap import (
     classify_event,
     downgrade_lone_engagement_fix,

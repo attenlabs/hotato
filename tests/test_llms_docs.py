@@ -203,10 +203,10 @@ def test_envelope_and_error_schema_ids_match_the_hosted_urls():
 
 
 def test_describe_schema_urls_match_the_shipped_schema_files():
-    from hotato.cli import main as cli_main
-
     import io
     from contextlib import redirect_stdout
+
+    from hotato.cli import main as cli_main
 
     buf = io.StringIO()
     with redirect_stdout(buf):

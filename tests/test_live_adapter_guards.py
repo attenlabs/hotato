@@ -14,7 +14,6 @@ from hotato import inspectcfg
 from hotato.fleet import adapters
 from hotato.fleet.adapters import _nest_dotted
 
-
 # --- _nest_dotted -----------------------------------------------------------
 
 def test_nest_dotted_expands_dotted_path():
