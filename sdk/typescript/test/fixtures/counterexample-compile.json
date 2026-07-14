@@ -1,0 +1,57 @@
+{
+  "kind": "counterexample-compile",
+  "exit_code": 0,
+  "counterexample_id": "sha256:ca466daeefbf3c65e128781a2c621ff46766d31dadd2a3b79663fe610d06de0d",
+  "target": {
+    "test_id": "counterexample-refund-not-posted-test",
+    "assertion_digest": "sha256:cd63448d0d5d84dbeb43700ad7e78ebe096ab143372fb94a348d57af5cbf8fbc",
+    "assertion_id": "refund-posted",
+    "kind": "state",
+    "dimension": "outcome",
+    "authority": "deterministic",
+    "required_status": "FAIL",
+    "failure_atom": {
+      "code": "state-field-value-mismatch",
+      "field": "refund_status"
+    },
+    "source_failure_atoms": [
+      {
+        "code": "state-field-value-mismatch",
+        "field": "refund_status"
+      }
+    ],
+    "fingerprint": "sha256:96de7a5a7a809a565a369b673602fa4f9f89ddaddcc0a115339aa15f72b27441"
+  },
+  "minimality": "one_minimal",
+  "reduction": {
+    "algorithm": "hierarchical-ddmin",
+    "reducer_set": "hotato.reducers.v1",
+    "initial": {
+      "bytes": 800,
+      "turns": 3,
+      "tools": 2,
+      "state_leaves": 8,
+      "transcript_segments": 3,
+      "trace_spans": 5
+    },
+    "final": {
+      "bytes": 269,
+      "turns": 1,
+      "tools": 0,
+      "state_leaves": 2,
+      "transcript_segments": 1,
+      "trace_spans": 1
+    },
+    "attempts": 36,
+    "candidate_evaluations": 26,
+    "qualification_evaluations": 4,
+    "total_evaluations": 30,
+    "accepted": 15,
+    "cache_hits": 10,
+    "budget": 512,
+    "termination": "one_minimal"
+  },
+  "output": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/repro.hotato-repro",
+  "reproduce": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/repro.hotato-repro/reproduce.sh",
+  "predicate": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/repro.hotato-repro/predicate.sh"
+}

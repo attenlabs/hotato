@@ -1,0 +1,37 @@
+{
+  "tool": "hotato",
+  "kind": "contract-verify",
+  "schema_version": "1",
+  "offline": true,
+  "dir": "ct",
+  "count": 1,
+  "results": [
+    {
+      "id": "demo-missed-interruption",
+      "dir": "ct/demo-missed-interruption.hotato",
+      "expect": "yield",
+      "passed": false,
+      "scorable": true,
+      "verdict_eligible": true,
+      "verdict_ineligible_reason": null,
+      "not_scorable_reason": null,
+      "measurement": {
+        "did_yield": false,
+        "seconds_to_yield": null,
+        "talk_over_sec": 0.25
+      },
+      "authenticity": "unsigned",
+      "authenticated": false,
+      "authenticity_reason": "unsigned, internally consistent evidence",
+      "assertions": null
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 1
+  },
+  "tampered": 0,
+  "refused": 0,
+  "assertions_failed": 0,
+  "exit_code": 1
+}

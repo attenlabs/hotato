@@ -1,0 +1,549 @@
+{
+  "tool": "hotato",
+  "schema_version": "1",
+  "mode": "suite",
+  "stack": "generic",
+  "offline": true,
+  "engine": {
+    "name": "barge_scoring (vendored, MIT)",
+    "version": "0.1.0",
+    "upstream": "https://github.com/quantumCF/voice-agent-barge-in-tests"
+  },
+  "limits": {
+    "method": "energy-based VAD framing over aligned caller/agent channels; three objective timing signals (did_yield, seconds_to_yield, talk_over).",
+    "accuracy_claim": null,
+    "reproducible": "deterministic given the same audio and config; every threshold is an exposed parameter and every frame is inspectable.",
+    "ceiling": "Automated sub-second scoring on a single channel using neural or energy VAD has a real ceiling. Treat these as reproducible timing measurements, not ground-truth judgements of a detector's internal quality.",
+    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels is the gold reference. A single-channel (mono) recording is scorable via the opt-in, quality-gated [diarize] front-end (hotato run --mono call.wav --diarize); below the confidence bar its verdict is labeled indicative-only, and it is never equivalent to a true dual-channel measurement.",
+    "does_not_do": [
+      "no speaker identification (a diarizer assigns anonymous SPEAKER_00/01; it never says who a person is)",
+      "no speech-to-text / transcription",
+      "no emotion or intent detection",
+      "no claim about any specific vendor's internal accuracy"
+    ],
+    "scope": "barge-in, turn-taking, overlap/talk-over, and backchannel handling from call audio. Latency of the yield is measured; word-level semantics are out of scope.",
+    "offline": "runs locally; no network egress of user audio."
+  },
+  "summary": {
+    "events": 8,
+    "passed": 8,
+    "failed": 0,
+    "regression": false
+  },
+  "events": [
+    {
+      "event_id": "01-hard-interruption",
+      "scenario_id": "01-hard-interruption",
+      "title": "Hard mid-sentence interruption",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.5,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.4,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.4,
+        "onset_frame_index": 240,
+        "onset_effective_sec": 2.4,
+        "yield_frame_index": 290,
+        "decision_margin_sec": 0.2,
+        "decision_margin_hops": 20,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.5,
+          "talk_over_sec": 0.5
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.306,
+          "lag_sec": 0.5,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
+        }
+      },
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "4e94ed51482e7bf09550e76991272525884301c365842ad7f5d219fc3f8dd9bc",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "01-hard-interruption.example.wav",
+            "sha256": "4e94ed51482e7bf09550e76991272525884301c365842ad7f5d219fc3f8dd9bc",
+            "pcm_sha256": "b38263bf25f0a77c7a6b3f9dac34916c439d805fe383fea267ada7208d75a119",
+            "sample_rate": 16000,
+            "num_samples": 96000,
+            "duration_sec": 6.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    },
+    {
+      "event_id": "02-backchannel-mhm",
+      "scenario_id": "02-backchannel-mhm",
+      "title": "Backchannel acknowledgement (should NOT yield)",
+      "category": "should_not_yield",
+      "expected_yield": false,
+      "verdict": {
+        "passed": true,
+        "did_yield": false,
+        "seconds_to_yield": null,
+        "talk_over_sec": 1.57,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.1,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.1,
+        "onset_frame_index": 210,
+        "onset_effective_sec": 2.1,
+        "yield_frame_index": null,
+        "decision_margin_sec": null,
+        "decision_margin_hops": null,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": false,
+          "time_to_yield_sec": null,
+          "talk_over_sec": 1.57
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.446,
+          "lag_sec": 0.5,
+          "echo_suspected": false
+        }
+      },
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "a61b274905266e61bca1701f88df9da8a6d9794f06186af04c3cbf231ac3e2b9",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "02-backchannel-mhm.example.wav",
+            "sha256": "a61b274905266e61bca1701f88df9da8a6d9794f06186af04c3cbf231ac3e2b9",
+            "pcm_sha256": "5f5d632ce7c14c28d5ca479d1b1f56924aef902804c7c839789c43ce5e3325f6",
+            "sample_rate": 16000,
+            "num_samples": 96000,
+            "duration_sec": 6.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    },
+    {
+      "event_id": "03-filler-start",
+      "scenario_id": "03-filler-start",
+      "title": "Interruption that starts with a filler (um, actually...)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.65,
+        "talk_over_sec": 0.56,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.3,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.3,
+        "onset_frame_index": 230,
+        "onset_effective_sec": 2.3000000000000003,
+        "yield_frame_index": 295,
+        "decision_margin_sec": 0.25,
+        "decision_margin_hops": 25,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.65,
+          "talk_over_sec": 0.56
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.294,
+          "lag_sec": 0.41,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
+        }
+      },
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "5a694aaa44682159051e69ccb80b2097cd94af3fba4bdd2a3eb5f09c5a60e872",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "03-filler-start.example.wav",
+            "sha256": "5a694aaa44682159051e69ccb80b2097cd94af3fba4bdd2a3eb5f09c5a60e872",
+            "pcm_sha256": "3ef2a4fe67c7de6591f6cc17cb6e6a41bf9c69549e44c279cc21a51842c24318",
+            "sample_rate": 16000,
+            "num_samples": 104000,
+            "duration_sec": 6.5
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    },
+    {
+      "event_id": "04-correction",
+      "scenario_id": "04-correction",
+      "title": "Urgent correction (no, I said Tuesday)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.5,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 250,
+        "decision_margin_sec": 0.0,
+        "decision_margin_hops": 0,
+        "boundary_sensitive": true
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.5,
+          "talk_over_sec": 0.5
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.327,
+          "lag_sec": 0.37,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
+        }
+      },
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "f513a18eea4edfbc3ddf29c4ea05d50b87983c5f61ed2d6055354d3fead279a4",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "04-correction.example.wav",
+            "sha256": "f513a18eea4edfbc3ddf29c4ea05d50b87983c5f61ed2d6055354d3fead279a4",
+            "pcm_sha256": "dfbdb4aaa691fdb53294c609bcb54a75eac7378539af108d0b55e8bb4509a7b9",
+            "sample_rate": 16000,
+            "num_samples": 96000,
+            "duration_sec": 6.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    },
+    {
+      "event_id": "05-telephony-8khz",
+      "scenario_id": "05-telephony-8khz",
+      "title": "Hard interruption at 8 kHz telephony sample rate",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.5,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.4,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.4,
+        "onset_frame_index": 240,
+        "onset_effective_sec": 2.4,
+        "yield_frame_index": 290,
+        "decision_margin_sec": 0.2,
+        "decision_margin_hops": 20,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.5,
+          "talk_over_sec": 0.5
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.352,
+          "lag_sec": 0.41,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
+        }
+      },
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "2a719d4d1190f9e5aee98d895db00b2791eb97af85f30b0e359301bbb5f9523a",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "05-telephony-8khz.example.wav",
+            "sha256": "2a719d4d1190f9e5aee98d895db00b2791eb97af85f30b0e359301bbb5f9523a",
+            "pcm_sha256": "73ed3eca44dadcd1c657a3731ae1ac44cd2caf2b919eefe41e7285614fbce4d4",
+            "sample_rate": 8000,
+            "num_samples": 48000,
+            "duration_sec": 6.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    },
+    {
+      "event_id": "06-double-talk",
+      "scenario_id": "06-double-talk",
+      "title": "Sustained double-talk (both parties live)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 1.05,
+        "talk_over_sec": 1.05,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.2,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.2,
+        "onset_frame_index": 220,
+        "onset_effective_sec": 2.2,
+        "yield_frame_index": 325,
+        "decision_margin_sec": 0.15,
+        "decision_margin_hops": 15,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 1.05,
+          "talk_over_sec": 1.05
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.417,
+          "lag_sec": 0.41,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
+        }
+      },
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "80add9dd59b9c762ed8f62ea117ed7a9e7d8b73ec3ec94495f74000da24ddb08",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "06-double-talk.example.wav",
+            "sha256": "80add9dd59b9c762ed8f62ea117ed7a9e7d8b73ec3ec94495f74000da24ddb08",
+            "pcm_sha256": "f110bbf70a640a9be9ea202e19164138eb9095c90cc0901d3f1c1763d6e30cbc",
+            "sample_rate": 16000,
+            "num_samples": 112000,
+            "duration_sec": 7.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    },
+    {
+      "event_id": "07-echo-bleed",
+      "scenario_id": "07-echo-bleed",
+      "title": "Bot audio bleed / phantom self-interruption (should NOT yield)",
+      "category": "should_not_yield",
+      "expected_yield": false,
+      "verdict": {
+        "passed": true,
+        "did_yield": false,
+        "seconds_to_yield": null,
+        "talk_over_sec": 3.0,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": null,
+        "decision_margin_sec": null,
+        "decision_margin_hops": null,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": false,
+          "time_to_yield_sec": null,
+          "talk_over_sec": 3.0
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 1.0,
+          "lag_sec": 0.12,
+          "echo_suspected": true
+        }
+      },
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "519bc0eef7aadaf9e325735d51faa16941ec35f2715f2ec9fd6416e7e3a1714d",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "07-echo-bleed.example.wav",
+            "sha256": "519bc0eef7aadaf9e325735d51faa16941ec35f2715f2ec9fd6416e7e3a1714d",
+            "pcm_sha256": "6232de4a227dd7009e2fed23589af8a1300783a7ca8bf798ca8b4eb441052373",
+            "sample_rate": 16000,
+            "num_samples": 96000,
+            "duration_sec": 6.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    },
+    {
+      "event_id": "08-rapid-turn-taking",
+      "scenario_id": "08-rapid-turn-taking",
+      "title": "Rapid turn-taking after an interruption",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": true,
+        "did_yield": true,
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.5,
+        "reasons": []
+      },
+      "measurements": {
+        "caller_onset_sec": 2.1,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.1,
+        "onset_frame_index": 210,
+        "onset_effective_sec": 2.1,
+        "yield_frame_index": 260,
+        "decision_margin_sec": 0.2,
+        "decision_margin_hops": 20,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.5,
+          "talk_over_sec": 0.5
+        },
+        "latency": {
+          "response_gap_sec": 0.34,
+          "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.288,
+          "lag_sec": 0.45,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 1.49,
+          "restart_suspected": true
+        }
+      },
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "d792e9343dad4bc652ebf32384d77a35ccef5f723b80ee43ba13b92a08a691de",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "08-rapid-turn-taking.example.wav",
+            "sha256": "d792e9343dad4bc652ebf32384d77a35ccef5f723b80ee43ba13b92a08a691de",
+            "pcm_sha256": "112612de4a82667b91c0afd26c5b144d5afdc6fc0feb9d38c5f06ff383e60a6c",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    }
+  ],
+  "fix_map": [],
+  "funnel": null,
+  "exit_code": 0,
+  "suite": "barge-in"
+}

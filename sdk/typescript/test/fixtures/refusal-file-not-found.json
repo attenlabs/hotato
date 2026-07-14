@@ -1,0 +1,8 @@
+{
+  "tool": "hotato",
+  "schema_version": "1",
+  "ok": false,
+  "error_code": "file_not_found",
+  "message": "'/nonexistent-dir': no such file.",
+  "exit_code": 2
+}

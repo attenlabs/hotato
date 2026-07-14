@@ -81,3 +81,11 @@ hotato-review.html
 # Claude Code local working dir (agent worktrees, session config) -- never publish
 .claude/
 .audit/
+
+# TypeScript SDK (sdk/typescript): local install + build output
+sdk/typescript/node_modules/
+sdk/typescript/dist/
+
+# local dev venv used to run the CLI under the SDK test suite
+# (python3 -m venv .v && .v/bin/pip install -e .)
+.v/

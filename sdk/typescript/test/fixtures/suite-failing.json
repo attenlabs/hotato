@@ -1,0 +1,224 @@
+{
+  "tool": "hotato",
+  "schema_version": "1",
+  "mode": "suite",
+  "stack": "generic",
+  "offline": true,
+  "engine": {
+    "name": "barge_scoring (vendored, MIT)",
+    "version": "0.1.0",
+    "upstream": "https://github.com/quantumCF/voice-agent-barge-in-tests"
+  },
+  "limits": {
+    "method": "energy-based VAD framing over aligned caller/agent channels; three objective timing signals (did_yield, seconds_to_yield, talk_over).",
+    "accuracy_claim": null,
+    "reproducible": "deterministic given the same audio and config; every threshold is an exposed parameter and every frame is inspectable.",
+    "ceiling": "Automated sub-second scoring on a single channel using neural or energy VAD has a real ceiling. Treat these as reproducible timing measurements, not ground-truth judgements of a detector's internal quality.",
+    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels is the gold reference. A single-channel (mono) recording is scorable via the opt-in, quality-gated [diarize] front-end (hotato run --mono call.wav --diarize); below the confidence bar its verdict is labeled indicative-only, and it is never equivalent to a true dual-channel measurement.",
+    "does_not_do": [
+      "no speaker identification (a diarizer assigns anonymous SPEAKER_00/01; it never says who a person is)",
+      "no speech-to-text / transcription",
+      "no emotion or intent detection",
+      "no claim about any specific vendor's internal accuracy"
+    ],
+    "scope": "barge-in, turn-taking, overlap/talk-over, and backchannel handling from call audio. Latency of the yield is measured; word-level semantics are out of scope.",
+    "offline": "runs locally; no network egress of user audio."
+  },
+  "summary": {
+    "events": 2,
+    "passed": 0,
+    "failed": 2,
+    "regression": true
+  },
+  "events": [
+    {
+      "event_id": "fd-01-missed-interruption",
+      "scenario_id": "fd-01-missed-interruption",
+      "title": "Real call: half-volume 'sorry, one second' is ignored (Vapi defaults)",
+      "category": "should_yield",
+      "expected_yield": true,
+      "verdict": {
+        "passed": false,
+        "did_yield": false,
+        "seconds_to_yield": null,
+        "talk_over_sec": 0.25,
+        "reasons": [
+          "expected the agent to yield but it kept talking"
+        ]
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": null,
+        "decision_margin_sec": 0.75,
+        "decision_margin_hops": 75,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": false,
+          "time_to_yield_sec": null,
+          "talk_over_sec": 0.25
+        },
+        "latency": {
+          "response_gap_sec": 2.18,
+          "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.236,
+          "lag_sec": 0.08,
+          "echo_suspected": false
+        }
+      },
+      "fix": {
+        "fix_class": "config",
+        "title": "Missed interruption: the agent kept talking over the caller",
+        "detail": "The caller took the floor and the agent never stopped within the search window. Increase interruption sensitivity so a genuine floor-taking event registers.",
+        "knob": {
+          "stack": "generic",
+          "parameter": "interruption sensitivity (VAD min-silence, min-interruption-duration, min-words-to-interrupt)",
+          "direction": "lower the min-silence and min-duration thresholds so a real interruption registers sooner",
+          "trade_off": "sliding sensitivity up catches more real interruptions and more false ones together."
+        },
+        "pointer": null
+      },
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "7aea3b66d214a79a57c439c79404398c999fb1c93e83543d11d17efa1210731f",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "fd-01-missed-interruption.example.wav",
+            "sha256": "7aea3b66d214a79a57c439c79404398c999fb1c93e83543d11d17efa1210731f",
+            "pcm_sha256": "672179bb981cd772fe36ddcb1c27758984445e427298ebf9d2d5599621d0cfc9",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    },
+    {
+      "event_id": "fd-02-backchannel-yielded",
+      "scenario_id": "fd-02-backchannel-yielded",
+      "title": "Real call: soft backchannel halts the agent mid-word for good (Vapi defaults)",
+      "category": "should_not_yield",
+      "expected_yield": false,
+      "verdict": {
+        "passed": false,
+        "did_yield": true,
+        "seconds_to_yield": 0.34,
+        "talk_over_sec": 0.32,
+        "reasons": [
+          "expected the agent to keep the floor but it yielded (a false or phantom barge-in)"
+        ]
+      },
+      "measurements": {
+        "caller_onset_sec": 2.0,
+        "agent_talking_at_onset": true,
+        "hop_sec": 0.01,
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 234,
+        "decision_margin_sec": null,
+        "decision_margin_hops": null,
+        "boundary_sensitive": false
+      },
+      "signals": {
+        "barge_in": {
+          "did_yield": true,
+          "time_to_yield_sec": 0.34,
+          "talk_over_sec": 0.32
+        },
+        "latency": {
+          "response_gap_sec": null,
+          "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.286,
+          "lag_sec": 0.29,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
+        }
+      },
+      "fix": {
+        "fix_class": "engagement-control",
+        "title": "False barge-in: a backchannel was treated as a bid for the floor",
+        "detail": "The caller only signalled 'I'm listening' (mhm / right / okay) but the agent stopped mid-thought. You can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' will also ignore 'stop'. This is a discrimination problem, not a threshold problem.",
+        "knob": null,
+        "pointer": {
+          "layer": "a learned engagement-control / addressee-detection layer",
+          "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+          "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+        }
+      },
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "c2c535b1337cca75645cba59a0d8c29db2a631d765720ecddb38b063cc513188",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "fd-02-backchannel-yielded.example.wav",
+            "sha256": "c2c535b1337cca75645cba59a0d8c29db2a631d765720ecddb38b063cc513188",
+            "pcm_sha256": "cbf7c3b8d34932458081e4d9a289c588dc37b9112cdeed0ac374f229cea67c41",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
+    }
+  ],
+  "fix_map": [
+    {
+      "event_id": "fd-01-missed-interruption",
+      "scenario_id": "fd-01-missed-interruption",
+      "fix_class": "config",
+      "title": "Missed interruption: the agent kept talking over the caller",
+      "detail": "The caller took the floor and the agent never stopped within the search window. Increase interruption sensitivity so a genuine floor-taking event registers.",
+      "knob": {
+        "stack": "generic",
+        "parameter": "interruption sensitivity (VAD min-silence, min-interruption-duration, min-words-to-interrupt)",
+        "direction": "lower the min-silence and min-duration thresholds so a real interruption registers sooner",
+        "trade_off": "sliding sensitivity up catches more real interruptions and more false ones together."
+      },
+      "pointer": null
+    },
+    {
+      "event_id": "fd-02-backchannel-yielded",
+      "scenario_id": "fd-02-backchannel-yielded",
+      "fix_class": "engagement-control",
+      "title": "False barge-in: a backchannel was treated as a bid for the floor",
+      "detail": "The caller only signalled 'I'm listening' (mhm / right / okay) but the agent stopped mid-thought. You can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' will also ignore 'stop'. This is a discrimination problem, not a threshold problem.",
+      "knob": null,
+      "pointer": {
+        "layer": "a learned engagement-control / addressee-detection layer",
+        "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+        "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+      }
+    }
+  ],
+  "funnel": {
+    "reason": "This battery fails on BOTH axes at once: it missed a genuine interruption AND it false-triggered on a backchannel. No single sensitivity threshold can fix both - turning it up to catch the interruption makes the backchannel worse, and vice versa. That is the signal that the agent needs a discriminating layer, not a different threshold.",
+    "pointer": {
+      "layer": "a learned engagement-control / addressee-detection layer",
+      "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
+      "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
+    }
+  },
+  "exit_code": 1,
+  "suite": "barge-in"
+}

@@ -1,0 +1,58 @@
+{
+  "name": "@hotato/sdk",
+  "version": "0.1.0",
+  "description": "Typed TypeScript client for the hotato CLI JSON contract: run suites, verify failure contracts, and drive counterexample capsules from Node.",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test"
+  },
+  "keywords": [
+    "hotato",
+    "conversation-qa",
+    "voice-agents",
+    "voice-ai",
+    "llm-eval",
+    "regression-testing",
+    "ci",
+    "typescript",
+    "sdk",
+    "barge-in",
+    "turn-taking"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/attenlabs/hotato.git",
+    "directory": "sdk/typescript"
+  },
+  "homepage": "https://hotato.dev",
+  "bugs": {
+    "url": "https://github.com/attenlabs/hotato/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  }
+}
