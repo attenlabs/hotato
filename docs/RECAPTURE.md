@@ -231,7 +231,8 @@ recomputes, overrides that. Specifically:
   are freshly captured, never that the scenario is the one you claim.
 - **Repacking a `.hotato` contract with a loosened policy still verifies.**
   `MANIFEST.sha256.json` is integrity (the archive agrees with itself), not
-  authenticity (who approved the policy inside it) -- treat a bundle's
+  authenticity (who approved the policy inside it). Only a trusted signature over the
+  manifest closes that gap, and none is implemented today; treat a bundle's
   origin with the same care you'd give any file that arrived from outside
   your own pipeline.
 - **A resample, re-encode, or gain change of the SAME call still reads as a
