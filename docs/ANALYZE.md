@@ -1,56 +1,51 @@
 # `hotato analyze <folder>`: drop a folder, hear the bug
 
-Point Hotato at a folder of dual-channel call recordings and it finds the
-worst turn-taking moments across all of them, ranks them, and lets you hear
-each one.
+Point it at a folder of dual-channel call recordings and it finds the
+worst turn-taking moments across all of them, ranks them, and lets you
+hear each one.
 
 ```bash
 hotato analyze ./recordings
 ```
 
-This writes one self-contained, offline HTML dashboard (`hotato-analyze.html`
-by default) and opens it. A bare folder as the first argument routes to the
-same command: `hotato ./recordings`.
+Writes one self-contained, offline HTML dashboard (`hotato-analyze.html`
+by default) and opens it. A bare folder as the first argument routes here
+too: `hotato ./recordings`.
 
 ## What it does
 
-For every `.wav` under the folder (walked recursively, in sorted order),
-`analyze`:
+For every `.wav` under the folder (walked recursively, sorted), `analyze`:
 
 1. runs the same whole-call scanner as [`hotato scan`](../src/hotato/scan.py):
-   it walks the caller and agent VAD activity tracks across the entire call,
-   label-free, and emits candidate timing moments
-   (`overlap_while_agent_talking`, `agent_start_during_caller`,
-   `long_response_gap`, `agent_stop_no_caller`, `echo_correlated_activity`),
-   each with a timestamp and a measured number;
-2. aggregates the candidates across every call and ranks them by the
-   scanner's own salience (overlap seconds / gap seconds / echo coherence),
-   so the worst moments float to the top.
+   walks caller/agent activity across the call, label-free, and emits
+   candidate timing moments (`overlap_while_agent_talking`,
+   `agent_start_during_caller`, `long_response_gap`,
+   `agent_stop_no_caller`, `echo_correlated_activity`), each with a
+   timestamp and a measured number;
+2. aggregates the candidates across every call and ranks them by salience
+   (overlap seconds / gap seconds / echo coherence), so the worst moments
+   float to the top.
 
 Then it emits three things.
 
 ### 1. A ranked dashboard
 
-One card per top moment, in the [`hotato report`](REPORTS.md) house style: the
-call file, the timestamp, the candidate kind, the measured number, and a
-to-scale caller/agent timeline of that exact moment (the same SVG renderer the
-report uses: activity spans, the shaded talk-over band, the onset marker, and
-a yield marker where the scanner measured the agent going silent).
+One card per top moment, in the [`hotato report`](REPORTS.md) house
+style: the call file, timestamp, candidate kind, measured number, and a
+to-scale caller/agent timeline (activity spans, the talk-over band, the
+onset marker, and a yield marker where the agent went silent).
 
 ### 2. The hear-the-bug player
 
-For the top `--audio-top` moments (default 8), the audio around the moment is
-embedded inline as a base64 WAV data URI, so the page is fully self-contained
-with zero external requests. Press play and a **playhead** sweeps that
-moment's timeline in lockstep with `audio.currentTime` (via
-`requestAnimationFrame`): you hear the agent talk over the caller, or the
-dead-air gap, land exactly where the chart marks it. The playhead tracks
-playback under `prefers-reduced-motion: reduce` too, riding `timeupdate`
-instead of the smooth animation loop.
+For the top `--audio-top` moments (default 8), audio around the moment
+embeds inline as base64 WAV, so the page stays self-contained. Press play
+and a **playhead** sweeps the timeline in lockstep: you hear the
+talk-over or dead-air land exactly where the chart marks it. It tracks
+playback under `prefers-reduced-motion` too.
 
 Only the top moments carry audio; the rest show the timeline. That, plus
-`--pre` / `--post` (seconds of audio kept before/after each moment) and a
-total-page audio budget, keeps the page a manageable size.
+`--pre`/`--post` and a total audio budget, keeps the page a manageable
+size.
 
 ### 3. JSON for agents
 
@@ -58,25 +53,24 @@ total-page audio budget, keeps the page a manageable size.
 hotato analyze ./recordings --format json
 ```
 
-Prints the ranked candidates plus their metadata (source file, timestamp,
-kind, salience, measured durations, and the audio/timeline window) to stdout,
-capped by `--top`. Pass `--out FILE` to also write the full ranked JSON.
+Prints the ranked candidates and their metadata (source file, timestamp,
+kind, salience, measured durations, audio/timeline window) to stdout,
+capped by `--top`. `--out FILE` also writes the full ranked JSON.
 
 ## Framing
 
 Each result is a **measured candidate timing moment**: a timestamp and a
-number, not a verdict on intent. Energy sounds the same whether a caller said
-"mhm" or "stop", so you decide the expected behavior and label the moments
-that matter:
+number, not a verdict on intent. Energy sounds the same whether a caller
+said "mhm" or "stop," so you decide and label the moments that matter:
 
 ```bash
 hotato fixture create --stereo <call>.wav --onset <t> \
     --expect yield|hold --id found-moment-001 --out tests/hotato
 ```
 
-Non-dual-channel or otherwise unreadable files are reported cleanly in a
-"Skipped files" section with their reason (a mono mix cannot attribute
-talk-over), and the run keeps going through the rest of the folder.
+Non-dual-channel or unreadable files land in a "Skipped files" section
+with their reason (a mono mix can't attribute talk-over), and the run
+continues.
 
 ## Flags
 
