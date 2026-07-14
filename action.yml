@@ -20,9 +20,8 @@
 #     argv token; no input string is ever shell evaluated.
 name: hotato conversation QA
 description: >-
-  Run a committed hotato suite, conversation test, or contract verification
-  offline; write a five-lane job summary on pass and on failure; expose the
-  artifact paths as outputs; exit with hotato's gate status.
+  Gate CI on how your voice agent held the conversation: run committed hotato
+  suites, tests, or contracts offline and fail the job on a regression.
 author: Attention Labs
 branding:
   icon: check-circle
