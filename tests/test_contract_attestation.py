@@ -290,6 +290,10 @@ def test_k7_altered_signature_bytes_is_refused(tmp_path, monkeypatch):
     digest, fields = _attest.canonical_contract_digest(c)
     key = b"real-key"
     att = _attest.sign(digest, key=key, signer="t", digest_fields=fields)
-    att = dict(att); att["signature"] = "00" + att["signature"][2:]  # tamper
+    att = dict(att)
+    # XOR the first byte so the tamper is a guaranteed change whatever the
+    # signature starts with (a fixed "00" is a no-op when it already is 00).
+    flipped = format(int(att["signature"][:2], 16) ^ 0xFF, "02x")
+    att["signature"] = flipped + att["signature"][2:]  # tamper
     v = _attest.verify_attestation(c, att, key=key)
     assert v["ok"] is False and v["tier"] == "tampered"

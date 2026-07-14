@@ -83,6 +83,44 @@ def test_demo_format_json_emits_the_envelope(tmp_path, capsys):
     assert env["funnel"] is not None  # both axes fail, the pointer fires
 
 
+def _force_browser_fallback(monkeypatch):
+    """Make _try_open take its fallback-hint path deterministically: headless
+    on Linux (no DISPLAY/WAYLAND_DISPLAY), and webbrowser.open reports failure
+    everywhere else."""
+    import webbrowser
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(webbrowser, "open", lambda url: False)
+
+
+def test_demo_format_json_stdout_stays_pure_without_no_open(
+        tmp_path, capsys, monkeypatch):
+    # H-05 regression: without --no-open on a headless machine, the browser
+    # fallback hint lands on stderr; stdout carries exactly one JSON document.
+    _force_browser_fallback(monkeypatch)
+    out = tmp_path / "demo-pure.html"
+    code = cli.main(["demo", "--format", "json", "--out", str(out)])
+    assert code == 0
+    cap = capsys.readouterr()
+    env = json.loads(cap.out)  # raises if anything trails the envelope
+    assert env["tool"] == "hotato"
+    assert cap.out.strip().endswith("}")  # nothing after the closing brace
+    assert "open it in your browser" in cap.err
+    assert "open it in your browser" not in cap.out
+
+
+def test_demo_text_mode_keeps_the_browser_hint_on_stdout(
+        tmp_path, capsys, monkeypatch):
+    # Text mode is the human surface: the fallback hint stays on stdout.
+    _force_browser_fallback(monkeypatch)
+    out = tmp_path / "demo-text.html"
+    code = cli.main(["demo", "--out", str(out)])
+    assert code == 0
+    cap = capsys.readouterr()
+    assert "open it in your browser" in cap.out
+
+
 # --- packaged data from an installed layout ---------------------------------
 
 @pytest.fixture(scope="module")
