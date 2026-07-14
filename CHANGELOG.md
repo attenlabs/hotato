@@ -8,6 +8,46 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-07-13
+
+Data-loss and security hardening from a continued independent audit.
+
+### Security
+- **Deleting a recording never destroys another workspace's evidence.**
+  `delete_recording` previously unlinked the shared content-addressed blob with
+  no reference check, so deleting one workspace's recording could remove a blob
+  another workspace still referenced (same digest via dedup). It now revokes
+  only the caller's pointer and removes the shared bytes ONLY when no workspace
+  still references the digest; the content store validates canonical digests and
+  refuses paths that escape the store (symlink fan-out), and legal hold blocks
+  pointer revocation. Registry roots remain the authority; CAS lineage is never
+  an ACL.
+- **Outbound requests stop leaking credentials.** A redirect to a different
+  origin (scheme, host, or port, including an https->http downgrade) now strips
+  `Authorization`, `Cookie`, and `Proxy-Authorization` and re-runs SSRF/private-
+  target validation; and URLs are sanitized (basic-auth, query tokens, signature
+  params, fragments removed) before appearing in any error message, log, or CLI
+  text.
+- **Recording/media downloads are bounded.** A shared bounded reader refuses a
+  declared-oversize body before reading and streams in fixed chunks, so peak
+  memory no longer scales with response size across the download call sites.
+
+### Fixed
+- Canonical JSON rejects non-finite floats (NaN/Inf) instead of emitting them.
+- Every MCP tool result and error carries the uniform control envelope
+  (evidence_status / refusal_reason / artifact_digests / pending_irreversible_action).
+- Redaction validation rejects empty/reversed/negative/overlapping spans, a
+  same-file alias, a no-op, and truncated PCM with a clean error (no crash), and
+  reports the requested spans.
+- Query-token stripping percent-decodes keys, so an encoded token key no longer
+  leaks its value.
+- `test run --out <dir>` no longer fails when the home directory is uncreatable.
+
+### Changed
+- The README banner is compact enough to render without clipping on a mobile
+  viewport.
+
+
 ## [1.5.2] - 2026-07-13
 
 Security and correctness hardening from an independent validation pass.
