@@ -21,6 +21,13 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   `compileCounterexample`, `predicate` with bisect exit semantics, and typed
   refusal errors. Tested against the CLI on the bundled fixtures.
 
+- **Release integrity.** Source archives build only from the tagged tree via
+  `scripts/build_release.py` (a `git archive` export at a fixed umask), and a
+  test rejects any sdist member that is not git-tracked. Fleet contracts seal
+  the real reviewer, rationale, stack, and candidate into the signed record,
+  derive collision-free ids, and label atomically. `demo`/`doctor --format
+  json` write exactly one JSON document to stdout. OS classifiers name Linux
+  and macOS, the platforms the suite runs on.
 
 ## [1.6.2] - 2026-07-14
 
