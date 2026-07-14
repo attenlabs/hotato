@@ -41,7 +41,12 @@ class FleetAPI:
     def __init__(self, home: str = DEFAULT_HOME):
         self.home = os.path.abspath(home)
         self.registry = Registry(home=self.home)
-        self.store = ArtifactStore(os.path.join(self.home, "artifacts"))
+        # Wire the registry as the store's durable reference source so shared-blob
+        # GC (referencing_workspaces / workspace_has_reference) answers from the
+        # workspace-scoped reference-edge rows -- the authority -- not from CAS
+        # lineage (which is provenance, never an ACL).
+        self.store = ArtifactStore(os.path.join(self.home, "artifacts"),
+                                   registry=self.registry)
         self.jobs = JobQueue(self.registry.conn)
 
     def close(self):
@@ -848,9 +853,24 @@ class FleetAPI:
 
     def delete_recording(self, workspace_id, recording_id, *, reason, actor) -> dict:
         """Delete a recording's stored audio and leave a durable deletion receipt
-        (plan §14). A legal hold blocks deletion. The audit trail survives the audio."""
+        (plan §14). A legal hold blocks deletion. The audit trail survives the audio.
+
+        The content-addressed store is a SHARED, deduplicated blob pool: identical
+        audio ingested into two workspaces collapses to ONE physical blob that both
+        reference. Deleting one workspace's recording must therefore REVOKE that
+        workspace's pointer (``artifact_digest`` -> NULL, ``pii_class`` -> deleted)
+        and unlink the blob ONLY when no other live reference survives anywhere --
+        any workspace, any owning table (recordings/contracts/trials/conversations
+        and the other reference-edge columns). Unlinking a still-referenced blob
+        would destroy another workspace's evidence, so the physical delete is
+        gated on ``referencing_workspaces`` being empty AFTER this pointer is
+        revoked. ``blob_removed`` reports whether the shared bytes were actually
+        unlinked. CAS lineage is never consulted for this decision (provenance,
+        not an ACL)."""
         rec, pol = self._recording_policy(workspace_id, recording_id)
         if pol.get("legal_hold"):
+            # A legal hold blocks even POINTER revocation: nothing about the
+            # recording's evidence may be torn down while the hold stands.
             return {"recording_id": recording_id, "deleted": False,
                     "blocked_by_legal_hold": True}
         receipt = _privacy.deletion_receipt(
@@ -858,18 +878,23 @@ class FleetAPI:
             pcm_sha256=rec.get("pcm_sha256") or "", reason=reason, actor=actor,
             at=self.registry._now())
         dig = rec.get("artifact_digest")
-        if dig:
-            import os as _os
-            try:
-                _os.remove(self.store._blob_path(dig))
-            except OSError:
-                pass
+        # 1) Revoke THIS workspace's pointer (durable) and mark it deleted, and
+        #    COMMIT before the reference query below so it sees the revoked state.
+        self.registry.clear_recording_artifact(workspace_id, recording_id)
         self.registry.set_recording_privacy(workspace_id, recording_id, pii_class="deleted")
+        # 2) GC the shared blob only when no other live reference remains. Never
+        #    unlink a blob another workspace/table still roots (P0 data-loss fix).
+        blob_removed = False
+        if dig:
+            survivors = self.registry.referencing_workspaces(dig)
+            if not survivors:
+                blob_removed = self.store.remove(dig)
         self.registry.add_attestation(
             workspace_id, f"del-{_short(recording_id)}", subject_kind="recording",
             subject_id=recording_id, signer=actor,
             subject_digest=receipt["receipt_digest"], statement="deletion-receipt")
-        return {"recording_id": recording_id, "deleted": True, "receipt": receipt}
+        return {"recording_id": recording_id, "deleted": True,
+                "blob_removed": blob_removed, "receipt": receipt}
 
     def redact_recording(self, workspace_id, recording_id, spans_sec, *, actor) -> dict:
         """Produce a DERIVED redacted copy (silenced spans) with a new PCM hash and
