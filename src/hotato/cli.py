@@ -5288,10 +5288,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_format_arg(rp2, choices=("text", "json"))
     rp2.set_defaults(func=_cmd_regression_prepare)
 
-    # --- counterexample: one failure -> minimal runnable capsule ------------
+    # --- counterexample: one failure -> proof-statused runnable capsule -----
     cx = sub.add_parser(
         "counterexample",
-        help="compile one deterministic failure into a minimal, portable regression capsule",
+        help=(
+            "compile one deterministic failure into an offline regression "
+            "capsule with explicit proof status"
+        ),
         description=(
             "Reduce one failing scripted scenario while preserving the exact "
             "typed deterministic assertion failure. Every accepted deletion is "
@@ -5314,9 +5317,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="reduce one failing scenario/test pair and emit a .hotato-repro directory",
         description=(
             "Compile one private runnable counterexample. V1 accepts a deterministic "
-            "hotato.scenario plus conversation-test and a unique deterministic "
-            "assertion id. Model-judged targets, external timing bundles, and custom "
-            "policy-pack paths are refused. The output path must not exist."
+            "hotato.scenario plus conversation-test and a unique supported "
+            "deterministic assertion id. Model-judged targets, DTMF, external "
+            "timing bundles, custom policy-pack paths, and unsupported scripted-"
+            "evidence shapes are refused. The output path must not exist."
         ),
         epilog=(
             _exit_codes_epilog("counterexample compile") + "\n\n"
@@ -5332,7 +5336,7 @@ def build_parser() -> argparse.ArgumentParser:
     cxc.add_argument("--test", required=True, metavar="FILE",
                      help="conversation-test containing the target deterministic assertion")
     cxc.add_argument("--target", required=True, metavar="ASSERTION_ID",
-                     help="unique assertion id in assertions.deterministic")
+                     help="unique supported assertion id in assertions.deterministic")
     cxc.add_argument("--out", required=True, metavar="DIR",
                      help="new .hotato-repro directory; built then atomically promoted")
     cxc.add_argument("--workspace", default=None, metavar="DIR",

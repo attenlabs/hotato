@@ -22,10 +22,11 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   assertion kinds through 48 closed, schema-coupled failure branches.
 
 ### Security
-- **Counterexample capsules fail closed under tampering and resource pressure.**
-  Private inspection binds the embedded source, oracle, target identity, every
-  proof artifact, and canonical human projection. Share-safe capsules use an
-  exact member allowlist and canonical reports. Manifest members, streaming
+- **Counterexample capsules refuse bounded integrity violations and excessive
+  proof work under the v1 snapshot model.** Private inspection binds the
+  embedded source, oracle, target identity, every proof artifact, and canonical
+  human projection. Share-safe capsules use an exact member allowlist and
+  canonical reports. Manifest members, streaming
   journals, JSON depth/number handling, scripted evidence, and proof-regex work
   have explicit limits before replay. Minimality verification refuses more than
   512 accepted transformations and 512 remaining deletion units. Accepted
