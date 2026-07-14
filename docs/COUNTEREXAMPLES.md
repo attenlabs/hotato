@@ -452,6 +452,10 @@ Use the generated predicate when a reproduced failure should fail the job:
 tests/repros/refund-not-posted.hotato-repro/predicate.sh
 ```
 
+On Windows, run the helpers through the interpreter -- `sh predicate.sh`,
+`sh reproduce.sh`, `git bisect run sh /absolute/path/to/predicate.sh` -- the
+capsule digests bind the same helper bytes on every platform.
+
 The predicate executes the frozen reduced mock scenario; it does not call an
 application's current voice agent, prompt, tools, provider, or telephony
 path. V1 gates Hotato evaluator/simulator behavior over the capsule, not an

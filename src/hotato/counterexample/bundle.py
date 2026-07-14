@@ -169,10 +169,15 @@ def _write(path: str, data: bytes, *, executable: bool = False) -> None:
         except OSError:
             pass
         raise
-    try:
-        os.chmod(path, 0o700 if executable else 0o600)
-    except OSError:
-        pass
+    if os.name != "nt":
+        # POSIX-only: Windows records no POSIX mode bits (os.chmod there only
+        # toggles the read-only attribute), so the helpers run through the
+        # interpreter (`sh reproduce.sh`) and every byte stays bound by the
+        # capsule digests. Modes are never part of the recorded manifest.
+        try:
+            os.chmod(path, 0o700 if executable else 0o600)
+        except OSError:
+            pass
 
 
 def _write_text(path: str, text: str, *, executable: bool = False) -> None:
@@ -1403,12 +1408,18 @@ def _load_private_bundle(
     for name, value in byte_members.items():
         if artifact_digests.get(name) != "sha256:" + sha256_bytes(value):
             raise CounterexampleRefusal("artifact_digest_mismatch", f"artifact digest mismatch for {name}")
-    for name in ("reproduce_script", "predicate_script"):
-        member = _bundle_member(root, artifacts[name])
-        if not os.lstat(member).st_mode & stat.S_IXUSR:
-            raise CounterexampleRefusal(
-                "artifact_mode_mismatch", f"private helper {artifacts[name]!r} is not executable"
-            )
+    # POSIX hosts keep the helpers directly runnable in place, so a stripped
+    # execute bit is a refusal there. Windows records no POSIX execute bit
+    # (the helpers run as `sh reproduce.sh`), and every helper byte is
+    # already bound by the artifact digests checked above, so mode absence
+    # carries no integrity signal on that platform.
+    if os.name != "nt":
+        for name in ("reproduce_script", "predicate_script"):
+            member = _bundle_member(root, artifacts[name])
+            if not os.lstat(member).st_mode & stat.S_IXUSR:
+                raise CounterexampleRefusal(
+                    "artifact_mode_mismatch", f"private helper {artifacts[name]!r} is not executable"
+                )
     final_stat = os.lstat(root)
     if (final_stat.st_dev, final_stat.st_ino) != root_identity:
         raise CounterexampleRefusal(
