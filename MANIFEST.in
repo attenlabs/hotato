@@ -18,6 +18,7 @@ recursive-include src/hotato/templates *.tmpl *.py
 
 # The claim-language contract (scripts/copy_lint.py + card.py read it at run
 # time) ships in the wheel (package-data) and the sdist (here).
+include src/hotato/py.typed
 include src/hotato/data/evidence_language.json
 
 # The bundled Silero VAD ONNX weights (~2.33 MB, MIT) for the OPTIONAL [neural]

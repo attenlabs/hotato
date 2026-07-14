@@ -145,6 +145,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 hotato = [
+    # PEP 561 marker: ships the inline type hints (hotato.sdk and the rest of
+    # the package) so a type checker reads the installed wheel as typed.
+    "py.typed",
     "data/evidence_language.json",
     # Bundled Silero VAD ONNX weights (MIT) + its attribution notice for the
     # OPTIONAL [neural] extra; loaded directly on onnxruntime (no torch).

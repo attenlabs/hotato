@@ -296,6 +296,7 @@ The highest-value PR is one labeled dual-channel call: the corpus compounds, eve
 - **Set-and-forget monitoring**: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) &middot; [`examples/set-and-forget/`](examples/set-and-forget/README.md)
 - **Bad call to CI, step by step**: [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md) &middot; [`examples/bad-call-to-ci/`](examples/bad-call-to-ci/README.md)
 - **What it measures** (three timing signals): [`METHODOLOGY.md`](METHODOLOGY.md) &middot; [`docs/API.md`](docs/API.md)
+- **Typed Python SDK** (frozen dataclasses over the CLI JSON): [`docs/SDK.md`](docs/SDK.md)
 - **The fix ladder** (failure &rarr; fix class): [`docs/FIX-PLANS.md`](docs/FIX-PLANS.md)
 - **Rule out non-turn-taking bugs first** (STT, buffering, verbosity, refusals, language): [`docs/WHY.md`](docs/WHY.md)
 - **Pull a call from your stack** (Vapi, Twilio, Retell, LiveKit, Pipecat): [`adapters/README.md`](adapters/README.md) &middot; [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
