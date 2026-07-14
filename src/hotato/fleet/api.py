@@ -337,10 +337,24 @@ class FleetAPI:
     def contract_from_candidate(self, workspace_id, candidate_id, *, reviewer, decision,
                                 contract_id=None, high_stakes=False, max_talk_over_sec=None,
                                 max_time_to_yield_sec=None, rationale=None) -> dict:
-        """One-click (plan §9.2): record the human label on a reviewed candidate and
-        mint a real .hotato failure contract from its stored recording at the
-        candidate onset, then register it (with an optional high-stakes flag).
-        yield/hold only; a model may never do this."""
+        """One-click (plan §9.2): mint a real .hotato failure contract from a
+        reviewed candidate's stored recording at the candidate onset, record the
+        human label, and register it (with an optional high-stakes flag).
+        yield/hold only; a model may never do this.
+
+        The sealed contract carries the SAME identity + provenance the fleet label
+        row does: the reviewer, the rationale, the agent's source stack, and the
+        candidate reference + kind are all forwarded into the contract creation +
+        signing path, so the signature never authenticates a false or incomplete
+        record.
+
+        Atomic by construction: the contract is minted + sealed FIRST (the step
+        that can fail -- e.g. a contract-id collision raises here), and only then
+        are the human label, the contract registration, and the candidate's status
+        change committed, with the review-queue-dropping status flip LAST. A
+        failure while minting leaves the candidate 'new' and unlabeled -- never a
+        labeled candidate with no contract. Pass ``contract_id`` to recover from a
+        prior collision; a taken id collides loudly (create_contract refuses it)."""
         if decision not in ("yield", "hold"):
             raise ValueError("contract_from_candidate decision must be 'yield' or 'hold'")
         cand = self.registry._one(
@@ -357,9 +371,15 @@ class FleetAPI:
         if not rec or not rec.get("artifact_digest"):
             raise ValueError(
                 f"candidate {candidate_id!r} has no stored recording to build a contract from")
-        # record the human label (also enforces the candidate exists)
-        lbl = self.label(workspace_id, candidate_id, decision=decision, reviewer=reviewer,
-                         rationale=rationale)
+        agent_id = cand.get("agent_id")
+        # The agent's REGISTERED stack (e.g. vapi) -- sealed into the contract's
+        # source provenance instead of the 'generic' fallback.
+        stack = None
+        if agent_id:
+            _arow = self.registry._one(
+                "SELECT stack FROM agents WHERE workspace_id=? AND agent_id=?",
+                (workspace_id, agent_id))
+            stack = dict(_arow).get("stack") if _arow else None
         import os as _os
         import tempfile as _tf
 
@@ -367,14 +387,27 @@ class FleetAPI:
         data = self.store.get_bytes(rec["artifact_digest"])
         cdir = _os.path.join(self.home, "contracts", workspace_id)
         _os.makedirs(cdir, exist_ok=True)
+        # Collision-free contract id: derived from the FULL candidate id, never a
+        # 12-char truncation. Sibling candidates from one recording share a
+        # 12-char prefix (cand-<rec12>-0/-1/-2), so `ct-<short>` collapsed them all
+        # onto one id and the second mint collided; the full id is unique per
+        # candidate and is already a valid contract slug.
+        cid = contract_id or f"ct-{candidate_id}"
         tf = _tf.NamedTemporaryFile(suffix=".wav", delete=False)
         try:
             tf.write(data); tf.flush(); tf.close()
-            cid = contract_id or f"ct-{_short(candidate_id)}"
+            # Mint + seal the contract BEFORE any registry mutation. This is the
+            # fail-prone step (a colliding id raises here), so no label/status is
+            # written unless the sealed bundle exists. Forward reviewer/stack/
+            # rationale/candidate ref+kind so the signed record matches the label.
             res = _contract.create_contract(
                 stereo=tf.name, onset_sec=cand.get("onset_sec"), expect=decision,
-                contract_id=cid, out_dir=cdir, max_talk_over_sec=max_talk_over_sec,
-                max_time_to_yield_sec=max_time_to_yield_sec, rationale=rationale)
+                contract_id=cid, out_dir=cdir, stack=stack,
+                reviewer_principal=reviewer, rationale=rationale,
+                candidate_ref=candidate_id, candidate_kind=cand.get("cluster"),
+                include_identifiers=True,
+                max_talk_over_sec=max_talk_over_sec,
+                max_time_to_yield_sec=max_time_to_yield_sec)
         finally:
             try:
                 _os.unlink(tf.name)
@@ -385,10 +418,18 @@ class FleetAPI:
                                      kind="contract", workspace_id=workspace_id)
         cjson = res.get("contract") or {}
         canonical = (cjson.get("attestation") or {}).get("canonical_digest")
-        self.register_contract(workspace_id, contract_id=cid, agent_id=cand.get("agent_id"),
-                               label_id=lbl["label_id"], canonical_digest=canonical,
+        # The sealed bundle exists: NOW commit the human label, register the
+        # contract, and flip the candidate's status -- in that order, so the
+        # review-queue-dropping status change is the LAST write. label_id is
+        # derived from the FULL candidate id (mirrors label()), never a truncation.
+        label_id = f"label-{candidate_id}"
+        self.registry.add_label(workspace_id, label_id, candidate_id=candidate_id,
+                                reviewer=reviewer, decision=decision, rationale=rationale)
+        self.register_contract(workspace_id, contract_id=cid, agent_id=agent_id,
+                               label_id=label_id, canonical_digest=canonical,
                                artifact_digest=digest, high_stakes=high_stakes)
-        return {"contract_id": cid, "dir": bundle_dir, "label_id": lbl["label_id"],
+        self.registry.set_candidate_status(workspace_id, candidate_id, "labeled")
+        return {"contract_id": cid, "dir": bundle_dir, "label_id": label_id,
                 "high_stakes": bool(high_stakes), "decision": decision}
 
     # --- experiment (manifest-bound; recommendation-only) --------------

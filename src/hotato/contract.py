@@ -251,6 +251,8 @@ def create_contract(
     include_identifiers: bool = False,
     confirm_channels: bool = False,
     reviewer_principal: Optional[str] = None,
+    candidate_ref: Optional[str] = None,
+    candidate_kind: Optional[str] = None,
 ) -> dict:
     """Create one ``<id>.hotato`` failure-contract bundle under ``out_dir``.
 
@@ -359,6 +361,8 @@ def create_contract(
                 include_identifiers=include_identifiers,
                 confirm_channels=confirm_channels,
                 reviewer_principal=reviewer_principal,
+                candidate_ref_override=candidate_ref,
+                candidate_kind_override=candidate_kind,
             )
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -711,13 +715,22 @@ def _create_from_fixture_path(
     contract_id, want_yield, expect, onset_sec, stack, max_talk_over_sec,
     max_time_to_yield_sec, rationale, pre_sec, post_sec, no_clip,
     caller_channel, agent_channel, include_identifiers, confirm_channels=False,
-    reviewer_principal=None,
+    reviewer_principal=None, candidate_ref_override=None,
+    candidate_kind_override=None,
 ) -> dict:
     fx_kwargs, resolved_onset, recording_type, candidate_ref, candidate_kind = (
         _resolve_raw_input(from_candidate=from_candidate, stereo=stereo,
                            caller=caller, agent=agent, folder=folder,
                            onset_sec=onset_sec)
     )
+    # A caller that resolved the candidate itself (the Fleet one-click path builds
+    # a contract from a --stereo temp clip, not a FILE#N ref) can supply the real
+    # candidate reference + kind explicitly, so the sealed contract records the
+    # SAME provenance the fleet candidate/label row carries instead of a null.
+    if candidate_ref_override is not None:
+        candidate_ref = candidate_ref_override
+    if candidate_kind_override is not None:
+        candidate_kind = candidate_kind_override
     source_audio = (fx_kwargs.get("stereo")
                     or fx_kwargs.get("caller"))  # for the pre-clip sha256
     if recording_type == "caller+agent":
@@ -756,6 +769,7 @@ def _create_from_fixture_path(
             agent_channel=agent_channel,
             created_by=CREATED_BY,
             reviewer_principal=resolved_reviewer,
+            rationale=rationale,
         )
         # A ValueError above (not-scorable) propagates as-is: no bundle files
         # are written before this point, matching fixture create's own

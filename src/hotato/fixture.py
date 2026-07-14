@@ -121,7 +121,8 @@ def _default_reviewer_principal() -> str:
 
 
 def _mint_fixture_label_record(*, audio_path: str, want_yield: bool,
-                               reviewer_principal: Optional[str]) -> Optional[dict]:
+                               reviewer_principal: Optional[str],
+                               rationale: Optional[str] = None) -> Optional[dict]:
     """Mint a label-record for the fixture's audio (the human running this
     workflow chose --expect, i.e. the decision), if SOME signing key is
     configured. Returns ``None`` (never raises) when no key is configured at
@@ -134,6 +135,7 @@ def _mint_fixture_label_record(*, audio_path: str, want_yield: bool,
             reviewer_principal=reviewer_principal or _default_reviewer_principal(),
             event_audio_pcm_sha256=event_pcm_sha256,
             decision="yield" if want_yield else "hold",
+            rationale=rationale,
         )
     except _labelrecord.NoSigningKeyConfigured:
         return None
@@ -176,6 +178,7 @@ def create_fixture(
     created_by: str = CREATED_BY,
     provenance_extra: Optional[dict] = None,
     reviewer_principal: Optional[str] = None,
+    rationale: Optional[str] = None,
 ) -> dict:
     """Create one regression fixture and validate it. Returns a result dict:
     ``{"id", "paths", "scenario", "validation", "onset", "next"}``.
@@ -308,7 +311,7 @@ def create_fixture(
     # "asserted" (not falsely "human") label authority downstream.
     label_record = _mint_fixture_label_record(
         audio_path=audio_path, want_yield=want_yield,
-        reviewer_principal=reviewer_principal)
+        reviewer_principal=reviewer_principal, rationale=rationale)
     if label_record is not None:
         scenario["label_record"] = label_record
         os.makedirs(labels_dir, exist_ok=True)

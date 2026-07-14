@@ -2305,7 +2305,8 @@ def _cmd_fleet_contract_create(args) -> int:
     try:
         res = api.contract_from_candidate(
             args.workspace, args.from_candidate, reviewer=args.reviewer,
-            decision=args.decision, high_stakes=args.high_stakes,
+            decision=args.decision, contract_id=args.contract_id,
+            high_stakes=args.high_stakes,
             max_talk_over_sec=args.max_talk_over_sec,
             max_time_to_yield_sec=args.max_time_to_yield_sec, rationale=args.rationale)
         _fleet_emit(args, res, [f"contract:    {res['contract_id']}",
@@ -7913,6 +7914,10 @@ def build_parser() -> argparse.ArgumentParser:
     fctc.add_argument("--decision", required=True, choices=["yield", "hold"],
                       help="the HUMAN label for the moment")
     fctc.add_argument("--reviewer", required=True, metavar="WHO", help="the human reviewer")
+    fctc.add_argument("--contract-id", default=None, metavar="ID",
+                      help="override the auto-derived contract id (a lowercase "
+                           "slug); use it to recover after a prior collision. A "
+                           "taken id is refused loudly rather than overwritten")
     fctc.add_argument("--high-stakes", action="store_true",
                       help="mark this a high-stakes contract (stricter gates apply)")
     fctc.add_argument("--rationale", default=None, metavar="TEXT")
