@@ -98,7 +98,7 @@ macOS, and Windows (jobs `portability` and `determinism`); the broader test
 suite is verified on Linux (see Job 1). The portable
 contract bundle (`hotato contract create` / `hotato contract verify` --
 audio, timing evidence, trace evidence, label, policy, and a CI command, all
-in one artifact) carries this job forward once it ships; only the artifact
+in one artifact) carries this job forward; only the artifact
 changes, not the verdict's shape.
 
 **What is reported.** Per fixture: the verdict (`PASS`/`FAIL`), the measured
