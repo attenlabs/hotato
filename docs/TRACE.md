@@ -1,15 +1,14 @@
 # Voice traces
 
-A voice trace is a timeline of discrete voice-pipeline events (caller/agent
-audio activity, TTS cancel/stop, ASR partials, tool calls, ...) that
-supplements a failure contract's frame-level timing evidence with a WHY
-layer beyond what a caller/agent audio track alone can show: "the agent
-talked over the caller" becomes "evidence suggests TTS cancellation lagged:
-cancel requested at 42.40s, audio stopped at 43.60s".
+A voice trace is a timeline of discrete voice-pipeline events
+(caller/agent audio activity, TTS cancel/stop, ASR partials, tool calls,
+...) that adds a WHY layer beyond what a caller/agent audio track alone
+shows: "the agent talked over the caller" becomes "evidence suggests TTS
+cancellation lagged: cancel requested at 42.40s, audio stopped at 43.60s".
 
-A voice trace reports coincidence: a pattern of events that lined up with the
-measured timing, not a proof of root cause. See [`docs/OTEL.md`](OTEL.md) for
-the ingest source formats.
+A voice trace reports coincidence: a pattern of events that lined up with
+the measured timing, not root cause. See [`docs/OTEL.md`](OTEL.md) for the
+ingest source formats.
 
 Three commands:
 
@@ -63,9 +62,8 @@ A span carries an open `type` string; the common ones are
 `tts_audio_stopped`, `asr_partial`, `tool_call`, `llm_first_token`,
 `handoff`. An unrecognized type passes through unchanged (additive,
 forward-compatible with a pipeline that emits a span type this release does
-not name). Exactly one time shape applies per span: an
-interval span carries `start_sec`/`end_sec`, a point event carries
-`time_sec`.
+not name). Exactly one time shape applies per span: an interval span
+carries `start_sec`/`end_sec`, a point event carries `time_sec`.
 
 ## Redaction by default
 
@@ -98,18 +96,18 @@ hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl
 ```
 
 Copies the trace into `<bundle>/traces/voice_trace.jsonl` and re-renders
-`evidence/timeline.html` with the trace's events drawn as an additional row,
-aligned to the SAME [0, duration] scale as the existing caller/agent
-timeline. This reads the bundle's OWN `evidence/frames.jsonl` and
+`evidence/timeline.html` with the trace's events drawn as an additional
+row, aligned to the same [0, duration] scale as the existing caller/agent
+timeline. This reads the bundle's own `evidence/frames.jsonl` and
 `contract.json` back in, reusing the existing scored evidence as-is:
-attaching a trace needs no diarization extra installed and no re-scoring of
-the audio. On a diarized-mono bundle (no frame-level evidence), the base
-timeline states that plainly, and the trace row still renders on its own
-scale.
+attaching a trace needs no diarization extra installed and no re-scoring
+of the audio. On a diarized-mono bundle (no frame-level evidence), the
+base timeline states that plainly, and the trace row still renders on its
+own scale.
 
 `contract.json` records the attachment (additive, schema-safe: `trace:
-{attached, path, span_count, attached_at, source_format}`). Refused (exit 2)
-for a missing bundle, a trace file that does not validate as a
+{attached, path, span_count, attached_at, source_format}`). Refused (exit
+2) for a missing bundle, a trace file that does not validate as a
 `hotato.voice_trace.v1` JSONL, or an already-attached trace without
 `--force`.
 
@@ -118,15 +116,15 @@ for a missing bundle, a trace file that does not validate as a
 When a `tts_cancel_requested` / `tts_audio_stopped` pair is present, the
 timeline states the measured delta plainly:
 
-> Evidence suggests TTS cancellation delay: cancel requested at 2.60s, audio
-> stopped at 2.90s (delta 0.30s).
+> Evidence suggests TTS cancellation delay: cancel requested at 2.60s,
+> audio stopped at 2.90s (delta 0.30s).
 > Hotato does not prove root cause.
 > Unknowns: no client-side playout trace was attached.
 
 The last line is always present in this release: a client-side audio
-playout trace (the point where the CALLER'S device stopped
-rendering audio, as opposed to when the server issued the stop) sits outside
-what this release's span types collect, so the gap is always named plainly.
+playout trace (the point where the caller's device stopped rendering
+audio, as opposed to when the server issued the stop) sits outside what
+this release's span types collect, so the gap is always named plainly.
 
 ## Export
 
@@ -134,21 +132,21 @@ what this release's span types collect, so the gap is always named plainly.
 hotato trace export contracts/refund-cutoff-001.hotato --format otel --out otel.jsonl
 ```
 
-Writes the bundle's attached trace back out as hotato's OTel bridge JSONL --
-the exact shape `trace ingest` reads, so `ingest -> attach -> export ->
-ingest` round-trips the identical spans. `--format` is claimed by the export
-format on this subcommand (only `otel` is supported today); pass `--json`
-for the machine result summary instead of the default text line. Refused
-(exit 2) when the bundle has no attached trace, or `--out` exists without
-`--force`.
+Writes the bundle's attached trace back out as hotato's OTel bridge JSONL
+-- the exact shape `trace ingest` reads, so `ingest -> attach -> export ->
+ingest` round-trips the identical spans. `--format` is claimed by the
+export format on this subcommand (only `otel` is supported today); pass
+`--json` for the machine result summary instead of the default text line.
+Refused (exit 2) when the bundle has no attached trace, or `--out` exists
+without `--force`.
 
 ## What a voice trace adds
 
 A voice trace adds timing correlation to a failure contract's existing
 timing measurement: a pattern of events lined up with it, named plainly.
 Authorization, identity, compliance, policy safety, intent, and root cause
-stay outside its claims, and a client-side playout moment is named only when
-one was attached.
+stay outside its claims, and a client-side playout moment is named only
+when one was attached.
 
 ## Read more
 

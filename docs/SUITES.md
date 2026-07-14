@@ -3,9 +3,9 @@
 `corpus/suites/` ships four labelled scenario suites, 112 scenarios total,
 every one synthetic shaped noise rendered deterministically from its own
 labelled timings (seed `sha256(scenario_id)`). The timings are the ground
-truth. Synthetic audio is the floor: these suites prove the scorer runs end to
-end and catch regressions. Validity on your system comes from your own labelled
-calls ([`docs/SUBMITTING.md`](SUBMITTING.md)).
+truth. Synthetic audio is the floor: these suites prove the scorer runs end
+to end and catch regressions. Validity on your system comes from your own
+labelled calls ([`docs/SUBMITTING.md`](SUBMITTING.md)).
 
 ## The four suites
 
@@ -16,21 +16,22 @@ calls ([`docs/SUBMITTING.md`](SUBMITTING.md)).
 | `gold` | 40 | hard conditions: noise floors, 8 kHz, gain extremes, echo, edge timings, endurance | `0` |
 | `gold-defects` | 16 | hard-condition defect renders, plus two labelled capture-defect cases | `1` |
 
-Scenario families span what matters on a real call: hard interruptions (onset,
-speed, duration, resume), backchannels, short acknowledgements like "mhm" the
-agent should talk through (varied in position, density, repeats, length),
-double-talk, one-word interruptions, stutter onsets, multi-turn exchanges,
-resume-then-reinterrupt, and latency prompts. `corpus/suites/manifest.json` is
-the machine-readable inventory: per suite the family and category breakdown,
-sample rates, and expected exit code.
+Scenario families span what shows up on a live call: hard interruptions
+(onset, speed, duration, resume), backchannels, short acknowledgements like
+"mhm" the agent should talk through (varied in position, density, repeats,
+length), double-talk, one-word interruptions, stutter onsets, multi-turn
+exchanges, resume-then-reinterrupt, and latency prompts.
+`corpus/suites/manifest.json` is the machine-readable inventory: per suite
+the family and category breakdown, sample rates, and expected exit code.
 
 ## Defect suites fail by design
 
 Every `silver-defects` / `gold-defects` scenario is rendered to fail on its
-labelled axis: an agent that keeps talking through a real interruption, or stops
-for a backchannel, or misses its latency budget. A defect suite that exits `1`
-is the scorer catching what it claims to; a defect suite that exits `0` would be
-a bug. This is the negative control the positive suites need to mean anything.
+labelled axis: an agent that keeps talking through a true interruption, or
+stops for a backchannel, or misses its latency budget. A defect suite that
+exits `1` is the scorer catching what it claims to; a defect suite that
+exits `0` would be a bug. This is the negative control the positive suites
+need to mean anything.
 
 ## Run a suite
 
@@ -56,42 +57,44 @@ python3 corpus/suites/build_suites.py           # rebuild in place
 python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte-compare
 ```
 
-`--check` regenerating byte-identical output is the reproducibility guarantee:
-the audio on disk is exactly what the labelled timings say, deterministic for a
-fixed hotato version (byte-identical re-runs verified in CI on Linux x86_64,
-Python 3.10, 3.11, 3.12 -- see `.github/workflows/tests.yml`, job `determinism`). CI
-can run it as a drift gate.
+`--check` regenerating byte-identical output is the reproducibility
+guarantee: the audio on disk is exactly what the labelled timings say,
+deterministic for a fixed hotato version (byte-identical re-runs verified in
+CI on Linux x86_64, Python 3.10, 3.11, 3.12 -- see
+`.github/workflows/tests.yml`, job `determinism`). CI can run it as a drift
+gate.
 
 ## Additive scenario classes
 
-`corpus/classes/` ships four small, deterministic classes on top of the suites
-above, built the same way (synthetic shaped noise, seed `sha256(scenario_id)`,
-`--check` byte-compares a rebuild):
+`corpus/classes/` ships four small, deterministic classes on top of the
+suites above, built the same way (synthetic shaped noise, seed
+`sha256(scenario_id)`, `--check` byte-compares a rebuild):
 
-- `mid-utterance-pause` -- a multi-second thinking gap mid-turn, distinct from a
-  true turn end.
-- `backchannel-multilingual` -- short non-English acknowledgement tokens, since
-  Hotato's energy-based VAD treats them the same as English ones.
+- `mid-utterance-pause` -- a multi-second thinking gap mid-turn, distinct
+  from a true turn end.
+- `backchannel-multilingual` -- short non-English acknowledgement tokens,
+  since Hotato's energy-based VAD treats them the same as English ones.
 - `noise-hold` -- sustained background presence, distinct from a brief
   backchannel, that the agent should hold through.
-- `telephony-degraded` -- an existing gold scenario re-rendered through G.711
-  mu-law plus a fixed packet-loss schedule, to prove the verdict is stable
-  across codec degradation.
+- `telephony-degraded` -- an existing gold scenario re-rendered through
+  G.711 mu-law plus a fixed packet-loss schedule, to prove the verdict is
+  stable across codec degradation.
 
 Kept separate from `corpus/suites/` because `mid-utterance-pause` needs a
-non-default `turn_end_silence_sec` beyond what the generic suite tests apply.
-Full per-class detail: `corpus/classes/README.md`.
+non-default `turn_end_silence_sec` beyond what the generic suite tests
+apply. Full per-class detail: `corpus/classes/README.md`.
 
 ## Against a live stack
 
-To run scenario audio through a real voice stack and score what comes back, see
-[`docs/BENCHMARK-STACKS.md`](BENCHMARK-STACKS.md). Measurement-error methodology
-for the scorer itself is in [`docs/BENCHMARK.md`](BENCHMARK.md).
+To run scenario audio through a live voice stack and score what comes back,
+see [`docs/BENCHMARK-STACKS.md`](BENCHMARK-STACKS.md). Measurement-error
+methodology for the scorer itself is in [`docs/BENCHMARK.md`](BENCHMARK.md).
 
 ## Contribute scenarios
 
 New synthetic families are welcome through the normal PR path
-(`CONTRIBUTING.md`). The highest-value contribution stays a real, consented,
-labelled call: the walkthrough is [`docs/SUBMITTING.md`](SUBMITTING.md) and the
+(`CONTRIBUTING.md`). The highest-value contribution stays a consented,
+labelled call from your own traffic: the walkthrough is
+[`docs/SUBMITTING.md`](SUBMITTING.md) and the
 [corpus-submission issue form](https://github.com/attenlabs/hotato/issues/new?template=corpus_submission.yml)
 opens the intake.
