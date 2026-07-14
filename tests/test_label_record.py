@@ -126,6 +126,7 @@ def test_bad_decision_is_rejected():
 def test_minting_without_any_key_refuses_not_silently_unsigned(monkeypatch, tmp_path):
     monkeypatch.delenv("HOTATO_ATTEST_KEY", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))     # no ~/.hotato/attest.key, no saved Ed25519 key
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     with pytest.raises(lr.NoSigningKeyConfigured):
         lr.mint_label_record(reviewer_principal="alice",
                              event_audio_pcm_sha256="a" * 64, decision="yield")
@@ -163,6 +164,7 @@ def test_verified_ed25519_label_record_via_local_trust_is_human(tmp_path, monkey
     lets build_manifest's own trust resolution -- not a caller-supplied key --
     verify the signature and grant "human"/TIER_ATTESTED."""
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     priv, pub, key_id = sign.keygen()
     sign.save_signing_key(key_id, priv)
     sign.save_trust(key_id, pub)
@@ -238,6 +240,7 @@ def test_fixture_create_without_any_key_degrades_to_asserted_not_crash(tmp_path,
 
     monkeypatch.delenv("HOTATO_ATTEST_KEY", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     src = str(resources.files("hotato").joinpath(
         "data", "audio", "01-hard-interruption.example.wav"))
     out = str(tmp_path / "out")

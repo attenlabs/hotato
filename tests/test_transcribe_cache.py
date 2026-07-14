@@ -369,6 +369,7 @@ def test_cli_run_explicit_unwritable_transcribe_cache_dir_stays_strict(tmp_path,
     from hotato import cli
 
     monkeypatch.setenv("HOME", str(tmp_path / "otherwise-writable-home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "otherwise-writable-home"))
     blocked_cache_parent = tmp_path / "cache-parent-is-a-file"
     blocked_cache_parent.write_text("not a directory")
 

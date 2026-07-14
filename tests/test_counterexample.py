@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 
 import pytest
 
@@ -204,6 +205,12 @@ def test_self_rehashed_certificate_forgery_fails_transform_replay(tmp_path):
     assert predicate_counterexample(str(out)) == 125
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="creating the symlink this refusal is exercised against needs the "
+           "SeCreateSymbolicLink privilege on Windows (absent by default); the "
+           "symlink-rejection logic itself is POSIX-exercised here",
+)
 def test_nested_directory_symlink_is_refused_even_when_undeclared(tmp_path):
     out, _ = _compile(tmp_path)
     os.symlink(tmp_path, out / "undeclared-link")
@@ -211,6 +218,12 @@ def test_nested_directory_symlink_is_refused_even_when_undeclared(tmp_path):
         inspect_counterexample(str(out))
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="creating the ancestor symlink this refusal is exercised against "
+           "needs the SeCreateSymbolicLink privilege on Windows (absent by "
+           "default); the symlink-rejection logic itself is POSIX-exercised here",
+)
 def test_output_symlink_ancestor_refuses_before_creating_outside(tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -224,6 +237,7 @@ def test_output_symlink_ancestor_refuses_before_creating_outside(tmp_path):
     assert not (outside / "must-not-be-created").exists()
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are POSIX-only")
 def test_special_file_input_is_refused_without_reading(tmp_path):
     fifo = tmp_path / "scenario.fifo"
     os.mkfifo(fifo)

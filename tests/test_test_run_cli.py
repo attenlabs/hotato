@@ -96,6 +96,7 @@ def _deterministic_judge(monkeypatch, tmp_path):
     a per-test tmp dir so runs never touch ~/.hotato."""
     monkeypatch.setenv("HOTATO_JUDGE_ENDPOINT", "http://127.0.0.1:1")
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
 
 # --- the DoD demonstration: one real call, one file, end to end -------------

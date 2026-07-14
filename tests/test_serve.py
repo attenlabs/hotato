@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 import threading
 import time
 import urllib.error
@@ -803,6 +804,12 @@ def test_hostile_record_id_is_rejected(live):
         assert "def _record_detail" not in body      # no source file contents
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="creating the escaping symlink this refusal is exercised against "
+           "needs the SeCreateSymbolicLink privilege on Windows (absent by "
+           "default); the realpath-containment logic itself is POSIX-exercised here",
+)
 def test_record_symlink_escape_is_rejected(live, tmp_path):
     # a symlink inside the records root that points OUTSIDE it is not followed:
     # even a valid record behind the link is refused (realpath containment).
