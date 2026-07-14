@@ -1,12 +1,12 @@
 # OTel ingest: two source shapes
 
 `hotato trace ingest --otel FILE` turns an OTel trace into hotato's own
-`hotato.voice_trace.v1` spans. It reads a file you already have -- an
-exported trace, or a small script's own event log -- offline, once, and
-translates `name`, `startTimeUnixNano`/`endTimeUnixNano`, `attributes`, and
-span `events` from a standard export into hotato's span shape. It
-recognizes two input shapes; `source.format` records which one it used
-(`"otel-json"` or `"otel-jsonl-bridge"`).
+`hotato.voice_trace.v1` spans -- reading a file you already have (an
+exported trace, or a script's own event log) offline, once, and
+translating `name`, `startTimeUnixNano`/`endTimeUnixNano`, `attributes`,
+and span `events` into hotato's span shape. It recognizes two input
+shapes; `source.format` records which one it used (`"otel-json"` or
+`"otel-jsonl-bridge"`).
 
 ## 1. Standard OTel JSON export (`otel-json`)
 
@@ -37,23 +37,22 @@ standard OTel exporter/collector writes):
 ```
 
 - Resource attributes flatten into a plain dict: `service.name` (or a custom
-  `stack` attribute) becomes `deployment.stack`, and `git_sha` /
-  `config_hash` attributes, when present, fill the matching deployment
-  fields. Only the FIRST `resourceSpans` entry's resource supplies
-  deployment metadata; every entry's spans are still walked.
-- Timestamps convert to seconds relative to the EARLIEST timestamp anywhere
-  in the file, matching the audio-relative-seconds convention every other
-  hotato timestamp uses.
+  `stack` attribute) becomes `deployment.stack`; `git_sha` / `config_hash`,
+  when present, fill the matching deployment fields. Only the FIRST
+  `resourceSpans` entry supplies deployment metadata -- every entry's spans
+  are still walked.
+- Timestamps convert to seconds relative to the EARLIEST timestamp in the
+  file, matching the audio-relative-seconds convention every other hotato
+  timestamp uses.
 - A span's own `name` maps to a hotato span `type` via a small documented
   table (`caller_audio_active`, `agent_audio_active`,
   `tts.cancel_requested` -> `tts_cancel_requested`,
   `tts.audio_stopped` -> `tts_audio_stopped`, `asr.partial` -> `asr_partial`,
   `llm.first_token` -> `llm_first_token`); an unmapped name passes through
   unchanged.
-- Span `events` -- OTel's own point-in-time markers nested inside a span,
-  the natural place a production pipeline puts a `tts.cancel_requested`
-  marker inside a broader `tts_playback` span -- flatten into their own
-  point events the same way top-level spans do.
+- Span `events` -- OTel's point-in-time markers nested inside a span, e.g.
+  a `tts.cancel_requested` marker inside a broader `tts_playback` span --
+  flatten into their own point events the same way top-level spans do.
 - A `tool_call`-mapped span takes its `name` field from the `tool.name` /
   `gen_ai.tool.name` attribute; a `latency_ms` attribute is used when
   present, otherwise computed from the span's own start/end.
@@ -63,11 +62,10 @@ standard OTel exporter/collector writes):
 
 ## 2. Hotato's OTel bridge JSONL (`otel-jsonl-bridge`)
 
-The documented shape for a script or test fixture that skips a full OTel
-exporter: one JSON object per line (or one bare JSON array of the same
-objects). Each line is either a span or a meta/resource line. A span line
-uses `type` directly; `name` on a span line is reserved for `tool_call`'s
-own tool name, distinct from the span kind:
+The shape for a script or test fixture that skips a full OTel exporter: one
+JSON object per line (or one bare JSON array of them). Each line is a span
+or a meta/resource line. A span line uses `type` directly; `name` is
+reserved for `tool_call`'s own tool name, distinct from the span kind:
 
 ```
 {"type": "caller_audio_active", "start_sec": 2.40, "end_sec": 4.10}
@@ -90,12 +88,12 @@ metadata and a call id:
 resource) provided. `hotato trace export` writes exactly this bridge
 shape, so `ingest -> attach -> export -> ingest` round-trips the same
 spans; the shipped test fixture (`tests/data/otel/demo-trace.otel.jsonl`)
-uses this shape.
+uses it.
 
 ## Which one to use
 
 Already running an OTel collector or SDK? Point `--otel` at that trace
 export directly -- the standard-export path reads it, best-effort. Wiring a
 quick script (a webhook handler, a log-line scraper) outside a full OTel
-pipeline? Write the bridge JSONL directly -- the same information, already
-flat.
+pipeline? Write the bridge JSONL directly instead -- same information,
+already flat.

@@ -1,10 +1,9 @@
 # Pytest: the fixture and the gate
 
-Install hotato and the plugin registers itself: a standard `pytest11` entry
-point, zero `conftest.py` wiring, zero imports. It adds one fixture and one
-opt-in session gate, both scoring with the same engine as the CLI and
-returning the same envelope -- the JSON result object every hotato surface
-emits.
+Install hotato and the plugin registers itself: standard `pytest11` entry
+point, zero `conftest.py`, zero imports. It adds one fixture and one
+opt-in session gate, both scoring with the CLI's engine and returning the
+same envelope every hotato surface emits.
 
 ```bash
 # zero-install with uvx, or: pipx install hotato
@@ -31,22 +30,22 @@ def test_selftest_battery(hotato_score):
     assert env["exit_code"] == 0
 ```
 
-The envelope is the standard machine shape (`schema_version` "1"): per event
-a `verdict` (`passed`, `did_yield`, `seconds_to_yield`, `talk_over_sec`), a
-`signals` bus, a `fix` on every failure, and the `limits` block. Assert on
-whichever measurement your test cares about.
+The envelope is the standard machine shape (`schema_version` "1"): per
+event, a `verdict` (`passed`, `did_yield`, `seconds_to_yield`,
+`talk_over_sec`), a `signals` bus, a `fix` on every failure, and `limits`.
+Assert on whatever your test cares about.
 
 ## The `--hotato-suite` session gate
 
-Opt in on the command line and the battery runs after your tests, printing a
-summary and failing the whole session (exit 1) on a regression:
+Opt in and the battery runs after your tests, printing a summary and
+failing the whole session (exit 1) on a regression:
 
 ```bash
 pytest --hotato-suite                    # default suite: barge-in
 ```
 
-The bundled battery is a self-test of the harness. Point the same flag at
-your own labelled scenario and audio directories to gate on your own agent:
+The bundled battery self-tests the harness. Point the same flag at your own
+labelled scenario and audio directories to gate on your own agent:
 
 ```bash
 pytest --hotato-suite \
@@ -54,16 +53,16 @@ pytest --hotato-suite \
   --hotato-suite-audio corpus/suites/gold/audio
 ```
 
-Any directory in the same scenario shape works, including your own labelled
-calls -- see `docs/SUITES.md` for the bundled tiers and `docs/SUBMITTING.md`
-for building labelled fixtures from your own recordings.
+Any directory in the same scenario shape works, including your own
+labelled calls -- `docs/SUITES.md` covers the bundled tiers,
+`docs/SUBMITTING.md` covers building fixtures from your own recordings.
 
-## Where it fits
+## Two ready-made gates
 
-- The gate is one flag on a test run you already have: turn-taking rides
-  along with every `pytest` invocation, locally and in CI.
+- This flag rides on a test run you already have: turn-taking checks run
+  with every `pytest` invocation, locally and in CI.
 - The GitHub workflow (`docs/CI.md`) is the other ready-made gate -- it
   scores every pull request and posts a sticky results comment. Use either,
   or both.
-- The plugin runs offline, and its fixtures are deterministic and
-  self-contained, so results stay stable run to run.
+- The plugin runs offline with deterministic, self-contained fixtures, so
+  results stay stable run to run.
