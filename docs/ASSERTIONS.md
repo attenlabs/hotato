@@ -2,8 +2,8 @@
 
 `hotato.assert_` checks a call's transcript, ingested trace, and timing
 against a fixed set of typed assertions, each kind scored on its own lane by
-construction. Every kind is a regex, checksum, or span/dict lookup: deterministic
-end to end, with no model call in the loop.
+construction. Every kind is a regex, checksum, or span/dict lookup --
+deterministic end to end, no model call in the loop.
 
 ```python
 from hotato import assert_ as A
@@ -23,53 +23,46 @@ complements; the schema is `src/hotato/schema/assert.v1.json`.
 ## The core deterministic kinds
 
 Every kind is deterministic, so every result carries `deterministic: true`,
-including an `INCONCLUSIVE` one. The five below are the original core; the
-full vocabulary is under [the whole `kind` vocabulary](#the-whole-kind-vocabulary).
+including `INCONCLUSIVE`. The five below are the original core; the full
+vocabulary is under [the whole `kind` vocabulary](#the-whole-kind-vocabulary).
 
-- **`phrase`** -- checks: a regex is present (or, in `absent` mode, never
-  present), with an optional `role` filter and `position`
-  (`first`/`last`/`any`). Reads: transcript text.
-- **`pii`** -- checks: deterministic detectors (`ssn`, `card_luhn` with full
-  Luhn validation, `email`, `phone`) find nothing, `mode: must_not_leak`.
-  Reads: transcript text.
-- **`policy`** -- checks: a named, versioned, offline rule pack's
-  banned-language and required-disclosure rules. Reads: transcript text.
-- **`tool_call`** -- checks: a tool was (or was not) called, with an optional
-  argument subset, a count bound, a required order across tools, or a "never
-  before" ordering constraint. Reads: ingested `voice_trace.v1` spans only.
-- **`outcome`** -- checks: task success as `all_of`/`any_of` a list of the
-  sub-predicates above (`tool_called`, `phrase`, `field_present`), reported as
-  a `met`/`of` fraction. Reads: whichever context each sub-predicate needs.
+| Kind | Checks | Reads |
+| --- | --- | --- |
+| `phrase` | a regex is present (or, in `absent` mode, never present), with an optional `role` filter and `position` (`first`/`last`/`any`) | transcript text |
+| `pii` | deterministic detectors (`ssn`, `card_luhn` with full Luhn validation, `email`, `phone`) find nothing, `mode: must_not_leak` | transcript text |
+| `policy` | a named, versioned, offline rule pack's banned-language and required-disclosure rules | transcript text |
+| `tool_call` | a tool was (or was not) called, with an optional argument subset, a count bound, a required order across tools, or a "never before" ordering constraint | ingested `voice_trace.v1` spans only |
+| `outcome` | task success as `all_of`/`any_of` a list of the sub-predicates above (`tool_called`, `phrase`, `field_present`), reported as a `met`/`of` fraction | whichever context each sub-predicate needs |
 
-`tool_call` checks the ingested trace (`hotato trace ingest`, [`docs/TRACE.md`](TRACE.md))
-alone -- that's the evidence a tool ran; an agent's own words claiming it ran
-don't move the needle. `pii` surfaces only a `[REDACTED]` transcript artifact
-plus hit metadata (detector name, transcript turn index, role) -- never the
-matched text.
+`tool_call` checks only the ingested trace (`hotato trace ingest`,
+[`docs/TRACE.md`](TRACE.md)) -- that's the evidence a tool ran; an agent's own
+words claiming it ran don't count. `pii` surfaces only a `[REDACTED]`
+transcript artifact plus hit metadata (detector name, turn index, role) --
+never the matched text.
 
 ### The whole `kind` vocabulary
 
-The full `assert.v1` `kind` vocabulary is **17 deterministic kinds** -- all
-`deterministic: true`, all model-free. Alongside the five core kinds:
-`tool_result` and `tool_error` (a tool's returned value or raised error, read
-from the trace), `state` and `state_change` (a state adapter's snapshot or
+The full `assert.v1` `kind` vocabulary is **17 deterministic kinds**, all
+`deterministic: true`, all model-free. Beyond the five core kinds:
+`tool_result` and `tool_error` (a tool's returned value or raised error, from
+the trace), `state` and `state_change` (a state adapter's snapshot or
 transition -- see [STATE-ADAPTERS.md](STATE-ADAPTERS.md)), `handoff`, `dtmf`,
 `termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`, and
-`count`. Two further NAMED kinds, `human_rubric` and `judge_rubric`, belong to
-the SEPARATE model-judged rubric lane ([RUBRIC.md](RUBRIC.md)); inside a raw
-`assert.v1` document they resolve to a deterministic `INCONCLUSIVE` that points
-at that lane, so no model runs here and the deterministic guarantee holds.
+`count`. Two more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
+model-judged rubric lane ([RUBRIC.md](RUBRIC.md)); inside a raw `assert.v1`
+document they resolve to a deterministic `INCONCLUSIVE`, so no model runs here
+and the guarantee holds.
 
 ## Context: transcript, trace, timing
 
-`build_context` assembles the three inputs an assertion run is evaluated
-against, each built from hotato's existing primitives:
+`build_context` assembles the three inputs an assertion run needs, each built
+from hotato's existing primitives:
 
 - **transcript**: `hotato.transcribe` (the opt-in `[transcribe]` extra,
   faster-whisper) produces one, or pass `--transcript FILE` / `transcript_path=`
-  with a JSON file you already have -- a plain array of `{role, text, start,
-  end}` turns, or the `{"segments": [...]}` shape `hotato.transcribe` and the
-  MCP surface write.
+  with a JSON file -- a plain array of `{role, text, start, end}` turns, or
+  the `{"segments": [...]}` shape `hotato.transcribe` and the MCP surface
+  write.
 - **trace**: `hotato trace ingest --otel FILE --out voice_trace.jsonl`
   ([`docs/TRACE.md`](TRACE.md), [`docs/OTEL.md`](OTEL.md)) produces the
   `hotato.voice_trace.v1` spans `tool_call` reads (`name`, `arguments`, and --
@@ -78,18 +71,18 @@ against, each built from hotato's existing primitives:
   [`docs/API.md`](API.md)) passed straight through as read-only context for
   `outcome`'s `field_present` sub-predicate. Nothing here recomputes it.
 
-Context you never supply stays `None`, distinct from `[]` or `{}`: a value
-that was supplied and happens to be empty. An assertion whose required input
-is absent reports `INCONCLUSIVE`. `tool_call` with `spans=[]` (a trace was
-ingested, it just has zero spans) is a `FAIL`, distinct from `tool_call` with
-no trace at all, which reports `INCONCLUSIVE`.
+Context you never supply stays `None`, distinct from a supplied `[]` or `{}`
+that happens to be empty. An assertion whose required input is absent reports
+`INCONCLUSIVE`. `tool_call` with `spans=[]` (a trace was ingested with zero
+spans) is a `FAIL`, distinct from `tool_call` with no trace at all, which
+reports `INCONCLUSIVE`.
 
 ## `assertions.yaml`
 
 A small, dependency-free YAML subset (block mappings/sequences, flow
-`[...]`/`{...}`, quoted or bare scalars, `#` comments) -- or a document that is
-already valid JSON, accepted directly. Hotato parses this subset itself, so the
-core stays zero third-party dependency either way.
+`[...]`/`{...}`, quoted or bare scalars, `#` comments) -- or valid JSON,
+accepted directly. Hotato parses this subset itself, so the core stays zero
+third-party dependency either way.
 
 ```yaml
 version: 1
@@ -112,15 +105,15 @@ assertions:
     mode: must_not_leak
 ```
 
-Every assertion needs a unique `id` and a recognized `kind`. The kind-specific
-fields are validated (bad regex, unknown detector, missing required field, an
-unsupported `version`) up front, before anything is evaluated -- a malformed
-file is caught whole, before partial results exist.
+Every assertion needs a unique `id` and a recognized `kind`. Kind-specific
+fields are validated (bad regex, unknown detector, missing required field,
+unsupported `version`) up front -- a malformed file is caught whole, before
+partial results exist.
 
 ## The deterministic/judge split
 
-This is the entire point of the module, and it is structural, not a convention
-someone can quietly break:
+This is the entire point of the module: structural, not a convention someone
+can quietly break.
 
 - Every result carries `kind` and `deterministic: true` -- true on every
   deterministic kind and every status, including `INCONCLUSIVE`, itself a
@@ -130,25 +123,25 @@ someone can quietly break:
   schema (`src/hotato/schema/assert.v1.json`) enforces this with
   `"overall_score": false` and a `not: {required: [overall_score]}` on the
   summary object.
-- `judge` -- an LLM-scored rubric kind -- is kept structurally quarantined
+- `judge` -- an LLM-scored rubric kind -- stays structurally quarantined
   from the deterministic count, so a model-scored result can never blend
-  into it. `summary.judge` reports `{"pass": 0, "fail": 0}`, and
-  `summary.note` states how many judge-scored assertions ran.
+  in. `summary.judge` reports `{"pass": 0, "fail": 0}`; `summary.note`
+  states how many judge-scored assertions ran.
 - Same inputs, same file, same result, every time: `run_assertions` is
   byte-stable across repeated calls on identical input -- no wall-clock
   timestamp or random id in the mix.
 
-The report (below) renders this as two visually separate shelves instead of one
-number, so it is visible on the page, not just in the JSON.
+The report (below) renders this as two visually separate shelves, not one
+number -- visible on the page, not just in the JSON.
 
 ## The report: two shelves, each counted on its own
 
 `hotato.report.build_report_html` / `build_report_md` accept an optional
 `assertions=` parameter: an already-evaluated `assert.v1` envelope (build one
 with `run_assertions` / `run_assertions_from_file` / `run_assertions_from_yaml`
-above). Exactly like `base` (a previous run envelope) and `transcript` (an
-already-produced ASR artifact), the report purely renders an assertion result
-handed to it.
+above). Like `base` (a previous run envelope) and `transcript` (an
+already-produced ASR artifact), the report purely renders whatever result
+it's handed.
 
 ```python
 from hotato import assert_ as A, report
@@ -177,10 +170,10 @@ parameter existed.
 ## `inconclusive_policy`: making missing input gate CI
 
 By default an `INCONCLUSIVE` result -- a check whose required input was
-absent -- leaves the run's exit code unaffected, the right default for an
-exploratory run. `inconclusive_policy` lets a suite opt into gating on that,
-so a transcript or trace that never arrived fails loudly instead of leaving
-the suite silently green:
+absent -- leaves the exit code unaffected, the right default for an
+exploratory run. `inconclusive_policy` lets a suite gate on that instead, so a
+transcript or trace that never arrived fails loudly instead of leaving the
+suite silently green:
 
 | value | how `INCONCLUSIVE` gates | `exit_code` |
 | --- | --- | --- |
@@ -223,19 +216,20 @@ or from Python (an explicit argument overrides the document's key; absent both,
 env = A.run_assertions_from_file("assertions.yaml", ctx, inconclusive_policy="fail")
 ```
 
-A bad value (anything but `report`/`fail`/`refuse`), in the document or passed
-explicitly, is a usage error (`ValueError`, exit `2`) raised during validation,
-before any assertion is evaluated. The envelope always carries the applied
-`inconclusive_policy` and states it, with the counts, in `summary.note`.
+A bad value (anything but `report`/`fail`/`refuse`) -- in the document or
+passed explicitly -- is a usage error (`ValueError`, exit `2`), raised during
+validation before any assertion runs. The envelope always carries the applied
+`inconclusive_policy`, stated with the counts in `summary.note`.
 
 ## Mapping to a CI gate
 
-Same exit-code convention as every hotato command: `0` every assertion passed
-(under `report`, an `INCONCLUSIVE` reports missing input and leaves the exit at
-`0`; under `fail` it gates like `FAIL`; under `refuse` it exits `2`), `1` at
-least one deterministic status is `FAIL` (or, under `fail`, `INCONCLUSIVE`), `2`
-a refusal under `refuse` (an `INCONCLUSIVE`, taking precedence over a `FAIL`) or
-a malformed file / bad input, raised before any assertion is evaluated.
+Same exit-code convention as every hotato command:
+
+| Exit | Meaning |
+| ---: | --- |
+| `0` | every assertion passed (under `report`, an `INCONCLUSIVE` reports missing input and leaves the exit at `0`; under `fail` it gates like `FAIL`; under `refuse` it exits `2`) |
+| `1` | at least one deterministic status is `FAIL` (or, under `fail`, `INCONCLUSIVE`) |
+| `2` | a refusal under `refuse` (an `INCONCLUSIVE`, taking precedence over a `FAIL`), or a malformed file / bad input, raised before any assertion runs |
 
 ```bash
 python3 - <<'PY'
@@ -249,7 +243,7 @@ sys.exit(env["exit_code"])
 PY
 ```
 
-A gate on `assert.v1` and a gate on the timing scorer's own `exit_code`
+A gate on `assert.v1` and a gate on the timing scorer's `exit_code`
 (`hotato run` / `hotato verify`, [`docs/CI.md`](CI.md)) are two different,
 composable guarantees: one gates turn-taking timing, the other gates
 transcript/trace content. Run both; neither exit code substitutes for the

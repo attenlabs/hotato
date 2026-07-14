@@ -1,14 +1,13 @@
 # Conversation tests (`hotato test run`): one file, one call, a per-dimension scorecard
 
-A **conversation test** (`hotato.conversation-test.v1`) is one file that
-defines one testable conversation: the agent under test, the simulated
-caller, the environment, two SEPARATE assertion lanes, and an explicit
-success condition. `hotato test run` evaluates a supplied call against
-that file and produces a **conversation artifact**
-(`hotato.conversation.v1`) whose evidence is bound by sha256, plus a
-**per-dimension scorecard**. Success is a boolean over a small closed
-vocabulary of named conditions, with every dimension counted on its own,
-including in `--format json`.
+A **conversation test** (`hotato.conversation-test.v1`) is one file defining
+one testable conversation: agent, simulated caller, environment, two
+SEPARATE assertion lanes, and an explicit success condition. `hotato test
+run` evaluates a supplied call against it and produces a **conversation
+artifact** (`hotato.conversation.v1`, evidence bound by sha256) plus a
+**per-dimension scorecard**. Success is a boolean
+over a small closed vocabulary of named conditions; every dimension counts
+on its own, including in `--format json`.
 
 This is the single documented end-to-end conversation-QA workflow:
 
@@ -23,7 +22,7 @@ hotato scenario init   ->   hotato test run   ->   hotato conversation verify
 hotato scenario init refund-flow --agent support-v3 --out refund.yaml
 ```
 
-The starter carries the two lanes, tagged checks across the five report
+The starter carries two lanes, tagged checks across the five report
 dimensions, and a boolean `success`:
 
 ```yaml
@@ -86,12 +85,11 @@ anywhere is rejected.
 
 ## 2. Evaluate a call
 
-`hotato test run` takes the file plus whatever evidence you have for the
-call -- a scored recording (`--audio`), an ingested trace (`--trace`, see
-[`docs/TRACE.md`](TRACE.md)), a transcript (`--transcript`), and a
-post-call state sandbox (`--state`, Authority 2). Each supplied piece
-feeds the assertions; each ABSENT piece leaves the checks that need it
-`INCONCLUSIVE`.
+`hotato test run` takes the file plus whatever evidence you have: a scored
+recording (`--audio`), an ingested trace (`--trace`, see
+[`docs/TRACE.md`](TRACE.md)), a transcript (`--transcript`), a post-call
+state sandbox (`--state`, Authority 2). Each supplied piece feeds the
+assertions; each absent one leaves the checks that need it `INCONCLUSIVE`.
 
 ```bash
 hotato test run refund.yaml --agent support-v3 \
@@ -103,11 +101,10 @@ hotato test run refund.yaml --agent support-v3 \
 
 Flow: load and validate the file -> build the evaluation context from the
 supplied transcript / trace / state / (scored) timing -> evaluate the
-DETERMINISTIC lane (the rubric lane stays quarantined ->
-`INCONCLUSIVE`) -> evaluate `success.required` over the results -> bind
-the evidence into a `hotato.conversation.v1` artifact -> render the
-unified report + per-dimension scorecard. The per-dimension summary
-printed to stdout:
+DETERMINISTIC lane (rubric quarantined -> `INCONCLUSIVE`) -> evaluate
+`success.required` over the results -> bind evidence into a
+`hotato.conversation.v1` artifact -> render the unified report +
+per-dimension scorecard. Summary printed to stdout:
 
 ```
 hotato test run: refund-flow (agent support-v3) -- exit_code=0
@@ -138,8 +135,8 @@ judge: 0 pass, 0 fail (no judge/rubric kind is built in this release)
 ### Exit code
 
 The exit code honors the file's `inconclusive_policy` exactly as
-`assert run` does, then is raised to non-zero when a `success.required`
-condition fails:
+`assert run` does, rising to non-zero when a `success.required` condition
+fails:
 
 | `inconclusive_policy` | an `INCONCLUSIVE` (missing-input) result | a `FAIL` |
 | --- | --- | --- |
@@ -152,16 +149,15 @@ refuse (exit 2) is never downgraded.
 
 ### Reliability and repetitions
 
-`--repetitions N` runs the deterministic lane N times and reports the
-per-run results, the run count, and a reliability aggregate: **pass@1**
-(single-run pass rate), **pass@k** (>=1 of k passed), **pass^k** (all k
-passed), plus a Wilson 95% CI. Every run scores the same recording, so
-the deterministic lane has zero variance and `pass^k == pass@1`. With
-`N > 1` the aggregate is threaded into the report's Reliability dimension
-(`--format html/md`); with no repetition data that dimension shows the
-empty-state ("not measured: no repeated runs in this report"). pass^k
-stays its OWN number, kept separate from every other dimension and from
-`overall_score`.
+`--repetitions N` runs the deterministic lane N times and reports per-run
+results, run count, and a reliability aggregate: **pass@1** (single-run
+pass rate), **pass@k** (>=1 of k passed), **pass^k** (all k passed), plus a
+Wilson 95% CI. Every run scores the same recording, so the deterministic
+lane has zero variance and `pass^k == pass@1`. With `N > 1` the aggregate
+feeds the report's Reliability dimension (`--format html/md`); with none,
+it shows the empty-state ("not measured: no repeated runs in this
+report"). pass^k stays its own number, separate from every other
+dimension and from `overall_score`.
 
 ## 3. Verify the artifact
 
@@ -179,8 +175,7 @@ conv-artifact/
 ```
 
 `hotato conversation verify` re-hashes every bound child and REFUSES
-(exit 2) on any digest mismatch or missing file -- a tampered or absent
-artifact is refused outright:
+(exit 2) on any digest mismatch or missing file:
 
 ```bash
 hotato conversation verify ./conv-artifact
@@ -191,40 +186,37 @@ hotato conversation verify ./conv-artifact
 
 `origin.kind` is `real` by default (a supplied recording is evaluated
 as-is) and `simulated` only when the test file carries a `simulator`
-block, which must declare its `model_id` / `scenario_id` / `seed` --
+block, which must declare its `model_id` / `scenario_id` / `seed`;
 synthetic and live origins are never conflated.
 
 ## The deterministic/judge split (structural)
 
 * **Each dimension scored on its own.** Success is a boolean conjunction
-  of named conditions; the scorecard groups the same results by
-  dimension, each with its own counts.
+  of named conditions; the scorecard groups results by dimension, each
+  with its own counts.
 * **Two separate lanes.** Deterministic checks (regex / checksum / span /
-  state lookup -- no model) are evaluated; the model-judged rubric lane
-  is quarantined until Phase 3, reported `INCONCLUSIVE` and kept out of
-  the deterministic summary and the exit code.
+  state lookup, no model) run; the model-judged rubric lane stays
+  quarantined until Phase 3: `INCONCLUSIVE`, out of the deterministic
+  summary and exit code.
 * **Grounded in authority.** `tool_result` / `tool_error` (Authority 1)
   read the ingested trace spans; `state` / `state_change` (Authority 2)
-  query a post-call state adapter -- the trace and the adapter are the
+  query a post-call state adapter; the trace and the adapter are the
   evidence a tool ran or a state changed, deterministic and model-free.
-* **Missing input is `INCONCLUSIVE`.** A check whose evidence was not
-  supplied reports `INCONCLUSIVE`.
+* **Missing input is `INCONCLUSIVE`,** never a guessed pass or fail.
 
 ## The bundled end-to-end example
 
-`tests/data/conversation/` ships one worked call -- a conversation-test
-file, a transcript, and a `voice_trace.v1` trace -- evaluated against the
-bundled recording `01-hard-interruption.example.wav`.
+`tests/data/conversation/` ships one worked call: a conversation-test file,
+a transcript, and a `voice_trace.v1` trace, evaluated against the bundled
+recording `01-hard-interruption.example.wav`.
 `tests/test_test_run_cli.py`
-(`test_bundled_call_one_file_end_to_end_scorecard_and_artifact`) drives
-the whole workflow: one call evaluated for outcome / policy / timing /
-transcript-facts / tool-behaviour from one file, producing an artifact
-that `conversation verify` passes and a five-dimension scorecard.
+(`test_bundled_call_one_file_end_to_end_scorecard_and_artifact`) drives it:
+one call evaluated for outcome / policy / timing / transcript-facts /
+tool-behaviour from one file, producing an artifact that `conversation
+verify` passes and a five-dimension scorecard.
 
 ## See also
 
-* [`docs/ASSERTIONS.md`](ASSERTIONS.md) -- the deterministic assertion
-  kinds.
-* [`docs/TRACE.md`](TRACE.md) -- ingesting a `voice_trace.v1` trace.
-* [`docs/REPORTS.md`](REPORTS.md) -- the unified report and the
-  scorecard.
+* [`docs/ASSERTIONS.md`](ASSERTIONS.md): deterministic assertion kinds.
+* [`docs/TRACE.md`](TRACE.md): ingesting a `voice_trace.v1` trace.
+* [`docs/REPORTS.md`](REPORTS.md): the unified report and scorecard.

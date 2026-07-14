@@ -14,10 +14,10 @@ scenario + conversation test + target assertion
   private runnable capsule + deletion certificate
 ```
 
-Every accepted deletion is evaluated through Hotato's existing scripted
-simulator and deterministic assertion engine. A candidate is retained only
-when the same assertion still contains the source-selected structured failure
-branch and therefore retains the same failure fingerprint.
+Every accepted deletion is evaluated through Hotato's own scripted simulator
+and deterministic assertion engine. A candidate is retained only when the
+same assertion still contains the source-selected failure branch, and
+therefore keeps the same failure fingerprint.
 
 The v1 boundary is narrow:
 
@@ -37,15 +37,15 @@ closed, schema-coupled failure branches: `phrase`, `pii`, `policy`,
 `count`.
 
 The compiler does not invoke a voice agent, provider, model, TTS service, STT
-service, command oracle, or network endpoint. Its result describes the
-scripted fixture under the recorded Hotato evaluator source identity. It does
-not establish the behavior of a deployed agent.
+service, command oracle, or network endpoint: its result describes the
+scripted fixture under the recorded Hotato evaluator source identity, not
+the behavior of a deployed agent.
 
 ## Run the example
 
-The repository example starts with three caller turns, two mock tools, and two
-state records. The selected assertion fails because order `A-1` remains
-`pending` instead of `posted`.
+The repository example: three caller turns, two mock tools, two state
+records. The selected assertion fails because order `A-1` remains `pending`
+instead of `posted`.
 
 ```bash
 sh examples/counterexample/run.sh
@@ -53,8 +53,8 @@ sh examples/counterexample/run.sh
 
 The script compiles a private capsule in a new temporary directory, verifies
 the proof, reproduces the reduced fixture, checks predicate semantics, and
-exports a non-runnable share-safe projection. It leaves both directories in
-place and prints their paths.
+exports a non-runnable share-safe projection, leaving both directories in
+place and printing their paths.
 
 Run the steps directly:
 
@@ -71,17 +71,17 @@ hotato counterexample reproduce /tmp/refund-not-posted.hotato-repro
 ```
 
 `--out` must name a path that does not exist. Compilation builds a sibling
-temporary directory and promotes it with an operating-system no-replace
-primitive. Linux, macOS, and Windows have explicit implementations; an
-unsupported platform refuses instead of falling back to an overwriting move.
+temporary directory and promotes it with a no-replace primitive: Linux,
+macOS, and Windows have explicit implementations, and an unsupported
+platform refuses rather than falling back to an overwriting move.
 
 ## Source and target selection
 
 ### One base scenario
 
-The compiler evaluates the scenario document passed to `--scenario` directly.
-It does not expand `variation_matrix` and does not select a matrix row.
-`capsule.json` records:
+The compiler evaluates the scenario document passed to `--scenario` directly,
+without expanding `variation_matrix` or selecting a matrix row. `capsule.json`
+records:
 
 ```json
 {
@@ -92,68 +92,70 @@ It does not expand `variation_matrix` and does not select a matrix row.
 }
 ```
 
-`--seed` selects the scripted replay seed. Its default is `scenario.seed`, or
-`0` when the scenario has no seed. A seed does not select a variation-matrix
+`--seed` selects the scripted replay seed, defaulting to `scenario.seed` or
+`0` when the scenario has none. A seed does not select a variation-matrix
 combination.
 
-To minimize one generated variation, first materialize that variation as its
-own complete scenario document, then pass the concrete file to `compile`.
-Leaving a matrix in the source only preserves its bytes in source provenance;
-the reducer can delete the matrix when it has no effect on the base-scenario
-failure.
+To minimize one generated variation, materialize it as its own complete
+scenario document, then pass the concrete file to `compile`. Leaving a matrix
+in the source only preserves its bytes in source provenance; the reducer can
+delete the matrix when it has no effect on the base-scenario failure.
 
 ### One deterministic assertion
 
-`--target` must match exactly one assertion ID in
-`assertions.deterministic`. Compilation first confirms twice that the selected
-assertion fails with identical result, content, and trace identities. It
-refuses a passing, inconclusive, advisory, missing, duplicated, or unsupported
-target.
+`--target` must match exactly one assertion ID in `assertions.deterministic`.
+Compilation confirms twice that the selected assertion fails with identical
+result, content, and trace identities, and refuses a passing, inconclusive,
+advisory, missing, duplicated, or unsupported target.
 
 ### Exact failure branch identity
 
-A deterministic `FAIL` can contain more than one reason. The oracle maps those
-reasons into a closed set of payload-free failure atoms, sorts and de-duplicates
-them canonically, and selects the first source atom as the preservation anchor.
-The private capsule records both that selected atom and the complete ordered
-source atom set. A candidate is `PRESERVED` only when the selected source atom
-is still present in the candidate's atom set.
+A deterministic `FAIL` can contain more than one reason: the oracle maps them
+into a closed set of payload-free failure atoms, sorts and de-duplicates them
+canonically, and selects the first as the preservation anchor. The private
+capsule records the selected atom and the complete ordered source atom set;
+a candidate is `PRESERVED` only when that atom is still present in its own
+atom set.
 
 An atom carries only the discriminator needed to keep failure branches apart:
 for example, an assertion index, detector, policy rule/type, state field, or
-entity key. A wrong tool argument therefore becomes
-`tool-argument-value-mismatch` plus its key. Deleting that value changes the
-branch to `tool-argument-field-missing`; deleting the named call changes it to
-`tool-missing`. Either candidate is `DRIFTED`, even though the assertion still
-reports `FAIL`. Results and termination attributes use the same
-missing-versus-value distinction. Required-order and sequence assertions keep
-present-but-out-of-order evidence separate from an absent step. Latency atoms
-distinguish a declared mock measurement from the simulator default. Payload
-values, transcript text, and broad diagnostic counts are not part of an atom.
+entity key. Example: a wrong tool argument gives `tool-argument-value-mismatch`
+(plus its key); delete the value and the branch becomes
+`tool-argument-field-missing`; delete the call and it becomes `tool-missing`.
+Both are `DRIFTED`, though the assertion still reports `FAIL`. The same
+missing-versus-value care extends to other kinds:
 
-The fingerprint binds the test and assertion identity, assertion bytes, kind,
-dimension, deterministic authority, required `FAIL` status, and selected
-source atom. It does not bind every diagnostic field in the assertion result.
-This keeps irrelevant evidence reducible without allowing the preserved
-failure to collapse into a different branch.
+| Atom type | Distinguishes |
+| --- | --- |
+| results / termination | missing vs. wrong value |
+| required-order / sequence | present-but-out-of-order vs. absent step |
+| latency | declared mock measurement vs. simulator default |
 
-The emitted `input/conversation-test.json` is a canonical projection containing
-only the selected deterministic assertion. Other source assertions and the
-rubric lane are outside the preservation oracle. Their removal is normalization
-and is not evidence that those checks passed.
+Payload values, transcript text, and broad diagnostic counts are never part
+of an atom.
+
+The fingerprint binds the test and assertion identity, assertion bytes,
+kind, dimension, deterministic authority, required `FAIL` status, and
+selected source atom -- not every diagnostic field in the assertion result,
+so irrelevant evidence stays reducible without the preserved failure
+collapsing into a different branch.
+
+The emitted `input/conversation-test.json` is a canonical projection
+containing only the selected deterministic assertion: other source
+assertions and the rubric lane sit outside the preservation oracle, and
+their removal is normalization, not evidence those checks passed.
 
 ### Workspace boundary
 
-`--workspace` is the directory both input files must resolve within. Input
-files and path components must be regular local paths without symlink escape.
-When omitted, the workspace is the common parent of the scenario and test
-files. Set it explicitly in automation so the filesystem boundary is visible
-in review.
+`--workspace` is the directory both input files must resolve within, as
+regular local paths without symlink escape. Omitted, it defaults to the
+common parent of the scenario and test files; set it explicitly in
+automation so the filesystem boundary stays visible in review.
 
 ## What the compiler deletes
 
 `hotato.reducers.v1` is a closed, versioned, deletion-only algebra over the
-scripted scenario. It can attempt to remove:
+scripted scenario, able to attempt removing:
 
 - variation-matrix, facts, and environment entries;
 - caller behavior and interruption declarations;
@@ -165,8 +167,8 @@ scripted scenario. It can attempt to remove:
 
 It cannot add content, replace a scalar, reorder a list, rewrite speech, or
 change the target assertion. `certificate.json` records the digest-bound
-delete-only transform for every accepted step. `reduction.jsonl` records every
-candidate attempt.
+delete-only transform for every accepted step; `reduction.jsonl` records
+every candidate attempt.
 
 ## The 1-minimal claim
 
@@ -182,17 +184,16 @@ supports this exact statement:
 > observation-scope freezes.
 
 After hierarchical reduction, the compiler repeatedly tries every remaining
-single-unit deletion. It reaches `one_minimal` only when none of those
-deletions preserves the selected source failure branch. `verify` recomputes the
-single-unit check instead of trusting `minimality.json`.
+single-unit deletion, reaching `one_minimal` only when none of those
+deletions preserves the selected source failure branch. `verify` recomputes
+the single-unit check rather than trusting `minimality.json`.
 
-This is a local claim over the named deletion algebra. It is not a global
-minimum, a root-cause determination, or a semantic-equivalence claim. A
-remaining deletion can make the target `PASS`, change the selected failure
-branch, invalidate the scenario, or make required evidence unavailable. All
-of those outcomes mean that deletion did not preserve the recorded exact
-failure identity; the individual outcome remains recorded in
-`minimality.json`.
+This is a local claim over the named deletion algebra -- not a global minimum,
+a root-cause determination, or a semantic-equivalence claim. A remaining
+deletion can make the target `PASS`, change the selected failure branch,
+invalidate the scenario, or make required evidence unavailable; each such
+outcome means that deletion did not preserve the recorded exact failure
+identity, and is recorded as such in `minimality.json`.
 
 ## Budgets
 
@@ -202,24 +203,25 @@ failure identity; the individual outcome remains recorded in
 hotato counterexample compile ... --budget 512
 ```
 
-- default: `512`;
-- minimum: `1`;
-- hard maximum: `100000`;
-- cache hits do not consume the budget;
-- the two source and two final qualification executions are reported
-  separately and do not consume the candidate budget.
+| | |
+| --- | --- |
+| default | `512` |
+| minimum | `1` |
+| hard maximum | `100000` |
+
+Cache hits do not consume the budget, nor do the two source and two final
+qualification executions (reported separately).
 
 When the budget ends before the final deletion pass completes, the compiler
 still emits a capsule if the reduced fixture preserves the exact failure on
-both final executions. Its status is `budget_exhausted`, and its permitted
-claim is limited to failure preservation. It carries no 1-minimal claim.
+both final executions: status `budget_exhausted`, claim limited to failure
+preservation, no 1-minimal claim.
 
-Compilation exits `0` for `one_minimal` and `1` for `budget_exhausted`, while
-writing a complete capsule in either case. Automation can require a completed
-proof from the process status without parsing a nested field. `verify` can
-verify the integrity and preserved-failure evidence of a
-`budget_exhausted` capsule, but it does not upgrade that capsule to
-`one_minimal`.
+Compilation exits `0` for `one_minimal` and `1` for `budget_exhausted`,
+writing a complete capsule either way; automation can gate on the process
+status alone, without parsing a nested field. `verify` can check the
+integrity and preserved-failure evidence of a `budget_exhausted` capsule, but
+does not upgrade it to `one_minimal`.
 
 ## Capsule contents
 
@@ -249,69 +251,74 @@ case.hotato-repro/
   MANIFEST.sha256.json
 ```
 
-`MANIFEST.sha256.json` binds every other file. The capsule ID also binds the
-proof-relevant documents and their digests. Strict verification rejects
-missing, changed, extra, symlinked, or unsafe members and independently
+`MANIFEST.sha256.json` binds every other file; the capsule ID binds the
+proof-relevant documents and their digests too. Strict verification rejects
+missing, changed, extra, symlinked, or unsafe members, and independently
 re-renders `report.md`, `report.html`, `card.svg`, `reproduce.sh`, and
 `predicate.sh` before accepting their bytes.
 
 The Markdown, HTML, and SVG reports summarize identifiers, proof status, and
-reduction counts. They are bound, reproducible projections of the capsule;
-they do not replace verification.
+reduction counts -- bound, reproducible projections of the capsule that do
+not replace verification.
 
 ### Resource and local-filesystem boundary
 
 Verification refuses a capsule before replay when it exceeds any of these
 limits:
 
-- 1,024 files;
-- 4,096 directories;
-- 64 directory levels;
-- 64 MiB for one member;
-- 256 MiB across all members.
+| Limit | Cap |
+| --- | --- |
+| files | 1,024 |
+| directories | 4,096 |
+| directory levels | 64 |
+| one member | 64 MiB |
+| all members combined | 256 MiB |
 
 Each source JSON file is limited to 16 MiB and 96 JSON levels. The scripted
 scenario also caps caller turns and mock tools at 10,000 each.
 
 Counterexample compilation and replay add a narrower proof-lane budget:
 
-- the selected assertion is at most 256 KiB in canonical JSON;
-- a candidate scenario is at most 2 MiB in canonical JSON;
-- rendered transcript text is at most 256 KiB of UTF-8;
-- one deterministic assertion result is at most 2 MiB in canonical JSON;
-- `hits` and `matched_rules` evidence collections are capped at 10,000 rows;
-- an accepted proof chain contains at most 512 deletion steps and one step
-  contains at most 10,000 deletion operations;
-- a completed minimality proof contains at most 512 remaining deletion units;
-- each proof-lane regex is at most 1,024 UTF-8 bytes and belongs to a closed,
-  fixed-width replay subset: groups, alternation, backreferences, and variable
-  quantifiers are refused.
+| Item | Cap |
+| --- | --- |
+| selected assertion (canonical JSON) | 256 KiB |
+| candidate scenario (canonical JSON) | 2 MiB |
+| rendered transcript text (UTF-8) | 256 KiB |
+| one deterministic assertion result (canonical JSON) | 2 MiB |
+| `hits` / `matched_rules` evidence rows | 10,000 |
+| deletion steps per accepted proof chain | 512 |
+| deletion operations per step | 10,000 |
+| remaining units in a completed minimality proof | 512 |
+| proof-lane regex length | 1,024 UTF-8 bytes |
 
-The assertion and regex byte bounds run before the general assertion validator
-can invoke Python's regex parser.
+Each proof-lane regex also belongs to a closed, fixed-width replay subset;
+groups, alternation, backreferences, and variable quantifiers are refused.
+The assertion and regex byte bounds run before the general assertion
+validator can invoke Python's regex parser.
 
 The selected structured failure branch is still the preservation identity;
-these limits bound the repeated work needed to establish it. A candidate that
-crosses an execution limit is `UNRESOLVED` with
-`resource_limit_exceeded`, never treated as preserved or absent. These are
-counterexample compiler/replay limits. They do not narrow the regex or result
-surface of Hotato's deterministic evaluator outside the proof lane.
+these limits just bound the work needed to establish it. A candidate that
+crosses an execution limit is `UNRESOLVED` with `resource_limit_exceeded`,
+never treated as preserved or absent. These counterexample compiler/replay
+limits do not narrow the regex or result surface of Hotato's deterministic
+evaluator outside the proof lane.
 
-The capsule directory must remain unchanged for the duration of `verify`,
-`reproduce`, `inspect`, or `export`. Persistent mutation, a root replacement,
-and symlink or special-file substitution are detected. A privileged local
-process that can swap bytes between individual reads and restore them before
-the final manifest pass is outside this version's proof snapshot. Copy an
-untrusted capsule into a private, non-writable workspace before verification.
+The capsule directory must stay unchanged for the duration of `verify`,
+`reproduce`, `inspect`, or `export`: persistent mutation, a root
+replacement, and symlink or special-file substitution are all detected. A
+privileged local process able to swap bytes between reads and restore them
+before the final manifest pass sits outside this version's proof snapshot --
+copy an untrusted capsule into a private, non-writable workspace before
+verification.
 
 ### What the journal proves
 
 `certificate.json` and the `PRESERVED` rows in `reduction.jsonl` carry the
-accepted delete-only chain. Strict verification reconstructs those transforms
-and reruns the final single-unit deletion inventory for a `one_minimal` claim.
-`ABSENT`, `DRIFTED`, and `UNRESOLVED` journal rows are diagnostic reduction
-history. Their candidate payloads are not part of the accepted proof chain and
-are not independently replayed by `verify`.
+accepted delete-only chain; strict verification reconstructs those transforms
+and reruns the final single-unit deletion inventory for a `one_minimal`
+claim. `ABSENT`, `DRIFTED`, and `UNRESOLVED` journal rows are diagnostic reduction
+history only; their candidate payloads sit outside the accepted proof chain,
+unreplayed by `verify`.
 
 ## Verify, reproduce, and inspect
 
@@ -323,23 +330,22 @@ These commands answer different questions.
 | `reproduce` | Does the reduced fixture still produce the selected source failure branch under the installed evaluator? | Evaluator drift is allowed and reported. | Checks capsule integrity and the delete-only chain, then runs the reduced fixture twice. It does not reassert historical intermediate verdicts or renew the original minimality proof under changed code. |
 | `inspect` | What does the intact capsule claim? | No evaluator execution. | Checks the closed member inventory, source/oracle/artifact bindings, canonical human files, manifest, and capsule schema, then prints target, reduction, minimality, preservation, and profile metadata. |
 
-Use `verify` for proof audit and artifact integrity with the recorded Hotato
-package version and evaluator source closure. The evaluator digest does not
-bind the Python interpreter build, operating system, CPU, or native libraries.
-Strict replay still compares the recorded result, content, and trace hashes,
+Use `verify` for proof audit and artifact integrity against the recorded
+Hotato package version and evaluator source closure. The evaluator digest
+does not bind the Python interpreter build, OS, CPU, or native libraries;
+strict replay still compares the recorded result, content, and trace hashes,
 so a runtime difference that changes evaluator behavior fails verification.
-Use `reproduce` when evaluating the frozen reduced fixture after Hotato
+Use `reproduce` to evaluate the frozen reduced fixture after Hotato
 evaluator or simulator code changes.
 
-`reproduce` returning `0` means the failure was reproduced. That success code
-answers the reproduction question; it is the inverse of a conventional
-quality gate. Use `predicate` or the generated `predicate.sh` when the desired
-shell result is “failure present means bad.”
+`reproduce` returning `0` means the failure reproduced -- the inverse of a
+conventional quality gate. Use `predicate` or the generated `predicate.sh`
+when the desired shell result is “failure present means bad.”
 
 ## Private and share-safe forms
 
-Compilation writes `private-runnable-v1`. It contains complete source and
-reduced scenario/test inputs, including scripted speech and mock tool/state
+Compilation writes `private-runnable-v1`: complete source and reduced
+scenario/test inputs, including scripted speech and mock tool/state
 payloads. Treat the directory as sensitive even when its origin is simulated.
 The compiler applies restrictive POSIX modes where supported, but permissions
 do not establish publication rights or de-identification.
@@ -364,23 +370,23 @@ A compatible implementation must retain the v1 renderer; changing its output
 requires a versioned renderer/profile or a capsule format version bump.
 
 The projection omits runnable inputs, scenario and assertion bodies,
-transcript or audio content, tool payloads, state values, credentials, provider
-identifiers, absolute paths, and source-derived reducer paths. Private
-single-unit rows become an aggregate count by outcome; the projection contains
-no reducer paths or per-candidate digests.
+transcript or audio content, tool payloads, state values, credentials,
+provider identifiers, absolute paths, source-derived reducer paths, and
+per-candidate digests: private single-unit rows become an aggregate count by
+outcome instead.
 
-The share target and canonical reports expose the selected failure code, such
-as `tool-argument-value-mismatch` or `state-field-value-mismatch`, so the
-failure category remains readable without a payload. Atom discriminators such
-as a field, key, rule, detector, or index stay private.
-`failure_atom_digest` binds the complete selected atom without publishing those
-discriminator values.
+The share target and canonical reports expose the selected failure code
+(such as `tool-argument-value-mismatch` or `state-field-value-mismatch`), so
+the failure category stays readable without a payload. Atom discriminators
+(a field, key, rule, detector, or index) stay private.
+`failure_atom_digest` binds the complete selected atom without publishing
+those values.
 
-`share-safe-v1` is an engineering access boundary, not an anonymity claim.
-Capsule, source, assertion, evaluator, fingerprint, and failure-atom digests
-remain correlators. Low-entropy or externally known source material can be
-tested against those values. Keep a projection within the same review,
-artifact-retention, and disclosure controls used for engineering metadata.
+`share-safe-v1` is an engineering access boundary, not an anonymity claim:
+capsule, source, assertion, evaluator, fingerprint, and failure-atom digests
+remain correlators, and low-entropy or externally known source material can
+be tested against them. Keep a projection under the same review,
+artifact-retention, and disclosure controls as engineering metadata.
 
 The projection cannot reproduce the failure. Keep the private capsule when a
 reviewer, CI job, or coding agent must execute the fixture.
@@ -434,11 +440,9 @@ Use `verify` when CI installs the Hotato evaluator recorded in the capsule:
 hotato counterexample verify tests/repros/refund-not-posted.hotato-repro
 ```
 
-This detects capsule mutation and evaluator-source drift. A changed evaluator
-digest is a refusal (`2`), because a different implementation cannot silently
-validate the historical proof. Interpreter and platform identity are not part
-of that digest; the replayed result, content, and trace hashes remain the
-behavioral check across runtimes.
+This detects capsule mutation and evaluator-source drift: a changed evaluator
+digest is a refusal (`2`), since a different implementation cannot silently
+validate the historical proof (what the digest binds is above).
 
 ### Current-evaluator regression
 
@@ -448,10 +452,10 @@ Use the generated predicate when a reproduced failure should fail the job:
 tests/repros/refund-not-posted.hotato-repro/predicate.sh
 ```
 
-The predicate executes the frozen reduced mock scenario. It does not call an
-application's current voice agent, prompt, tools, provider, or telephony path.
-V1 therefore gates Hotato evaluator/simulator behavior over the capsule; it is
-not an end-to-end agent release gate.
+The predicate executes the frozen reduced mock scenario; it does not call an
+application's current voice agent, prompt, tools, provider, or telephony
+path. V1 gates Hotato evaluator/simulator behavior over the capsule, not an
+end-to-end agent release gate.
 
 ### `git bisect run`
 
@@ -460,18 +464,17 @@ git bisect start BAD_REVISION GOOD_REVISION
 git bisect run /absolute/path/to/refund-not-posted.hotato-repro/predicate.sh
 ```
 
-This can locate the revision where Hotato evaluator or scripted-simulator
+This locates the revision where Hotato evaluator or scripted-simulator
 behavior begins reproducing the recorded failure. The capsule retains its own
-source and reduced inputs, so changes to external scenario/test files are not
-part of the predicate. A revision that cannot load or evaluate the capsule is
-skipped with `125`. As with `git bisect run` generally, skipped revisions near
-the transition can leave a candidate range instead of identifying one first
-bad revision.
+source and reduced inputs, so external scenario/test file changes play no
+part in the predicate. A revision that cannot load or evaluate the capsule
+is skipped with `125` -- as with `git bisect run` generally, skipped
+revisions near the transition can leave a candidate range rather than one
+first bad revision.
 
 Bisecting agent implementations, hosted models, provider configurations, or
-prompt revisions requires a separately defined adapter that executes those
-revisions and emits the evidence consumed by an assertion. That adapter is
-outside counterexample v1.
+prompt revisions needs a separately defined adapter, outside counterexample
+v1, that runs those revisions and emits the evidence an assertion consumes.
 
 ## Refusals worth designing around
 
@@ -492,8 +495,8 @@ The compiler fails closed when:
 - source or final replays disagree;
 - a capsule member, manifest, certificate, or evaluator provenance is invalid.
 
-Refusal is evidence that the compiler cannot make its promised statement for
-that input. It is never converted into a passing or failing agent verdict.
+Refusal is evidence the compiler cannot make its promised statement for that
+input; it never becomes a passing or failing agent verdict.
 
 ## Machine output
 
