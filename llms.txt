@@ -176,6 +176,14 @@
   pulled recordings while keeping pinned fixture/contract clips committed.
   Refused (never partial, never silent) if a destination already exists,
   unless `--force`. Detail: `docs/STARTER.md`.
+- `hotato init ci --system {gitlab,jenkins,azure,circleci} [--out DIR]` -- the
+  one canonical turn-taking gate config per CI system (`.gitlab-ci.yml`,
+  `Jenkinsfile`, `azure-pipelines.yml`, `.circleci/config.yml`): install the
+  pinned hotato release, verify `contracts/`, re-score `fixtures/`, publish
+  the JSON reports + JUnit file, fail the pipeline on a regression. Guarded
+  gates: an empty contracts/ or fixtures/ directory is a normal starting
+  state, never a red pipeline. Refused if the destination exists, unless
+  `--force`. Detail: `docs/CI.md`.
 - `hotato start [--demo | --stereo call.wav | --stack X | --folder DIR]` -- the
   zero-setup first run: `--demo` sweeps the two bundled demo calls, writes the
   sweep result + dashboard + threshold-funnel card, creates and verifies one
@@ -466,7 +474,9 @@ it, never whether the policy itself was right.
   current-evaluator reproduction, bisect predicate, and share-safe export.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.
-- docs/CI.md: the GitHub PR check and the sticky results comment.
+- docs/CI.md: the GitHub PR check, the sticky results comment, and
+  `hotato init ci` gate configs for GitLab CI, Jenkins, Azure Pipelines,
+  and CircleCI.
 - docs/MCP.md: the hotato MCP server (`voice_eval_run`, counterexample tools,
   and fleet tools), copy-paste client configs (Claude Desktop, Cursor, Codex CLI),
   and the `uvx --from "hotato[mcp]" hotato-mcp` footgun to avoid.

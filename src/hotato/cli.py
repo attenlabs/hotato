@@ -541,7 +541,7 @@ _EXIT_CODES: dict = {
     ),
     "init": (
         (2, "no subcommand given (see hotato init webhook --help / hotato "
-            "init starter --help)"),
+            "init starter --help / hotato init ci --help)"),
     ),
     "init webhook": (
         (0, "scaffolded the webhook worker project to --out"),
@@ -552,6 +552,11 @@ _EXIT_CODES: dict = {
         (0, "scaffolded the starter kit (CI gate, hotato.yaml, fixtures/, "
             "contracts/, reports/) to --out"),
         (2, "usage error (unknown --stack), or a destination file already "
+            "exists without --force"),
+    ),
+    "init ci": (
+        (0, "wrote the turn-taking gate config for --system to --out"),
+        (2, "usage error (unknown --system), or the destination file already "
             "exists without --force"),
     ),
     "issue": (
@@ -3674,6 +3679,17 @@ def _cmd_init_starter(args) -> int:
         print(_errors.safe_json_dumps(_initcmd.starter_result_json(result), indent=2))
     else:
         print(_initcmd.render_starter_text(result), end="")
+    return 0
+
+
+def _cmd_init_ci(args) -> int:
+    from . import initcmd as _initcmd
+
+    result = _initcmd.scaffold_ci(args.system, args.out, force=args.force)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_initcmd.render_ci_text(result), end="")
     return 0
 
 
@@ -7360,19 +7376,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     it = sub.add_parser(
         "init",
-        help="scaffold a hotato integration or a whole-repo starter kit "
-             "(hotato init webhook | hotato init starter)",
+        help="scaffold a hotato integration, a whole-repo starter kit, or a "
+             "CI gate config (hotato init webhook | starter | ci)",
         description=(
             "Scaffolding for adding hotato to a voice-agent repository: a "
-            "passive webhook worker (see hotato init webhook --help) or a "
+            "passive webhook worker (see hotato init webhook --help), a "
             "whole-repo starter kit -- CI gate, hotato.yaml, fixtures/, "
-            "contracts/, reports/ (see hotato init starter --help)."
+            "contracts/, reports/ (see hotato init starter --help), or one "
+            "canonical turn-taking gate config for GitLab CI, Jenkins, "
+            "Azure Pipelines, or CircleCI (see hotato init ci --help)."
         ),
         epilog=_exit_codes_epilog("init"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     itsub = it.add_subparsers(dest="init_command", required=True,
-                              metavar="webhook|starter")
+                              metavar="webhook|starter|ci")
     iw = itsub.add_parser(
         "webhook",
         help="generate a ready-to-deploy webhook worker that verifies the "
@@ -7469,6 +7487,51 @@ def build_parser() -> argparse.ArgumentParser:
                      help="overwrite existing files in --out")
     _add_format_arg(ist, choices=("text", "json"))
     ist.set_defaults(func=_cmd_init_starter)
+
+    ic = itsub.add_parser(
+        "ci",
+        help="generate the turn-taking gate config for GitLab CI, Jenkins, "
+             "Azure Pipelines, or CircleCI",
+        description=(
+            "Generate the one canonical CI config the chosen system reads "
+            "(.gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml, or "
+            ".circleci/config.yml), so the same exit-code gate the shipped "
+            "GitHub Action runs lands in any CI: every pipeline run installs "
+            "the pinned hotato release (the version that generated the "
+            "file), verifies contracts/ with `hotato contract verify`, "
+            "re-scores fixtures/ with `hotato run`, and publishes the JSON "
+            "reports plus the JUnit file; a regression exits non-zero and "
+            "fails the pipeline. Each gate is guarded, so an empty "
+            "contracts/ or fixtures/ directory is a normal starting state, "
+            "never a red pipeline. Offline scaffolding: no network, no "
+            "credentials needed to generate."
+        ),
+        epilog=(
+            _exit_codes_epilog("init ci") + "\n\n"
+            "Examples:\n"
+            "  hotato init ci --system gitlab             # .gitlab-ci.yml\n"
+            "  hotato init ci --system jenkins            # Jenkinsfile\n"
+            "  hotato init ci --system azure              # azure-pipelines.yml\n"
+            "  hotato init ci --system circleci           # .circleci/config.yml\n"
+            "  hotato init ci --system gitlab --out ./repo --force\n\n"
+            "Then:\n"
+            "  hotato contract create --stereo call.wav --onset 42.18 "
+            "--expect yield --id refund-cutoff-001 --out contracts\n"
+            "  hotato contract verify contracts --junit hotato.xml\n"
+            "  Commit the config and the contract; the pipeline gates every "
+            "push from here on."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ic.add_argument("--system", required=True, choices=list(_initcmd.CI_SYSTEMS),
+                    help="CI system to generate the gate config for")
+    ic.add_argument("--out", default=".", metavar="DIR",
+                    help="directory to write the config into (default . -- "
+                         "your existing repo root)")
+    ic.add_argument("--force", action="store_true",
+                    help="overwrite an existing config file in --out")
+    _add_format_arg(ic, choices=("text", "json"))
+    ic.set_defaults(func=_cmd_init_ci)
 
     # --- issue: file a sweep's candidates as a GitHub issue -----------------
     iss = sub.add_parser(

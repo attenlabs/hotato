@@ -5987,6 +5987,44 @@ fails the session on a regression. Point it at your own labelled sets with
 `hotato report` renders the visual report and `hotato team` tracks the
 trend across runs ([`REPORTS.md`](REPORTS.md)).
 
+## GitLab CI, Jenkins, Azure Pipelines, CircleCI: `hotato init ci`
+
+The gate is exit-code driven, so it runs in any CI. `hotato init ci`
+writes the one canonical config the chosen system reads:
+
+```bash
+hotato init ci --system gitlab     # .gitlab-ci.yml
+hotato init ci --system jenkins    # Jenkinsfile
+hotato init ci --system azure      # azure-pipelines.yml
+hotato init ci --system circleci   # .circleci/config.yml
+```
+
+Every generated config does the same four things: install the pinned
+hotato release (the version that generated the file), verify `contracts/`
+with `hotato contract verify`, re-score `fixtures/` with `hotato run`, and
+publish the JSON reports plus the JUnit file. A regression exits non-zero
+and fails the pipeline; an empty `contracts/` or `fixtures/` directory is
+a normal starting state, and each gate stays a no-op until the first one
+lands.
+
+- **GitLab CI**: one `hotato` job on `python:3.12`;
+  `artifacts.reports.junit` feeds the merge request test widget, and the
+  JSON reports upload with `when: always`.
+- **Jenkins**: a declarative pipeline on a `python:3.12` docker agent
+  (swap in `agent any` on a controller with Python 3.10+); `junit` and
+  `archiveArtifacts` publish in the `post { always }` block.
+- **Azure Pipelines**: `UsePythonVersion@0` plus script steps;
+  `PublishTestResults@2` feeds the Tests tab and `PublishBuildArtifacts@1`
+  keeps the JSON reports, both on `always()`.
+- **CircleCI**: a `cimg/python:3.12` job wired into a workflow;
+  `store_test_results` feeds the Tests tab and `store_artifacts` keeps the
+  JSON reports.
+
+`--out DIR` writes into another directory (default `.`, the repo root
+where each system looks for its config); `--force` overwrites an existing
+file. The pinned version is the hotato that generated the file; bump it in
+one place when you upgrade.
+
 
 ================================================================================
 FILE: docs/MCP.md

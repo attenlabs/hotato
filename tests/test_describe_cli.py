@@ -47,7 +47,7 @@ _ALL_SUBCOMMANDS = [
     "compare", "scan", "synth", "trust",
     "ingest", "analyze", "verify", "fix", "fix trial", "loop",
     "investigate", "investigate label", "describe",
-    "init", "init webhook", "init starter",
+    "init", "init webhook", "init starter", "init ci",
     "issue", "issue create",
     "pr", "pr create",
     "fleet", "fleet init", "fleet agent", "fleet agent add", "fleet agent list",
