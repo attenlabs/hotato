@@ -128,13 +128,64 @@ The same word ("verified", "fixed", "passed") means something different
 depending on which of these five you are holding. Match what you say to what
 you have:
 
-| Evidence you have | How you get it | Accurate to say | Inaccurate (common overclaim) |
-| --- | --- | --- | --- |
-| **Historical contract only** | `hotato contract create` ran once; you are reading `contract.json` / `hotato contract inspect`, no `verify` run since | "On \[created_at], a human labeled this call and hotato measured \[timing] against that label; this is the frozen record of that one measurement." | "This proves our agent behaves correctly" -- nothing has been re-checked since capture; it speaks to that one recorded moment, not to now. |
-| **Contract plus unchanged historical audio** | `hotato contract verify` re-scored the SAME `audio/event.wav` the contract was created from | "`hotato contract verify` re-measured stored evidence and it still meets its policy." (This is the literal caveat `contract verify` now prints -- see below.) | "The deployed agent no longer has this bug." Per the two-lane table in [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it), a pass here can only fail if the evidence, policy, or scorer changed, never because the deployed agent changed. |
-| **Separately captured current-agent take** | Steps 1 to 5 above: a fresh recording of the same stimulus, a new contract created from it, verified once, standalone (no paired before/after) | "The CURRENT agent, on a fresh recording of the same stimulus captured \[date], still meets the labeled policy. One data point." | "This proves the fix caused the improvement" (coincidence, not causation) or "this guarantees the next call passes too" (one recapture is one data point, not a rate -- see Limits below). |
-| **Fresh take plus opposite-risk cases** | `hotato fix trial` `improved`: paired before/after with verified (recomputed, freshly distinct decoded-PCM) `audio_provenance` on every guarded target AND hold fixture (the provenance guard held) AND the hold/opposite-risk fixture still passed | "This proves the specific fresh capture scored above, at the revision it was captured from, including that a paired hold/opposite-risk case did not flip." (The literal caution `fix trial` prints -- see below.) | "This fix is now permanently verified" or "it will keep holding after future deploys." A later deploy is a new revision this report says nothing about, and nothing here re-runs itself. |
-| **Production rerun after deploy** | You (there is no automatic trigger) recaptured again against the LIVE deployed agent post-deploy, per this page, on your own schedule | "As of \[date], a fresh production capture reverified the same labeled stimulus against the live agent." Still one data point per run. | "The fix is confirmed working in production, no further checks needed." This does not run in CI by itself (see Limits below); each rerun is one more independent data point, not a standing guarantee that survives the NEXT deploy. |
+**Historical contract only**
+- How you get it: `hotato contract create` ran once; you are reading
+  `contract.json` / `hotato contract inspect`, no `verify` run since.
+- Accurate to say: "On \[created_at], a human labeled this call and hotato
+  measured \[timing] against that label; this is the frozen record of that
+  one measurement."
+- Inaccurate (common overclaim): "This proves our agent behaves correctly"
+  -- nothing has been re-checked since capture; it speaks to that one
+  recorded moment, not to now.
+
+**Contract plus unchanged historical audio**
+- How you get it: `hotato contract verify` re-scored the SAME
+  `audio/event.wav` the contract was created from.
+- Accurate to say: "`hotato contract verify` re-measured stored evidence
+  and it still meets its policy." (This is the literal caveat `contract
+  verify` now prints -- see below.)
+- Inaccurate (common overclaim): "The deployed agent no longer has this
+  bug." Per the two-lane table in
+  [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it),
+  a pass here can only fail if the evidence, policy, or scorer changed,
+  never because the deployed agent changed.
+
+**Separately captured current-agent take**
+- How you get it: Steps 1 to 5 above: a fresh recording of the same
+  stimulus, a new contract created from it, verified once, standalone (no
+  paired before/after).
+- Accurate to say: "The CURRENT agent, on a fresh recording of the same
+  stimulus captured \[date], still meets the labeled policy. One data
+  point."
+- Inaccurate (common overclaim): "This proves the fix caused the
+  improvement" (coincidence, not causation) or "this guarantees the next
+  call passes too" (one recapture is one data point, not a rate -- see
+  Limits below).
+
+**Fresh take plus opposite-risk cases**
+- How you get it: `hotato fix trial` `improved`: paired before/after with
+  verified (recomputed, freshly distinct decoded-PCM) `audio_provenance` on
+  every guarded target AND hold fixture (the provenance guard held) AND the
+  hold/opposite-risk fixture still passed.
+- Accurate to say: "This proves the specific fresh capture scored above, at
+  the revision it was captured from, including that a paired
+  hold/opposite-risk case did not flip." (The literal caution `fix trial`
+  prints -- see below.)
+- Inaccurate (common overclaim): "This fix is now permanently verified" or
+  "it will keep holding after future deploys." A later deploy is a new
+  revision this report says nothing about, and nothing here re-runs itself.
+
+**Production rerun after deploy**
+- How you get it: you (there is no automatic trigger) recaptured again
+  against the LIVE deployed agent post-deploy, per this page, on your own
+  schedule.
+- Accurate to say: "As of \[date], a fresh production capture reverified
+  the same labeled stimulus against the live agent." Still one data point
+  per run.
+- Inaccurate (common overclaim): "The fix is confirmed working in
+  production, no further checks needed." This does not run in CI by itself
+  (see Limits below); each rerun is one more independent data point, not a
+  standing guarantee that survives the NEXT deploy.
 
 Two of these statements are not just guidance in this doc -- they are wired
 into the command output, so a reader never has to take the caution on

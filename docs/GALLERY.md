@@ -8,11 +8,19 @@ with the command shown next to it.
 Three self-contained SVGs: offline, byte-stable from the same input, with every
 font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
 
-| Card | What it shows | Regenerate |
-|---|---|---|
-| ![threshold funnel](assets/cards/no-single-threshold-card.svg) | **The hero.** A battery where a missed interruption and a false stop fail together -- Hotato names the failure class (engagement-control) instead of picking one sensitivity dial. | `hotato card fix-plan.json --out card.svg` |
-| ![talk-over candidate](assets/cards/talk-over-card.svg) | A measured talk-over moment: the agent kept the floor while the caller was speaking. | `hotato card hotato-sweep.json#N --out card.svg` |
-| ![false-stop candidate](assets/cards/false-stop-card.svg) | A measured false-stop moment: the agent went quiet with no caller nearby to explain it. | `hotato card hotato-sweep.json#N --out card.svg` |
+- ![threshold funnel](assets/cards/no-single-threshold-card.svg)
+  **The hero.** A battery where a missed interruption and a false stop fail
+  together -- Hotato names the failure class (engagement-control) instead
+  of picking one sensitivity dial.
+  Regenerate: `hotato card fix-plan.json --out card.svg`
+- ![talk-over candidate](assets/cards/talk-over-card.svg)
+  A measured talk-over moment: the agent kept the floor while the caller
+  was speaking.
+  Regenerate: `hotato card hotato-sweep.json#N --out card.svg`
+- ![false-stop candidate](assets/cards/false-stop-card.svg)
+  A measured false-stop moment: the agent went quiet with no caller nearby
+  to explain it.
+  Regenerate: `hotato card hotato-sweep.json#N --out card.svg`
 
 ## The bundled demo, rendered
 

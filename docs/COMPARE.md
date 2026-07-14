@@ -23,23 +23,45 @@ fixed after today's prompt change? That is the layer Hotato owns.
 Capability descriptions only, sourced entirely from each platform's own public
 launch and product material.
 
-| Platform | What it is built for |
-|---|---|
-| **Hamming** | Automated voice-agent testing: prompt-to-test generation, simulated call batteries, a multi-layer QA framework, and production-replay CI/CD regression across a broad test suite. |
-| **Cekura** | AI voice/chat agent QA: production-conversation ingestion, test-case extraction from production calls, simulated scenario testing, and monitoring across fleets of agents, including regulated verticals. |
-| **Coval** | Voice and chat agent simulation and evaluation, with published comparisons of testing approaches across the category. |
-| **Bluejay** | Synthetic stress-testing for voice agents at scale. |
-| **Roark** | Production-call replay for QA that preserves what the caller said, how, and when, for building regression scenarios. |
-| **Vapi** | A voice agent orchestration platform: the runtime stack a team builds and deploys its agent on. |
-| **Retell** | A voice agent orchestration platform for building and deploying voice agents. |
+- **Hamming** -- automated voice-agent testing: prompt-to-test generation,
+  simulated call batteries, a multi-layer QA framework, and
+  production-replay CI/CD regression across a broad test suite.
+- **Cekura** -- AI voice/chat agent QA: production-conversation ingestion,
+  test-case extraction from production calls, simulated scenario testing,
+  and monitoring across fleets of agents, including regulated verticals.
+- **Coval** -- voice and chat agent simulation and evaluation, with
+  published comparisons of testing approaches across the category.
+- **Bluejay** -- synthetic stress-testing for voice agents at scale.
+- **Roark** -- production-call replay for QA that preserves what the
+  caller said, how, and when, for building regression scenarios.
+- **Vapi** -- a voice agent orchestration platform: the runtime stack a
+  team builds and deploys its agent on.
+- **Retell** -- a voice agent orchestration platform for building and
+  deploying voice agents.
 
 ## What it measures, and the better fit
 
-| What you need | Best fit | Why |
-|---|---|---|
-| Broad conversation QA: did the call succeed, was the transcript right, did it follow the rubric, simulate hundreds of scenarios, dashboards for the team | **Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell** | These grade the whole conversation, task success, and content, or they are the agent platform itself. Hotato's lane is the timing evidence underneath. |
-| Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato runs after the fact, from the recording. |
-| Prove a specific timing bug is fixed, from a recorded call, portably, with every byte staying on your machine; a fresh recapture pins whether it **stays** fixed | **Hotato** | A private, deterministic fixture: audio, a human label, and an explicit policy, scored the same way everywhere with `hotato verify`. Ships as a single portable contract bundle -- audio, timing evidence, trace evidence, label, policy, CI command. |
+- **Need:** broad conversation QA -- did the call succeed, was the transcript
+  right, did it follow the rubric, simulate hundreds of scenarios, dashboards
+  for the team.
+  **Best fit:** Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell.
+  **Why:** these grade the whole conversation, task success, and content, or
+  they are the agent platform itself. Hotato's lane is the timing evidence
+  underneath.
+- **Need:** prevent an interruption problem **in the moment**, at runtime --
+  predict endpointing, suppress barge-in on noise, tune the live turn
+  detector.
+  **Best fit:** Pipecat, LiveKit (and similar runtime layers).
+  **Why:** these act during the live call. Hotato runs after the fact, from
+  the recording.
+- **Need:** prove a specific timing bug is fixed, from a recorded call,
+  portably, with every byte staying on your machine; a fresh recapture pins
+  whether it **stays** fixed.
+  **Best fit:** Hotato.
+  **Why:** a private, deterministic fixture -- audio, a human label, and an
+  explicit policy, scored the same way everywhere with `hotato verify`. Ships
+  as a single portable contract bundle: audio, timing evidence, trace
+  evidence, label, policy, CI command.
 
 Rule of thumb: "is my agent good?" -> a QA platform. "is my agent
 interrupting well right now?" -> a runtime layer. "is the evidence for the

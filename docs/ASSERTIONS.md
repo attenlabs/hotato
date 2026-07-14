@@ -26,13 +26,20 @@ Every kind is deterministic, so every result carries `deterministic: true` --
 including an `INCONCLUSIVE` one. The five below are the original core; the full
 vocabulary is under [the whole `kind` vocabulary](#the-whole-kind-vocabulary).
 
-| kind | checks | reads |
-| --- | --- | --- |
-| `phrase` | a regex is present (or, in `absent` mode, never present), with an optional `role` filter and `position` (`first`/`last`/`any`) | transcript text |
-| `pii` | deterministic detectors (`ssn`, `card_luhn` with full Luhn validation, `email`, `phone`) find nothing, `mode: must_not_leak` | transcript text |
-| `policy` | a named, versioned, offline rule pack's banned-language and required-disclosure rules | transcript text |
-| `tool_call` | a tool was (or was not) called, with an optional argument subset, a count bound, a required order across tools, or a "never before" ordering constraint | ingested `voice_trace.v1` spans only |
-| `outcome` | task success as `all_of`/`any_of` a list of the sub-predicates above (`tool_called`, `phrase`, `field_present`), reported as a `met`/`of` fraction | whichever context each sub-predicate needs |
+- **`phrase`** -- checks: a regex is present (or, in `absent` mode, never
+  present), with an optional `role` filter and `position`
+  (`first`/`last`/`any`). Reads: transcript text.
+- **`pii`** -- checks: deterministic detectors (`ssn`, `card_luhn` with full
+  Luhn validation, `email`, `phone`) find nothing, `mode: must_not_leak`.
+  Reads: transcript text.
+- **`policy`** -- checks: a named, versioned, offline rule pack's
+  banned-language and required-disclosure rules. Reads: transcript text.
+- **`tool_call`** -- checks: a tool was (or was not) called, with an optional
+  argument subset, a count bound, a required order across tools, or a "never
+  before" ordering constraint. Reads: ingested `voice_trace.v1` spans only.
+- **`outcome`** -- checks: task success as `all_of`/`any_of` a list of the
+  sub-predicates above (`tool_called`, `phrase`, `field_present`), reported as
+  a `met`/`of` fraction. Reads: whichever context each sub-predicate needs.
 
 `tool_call` checks the ingested trace (`hotato trace ingest`, [`docs/TRACE.md`](TRACE.md))
 alone -- that's the evidence a tool ran; an agent's own words claiming it ran

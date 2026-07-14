@@ -36,10 +36,18 @@ never overstates what drove the caller side.
 
 ## The endpoints implemented
 
-| Provider | Originate | Poll until | Then pull |
-| --- | --- | --- | --- |
-| Twilio | `POST /2010-04-01/Accounts/{sid}/Calls.json` with `To`/`From`/`Twiml` + `Record=true`, `RecordingChannels=dual` (the REST equivalent of `<Dial record="record-from-answer-dual">`) | `GET .../Calls/{CallSid}.json` -> `status == completed` | `GET .../Recordings.json?CallSid=...` -> `RecordingSid` -> existing `capture_twilio` (`?RequestedChannels=2`) |
-| Vapi | `POST https://api.vapi.ai/call` `{assistantId, phoneNumberId, customer:{number}}` | `GET /call/{id}` -> `status == ended` | existing `capture_vapi` -> `artifact.recording.stereoUrl` |
+- **Twilio**
+  - Originate: `POST /2010-04-01/Accounts/{sid}/Calls.json` with
+    `To`/`From`/`Twiml` + `Record=true`, `RecordingChannels=dual` (the REST
+    equivalent of `<Dial record="record-from-answer-dual">`).
+  - Poll until: `GET .../Calls/{CallSid}.json` -> `status == completed`.
+  - Then pull: `GET .../Recordings.json?CallSid=...` -> `RecordingSid` ->
+    existing `capture_twilio` (`?RequestedChannels=2`).
+- **Vapi**
+  - Originate: `POST https://api.vapi.ai/call`
+    `{assistantId, phoneNumberId, customer:{number}}`.
+  - Poll until: `GET /call/{id}` -> `status == ended`.
+  - Then pull: existing `capture_vapi` -> `artifact.recording.stereoUrl`.
 
 Only `POST` (create) and `GET` (poll + pull) are ever issued: drive-a-call can
 create a call and read its status, and that is the whole surface -- a provider

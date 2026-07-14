@@ -4,7 +4,7 @@ FILE: README.md
 
 <div align="center">
 
-<img src=".github/assets/hotato-banner.svg" alt="hotato" width="440">
+<img src=".github/assets/hotato-banner.svg" alt="hotato" width="440" style="max-width:100%;height:auto;">
 
 <h1>hotato</h1>
 
@@ -44,25 +44,31 @@ uvx hotato start --demo
 Offline, this sweeps two bundled calls a provider's default agent failed, writes the candidate dashboard, and turns one missed-interruption moment into a demo contract it verifies on the spot:
 
 ```
-[start] demo: swept 2 bundled calls, 5 candidate moments; wrote hotato-sweep.json, hotato-sweep.html, hotato-no-single-threshold.svg, contracts/demo-missed-interruption.hotato/contract.json
+[start] demo: swept 2 bundled calls, 5 candidate moments;
+  wrote hotato-sweep.json, hotato-sweep.html,
+  hotato-no-single-threshold.svg,
+  contracts/demo-missed-interruption.hotato/contract.json
 hotato start: swept the 2 bundled demo calls offline.
   sweep dashboard: hotato-sweep.html
   demo contract:   contracts/demo-missed-interruption.hotato
-  verified contract: FAIL as expected -- the demo call missed the interruption
-  [ ... then the exact next commands: promote a candidate, gate it in CI, re-check it ... ]
+  verified contract: FAIL as expected -- the demo call
+    missed the interruption
+  [ ... then the exact next commands: promote a candidate,
+    gate it in CI, re-check it ... ]
 ```
 
 Open `hotato-sweep.html`: candidate moments ranked by how far the timing missed, each with a hear-the-bug playhead. This is the artifact you screenshot into a PR.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/sweep-dashboard.png" alt="The hotato candidate dashboard: 5 candidate moments ranked by salience across 2 calls, each card showing the caller and agent timeline, an embedded hear-the-bug audio playhead, and promote-as-yield / promote-as-hold / ignore buttons." width="820">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/sweep-dashboard.png" alt="The hotato candidate dashboard: 5 candidate moments ranked by salience across 2 calls, each card showing the caller and agent timeline, an embedded hear-the-bug audio playhead, and promote-as-yield / promote-as-hold / ignore buttons." width="760" style="max-width:100%;height:auto;">
 </p>
 <p align="center"><sub><code>hotato-sweep.html</code> &middot; candidates ranked by salience, each with a playhead synced to the audio. You review and label them into your verdict.</sub></p>
 
 Point it at your own recording to walk the same loop:
 
 ```bash
-hotato start --stereo my-call.wav          # trust -> scan -> review -> label -> contract
+# trust -> scan -> review -> label -> contract
+hotato start --stereo my-call.wav
 ```
 
 Every command takes a two-channel recording (caller on one channel, agent on the other). A mono file or a bad export is marked NOT SCORABLE, so every verdict rests on inputs that carry the timing evidence.
@@ -70,7 +76,7 @@ Every command takes a two-channel recording (caller on one channel, agent on the
 ## What hotato catches: five dimensions, reported on their own
 
 <p align="center">
-  <a href="https://hotato.dev"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="A hotato scorecard: one call graded across outcome, policy, conversation, speech, and reliability, deterministic checks kept separate from the model-judged rubric, each dimension scored on its own." width="840"></a>
+  <a href="https://hotato.dev"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/banner.png" alt="A hotato scorecard: one call graded across outcome, policy, conversation, speech, and reliability, deterministic checks kept separate from the model-judged rubric, each dimension scored on its own." width="760" style="max-width:100%;height:auto;"></a>
 </p>
 
 `hotato test run` grades one call against a conversation-test file across five dimensions, each kept in its own count:
@@ -84,12 +90,14 @@ Every command takes a two-channel recording (caller on one channel, agent on the
 Deterministic and model-judged results never merge. The deterministic checks (phrase, PII, policy, tool-call, sequence, latency, outcome, all regex, checksum, and span-lookup) set the gate. A rubric verdict is `deterministic: false`, advisory, and kept in its own count. Every dimension keeps its own line, including `--format json`, and the scored-output schemas reject an `overall_score` key outright.
 
 ```bash
-hotato scenario init refund-check --out conversation-test.yaml   # a starter you edit for your own call
+# a starter you edit for your own call
+hotato scenario init refund-check --out conversation-test.yaml
 hotato test run conversation-test.yaml --agent support-bot
 ```
 
 ```
-success: FAIL  (required: all_deterministic_assertions_pass, no_rubric_failure)
+success: FAIL
+  (required: all_deterministic_assertions_pass, no_rubric_failure)
 per-dimension (grouped view; never blended):
   outcome       0 pass / 0 fail / 1 inconclusive
   policy        0 pass / 0 fail / 1 inconclusive
@@ -105,7 +113,7 @@ Supply the call as `--transcript`, `--trace`, `--state`, and/or `--audio` and ea
 The scored HTML report ends the argument in review: a verdict per event, time-to-yield and talk-over histograms, failure clusters by fix class, and the per-event timeline with both channels and the measured numbers. The same audio and config reproduce every figure.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/report-scored.png" alt="The scored hotato HTML report: 0 of 1 events pass with a REGRESSION verdict, an analytics panel (time to yield, talk-over histogram, failure clusters by fix class), and the per-event timeline with caller and agent channels, the measured metrics, and the fix note." width="820">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/report-scored.png" alt="The scored hotato HTML report: 0 of 1 events pass with a REGRESSION verdict, an analytics panel (time to yield, talk-over histogram, failure clusters by fix class), and the per-event timeline with caller and agent channels, the measured metrics, and the fix note." width="760" style="max-width:100%;height:auto;">
 </p>
 <p align="center"><sub>One recording, the pinned scorer, a FAIL against the labeled yield expectation. Share it in a PR with <code>hotato card hotato-sweep.json#1 --out finding.svg</code>.</sub></p>
 
@@ -117,22 +125,20 @@ Surface a moment, confirm what it should have done, pin it to a CI contract, the
 
 `sweep` ranks the talk-over and false-stop moments across your recent calls by how far the timing missed, each a reproducible measurement straight from the open scorer:
 
-<table align="center">
-<tr>
-<td width="412"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/talk-over-card.svg" alt="Level 1 candidate card: 0.32s of overlap while the agent was talking, at t=2s in the recording. Hotato reports the measured timing." width="400"></td>
-<td width="412"><img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/false-stop-card.svg" alt="Level 1 candidate card: 0.46s of silence after the agent stopped with no caller nearby, at t=1.28s in the recording. Hotato reports the measured timing." width="400"></td>
-</tr>
-<tr>
-<td colspan="2" align="center"><sub><b>Level 1 -- candidate.</b> Hotato reports what it measured (0.32s of overlap; 0.46s of trailing silence). Each is a candidate timing moment worth review.</sub></td>
-</tr>
-</table>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/talk-over-card.svg" alt="Level 1 candidate card: 0.32s of overlap while the agent was talking, at t=2s in the recording. Hotato reports the measured timing." width="480" style="max-width:100%;height:auto;">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/false-stop-card.svg" alt="Level 1 candidate card: 0.46s of silence after the agent stopped with no caller nearby, at t=1.28s in the recording. Hotato reports the measured timing." width="480" style="max-width:100%;height:auto;">
+</p>
+<p align="center"><sub><b>Level 1 -- candidate.</b> Hotato reports what it measured (0.32s of overlap; 0.46s of trailing silence). Each is a candidate timing moment worth review.</sub></p>
 
 ### 2. Confirm: you label yield or hold
 
 You label the expected behavior: `yield` (stop for the caller) or `hold` (keep talking through a backchannel). Intent stays yours. And because a threshold that stops missing interruptions starts false-stopping on backchannels, when both fail in one run `diagnose` surfaces the tradeoff instead of naming one threshold:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/no-single-threshold-card.svg" alt="One sensitivity dial trades a missed interruption against a false stop on a backchannel, so hotato surfaces the tradeoff and leaves threshold tuning aside; fix class engagement-control." width="760">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/cards/no-single-threshold-card.svg" alt="One sensitivity dial trades a missed interruption against a false stop on a backchannel, so hotato surfaces the tradeoff and leaves threshold tuning aside; fix class engagement-control." width="760" style="max-width:100%;height:auto;">
 </p>
 <p align="center"><sub><b>Level 2 -- human-labeled failure.</b> A reviewer confirms the recording broke an explicit yield-or-hold expectation. When a missed interruption and a false stop collide, the fix lives in the engagement-control class.</sub></p>
 
@@ -145,7 +151,8 @@ You label the expected behavior: `yield` (stop for the caller) or `hold` (keep t
 The frozen recording catches evidence, threshold, or scorer drift. To check that the CURRENT agent still behaves, recapture the same scenario and score a NEW contract under the same policy:
 
 ```bash
-# place the same call against today's agent, capture dual-channel, then:
+# place the same call against today's agent, capture
+# dual-channel, then:
 hotato contract create --stereo fresh-call.wav --onset 41.90 --expect yield \
     --id refund-cutoff-001-recapture --out contracts
 hotato contract verify contracts/refund-cutoff-001-recapture.hotato
@@ -193,8 +200,10 @@ The bundled reference agent shows the shape at scale: 25 jobs x 5 caller behavio
 The demo runs on the bundled calls. To point Hotato at your live calls, connect once, then sweep on a schedule:
 
 ```bash
-hotato connect vapi                                             # credentials stored 0600, local only
-hotato sweep --stack vapi --since 7d --out hotato-sweep.html    # cron, CI, wherever
+# credentials stored 0600, local only
+hotato connect vapi
+# cron, CI, wherever
+hotato sweep --stack vapi --since 7d --out hotato-sweep.html
 ```
 
 Run `sweep` on a timer for a scheduled batch scanner. Your audio stays on your machine unless you explicitly pull it from your stack. Full guide: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) &middot; [`examples/set-and-forget/`](examples/set-and-forget/README.md).
@@ -202,7 +211,8 @@ Run `sweep` on a timer for a scheduled batch scanner. Your audio stays on your m
 `sweep` and `hotato fleet run` can POST a one-line JSON summary to a webhook when they finish, off by default, opt in with `--notify` (repeatable):
 
 ```bash
-hotato sweep --stack vapi --since 7d --notify https://hooks.slack.com/services/...
+hotato sweep --stack vapi --since 7d \
+    --notify https://hooks.slack.com/services/...
 ```
 
 The payload is metadata-only: counts, top candidate moments (id, kind, timing numbers only), local artifact paths, and a Slack-ready `text` field. A down or slow webhook leaves the run intact -- a delivery failure is one stderr warning. Egress details: [`docs/EGRESS.md`](docs/EGRESS.md).
@@ -212,11 +222,12 @@ The payload is metadata-only: counts, top candidate moments (id, kind, timing nu
 `hotato fleet` runs the loop across every agent from one local workspace: ingest calls, surface candidates, label them, and run a before/after experiment that recomputes both sides from audio under a pinned manifest. It recommends a change and leaves the deploy to you. Local mode is stdlib-only (SQLite plus a content-addressed store) and registers as many agents as you want.
 
 ```bash
-hotato fleet init    -w acme
-hotato fleet agent add -w acme --name support-bot --stack vapi --assistant-id asst_123
-hotato fleet ingest  -w acme --agent support-bot call.wav
+hotato fleet init -w acme
+hotato fleet agent add -w acme --name support-bot \
+    --stack vapi --assistant-id asst_123
+hotato fleet ingest -w acme --agent support-bot call.wav
 hotato fleet discover -w acme --agent support-bot call.wav
-hotato fleet review   -w acme
+hotato fleet review -w acme
 ```
 
 With some history, `hotato fleet trend -w acme` writes one self-contained HTML page from the same local registry: per-agent talk-over and time-to-yield trends (p50/p95 per day), candidate moments over time, and experiment outcomes (improved/inconclusive/refused). A series with fewer than two days of history reports "not enough history to trend" rather than an interpolated line. Full guide: [`docs/GUARDIAN-FLEET.md`](docs/GUARDIAN-FLEET.md).
@@ -226,9 +237,12 @@ With some history, `hotato fleet trend -w acme` writes one self-contained HTML p
 The whole team workspace ships as a container. One command stands up the read-only, token-authenticated workspace (`hotato serve`) on host loopback over a private volume, keeping all traffic on your own infrastructure at run time:
 
 ```bash
-docker compose up -d                    # workspace on 127.0.0.1:8321
-docker compose run --rm hotato-init     # optional: seed example data
-docker compose --profile judge up -d    # optional: a local Ollama model judge
+# workspace on 127.0.0.1:8321
+docker compose up -d
+# optional: seed example data
+docker compose run --rm hotato-init
+# optional: a local Ollama model judge
+docker compose --profile judge up -d
 ```
 
 Build, connect your own calls, the local judge, air-gap, backup, and the zero-migration promise (self-host and cloud share one set of schemas): [`docs/SELF-HOST.md`](docs/SELF-HOST.md). Confirm the offline posture on your own machine with [`deploy/verify-zero-egress.sh`](deploy/verify-zero-egress.sh).
@@ -238,7 +252,8 @@ Build, connect your own calls, the local judge, air-gap, backup, and the zero-mi
 Hotato is a first-class tool for an LLM or an agent to drive: machine JSON on every command, meaningful exit codes, a described capability manifest, [`llms.txt`](llms.txt), JSON-LD, and an MCP server.
 
 ```bash
-uvx --from "hotato[mcp]" hotato-mcp      # the voice_eval_run scorer + eleven fleet tools
+# the voice_eval_run scorer + eleven fleet tools
+uvx --from "hotato[mcp]" hotato-mcp
 ```
 
 Configs and the tool contract: [`docs/MCP.md`](docs/MCP.md) &middot; [`AGENTS.md`](AGENTS.md) &middot; [`llms-full.txt`](llms-full.txt).
@@ -260,10 +275,13 @@ Configs and the tool contract: [`docs/MCP.md`](docs/MCP.md) &middot; [`AGENTS.md
 
 `contract verify` and a promoted fixture in CI are two different guarantees, depending on which recording goes in:
 
-| | On the frozen recording (every push) | On a fresh recapture (by hand, see [`docs/RECAPTURE.md`](docs/RECAPTURE.md)) |
-| --- | --- | --- |
-| Proves | The evidence, policy, and scorer are intact | The CURRENT agent's behavior still matches the label |
-| Does not prove | That the deployed agent has not changed | -- |
+**On the frozen recording (every push)**
+- Proves: The evidence, policy, and scorer are intact
+- Does not prove: That the deployed agent has not changed
+
+**On a fresh recapture** (by hand, see [`docs/RECAPTURE.md`](docs/RECAPTURE.md))
+- Proves: The CURRENT agent's behavior still matches the label
+- Does not prove: --
 
 A contract bundle contains call audio. Do not commit a raw customer contract to a public repository; use sanitized fixtures for anything public. See [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
 
@@ -272,11 +290,16 @@ A contract bundle contains call audio. Do not commit a raw customer contract to 
 Add hotato with `pip`, or run any command zero-install with [`uvx`](https://docs.astral.sh/uv/):
 
 ```bash
-pip install hotato                 # core: stdlib-only, zero dependencies
-pip install 'hotato[neural]'       # optional Silero VAD cross-check
-pip install 'hotato[transcribe]'   # optional ASR transcript, attached as context beside the score
-pip install 'hotato[livekit]'      # LiveKit live capture
-pip install 'hotato[pipecat]'      # Pipecat live capture
+# core: stdlib-only, zero dependencies
+pip install hotato
+# optional Silero VAD cross-check
+pip install 'hotato[neural]'
+# optional ASR transcript, attached as context beside the score
+pip install 'hotato[transcribe]'
+# LiveKit live capture
+pip install 'hotato[livekit]'
+# Pipecat live capture
+pip install 'hotato[pipecat]'
 ```
 
 ## Contribute a labeled call
@@ -1171,12 +1194,19 @@ reviewable, bounded fix proposal. Levels 0-2 are read-only. Level 3
 
 ## The ladder
 
-| Level | Command | What it does | Writes to your stack |
-|---|---|---|---|
-| 0 | `hotato diagnose result.json` | Per-failure diagnosis + a battery decision, with the advisory and the tradeoff stated | never |
-| 1 | `hotato inspect --stack ...` | Reads the CURRENT turn-taking config (GET or static parse) and normalizes it | never |
-| 2 | `hotato plan result.json [target]` | Combines diagnosis + inspected config into a fix-plan JSON (`hotato.fixplan.v1`) | never |
-| 3 | `hotato apply` / `hotato fix trial` / `hotato verify` | Applies a plan to a CLONE and re-scores the battery on it under a pinned manifest | cloned assistant / branch only, never production |
+- **Level 0** -- `hotato diagnose result.json`. What it does: per-failure
+  diagnosis + a battery decision, with the advisory and the tradeoff
+  stated. Writes to your stack: never.
+- **Level 1** -- `hotato inspect --stack ...`. What it does: reads the
+  CURRENT turn-taking config (GET or static parse) and normalizes it.
+  Writes to your stack: never.
+- **Level 2** -- `hotato plan result.json [target]`. What it does:
+  combines diagnosis + inspected config into a fix-plan JSON
+  (`hotato.fixplan.v1`). Writes to your stack: never.
+- **Level 3** -- `hotato apply` / `hotato fix trial` / `hotato verify`.
+  What it does: applies a plan to a CLONE and re-scores the battery on it
+  under a pinned manifest. Writes to your stack: cloned assistant / branch
+  only, never production.
 
 Level 3 kept the guard it was designed with, PR-first and clone-first:
 `hotato apply` applies a plan to a CLONED assistant
@@ -1638,10 +1668,14 @@ hotato apply patch.json --clone --name staging-refund-fix --battery tests/hotato
 
 Only the REST-config stacks have an assistant/agent to clone through an API:
 
-| stack  | read (source, read-only)          | create (a NEW assistant)              | name field   |
-| ------ | --------------------------------- | ------------------------------------- | ------------ |
-| vapi   | `GET https://api.vapi.ai/assistant/{id}` | `POST https://api.vapi.ai/assistant`  | `name`       |
-| retell | `GET https://api.retellai.com/get-agent/{id}` | `POST https://api.retellai.com/create-agent` | `agent_name` |
+- **vapi**
+  - Read (source, read-only): `GET https://api.vapi.ai/assistant/{id}`
+  - Create (a NEW assistant): `POST https://api.vapi.ai/assistant`
+  - Name field: `name`
+- **retell**
+  - Read (source, read-only): `GET https://api.retellai.com/get-agent/{id}`
+  - Create (a NEW assistant): `POST https://api.retellai.com/create-agent`
+  - Name field: `agent_name`
 
 The clone config is your source config with the patch deep-merged on top, given
 the new name, and stripped of the server-assigned ids so it is a fresh object,
@@ -1722,12 +1756,28 @@ hotato fix trial patch.json --name staging-refund-fix \
 
 ## The verdict is fail-closed, never a soft pass
 
-| Verdict | When | Exit |
-| --- | --- | --- |
-| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, `--policy` (if given) passed, every before target and hold has an after counterpart, AND every guarded fixture (target and hold) carries VERIFIABLE before/after audio identity (well-formed, freshly distinct decoded PCM, recomputed from the audio on disk -- the provenance guard, below) | `0` |
-| `regressed` | any fixture regressed, a contract regressed, or the policy failed | `1` |
-| `inconclusive` | too few previously-failing fixtures to characterize, nothing that used to fail now passes, OR the audio identity is present-but-unverifiable for a guarded fixture (a malformed provenance block, a missing block, or a well-formed assertion hotato could not recompute at trial time because the audio was not present) | `1` |
-| `refused` | the patch is the both-axes threshold funnel (apply's refusal-first gate fires before any before/after evidence is even read); OR the after set drops a required before fixture (an incomplete, cherry-picked comparison); OR a guarded fixture's recorded provenance does not match the audio on disk; OR a guarded fixture's before/after audio is the SAME conversation (identical decoded PCM -- a re-score, not a recapture) | `3` |
+- **`improved`** (exit `0`) -- the verify claim is supported (>= `--min-n`
+  previously-failing fixtures), at least one now passes, NOTHING regressed
+  anywhere in the battery (including the hold/opposite-risk axis), no
+  contract regressed, `--policy` (if given) passed, every before target and
+  hold has an after counterpart, AND every guarded fixture (target and
+  hold) carries VERIFIABLE before/after audio identity (well-formed,
+  freshly distinct decoded PCM, recomputed from the audio on disk -- the
+  provenance guard, below).
+- **`regressed`** (exit `1`) -- any fixture regressed, a contract
+  regressed, or the policy failed.
+- **`inconclusive`** (exit `1`) -- too few previously-failing fixtures to
+  characterize, nothing that used to fail now passes, OR the audio identity
+  is present-but-unverifiable for a guarded fixture (a malformed provenance
+  block, a missing block, or a well-formed assertion hotato could not
+  recompute at trial time because the audio was not present).
+- **`refused`** (exit `3`) -- the patch is the both-axes threshold funnel
+  (apply's refusal-first gate fires before any before/after evidence is
+  even read); OR the after set drops a required before fixture (an
+  incomplete, cherry-picked comparison); OR a guarded fixture's recorded
+  provenance does not match the audio on disk; OR a guarded fixture's
+  before/after audio is the SAME conversation (identical decoded PCM -- a
+  re-score, not a recapture).
 
 **`inconclusive` is fail-closed, not a pass.** A low-n battery or a
 zero-improvement battery exits the SAME non-zero code as a real regression,
@@ -1772,15 +1822,29 @@ guard). The guard's job is narrower: make the
 motivated failure modes impossible or loud, recompute what can be recomputed
 from the actual files, and state exactly what was and was NOT verified:
 
-| Situation | What it is | Effect on verdict |
-| --- | --- | --- |
-| Well-formed, freshly distinct (decoded PCM) identity, recomputed from the audio present on disk and matching | a verified fresh recapture | proceeds -- eligible for `improved` |
-| Identical decoded PCM before vs. after on any guarded fixture | the after run re-scored the SAME conversation (a header-only edit or trailing-byte append cannot hide it -- the comparison is on samples, not container bytes) | `refused` (exit `3`) |
-| Recorded digest does NOT match the audio present on disk | the provenance was hand-edited or the audio was swapped after capture | `refused` (exit `3`) |
-| A required before fixture (target or hold) missing from the after set | a cherry-picked, incomplete comparison | `refused` (exit `3`) |
-| Malformed block (non-hex digest, absurd sample rate / frame count, or a top-level digest inconsistent with the per-side digests) | an unvalidated assertion, not a distinct recording | `inconclusive` (exit `1`) |
-| A provenance block missing on either side | an older envelope, or one hand-built without `audio_provenance` -- identity is UNKNOWN | `inconclusive` (exit `1`) |
-| Well-formed identity that hotato could NOT recompute (the audio was not present) | asserted, not proven | `inconclusive` (exit `1`) |
+- **Well-formed, freshly distinct (decoded PCM) identity, recomputed from
+  the audio present on disk and matching** -- what it is: a verified fresh
+  recapture. Effect on verdict: proceeds -- eligible for `improved`.
+- **Identical decoded PCM before vs. after on any guarded fixture** -- what
+  it is: the after run re-scored the SAME conversation (a header-only edit
+  or trailing-byte append cannot hide it -- the comparison is on samples,
+  not container bytes). Effect on verdict: `refused` (exit `3`).
+- **Recorded digest does NOT match the audio present on disk** -- what it
+  is: the provenance was hand-edited or the audio was swapped after
+  capture. Effect on verdict: `refused` (exit `3`).
+- **A required before fixture (target or hold) missing from the after
+  set** -- what it is: a cherry-picked, incomplete comparison. Effect on
+  verdict: `refused` (exit `3`).
+- **Malformed block (non-hex digest, absurd sample rate / frame count, or a
+  top-level digest inconsistent with the per-side digests)** -- what it is:
+  an unvalidated assertion, not a distinct recording. Effect on verdict:
+  `inconclusive` (exit `1`).
+- **A provenance block missing on either side** -- what it is: an older
+  envelope, or one hand-built without `audio_provenance` -- identity is
+  UNKNOWN. Effect on verdict: `inconclusive` (exit `1`).
+- **Well-formed identity that hotato could NOT recompute (the audio was not
+  present)** -- what it is: asserted, not proven. Effect on verdict:
+  `inconclusive` (exit `1`).
 
 A provenance-guard refusal is NOT the apply-gate refusal: it fires AFTER
 `verify` / `contract verify` / `explain` have already run, so (unlike the
@@ -1860,18 +1924,27 @@ not a promise this tool makes and quietly fails to keep.
 
 ## Flags
 
-| Flag | Meaning |
-| --- | --- |
-| `PATCH_JSON` | a `hotato patch` artifact |
-| `--name NAME` | name of the staging clone this trial is proving (required for a non-refused patch; the same `--name` `hotato apply` takes -- fix trial evaluates the SAME clone-only gate, it never creates a clone itself) |
-| `--before RUN.json\|DIR` | the OLD run envelope(s): the original failure evidence. Also the default opposite-risk `--battery`, and the attribution source, when those are omitted |
-| `--after RUN.json\|DIR` | the NEW run envelope(s), re-captured through the staging clone |
-| `--battery DIR` | the opposite-risk battery apply's gate checks (BOTH a yield and a hold fixture); defaults to `--before` |
-| `--contracts DIR` | also re-verify a directory of hotato contracts; any contract regression fails the trial |
-| `--policy hotato.verify.yaml` | gate verify's rollup (see `docs/FIX-LOOP.md`); a violation fails the trial |
-| `--min-n N` | minimum previously-failing fixtures needed to support the claim (default 3) |
-| `--out PATH` | also write the full proof JSON |
-| `--html PATH` | also write a self-contained before/after HTML report |
+- **`PATCH_JSON`** -- a `hotato patch` artifact.
+- **`--name NAME`** -- name of the staging clone this trial is proving
+  (required for a non-refused patch; the same `--name` `hotato apply`
+  takes -- fix trial evaluates the SAME clone-only gate, it never creates a
+  clone itself).
+- **`--before RUN.json|DIR`** -- the OLD run envelope(s): the original
+  failure evidence. Also the default opposite-risk `--battery`, and the
+  attribution source, when those are omitted.
+- **`--after RUN.json|DIR`** -- the NEW run envelope(s), re-captured
+  through the staging clone.
+- **`--battery DIR`** -- the opposite-risk battery apply's gate checks
+  (BOTH a yield and a hold fixture); defaults to `--before`.
+- **`--contracts DIR`** -- also re-verify a directory of hotato contracts;
+  any contract regression fails the trial.
+- **`--policy hotato.verify.yaml`** -- gate verify's rollup (see
+  `docs/FIX-LOOP.md`); a violation fails the trial.
+- **`--min-n N`** -- minimum previously-failing fixtures needed to support
+  the claim (default 3).
+- **`--out PATH`** -- also write the full proof JSON.
+- **`--html PATH`** -- also write a self-contained before/after HTML
+  report.
 
 ## Output
 
@@ -1914,12 +1987,15 @@ evidence shows once that has already happened.
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| 0 | `improved` |
-| 1 | fail-closed: `regressed` or `inconclusive` |
-| 2 | usage error: the same gates `hotato apply` enforces (no `--name`, no opposite-risk battery, a stack with no clone target, a patch with no concrete change) or `hotato verify` / `contract verify` already enforce (no fixtures pair, an invalid `--policy`, a `--contracts` dir with no contracts, unreadable input) |
-| 3 | principled refusal: the both-axes threshold funnel. Shared with `hotato apply`'s refusal code |
+- **0** -- `improved`.
+- **1** -- fail-closed: `regressed` or `inconclusive`.
+- **2** -- usage error: the same gates `hotato apply` enforces (no
+  `--name`, no opposite-risk battery, a stack with no clone target, a
+  patch with no concrete change) or `hotato verify` / `contract verify`
+  already enforce (no fixtures pair, an invalid `--policy`, a `--contracts`
+  dir with no contracts, unreadable input).
+- **3** -- principled refusal: the both-axes threshold funnel. Shared with
+  `hotato apply`'s refusal code.
 
 ## What this is not
 
@@ -2362,13 +2438,28 @@ documents the gap here.
 
 ## Build now: dual-channel (auto-pull, separated scoring)
 
-| Stack | List recent calls | Fetch recording | Channel basis | Last verified |
-| --- | --- | --- | --- | --- |
-| Vapi | `GET https://api.vapi.ai/call` (params `limit`, `createdAtGt/Lt`) → JSON array of Call objects (`id`, `createdAt`) | `GET /call/{id}` → `artifact.recording.stereoUrl` (current); deprecated fallbacks `artifact.stereoRecordingUrl`, `call.stereoRecordingUrl` | `stereoUrl` is a distinct 2-channel file (customer ch0, assistant ch1) | 2026-07-07 |
-| Twilio | `GET .../Accounts/{Sid}/Recordings.json` (params `PageSize`, `DateCreatedAfter/Before`, `callSid`) → `recordings[].sid` | `GET .../Recordings/{RE...}.wav?RequestedChannels=2` (HTTP Basic) | dual-channel only if the recording was created `RecordingChannels=dual`; 400 → clean stop or `--allow-mono` → `RequestedChannels=1`. Two-party order: ch0 = caller, ch1 = agent; conference: ch0 = first participant | 2026-07-07 |
-| Retell | **none confirmed**: the spec marks list-calls unconfirmed; do not fabricate one. Pull from explicit `--call-id` | `GET https://api.retellai.com/v2/get-call/{id}` (Bearer) → `scrubbed_recording_multi_channel_url` preferred, then `recording_multi_channel_url`; plain mono `recording_url` rejected unless `--allow-mono` | per-party channels on the `*_multi_channel_url` fields | 2026-07-07 |
-| LiveKit | **capture-in-your-infra**: `ListEgress` is an RPC method name only; no REST list. `hotato setup --stack livekit` | Two audio-only Track egresses (one per party); recording location in `egress_info.file_results[].location` | separated by running one Track egress per participant | 2026-07-07 |
-| Pipecat | **capture-in-your-infra**: Pipecat Cloud session-list has no recording field; OSS has no list at all | `AudioBufferProcessor(num_channels=2)` in-pipeline (user left, bot right); you write the WAV | 2-channel in-pipeline | 2026-07-07 |
+Each entry below is one stack, verified 2026-07-07 unless noted otherwise.
+
+- **Vapi**
+  - List recent calls: `GET https://api.vapi.ai/call` (params `limit`, `createdAtGt/Lt`) → JSON array of Call objects (`id`, `createdAt`)
+  - Fetch recording: `GET /call/{id}` → `artifact.recording.stereoUrl` (current); deprecated fallbacks `artifact.stereoRecordingUrl`, `call.stereoRecordingUrl`
+  - Channel basis: `stereoUrl` is a distinct 2-channel file (customer ch0, assistant ch1)
+- **Twilio**
+  - List recent calls: `GET .../Accounts/{Sid}/Recordings.json` (params `PageSize`, `DateCreatedAfter/Before`, `callSid`) → `recordings[].sid`
+  - Fetch recording: `GET .../Recordings/{RE...}.wav?RequestedChannels=2` (HTTP Basic)
+  - Channel basis: dual-channel only if the recording was created `RecordingChannels=dual`; 400 → clean stop or `--allow-mono` → `RequestedChannels=1`. Two-party order: ch0 = caller, ch1 = agent; conference: ch0 = first participant
+- **Retell**
+  - List recent calls: **none confirmed** -- the spec marks list-calls unconfirmed; do not fabricate one. Pull from explicit `--call-id`
+  - Fetch recording: `GET https://api.retellai.com/v2/get-call/{id}` (Bearer) → `scrubbed_recording_multi_channel_url` preferred, then `recording_multi_channel_url`; plain mono `recording_url` rejected unless `--allow-mono`
+  - Channel basis: per-party channels on the `*_multi_channel_url` fields
+- **LiveKit**
+  - List recent calls: **capture-in-your-infra** -- `ListEgress` is an RPC method name only; no REST list. `hotato setup --stack livekit`
+  - Fetch recording: two audio-only Track egresses (one per party); recording location in `egress_info.file_results[].location`
+  - Channel basis: separated by running one Track egress per participant
+- **Pipecat**
+  - List recent calls: **capture-in-your-infra** -- Pipecat Cloud session-list has no recording field; OSS has no list at all
+  - Fetch recording: `AudioBufferProcessor(num_channels=2)` in-pipeline (user left, bot right); you write the WAV
+  - Channel basis: 2-channel in-pipeline
 
 ## Build now: mono / mixed only (auto-pull, `--allow-mono`, indicative only)
 
@@ -2376,13 +2467,28 @@ Each of these has a verified list + fetch, but the vendor produces a single
 combined recording with **no documented per-party channel**, so scoring is
 degraded and gated behind `--allow-mono`.
 
-| Stack | List recent calls | Fetch recording | Mono basis (verbatim) | Last verified |
-| --- | --- | --- | --- | --- |
-| Bland AI | `GET https://api.bland.ai/v1/calls` → `calls[].call_id` | `GET /v1/calls/{id}` → `recording_url` | no stereo/channel field in the recording or call-details schema | 2026-07-07 |
-| ElevenLabs Conversational AI | `GET https://api.elevenlabs.io/v1/convai/conversations` (params `page_size`, `call_start_after_unix`) → `conversations[].conversation_id` | `GET /v1/convai/conversations/{id}/audio` → combined audio | docs state the audio "does not include separate caller/agent channels, only a combined full conversation MP3" | 2026-07-07 |
-| Synthflow | `GET https://api.synthflow.ai/v2/calls?model_id=…` (params `limit`, `from_date` epoch-ms) → `response.response.calls[].call_id` | `GET /v2/calls/{id}` → `response.response.calls[0].recording_url` (a Twilio Recordings URL) | Synthflow documents no dual-channel option; `recording_url` is a bare Twilio URL | 2026-07-07 |
-| Millis AI | `GET {base}/call-logs` (US `api-west`, EU `api-eu-west`; param `limit`) → `histories[].session_id` | `GET /call-logs/{session_id}` → `recording.recording_url` | schema exposes only `recording_url`; `CallSettings` has only a boolean `enable_recording` | 2026-07-07 |
-| Cartesia (Line) | `GET https://api.cartesia.ai/agents/calls?agent_id=…` (param `limit`; needs `Cartesia-Version` header) → `data[].id` | `GET /agents/calls/{id}/audio` → `audio/wav` | dual-vs-mono **unconfirmed** in the docs; treated as mono until a live channel-count check proves otherwise | 2026-07-07 |
+Each entry below is one stack, verified 2026-07-07.
+
+- **Bland AI**
+  - List recent calls: `GET https://api.bland.ai/v1/calls` → `calls[].call_id`
+  - Fetch recording: `GET /v1/calls/{id}` → `recording_url`
+  - Mono basis (verbatim): no stereo/channel field in the recording or call-details schema
+- **ElevenLabs Conversational AI**
+  - List recent calls: `GET https://api.elevenlabs.io/v1/convai/conversations` (params `page_size`, `call_start_after_unix`) → `conversations[].conversation_id`
+  - Fetch recording: `GET /v1/convai/conversations/{id}/audio` → combined audio
+  - Mono basis (verbatim): docs state the audio "does not include separate caller/agent channels, only a combined full conversation MP3"
+- **Synthflow**
+  - List recent calls: `GET https://api.synthflow.ai/v2/calls?model_id=…` (params `limit`, `from_date` epoch-ms) → `response.response.calls[].call_id`
+  - Fetch recording: `GET /v2/calls/{id}` → `response.response.calls[0].recording_url` (a Twilio Recordings URL)
+  - Mono basis (verbatim): Synthflow documents no dual-channel option; `recording_url` is a bare Twilio URL
+- **Millis AI**
+  - List recent calls: `GET {base}/call-logs` (US `api-west`, EU `api-eu-west`; param `limit`) → `histories[].session_id`
+  - Fetch recording: `GET /call-logs/{session_id}` → `recording.recording_url`
+  - Mono basis (verbatim): schema exposes only `recording_url`; `CallSettings` has only a boolean `enable_recording`
+- **Cartesia (Line)**
+  - List recent calls: `GET https://api.cartesia.ai/agents/calls?agent_id=…` (param `limit`; needs `Cartesia-Version` header) → `data[].id`
+  - Fetch recording: `GET /agents/calls/{id}/audio` → `audio/wav`
+  - Mono basis (verbatim): dual-vs-mono **unconfirmed** in the docs; treated as mono until a live channel-count check proves otherwise
 
 `--stack synthflow` needs `--model-id` (its list endpoint requires `model_id`);
 `--stack cartesia` needs `--agent-id`; `--stack millis` accepts `--base-url` for
@@ -2390,10 +2496,15 @@ the EU region. Single-call `capture`/`pull` by explicit id needs none of these.
 
 ## Not integrable (no vendor recording to pull)
 
-| Stack | Why | Basis |
-| --- | --- | --- |
-| Deepgram Voice Agent API | Real-time WebSocket (`wss://agent.deepgram.com/v1/agent/converse`) with no REST list-calls, no fetch-recording endpoint, and no recording-ready webhook. Deepgram does not store the call. If you want a recording, capture it in your own infra (LiveKit/Pipecat pattern) | 2026-07-07, confirmed absent |
-| PlayAI (formerly Play.ht) | The conversational-agent product is dead: `play.ai` DNS does not resolve and `docs.play.ai` returns `DEPLOYMENT_NOT_FOUND`. The only live domain, `docs.play.ht`, is TTS-only with no calls/recordings API | 2026-07-07, dead endpoints verified |
+- **Deepgram Voice Agent API** (2026-07-07, confirmed absent) -- real-time
+  WebSocket (`wss://agent.deepgram.com/v1/agent/converse`) with no REST
+  list-calls, no fetch-recording endpoint, and no recording-ready webhook.
+  Deepgram does not store the call. If you want a recording, capture it in
+  your own infra (LiveKit/Pipecat pattern).
+- **PlayAI (formerly Play.ht)** (2026-07-07, dead endpoints verified) -- the
+  conversational-agent product is dead: `play.ai` DNS does not resolve and
+  `docs.play.ai` returns `DEPLOYMENT_NOT_FOUND`. The only live domain,
+  `docs.play.ht`, is TTS-only with no calls/recordings API.
 
 ## Unconfirmed: needs credentials or a live probe before shipping
 
@@ -3124,13 +3235,20 @@ Every kind is deterministic, so every result carries `deterministic: true` --
 including an `INCONCLUSIVE` one. The five below are the original core; the full
 vocabulary is under [the whole `kind` vocabulary](#the-whole-kind-vocabulary).
 
-| kind | checks | reads |
-| --- | --- | --- |
-| `phrase` | a regex is present (or, in `absent` mode, never present), with an optional `role` filter and `position` (`first`/`last`/`any`) | transcript text |
-| `pii` | deterministic detectors (`ssn`, `card_luhn` with full Luhn validation, `email`, `phone`) find nothing, `mode: must_not_leak` | transcript text |
-| `policy` | a named, versioned, offline rule pack's banned-language and required-disclosure rules | transcript text |
-| `tool_call` | a tool was (or was not) called, with an optional argument subset, a count bound, a required order across tools, or a "never before" ordering constraint | ingested `voice_trace.v1` spans only |
-| `outcome` | task success as `all_of`/`any_of` a list of the sub-predicates above (`tool_called`, `phrase`, `field_present`), reported as a `met`/`of` fraction | whichever context each sub-predicate needs |
+- **`phrase`** -- checks: a regex is present (or, in `absent` mode, never
+  present), with an optional `role` filter and `position`
+  (`first`/`last`/`any`). Reads: transcript text.
+- **`pii`** -- checks: deterministic detectors (`ssn`, `card_luhn` with full
+  Luhn validation, `email`, `phone`) find nothing, `mode: must_not_leak`.
+  Reads: transcript text.
+- **`policy`** -- checks: a named, versioned, offline rule pack's
+  banned-language and required-disclosure rules. Reads: transcript text.
+- **`tool_call`** -- checks: a tool was (or was not) called, with an optional
+  argument subset, a count bound, a required order across tools, or a "never
+  before" ordering constraint. Reads: ingested `voice_trace.v1` spans only.
+- **`outcome`** -- checks: task success as `all_of`/`any_of` a list of the
+  sub-predicates above (`tool_called`, `phrase`, `field_present`), reported as
+  a `met`/`of` fraction. Reads: whichever context each sub-predicate needs.
 
 `tool_call` checks the ingested trace (`hotato trace ingest`, [`docs/TRACE.md`](TRACE.md))
 alone -- that's the evidence a tool ran; an agent's own words claiming it ran
@@ -4665,12 +4783,27 @@ A contract's label always comes from a human call (`label_source` is frozen to
 
 ## Two lanes: what `verify` proves depends on which recording you feed it
 
-| | `contract verify` on the frozen recording | `contract verify` on a fresh recapture |
-| --- | --- | --- |
-| **What it re-scores** | The SAME `audio/event.wav` the contract was created from | A new recording of the SAME stimulus against your CURRENT agent |
-| **What a pass proves** | The evidence, the policy, and the scorer are still intact and still agree with the human label | The CURRENT agent's behavior on that stimulus still matches the label |
-| **What a pass does NOT prove** | That the deployed agent's behavior has not changed since | Nothing extra -- this is the one that speaks to the live agent |
-| **When it runs** | Every push, in the shipped `ci/github-action.yml` (`contract verify contracts/`) | Only when you recapture by hand or on a schedule; see [`docs/RECAPTURE.md`](RECAPTURE.md) |
+**Lane A -- `contract verify` on the frozen recording:**
+
+- **What it re-scores:** the SAME `audio/event.wav` the contract was created
+  from.
+- **What a pass proves:** the evidence, the policy, and the scorer are still
+  intact and still agree with the human label.
+- **What a pass does NOT prove:** that the deployed agent's behavior has not
+  changed since.
+- **When it runs:** every push, in the shipped `ci/github-action.yml`
+  (`contract verify contracts/`).
+
+**Lane B -- `contract verify` on a fresh recapture:**
+
+- **What it re-scores:** a new recording of the SAME stimulus against your
+  CURRENT agent.
+- **What a pass proves:** the CURRENT agent's behavior on that stimulus still
+  matches the label.
+- **What a pass does NOT prove:** nothing extra -- this is the one that speaks
+  to the live agent.
+- **When it runs:** only when you recapture by hand or on a schedule; see
+  [`docs/RECAPTURE.md`](RECAPTURE.md).
 
 A frozen-recording pass is necessary but not sufficient to know the agent bug
 stayed fixed: it can only fail if someone edits the bundle's audio or policy,
@@ -4828,7 +4961,8 @@ hotato contract pack contracts/refund-cutoff-001.hotato
 # -> contracts/refund-cutoff-001.hotato.pack (deterministic; a MANIFEST.sha256.json
 #    of every member travels inside it)
 
-hotato contract unpack contracts/refund-cutoff-001.hotato.pack --out contracts/refund-cutoff-001.hotato
+hotato contract unpack contracts/refund-cutoff-001.hotato.pack \
+    --out contracts/refund-cutoff-001.hotato
 # every member is verified against the packed sha256 manifest; any mismatch
 # (a corrupt or tampered archive) is refused (exit 2) and nothing partial is
 # left behind
@@ -4871,7 +5005,8 @@ manifest.
 The shipped `ci/github-action.yml` is the minimal wiring:
 
 ```bash
-uvx hotato contract verify contracts/ --junit contracts-junit.xml --format json > contracts-verify.json
+uvx hotato contract verify contracts/ --junit contracts-junit.xml \
+    --format json > contracts-verify.json
 ```
 
 Gate a pull request or a scheduled job on the process exit code; do not parse
@@ -4990,7 +5125,7 @@ calls ([`docs/SUBMITTING.md`](SUBMITTING.md)).
 ## The four suites
 
 | Suite | Scenarios | Conditions | Expected exit |
-|---------------------|-----------|-----------------------------------------------------------------------|---------------|
+| --- | --- | --- | --- |
 | `silver` | 40 | clean, 16 kHz, default noise floor | `0` |
 | `silver-defects` | 16 | clean conditions, deliberate defect renders | `1` |
 | `gold` | 40 | hard conditions: noise floors, 8 kHz, gain extremes, echo, edge timings, endurance | `0` |
@@ -6238,11 +6373,17 @@ For each timing signal it computes `|measured - rendered|` in ms, where `rendere
 is the exact value the synthetic fixture was rendered from (its `reference_render`
 block) or the value a contributor labelled by hand:
 
-| signal | measured | rendered/true reference |
-|---|---|---|
-| **caller onset** | onset the VAD detects (the scorer is given no onset label) | start of the first caller segment |
-| **time to yield** | seconds from caller onset to the agent going quiet | the agent's in-progress turn end minus the caller onset |
-| **response gap** | endpointing dead-air from the caller's turn end to the agent's next onset | the fixture's rendered response gap |
+- **caller onset**
+  - Measured: onset the VAD detects (the scorer is given no onset label).
+  - Rendered/true reference: start of the first caller segment.
+- **time to yield**
+  - Measured: seconds from caller onset to the agent going quiet.
+  - Rendered/true reference: the agent's in-progress turn end minus the
+    caller onset.
+- **response gap**
+  - Measured: endpointing dead-air from the caller's turn end to the
+    agent's next onset.
+  - Rendered/true reference: the fixture's rendered response gap.
 
 Errors are reported as a distribution: median, mean, worst case, best case, and n.
 A signal is scored where a rendered or true reference exists and the scorer
@@ -6530,23 +6671,45 @@ fixed after today's prompt change? That is the layer Hotato owns.
 Capability descriptions only, sourced entirely from each platform's own public
 launch and product material.
 
-| Platform | What it is built for |
-|---|---|
-| **Hamming** | Automated voice-agent testing: prompt-to-test generation, simulated call batteries, a multi-layer QA framework, and production-replay CI/CD regression across a broad test suite. |
-| **Cekura** | AI voice/chat agent QA: production-conversation ingestion, test-case extraction from production calls, simulated scenario testing, and monitoring across fleets of agents, including regulated verticals. |
-| **Coval** | Voice and chat agent simulation and evaluation, with published comparisons of testing approaches across the category. |
-| **Bluejay** | Synthetic stress-testing for voice agents at scale. |
-| **Roark** | Production-call replay for QA that preserves what the caller said, how, and when, for building regression scenarios. |
-| **Vapi** | A voice agent orchestration platform: the runtime stack a team builds and deploys its agent on. |
-| **Retell** | A voice agent orchestration platform for building and deploying voice agents. |
+- **Hamming** -- automated voice-agent testing: prompt-to-test generation,
+  simulated call batteries, a multi-layer QA framework, and
+  production-replay CI/CD regression across a broad test suite.
+- **Cekura** -- AI voice/chat agent QA: production-conversation ingestion,
+  test-case extraction from production calls, simulated scenario testing,
+  and monitoring across fleets of agents, including regulated verticals.
+- **Coval** -- voice and chat agent simulation and evaluation, with
+  published comparisons of testing approaches across the category.
+- **Bluejay** -- synthetic stress-testing for voice agents at scale.
+- **Roark** -- production-call replay for QA that preserves what the
+  caller said, how, and when, for building regression scenarios.
+- **Vapi** -- a voice agent orchestration platform: the runtime stack a
+  team builds and deploys its agent on.
+- **Retell** -- a voice agent orchestration platform for building and
+  deploying voice agents.
 
 ## What it measures, and the better fit
 
-| What you need | Best fit | Why |
-|---|---|---|
-| Broad conversation QA: did the call succeed, was the transcript right, did it follow the rubric, simulate hundreds of scenarios, dashboards for the team | **Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell** | These grade the whole conversation, task success, and content, or they are the agent platform itself. Hotato's lane is the timing evidence underneath. |
-| Prevent an interruption problem **in the moment**, at runtime: predict endpointing, suppress barge-in on noise, tune the live turn detector | **Pipecat, LiveKit** (and similar runtime layers) | These act during the live call. Hotato runs after the fact, from the recording. |
-| Prove a specific timing bug is fixed, from a recorded call, portably, with every byte staying on your machine; a fresh recapture pins whether it **stays** fixed | **Hotato** | A private, deterministic fixture: audio, a human label, and an explicit policy, scored the same way everywhere with `hotato verify`. Ships as a single portable contract bundle -- audio, timing evidence, trace evidence, label, policy, CI command. |
+- **Need:** broad conversation QA -- did the call succeed, was the transcript
+  right, did it follow the rubric, simulate hundreds of scenarios, dashboards
+  for the team.
+  **Best fit:** Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell.
+  **Why:** these grade the whole conversation, task success, and content, or
+  they are the agent platform itself. Hotato's lane is the timing evidence
+  underneath.
+- **Need:** prevent an interruption problem **in the moment**, at runtime --
+  predict endpointing, suppress barge-in on noise, tune the live turn
+  detector.
+  **Best fit:** Pipecat, LiveKit (and similar runtime layers).
+  **Why:** these act during the live call. Hotato runs after the fact, from
+  the recording.
+- **Need:** prove a specific timing bug is fixed, from a recorded call,
+  portably, with every byte staying on your machine; a fresh recapture pins
+  whether it **stays** fixed.
+  **Best fit:** Hotato.
+  **Why:** a private, deterministic fixture -- audio, a human label, and an
+  explicit policy, scored the same way everywhere with `hotato verify`. Ships
+  as a single portable contract bundle: audio, timing evidence, trace
+  evidence, label, policy, CI command.
 
 Rule of thumb: "is my agent good?" -> a QA platform. "is my agent
 interrupting well right now?" -> a runtime layer. "is the evidence for the
@@ -6666,16 +6829,30 @@ by the downstream benchmark's measured results: `pyannote` is the accessible
 local default, and a user who needs best-in-class accuracy on telephone audio
 picks `sortformer` (local) or `pyannoteai` (hosted).
 
-| `--diarizer` | extra | where it runs | notes |
-|---|---|---|---|
-| `pyannote` (default) | `[diarize]` | local, CPU-viable, offline | richest confidence signals (posterior + embedding margin); gated HF weights |
-| `sortformer` | `[diarize-sortformer]` | local, GPU-leaning | best self-hostable on 2-speaker telephone; EEND (no embedding margin) |
-| `pyannoteai` | `[diarize-hosted]` | HOSTED (audio leaves the machine) | best absolute accuracy; requires `--egress-opt-in` |
+- **`pyannote`** (default)
+  - Extra: `[diarize]`
+  - Where it runs: local, CPU-viable, offline
+  - Notes: richest confidence signals (posterior + embedding margin); gated
+    HF weights
+- **`sortformer`**
+  - Extra: `[diarize-sortformer]`
+  - Where it runs: local, GPU-leaning
+  - Notes: best self-hostable on 2-speaker telephone; EEND (no embedding
+    margin)
+- **`pyannoteai`**
+  - Extra: `[diarize-hosted]`
+  - Where it runs: HOSTED (audio leaves the machine)
+  - Notes: best absolute accuracy; requires `--egress-opt-in`
 
 ```toml
-diarize            = ["pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "numpy>=1.21"]  # default; needs system ffmpeg
-diarize-sortformer = ["nemo-toolkit[asr]>=2.7", "torch>=2.8", "numpy>=1.21"]                   # best self-hostable, GPU
-diarize-hosted     = ["pyannoteai-sdk>=0.3"]                                                   # hosted, egress opt-in
+# default; needs system ffmpeg
+diarize = ["pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "numpy>=1.21"]
+
+# best self-hostable, GPU
+diarize-sortformer = ["nemo-toolkit[asr]>=2.7", "torch>=2.8", "numpy>=1.21"]
+
+# hosted, egress opt-in
+diarize-hosted = ["pyannoteai-sdk>=0.3"]
 ```
 
 The `[diarize]` path raises the effective Python floor to **>=3.10** (pyannote
@@ -6788,17 +6965,35 @@ true` on the event:
     "backend": "pyannote",
     "model": "pyannote/speaker-diarization-community-1",
     "num_speakers": 2,
-    "speaker_map": {"caller": "SPEAKER_00", "agent": "SPEAKER_01", "basis": "floor-dominance", "balanced": false},
+    "speaker_map": {
+      "caller": "SPEAKER_00",
+      "agent": "SPEAKER_01",
+      "basis": "floor-dominance",
+      "balanced": false
+    },
     "separation_confidence": 0.86,
     "confidence_tier": "high",
     "overlap_ratio": 0.14,
     "licenses": {"pyannote-audio": "MIT (code)", "...": "..."}
   },
   "events": [{
-    "verdict": {"did_yield": true, "seconds_to_yield": 0.5, "talk_over_sec": 0.5, "reasons": []},
+    "verdict": {
+      "did_yield": true,
+      "seconds_to_yield": 0.5,
+      "talk_over_sec": 0.5,
+      "reasons": []
+    },
     "diarization": { "...": "same block" },
-    "scorability": {"separation": {"confidence_tier": "high", "separation_confidence": 0.86, "signals": {"...": "..."}}},
-    "signals": {"echo": {"applicable": false, "reason": "single physical channel ..."}}
+    "scorability": {
+      "separation": {
+        "confidence_tier": "high",
+        "separation_confidence": 0.86,
+        "signals": {"...": "..."}
+      }
+    },
+    "signals": {
+      "echo": {"applicable": false, "reason": "single physical channel ..."}
+    }
   }]
 }
 ```
@@ -6850,10 +7045,18 @@ never overstates what drove the caller side.
 
 ## The endpoints implemented
 
-| Provider | Originate | Poll until | Then pull |
-| --- | --- | --- | --- |
-| Twilio | `POST /2010-04-01/Accounts/{sid}/Calls.json` with `To`/`From`/`Twiml` + `Record=true`, `RecordingChannels=dual` (the REST equivalent of `<Dial record="record-from-answer-dual">`) | `GET .../Calls/{CallSid}.json` -> `status == completed` | `GET .../Recordings.json?CallSid=...` -> `RecordingSid` -> existing `capture_twilio` (`?RequestedChannels=2`) |
-| Vapi | `POST https://api.vapi.ai/call` `{assistantId, phoneNumberId, customer:{number}}` | `GET /call/{id}` -> `status == ended` | existing `capture_vapi` -> `artifact.recording.stereoUrl` |
+- **Twilio**
+  - Originate: `POST /2010-04-01/Accounts/{sid}/Calls.json` with
+    `To`/`From`/`Twiml` + `Record=true`, `RecordingChannels=dual` (the REST
+    equivalent of `<Dial record="record-from-answer-dual">`).
+  - Poll until: `GET .../Calls/{CallSid}.json` -> `status == completed`.
+  - Then pull: `GET .../Recordings.json?CallSid=...` -> `RecordingSid` ->
+    existing `capture_twilio` (`?RequestedChannels=2`).
+- **Vapi**
+  - Originate: `POST https://api.vapi.ai/call`
+    `{assistantId, phoneNumberId, customer:{number}}`.
+  - Poll until: `GET /call/{id}` -> `status == ended`.
+  - Then pull: existing `capture_vapi` -> `artifact.recording.stereoUrl`.
 
 Only `POST` (create) and `GET` (poll + pull) are ever issued: drive-a-call can
 create a call and read its status, and that is the whole surface -- a provider
@@ -6941,25 +7144,95 @@ endpoint, or `--judge-provider hosted`.
 
 ## Reaches your configured vendor -- only when the command's job is to
 
-| Command | Reaches | When | Code |
-| --- | --- | --- | --- |
-| `capture --stack vapi\|retell\|twilio` | The stack's REST API | Always (fetches the one call you named) | `capture.py`: `_http_get`/`_http_get_json`/`_download` via `urllib.request` |
-| `capture --stack vapi\|retell\|twilio --demo` | Nothing | `--demo` scores a bundled reference file instead | `capture.py` |
-| `capture --stack livekit\|pipecat` | Nothing from Hotato | The recording is produced by YOUR infra; Hotato only scores the local file `setup` pointed you at | `capture.py` |
-| `pull` | The stack's list + download endpoints | Always (bulk-fetches recent recordings) | `capture.py` (same `_http_get`/`_download` path `capture` uses, looped) |
-| `sweep --stack <stack>` | Same as `pull` | Whenever `--demo` is NOT passed | `capture.py` via the pull path |
-| `sweep --demo` | Nothing | Sweeps the two bundled demo recordings | `analyze.py` on packaged audio |
-| `inspect --stack vapi\|retell` | The stack's assistant-config read endpoint (GET only, never a write) | Always | `inspectcfg.py`: `_http_get_json`, `inspect_vapi`, `inspect_retell` |
-| `inspect --stack livekit\|pipecat` | Nothing | Parses YOUR local config file with `ast`, no network | `inspectcfg.py`: `inspect_livekit_file`, `inspect_pipecat_file` |
-| `ingest` (webhook worker) | Inbound only, from the stack you configured to call your webhook; outbound only if the event's `recording_url` needs a download | Per event, and only for the fetch step | `ingest.py`: `_resolve_recording` reuses `capture.py`'s fetch/download; payloads are always treated as data, never instructions |
-| `apply` (default, no `--yes`) | Nothing | Dry run: prints the staging clone it WOULD create | `apply.py`: `build_apply` returns `dry_run: True`, never calls the networked function |
-| `apply --clone --yes` | The stack's REST API (`vapi`, `retell` only) | Only with `--yes` and credentials | `apply.py`: `create_clone` / `_http_json` is "the only networked function" in the module (its own docstring) -- reads the source config via GET, then POSTs to create a NEW staging assistant. Never PUTs/PATCHes the source. |
-| `issue create` (default, no `--yes`) | Nothing | Dry run: prints the issue body and the `gh` command it would run | `issuecmd.py` |
-| `issue create --yes` | GitHub, through your local `gh` CLI's existing auth | Only with `--yes` | `issuecmd.py`: `subprocess.run(["gh", "issue", "create", ...])` |
-| `pr create` (default, no `--yes`) | Nothing | Dry run: prints the PR body and the `git`/`gh` argv it would run | `prcmd.py` |
-| `pr create --yes` | Git remote + GitHub, through your local `gh` CLI's existing auth | Only with `--yes` | `prcmd.py`: `subprocess.run([...git...])` then `subprocess.run(["gh", "pr", "create", ...])` |
-| `test run --state F` (state-config with `adapter: http`) | Your configured system-of-record REST API | Per `state`/`state_change` assertion, and ONLY when the config sets `egress_opt_in: true`. What leaves: the mapped filter VALUES for that one query (in the URL or a JSON body); never audio, transcript, or the config. | `state_adapter.py`: `HttpStateAdapter.query` via `urllib.request` (credential-safe redirects reused from `capture.py`) |
-| `test run --state F` (state-config with `adapter: sql` + a `dsn`) | Your database, over the network via the driver you install | Per assertion, and ONLY with `egress_opt_in: true`. A parameterized read-only SELECT; the filter VALUES are bound as data, never interpolated. A local `sqlite_path` opens no socket. | `state_adapter.py`: `SqlStateAdapter.query` (stdlib `sqlite3`, or a caller-installed DBAPI driver) |
+- **`capture --stack vapi\|retell\|twilio`**
+  - Reaches: the stack's REST API.
+  - When: always (fetches the one call you named).
+  - Code: `capture.py`: `_http_get`/`_http_get_json`/`_download` via
+    `urllib.request`.
+- **`capture --stack vapi\|retell\|twilio --demo`**
+  - Reaches: nothing.
+  - When: `--demo` scores a bundled reference file instead.
+  - Code: `capture.py`.
+- **`capture --stack livekit\|pipecat`**
+  - Reaches: nothing from Hotato.
+  - When: the recording is produced by YOUR infra; Hotato only scores the
+    local file `setup` pointed you at.
+  - Code: `capture.py`.
+- **`pull`**
+  - Reaches: the stack's list + download endpoints.
+  - When: always (bulk-fetches recent recordings).
+  - Code: `capture.py` (same `_http_get`/`_download` path `capture` uses,
+    looped).
+- **`sweep --stack <stack>`**
+  - Reaches: same as `pull`.
+  - When: whenever `--demo` is NOT passed.
+  - Code: `capture.py` via the pull path.
+- **`sweep --demo`**
+  - Reaches: nothing.
+  - When: sweeps the two bundled demo recordings.
+  - Code: `analyze.py` on packaged audio.
+- **`inspect --stack vapi\|retell`**
+  - Reaches: the stack's assistant-config read endpoint (GET only, never a
+    write).
+  - When: always.
+  - Code: `inspectcfg.py`: `_http_get_json`, `inspect_vapi`, `inspect_retell`.
+- **`inspect --stack livekit\|pipecat`**
+  - Reaches: nothing.
+  - When: parses YOUR local config file with `ast`, no network.
+  - Code: `inspectcfg.py`: `inspect_livekit_file`, `inspect_pipecat_file`.
+- **`ingest` (webhook worker)**
+  - Reaches: inbound only, from the stack you configured to call your
+    webhook; outbound only if the event's `recording_url` needs a download.
+  - When: per event, and only for the fetch step.
+  - Code: `ingest.py`: `_resolve_recording` reuses `capture.py`'s
+    fetch/download; payloads are always treated as data, never instructions.
+- **`apply` (default, no `--yes`)**
+  - Reaches: nothing.
+  - When: dry run -- prints the staging clone it WOULD create.
+  - Code: `apply.py`: `build_apply` returns `dry_run: True`, never calls the
+    networked function.
+- **`apply --clone --yes`**
+  - Reaches: the stack's REST API (`vapi`, `retell` only).
+  - When: only with `--yes` and credentials.
+  - Code: `apply.py`: `create_clone` / `_http_json` is "the only networked
+    function" in the module (its own docstring) -- reads the source config
+    via GET, then POSTs to create a NEW staging assistant. Never
+    PUTs/PATCHes the source.
+- **`issue create` (default, no `--yes`)**
+  - Reaches: nothing.
+  - When: dry run -- prints the issue body and the `gh` command it would
+    run.
+  - Code: `issuecmd.py`.
+- **`issue create --yes`**
+  - Reaches: GitHub, through your local `gh` CLI's existing auth.
+  - When: only with `--yes`.
+  - Code: `issuecmd.py`: `subprocess.run(["gh", "issue", "create", ...])`.
+- **`pr create` (default, no `--yes`)**
+  - Reaches: nothing.
+  - When: dry run -- prints the PR body and the `git`/`gh` argv it would
+    run.
+  - Code: `prcmd.py`.
+- **`pr create --yes`**
+  - Reaches: Git remote + GitHub, through your local `gh` CLI's existing
+    auth.
+  - When: only with `--yes`.
+  - Code: `prcmd.py`: `subprocess.run([...git...])` then
+    `subprocess.run(["gh", "pr", "create", ...])`.
+- **`test run --state F`** (state-config with `adapter: http`)
+  - Reaches: your configured system-of-record REST API.
+  - When: per `state`/`state_change` assertion, and ONLY when the config
+    sets `egress_opt_in: true`. What leaves: the mapped filter VALUES for
+    that one query (in the URL or a JSON body); never audio, transcript, or
+    the config.
+  - Code: `state_adapter.py`: `HttpStateAdapter.query` via `urllib.request`
+    (credential-safe redirects reused from `capture.py`).
+- **`test run --state F`** (state-config with `adapter: sql` + a `dsn`)
+  - Reaches: your database, over the network via the driver you install.
+  - When: per assertion, and ONLY with `egress_opt_in: true`. A
+    parameterized read-only SELECT; the filter VALUES are bound as data,
+    never interpolated. A local `sqlite_path` opens no socket.
+  - Code: `state_adapter.py`: `SqlStateAdapter.query` (stdlib `sqlite3`, or
+    a caller-installed DBAPI driver).
 
 `load_state_adapter` requires `egress_opt_in: true` before an `http` adapter or
 a `sql` adapter over a `dsn` connects (absent it, it raises before any
@@ -6970,16 +7243,55 @@ entirely on your machine and need no opt-in. Full config format:
 
 ## Optional extras that add a hosted call
 
-| Extra | Adds | Gate |
-| --- | --- | --- |
-| `hotato[neural]` | Nothing network -- a local Silero VAD cross-check model, run offline | N/A |
-| `hotato[transcribe]` (`run --transcribe`) | Nothing at inference -- a local `faster-whisper` ASR pass over the same recording, fully offline once the chosen model is cached. The first use of a model name not already cached downloads its weights from its public host (a one-time fetch, like installing any pip package with model weights); every run after that opens no socket. Context only -- kept separate from the score. | N/A |
-| `hotato[livekit]` / `hotato[pipecat]` | Nothing from Hotato directly -- these SDKs run YOUR live capture infra; Hotato scores the file that infra writes | N/A |
-| `--diarizer pyannoteai` (`contract create --mono --diarize`, `run --mono --diarize`) | Uploads the mono audio to `pyannote.ai` for diarization | Requires `--egress-opt-in` (exit 2 without it); the default diarizer (`pyannote`, local) stays offline. See `diarize.py`: `build_pyannoteai_backend`. |
-| `hotato[judge]` (`rubric run`, `rubric calibrate`, `test run` rubric lane) | Nothing on the default path -- the judge is a LOCAL Ollama model (`http://localhost:11434`), reached with only the stdlib (`urllib`). The transcript stays on your machine. | N/A on the default (local) path. `rubric.py`: `OllamaJudge`. |
-| `--judge-provider hosted --judge-endpoint URL` (any rubric command) | Sends the transcript + rubric criterion to a hosted OpenAI/Anthropic-compatible `/chat/completions` endpoint you name | Requires `--judge-egress-opt-in` (exit 2 without it); the default local judge stays on your machine. `rubric.py`: `HostedJudge` (raises `EgressRefused` without the flag). |
-| A **non-local** `--judge-endpoint` (e.g. a remote Ollama host) | Reaches that host | Same gate: requires `--judge-egress-opt-in`. `localhost`/`127.0.0.1`/`::1` skip it. `rubric.py`: `OllamaJudge._is_local_endpoint`. |
-| `--notify URL` (`sweep`, `fleet run`) | POSTs one JSON summary -- counts, top candidate moments (id, kind, timing numbers only), local artifact paths. Audio, credentials, and transcript text stay out of it. Plus a `text` line for Slack incoming webhooks. | Off by default; only fires with an explicit, repeatable `--notify URL`. A non-http(s) scheme is refused (exit 2) before any network attempt; once sent, delivery is fail-open -- a down or slow webhook logs one stderr warning and the run keeps going. See `notify.py`: `post_notification`. |
+- **`hotato[neural]`**
+  - Adds: nothing network -- a local Silero VAD cross-check model, run
+    offline.
+  - Gate: N/A.
+- **`hotato[transcribe]`** (`run --transcribe`)
+  - Adds: nothing at inference -- a local `faster-whisper` ASR pass over the
+    same recording, fully offline once the chosen model is cached. The
+    first use of a model name not already cached downloads its weights
+    from its public host (a one-time fetch, like installing any pip
+    package with model weights); every run after that opens no socket.
+    Context only -- kept separate from the score.
+  - Gate: N/A.
+- **`hotato[livekit]` / `hotato[pipecat]`**
+  - Adds: nothing from Hotato directly -- these SDKs run YOUR live capture
+    infra; Hotato scores the file that infra writes.
+  - Gate: N/A.
+- **`--diarizer pyannoteai`** (`contract create --mono --diarize`,
+  `run --mono --diarize`)
+  - Adds: uploads the mono audio to `pyannote.ai` for diarization.
+  - Gate: requires `--egress-opt-in` (exit 2 without it); the default
+    diarizer (`pyannote`, local) stays offline. See `diarize.py`:
+    `build_pyannoteai_backend`.
+- **`hotato[judge]`** (`rubric run`, `rubric calibrate`, `test run` rubric
+  lane)
+  - Adds: nothing on the default path -- the judge is a LOCAL Ollama model
+    (`http://localhost:11434`), reached with only the stdlib (`urllib`).
+    The transcript stays on your machine.
+  - Gate: N/A on the default (local) path. `rubric.py`: `OllamaJudge`.
+- **`--judge-provider hosted --judge-endpoint URL`** (any rubric command)
+  - Adds: sends the transcript + rubric criterion to a hosted
+    OpenAI/Anthropic-compatible `/chat/completions` endpoint you name.
+  - Gate: requires `--judge-egress-opt-in` (exit 2 without it); the default
+    local judge stays on your machine. `rubric.py`: `HostedJudge` (raises
+    `EgressRefused` without the flag).
+- **A non-local `--judge-endpoint`** (e.g. a remote Ollama host)
+  - Adds: reaches that host.
+  - Gate: same gate -- requires `--judge-egress-opt-in`.
+    `localhost`/`127.0.0.1`/`::1` skip it. `rubric.py`:
+    `OllamaJudge._is_local_endpoint`.
+- **`--notify URL`** (`sweep`, `fleet run`)
+  - Adds: POSTs one JSON summary -- counts, top candidate moments (id,
+    kind, timing numbers only), local artifact paths. Audio, credentials,
+    and transcript text stay out of it. Plus a `text` line for Slack
+    incoming webhooks.
+  - Gate: off by default; only fires with an explicit, repeatable `--notify
+    URL`. A non-http(s) scheme is refused (exit 2) before any network
+    attempt; once sent, delivery is fail-open -- a down or slow webhook
+    logs one stderr warning and the run keeps going. See `notify.py`:
+    `post_notification`.
 
 ## The one credential-safety detail worth knowing
 
@@ -7002,10 +7314,21 @@ real, billable call against a live agent and pulls its recording. It is the one
 path here that both reaches a vendor AND places an outbound call, so it carries a
 gate on top of the usual credential requirement.
 
-| Op | Reaches | When | Gate |
-| --- | --- | --- | --- |
-| `run_scenario` (Vapi adapter) | `POST https://api.vapi.ai/call`, then polls `GET /call/{id}`, then the existing `capture_vapi` download | Only when driven | Requires real credentials AND an explicit egress opt-in (`HOTATO_DRIVE_OPT_IN=1` or `egress_opt_in: true` on the scenario) both present before dialing. Only creates and reads (GET/POST); the call is driven from the staging CLONE, keeping production untouched. |
-| `run_scenario` (Twilio adapter) | `POST .../Calls.json`, then polls `GET .../Calls/{sid}.json` + `GET .../Recordings.json`, then the existing `capture_twilio` download | Only when driven | Same double gate. TwiML `<Say>` is a fixed-timeline scripted caller; recording is dual-channel via `Record=true`/`RecordingChannels=dual`. GET/POST only, so config stays untouched. |
+- **`run_scenario` (Vapi adapter)**
+  - Reaches: `POST https://api.vapi.ai/call`, then polls `GET /call/{id}`,
+    then the existing `capture_vapi` download.
+  - When: only when driven.
+  - Gate: requires real credentials AND an explicit egress opt-in
+    (`HOTATO_DRIVE_OPT_IN=1` or `egress_opt_in: true` on the scenario) both
+    present before dialing. Only creates and reads (GET/POST); the call is
+    driven from the staging CLONE, keeping production untouched.
+- **`run_scenario` (Twilio adapter)**
+  - Reaches: `POST .../Calls.json`, then polls `GET .../Calls/{sid}.json` +
+    `GET .../Recordings.json`, then the existing `capture_twilio` download.
+  - When: only when driven.
+  - Gate: same double gate. TwiML `<Say>` is a fixed-timeline scripted
+    caller; recording is dual-channel via `Record=true`/`RecordingChannels=dual`.
+    GET/POST only, so config stays untouched.
 
 The recording download reuses `capture.py`'s validated fetch (scheme allowlist,
 default-deny SSRF, cross-host credential strip, atomic write); a local test
@@ -7028,18 +7351,33 @@ if you are deciding how much to trust any single piece below.
 
 ## What's in the pack
 
-| Artifact | What it shows | Where |
-|---|---|---|
-| Bundled demo | Two recorded calls a provider-default agent fails, scored offline in under a minute, one command | `hotato demo` · [START.md](START.md) |
-| Recorded provider-default battery | 12 scripted calls against a live voice agent on its default settings; a missed interruption and a false stop fail in the same run | [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md) |
-| Determinism check | Same recording, same numbers, every run, on every OS CI verifies (Linux proven; macOS/Windows now checked, pending a first green run) | [VALIDATION.md](VALIDATION.md) Job 1 |
-| Not-scorable gallery | Eight input conditions and the exact verdict each produces, including three hard refusals | [GALLERY.md](GALLERY.md) · [TRUST-GALLERY.md](TRUST-GALLERY.md) |
-| Trust contract | The input-condition table the gallery demonstrates | [TRUST-MATRIX.md](TRUST-MATRIX.md) |
-| What is and is not validated | The three jobs Hotato is measured on, and the explicit does-not-claim list | [VALIDATION.md](VALIDATION.md) |
-| Where Hotato fits next to a QA platform | Named-vendor routing guide | [COMPARE.md](COMPARE.md) |
-| Case studies | Recorded-audio write-ups, each with a repro command and a mandatory "What Hotato did not prove" scope section | [`case-studies/`](case-studies/README.md) |
-| Shareable cards | Self-contained SVGs of a candidate, a threshold-funnel finding, or a verify result | [CARDS.md](CARDS.md) · [`assets/cards/`](assets/cards/) |
-| Launch-bar status | The checklist of what is done and what is still an open gap | [evidence/validation-plan.md](evidence/validation-plan.md) |
+- **Bundled demo** -- two recorded calls a provider-default agent fails,
+  scored offline in under a minute, one command. `hotato demo` ·
+  [START.md](START.md)
+- **Recorded provider-default battery** -- 12 scripted calls against a live
+  voice agent on its default settings; a missed interruption and a false
+  stop fail in the same run.
+  [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md)
+- **Determinism check** -- same recording, same numbers, every run, on
+  every OS CI verifies (Linux proven; macOS/Windows now checked, pending a
+  first green run). [VALIDATION.md](VALIDATION.md) Job 1
+- **Not-scorable gallery** -- eight input conditions and the exact verdict
+  each produces, including three hard refusals. [GALLERY.md](GALLERY.md) ·
+  [TRUST-GALLERY.md](TRUST-GALLERY.md)
+- **Trust contract** -- the input-condition table the gallery demonstrates.
+  [TRUST-MATRIX.md](TRUST-MATRIX.md)
+- **What is and is not validated** -- the three jobs Hotato is measured on,
+  and the explicit does-not-claim list. [VALIDATION.md](VALIDATION.md)
+- **Where Hotato fits next to a QA platform** -- named-vendor routing
+  guide. [COMPARE.md](COMPARE.md)
+- **Case studies** -- recorded-audio write-ups, each with a repro command
+  and a mandatory "What Hotato did not prove" scope section.
+  [`case-studies/`](case-studies/README.md)
+- **Shareable cards** -- self-contained SVGs of a candidate, a
+  threshold-funnel finding, or a verify result. [CARDS.md](CARDS.md) ·
+  [`assets/cards/`](assets/cards/)
+- **Launch-bar status** -- the checklist of what is done and what is still
+  an open gap. [evidence/validation-plan.md](evidence/validation-plan.md)
 
 ## How to check it yourself
 
@@ -7086,11 +7424,15 @@ hotato explain result.json
 
 ## Three input shapes, auto-detected
 
-| Input | Example | What happens |
-|---|---|---|
-| a run envelope | `hotato explain result.json` | full diagnose + policy-gate attribution, per failing event |
-| a sweep/analyze candidate ref | `hotato explain hotato-sweep.json#1` | ALWAYS refused: a candidate carries no human label |
-| a contract bundle directory | `hotato explain contracts/refund-cutoff-001.hotato` | attributed from the contract's own measurement + policy bounds, or refused when disambiguation needs a signal the bundle does not carry |
+- **A run envelope** -- example: `hotato explain result.json`. What happens:
+  full diagnose + policy-gate attribution, per failing event.
+- **A sweep/analyze candidate ref** -- example:
+  `hotato explain hotato-sweep.json#1`. What happens: ALWAYS refused -- a
+  candidate carries no human label.
+- **A contract bundle directory** -- example:
+  `hotato explain contracts/refund-cutoff-001.hotato`. What happens:
+  attributed from the contract's own measurement + policy bounds, or
+  refused when disambiguation needs a signal the bundle does not carry.
 
 ## The attribution shape
 
@@ -7226,11 +7568,19 @@ with the command shown next to it.
 Three self-contained SVGs: offline, byte-stable from the same input, with every
 font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
 
-| Card | What it shows | Regenerate |
-|---|---|---|
-| ![threshold funnel](assets/cards/no-single-threshold-card.svg) | **The hero.** A battery where a missed interruption and a false stop fail together -- Hotato names the failure class (engagement-control) instead of picking one sensitivity dial. | `hotato card fix-plan.json --out card.svg` |
-| ![talk-over candidate](assets/cards/talk-over-card.svg) | A measured talk-over moment: the agent kept the floor while the caller was speaking. | `hotato card hotato-sweep.json#N --out card.svg` |
-| ![false-stop candidate](assets/cards/false-stop-card.svg) | A measured false-stop moment: the agent went quiet with no caller nearby to explain it. | `hotato card hotato-sweep.json#N --out card.svg` |
+- ![threshold funnel](assets/cards/no-single-threshold-card.svg)
+  **The hero.** A battery where a missed interruption and a false stop fail
+  together -- Hotato names the failure class (engagement-control) instead
+  of picking one sensitivity dial.
+  Regenerate: `hotato card fix-plan.json --out card.svg`
+- ![talk-over candidate](assets/cards/talk-over-card.svg)
+  A measured talk-over moment: the agent kept the floor while the caller
+  was speaking.
+  Regenerate: `hotato card hotato-sweep.json#N --out card.svg`
+- ![false-stop candidate](assets/cards/false-stop-card.svg)
+  A measured false-stop moment: the agent went quiet with no caller nearby
+  to explain it.
+  Regenerate: `hotato card hotato-sweep.json#N --out card.svg`
 
 ## The bundled demo, rendered
 
@@ -8635,10 +8985,15 @@ With the extra absent, `--transcribe` always fails loud: a clean error, exit
 ## Usage
 
 ```bash
-hotato run --stereo call.wav --transcribe                                   # base.en, device auto-detected
+# base.en, device auto-detected:
+hotato run --stereo call.wav --transcribe
+
+# pick a model + device:
 hotato run --stereo call.wav --transcribe --transcribe-model small.en \
-  --transcribe-device cpu                                                    # pick a model + device
-hotato run --mono call.wav --diarize --transcribe                            # also works on the diarized-mono path
+  --transcribe-device cpu
+
+# also works on the diarized-mono path:
+hotato run --mono call.wav --diarize --transcribe
 ```
 
 `--transcribe` needs a **single** audio file: `--stereo`, or `--mono` when
@@ -8664,9 +9019,11 @@ applied."
 
 ## Backend and extra
 
-| extra | brings in | where it runs |
-|---|---|---|
-| `[transcribe]` | `faster-whisper` (a CTranslate2 re-implementation of OpenAI's Whisper) | local, CPU-viable, GPU-optional, fully offline once the model is cached |
+- **`[transcribe]`**
+  - Brings in: `faster-whisper` (a CTranslate2 re-implementation of OpenAI's
+    Whisper).
+  - Where it runs: local, CPU-viable, GPU-optional, fully offline once the
+    model is cached.
 
 ```toml
 transcribe = ["faster-whisper>=1.0"]
@@ -8712,7 +9069,12 @@ it:
 {
   "mode": "single",
   "events": [{
-    "verdict": {"did_yield": true, "seconds_to_yield": 0.42, "talk_over_sec": 0.18, "reasons": []}
+    "verdict": {
+      "did_yield": true,
+      "seconds_to_yield": 0.42,
+      "talk_over_sec": 0.18,
+      "reasons": []
+    }
   }],
   "transcript": {
     "text": "I need to check on my refund -- hold on, let me pull that up for you.",

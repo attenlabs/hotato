@@ -58,10 +58,14 @@ hotato apply patch.json --clone --name staging-refund-fix --battery tests/hotato
 
 Only the REST-config stacks have an assistant/agent to clone through an API:
 
-| stack  | read (source, read-only)          | create (a NEW assistant)              | name field   |
-| ------ | --------------------------------- | ------------------------------------- | ------------ |
-| vapi   | `GET https://api.vapi.ai/assistant/{id}` | `POST https://api.vapi.ai/assistant`  | `name`       |
-| retell | `GET https://api.retellai.com/get-agent/{id}` | `POST https://api.retellai.com/create-agent` | `agent_name` |
+- **vapi**
+  - Read (source, read-only): `GET https://api.vapi.ai/assistant/{id}`
+  - Create (a NEW assistant): `POST https://api.vapi.ai/assistant`
+  - Name field: `name`
+- **retell**
+  - Read (source, read-only): `GET https://api.retellai.com/get-agent/{id}`
+  - Create (a NEW assistant): `POST https://api.retellai.com/create-agent`
+  - Name field: `agent_name`
 
 The clone config is your source config with the patch deep-merged on top, given
 the new name, and stripped of the server-assigned ids so it is a fresh object,

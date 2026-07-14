@@ -29,11 +29,17 @@ For each timing signal it computes `|measured - rendered|` in ms, where `rendere
 is the exact value the synthetic fixture was rendered from (its `reference_render`
 block) or the value a contributor labelled by hand:
 
-| signal | measured | rendered/true reference |
-|---|---|---|
-| **caller onset** | onset the VAD detects (the scorer is given no onset label) | start of the first caller segment |
-| **time to yield** | seconds from caller onset to the agent going quiet | the agent's in-progress turn end minus the caller onset |
-| **response gap** | endpointing dead-air from the caller's turn end to the agent's next onset | the fixture's rendered response gap |
+- **caller onset**
+  - Measured: onset the VAD detects (the scorer is given no onset label).
+  - Rendered/true reference: start of the first caller segment.
+- **time to yield**
+  - Measured: seconds from caller onset to the agent going quiet.
+  - Rendered/true reference: the agent's in-progress turn end minus the
+    caller onset.
+- **response gap**
+  - Measured: endpointing dead-air from the caller's turn end to the
+    agent's next onset.
+  - Rendered/true reference: the fixture's rendered response gap.
 
 Errors are reported as a distribution: median, mean, worst case, best case, and n.
 A signal is scored where a rendered or true reference exists and the scorer

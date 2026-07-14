@@ -9,18 +9,33 @@ if you are deciding how much to trust any single piece below.
 
 ## What's in the pack
 
-| Artifact | What it shows | Where |
-|---|---|---|
-| Bundled demo | Two recorded calls a provider-default agent fails, scored offline in under a minute, one command | `hotato demo` · [START.md](START.md) |
-| Recorded provider-default battery | 12 scripted calls against a live voice agent on its default settings; a missed interruption and a false stop fail in the same run | [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md) |
-| Determinism check | Same recording, same numbers, every run, on every OS CI verifies (Linux proven; macOS/Windows now checked, pending a first green run) | [VALIDATION.md](VALIDATION.md) Job 1 |
-| Not-scorable gallery | Eight input conditions and the exact verdict each produces, including three hard refusals | [GALLERY.md](GALLERY.md) · [TRUST-GALLERY.md](TRUST-GALLERY.md) |
-| Trust contract | The input-condition table the gallery demonstrates | [TRUST-MATRIX.md](TRUST-MATRIX.md) |
-| What is and is not validated | The three jobs Hotato is measured on, and the explicit does-not-claim list | [VALIDATION.md](VALIDATION.md) |
-| Where Hotato fits next to a QA platform | Named-vendor routing guide | [COMPARE.md](COMPARE.md) |
-| Case studies | Recorded-audio write-ups, each with a repro command and a mandatory "What Hotato did not prove" scope section | [`case-studies/`](case-studies/README.md) |
-| Shareable cards | Self-contained SVGs of a candidate, a threshold-funnel finding, or a verify result | [CARDS.md](CARDS.md) · [`assets/cards/`](assets/cards/) |
-| Launch-bar status | The checklist of what is done and what is still an open gap | [evidence/validation-plan.md](evidence/validation-plan.md) |
+- **Bundled demo** -- two recorded calls a provider-default agent fails,
+  scored offline in under a minute, one command. `hotato demo` ·
+  [START.md](START.md)
+- **Recorded provider-default battery** -- 12 scripted calls against a live
+  voice agent on its default settings; a missed interruption and a false
+  stop fail in the same run.
+  [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md)
+- **Determinism check** -- same recording, same numbers, every run, on
+  every OS CI verifies (Linux proven; macOS/Windows now checked, pending a
+  first green run). [VALIDATION.md](VALIDATION.md) Job 1
+- **Not-scorable gallery** -- eight input conditions and the exact verdict
+  each produces, including three hard refusals. [GALLERY.md](GALLERY.md) ·
+  [TRUST-GALLERY.md](TRUST-GALLERY.md)
+- **Trust contract** -- the input-condition table the gallery demonstrates.
+  [TRUST-MATRIX.md](TRUST-MATRIX.md)
+- **What is and is not validated** -- the three jobs Hotato is measured on,
+  and the explicit does-not-claim list. [VALIDATION.md](VALIDATION.md)
+- **Where Hotato fits next to a QA platform** -- named-vendor routing
+  guide. [COMPARE.md](COMPARE.md)
+- **Case studies** -- recorded-audio write-ups, each with a repro command
+  and a mandatory "What Hotato did not prove" scope section.
+  [`case-studies/`](case-studies/README.md)
+- **Shareable cards** -- self-contained SVGs of a candidate, a
+  threshold-funnel finding, or a verify result. [CARDS.md](CARDS.md) ·
+  [`assets/cards/`](assets/cards/)
+- **Launch-bar status** -- the checklist of what is done and what is still
+  an open gap. [evidence/validation-plan.md](evidence/validation-plan.md)
 
 ## How to check it yourself
 

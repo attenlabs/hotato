@@ -31,12 +31,28 @@ hotato fix trial patch.json --name staging-refund-fix \
 
 ## The verdict is fail-closed, never a soft pass
 
-| Verdict | When | Exit |
-| --- | --- | --- |
-| `improved` | the verify claim is supported (>= `--min-n` previously-failing fixtures), at least one now passes, NOTHING regressed anywhere in the battery (including the hold/opposite-risk axis), no contract regressed, `--policy` (if given) passed, every before target and hold has an after counterpart, AND every guarded fixture (target and hold) carries VERIFIABLE before/after audio identity (well-formed, freshly distinct decoded PCM, recomputed from the audio on disk -- the provenance guard, below) | `0` |
-| `regressed` | any fixture regressed, a contract regressed, or the policy failed | `1` |
-| `inconclusive` | too few previously-failing fixtures to characterize, nothing that used to fail now passes, OR the audio identity is present-but-unverifiable for a guarded fixture (a malformed provenance block, a missing block, or a well-formed assertion hotato could not recompute at trial time because the audio was not present) | `1` |
-| `refused` | the patch is the both-axes threshold funnel (apply's refusal-first gate fires before any before/after evidence is even read); OR the after set drops a required before fixture (an incomplete, cherry-picked comparison); OR a guarded fixture's recorded provenance does not match the audio on disk; OR a guarded fixture's before/after audio is the SAME conversation (identical decoded PCM -- a re-score, not a recapture) | `3` |
+- **`improved`** (exit `0`) -- the verify claim is supported (>= `--min-n`
+  previously-failing fixtures), at least one now passes, NOTHING regressed
+  anywhere in the battery (including the hold/opposite-risk axis), no
+  contract regressed, `--policy` (if given) passed, every before target and
+  hold has an after counterpart, AND every guarded fixture (target and
+  hold) carries VERIFIABLE before/after audio identity (well-formed,
+  freshly distinct decoded PCM, recomputed from the audio on disk -- the
+  provenance guard, below).
+- **`regressed`** (exit `1`) -- any fixture regressed, a contract
+  regressed, or the policy failed.
+- **`inconclusive`** (exit `1`) -- too few previously-failing fixtures to
+  characterize, nothing that used to fail now passes, OR the audio identity
+  is present-but-unverifiable for a guarded fixture (a malformed provenance
+  block, a missing block, or a well-formed assertion hotato could not
+  recompute at trial time because the audio was not present).
+- **`refused`** (exit `3`) -- the patch is the both-axes threshold funnel
+  (apply's refusal-first gate fires before any before/after evidence is
+  even read); OR the after set drops a required before fixture (an
+  incomplete, cherry-picked comparison); OR a guarded fixture's recorded
+  provenance does not match the audio on disk; OR a guarded fixture's
+  before/after audio is the SAME conversation (identical decoded PCM -- a
+  re-score, not a recapture).
 
 **`inconclusive` is fail-closed, not a pass.** A low-n battery or a
 zero-improvement battery exits the SAME non-zero code as a real regression,
@@ -81,15 +97,29 @@ guard). The guard's job is narrower: make the
 motivated failure modes impossible or loud, recompute what can be recomputed
 from the actual files, and state exactly what was and was NOT verified:
 
-| Situation | What it is | Effect on verdict |
-| --- | --- | --- |
-| Well-formed, freshly distinct (decoded PCM) identity, recomputed from the audio present on disk and matching | a verified fresh recapture | proceeds -- eligible for `improved` |
-| Identical decoded PCM before vs. after on any guarded fixture | the after run re-scored the SAME conversation (a header-only edit or trailing-byte append cannot hide it -- the comparison is on samples, not container bytes) | `refused` (exit `3`) |
-| Recorded digest does NOT match the audio present on disk | the provenance was hand-edited or the audio was swapped after capture | `refused` (exit `3`) |
-| A required before fixture (target or hold) missing from the after set | a cherry-picked, incomplete comparison | `refused` (exit `3`) |
-| Malformed block (non-hex digest, absurd sample rate / frame count, or a top-level digest inconsistent with the per-side digests) | an unvalidated assertion, not a distinct recording | `inconclusive` (exit `1`) |
-| A provenance block missing on either side | an older envelope, or one hand-built without `audio_provenance` -- identity is UNKNOWN | `inconclusive` (exit `1`) |
-| Well-formed identity that hotato could NOT recompute (the audio was not present) | asserted, not proven | `inconclusive` (exit `1`) |
+- **Well-formed, freshly distinct (decoded PCM) identity, recomputed from
+  the audio present on disk and matching** -- what it is: a verified fresh
+  recapture. Effect on verdict: proceeds -- eligible for `improved`.
+- **Identical decoded PCM before vs. after on any guarded fixture** -- what
+  it is: the after run re-scored the SAME conversation (a header-only edit
+  or trailing-byte append cannot hide it -- the comparison is on samples,
+  not container bytes). Effect on verdict: `refused` (exit `3`).
+- **Recorded digest does NOT match the audio present on disk** -- what it
+  is: the provenance was hand-edited or the audio was swapped after
+  capture. Effect on verdict: `refused` (exit `3`).
+- **A required before fixture (target or hold) missing from the after
+  set** -- what it is: a cherry-picked, incomplete comparison. Effect on
+  verdict: `refused` (exit `3`).
+- **Malformed block (non-hex digest, absurd sample rate / frame count, or a
+  top-level digest inconsistent with the per-side digests)** -- what it is:
+  an unvalidated assertion, not a distinct recording. Effect on verdict:
+  `inconclusive` (exit `1`).
+- **A provenance block missing on either side** -- what it is: an older
+  envelope, or one hand-built without `audio_provenance` -- identity is
+  UNKNOWN. Effect on verdict: `inconclusive` (exit `1`).
+- **Well-formed identity that hotato could NOT recompute (the audio was not
+  present)** -- what it is: asserted, not proven. Effect on verdict:
+  `inconclusive` (exit `1`).
 
 A provenance-guard refusal is NOT the apply-gate refusal: it fires AFTER
 `verify` / `contract verify` / `explain` have already run, so (unlike the
@@ -169,18 +199,27 @@ not a promise this tool makes and quietly fails to keep.
 
 ## Flags
 
-| Flag | Meaning |
-| --- | --- |
-| `PATCH_JSON` | a `hotato patch` artifact |
-| `--name NAME` | name of the staging clone this trial is proving (required for a non-refused patch; the same `--name` `hotato apply` takes -- fix trial evaluates the SAME clone-only gate, it never creates a clone itself) |
-| `--before RUN.json\|DIR` | the OLD run envelope(s): the original failure evidence. Also the default opposite-risk `--battery`, and the attribution source, when those are omitted |
-| `--after RUN.json\|DIR` | the NEW run envelope(s), re-captured through the staging clone |
-| `--battery DIR` | the opposite-risk battery apply's gate checks (BOTH a yield and a hold fixture); defaults to `--before` |
-| `--contracts DIR` | also re-verify a directory of hotato contracts; any contract regression fails the trial |
-| `--policy hotato.verify.yaml` | gate verify's rollup (see `docs/FIX-LOOP.md`); a violation fails the trial |
-| `--min-n N` | minimum previously-failing fixtures needed to support the claim (default 3) |
-| `--out PATH` | also write the full proof JSON |
-| `--html PATH` | also write a self-contained before/after HTML report |
+- **`PATCH_JSON`** -- a `hotato patch` artifact.
+- **`--name NAME`** -- name of the staging clone this trial is proving
+  (required for a non-refused patch; the same `--name` `hotato apply`
+  takes -- fix trial evaluates the SAME clone-only gate, it never creates a
+  clone itself).
+- **`--before RUN.json|DIR`** -- the OLD run envelope(s): the original
+  failure evidence. Also the default opposite-risk `--battery`, and the
+  attribution source, when those are omitted.
+- **`--after RUN.json|DIR`** -- the NEW run envelope(s), re-captured
+  through the staging clone.
+- **`--battery DIR`** -- the opposite-risk battery apply's gate checks
+  (BOTH a yield and a hold fixture); defaults to `--before`.
+- **`--contracts DIR`** -- also re-verify a directory of hotato contracts;
+  any contract regression fails the trial.
+- **`--policy hotato.verify.yaml`** -- gate verify's rollup (see
+  `docs/FIX-LOOP.md`); a violation fails the trial.
+- **`--min-n N`** -- minimum previously-failing fixtures needed to support
+  the claim (default 3).
+- **`--out PATH`** -- also write the full proof JSON.
+- **`--html PATH`** -- also write a self-contained before/after HTML
+  report.
 
 ## Output
 
@@ -223,12 +262,15 @@ evidence shows once that has already happened.
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| 0 | `improved` |
-| 1 | fail-closed: `regressed` or `inconclusive` |
-| 2 | usage error: the same gates `hotato apply` enforces (no `--name`, no opposite-risk battery, a stack with no clone target, a patch with no concrete change) or `hotato verify` / `contract verify` already enforce (no fixtures pair, an invalid `--policy`, a `--contracts` dir with no contracts, unreadable input) |
-| 3 | principled refusal: the both-axes threshold funnel. Shared with `hotato apply`'s refusal code |
+- **0** -- `improved`.
+- **1** -- fail-closed: `regressed` or `inconclusive`.
+- **2** -- usage error: the same gates `hotato apply` enforces (no
+  `--name`, no opposite-risk battery, a stack with no clone target, a
+  patch with no concrete change) or `hotato verify` / `contract verify`
+  already enforce (no fixtures pair, an invalid `--policy`, a `--contracts`
+  dir with no contracts, unreadable input).
+- **3** -- principled refusal: the both-axes threshold funnel. Shared with
+  `hotato apply`'s refusal code.
 
 ## What this is not
 
