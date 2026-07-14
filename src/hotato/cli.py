@@ -2611,8 +2611,28 @@ def _build_cache(args):
         # --no-cache still needs the cache to DIFF against (surface drift); use
         # the default cache location unless the caller pointed elsewhere.
         pass
-    cache_dir = getattr(args, "cache_dir", None) or _default_rubric_cache_dir()
-    return R.VerdictCache(cache_dir)
+    explicit = getattr(args, "cache_dir", None)
+    cache_dir = explicit or _default_rubric_cache_dir()
+    try:
+        return R.VerdictCache(cache_dir)
+    except OSError as exc:
+        if explicit is not None:
+            # An explicit --cache-dir is a persistence REQUEST: honor it strictly
+            # so a replay/drift baseline is never silently discarded. This stays
+            # the exit-2 usage error it always was.
+            raise
+        # The DEFAULT cache lives under HOME. On a read-only or uncreatable HOME
+        # (a first run in a locked-down container) it is auxiliary replay state,
+        # not evidence, and must not block an explicitly located run. Degrade to
+        # no verdict caching and say so, loudly, on stderr. Verdicts are still
+        # computed by the judge and every artifact digest is still verified;
+        # bypassing this cache relaxes no boundary.
+        print(
+            "warning: the default rubric cache is unavailable "
+            f"({cache_dir}: {exc}); continuing without verdict caching.",
+            file=sys.stderr,
+        )
+        return None
 
 
 def _cmd_rubric_run(args) -> int:

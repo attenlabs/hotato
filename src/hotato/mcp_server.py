@@ -35,6 +35,7 @@ import sys
 from typing import Optional
 
 from . import errors as _errors
+from . import evidence as _evidence
 from .core import LIMITS, SUITE_ID, process_exit_code, run_single, run_suite
 
 _TOOL_DESCRIPTION = f"""\
@@ -361,6 +362,30 @@ def _attach_transcript(
     return new_env
 
 
+def _scoring_digests(env: dict) -> list:
+    """The content-addressed artifacts a scoring run touched: each scored
+    recording's audio-provenance ``sha256`` (the file-identity digest already in
+    the envelope). One per event, so a single recording yields one and a suite
+    yields one per fixture. Empty only if the envelope carries no provenance."""
+    digests = []
+    for event in env.get("events") or []:
+        prov = event.get("audio_provenance") or {}
+        digest = prov.get("sha256")
+        if digest:
+            digests.append(digest)
+    return digests
+
+
+def _control_error(obj: dict) -> dict:
+    """Give a structured MCP error object the SAME uniform control envelope the
+    success path and every fleet tool carry, so an autonomous caller parses one
+    shape for results AND errors. ``refusal_reason`` mirrors the human-readable
+    ``message`` (why the request was declined); a refused call produced no
+    verdict (``evidence_status`` None), touched no artifact (``artifact_digests``
+    []), and leaves nothing human-gated pending."""
+    return _envelope(obj, refusal_reason=obj.get("message"))
+
+
 def _run_tool(
     stereo: Optional[str] = None,
     caller: Optional[str] = None,
@@ -426,7 +451,7 @@ def _run_tool(
                 env, stereo=stereo, caller=caller, agent=agent, suite=suite
             )
     except _errors.HANDLED as exc:
-        return _errors.mcp_error(exc)
+        return _control_error(_errors.mcp_error(exc))
     # Unusable-input parity with the CLI: an all-not-scorable single recording is
     # the CLI's exit-2 case. Surface it to the model as the shared structured
     # error (its actionable reason) instead of an envelope reading exit_code 0.
@@ -435,8 +460,19 @@ def _run_tool(
         events = env.get("events") or []
         if events and events[0].get("not_scorable_reason"):
             reason = events[0]["not_scorable_reason"]
-        return _errors.error_object("not_scorable", _errors.rewrite_flags(reason))
-    return env
+        return _control_error(
+            _errors.error_object("not_scorable", _errors.rewrite_flags(reason)))
+    # The scoring success envelope carries the SAME uniform control envelope as
+    # every fleet tool. A real scored recording is evidence TIER_MEASURED
+    # (recomputed from audio); the touched content-addressed artifacts are each
+    # scored recording's audio provenance digest; a pure score has nothing
+    # human-gated pending. The four keys are additive -- the envelope CORE stays
+    # byte-identical to the CLI/core (tests pop the control keys before compare).
+    return _envelope(
+        env,
+        evidence_status=_evidence.TIER_MEASURED,
+        artifact_digests=_scoring_digests(env),
+    )
 
 
 def _run_tool_impl(
