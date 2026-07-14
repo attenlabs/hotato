@@ -31,6 +31,10 @@ BLOB_BASE = "https://github.com/attenlabs/hotato/blob/main/"
 # GitHub renders these inline via /blob/; raw bytes are better for these.
 RAW_EXT = (".txt", ".sh", ".png", ".jpg", ".jpeg", ".gif", ".svg")
 
+def _strip_dot_slash(t):
+    return t[2:] if t.startswith('./') else t
+
+
 _LINK = re.compile(r'(!?\[[^\]]*\])\(([^)]+)\)')
 
 
@@ -49,7 +53,7 @@ def _absolutize(target: str) -> str:
             i = target.index(sep)
             frag = target[i:] + frag if sep == "#" else target[i:]
             target = target[:i]
-    path = target.lstrip("./")
+    path = _strip_dot_slash(target)
     base = RAW_BASE if path.lower().endswith(RAW_EXT) else BLOB_BASE
     return base + path + frag
 
@@ -64,7 +68,18 @@ def rewrite(text: str) -> str:
             path = target.strip().lstrip("./")
             return f"{label}({RAW_BASE}{path})"
         return f"{label}({_absolutize(target)})"
-    return _LINK.sub(repl, text)
+    text = _LINK.sub(repl, text)
+
+    # HTML attributes too (badges are already absolute; a relative <img src>/
+    # <a href> — e.g. the banner SVG — would 404 on PyPI).
+    def _attr(m):
+        pre, target, post = m.group(1), m.group(2), m.group(3)
+        if not _is_repo_relative(target):
+            return m.group(0)
+        base = RAW_BASE if target.lower().endswith(RAW_EXT) else BLOB_BASE
+        return pre + base + _strip_dot_slash(target) + post
+    text = re.sub(r'(<(?:img|a|source)\b[^>]*?\b(?:src|href|srcset)=")([^"]+)(")', _attr, text)
+    return text
 
 
 def build() -> str:

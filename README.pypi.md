@@ -1,13 +1,6 @@
 <div align="center">
 
-<pre>
-               ) )   ( (
-              ( (     ) )
- __           __          __
-|  |--.-----.|  |_.---.-.|  |_.-----.
-|     |  _  ||   _|  _  ||   _|  _  |
-|__|__|_____||____|___._||____|_____|
-</pre>
+<img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/assets/hotato-banner.svg" alt="hotato" width="440">
 
 <h1>hotato</h1>
 
@@ -23,7 +16,7 @@
 <p align="center">
   <a href="https://pypi.org/project/hotato/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/hotato.svg"></a>
   <a href="https://pypi.org/project/hotato/"><img alt="PyPI monthly downloads" src="https://img.shields.io/pypi/dm/hotato.svg"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://github.com/attenlabs/hotato/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Python 3.9 to 3.13" src="https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg">
   <img alt="offline: yes" src="https://img.shields.io/badge/offline-yes-blue.svg">
   <img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-blue.svg">
@@ -156,7 +149,7 @@ hotato contract create --stereo fresh-call.wav --onset 41.90 --expect yield \
 hotato contract verify contracts/refund-cutoff-001-recapture.hotato
 ```
 
-<p align="center"><sub><b>Level 4 -- fresh-recapture comparison.</b> A newly captured call meets the same labeled policy and every submitted paired guard held. This is the claim only a fresh recapture can make. Walkthrough: <a href="docs/RECAPTURE.md"><code>docs/RECAPTURE.md</code></a>.</sub></p>
+<p align="center"><sub><b>Level 4 -- fresh-recapture comparison.</b> A newly captured call meets the same labeled policy and every submitted paired guard held. This is the claim only a fresh recapture can make. Walkthrough: <a href="https://github.com/attenlabs/hotato/blob/main/docs/RECAPTURE.md"><code>docs/RECAPTURE.md</code></a>.</sub></p>
 
 ### Five levels of evidence, each scored on its own lane
 
