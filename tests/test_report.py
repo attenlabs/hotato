@@ -240,6 +240,27 @@ def test_doctor_format_json_scores_a_real_recording(tmp_path, capsys):
     assert code == env["exit_code"]
 
 
+def test_doctor_format_json_stdout_stays_pure_without_no_open(
+        tmp_path, capsys, monkeypatch):
+    # H-05 regression: without --no-open on a headless machine, _try_open's
+    # fallback hint lands on stderr; stdout carries exactly one JSON document.
+    import webbrowser
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(webbrowser, "open", lambda url: False)
+    out = tmp_path / "doctor-pure.html"
+    code = cli.main(["doctor", "--demo", "--format", "json", "--out", str(out)])
+    assert code == 0
+    cap = capsys.readouterr()
+    env = json.loads(cap.out)  # raises if anything trails the envelope
+    assert env["tool"] == "hotato"
+    assert cap.out.strip().endswith("}")  # nothing after the closing brace
+    assert "open it in your browser" in cap.err
+    assert "open it in your browser" not in cap.out
+    assert out.exists()
+
+
 # --- audio embedding (--embed-audio) ---------------------------------------
 
 def _bundled_wav() -> str:

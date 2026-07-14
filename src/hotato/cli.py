@@ -1361,9 +1361,11 @@ def _cmd_benchmark_compare(args) -> int:
     return 0
 
 
-def _try_open(path: str) -> None:
+def _try_open(path: str, *, hint_file=None) -> None:
     """Best-effort: open the report in a browser. Never crash if headless; on a
-    clearly-headless machine just print the path so the run stays clean."""
+    clearly-headless machine just print the path so the run stays clean. The
+    fallback hint prints to ``hint_file`` (stdout when None); ``--format json``
+    callers pass ``sys.stderr`` so stdout carries exactly one JSON document."""
     abspath = os.path.abspath(path)
     headless = (
         sys.platform.startswith("linux")
@@ -1378,7 +1380,8 @@ def _try_open(path: str) -> None:
                 return
         except Exception:
             pass
-    print(f"open it in your browser to see the per-event timelines: {abspath}")
+    print(f"open it in your browser to see the per-event timelines: {abspath}",
+          file=sys.stdout if hint_file is None else hint_file)
 
 
 def _cmd_doctor(args) -> int:
@@ -1429,7 +1432,9 @@ def _cmd_doctor(args) -> int:
                f"{os.path.abspath(out)}")
         print(msg, file=sys.stderr if fmt == "json" else sys.stdout)
     else:
-        _try_open(out)
+        # Same routing as --no-open: in json mode the headless fallback hint
+        # goes to stderr, so stdout stays exactly one JSON document.
+        _try_open(out, hint_file=sys.stderr if fmt == "json" else None)
 
     if args.no_fail:
         return 0
@@ -3880,7 +3885,9 @@ def _cmd_demo(args) -> int:
         print(f"report: {out}")
 
     if not args.no_open:
-        _try_open(out)
+        # In json mode the headless fallback hint goes to stderr, so stdout
+        # stays exactly one JSON document.
+        _try_open(out, hint_file=sys.stderr if args.format == "json" else None)
 
     if args.fail:
         # The real regression code (1: this battery fails by design).
