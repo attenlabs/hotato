@@ -1,0 +1,21 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "counterexample-policy-source",
+  "goal": {"type": "support", "target": "delivery"},
+  "caller": {
+    "script": [
+      {"say": "Hello, I am calling about a delivery."},
+      {"say": "The tracking page has not changed."},
+      {"say": "I guarantee this package was sent to the wrong building."},
+      {"say": "Can you check the address?"}
+    ]
+  },
+  "environment": {"locale": "en-US", "route": "phone"},
+  "agent_mock": {
+    "tools": [
+      {"name": "lookup_delivery", "arguments": {"id": "D-1"}, "result": {"status": "moving"}},
+      {"name": "save_note", "arguments": {"id": "D-1"}, "result": {"saved": true}}
+    ]
+  }
+}

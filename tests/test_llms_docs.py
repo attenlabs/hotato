@@ -64,6 +64,9 @@ def test_llms_full_txt_has_a_file_boundary_header_per_source_file():
     assert "README.md" in headers
     assert "METHODOLOGY.md" in headers
     assert "docs/MCP.md" in headers
+    assert "src/hotato/schema/counterexample-oracle.v1.json" in headers
+    assert "src/hotato/schema/reduction-certificate.v1.json" in headers
+    assert "src/hotato/schema/counterexample.v1.json" in headers
     assert "src/hotato/schema/envelope.v1.json" in headers
     # Every doc the build script itself resolves via `_tracked_docs_md()` is
     # represented. Reuse that helper (git ls-files in a checkout, filesystem
@@ -215,6 +218,10 @@ def test_describe_schema_urls_match_the_shipped_schema_files():
     manifest = json.loads(buf.getvalue())
     assert manifest["schemas"]["envelope"] == ENVELOPE_SCHEMA_URL
     assert manifest["schemas"]["error"] == ERROR_SCHEMA_URL
+    for name in (
+        "counterexample", "counterexample_oracle", "reduction_certificate",
+    ):
+        assert manifest["schemas"][name].startswith("https://hotato.dev/schema/")
 
 
 def test_llms_txt_and_docs_mcp_quote_the_same_schema_urls():

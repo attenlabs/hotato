@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/reduction-certificate.v1.json",
+  "title": "Hotato counterexample reduction certificate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind", "version", "algorithm", "reducer_set", "source_scenario_digest",
+    "final_scenario_digest", "source_test_digest", "final_test_digest",
+    "failure_fingerprint", "accepted_steps", "journal_sha256", "budget",
+    "candidate_evaluations", "cache_hits", "termination"
+  ],
+  "properties": {
+    "kind": {"const": "hotato.reduction-certificate.v1"},
+    "version": {"const": 1},
+    "algorithm": {"const": "hierarchical-ddmin"},
+    "reducer_set": {"const": "hotato.reducers.v1"},
+    "source_scenario_digest": {"$ref": "#/definitions/digest"},
+    "final_scenario_digest": {"$ref": "#/definitions/digest"},
+    "source_test_digest": {"$ref": "#/definitions/digest"},
+    "final_test_digest": {"$ref": "#/definitions/digest"},
+    "failure_fingerprint": {"$ref": "#/definitions/digest"},
+    "accepted_steps": {
+      "type": "array", "maxItems": 100000,
+      "items": {"$ref": "#/definitions/accepted_step"}
+    },
+    "journal_sha256": {"$ref": "#/definitions/digest"},
+    "budget": {"type": "integer", "minimum": 1, "maximum": 100000},
+    "candidate_evaluations": {"type": "integer", "minimum": 0, "maximum": 100000},
+    "cache_hits": {"type": "integer", "minimum": 0},
+    "termination": {"enum": ["one_minimal", "budget_exhausted"]}
+  },
+  "definitions": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "raw_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "path_segment": {
+      "oneOf": [
+        {"type": "string"},
+        {"type": "integer", "minimum": 0}
+      ]
+    },
+    "deletion_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "path", "removed_digest"],
+      "properties": {
+        "op": {"const": "remove"},
+        "path": {
+          "type": "array", "minItems": 1, "maxItems": 96,
+          "items": {"$ref": "#/definitions/path_segment"}
+        },
+        "removed_digest": {"$ref": "#/definitions/digest"}
+      }
+    },
+    "deletion_transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "operations"],
+      "properties": {
+        "kind": {"const": "hotato.delete-only.v1"},
+        "operations": {
+          "type": "array", "minItems": 1, "maxItems": 100000,
+          "uniqueItems": true,
+          "items": {"$ref": "#/definitions/deletion_operation"}
+        }
+      }
+    },
+    "remove_field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "phase", "path"],
+      "properties": {
+        "kind": {"const": "remove-field"},
+        "phase": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "remove_path_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "phase", "paths"],
+      "properties": {
+        "kind": {"const": "remove-path-set"},
+        "phase": {"type": "string", "minLength": 1},
+        "paths": {
+          "type": "array", "minItems": 1, "maxItems": 100000,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "component": {
+      "enum": [
+        "top-level-optional", "goal-optional", "caller-optional",
+        "variation_matrix", "facts", "environment", "interruptions", "behavior",
+        "script", "script-field", "tools", "tool-field", "handoff-field", "handoff",
+        "termination-field", "termination", "state", "agent-mock-optional", "agent_mock"
+      ]
+    },
+    "remove_single_unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "phase", "path", "component"],
+      "properties": {
+        "kind": {"const": "remove-single-unit"},
+        "phase": {"enum": ["one-minimality", "minimality-proof-restart"]},
+        "path": {"type": "string", "minLength": 1},
+        "component": {"$ref": "#/definitions/component"}
+      }
+    },
+    "reducer_operation": {
+      "oneOf": [
+        {"$ref": "#/definitions/remove_field"},
+        {"$ref": "#/definitions/remove_path_set"},
+        {"$ref": "#/definitions/remove_single_unit"}
+      ]
+    },
+    "accepted_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step", "parent_digest", "child_digest", "operation", "transform",
+        "oracle_result_digest", "witness_digest"
+      ],
+      "properties": {
+        "step": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "parent_digest": {"$ref": "#/definitions/raw_digest"},
+        "child_digest": {"$ref": "#/definitions/raw_digest"},
+        "operation": {"$ref": "#/definitions/reducer_operation"},
+        "transform": {"$ref": "#/definitions/deletion_transform"},
+        "oracle_result_digest": {"$ref": "#/definitions/digest"},
+        "witness_digest": {"$ref": "#/definitions/digest"}
+      }
+    }
+  }
+}

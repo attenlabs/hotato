@@ -357,14 +357,85 @@ and fails the session (exit 1) on a regression; `--hotato-suite-scenarios DIR`
 and `--hotato-suite-audio DIR` point it at your own labelled set. Detail:
 `docs/PYTEST.md`.
 
+## `hotato.counterexample`
+
+The counterexample API reduces one failing deterministic scripted scenario,
+then emits a content-addressed replay capsule and a replayable deletion proof.
+It never loads a provider adapter, model, network client, or subprocess.
+
+```python
+from hotato.counterexample import (
+    compile_counterexample,
+    verify_counterexample,
+    reproduce_counterexample,
+    inspect_counterexample,
+    export_counterexample,
+    predicate_counterexample,
+)
+
+compiled = compile_counterexample(
+    "refund.scenario.json",
+    "refund.test.json",
+    target="refund-posted",
+    out_dir="refund-posted.hotato-repro",
+    workspace=".",
+    budget=512,
+)
+assert compiled["exit_code"] in (0, 1)
+```
+
+`compile_counterexample` returns exit `0` only after the final unit-deletion
+pass earns `one_minimal`. Exit `1` means the exact failure was preserved and a
+runnable capsule was written, while the candidate-evaluation budget ended
+before the proof completed. A refusal raises `CounterexampleRefusal` and leaves
+no destination directory. Shared input parsing can raise `ValueError` for
+malformed JSON/YAML-subset or schema-invalid documents and `OSError` for input
+I/O failures. The CLI maps these public-API failures to its structured handled-
+error and exit-code contract.
+
+```python
+verify_counterexample("refund-posted.hotato-repro")
+reproduce_counterexample("refund-posted.hotato-repro")
+inspect_counterexample("refund-posted.hotato-repro")
+export_counterexample(
+    "refund-posted.hotato-repro",
+    out_dir="refund-posted.share",
+)
+predicate_counterexample("refund-posted.hotato-repro")
+```
+
+- `verify_counterexample` requires the recorded package version and evaluator
+  source digest, then independently replays the source, accepted delete-only
+  chain, final case, derived artifacts, and any completed one-minimal claim.
+  The digest identifies shipped evaluator source; interpreter and platform
+  identity are outside it, while replay hashes detect behavior changes.
+- `reproduce_counterexample` permits evaluator drift and checks the reduced
+  case twice for the source-selected structured failure branch. It is for Hotato
+  evaluator/scenario regressions; it does not execute a deployed voice agent.
+- `inspect_counterexample` verifies the closed member inventory, bound source,
+  oracle and artifacts, and canonical human files without executing the scenario.
+- `export_counterexample` first verifies the private capsule, then writes a
+  non-runnable projection with content-bearing inputs omitted. Hashes remain
+  correlators and may still be sensitive.
+- `predicate_counterexample` returns `1` when the failure remains, `0` when it
+  is absent, and `125` when the result cannot be used by `git bisect run`.
+
+The v1 source is the base scripted scenario at the selected seed. A
+`variation_matrix` is recorded as unapplied and may be removed during
+reduction; compile a concrete scenario when a specific expanded run matters.
+The exact scope, artifacts, commands, and claim ceiling are in
+[`COUNTEREXAMPLES.md`](COUNTEREXAMPLES.md).
+
 ## MCP tool
 
-`hotato-mcp` (or `python -m hotato.mcp_server`) speaks MCP over stdio and
-exposes nine tools. Its scoring tool, `voice_eval_run`, returns the identical
-envelope the CLI emits; the other eight read, verify, and propose over a
-local fleet workspace (`fleet_status`, `candidate_list`, `contract_list`,
-`trial_explain`, `artifact_verify`, `experiment_propose`, `experiment_run`,
-`clone_cleanup`), documented in [`MCP.md`](MCP.md). Install:
+`hotato-mcp` (or `python -m hotato.mcp_server`) speaks MCP over stdio. Its
+scoring tool, `voice_eval_run`, returns the identical envelope the CLI emits;
+three counterexample tools (`counterexample_compile`, `counterexample_verify`,
+`counterexample_reproduce`) compile and check offline regression capsules; and
+the fleet tools read, verify, and propose over a local fleet workspace
+(`fleet_status`, `candidate_list`, `contract_list`, `trial_explain`,
+`artifact_verify`, `experiment_propose`, `experiment_run`, `clone_cleanup`),
+documented in [`MCP.md`](MCP.md). Install:
 `uvx --from "hotato[mcp]" hotato-mcp`.
 
 The parameters below are `voice_eval_run`'s, all optional:

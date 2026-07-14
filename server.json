@@ -33,7 +33,7 @@
         {
           "type": "positional",
           "value": "hotato-mcp",
-          "description": "console script entry point: the hotato MCP server (the voice_eval_run scorer plus eight read/verify/propose and clone-scoped fleet tools), stdio transport"
+          "description": "console script entry point: the hotato MCP server (voice_eval_run, proof-preserving counterexample tools, and read/verify/propose or clone-scoped fleet tools), stdio transport"
         }
       ]
     }

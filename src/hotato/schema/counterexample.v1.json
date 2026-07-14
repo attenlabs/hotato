@@ -1,0 +1,700 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/counterexample.v1.json",
+  "title": "Hotato proof-preserving counterexample capsule",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind", "version", "counterexample_id", "source", "target",
+    "reduction", "minimality", "preservation", "privacy", "provenance"
+  ],
+  "properties": {
+    "kind": {"const": "hotato.counterexample.v1"},
+    "version": {"const": 1},
+    "counterexample_id": {"$ref": "#/definitions/digest"},
+    "source": {},
+    "target": {},
+    "oracle": {"$ref": "#/definitions/oracle_reference"},
+    "artifacts": {"$ref": "#/definitions/artifacts"},
+    "artifact_digests": {"$ref": "#/definitions/artifact_digests"},
+    "reduction": {"$ref": "#/definitions/reduction"},
+    "minimality": {"$ref": "#/definitions/minimality"},
+    "preservation": {"$ref": "#/definitions/preservation"},
+    "privacy": {},
+    "provenance": {}
+  },
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "required": ["oracle", "artifacts", "artifact_digests"],
+          "properties": {
+            "source": {"$ref": "#/definitions/private_source"},
+            "target": {"$ref": "#/definitions/private_target"},
+            "privacy": {"$ref": "#/definitions/private_privacy"},
+            "provenance": {"$ref": "#/definitions/private_provenance"}
+          }
+        },
+        {
+          "not": {
+            "anyOf": [
+              {"required": ["oracle"]}, {"required": ["artifacts"]},
+              {"required": ["artifact_digests"]}
+            ]
+          },
+          "properties": {
+            "source": {"$ref": "#/definitions/share_source"},
+            "target": {"$ref": "#/definitions/share_target"},
+            "privacy": {"$ref": "#/definitions/share_privacy"},
+            "provenance": {"$ref": "#/definitions/share_provenance"}
+          }
+        }
+      ]
+    },
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "reduction": {"properties": {"termination": {"const": "one_minimal"}}},
+            "minimality": {"properties": {"status": {"const": "one_minimal"}}}
+          }
+        },
+        {
+          "properties": {
+            "reduction": {"properties": {"termination": {"const": "budget_exhausted"}}},
+            "minimality": {"properties": {"status": {"const": "budget_exhausted"}}}
+          }
+        }
+      ]
+    }
+  ],
+  "definitions": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "raw_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "dimension": {
+      "type": ["string", "null"],
+      "enum": ["outcome", "policy", "conversation", "speech", "reliability", null]
+    },
+    "assertion_kind": {
+      "enum": [
+        "phrase", "pii", "policy", "tool_call", "outcome", "tool_result",
+        "tool_error", "state", "state_change", "handoff", "dtmf",
+        "termination", "latency", "entity_accuracy", "sequence", "count"
+      ]
+    },
+    "nonnegative_integer": {"type": "integer", "minimum": 0},
+    "count_bounds": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observed", "expected", "relation"],
+          "properties": {
+            "observed": {"$ref": "#/definitions/nonnegative_integer"},
+            "expected": {"$ref": "#/definitions/nonnegative_integer"},
+            "relation": {"const": "equal"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observed", "min", "max"],
+          "properties": {
+            "observed": {"$ref": "#/definitions/nonnegative_integer"},
+            "min": {"type": ["integer", "null"], "minimum": 0},
+            "max": {"type": ["integer", "null"], "minimum": 0}
+          },
+          "not": {"properties": {"min": {"const": null}, "max": {"const": null}}}
+        }
+      ]
+    },
+    "phrase_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "mode", "matches"],
+      "properties": {
+        "type": {"const": "phrase-failure"},
+        "mode": {"enum": ["forbidden-present", "required-missing"]},
+        "matches": {"$ref": "#/definitions/nonnegative_integer"}
+      }
+    },
+    "pii_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "detector_roles", "hits", "hit_anchors"],
+      "properties": {
+        "type": {"const": "pii-failure"},
+        "detector_roles": {
+          "type": "array",
+          "items": {
+            "type": "array", "minItems": 2, "maxItems": 2,
+            "items": [
+              {"enum": ["ssn", "card_luhn", "email", "phone"]},
+              {"type": ["string", "null"]}
+            ],
+            "additionalItems": false
+          }
+        },
+        "hits": {"$ref": "#/definitions/nonnegative_integer"},
+        "hit_anchors": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["detector", "role", "turn_text_digest"],
+            "properties": {
+              "detector": {"enum": ["ssn", "card_luhn", "email", "phone"]},
+              "role": {"type": ["string", "null"]},
+              "turn_text_digest": {
+                "oneOf": [{"$ref": "#/definitions/digest"}, {"type": "null"}]
+              }
+            }
+          }
+        }
+      }
+    },
+    "policy_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "violations", "pack"],
+      "properties": {
+        "type": {"const": "policy-failure"},
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["rule", "type"],
+            "properties": {
+              "rule": {"type": "string"},
+              "type": {"enum": ["banned", "required_disclosure_missing"]}
+            }
+          }
+        },
+        "pack": {
+          "type": "object", "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": {"type": ["string", "null"]},
+            "version": {"type": ["integer", "string", "null"]}
+          }
+        }
+      }
+    },
+    "tool_call_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "named_matches"],
+      "properties": {
+        "type": {"const": "tool_call-failure"},
+        "named_matches": {"$ref": "#/definitions/nonnegative_integer"},
+        "count": {"$ref": "#/definitions/count_bounds"},
+        "order_prefix": {"$ref": "#/definitions/nonnegative_integer"},
+        "order_steps": {"type": "integer", "minimum": 1},
+        "never_before": {
+          "type": "object", "additionalProperties": false,
+          "required": ["offenders", "until_present"],
+          "properties": {
+            "offenders": {"$ref": "#/definitions/nonnegative_integer"},
+            "until_present": {"type": "boolean"}
+          }
+        }
+      },
+      "dependencies": {"order_prefix": ["order_steps"], "order_steps": ["order_prefix"]}
+    },
+    "outcome_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "mode", "met", "of", "predicates"],
+      "properties": {
+        "type": {"const": "outcome-failure"},
+        "mode": {"enum": ["all_of", "any_of"]},
+        "met": {"$ref": "#/definitions/nonnegative_integer"},
+        "of": {"type": "integer", "minimum": 1},
+        "predicates": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/definitions/outcome_predicate"}
+        }
+      }
+    },
+    "outcome_predicate": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["index", "kind", "matches"],
+          "properties": {
+            "index": {"$ref": "#/definitions/nonnegative_integer"},
+            "kind": {"const": "tool_called"},
+            "matches": {"$ref": "#/definitions/nonnegative_integer"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["index", "kind", "matches", "turn_text_digests"],
+          "properties": {
+            "index": {"$ref": "#/definitions/nonnegative_integer"},
+            "kind": {"const": "phrase"},
+            "matches": {"$ref": "#/definitions/nonnegative_integer"},
+            "turn_text_digests": {"type": "array", "items": {"$ref": "#/definitions/digest"}}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["index", "kind", "present"],
+          "properties": {
+            "index": {"$ref": "#/definitions/nonnegative_integer"},
+            "kind": {"const": "field_present"},
+            "present": {"const": false}
+          }
+        }
+      ]
+    },
+    "tool_result_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "calls", "matching_results"],
+      "properties": {
+        "type": {"const": "tool_result-failure"},
+        "calls": {"$ref": "#/definitions/nonnegative_integer"},
+        "matching_results": {"$ref": "#/definitions/nonnegative_integer"}
+      }
+    },
+    "tool_error_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "mode", "matching_errors"],
+      "properties": {
+        "type": {"const": "tool_error-failure"},
+        "mode": {"enum": ["error-forbidden", "error-required"]},
+        "matching_errors": {"$ref": "#/definitions/nonnegative_integer"}
+      }
+    },
+    "state_witness": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["type", "record"],
+          "properties": {"type": {"const": "state-failure"}, "record": {"const": "absent"}}
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["type", "record", "mismatched"],
+          "properties": {
+            "type": {"const": "state-failure"},
+            "record": {"const": "present"},
+            "mismatched": {
+              "type": "array",
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["path", "observed"],
+                "properties": {
+                  "path": {"type": "string", "minLength": 1},
+                  "observed": {"oneOf": [{"$ref": "#/definitions/digest"}, {"type": "null"}]}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "state_change_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "before_present", "after_present", "checks", "before_value", "after_value"],
+      "properties": {
+        "type": {"const": "state_change-failure"},
+        "before_present": {"type": "boolean"},
+        "after_present": {"type": "boolean"},
+        "checks": {
+          "type": "array", "uniqueItems": true,
+          "items": {"enum": ["from-mismatch", "to-mismatch", "unchanged"]}
+        },
+        "before_value": {"oneOf": [{"$ref": "#/definitions/digest"}, {"type": "null"}]},
+        "after_value": {"oneOf": [{"$ref": "#/definitions/digest"}, {"type": "null"}]}
+      }
+    },
+    "handoff_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "mode", "matches"],
+      "properties": {
+        "type": {"const": "handoff-failure"},
+        "mode": {"enum": ["forbidden", "required"]},
+        "matches": {"$ref": "#/definitions/nonnegative_integer"}
+      }
+    },
+    "dtmf_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "mode", "contains", "stream_digest"],
+      "properties": {
+        "type": {"const": "dtmf-failure"},
+        "mode": {"enum": ["forbidden", "required"]},
+        "contains": {"type": "boolean"},
+        "stream_digest": {"$ref": "#/definitions/digest"}
+      }
+    },
+    "termination_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "mode", "matches"],
+      "properties": {
+        "type": {"const": "termination-failure"},
+        "mode": {"enum": ["forbidden", "required"]},
+        "matches": {"$ref": "#/definitions/nonnegative_integer"}
+      }
+    },
+    "latency_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "measured", "measured_ms"],
+      "properties": {
+        "type": {"const": "latency-failure"},
+        "measured": {"type": "null"},
+        "measured_ms": {"type": "number", "minimum": 0}
+      }
+    },
+    "entity_accuracy_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "type", "met", "of", "require", "mismatched_keys", "observed_value_digests"
+      ],
+      "properties": {
+        "type": {"const": "entity_accuracy-failure"},
+        "met": {"$ref": "#/definitions/nonnegative_integer"},
+        "of": {"type": "integer", "minimum": 1},
+        "require": {"enum": ["all", "any"]},
+        "mismatched_keys": {
+          "type": "array", "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "observed_value_digests": {
+          "type": "object",
+          "propertyNames": {"minLength": 1},
+          "additionalProperties": {"$ref": "#/definitions/digest"}
+        }
+      }
+    },
+    "sequence_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "matched_prefix", "steps"],
+      "properties": {
+        "type": {"const": "sequence-failure"},
+        "matched_prefix": {"$ref": "#/definitions/nonnegative_integer"},
+        "steps": {"type": "integer", "minimum": 1}
+      }
+    },
+    "count_witness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "count"],
+      "properties": {"type": {"const": "count-failure"}, "count": {"$ref": "#/definitions/count_bounds"}}
+    },
+    "typed_witness": {
+      "oneOf": [
+        {"$ref": "#/definitions/phrase_witness"},
+        {"$ref": "#/definitions/pii_witness"},
+        {"$ref": "#/definitions/policy_witness"},
+        {"$ref": "#/definitions/tool_call_witness"},
+        {"$ref": "#/definitions/outcome_witness"},
+        {"$ref": "#/definitions/tool_result_witness"},
+        {"$ref": "#/definitions/tool_error_witness"},
+        {"$ref": "#/definitions/state_witness"},
+        {"$ref": "#/definitions/state_change_witness"},
+        {"$ref": "#/definitions/handoff_witness"},
+        {"$ref": "#/definitions/dtmf_witness"},
+        {"$ref": "#/definitions/termination_witness"},
+        {"$ref": "#/definitions/latency_witness"},
+        {"$ref": "#/definitions/entity_accuracy_witness"},
+        {"$ref": "#/definitions/sequence_witness"},
+        {"$ref": "#/definitions/count_witness"}
+      ]
+    },
+    "private_target": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "test_id", "assertion_digest", "assertion_id", "kind", "dimension",
+        "authority", "required_status", "witness", "fingerprint"
+      ],
+      "properties": {
+        "test_id": {"type": "string", "minLength": 1},
+        "assertion_digest": {"$ref": "#/definitions/digest"},
+        "assertion_id": {"type": "string", "minLength": 1},
+        "kind": {"$ref": "#/definitions/assertion_kind"},
+        "dimension": {"$ref": "#/definitions/dimension"},
+        "authority": {"const": "deterministic"},
+        "required_status": {"const": "FAIL"},
+        "witness": {"$ref": "#/definitions/typed_witness"},
+        "fingerprint": {"$ref": "#/definitions/digest"}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "phrase"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/phrase_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "pii"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/pii_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "policy"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/policy_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "tool_call"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/tool_call_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "outcome"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/outcome_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "tool_result"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/tool_result_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "tool_error"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/tool_error_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "state"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/state_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "state_change"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/state_change_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "handoff"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/handoff_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "dtmf"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/dtmf_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "termination"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/termination_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "latency"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/latency_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "entity_accuracy"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/entity_accuracy_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "sequence"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/sequence_witness"}}}},
+        {"if": {"properties": {"kind": {"const": "count"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/count_witness"}}}}
+      ]
+    },
+    "share_target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assertion_ref", "kind", "dimension", "authority", "required_status", "fingerprint", "witness_digest"],
+      "properties": {
+        "assertion_ref": {"$ref": "#/definitions/digest"},
+        "kind": {"$ref": "#/definitions/assertion_kind"},
+        "dimension": {"$ref": "#/definitions/dimension"},
+        "authority": {"const": "deterministic"},
+        "required_status": {"const": "FAIL"},
+        "fingerprint": {"$ref": "#/definitions/digest"},
+        "witness_digest": {"$ref": "#/definitions/digest"}
+      }
+    },
+    "private_source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scenario_file_sha256", "test_file_sha256", "scenario_digest", "test_digest"],
+      "properties": {
+        "scenario_file_sha256": {"$ref": "#/definitions/digest"},
+        "test_file_sha256": {"$ref": "#/definitions/digest"},
+        "scenario_digest": {"$ref": "#/definitions/digest"},
+        "test_digest": {"$ref": "#/definitions/digest"}
+      }
+    },
+    "share_source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scenario_digest", "test_digest"],
+      "properties": {
+        "scenario_digest": {"$ref": "#/definitions/digest"},
+        "test_digest": {"$ref": "#/definitions/digest"}
+      }
+    },
+    "oracle_reference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "digest"],
+      "properties": {"path": {"const": "oracle.json"}, "digest": {"$ref": "#/definitions/digest"}}
+    },
+    "artifacts": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "source_scenario", "source_conversation_test", "source_scenario_file",
+        "source_conversation_test_file", "scenario", "conversation_test",
+        "expected_result", "certificate", "journal", "minimality",
+        "report_markdown", "report_html", "share_card",
+        "reproduce_script", "predicate_script"
+      ],
+      "properties": {
+        "source_scenario": {"const": "source/scenario.json"},
+        "source_conversation_test": {"const": "source/conversation-test.json"},
+        "source_scenario_file": {"const": "source/scenario.original"},
+        "source_conversation_test_file": {"const": "source/conversation-test.original"},
+        "scenario": {"const": "input/scenario.json"},
+        "conversation_test": {"const": "input/conversation-test.json"},
+        "expected_result": {"const": "expected/assertion-result.json"},
+        "certificate": {"const": "certificate.json"},
+        "journal": {"const": "reduction.jsonl"},
+        "minimality": {"const": "minimality.json"},
+        "report_markdown": {"const": "report.md"},
+        "report_html": {"const": "report.html"},
+        "share_card": {"const": "card.svg"},
+        "reproduce_script": {"const": "reproduce.sh"},
+        "predicate_script": {"const": "predicate.sh"}
+      }
+    },
+    "artifact_digests": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "source_scenario", "source_conversation_test", "source_scenario_file",
+        "source_conversation_test_file", "scenario", "conversation_test",
+        "expected_result", "certificate", "journal", "minimality",
+        "report_markdown", "report_html", "share_card",
+        "reproduce_script", "predicate_script"
+      ],
+      "properties": {
+        "source_scenario": {"$ref": "#/definitions/digest"},
+        "source_conversation_test": {"$ref": "#/definitions/digest"},
+        "source_scenario_file": {"$ref": "#/definitions/digest"},
+        "source_conversation_test_file": {"$ref": "#/definitions/digest"},
+        "scenario": {"$ref": "#/definitions/digest"},
+        "conversation_test": {"$ref": "#/definitions/digest"},
+        "expected_result": {"$ref": "#/definitions/digest"},
+        "certificate": {"$ref": "#/definitions/digest"},
+        "journal": {"$ref": "#/definitions/digest"},
+        "minimality": {"$ref": "#/definitions/digest"},
+        "report_markdown": {"$ref": "#/definitions/digest"},
+        "report_html": {"$ref": "#/definitions/digest"},
+        "share_card": {"$ref": "#/definitions/digest"},
+        "reproduce_script": {"$ref": "#/definitions/digest"},
+        "predicate_script": {"$ref": "#/definitions/digest"}
+      }
+    },
+    "stats": {
+      "type": "object", "additionalProperties": false,
+      "required": ["bytes", "turns", "tools", "state_leaves", "transcript_segments", "trace_spans"],
+      "properties": {
+        "bytes": {"type": "integer", "minimum": 1},
+        "turns": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "tools": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "state_leaves": {"$ref": "#/definitions/nonnegative_integer"},
+        "transcript_segments": {"$ref": "#/definitions/nonnegative_integer"},
+        "trace_spans": {"$ref": "#/definitions/nonnegative_integer"}
+      }
+    },
+    "reduction": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "algorithm", "reducer_set", "initial", "final", "attempts",
+        "candidate_evaluations", "qualification_evaluations", "total_evaluations",
+        "accepted", "cache_hits", "budget", "termination"
+      ],
+      "properties": {
+        "algorithm": {"const": "hierarchical-ddmin"},
+        "reducer_set": {"const": "hotato.reducers.v1"},
+        "initial": {"$ref": "#/definitions/stats"},
+        "final": {"$ref": "#/definitions/stats"},
+        "attempts": {"$ref": "#/definitions/nonnegative_integer"},
+        "candidate_evaluations": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "qualification_evaluations": {"const": 4},
+        "total_evaluations": {"type": "integer", "minimum": 4, "maximum": 100004},
+        "accepted": {"$ref": "#/definitions/nonnegative_integer"},
+        "cache_hits": {"$ref": "#/definitions/nonnegative_integer"},
+        "budget": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "termination": {"enum": ["one_minimal", "budget_exhausted"]}
+      }
+    },
+    "minimality_check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "component", "outcome", "code", "candidate_digest"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "component": {"type": "string", "minLength": 1},
+        "outcome": {"enum": ["PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED"]},
+        "code": {"type": ["string", "null"]},
+        "candidate_digest": {"$ref": "#/definitions/raw_digest"}
+      }
+    },
+    "minimality": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reducer_set", "claim", "remaining_unit_checks", "frozen_components"],
+      "properties": {
+        "status": {"enum": ["one_minimal", "budget_exhausted"]},
+        "reducer_set": {"const": "hotato.reducers.v1"},
+        "claim": {"type": "string", "minLength": 1},
+        "remaining_unit_checks": {"type": "array", "items": {"$ref": "#/definitions/minimality_check"}},
+        "frozen_components": {
+          "type": "array", "uniqueItems": true,
+          "items": {"enum": ["script", "tools", "state", "handoff", "termination"]}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "one_minimal"}}},
+          "then": {"properties": {"claim": {"const": "1-minimal under hotato.reducers.v1 with the recorded observation-scope freezes"}}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "budget_exhausted"}}},
+          "then": {"properties": {"claim": {"const": "failure preserved; minimality incomplete because the candidate budget ended"}}}
+        }
+      ]
+    },
+    "preservation": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "source_executions", "source_matching_failures", "final_executions",
+        "final_matching_failures", "source_result_digests", "final_result_digests",
+        "source_content_hashes", "final_content_hashes", "source_trace_digests",
+        "final_trace_digests", "same_failure_fingerprint"
+      ],
+      "properties": {
+        "source_executions": {"const": 2},
+        "source_matching_failures": {"const": 2},
+        "final_executions": {"const": 2},
+        "final_matching_failures": {"const": 2},
+        "source_result_digests": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"$ref": "#/definitions/digest"}
+        },
+        "final_result_digests": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"$ref": "#/definitions/digest"}
+        },
+        "source_content_hashes": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"$ref": "#/definitions/raw_digest"}
+        },
+        "final_content_hashes": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"$ref": "#/definitions/raw_digest"}
+        },
+        "source_trace_digests": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"$ref": "#/definitions/digest"}
+        },
+        "final_trace_digests": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"$ref": "#/definitions/digest"}
+        },
+        "same_failure_fingerprint": {"const": true}
+      }
+    },
+    "private_privacy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "content_included", "network_egress", "hashes_are_correlators"],
+      "properties": {
+        "profile": {"const": "private-runnable-v1"},
+        "content_included": {"const": ["scenario", "conversation_test", "assertion_result"]},
+        "network_egress": {"const": false},
+        "hashes_are_correlators": {"const": true}
+      }
+    },
+    "share_privacy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "content_included", "omitted", "runnable", "hashes_are_correlators"],
+      "properties": {
+        "profile": {"const": "share-safe-v1"},
+        "content_included": {"const": []},
+        "omitted": {
+          "const": [
+            "audio", "transcript_body", "scenario_body", "assertion_body",
+            "tool_payload", "state_value", "credentials", "absolute_paths",
+            "provider_identifiers"
+          ]
+        },
+        "runnable": {"const": false},
+        "hashes_are_correlators": {"const": true}
+      }
+    },
+    "evaluator_digest": {"$ref": "#/definitions/digest"},
+    "version_string": {
+      "type": "string",
+      "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}(?:[A-Za-z0-9._+-]*)?$"
+    },
+    "scenario_selection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "seed", "variation_matrix_applied"],
+      "properties": {
+        "mode": {"const": "base-scenario"},
+        "seed": {"type": "integer", "minimum": 0},
+        "variation_matrix_applied": {"const": false}
+      }
+    },
+    "private_provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["hotato_version", "evaluator_digest", "seed", "scenario_selection"],
+      "properties": {
+        "hotato_version": {"$ref": "#/definitions/version_string"},
+        "evaluator_digest": {"$ref": "#/definitions/evaluator_digest"},
+        "seed": {"type": "integer", "minimum": 0},
+        "scenario_selection": {"$ref": "#/definitions/scenario_selection"}
+      }
+    },
+    "share_provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["hotato_version", "evaluator_digest", "scenario_selection"],
+      "properties": {
+        "hotato_version": {"$ref": "#/definitions/version_string"},
+        "evaluator_digest": {"$ref": "#/definitions/evaluator_digest"},
+        "scenario_selection": {"$ref": "#/definitions/scenario_selection"}
+      }
+    }
+  }
+}

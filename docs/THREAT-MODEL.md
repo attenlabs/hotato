@@ -51,9 +51,34 @@ surface.
 - **`test run` (rubric lane)** -- same local model judge as `rubric run`,
   run inline on a conversation-test's `assertions.rubric` lane. Local by
   default.
+- **`counterexample compile|verify|reproduce|inspect|export|predicate`** --
+  read local scenario/test/capsule files and write a new local capsule or
+  share-safe projection. The proof path loads no provider adapter, model,
+  subprocess, or network client.
 
 Default retention is local-only: reports, envelopes, and exports land
 exactly where you point them.
+
+### Counterexample capsule boundary
+
+A private `.hotato-repro` contains the source scenario and test, reduced
+fixture, target assertion result, and proof journal. Treat it as sensitive
+source material. The compiler creates it with owner-only modes where the host
+supports POSIX permissions, never overwrites an existing destination, and
+promotes a sibling staging directory only after all files and hashes exist.
+
+The verifier rejects path traversal, symlinked members and directories,
+special files, undeclared files, oversized/deep inputs, digest mismatches,
+broken deletion chains, evaluator drift on the strict proof path, and a
+minimality claim that admits a preserving unit deletion. `reproduce` is a
+separate current-evaluator check: it permits evaluator drift, but still
+validates capsule integrity and the source-to-final delete-only chain.
+
+`counterexample export` derives a non-runnable projection after strict private
+verification. It omits scenario/test bodies, transcript content, tool payloads,
+state values, and provider identifiers. Its hashes are correlators, so a team
+with low-entropy or externally known inputs should keep even the projection in
+its normal engineering-artifact access boundary.
 
 ## Network: only when you explicitly request it
 

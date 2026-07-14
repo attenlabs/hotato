@@ -1,0 +1,23 @@
+{
+  "kind": "hotato.conversation-test",
+  "version": 1,
+  "id": "counterexample-latency-test",
+  "agent": "fixture-agent",
+  "assertions": {
+    "deterministic": [
+      {
+        "id": "refund-tool-latency",
+        "kind": "latency",
+        "dimension": "speech",
+        "tool": "issue_refund",
+        "max_ms": 500
+      }
+    ],
+    "rubric": []
+  },
+  "inconclusive_policy": "refuse",
+  "success": {
+    "required": ["all_deterministic_assertions_pass", "no_inconclusive"],
+    "report_dimensions": ["outcome", "policy", "conversation", "speech", "reliability"]
+  }
+}

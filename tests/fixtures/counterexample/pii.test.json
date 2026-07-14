@@ -1,0 +1,29 @@
+{
+  "kind": "hotato.conversation-test",
+  "version": 1,
+  "id": "counterexample-pii-test",
+  "agent": "fixture-agent",
+  "assertions": {
+    "deterministic": [
+      {
+        "id": "pii-email",
+        "kind": "pii",
+        "dimension": "policy",
+        "detectors": ["email"],
+        "mode": "must_not_leak"
+      },
+      {
+        "id": "unused-tool-check",
+        "kind": "tool_call",
+        "dimension": "outcome",
+        "name": "lookup_account"
+      }
+    ],
+    "rubric": []
+  },
+  "inconclusive_policy": "refuse",
+  "success": {
+    "required": ["all_deterministic_assertions_pass", "no_inconclusive"],
+    "report_dimensions": ["outcome", "policy", "conversation", "speech", "reliability"]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "counterexample-pii-source",
+  "goal": {"type": "support", "target": "account"},
+  "caller": {
+    "script": [
+      {"say": "Hello, I need help with my account."},
+      {"say": "The weather is clear today."},
+      {"say": "You can reach me at person@example.com."},
+      {"say": "I also had a question about store hours."},
+      {"say": "Thanks for looking into it."}
+    ],
+    "behavior": {
+      "speaking_rate": 1.2,
+      "interruptions": [
+        {"trigger": "opening", "offset_ms": 900},
+        {"trigger": "closing", "offset_ms": 3500}
+      ],
+      "backchannels": {"probability": 0.0}
+    }
+  },
+  "environment": {"noise": "clean", "locale": "en-US", "codec": "pcm16"},
+  "variation_matrix": {
+    "locale": ["en-US", "en-CA"],
+    "noise": ["clean", "cafe"],
+    "speaking_rate": [1.0, 1.2],
+    "repetitions": 2
+  },
+  "agent_mock": {
+    "tools": [
+      {"name": "lookup_account", "arguments": {"id": "A-1"}, "result": {"found": true}},
+      {"name": "save_note", "arguments": {"kind": "support"}, "result": {"saved": true}}
+    ],
+    "handoff": {"to": "support"},
+    "termination": {"reason": "complete"},
+    "state": {
+      "accounts": [{"id": "A-1", "status": "active", "tier": "gold"}],
+      "noise": [{"unused": true, "nested": {"value": 42}}]
+    }
+  }
+}

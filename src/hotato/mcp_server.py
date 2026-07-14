@@ -8,9 +8,10 @@ or, if installed:
 
     python -m hotato.mcp_server
 
-It speaks MCP over stdio and exposes twelve tools: one scoring tool,
-``voice_eval_run`` (whose schema states the honest scope and ceiling and which
-returns the same JSON envelope as the CLI), plus eleven fleet tools. Eight
+It speaks MCP over stdio and exposes a local tool set: one scoring tool,
+``voice_eval_run`` (whose schema states the scope and ceiling and which
+returns the same JSON envelope as the CLI), counterexample compile/verify/
+reproduce tools, plus fleet tools. Fleet reads
 read/verify/propose over a local fleet workspace (``fleet_status``,
 ``candidate_list``, ``candidate_inspect``, ``contract_list``, ``trial_explain``,
 ``experiment_status``, ``artifact_verify``, ``experiment_propose``); three are
@@ -232,6 +233,46 @@ def _guard_input_path(path: str, param: str) -> str:
             "from scoring an arbitrary file on the host."
         )
     return path
+
+
+def _counterexample_roots() -> list:
+    """Explicit roots available to counterexample MCP reads/writes."""
+    import tempfile
+
+    roots = []
+    for variable in ("HOTATO_MCP_INPUT_DIR", "HOTATO_MCP_REPORT_DIR"):
+        value = os.environ.get(variable, "").strip()
+        if value:
+            roots.append(os.path.realpath(os.path.expanduser(value)))
+    if not roots:
+        roots.extend([
+            os.path.realpath(tempfile.gettempdir()),
+            os.path.realpath(os.getcwd()),
+        ])
+    return sorted(set(roots))
+
+
+def _guard_counterexample_path(path: str, param: str, *, must_be_new: bool = False) -> str:
+    """Confine an MCP counterexample directory to configured local roots."""
+    real = os.path.realpath(os.path.expanduser(path))
+    roots = _counterexample_roots()
+    inside = False
+    for root in roots:
+        try:
+            if os.path.commonpath([root, real]) == root:
+                inside = True
+                break
+        except ValueError:
+            continue
+    if not inside:
+        raise ValueError(
+            f"{param} must resolve inside HOTATO_MCP_INPUT_DIR or "
+            "HOTATO_MCP_REPORT_DIR (the OS temp directory/current working "
+            "directory when neither is configured)."
+        )
+    if must_be_new and os.path.lexists(real):
+        raise ValueError(f"{param} {path!r} already exists; counterexample compilation never overwrites")
+    return real
 
 
 # The little slack (seconds) padded onto each side of an event's onset/yield
@@ -920,15 +961,93 @@ def mcp_clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = 
                       "result": result})
 
 
+# --- proof-preserving counterexamples (local, sandboxed, no overwrite) -----
+
+def mcp_counterexample_compile(
+    scenario_path: str,
+    test_path: str,
+    target: str,
+    out_dir: str,
+    budget: int = 512,
+    seed: Optional[int] = None,
+) -> dict:
+    """Compile one scripted deterministic failure inside the MCP sandboxes."""
+    try:
+        scenario = _guard_input_path(scenario_path, "scenario_path")
+        test = _guard_input_path(test_path, "test_path")
+        output = _guard_counterexample_path(out_dir, "out_dir", must_be_new=True)
+        workspace = os.path.commonpath([
+            os.path.dirname(os.path.realpath(scenario)),
+            os.path.dirname(os.path.realpath(test)),
+        ])
+        from .counterexample import compile_counterexample
+
+        result = compile_counterexample(
+            scenario,
+            test,
+            target=target,
+            out_dir=output,
+            workspace=workspace,
+            budget=budget,
+            seed=seed,
+        )
+    except _errors.HANDLED as exc:
+        return _control_error(_errors.mcp_error(exc))
+    return _envelope(
+        {"tool": "hotato", **result},
+        evidence_status=_evidence.TIER_ASSERTED,
+        artifact_digests=[result["counterexample_id"], result["target"]["fingerprint"]],
+    )
+
+
+def mcp_counterexample_verify(path: str) -> dict:
+    """Audit a capsule under its recorded proof-engine implementation."""
+    try:
+        safe = _guard_counterexample_path(path, "path")
+        from .counterexample import verify_counterexample
+
+        result = verify_counterexample(safe)
+    except _errors.HANDLED as exc:
+        return _control_error(_errors.mcp_error(exc))
+    return _envelope(
+        {"tool": "hotato", **result},
+        evidence_status=_evidence.TIER_ASSERTED,
+        artifact_digests=[value for value in (
+            result["counterexample_id"], result.get("failure_fingerprint")
+        ) if value],
+    )
+
+
+def mcp_counterexample_reproduce(path: str) -> dict:
+    """Check the reduced fixture under the current evaluator implementation."""
+    try:
+        safe = _guard_counterexample_path(path, "path")
+        from .counterexample import reproduce_counterexample
+
+        result = reproduce_counterexample(safe)
+    except _errors.HANDLED as exc:
+        return _control_error(_errors.mcp_error(exc))
+    return _envelope(
+        {"tool": "hotato", **result},
+        evidence_status=_evidence.TIER_ASSERTED,
+        artifact_digests=[value for value in (
+            result["counterexample_id"], result.get("failure_fingerprint")
+        ) if value],
+    )
+
+
 # --- Canonical MCP tool inventory -------------------------------------------
 # The single source of truth for which tools this server registers: one scoring
-# tool (``voice_eval_run``) plus eleven fleet tools. ``build_server`` registers
+# tool (``voice_eval_run``), counterexample tools, and fleet tools. ``build_server`` registers
 # EXACTLY these names, docs/MCP.md lists them, and tests/test_mcp_parity.py asserts
 # the registered set equals this tuple. Add a tool name here in the SAME change that
 # adds its ``@server.tool`` registration -- test_expected_tools_registered fails on
 # any drift between this inventory and what is actually registered.
 TOOL_NAMES = (
     "voice_eval_run",
+    "counterexample_compile",
+    "counterexample_verify",
+    "counterexample_reproduce",
     "fleet_status",
     "candidate_list",
     "candidate_inspect",
@@ -1007,6 +1126,48 @@ def build_server():
             transcribe=transcribe,
             transcribe_no_cache=transcribe_no_cache,
         )
+
+    @server.tool(
+        name="counterexample_compile",
+        description=(
+            "Compile one deterministic scripted-scenario failure into a private "
+            "proof-preserving .hotato-repro capsule. Offline; inputs and output "
+            "are sandboxed; existing output is never replaced."
+        ),
+    )
+    def counterexample_compile(
+        scenario_path: str,
+        test_path: str,
+        target: str,
+        out_dir: str,
+        budget: int = 512,
+        seed: Optional[int] = None,
+    ) -> dict:
+        return mcp_counterexample_compile(
+            scenario_path, test_path, target, out_dir, budget, seed,
+        )
+
+    @server.tool(
+        name="counterexample_verify",
+        description=(
+            "Audit a private .hotato-repro capsule: manifest, frozen source, "
+            "proof-engine provenance, delete-only chain, exact failure, and "
+            "claimed local minimality. Read-only."
+        ),
+    )
+    def counterexample_verify(path: str) -> dict:
+        return mcp_counterexample_verify(path)
+
+    @server.tool(
+        name="counterexample_reproduce",
+        description=(
+            "Run a private capsule's reduced fixture under the current Hotato "
+            "evaluator. Permits evaluator-version drift while requiring the exact "
+            "typed failure atom. Read-only."
+        ),
+    )
+    def counterexample_reproduce(path: str) -> dict:
+        return mcp_counterexample_reproduce(path)
 
     @server.tool(name="fleet_status", description="Read the local fleet workspace rollup (counts + jobs). Read-only.")
     def fleet_status(home: Optional[str] = None, workspace_id: str = "default") -> dict:

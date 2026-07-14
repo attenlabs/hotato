@@ -23,10 +23,11 @@ production audio path.
 - **`--format json`** on the scoring commands emits a machine envelope
   (`https://hotato.dev/schema/envelope.v1.json`); errors follow
   `error.v1.json`. Prefer these over the human text output.
-- **MCP:** `uvx --from "hotato[mcp]" hotato-mcp` exposes nine tools: the
-  `voice_eval_run` scorer for driving a score mid-task, plus eight fleet tools
-  that read/verify/propose over a local fleet workspace and run clone-scoped
-  experiments (never a production deploy). Client configs: [`docs/MCP.md`](docs/MCP.md).
+- **MCP:** `uvx --from "hotato[mcp]" hotato-mcp` exposes the
+  `voice_eval_run` scorer, proof-preserving counterexample tools, and fleet
+  tools that read/verify/propose and run clone-scoped (staging-only)
+  before/after experiments. Client configs and the canonical inventory:
+  [`docs/MCP.md`](docs/MCP.md).
 - Deeper machine index: [`llms.txt`](llms.txt) and [`llms-full.txt`](llms-full.txt).
 
 ## Recipe: add Hotato to a voice-agent repo
@@ -106,6 +107,14 @@ Do these in order. Every step is offline and reversible.
    [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md).
 
 ## Rules an agent must not break
+
+- A private `.hotato-repro` contains content-bearing source inputs. Use
+  `hotato counterexample export PRIVATE --out SHARE` for a verified,
+  non-runnable projection; never infer that a hash is anonymous.
+- `counterexample verify` audits the recorded proof engine. `counterexample
+  reproduce` checks the reduced fixture under the installed evaluator. Neither
+  command calls a deployed voice agent, and the generated predicate is for
+  Hotato evaluator/scenario revisions.
 
 - **Never upload customer audio, and never pull it, without explicit human
   consent.** Connecting a stack (`hotato connect`) and pulling recordings

@@ -1,0 +1,23 @@
+{
+  "kind": "hotato.conversation-test",
+  "version": 1,
+  "id": "counterexample-policy-test",
+  "agent": "fixture-agent",
+  "assertions": {
+    "deterministic": [
+      {
+        "id": "guarantee-language",
+        "kind": "policy",
+        "dimension": "policy",
+        "pack": "default",
+        "rule_ids": ["no-guarantee-language"]
+      }
+    ],
+    "rubric": []
+  },
+  "inconclusive_policy": "refuse",
+  "success": {
+    "required": ["all_deterministic_assertions_pass", "no_inconclusive"],
+    "report_dimensions": ["outcome", "policy", "conversation", "speech", "reliability"]
+  }
+}

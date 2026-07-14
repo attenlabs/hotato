@@ -1,0 +1,24 @@
+{
+  "kind": "hotato.conversation-test",
+  "version": 1,
+  "id": "counterexample-state-test",
+  "agent": "fixture-agent",
+  "assertions": {
+    "deterministic": [
+      {
+        "id": "refund-posted",
+        "kind": "state",
+        "dimension": "outcome",
+        "resource": "orders",
+        "filters": {"id": "A-1"},
+        "expect": {"refund_status": "posted"}
+      }
+    ],
+    "rubric": []
+  },
+  "inconclusive_policy": "refuse",
+  "success": {
+    "required": ["all_deterministic_assertions_pass", "no_inconclusive"],
+    "report_dimensions": ["outcome", "policy", "conversation", "speech", "reliability"]
+  }
+}

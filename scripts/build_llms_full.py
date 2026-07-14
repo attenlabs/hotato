@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Build llms-full.txt: README + every docs/*.md + METHODOLOGY.md + the
-envelope schema, concatenated with file-boundary headers, for a single-fetch
-agent context dump.
+machine-facing schemas, concatenated with file-boundary headers, for a
+single-fetch agent context dump.
 
 Order: the curated sequence in llms.txt's Links section first (README.md,
 docs/WHY.md, METHODOLOGY.md, docs/BAD-CALL-TO-CI.md, ...), then any remaining
 docs/*.md file on disk that Links does not name, sorted alphabetically for
-determinism, then schema/envelope.v1.json last.
+determinism, then the counterexample proof schemas, then envelope.v1.json last.
 
 Stdlib only, deterministic: the same source files always produce the same
 bytes (this is asserted by tests/test_llms_docs.py, which rebuilds to a temp
@@ -29,7 +29,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LLMS_TXT = REPO_ROOT / "llms.txt"
 DEFAULT_OUT = REPO_ROOT / "llms-full.txt"
-SCHEMA_PATH = REPO_ROOT / "src" / "hotato" / "schema" / "envelope.v1.json"
+SCHEMA_PATHS = (
+    REPO_ROOT / "src" / "hotato" / "schema" / "counterexample-oracle.v1.json",
+    REPO_ROOT / "src" / "hotato" / "schema" / "reduction-certificate.v1.json",
+    REPO_ROOT / "src" / "hotato" / "schema" / "counterexample.v1.json",
+    # Keep the original envelope schema last for stable consumer expectations.
+    REPO_ROOT / "src" / "hotato" / "schema" / "envelope.v1.json",
+)
 
 HEADER_RULE = "=" * 80
 
@@ -102,9 +108,10 @@ def build() -> str:
         text = path.read_text(encoding="utf-8")
         parts.append(f"{HEADER_RULE}\nFILE: {rel}\n{HEADER_RULE}\n\n{text}")
 
-    schema_rel = SCHEMA_PATH.relative_to(REPO_ROOT).as_posix()
-    schema_text = SCHEMA_PATH.read_text(encoding="utf-8")
-    parts.append(f"{HEADER_RULE}\nFILE: {schema_rel}\n{HEADER_RULE}\n\n{schema_text}")
+    for schema_path in SCHEMA_PATHS:
+        schema_rel = schema_path.relative_to(REPO_ROOT).as_posix()
+        schema_text = schema_path.read_text(encoding="utf-8")
+        parts.append(f"{HEADER_RULE}\nFILE: {schema_rel}\n{HEADER_RULE}\n\n{schema_text}")
 
     return "\n\n".join(parts).rstrip("\n") + "\n"
 
