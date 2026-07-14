@@ -64,6 +64,10 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
+
+_HTTP_JSON_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
+_HTTP_ERROR_DETAIL_MAX_BYTES = 4 * 1024
+
 INSPECT_STACKS = ("vapi", "retell", "livekit", "pipecat")
 
 _NORMALIZED_FIELDS = (
@@ -195,20 +199,35 @@ def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 30) 
     req = urllib.request.Request(url, headers=_h)
     if req.get_method() != "GET":  # pragma: no cover - Request with no data is GET
         raise ValueError("inspect only issues read-only GET requests")
+    safe_url = _errors.sanitize_url(url)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user-supplied API host
-            return json.loads(resp.read().decode("utf-8"))
+            raw = _errors.read_bounded_http_body(
+                resp,
+                max_bytes=_HTTP_JSON_RESPONSE_MAX_BYTES,
+                subject=f"response from {safe_url}",
+            )
+            return json.loads(raw.decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = ""
         try:
-            body = exc.read().decode("utf-8", "replace")[:300]
+            body = _errors.read_bounded_http_body(
+                exc,
+                max_bytes=_HTTP_ERROR_DETAIL_MAX_BYTES,
+                subject="HTTP error response",
+            ).decode("utf-8", "replace")[:300]
         except Exception:
             pass
         raise ValueError(
-            f"HTTP {exc.code} from {url}: {exc.reason}. {body}".strip()
+            f"HTTP {exc.code} from {safe_url}: "
+            f"{_errors.sanitize_urls_in_text(exc.reason)}. "
+            f"{_errors.sanitize_urls_in_text(body)}".strip()
         ) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - live path
-        raise ValueError(f"network error fetching {url}: {exc.reason}") from exc
+        raise ValueError(
+            f"network error fetching {safe_url}: "
+            f"{_errors.sanitize_urls_in_text(exc.reason)}"
+        ) from exc
 
 
 def _require_object(value, what: str) -> dict:

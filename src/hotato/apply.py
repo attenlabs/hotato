@@ -68,6 +68,9 @@ SCHEMA_ID = "hotato.apply.v1"
 _PATCH_KIND = "patch"
 _PLAN_SCHEMA_ID = "hotato.fixplan.v1"
 
+_HTTP_JSON_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
+_HTTP_ERROR_DETAIL_MAX_BYTES = 4 * 1024
+
 # The refusal is a documented, distinct outcome: 0 = dry run / created, 2 = a
 # usage error, 3 = the principled both-axes refusal (this exit code IS the
 # feature -- a caller branches on it to see "no single-threshold patch, by
@@ -590,17 +593,28 @@ def _http_json(method: str, url: str, *, headers: dict, body: Optional[dict],
     _hdrs = dict(headers or {})
     _hdrs.setdefault("User-Agent", f"hotato/{_ua_version()} (+https://hotato.dev)")
     req = urllib.request.Request(url, data=data, headers=_hdrs, method=method)
+    safe_url = _errors.sanitize_url(url)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user API host
-            raw = resp.read().decode("utf-8")
+            raw = _errors.read_bounded_http_body(
+                resp,
+                max_bytes=_HTTP_JSON_RESPONSE_MAX_BYTES,
+                subject=f"response from {method} {safe_url}",
+            ).decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = ""
         try:
-            detail = exc.read().decode("utf-8", "replace")[:300]
+            detail = _errors.read_bounded_http_body(
+                exc,
+                max_bytes=_HTTP_ERROR_DETAIL_MAX_BYTES,
+                subject="HTTP error response",
+            ).decode("utf-8", "replace")[:300]
         except Exception:
             pass
         err = ValueError(
-            f"HTTP {exc.code} from {method} {url}: {exc.reason}. {detail}".strip()
+            f"HTTP {exc.code} from {method} {safe_url}: "
+            f"{_errors.sanitize_urls_in_text(exc.reason)}. "
+            f"{_errors.sanitize_urls_in_text(detail)}".strip()
         )
         # Carry the real numeric status on the exception so callers can branch
         # on it (e.g. "was this a 404") without substring-matching the message,
@@ -611,18 +625,20 @@ def _http_json(method: str, url: str, *, headers: dict, body: Optional[dict],
         raise err from exc
     except urllib.error.URLError as exc:  # pragma: no cover - live network path
         raise ValueError(
-            f"network error on {method} {url}: {exc.reason}"
+            f"network error on {method} {safe_url}: "
+            f"{_errors.sanitize_urls_in_text(exc.reason)}"
         ) from exc
     except (TimeoutError, socket.timeout, ConnectionError, http.client.IncompleteRead) as exc:
         raise ValueError(
-            f"connection interrupted while reading the response from {method} {url}: {exc}"
+            f"connection interrupted while reading the response from {method} "
+            f"{safe_url}: {_errors.sanitize_urls_in_text(exc)}"
         ) from exc
     if not raw.strip():
         return {}
     obj = json.loads(raw)
     if not isinstance(obj, dict):
         raise ValueError(
-            f"{method} {url} returned a {type(obj).__name__}, not a JSON object; "
+            f"{method} {safe_url} returned a {type(obj).__name__}, not a JSON object; "
             "the endpoint gave an unexpected shape (a proxy/error page or a "
             "vendor failure)."
         )

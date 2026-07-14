@@ -46,6 +46,14 @@ from typing import List, Optional, Tuple
 from ._engine.audio import write_wav  # noqa: F401  (used by the pipecat scaffold)
 from .core import process_exit_code, run_single
 
+
+# Provider metadata and action responses are small JSON documents.  Recording
+# downloads are deliberately given a much larger ceiling, but still cannot ask
+# the process to allocate without bound.
+_HTTP_JSON_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
+_HTTP_RECORDING_RESPONSE_MAX_BYTES = 512 * 1024 * 1024
+_HTTP_ERROR_DETAIL_MAX_BYTES = 4 * 1024
+
 __all__ = [
     "STACKS",
     "MONO_STACKS",
@@ -333,8 +341,9 @@ class _CredentialSafeRedirectHandler:
     credential verbatim (= vendor-account takeover).
 
     This handler strips credential headers whenever a redirect crosses to a
-    different host (reusing ``_same_host``), so a same-host CDN redirect still
-    works but the secret is never sent off-domain. It complements
+    different normalized origin (scheme + canonical host + effective port), so
+    a path-only redirect on the same origin still works but a different port or
+    an HTTPS-to-HTTP downgrade never receives the secret. It complements
     ``_auth_headers_for``, which only guards the vendor-JSON-supplied URL BEFORE
     the fetch and does nothing once the vendor's own endpoint issues a redirect
     mid-request."""
@@ -347,19 +356,20 @@ class _CredentialSafeRedirectHandler:
         class _Handler(base):
             def redirect_request(self, req, fp, code, msg, headers, newurl):
                 new = super().redirect_request(req, fp, code, msg, headers, newurl)
-                if new is not None and not _same_host(req.full_url, newurl):
-                    for h in list(new.headers):
-                        if h.lower() in (
-                            "authorization", "proxy-authorization", "cookie",
-                        ):
-                            del new.headers[h]
+                if new is not None and not _same_origin(req.full_url, new.full_url):
+                    for collection in (new.headers, new.unredirected_hdrs):
+                        for h in list(collection):
+                            if h.lower() in (
+                                "authorization", "proxy-authorization", "cookie",
+                            ):
+                                del collection[h]
                 # A 3xx can point the request at an internal / metadata IP just as
                 # the original URL could, so re-apply the default-deny SSRF guard
                 # to the redirect TARGET (not just the credential-stripping check).
                 if new is not None:
                     from urllib.parse import urlparse
 
-                    host = urlparse(newurl).hostname
+                    host = urlparse(new.full_url).hostname
                     if host:
                         _reject_private_host(host, "a redirected recording fetch")
                 return new
@@ -372,7 +382,7 @@ _SAFE_OPENER_INSTALLED = False
 
 def _ensure_safe_opener() -> None:
     """Install (once, process-wide) a default urllib opener whose redirect handler
-    strips credentials on a cross-host redirect. Installed lazily on the first
+    strips credentials on a cross-origin redirect. Installed lazily on the first
     network call so importing the module has no global side effect. Tests that
     monkeypatch ``urllib.request.urlopen`` replace the call entirely and are
     unaffected; the real ``urlopen`` uses this opener in production.
@@ -412,7 +422,8 @@ def _version() -> str:
         return "0"
 
 
-def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> bytes:
+def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60,
+              *, max_bytes: int = _HTTP_JSON_RESPONSE_MAX_BYTES) -> bytes:
     import http.client
     import socket
     import urllib.error
@@ -429,20 +440,36 @@ def _http_get(url: str, headers: Optional[dict] = None, timeout: int = 60) -> by
     req = urllib.request.Request(url, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user-supplied API
-            return resp.read()
+            return _errors.read_bounded_http_body(
+                resp,
+                max_bytes=max_bytes,
+                subject=f"response from {_errors.sanitize_url(url)}",
+            )
     except urllib.error.HTTPError as exc:
         body = ""
         try:
-            body = exc.read().decode("utf-8", "replace")[:400]
+            body = _errors.read_bounded_http_body(
+                exc,
+                max_bytes=_HTTP_ERROR_DETAIL_MAX_BYTES,
+                subject="HTTP error response",
+            ).decode("utf-8", "replace")[:400]
         except Exception:
             pass
         raise _HTTPStatusError(
-            f"HTTP {exc.code} from {url}: {exc.reason}. {body}".strip(), exc.code
+            f"HTTP {exc.code} from {_errors.sanitize_url(url)}: "
+            f"{_errors.sanitize_urls_in_text(exc.reason)}. "
+            f"{_errors.sanitize_urls_in_text(body)}".strip(), exc.code
         ) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - live path
-        raise ValueError(f"network error fetching {url}: {exc.reason}") from exc
+        raise ValueError(
+            f"network error fetching {_errors.sanitize_url(url)}: "
+            f"{_errors.sanitize_urls_in_text(exc.reason)}"
+        ) from exc
     except (TimeoutError, socket.timeout, ConnectionError, http.client.IncompleteRead) as exc:
-        raise ValueError(f"connection interrupted while reading {url}: {exc}") from exc
+        raise ValueError(
+            f"connection interrupted while reading {_errors.sanitize_url(url)}: "
+            f"{_errors.sanitize_urls_in_text(exc)}"
+        ) from exc
 
 
 def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 60):
@@ -457,9 +484,10 @@ def _http_get_json(url: str, headers: Optional[dict] = None, timeout: int = 60):
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        preview = " ".join(raw.split())[:200]
+        preview = _errors.sanitize_urls_in_text(" ".join(raw.split())[:200])
         raise ValueError(
-            f"expected a JSON response from {url}, got a non-JSON body "
+            f"expected a JSON response from {_errors.sanitize_url(url)}, "
+            "got a non-JSON body "
             f"({exc.msg}). This is usually a proxy/CDN or WAF error page, an "
             "expired-session HTML redirect, a vendor outage page served with "
             "HTTP 200, or a wrong --base-url. First bytes: "
@@ -473,6 +501,8 @@ def _http_post(
     headers: Optional[dict] = None,
     timeout: int = 60,
     content_type: str = "application/json",
+    *,
+    max_bytes: int = _HTTP_JSON_RESPONSE_MAX_BYTES,
 ) -> bytes:
     """POST ``data`` (bytes) to ``url`` and return the response body. The
     write-side twin of :func:`_http_get`, sharing every safety property that path
@@ -500,20 +530,36 @@ def _http_post(
     req = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user-supplied API
-            return resp.read()
+            return _errors.read_bounded_http_body(
+                resp,
+                max_bytes=max_bytes,
+                subject=f"response from POST {_errors.sanitize_url(url)}",
+            )
     except urllib.error.HTTPError as exc:
         body = ""
         try:
-            body = exc.read().decode("utf-8", "replace")[:400]
+            body = _errors.read_bounded_http_body(
+                exc,
+                max_bytes=_HTTP_ERROR_DETAIL_MAX_BYTES,
+                subject="HTTP error response",
+            ).decode("utf-8", "replace")[:400]
         except Exception:
             pass
         raise _HTTPStatusError(
-            f"HTTP {exc.code} from POST {url}: {exc.reason}. {body}".strip(), exc.code
+            f"HTTP {exc.code} from POST {_errors.sanitize_url(url)}: "
+            f"{_errors.sanitize_urls_in_text(exc.reason)}. "
+            f"{_errors.sanitize_urls_in_text(body)}".strip(), exc.code
         ) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - live path
-        raise ValueError(f"network error posting to {url}: {exc.reason}") from exc
+        raise ValueError(
+            f"network error posting to {_errors.sanitize_url(url)}: "
+            f"{_errors.sanitize_urls_in_text(exc.reason)}"
+        ) from exc
     except (TimeoutError, socket.timeout, ConnectionError, http.client.IncompleteRead) as exc:
-        raise ValueError(f"connection interrupted while posting to {url}: {exc}") from exc
+        raise ValueError(
+            f"connection interrupted while posting to {_errors.sanitize_url(url)}: "
+            f"{_errors.sanitize_urls_in_text(exc)}"
+        ) from exc
 
 
 def _parse_json_response(raw: str, url: str) -> object:
@@ -525,9 +571,10 @@ def _parse_json_response(raw: str, url: str) -> object:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        preview = " ".join(raw.split())[:200]
+        preview = _errors.sanitize_urls_in_text(" ".join(raw.split())[:200])
         raise ValueError(
-            f"expected a JSON response from POST {url}, got a non-JSON body "
+            f"expected a JSON response from POST {_errors.sanitize_url(url)}, "
+            "got a non-JSON body "
             f"({exc.msg}). This is usually a proxy/CDN or WAF error page, an "
             "expired-session HTML redirect, a vendor outage page served with a "
             "2xx, or a wrong --base-url. First bytes: "
@@ -583,7 +630,8 @@ def _require_url_str(value, what: str) -> str:
     ...) is documented to be a string, but a proxy/error page, a wrong
     ``--base-url``, or a vendor failure can put a list / dict / number there
     instead. Reject a non-string (or empty) here with a clean, named ValueError so
-    it never reaches ``urlparse`` in ``_validate_download_url`` / ``_same_host`` /
+    it never reaches ``urlparse`` in ``_validate_download_url`` /
+    ``_same_origin`` /
     ``_auth_headers_for`` as a raw AttributeError. Mirrors ``_require_json_object``
     for the URL fields the adapters read."""
     if not isinstance(value, str) or not value.strip():
@@ -719,7 +767,12 @@ def _validate_download_url(url: str) -> str:
 
 def _download(url: str, dest: str, headers: Optional[dict] = None, timeout: int = 120) -> str:
     _validate_download_url(url)
-    data = _http_get(url, headers=headers, timeout=timeout)
+    data = _http_get(
+        url,
+        headers=headers,
+        timeout=timeout,
+        max_bytes=_HTTP_RECORDING_RESPONSE_MAX_BYTES,
+    )
     # Atomic local write: a temp file in dest's OWN directory, then os.replace,
     # mirroring _atomic_write_text / cli._atomic_write_text / connections.save.
     # ``open(dest, "wb")`` truncates any pre-existing file the instant it opens,
@@ -742,25 +795,50 @@ def _download(url: str, dest: str, headers: Optional[dict] = None, timeout: int 
     return dest
 
 
-def _same_host(url: str, base_url: str) -> bool:
-    """True only if ``url`` and ``base_url`` resolve to the same host."""
+_DEFAULT_ORIGIN_PORTS = {"http": 80, "https": 443}
+
+
+def _normalized_origin(url: str):
+    """Return ``(scheme, canonical host, effective port)`` or ``None``.
+
+    Credential forwarding follows RFC origin boundaries.  Default ports are
+    made explicit so ``https://example.test`` and
+    ``https://example.test:443`` compare equal, while a different port or
+    protocol never does.  Invalid ports fail closed.
+    """
     from urllib.parse import urlparse
 
-    u = urlparse(url).hostname
-    b = urlparse(base_url).hostname
-    return bool(u) and bool(b) and u.lower() == b.lower()
+    try:
+        parsed = urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        host = parsed.hostname
+        if not scheme or not host:
+            return None
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    effective_port = port if port is not None else _DEFAULT_ORIGIN_PORTS.get(scheme)
+    if effective_port is None:
+        return None
+    return scheme, _canonical_host(host), effective_port
+
+
+def _same_origin(url: str, base_url: str) -> bool:
+    """True only when both URLs have the same normalized network origin."""
+    left = _normalized_origin(url)
+    return left is not None and left == _normalized_origin(base_url)
 
 
 def _auth_headers_for(url: str, base_url: str, headers: Optional[dict]) -> Optional[dict]:
     """Return ``headers`` (the credential) ONLY when ``url`` is on the vendor's
-    own host (``base_url``). A ``recording_url`` comes from the vendor's JSON
+    own origin (``base_url``). A ``recording_url`` comes from the vendor's JSON
     RESPONSE, not from something the operator typed, so if it points off-domain
     (a compromised account, tampered metadata, a redirect, or a mis-set
     ``--base-url``) attaching the API key would exfiltrate the credential to that
     host. Vendor download URLs are pre-signed and need no auth, so dropping the
     header when the host does not match keeps the download working while never
     sending the secret anywhere but the vendor's own API host."""
-    if headers and _same_host(url, base_url):
+    if headers and _same_origin(url, base_url):
         return headers
     return None
 
@@ -2068,7 +2146,7 @@ def pull(stack, creds, *, out_dir, ids=None, since=None, limit=50,
             # ANY adapter (current or future) that raises something else must not
             # take down the whole run and every other id with it -- so catch
             # broadly and record the type in the reason for diagnosis.
-            reason = str(exc) or f"{type(exc).__name__}"
+            reason = _errors.sanitize_urls_in_text(str(exc)) or f"{type(exc).__name__}"
             if not isinstance(exc, (ValueError, OSError)):
                 reason = f"{type(exc).__name__}: {reason}"
             skipped.append({"id": ident, "reason": reason})
@@ -2131,7 +2209,7 @@ def run_connect(stack, *, api_key=None, account_sid=None, auth_token=None,
             # No cheap probe (Retell, or Synthflow/Cartesia without model/agent
             # id): store and validate on first pull. Not a failure.
             verified = None
-            note = str(exc)
+            note = _errors.sanitize_urls_in_text(str(exc))
 
     path = connections.save(stack, creds)
     fields = ", ".join(sorted(creds.keys()))

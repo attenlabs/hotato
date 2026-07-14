@@ -54,7 +54,7 @@ class _RespRaisesOnRead:
     def __exit__(self, *exc_info):
         return False
 
-    def read(self):
+    def read(self, size=-1):
         raise self._exc
 
 

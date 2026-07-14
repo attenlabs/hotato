@@ -21,8 +21,8 @@ class _Resp:
     def __init__(self, data):
         self._data = data
 
-    def read(self):
-        return self._data
+    def read(self, size=-1):
+        return self._data if size is None or size < 0 else self._data[:size]
 
     def __enter__(self):
         return self
