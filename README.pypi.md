@@ -10,15 +10,7 @@
 
 <p align="center">Runs offline &middot; MIT &middot; zero dependencies.</p>
 
-<p align="center">
-  <a href="https://pypi.org/project/hotato/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/hotato.svg"></a>
-  <a href="https://pypi.org/project/hotato/"><img alt="PyPI monthly downloads" src="https://img.shields.io/pypi/dm/hotato.svg"></a>
-  <a href="https://github.com/attenlabs/hotato/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <img alt="Python 3.9 to 3.13" src="https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg">
-  <img alt="offline: yes" src="https://img.shields.io/badge/offline-yes-blue.svg">
-  <img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-blue.svg">
-  <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg"></a>
-</p>
+[![PyPI version](https://img.shields.io/pypi/v/hotato.svg)](https://pypi.org/project/hotato/) [![PyPI monthly downloads](https://img.shields.io/pypi/dm/hotato.svg)](https://pypi.org/project/hotato/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.9 to 3.13](https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg) ![offline: yes](https://img.shields.io/badge/offline-yes-blue.svg) ![runtime deps: zero](https://img.shields.io/badge/runtime%20deps-zero-blue.svg) [![tests](https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg)](https://github.com/attenlabs/hotato/actions/workflows/tests.yml)
 
 Your voice agent passes every text assertion and still loses the call. It talks over the caller. It skips a required disclosure. It confirms a refund that never posted. hotato scores the call from the two-channel audio, shows the timing evidence behind every flag, and turns each caught bug into a CI contract that re-checks it on every push.
 
