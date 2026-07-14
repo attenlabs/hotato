@@ -3,14 +3,14 @@
 Guardian/Fleet runs Hotato's capture → scan → trust → label → contract →
 trial primitives as one continuous workflow inside a private, self-hosted
 control plane: a hardened evidence kernel with a fleet view on top. Every
-deploy to production stays a human call.
+production deploy stays a human call.
 
 ## The evidence kernel
 
 ### An evidence vector, scored dimension by dimension
 Every artifact carries a machine-readable **evidence vector**
 (`hotato/evidence.py`, schema `evidence_vector.v1.json`): each dimension
-scored on its own, the public tier set to the *weakest* tier any required
+scored on its own, public tier set to the *weakest* tier any required
 dimension allows -- a minimum over an inspectable lattice. Tiers, ascending:
 
 | tier | name | meaning |
@@ -27,11 +27,12 @@ Dimensions: `score_integrity`, `audio_identity`, `policy_integrity`,
 pulls the whole tier down; no renderer may raise it.
 
 ### Trial manifest (`hotato/manifest.py`, `trial_manifest.v1.json`)
-An immutable pin created *before* an experiment from the battery: the scorer
-config hash, one policy (applied to both sides), the complete fixture
-universe, and each fixture's expectation, onset, and scripted-stimulus
-identity. Before and after must reference the same `manifest_hash`; a
-changed policy, scorer, label, onset, or fixture set refuses the comparison.
+An immutable pin created *before* an experiment, from the battery: the
+scorer config hash, one policy (applied to both sides), the complete
+fixture universe, and each fixture's expectation, onset, and
+scripted-stimulus identity. Before and after must reference the same
+`manifest_hash`; a changed policy, scorer, label, onset, or fixture set
+refuses the comparison.
 
 ### Recompute-from-audio (`hotato/recompute.py`)
 The proof gate re-derives every verdict from the on-disk audio under the
@@ -46,22 +47,22 @@ result, and refuses:
 A green *paired* proof additionally requires evidence tier >= paired.
 
 ### Capture receipt (`hotato/receipt.py`, `capture_receipt.v1.json`)
-A fresh-recapture claim needs more than distinct PCM. A capture runner emits
-a receipt binding the recording to a trial, agent, call id, timestamps, and
-decoded PCM; an HMAC signature makes it *machine-verified*. A manual
-distinct WAV with no receipt is *operator-asserted* -- the receipt is what
-promotes it to machine-verified fresh recapture.
+A fresh-recapture claim needs more than distinct PCM: a capture runner
+emits a receipt binding the recording to a trial, agent, call id,
+timestamps, and decoded PCM; an HMAC signature makes it *machine-verified*.
+A manual distinct WAV with no receipt is *operator-asserted* -- the
+receipt is what promotes it to machine-verified fresh recapture.
 
 ### Contract authenticity (`hotato/attest.py`)
 Contracts embed a canonical digest over schema + label + policy + audio +
-scorer version. `contract verify`/`unpack` recompute it: a bundle edited
-after creation (a loosened policy re-pack, say) reports **tampered** and
-fails; a matching but unsigned bundle is *"unsigned, internally consistent
-evidence"*; a valid HMAC signature promotes it to *authenticated*.
+scorer version, which `contract verify`/`unpack` recompute: a bundle
+edited after creation (a loosened policy re-pack, say) reports **tampered**
+and fails; a matching but unsigned bundle is *"unsigned, internally
+consistent evidence"*; a valid HMAC signature promotes it to *authenticated*.
 
 ### Boundary sensitivity
 Every event exposes `onset_frame_index`, `onset_effective_sec`,
-`decision_margin_sec`, `decision_margin_hops`, and `boundary_sensitive`. A
+`decision_margin_sec`, `decision_margin_hops`, and `boundary_sensitive`: a
 result within one hop of flipping is flagged, so it never reads with the
 confidence of a result a hundred milliseconds inside the limit.
 
@@ -69,7 +70,7 @@ confidence of a result a hundred milliseconds inside the limit.
 Any verdict-changing warning (low signal, possible channel swap,
 VAD-relevant leakage) sets the headline to `scan with caution`.
 `input_health` is an explicit three-state field (`clean` / `caution` /
-`not_scorable`). Leakage is judged both against a fixed -40 dB bar and
+`not_scorable`); leakage is judged both against a fixed -40 dB bar and
 dynamically against the receiving channel's own VAD gate.
 
 ## Fleet control plane (local mode)
@@ -80,8 +81,7 @@ artifact directory, both stdlib.
 - **Registry** (`hotato/fleet/registry.py`) -- workspace-scoped rows for
   agents, deployments, calls, recordings, candidates, labels, contracts,
   trials, decisions. Agents scale per workspace with no product-level cap;
-  every row carries `workspace_id`, keeping paths and call ids scoped to
-  their own workspace.
+  every row carries `workspace_id`, scoping its paths and call ids.
 - **Artifact store** (`hotato/fleet/store.py`) -- content-addressed blobs
   with dedup and lineage; audio is stored separately from any UI (privacy
   reversal).
@@ -119,8 +119,7 @@ and real stay on separate axes: only a real recapture raises the confidence
 tier.
 
 ## What fleet mode ships today
-Evidence stays per-dimension, each one scored on its own lane, never folded
-into a single fleet-wide score. Every contract needs human approval before
-it exists. Live provider adapters (Vapi/Retell clone→apply→recapture) and
-canary routing are gated on connected credentials and a tested rollback --
-production deploys stay a manual, credentialed step every time.
+Evidence stays per-dimension, never folded into a single fleet-wide score,
+and every contract needs human approval before it exists. Today's live
+provider adapters are Vapi and Retell (clone→apply→recapture); production
+deploys stay the same manual, credentialed step described above.

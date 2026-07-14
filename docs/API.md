@@ -1,9 +1,8 @@
 # Python API reference
 
-Every function the CLI, the pytest plugin, and the MCP server call is a plain
-Python function you can call directly. The core is stdlib only, offline, and
-deterministic: the same audio and config always produce the same envelope.
-Import and score:
+Every function the CLI, pytest plugin, and MCP server use is a plain
+Python function. The core is stdlib-only, offline, deterministic: same
+audio and config, same envelope, every time. Import and score:
 
 ```python
 from hotato.core import run_single, run_suite
@@ -12,15 +11,14 @@ env = run_single(stereo="call.wav", expect="yield")
 env = run_suite()  # bundled 8-scenario battery
 ```
 
-The top-level package re-exports the essentials:
-`from hotato import run_single, run_suite, LIMITS, SUITE_ID, __version__`.
-
-All scoring functions take keyword arguments only.
+The top-level package re-exports the essentials (`from hotato import
+run_single, run_suite, LIMITS, SUITE_ID, __version__`); every scoring
+function takes keyword arguments only.
 
 ## The envelope
 
 `run_single` and `run_suite` return the same machine-readable dict
-(JSON Schema: `src/hotato/schema/envelope.v1.json`):
+(schema: `src/hotato/schema/envelope.v1.json`):
 
 ```python
 {
@@ -86,11 +84,11 @@ Each event:
 }
 ```
 
-An event that lacks the input to be judged (a silent caller channel with no
+An event without enough input to judge (a silent caller channel with no
 onset label, or a should-yield expectation with the agent silent at onset)
-additionally carries `"scorable": False` and a plain `"not_scorable_reason"`.
-It reports as an input problem: it sits outside `passed`/`failed` and outside
-the fix router and the funnel, keeping envelopes for valid recordings
+carries `"scorable": False` and a plain `"not_scorable_reason"` instead. It
+sits outside `passed`/`failed`, the fix router, and the funnel -- an input
+problem, not a verdict -- so envelopes for valid recordings stay
 byte-identical.
 
 ## hotato.core
@@ -117,13 +115,13 @@ run_single(
 ) -> dict
 ```
 
-Scores one recording and returns the envelope. Provide either `stereo` or
-both `caller` and `agent`. `expect="hold"` means the caller's speech is a
-backchannel, a short acknowledgement like "mhm", and a correct agent keeps
-talking through it. The two `max_*` thresholds tighten the pass criteria.
-`echo_gate` is opt-in and off by default; `signals.echo` is always computed
-and reported either way. A malformed or truncated WAV raises a clean
-`ValueError` carrying the ffmpeg export line to fix it.
+Scores one recording and returns the envelope: provide `stereo`, or both
+`caller` and `agent`. `expect="hold"` means the caller's speech is a
+backchannel (a short acknowledgement like "mhm") that a correct agent
+talks through. Both `max_*` thresholds tighten the pass criteria;
+`echo_gate` is opt-in and off by default, though `signals.echo` always
+computes. A malformed or truncated WAV raises a clean `ValueError` naming
+the ffmpeg fix.
 
 ### run_suite
 
@@ -144,8 +142,8 @@ run_suite(
 
 Runs a labelled battery and returns the envelope with a `suite` key. The
 bundled 8-scenario battery ships inside the package, zero external files;
-point `scenarios_dir` and `audio_dir` at your own labelled set instead (for
-example `corpus/suites/gold/scenarios` and `.../audio`). Suite audio must be
+point `scenarios_dir`/`audio_dir` at your own labelled set instead (e.g.
+`corpus/suites/gold/scenarios` and `.../audio`). Suite audio must be
 two-channel.
 
 ### dump_frames_for_input
@@ -165,7 +163,7 @@ dump_frames_for_input(
 
 The per-frame evidence behind every reported number: each channel's dBFS, VAD
 activity, threshold, and noise floor, plus a self-describing `config` block.
-Every reported signal is re-derivable by hand from this dump.
+Every signal it reports is re-derivable by hand from this dump.
 
 ### LIMITS and SUITE_ID
 
@@ -196,16 +194,14 @@ cfg = ScoreConfig(
 
 `VADParams.backend` is `"energy"` (the deterministic reference behind every
 published number) or `"neural"` (an optional Silero VAD cross-check via
-`pip install 'hotato[neural]'`; without the extra it raises a clean
-`BackendUnavailable`, surfacing the missing dependency immediately).
+`pip install 'hotato[neural]'`; without the extra, a clean
+`BackendUnavailable` names the missing dependency).
 
 ## hotato.report
 
 Self-contained visual reports scored from the same measurements. All three
-functions accept the full scoring parameter set (`stereo`, `caller`, `agent`,
-`suite`, `scenarios_dir`, `audio_dir`, `suffix`, `caller_channel`,
-`agent_channel`, `onset_sec`, `expect`, `stack`, `max_talk_over_sec`,
-`max_time_to_yield_sec`, `cfg`) as keyword arguments.
+take the full scoring parameter set from `run_single`/`run_suite` above, as
+keyword arguments.
 
 ```python
 build_report_html(*, base: dict | None = None,
@@ -219,9 +215,9 @@ write_report(path: str, fmt: str = "html", **kwargs) -> dict
 self-contained file with inline CSS and SVG, per-event timelines, analytics,
 a frame inspector, and print CSS for PDF. `build_report_md` mirrors it as
 Markdown tables. `write_report` builds in `fmt` (`"html"` or `"md"`), writes
-to `path`, and returns the envelope. Pass `base` (a previous envelope dict,
-for example loaded from `hotato run --format json` output) to render
-per-scenario regression deltas; `base_label` names it on the page.
+to `path`, and returns the envelope. Pass `base` (a prior envelope, e.g.
+loaded from `hotato run --format json`) to render per-scenario regression
+deltas; `base_label` names it on the page.
 
 ```python
 from hotato.report import write_report
@@ -277,10 +273,10 @@ run_export(
 
 Writes `events.csv` (one row per event, columns in
 `hotato.export.EVENT_COLUMNS`), `frames.csv` (one row per VAD frame, columns
-in `FRAME_COLUMNS`), and `envelope.json` into `out_dir` (created if missing).
-`#` comment lines at the top of each CSV document the column meanings. An
-empty cell marks a value not derivable from that input; every filled cell is
-a direct measurement.
+in `FRAME_COLUMNS`), and `envelope.json` into `out_dir` (created if
+missing); `#` comment lines at the top of each CSV document the columns.
+An empty cell means no value for that input; every filled cell is a direct
+measurement.
 
 ## hotato.stackbench
 
@@ -306,10 +302,10 @@ run_stackbench(
 
 Returns a result dict (`kind: "stack-benchmark"`) with the envelope fields
 plus `config`, `scenarios {total, captured, not_captured}`, and `provenance`.
-Scoring is `run_suite`, unchanged. Scenarios with no matching recording are
-listed under `not_captured`, left out of both the scoring and the failure
-counts. The timestamp derives from input file mtimes, so the same inputs
-always reproduce the same result file.
+Scoring is unchanged `run_suite`; a scenario with no matching recording
+lands under `not_captured`, out of the scoring and failure counts. The
+timestamp derives from input file mtimes, so the same inputs always
+reproduce the same file.
 
 ### load_result, compare_results, render_comparison_md
 
@@ -349,8 +345,7 @@ def test_call_yields(hotato_score):
 
 `hotato_score(**kwargs)` takes the same keyword arguments as `run_single`;
 pass `suite="barge-in"` (plus `run_suite` keywords) to score a battery
-instead. It returns the envelope, so you write your own assertions against
-it.
+instead. It returns the envelope -- write your own assertions against it.
 
 Session gate flags: `pytest --hotato-suite` runs the battery after your tests
 and fails the session (exit 1) on a regression; `--hotato-suite-scenarios DIR`
@@ -384,14 +379,14 @@ compiled = compile_counterexample(
 assert compiled["exit_code"] in (0, 1)
 ```
 
-`compile_counterexample` returns exit `0` only after the final unit-deletion
-pass earns `one_minimal`. Exit `1` means the exact failure was preserved and a
-runnable capsule was written, while the candidate-evaluation budget ended
-before the proof completed. A refusal raises `CounterexampleRefusal` and leaves
-no destination directory. Shared input parsing can raise `ValueError` for
-malformed JSON/YAML-subset or schema-invalid documents and `OSError` for input
-I/O failures. The CLI maps these public-API failures to its structured handled-
-error and exit-code contract.
+`compile_counterexample` returns exit `0` only after the final
+unit-deletion pass earns `one_minimal`. Exit `1` means the failure was
+preserved and a runnable capsule written, but the evaluation budget ran
+out before the proof completed. A refusal raises `CounterexampleRefusal`,
+leaving no destination directory. Input parsing raises `ValueError` for
+malformed or schema-invalid JSON/YAML-subset, `OSError` for I/O
+failures -- both mapped by the CLI to its handled-error, exit-code
+contract.
 
 ```python
 verify_counterexample("refund-posted.hotato-repro")
@@ -405,13 +400,14 @@ predicate_counterexample("refund-posted.hotato-repro")
 ```
 
 - `verify_counterexample` requires the recorded package version and evaluator
-  source digest, then independently replays the source, accepted delete-only
-  chain, final case, derived artifacts, and any completed one-minimal claim.
-  The digest identifies shipped evaluator source; interpreter and platform
-  identity are outside it, while replay hashes detect behavior changes.
+  source digest, then independently replays the source, the accepted
+  delete-only chain, the final case, derived artifacts, and any completed
+  one-minimal claim. The digest identifies shipped evaluator source, not
+  interpreter or platform identity; replay hashes catch behavior changes.
 - `reproduce_counterexample` permits evaluator drift and checks the reduced
-  case twice for the source-selected structured failure branch. It is for Hotato
-  evaluator/scenario regressions; it does not execute a deployed voice agent.
+  case twice for the source-selected structured failure branch. It targets
+  Hotato evaluator/scenario regressions; it does not execute a deployed
+  voice agent.
 - `inspect_counterexample` verifies the closed member inventory, bound source,
   oracle and artifacts, and canonical human files without executing the scenario.
 - `export_counterexample` first verifies the private capsule, then writes a
@@ -423,20 +419,15 @@ predicate_counterexample("refund-posted.hotato-repro")
 The v1 source is the base scripted scenario at the selected seed. A
 `variation_matrix` is recorded as unapplied and may be removed during
 reduction; compile a concrete scenario when a specific expanded run matters.
-The exact scope, artifacts, commands, and claim ceiling are in
+Full scope, artifacts, commands, and claim ceiling:
 [`COUNTEREXAMPLES.md`](COUNTEREXAMPLES.md).
 
 ## MCP tool
 
-`hotato-mcp` (or `python -m hotato.mcp_server`) speaks MCP over stdio. Its
-scoring tool, `voice_eval_run`, returns the identical envelope the CLI emits;
-three counterexample tools (`counterexample_compile`, `counterexample_verify`,
-`counterexample_reproduce`) compile and check offline regression capsules; and
-the fleet tools read, verify, and propose over a local fleet workspace
-(`fleet_status`, `candidate_list`, `contract_list`, `trial_explain`,
-`artifact_verify`, `experiment_propose`, `experiment_run`, `clone_cleanup`),
-documented in [`MCP.md`](MCP.md). Install:
-`uvx --from "hotato[mcp]" hotato-mcp`.
+`hotato-mcp` (or `python -m hotato.mcp_server`) speaks MCP over stdio: one
+scoring tool (`voice_eval_run`, returning the identical envelope the CLI
+emits), three counterexample tools, and eleven fleet tools -- full list and
+scope in [`MCP.md`](MCP.md). Install: `uvx --from "hotato[mcp]" hotato-mcp`.
 
 The parameters below are `voice_eval_run`'s, all optional:
 
@@ -457,12 +448,12 @@ The parameters below are `voice_eval_run`'s, all optional:
 
 ## Exit codes and errors
 
-Envelopes carry `exit_code`: 0 all scorable events passed, 1 regression.
-`hotato.core.process_exit_code(env)` maps the finished envelope to the CLI
-process exit: a single-recording run whose event isn't scorable (silent
-caller with no onset label, or agent silent at onset; the reason lands in
-`not_scorable_reason`) exits 2, because that is an input problem, not an
-agent verdict. Suite runs count such events in `summary.not_scorable` and
-keep their 0/1 semantics. Malformed input (bad WAV, out-of-range channel,
-negative onset, unknown suite or stack) raises `ValueError`, which the CLI
-surfaces as exit code 2 -- only a file the scorer can fully read gets scored.
+Envelopes carry `exit_code`: 0 means every scorable event passed, 1 a
+regression. `hotato.core.process_exit_code(env)` maps the envelope to the
+CLI process exit: a single-recording run whose event isn't scorable
+(silent caller with no onset label, or agent silent at onset; reason in
+`not_scorable_reason`) exits 2 -- an input problem, not a verdict. Suite
+runs count such events in `summary.not_scorable`, keeping their 0/1
+semantics. Malformed input (bad WAV, out-of-range channel, negative onset,
+unknown suite or stack) raises `ValueError`, surfaced as exit code 2: only
+a file the scorer can fully read gets scored.
