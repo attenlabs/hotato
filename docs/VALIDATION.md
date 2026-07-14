@@ -1,11 +1,11 @@
 # What Hotato validates
 
-A turn handoff is not one number, so Hotato is validated on **three separate
-jobs**, each measured on its own terms, each with an explicit reported output.
-If you are judging whether to trust Hotato, judge these three jobs one at a time.
+A turn handoff is not one number. Hotato is validated on **three separate
+jobs**, each measured on its own terms, each with an explicit reported
+output. Judge each job on its own terms when you decide whether to trust it.
 
-Everything below runs offline against recordings you control. Every threshold is
-exposed and every frame is inspectable (`hotato run --dump-frames`).
+Everything below runs offline against recordings you control. Every threshold
+is exposed and every frame is inspectable (`hotato run --dump-frames`).
 
 ---
 
@@ -15,10 +15,10 @@ exposed and every frame is inspectable (`hotato run --dump-frames`).
 Hotato produce the same timing measurements every run? (Deterministic for a
 fixed hotato version; byte-identical re-runs are verified in CI on Linux
 x86_64, Python 3.10, 3.11, and 3.12 -- `.github/workflows/tests.yml`, job
-`pytest`. The same double-run check now also runs in CI on macOS and Windows,
+`pytest`. The same double-run check also runs in CI on macOS and Windows,
 with the digest additionally compared ACROSS those OSes -- jobs `portability`
 and `determinism` in the same file. Cross-OS agreement is measured and
-reported there, not asserted -- it is not part of this claim.)
+reported there; it is a separate finding, not part of this claim.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used
@@ -45,9 +45,9 @@ same pinned audio, channel map, onset, label, and scoring config, a changed
 result means one of those pinned inputs changed, not that the scorer drifted.
 
 **What this job establishes.** That the measurement is stable and re-derivable
-by hand from [`METHODOLOGY.md`](../METHODOLOGY.md) -- not that 0.51s is the
-"true" yield latency in some absolute sense, or that the reference thresholds
-are right for your product.
+by hand from [`METHODOLOGY.md`](../METHODOLOGY.md). It is a claim about
+stability, not that 0.51s is the absolute "true" yield latency or that the
+reference thresholds fit your product.
 
 ---
 
@@ -79,8 +79,9 @@ artifact is the [trust gallery](TRUST-GALLERY.md), which
 includes a deliberate false positive so you can see what an unhelpful candidate
 looks like and why Hotato still surfaces it.
 
-**What this job establishes.** Scan widens the net for you to make the call --
-not that every candidate is a bug, or that a quiet region is guaranteed clean.
+**What this job establishes.** That scan widens the net for you to make the
+call. It is a claim about recall, not that every candidate is a bug or that a
+quiet region is clean.
 
 ---
 
@@ -93,13 +94,13 @@ explicit, portable, CI-enforced policy?
 
 Today this job runs on a fixture (`hotato fixture create` / `hotato run`): a
 labelled recording plus an explicit threshold policy, scored the same way on
-every machine covered by CI (Linux, proven; macOS and Windows now run the same
-scoring code path too, pending a first green determinism run -- see Job 1
+every machine covered by CI (Linux, established; macOS and Windows now run the
+same scoring code path too, pending a first green determinism run -- see Job 1
 above). The portable contract bundle (`hotato contract create` /
 `hotato contract verify`, audio plus timing evidence plus trace evidence plus
 label plus policy plus a CI command in one artifact) carries this exact job
 forward into a single self-contained object once it ships; the verdict this
-job validates does not change shape, only the artifact it travels in.
+job validates keeps its shape, only the artifact it travels in changes.
 
 **What is reported.** Per fixture: the verdict (`PASS`/`FAIL`), the measured
 signals behind it, and the named fix class when the failure maps cleanly to a
@@ -125,8 +126,9 @@ same run -- no single threshold satisfies both. Reporting that disagreement
 instead of inventing a fix is part of the validated behavior.
 
 **What this job establishes.** That the verdict follows the audio and the
-label consistently -- not that the label was correct (you own the label), or
-that a passing fixture means the agent is good in general.
+label consistently. It is a claim about consistency, not that the label was
+correct (you own the label) or that a passing fixture means the agent is good
+in general.
 
 ---
 
@@ -150,7 +152,7 @@ Read this as the scope of the claim, stated once, plainly.
 - **Timing, not tone.** Sentiment, satisfaction, and CSAT sit outside what
   Hotato measures.
 - **Reproducible timing measurements, with the method exposed.** The three
-  jobs above are the whole claim -- no headline percentage, by design.
+  jobs above are the whole claim -- deliberately no headline percentage.
 
 The validation plan for the launch battery (external testers, consented
 fixtures, before/after) lives in
