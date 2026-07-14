@@ -1,10 +1,10 @@
 # `hotato trust --stereo call.wav`: is this recording even scorable?
 
-The input-health check, or "trust doctor": inspect ONE recording and report
-whether the audio is good enough to score, BEFORE you scan or run it. A bad
-export (a mono file, a silent channel, a swapped channel map, a hot capture) is
-caught up front, so it never turns into a confident-looking but meaningless
-turn-taking verdict downstream.
+The input-health check, "trust doctor": inspect ONE recording and learn
+whether the audio is good enough to score, before you scan or run it. `trust`
+catches a bad export -- a mono file, a silent channel, a swapped channel map,
+a hot capture -- up front, before it becomes a confident-looking but
+meaningless turn-taking verdict downstream.
 
 ```bash
 hotato trust --stereo your-call.wav
@@ -21,8 +21,8 @@ hotato trust: your-call.wav
   => eligible for scan
 ```
 
-Exit code `0` means eligible for scan; exit code `2` means NOT SCORABLE (or a usage
-error / unreadable file), so `trust` composes straight into a shell gate:
+Exit code `0` means eligible for scan; exit code `2` means NOT SCORABLE (or a
+usage error / unreadable file), so `trust` composes straight into a shell gate:
 
 ```bash
 hotato trust --stereo call.wav && hotato scan --stereo call.wav
@@ -46,21 +46,22 @@ with `--caller-channel` / `--agent-channel`). `trust` reports INPUT health only:
 - **crosstalk risk**: cross-channel echo coherence: is the caller channel
   carrying a delayed copy of the agent's own audio (echo bleed / missing echo
   cancellation)?
-- **cross-channel leakage** (`crosstalk_risk.leakage_db`): the level, in dB below
-  the source, of a consistent attenuated delayed COPY of one channel found on the
-  other. The whole-clip coherence above is a single best-lag cosine over the
-  entire envelope, so unrelated activity elsewhere in the call dilutes it: bleed
-  loud enough to corrupt a downstream timing verdict can sit under the coherence
-  bar and go unflagged. This number is measured differently -- from the per-frame
-  level ratio of the copy, which a real leak holds constant across every frame the
-  source speaks -- so it catches that regime. At or above `-40 dB` (calibrated to
-  the level at which symmetric bleed was red-teamed into flipping a verdict) the
-  copy is loud enough to be counted as the other party's activity, so it is
-  flagged and the recommendation is downgraded off `eligible for scan`;
+- **cross-channel leakage** (`crosstalk_risk.leakage_db`): the level, in dB
+  below the source, of a consistent attenuated delayed COPY of one channel
+  found on the other. The whole-clip coherence above is a single best-lag
+  cosine over the entire envelope, diluted by unrelated activity elsewhere in
+  the call, so bleed loud enough to corrupt a downstream timing verdict can
+  sit under the coherence bar and go unflagged. Leakage is measured
+  differently -- from the per-frame level ratio of the copy, constant across
+  every frame the source speaks -- so it catches that regime. At or above
+  `-40 dB` (calibrated to the level at which symmetric bleed was red-teamed
+  into flipping a verdict) the copy is loud enough to be counted as the other
+  party's activity, so it is flagged and the recommendation is downgraded off
+  `eligible for scan`;
 - **low signal level**: when even the loudest channel peaks below `-30 dBFS`, the
   capture is quiet enough that turn timing can be under-measured downstream; a
   warning, never a not-scorable condition;
-- **scorability**: the three things a real score needs: separated tracks, enough
+- **scorability**: the three things a score needs: separated tracks, enough
   caller activity, and enough agent activity;
 - **recommendation**: `eligible for scan`; `scan with caution` (scorable, but a loud
   cross-channel leak may corrupt the timing a scan produces); or `NOT SCORABLE`
@@ -70,14 +71,14 @@ with `--caller-channel` / `--agent-channel`). `trust` reports INPUT health only:
 
 `trust` answers exactly one question -- is this audio good enough to score? --
 and stops: no `yield` / `hold`, no `pass` / `fail`, no `did_yield`, no
-talk-over number, no intent label, no turn-taking verdict.
-A recording that is eligible for scan may still contain agent bugs; finding those is
+talk-over number, no intent label, no turn-taking verdict. Eligible for scan
+means the input is clean, not that the agent behaved -- finding agent bugs is
 what [`hotato scan`](../src/hotato/scan.py) and `hotato run` are for.
 
 ## Not scorable
 
-Three input defects make a recording unscorable. Each is reported with `scorable:
-false`, a plain reason, and the next step, and exits `2`:
+Three input defects make a recording unscorable. Each is reported with
+`scorable: false`, a plain reason, and the next step, and exits `2`:
 
 - **mono**: a single channel cannot separate the caller from the agent on its
   own. Next step: export a dual-channel recording (the gold reference), OR score
@@ -87,26 +88,26 @@ false`, a plain reason, and the next step, and exits `2`:
 - **a silent required channel**: for example `caller channel has no detected
   speech`. Next step: verify channel mapping or export dual-channel again.
 
-Clipping, high leading silence, crosstalk risk, cross-channel leakage, a very low
-signal level, and a possible channel swap are **warnings**: surfaced as signal,
-without changing scorability by themselves. A loud cross-channel leak
-additionally downgrades the recommendation to `scan with caution` -- the tracks
-stay separated and scorable, so the scorability gate and exit code hold
-steady; only the human-facing recommendation records that a scan's timing may
-be wrong. `trust` adds signals and discloses limits -- the not-scorable
-boundary, and what passes, stay fixed.
+Clipping, high leading silence, crosstalk risk, cross-channel leakage, a very
+low signal level, and a possible channel swap are **warnings**: surfaced as
+signal, without changing scorability by themselves. A loud cross-channel leak
+additionally downgrades the recommendation to `scan with caution` -- the
+tracks stay separated and scorable, so the scorability gate and exit code
+hold steady, and only the human-facing recommendation records that a scan's
+timing may be wrong. `trust` adds signal and discloses limits; the
+not-scorable boundary stays fixed.
 
 ## Mono via `--diarize`: is this mono file confidently separable?
 
-By default a mono file is not scorable (above). With the opt-in `[diarize]`
-front-end, `hotato trust --stereo call.wav --diarize` reports whether the mono is
-confidently SEPARABLE into caller/agent -- still WITHOUT emitting any turn-taking
-verdict. It runs the selected diarizer (`--diarizer pyannote|sortformer|pyannoteai`,
-default local `pyannote`), then reports a `scorability.separation` sub-block and a
-confidence **tier**:
+A mono file is not scorable by default (above). The opt-in `[diarize]`
+front-end changes the question: `hotato trust --stereo call.wav --diarize`
+reports whether the mono is confidently SEPARABLE into caller/agent, still
+without emitting a turn-taking verdict. It runs the selected diarizer
+(`--diarizer pyannote|sortformer|pyannoteai`, default local `pyannote`), then
+reports a `scorability.separation` sub-block and a confidence **tier**:
 
 - **high**: confidently separable -- score it with `hotato run --mono call.wav
-  --diarize` for a real (diarized-mono) verdict. Exit `0`.
+  --diarize` for a diarized-mono verdict. Exit `0`.
 - **low**: separable but only indicative -- e.g. voices close, overlap elevated,
   or the caller/agent mapping balanced. `hotato run --mono ... --diarize` will
   still score it, but the verdict is stamped `indicative_only` and no SLA gate
@@ -183,7 +184,7 @@ hotato trust --stereo call.wav --format json
 }
 ```
 
-Everything runs offline and reuses hotato's existing primitives: the hardened
-WAV reader, the reference framing, the energy VAD, and the cross-channel echo
-coherence, all on your machine, reporting input-health signals only -- never
-an accuracy percentage.
+Everything runs offline and reuses hotato's existing primitives -- the
+hardened WAV reader, the reference framing, the energy VAD, and the
+cross-channel echo coherence -- all on your machine, reporting input-health
+signals only, never an accuracy percentage.

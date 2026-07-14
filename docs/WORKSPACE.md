@@ -1,11 +1,12 @@
 # The team workspace: `hotato serve`
 
-A self-hosted, local web app for a team to read a voice agent's conversation-QA
-state: release readiness, the scenario matrix, a conversation inspector, failure
-clusters, and production health. It is stdlib-only (`http.server` + `sqlite3`):
-self-hosted, with no framework or build step, and nothing that phones home. It
-serves the same fleet registry and evidence store the CLI writes, reading that
-data directly instead of passing a database file around.
+A self-hosted, local web app for a team to read a voice agent's
+conversation-QA state: release readiness, the scenario matrix, a conversation
+inspector, failure clusters, and production health. It is stdlib-only
+(`http.server` + `sqlite3`): self-hosted, no framework or build step, nothing
+that phones home. It serves the same fleet registry and evidence store the
+CLI writes, reading that data directly instead of passing a database file
+around.
 
 ```
 hotato serve --workspace default
@@ -24,8 +25,8 @@ hotato serve: workspace 'default'
   read-only: the server issues only SELECTs; reviews/labels stay CLI-driven. No telemetry, no external calls.
 ```
 
-Open the `open:` URL in a browser; the server sets a session cookie and redirects
-to strip the token from the address bar (see [Auth](#auth)).
+Open the `open:` URL in a browser; the server sets a session cookie and
+redirects to strip the token from the address bar (see [Auth](#auth)).
 
 ## Flags
 
@@ -63,8 +64,8 @@ agents and scripts can drive the workspace without scraping HTML.
    rationale and citations (deterministic checks and model-judged/advisory
    results shown in **separate lanes**), and reviewer decisions. Every digest is
    a link to the raw evidence blob (`/evidence/<digest>`) to drill straight to the
-   source. Redacted transcript segments and trace spans render as `[redacted]`
-   and the redacted text is scrubbed from both the HTML and the JSON mirror.
+   source. Redacted transcript segments and trace spans render as `[redacted]`,
+   scrubbed from both the HTML and the JSON mirror.
 4. **Failure clusters** (`/clusters`): failed evaluations and assertions grouped
    by **observable signature** (dimension + assertion kind + reason-class), with
    counts and drill-through lists into the inspector. Labelled *clusters by
@@ -88,8 +89,8 @@ Every request is authenticated against one shared **bearer token**:
 The token is compared in constant time (`hmac.compare_digest`). If you do not
 pass `--token`/`--token-file`, one is generated with `secrets.token_urlsafe` on
 first start and stored `0600` at `<registry>/serve/<workspace>/token`, so a
-restart keeps the same URL. Sessions live only in memory (never persisted, never
-cross-tenant).
+restart keeps the same URL. Sessions live only in memory, never persisted and
+never cross-tenant.
 
 ## Audit log
 
@@ -104,24 +105,17 @@ Every request appends one JSONL line to
 stripped from the recorded query. The audit log is the **only** file the server
 writes.
 
-## Read-only in v1
-
-The server writes only the audit log. It issues only `SELECT`s against your
-workspace, exposing reads and nothing more: no write endpoint. Reviews, labels, and
-adjudications stay CLI-driven (`hotato fleet review …`, `hotato label …`); the UI
-states this in its footer.
-
 ## Binding 127.0.0.1 by default
 
 The server binds loopback (`127.0.0.1`) unless you explicitly pass `--host`. A
 non-loopback bind (for example `--host 0.0.0.0`, to reach the workspace from
 another machine) prints a prominent warning, because it exposes the workspace to
-your local network. Token auth still applies, but prefer an SSH tunnel or a
-reverse proxy you control over binding a wide interface directly.
+your local network. Token auth still applies; an SSH tunnel or a reverse proxy
+you control is the tighter choice over binding a wide interface directly.
 
 ## Zero egress
 
-The server only opens a **listening** socket, making no outbound connection
-and importing nothing that phones home -- audio, traces, and evaluations
-stay on the machine. This is covered by a test that whitelists loopback and fails
-if any view attempts an external connection, and by the threat-model row below.
+The server only opens a **listening** socket: no outbound connection, and
+nothing it imports phones home -- audio, traces, and evaluations stay on the
+machine. A test whitelists loopback and fails if any view attempts an
+external connection, backed by the threat-model row below.

@@ -1,12 +1,13 @@
 # Why Hotato
 
+Four timing failures break a voice-agent call while every text-level test
+still passes.
+
 ## Voice agents fail in ways your tests do not catch
 
-Your test suite checks what the agent says. Production calls fail on *when* it
-speaks. Four timing failures show up again and again in real transcripts, and
-all four are invisible to text-level tests. Three are interruption patterns
-(missed interruption, false stop, slow yield); the fourth is an endpointing
-gap:
+Your test suite checks what the agent says; production calls fail on *when*
+it speaks. Three failures are interruption patterns (missed interruption,
+false stop, slow yield); the fourth is an endpointing gap:
 
 1. **Missed interruption.** The caller says "stop, take that off" and the agent
    keeps talking. `did_yield` is false where it must be true. The caller
@@ -23,10 +24,10 @@ gap:
    a broken conversation partner. Hotato measures how long the silence lasted,
    never what it meant (thinking, distracted, or gone quiet).
 
-Each of these lives entirely in the audio timing. A transcript diff, an LLM
-judge on text, and a unit test on the agent's reply all score such a call as
-perfect: the transcript reads clean, the caller called back anyway. That gap is
-what these four patterns hide.
+Each lives entirely in the audio timing, invisible to a transcript diff, an
+LLM judge on text, or a unit test on the agent's reply -- all three score the
+call as perfect: the transcript reads clean, and the caller calls back
+anyway. That gap is what these four patterns close.
 
 You label the expected behavior: `yield` (the agent should stop for the caller)
 or `hold` (it should keep speaking through a backchannel/noise/acknowledgement).
@@ -35,10 +36,9 @@ to call.
 
 ## Is this even a turn-taking bug?
 
-In our observed reports, many alleged barge-in bugs turn out not to be
-turn-taking bugs at all. Each below produces a symptom that reads exactly like a
-missed interruption or false stop, but the fix lives in a different layer, and
-no VAD threshold will touch it:
+A lot of alleged barge-in bugs are not turn-taking bugs. Each pattern below
+produces a symptom that reads exactly like a missed interruption or false
+stop, but the fix lives in a different layer, and no VAD threshold touches it:
 
 - **STT hallucination.** The transcript has words the caller never said, or
   drops words that mattered, so the agent responds to something unsaid. Reach
@@ -47,8 +47,8 @@ no VAD threshold will touch it:
   outgoing audio before it reaches the agent, so "the agent talked over me" is
   audio arriving late -- a transport ordering artifact. Reach for: client/WebRTC
   jitter-buffer and network-latency instrumentation.
-- **LLM verbosity or tool-selection.** The agent "kept talking through the
-  interruption" because it was mid-tool-call or committed to finishing a long
+- **LLM verbosity or tool-selection.** The agent keeps talking through the
+  interruption because it is mid-tool-call or committed to finishing a long
   generation before re-checking for a stop signal. Reach for: response-length
   and tool-call latency tracing in your agent framework.
 - **Safety false-refusal.** The agent stops abruptly because a moderation layer
@@ -58,17 +58,16 @@ no VAD threshold will touch it:
 - **Wrong-language STT.** The caller speaks a language or accent the STT covers
   poorly, recognition comes back empty or garbled, and the response looks
   unrelated. That reads as a missed interruption; it is a language-coverage
-  gap. Reach for: per-locale STT accuracy tooling. (Hotato's own detector works
+  gap. Reach for: per-locale STT accuracy tooling. Hotato's own detector works
   from energy alone, so it measures the same regardless of language: see
-  `corpus/classes/README.md`.)
+  `corpus/classes/README.md`.
 
-This is both a scope guard and a shortcut. If your bug matches one of these
-five, tuning Hotato will not surface it -- and you save the day you would have
-spent staring at `turn_end_silence_sec`. If it matches none of them:
-agent-talks-over-caller and false-stop-on-backchannel are exactly what Hotato
-measures, with the funnel (no single config value fixes both directions at
-once) proven on recorded calls, not synthetic fixtures
-(`corpus/vapi-defaults/README.md`).
+This is both a scope guard and a shortcut. Match one of these five and tuning
+Hotato will not surface it -- you save the day you would have spent staring at
+`turn_end_silence_sec`. Match none of them and agent-talks-over-caller /
+false-stop-on-backchannel are exactly what Hotato measures, with the funnel --
+no single config value fixes both directions at once -- demonstrated on
+recorded calls, not synthetic fixtures (`corpus/vapi-defaults/README.md`).
 
 ## What makes Hotato different
 
@@ -89,21 +88,22 @@ once) proven on recorded calls, not synthetic fixtures
   problem -- telling "mhm" apart from "stop" -- so you spend time on the fix
   that works instead of retuning a setting that cannot win.
 
-## What Hotato measures (and what it leaves to other tools)
+## What Hotato measures, and where it stops
 
 Hotato measures energy over time on two channels -- that is the whole method.
 Transcription, emotion, and intent detection sit outside it; a diarizer, where
-used, assigns anonymous SPEAKER_00/01 labels and never identifies who a person
-is. A single-channel (mono) recording is scorable via the opt-in,
-quality-gated `[diarize]` front-end (`hotato run --mono call.wav --diarize`),
-labeled indicative below the confidence bar, with dual-channel as the reference
+used, assigns anonymous SPEAKER_00/01 labels, never who a person is. A
+single-channel (mono) recording scores via the opt-in, quality-gated
+`[diarize]` front-end (`hotato run --mono call.wav --diarize`), labeled
+indicative below the confidence bar, with dual-channel as the reference
 standard. The method and its ceiling are stated in
 [METHODOLOGY.md](../METHODOLOGY.md) and in the `limits` block of every result.
 
 ## Reproducible timing measurements, with the method exposed
 
-A single blended percentage tells you nothing about which call failed, on which
-axis, or what to change, so Hotato reports three direct measurements per event:
+A single blended percentage tells you nothing about which call failed, on
+which axis, or what to change. Hotato reports three direct measurements per
+event:
 
 - `did_yield`: did the agent stop talking after the caller started
 - `seconds_to_yield`: seconds between the caller starting and the agent stopping

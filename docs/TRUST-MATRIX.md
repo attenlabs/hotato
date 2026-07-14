@@ -1,13 +1,13 @@
 # Trust matrix: what Hotato does for each input condition
 
-Before Hotato scores a recording, `hotato trust` inspects the audio and decides
-whether a score would be meaningful, catching a bad export before it can turn
-into a confident-looking but hollow verdict. This page is the exact
+Before Hotato scores a recording, `hotato trust` inspects the audio and
+decides whether a score would be meaningful, catching a bad export before it
+turns into a confident-looking but hollow verdict. This page is the exact
 contract: input condition on the left, Hotato's behavior on the right. This
 table covers input health only; a turn-taking verdict is `scan`'s and `run`'s
 job.
 
-Worked examples with real CLI output for every row are in
+Worked examples with CLI output for every row are in
 [TRUST-GALLERY.md](TRUST-GALLERY.md).
 
 ## The contract
@@ -75,36 +75,38 @@ Worked examples with real CLI output for every row are in
   - Scoring downstream: surfaced **with** the warning, as a candidate for
     you to inspect and label `hold`.
 
-**Reading the two axes.** `trust` answers one question: is this audio good enough
-to score? The exit code is the machine contract, `0` = eligible for scan (possibly
-with warnings), `2` = not scorable (with the reason and the next step). Warnings
-(swap, crosstalk, clipping, leading silence) inform the read; the three hard
-refusals (mono, identical channels, a silent required channel) are what
-changes scorability.
+**Reading the two axes.** `trust` answers one question: is this audio good
+enough to score? The exit code is the machine contract -- `0` means eligible
+for scan (possibly with warnings), `2` means not scorable (with the reason
+and the next step). Warnings (swap, crosstalk, clipping, leading silence)
+inform the read; the three hard refusals (mono, identical channels, a silent
+required channel) are what changes scorability.
 
 ## Why refuse instead of guessing
 
-Every refusal above is a place where a lesser tool would still print a number.
-A mono file "scored" by guessing which speaker is which produces a verdict that
-looks identical to a real one and is worthless. A swapped-channel file scored
-without the warning inverts caller and agent, so every "the agent yielded"
-becomes "the caller yielded" with no visible sign. Hotato treats these as input
-defects, reports them, and stops, so a green or red build always means something.
+Every refusal above is a place where a less careful tool would still print a
+number. A mono file "scored" by guessing which speaker is which produces a
+verdict indistinguishable from a properly-scored one, and it is worthless. A
+swapped-channel file scored without the warning inverts caller and agent, so
+every "the agent yielded" becomes "the caller yielded" with no visible sign.
+Hotato treats these as input defects, reports them, and stops, so a green or
+red build always means something.
 
 ## Two ways past a mono refusal
 
-Mono is refused by default because one channel cannot separate the two parties.
-There are two opt-in escapes, both indicative only.
+Mono is refused by default because one channel cannot separate the two
+parties. Two opt-in escapes exist, both indicative only.
 
 **1. `--allow-mono` (degraded mode).** On `capture`, `pull`, and `sweep`, the
-`--allow-mono` flag (or `HOTATO_ALLOW_MONO=1`) accepts a mono-only recording from
-a mono stack. Nothing is separated: talk-over cannot be attributed to caller or
-agent, so the result is explicitly indicative and no SLA gate fires. Use this when
-a stack only exports a mono mix and you want a rough signal anyway.
+`--allow-mono` flag (or `HOTATO_ALLOW_MONO=1`) accepts a mono-only recording
+from a mono stack. Nothing is separated: talk-over cannot be attributed to
+caller or agent, so the result is explicitly indicative and no SLA gate
+fires. Use this when a stack only exports a mono mix and a rough signal is
+still worth having.
 
 **2. `--diarize` (separation front-end).** The opt-in `[diarize]` extra
-(`pip install 'hotato[diarize]'`) runs a local diarizer and reports a confidence
-tier before you score:
+(`pip install 'hotato[diarize]'`) runs a local diarizer and reports a
+confidence tier before you score:
 
 - **high**: confidently separable. `hotato run --mono call.wav --diarize` gives a
   diarized-mono verdict. Exit 0.
@@ -119,8 +121,8 @@ diarized-mono verdict is promoted to equivalence with it. Full front-end:
 
 ## Composing the gate
 
-Because `trust` exits `2` on any unscorable input, it drops straight into a shell
-gate ahead of a scan or a scheduled sweep:
+Because `trust` exits `2` on any unscorable input, it drops straight into a
+shell gate ahead of a scan or a scheduled sweep:
 
 ```bash
 hotato trust --stereo call.wav && hotato scan --stereo call.wav
