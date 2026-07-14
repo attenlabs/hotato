@@ -1,0 +1,15 @@
+{
+  "kind": "counterexample-verify",
+  "exit_code": 0,
+  "ok": true,
+  "status": "verified",
+  "counterexample_id": "sha256:ca466daeefbf3c65e128781a2c621ff46766d31dadd2a3b79663fe610d06de0d",
+  "failure_fingerprint": "sha256:96de7a5a7a809a565a369b673602fa4f9f89ddaddcc0a115339aa15f72b27441",
+  "minimality": "one_minimal",
+  "single_unit_checks": 6,
+  "source_replays": 2,
+  "final_replays": 2,
+  "accepted_steps_replayed": 15,
+  "evaluator_match": true,
+  "output": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/repro.hotato-repro"
+}

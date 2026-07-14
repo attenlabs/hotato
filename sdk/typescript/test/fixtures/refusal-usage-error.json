@@ -1,0 +1,8 @@
+{
+  "tool": "hotato",
+  "schema_version": "1",
+  "ok": false,
+  "error_code": "usage_error",
+  "message": "target 'no-such-assertion' must identify exactly one deterministic assertion",
+  "exit_code": 2
+}
