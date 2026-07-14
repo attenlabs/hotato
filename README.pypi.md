@@ -28,13 +28,14 @@ Your voice agent passes every text assertion and still loses the call: it talks 
 ## Quickstart: one command, on your machine
 
 ```bash
-pip install hotato && hotato start --demo
+uvx hotato start --demo
 ```
 
-Already have [uv](https://docs.astral.sh/uv/)? Zero-install, same command:
+That runs hotato with [uv](https://docs.astral.sh/uv/), no install step, on any machine. To keep it in a project, use pipx or a virtualenv:
 
 ```bash
-uvx hotato start --demo
+pipx install hotato && hotato start --demo
+# or: python -m venv .venv && . .venv/bin/activate && pip install hotato && hotato start --demo
 ```
 
 Offline, this sweeps two bundled calls a default agent failed, writes the candidate dashboard, and turns one missed-interruption moment into a demo contract it verifies on the spot:
@@ -270,19 +271,20 @@ A contract bundle contains call audio. Do not commit a raw customer contract to 
 
 ## Install
 
-Add hotato with `pip`, or run any command zero-install with [`uvx`](https://docs.astral.sh/uv/):
+Run any command zero-install with [`uvx`](https://docs.astral.sh/uv/), or add hotato to a project with pipx or pip in a virtualenv:
 
 ```bash
-# core: stdlib-only, zero dependencies
-pip install hotato
-# optional Silero VAD cross-check
-pip install 'hotato[neural]'
-# optional ASR transcript, attached as context beside the score
-pip install 'hotato[transcribe]'
-# LiveKit live capture
-pip install 'hotato[livekit]'
-# Pipecat live capture
-pip install 'hotato[pipecat]'
+# zero-install, any command:
+uvx hotato start --demo
+# keep it in a project:
+pipx install hotato
+# extras (Silero VAD cross-check / ASR transcript / LiveKit / Pipecat capture):
+pipx install 'hotato[neural]'
+pipx install 'hotato[transcribe]'
+pipx install 'hotato[livekit]'
+pipx install 'hotato[pipecat]'
+# run an extra zero-install:
+uvx --from 'hotato[neural]' hotato start --demo
 ```
 
 ## Contribute a labeled call

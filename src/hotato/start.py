@@ -227,31 +227,14 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
 def _next_commands_text(card_written: bool, contract_written: bool) -> str:
     lines = [
         "",
-        "Next steps (all offline, no credentials):",
+        "Then  (all offline, no account, no network)",
         "",
-        "  1. Save a candidate as a permanent regression test:",
-        f"     hotato fixture promote {_SWEEP_JSON}#1 --expect yield --id my-first-fixture --out tests/hotato",
-        "     (use --expect hold instead if the agent should keep talking through that moment)",
+        f"  Save a regression   hotato fixture promote {_SWEEP_JSON}#1 --expect yield --id my-first-fixture --out tests/hotato",
+        "  Run fixtures in CI  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio",
+        f"  Render a card       hotato card {_SWEEP_JSON}#1 --out candidate.svg",
         "",
-        "  2. Run your fixtures in CI (exits non-zero on a regression):",
-        "     hotato run --scenarios tests/hotato/scenarios --audio "
-        "tests/hotato/audio",
-        "",
-        "  3. Render a shareable card from any candidate:",
-        f"     hotato card {_SWEEP_JSON}#1 --out candidate.svg",
+        "  Keep it             uvx tool install hotato",
     ]
-    if contract_written:
-        lines += [
-            "",
-            "  4. Re-verify the demo failure contract in CI (or create your "
-            "own from any candidate with `hotato contract create`):",
-            f"     hotato contract verify {_CONTRACTS_DIR}/",
-        ]
-    if card_written:
-        lines += [
-            "",
-            f"The threshold-funnel card is already rendered: {_FUNNEL_CARD}",
-        ]
     return "\n".join(lines)
 
 
@@ -357,15 +340,16 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
         if contract_written:
             print(f"  demo contract:   {contract_info['bundle_rel']}")
             if contract_info["passed"] is False:
-                print("  verified contract: FAIL as expected -- the demo "
-                      "call missed the interruption; a CI gate on "
-                      "this contract catches any change to the evidence or "
-                      "policy -- catching the AGENT regressing requires a "
-                      "fresh recapture (see docs/RECAPTURE.md)")
-                print("  (start --demo itself exits 0 because setup "
-                      "succeeded; run the next command to see the "
-                      "contract's CI exit 1: hotato contract verify "
-                      "contracts/)")
+                print("  re-scored FAIL, by design: this call talked over "
+                      "the caller.")
+                print("  The contract freezes that moment as evidence, so a "
+                      "CI gate flags any")
+                print("  later change to its evidence or policy. Proving the "
+                      "live agent")
+                print("  improved uses a fresh recapture (docs/RECAPTURE.md).")
+                print("  Setup finished, so start --demo exits 0. See the "
+                      "gate return exit 1:")
+                print("      hotato contract verify contracts/")
             else:  # pragma: no cover - the bundled demo candidate always fails
                 mark = "PASS" if contract_info["passed"] else "NOT SCORABLE"
                 print(f"  verified contract: {mark}")

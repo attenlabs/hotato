@@ -7,7 +7,8 @@ returning the same envelope -- the JSON result object every hotato surface
 emits.
 
 ```bash
-pip install hotato
+# zero-install with uvx, or: pipx install hotato
+uvx hotato --help
 ```
 
 ## The `hotato_score` fixture

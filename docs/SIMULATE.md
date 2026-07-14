@@ -12,10 +12,11 @@ generative caller: a fixed `(scenario, seed)` reproduces the transcript
 byte-for-byte (the produced transcript is content-hashed), so a run is a
 stable, reusable fixture.
 
-## Quickstart (works from a bare `pip install`)
+## Quickstart (zero-install with uvx)
 
 ```bash
-pip install hotato
+# run zero-install with uvx (or: pipx install hotato)
+uvx hotato --help
 
 # 1. Write a minimal scenario simulate accepts as-is:
 hotato simulate --init demo.scenario.json
