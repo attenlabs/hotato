@@ -70,8 +70,13 @@ def _now_iso() -> str:
 def canonical_json(obj) -> str:
     """Deterministic JSON: sorted keys, no insignificant whitespace, so two
     equal objects hash identically regardless of key order. Kept local (mirrors
-    ``manifest.canonical_json``) so this module stays self-contained."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    ``manifest.canonical_json``) so this module stays self-contained.
+    ``allow_nan=False`` rejects nan/inf/-inf so a digest is never taken over a
+    value that cannot round-trip through a standard JSON reader."""
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True, allow_nan=False,
+    )
 
 
 def _get(d, *path, default=None):
