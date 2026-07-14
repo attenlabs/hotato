@@ -29,6 +29,8 @@ import urllib.request
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
+from . import errors as _errors
+
 __all__ = [
     "validate_notify_url",
     "validate_notify_urls",
@@ -40,6 +42,7 @@ __all__ = [
 ]
 
 _ALLOWED_SCHEMES = ("http", "https")
+_HTTP_NOTIFY_RESPONSE_MAX_BYTES = 64 * 1024
 
 # The candidate fields a notify payload is ever allowed to carry: an id, its
 # kind label, and pure timing numbers. Anything else a caller passes in a
@@ -69,13 +72,16 @@ def validate_notify_url(url: str) -> str:
     scheme = (parsed.scheme or "").lower()
     if scheme not in _ALLOWED_SCHEMES:
         raise ValueError(
-            f"--notify {url!r} uses the unsupported scheme {scheme or '(none)'!r}; "
+            f"--notify {_errors.sanitize_url(url)!r} uses the unsupported scheme "
+            f"{scheme or '(none)'!r}; "
             "only http:// and https:// webhook URLs are accepted. file://, "
             "data:, and similar are refused so a typo cannot turn --notify "
             "into a local-file read or another protocol."
         )
     if not parsed.hostname:
-        raise ValueError(f"--notify {url!r} has no host; refusing to send to it.")
+        raise ValueError(
+            f"--notify {_errors.sanitize_url(url)!r} has no host; refusing to send to it."
+        )
     return url
 
 
@@ -112,11 +118,19 @@ def post_notification(url: str, payload: Dict[str, Any], timeout: int = 10) -> b
             },
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp.read()
+            _errors.read_bounded_http_body(
+                resp,
+                max_bytes=_HTTP_NOTIFY_RESPONSE_MAX_BYTES,
+                subject=(
+                    "notification response from "
+                    f"{_errors.sanitize_url(url)}"
+                ),
+            )
         return True
     except Exception as exc:  # noqa: BLE001 - fail-open by design; see module docstring
         sys.stderr.write(
-            f"[notify] {url}: delivery failed, continuing ({exc})\n"
+            f"[notify] {_errors.sanitize_url(url)}: delivery failed, continuing "
+            f"({_errors.sanitize_urls_in_text(exc)})\n"
         )
         return False
 

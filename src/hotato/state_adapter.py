@@ -49,7 +49,11 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import errors as _errors
 from .errors import open_regular as _open_regular
+
+
+_HTTP_STATE_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
 
 __all__ = [
     "StateAdapter",
@@ -518,14 +522,30 @@ class HttpStateAdapter(StateAdapter):
         if body is not None:
             headers["Content-Type"] = "application/json"
         req = urllib.request.Request(url, data=body, method=method, headers=headers)
+        safe_url = _errors.sanitize_url(url)
 
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:  # nosec - user-configured system of record
-                raw = resp.read()
+                raw = _errors.read_bounded_http_body(
+                    resp,
+                    max_bytes=_HTTP_STATE_RESPONSE_MAX_BYTES,
+                    subject=f"state response from {safe_url}",
+                )
+        except _errors.HttpResponseTooLarge as exc:
+            detail = {
+                "kind": "bad_response", "resource": resource, "url": safe_url,
+                "message": str(exc),
+            }
+            self.last_error = detail
+            raise StateAdapterError(detail["message"], detail) from exc
         except urllib.error.HTTPError as exc:
             detail = {
                 "kind": "http_status", "status": exc.code, "resource": resource,
-                "url": url, "message": f"HTTP {exc.code} from {url}: {exc.reason}",
+                "url": safe_url,
+                "message": (
+                    f"HTTP {exc.code} from {safe_url}: "
+                    f"{_errors.sanitize_urls_in_text(exc.reason)}"
+                ),
             }
             self.last_error = detail
             if exc.code == 404:
@@ -540,28 +560,31 @@ class HttpStateAdapter(StateAdapter):
             is_timeout = isinstance(reason, (socket.timeout, TimeoutError))
             detail = {
                 "kind": "timeout" if is_timeout else "network",
-                "resource": resource, "url": url,
+                "resource": resource, "url": safe_url,
                 "message": f"{'timeout' if is_timeout else 'network error'} "
-                           f"reaching {url}: {reason}",
+                           f"reaching {safe_url}: "
+                           f"{_errors.sanitize_urls_in_text(reason)}",
             }
             self.last_error = detail
             raise StateAdapterError(detail["message"], detail) from exc
         except (socket.timeout, TimeoutError) as exc:
-            detail = {"kind": "timeout", "resource": resource, "url": url,
-                      "message": f"timeout reaching {url}: {exc}"}
+            detail = {"kind": "timeout", "resource": resource, "url": safe_url,
+                      "message": f"timeout reaching {safe_url}: "
+                                 f"{_errors.sanitize_urls_in_text(exc)}"}
             self.last_error = detail
             raise StateAdapterError(detail["message"], detail) from exc
         except (ConnectionError, http.client.HTTPException, OSError) as exc:
-            detail = {"kind": "network", "resource": resource, "url": url,
-                      "message": f"network error reaching {url}: {exc}"}
+            detail = {"kind": "network", "resource": resource, "url": safe_url,
+                      "message": f"network error reaching {safe_url}: "
+                                 f"{_errors.sanitize_urls_in_text(exc)}"}
             self.last_error = detail
             raise StateAdapterError(detail["message"], detail) from exc
 
         try:
             decoded = json.loads(raw.decode("utf-8", "replace"))
         except json.JSONDecodeError as exc:
-            detail = {"kind": "bad_response", "resource": resource, "url": url,
-                      "message": f"response from {url} was not JSON: {exc}"}
+            detail = {"kind": "bad_response", "resource": resource, "url": safe_url,
+                      "message": f"response from {safe_url} was not JSON: {exc}"}
             self.last_error = detail
             raise StateAdapterError(detail["message"], detail) from exc
 
@@ -571,10 +594,10 @@ class HttpStateAdapter(StateAdapter):
         if status == "absent":
             return None  # reachable + parsed, but no such record -> grounded FAIL
         detail = {
-            "kind": "pointer", "resource": resource, "url": url,
+            "kind": "pointer", "resource": resource, "url": safe_url,
             "message": (
                 f"response_pointer {spec.get('response_pointer')!r} did not "
-                f"resolve to a record object in the response from {url}"
+                f"resolve to a record object in the response from {safe_url}"
             ),
         }
         self.last_error = detail

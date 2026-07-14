@@ -23,6 +23,119 @@ import re as _re
 from ._engine.vad import BackendUnavailable
 
 
+_URL_IN_TEXT_RE = _re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+"
+)
+
+
+def sanitize_url(url) -> str:
+    """Return a URL that is safe to include in logs and error messages.
+
+    URL userinfo and the complete query/fragment are untrusted secret-bearing
+    surfaces: webhook URLs commonly carry tokens in the query, pre-signed
+    recording URLs carry signatures there, and ``user:password@host`` embeds a
+    credential in the authority.  Preserve only the routing context useful for
+    diagnosis (scheme, host, explicit port, and path).  A query is represented
+    by the literal marker ``?redacted``; userinfo and fragments are removed.
+
+    Parsing failures return a constant marker rather than the original value,
+    because echoing a malformed URL is the unsafe failure mode this helper is
+    intended to prevent.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    if not isinstance(url, str) or not url:
+        return "<redacted-url>"
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        if not parsed.scheme or not host:
+            return "<redacted-url>"
+        port = parsed.port  # raises ValueError for a malformed/out-of-range port
+    except (TypeError, ValueError):
+        return "<redacted-url>"
+
+    display_host = host
+    if ":" in display_host and not display_host.startswith("["):
+        display_host = f"[{display_host}]"
+    netloc = display_host + (f":{port}" if port is not None else "")
+    query = "redacted" if parsed.query else ""
+    return urlunsplit((parsed.scheme.lower(), netloc, parsed.path, query, ""))
+
+
+def sanitize_urls_in_text(value) -> str:
+    """Redact every URL embedded in arbitrary exception/body text.
+
+    Network libraries and remote error pages can repeat the request URL in an
+    exception or response body.  Sanitizing only Hotato's explicit ``url``
+    argument would therefore still leak the same query token through the
+    diagnostic detail.  This is the single text-level path used before those
+    details reach a user-facing error or warning.
+    """
+    text = str(value)
+    return _URL_IN_TEXT_RE.sub(lambda match: sanitize_url(match.group(0)), text)
+
+
+class HttpResponseTooLarge(ValueError):
+    """A remote response exceeded an explicit in-process byte ceiling.
+
+    This remains a ``ValueError`` so CLI/MCP callers keep the existing
+    ``invalid_input`` / exit-2 error contract.  The distinct subclass lets
+    transports with a stronger public error type (for example the rubric and
+    state-adapter lanes) translate the refusal without brittle message
+    matching.
+    """
+
+
+def read_bounded_http_body(response, *, max_bytes: int,
+                           subject: str = "HTTP response") -> bytes:
+    """Read at most ``max_bytes`` from an urllib-style response.
+
+    A plain ``response.read()`` gives a remote peer an unbounded allocation in
+    this process.  Refuse a declared oversize ``Content-Length`` before reading
+    any body bytes, then request exactly one byte beyond the ceiling so a
+    chunked response (or one with no length header) is rejected deterministically
+    as soon as it crosses the same limit.
+
+    ``subject`` is caller-authored diagnostic context.  Callers that include a
+    URL must pass it through :func:`sanitize_url` first.
+    """
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
+
+    raw_length = None
+    headers = getattr(response, "headers", None)
+    if headers is not None:
+        try:
+            raw_length = headers.get("Content-Length")
+        except (AttributeError, TypeError):
+            raw_length = None
+    if raw_length is None:
+        getheader = getattr(response, "getheader", None)
+        if callable(getheader):
+            try:
+                raw_length = getheader("Content-Length")
+            except (AttributeError, TypeError):
+                raw_length = None
+
+    try:
+        declared_length = int(str(raw_length).strip()) if raw_length is not None else None
+    except (TypeError, ValueError):
+        declared_length = None
+    if declared_length is not None and declared_length >= 0 and declared_length > max_bytes:
+        raise HttpResponseTooLarge(
+            f"{subject} exceeds the {max_bytes}-byte response limit; refusing "
+            "the body before reading it"
+        )
+
+    body = response.read(max_bytes + 1)
+    if len(body) > max_bytes:
+        raise HttpResponseTooLarge(
+            f"{subject} exceeds the {max_bytes}-byte response limit"
+        )
+    return body
+
+
 def require_regular_file(path) -> None:
     """Refuse a non-regular file (FIFO/named pipe, device, socket) BEFORE any
     ``open()``/``wave.open()`` on it.
