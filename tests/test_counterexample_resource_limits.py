@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from hotato import assert_ as assertions
 from hotato.counterexample import (
     CounterexampleRefusal,
     bundle,
@@ -14,10 +15,16 @@ from hotato.counterexample import (
     verify_counterexample,
 )
 from hotato.counterexample.model import (
+    MAX_ACCEPTED_STEPS,
     MAX_CAPSULE_MEMBER_BYTES,
+    MAX_MINIMALITY_UNITS,
+    MAX_TRANSFORM_OPERATIONS,
     canonical_json,
     load_json,
 )
+from hotato.counterexample.oracle import target_assertion
+from hotato.counterexample.reducers import verify_single_units
+from hotato.counterexample.search import SearchState
 
 
 def _write(path: Path, value: object) -> None:
@@ -71,6 +78,262 @@ def test_proof_lane_refuses_backtracking_regex_profile(tmp_path: Path) -> None:
             _test({"kind": "phrase", "regex": "(a+)+$"}),
         )
     assert raised.value.code == "unsupported_target_regex"
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    ["a*b", "[ab]*c", ".*Z", "a+Z", "a?Z", "a{3}Z", "a{0,999999}Z"],
+)
+def test_proof_lane_refuses_every_variable_quantifier(
+    tmp_path: Path, pattern: str
+) -> None:
+    with pytest.raises(CounterexampleRefusal) as raised:
+        _compile(
+            tmp_path,
+            _scenario("a" * 20_000),
+            _test({"kind": "phrase", "regex": pattern}),
+        )
+    assert raised.value.code == "unsupported_target_regex"
+
+
+def test_oversized_proof_regex_is_refused_before_python_compiles_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def forbidden_compile(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("oversized proof regex reached re.compile")
+
+    monkeypatch.setattr(assertions.re, "compile", forbidden_compile)
+    with pytest.raises(CounterexampleRefusal) as raised:
+        target_assertion(
+            _test({"kind": "phrase", "regex": "x" * 1_025}),
+            "target",
+        )
+    assert raised.value.code == "unsupported_target_regex"
+    assert calls == 0
+
+
+def test_every_outcome_lane_is_regex_preflighted_before_generic_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def forbidden_compile(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("unpreflighted outcome regex reached re.compile")
+
+    monkeypatch.setattr(assertions.re, "compile", forbidden_compile)
+    with pytest.raises(CounterexampleRefusal) as raised:
+        target_assertion(
+            _test(
+                {
+                    "kind": "outcome",
+                    "all_of": [{"phrase": "safe"}],
+                    "any_of": [{"phrase": "x" * 1_025}],
+                }
+            ),
+            "target",
+        )
+    assert raised.value.code == "unsupported_target_regex"
+    assert calls == 0
+
+
+@pytest.mark.parametrize(
+    "assertion",
+    [
+        {
+            "kind": "tool_call",
+            "name": "refund",
+            "args_subset": {"": "A"},
+        },
+        {
+            "kind": "tool_result",
+            "name": "refund",
+            "result_subset": {"": "posted"},
+        },
+        {
+            "kind": "entity_accuracy",
+            "reference": {"order_id": None},
+        },
+        {
+            "kind": "outcome",
+            "all_of": [{"field_present": "timing.latency_ms"}],
+        },
+        {"kind": "dtmf", "digits": "99"},
+        {"kind": "latency", "span_type": "caller_audio_active", "max_ms": 100},
+    ],
+)
+def test_unrepresentable_scripted_targets_are_refused_before_source_replay(
+    tmp_path: Path, assertion: dict
+) -> None:
+    with pytest.raises(CounterexampleRefusal) as raised:
+        _compile(tmp_path, _scenario(), _test(assertion))
+    assert raised.value.code == "unsupported_target"
+    assert not (tmp_path / "capsule").exists()
+
+
+def test_minimality_unit_limit_refuses_before_candidate_replay() -> None:
+    scenario = _scenario("missing")
+    scenario.update(
+        {
+            f"optional_{index:04d}": index
+            for index in range(MAX_MINIMALITY_UNITS + 1)
+        }
+    )
+    calls = 0
+
+    def evaluator(_candidate: dict) -> dict:
+        nonlocal calls
+        calls += 1
+        return {"status": "ABSENT"}
+
+    state = SearchState(MAX_MINIMALITY_UNITS + 1, evaluator)
+    with pytest.raises(CounterexampleRefusal) as raised:
+        verify_single_units(scenario, state, set())
+    assert raised.value.code == "minimality_work_limit"
+    assert calls == 0
+
+
+def test_search_refuses_accepted_chain_limit_before_oracle_call() -> None:
+    calls = 0
+
+    def evaluator(_candidate: dict) -> dict:
+        nonlocal calls
+        calls += 1
+        return {"status": "PRESERVED"}
+
+    state = SearchState(MAX_ACCEPTED_STEPS + 1, evaluator)
+    state.accepted = MAX_ACCEPTED_STEPS
+    with pytest.raises(CounterexampleRefusal) as raised:
+        state.try_accept(
+            {"keep": 1, "remove": 2},
+            {"keep": 1},
+            {"kind": "remove-field", "phase": "test", "path": "remove"},
+        )
+    assert raised.value.code == "accepted_step_limit"
+    assert calls == 0
+
+
+def test_search_refuses_oversized_transform_before_oracle_call() -> None:
+    calls = 0
+
+    def evaluator(_candidate: dict) -> dict:
+        nonlocal calls
+        calls += 1
+        return {"status": "PRESERVED"}
+
+    current = {f"key_{index:05d}": index for index in range(MAX_TRANSFORM_OPERATIONS + 1)}
+    state = SearchState(1, evaluator)
+    with pytest.raises(CounterexampleRefusal) as raised:
+        state.try_accept(
+            current,
+            {},
+            {"kind": "remove-path-set", "phase": "test", "paths": ["pending"]},
+        )
+    assert raised.value.code == "transform_work_limit"
+    assert calls == 0
+
+
+def test_operation_shape_refuses_oversized_path_set_before_sorting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = [f"environment.key_{index:05d}" for index in range(MAX_TRANSFORM_OPERATIONS + 1)]
+    sorted_called = False
+
+    def forbidden_sorted(*_args, **_kwargs):
+        nonlocal sorted_called
+        sorted_called = True
+        raise AssertionError("oversized path set reached sorting")
+
+    monkeypatch.setattr(bundle, "sorted", forbidden_sorted, raising=False)
+    with pytest.raises(CounterexampleRefusal) as raised:
+        bundle._operation_shape(
+            {"kind": "remove-path-set", "phase": "test", "paths": paths}
+        )
+    assert raised.value.code == "certificate_schema"
+    assert sorted_called is False
+
+
+def test_large_group_reduction_emits_verifiable_bounded_transforms(
+    tmp_path: Path,
+) -> None:
+    scenario = _scenario("person@example.com")
+    scenario["environment"] = {
+        f"optional_{index:05d}": index
+        for index in range(MAX_TRANSFORM_OPERATIONS * 2 + 2)
+    }
+    output = _compile(
+        tmp_path,
+        scenario,
+        _test(
+            {
+                "kind": "pii",
+                "detectors": ["email"],
+                "mode": "must_not_leak",
+            }
+        ),
+    )
+    certificate = json.loads((output / "certificate.json").read_text(encoding="utf-8"))
+    assert certificate["accepted_steps"]
+    assert all(
+        len(step["transform"]["operations"]) <= MAX_TRANSFORM_OPERATIONS
+        for step in certificate["accepted_steps"]
+    )
+    verified = verify_counterexample(str(output))
+    assert verified["ok"] is True
+
+
+def test_certificate_step_limit_is_preflighted(tmp_path: Path) -> None:
+    output = _compile(
+        tmp_path,
+        _scenario("person@example.com"),
+        _test(
+            {
+                "kind": "pii",
+                "detectors": ["email"],
+                "mode": "must_not_leak",
+            }
+        ),
+    )
+    certificate = json.loads((output / "certificate.json").read_text(encoding="utf-8"))
+    certificate["accepted_steps"] = [
+        certificate["accepted_steps"][0]
+        for _ in range(MAX_ACCEPTED_STEPS + 1)
+    ]
+    certificate["candidate_evaluations"] = MAX_ACCEPTED_STEPS + 1
+    with pytest.raises(CounterexampleRefusal) as raised:
+        bundle._validate_certificate_document(certificate)
+    assert raised.value.code == "certificate_schema"
+
+
+def test_cached_preserved_journal_row_is_refused(tmp_path: Path) -> None:
+    output = _compile(
+        tmp_path,
+        _scenario("person@example.com"),
+        _test(
+            {
+                "kind": "pii",
+                "detectors": ["email"],
+                "mode": "must_not_leak",
+            }
+        ),
+    )
+    certificate = json.loads((output / "certificate.json").read_text(encoding="utf-8"))
+    capsule = json.loads((output / "capsule.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (output / "reduction.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    preserved = next(row for row in rows if row["status"] == "PRESERVED")
+    preserved["cached"] = True
+    journal = "".join(canonical_json(row) for row in rows).encode("utf-8")
+    with pytest.raises(CounterexampleRefusal) as raised:
+        bundle._validate_journal(journal, certificate, capsule["reduction"])
+    assert raised.value.code == "journal_chain_mismatch"
 
 
 def test_outcome_predicate_wrong_scalar_type_never_reaches_regex_engine(

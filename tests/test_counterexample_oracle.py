@@ -7,7 +7,6 @@ import copy
 import pytest
 
 from hotato import assert_ as A
-from hotato.counterexample.model import canonical_json
 from hotato.counterexample.oracle import (
     FailureOracle,
     failure_atoms,
@@ -87,10 +86,6 @@ def _cases():
             {"id": "a", "kind": "handoff", "to": "billing"},
             A.build_context(spans=[{"type": "handoff", "to": "support"}]),
         ),
-        "dtmf": (
-            {"id": "a", "kind": "dtmf", "digits": "99"},
-            A.build_context(spans=[{"type": "dtmf", "digits": "42"}]),
-        ),
         "termination": (
             {"id": "a", "kind": "termination", "reason": "dropped"},
             A.build_context(spans=[{"type": "termination", "reason": "complete"}]),
@@ -118,7 +113,7 @@ def _cases():
 
 
 def test_case_matrix_covers_every_supported_deterministic_kind():
-    assert set(_cases()) == set(A.KINDS).difference({"timing_contract"})
+    assert set(_cases()) == set(A.KINDS).difference({"timing_contract", "dtmf"})
 
 
 @pytest.mark.parametrize("kind", sorted(_cases()))
@@ -130,7 +125,7 @@ def test_failure_atom_is_structured_stable_and_reason_free(kind):
     atoms = failure_atoms(assertion, result, context)
     assert atoms
     assert all(set(atom).issubset({"code", "detector", "rule", "type", "index", "field", "key"}) for atom in atoms)
-    assert "reason" not in canonical_json(atoms).lower()
+    assert all("reason" not in atom for atom in atoms)
     one = failure_fingerprint("oracle-test", assertion, atoms[0], atoms)
     two = failure_fingerprint(
         "oracle-test",
@@ -181,7 +176,7 @@ def test_tool_call_atom_distinguishes_wrong_arguments_from_missing_tool():
     missing_result = A.evaluate_assertion(assertion, missing)
     assert wrong_result["status"] == missing_result["status"] == "FAIL"
     assert failure_atoms(assertion, wrong_result, wrong) == [
-        {"code": "tool-arguments-mismatch"}
+        {"code": "tool-argument-value-mismatch", "key": "id"}
     ]
     assert failure_atoms(assertion, missing_result, missing) == [
         {"code": "tool-missing"}

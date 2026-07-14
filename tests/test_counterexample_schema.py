@@ -10,6 +10,11 @@ import pytest
 from jsonschema import Draft7Validator
 
 from hotato.counterexample import compile_counterexample, export_counterexample
+from hotato.counterexample.model import (
+    MAX_ACCEPTED_STEPS,
+    MAX_MINIMALITY_UNITS,
+    MAX_TRANSFORM_OPERATIONS,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = ROOT / "src" / "hotato" / "schema"
@@ -228,18 +233,17 @@ ATOMS = [
             "type": "required_disclosure_missing",
         },
     ),
-    ("tool_call", {"code": "tool-arguments-mismatch"}),
+    ("tool_call", {"code": "tool-argument-value-mismatch", "key": "id"}),
     ("outcome", {"code": "predicate-unmet", "index": 0}),
-    ("tool_result", {"code": "result-subset-mismatch"}),
+    ("tool_result", {"code": "result-field-value-mismatch", "key": "status"}),
     ("tool_error", {"code": "tool-error-missing"}),
     ("state", {"code": "state-field-value-mismatch", "field": "refund.status"}),
     ("state_change", {"code": "state-unchanged", "field": "balance"}),
     ("handoff", {"code": "handoff-missing"}),
-    ("dtmf", {"code": "dtmf-missing"}),
     ("termination", {"code": "unexpected-termination"}),
-    ("latency", {"code": "latency-threshold-exceeded"}),
+    ("latency", {"code": "latency-declared-threshold-exceeded"}),
     ("entity_accuracy", {"code": "entity-value-mismatch", "key": "order_id"}),
-    ("sequence", {"code": "sequence-step-missing", "index": 1}),
+    ("sequence", {"code": "sequence-step-absent", "index": 1}),
     ("count", {"code": "count-below"}),
 ]
 
@@ -320,6 +324,44 @@ def test_certificate_steps_are_closed_and_digest_domains_are_distinct(validators
     document = copy.deepcopy(documents["certificate"])
     document["candidate_evaluations"] = True
     _assert_invalid(validator, document)
+
+
+def test_proof_work_limits_are_encoded_in_schemas(validators, documents):
+    capsule_validator = validators[CAPSULE_SCHEMA]
+    certificate_validator = validators[CERTIFICATE_SCHEMA]
+
+    document = copy.deepcopy(documents["private"])
+    document["reduction"]["accepted"] = MAX_ACCEPTED_STEPS + 1
+    _assert_invalid(capsule_validator, document)
+
+    document = copy.deepcopy(documents["private"])
+    row = {
+        "path": "environment.locale",
+        "component": "top-level-optional",
+        "outcome": "ABSENT",
+        "code": "target_absent",
+        "candidate_digest": "0" * 64,
+    }
+    document["minimality"]["remaining_unit_checks"] = [
+        copy.deepcopy(row) for _ in range(MAX_MINIMALITY_UNITS + 1)
+    ]
+    _assert_invalid(capsule_validator, document)
+
+    document = copy.deepcopy(documents["certificate"])
+    step = copy.deepcopy(document["accepted_steps"][0])
+    document["accepted_steps"] = [
+        copy.deepcopy(step) for _ in range(MAX_ACCEPTED_STEPS + 1)
+    ]
+    _assert_invalid(certificate_validator, document)
+
+    document = copy.deepcopy(documents["certificate"])
+    operation = copy.deepcopy(
+        document["accepted_steps"][0]["transform"]["operations"][0]
+    )
+    document["accepted_steps"][0]["transform"]["operations"] = [
+        copy.deepcopy(operation) for _ in range(MAX_TRANSFORM_OPERATIONS + 1)
+    ]
+    _assert_invalid(certificate_validator, document)
 
 
 def test_certificate_accepts_only_replayable_delete_only_transforms(validators, documents):

@@ -36,21 +36,34 @@ KIND_ATOMS = {
         {"code": code}
         for code in (
             "tool-missing",
-            "tool-arguments-mismatch",
+            "tool-arguments-missing",
             "tool-count-below",
             "tool-count-above",
             "never-before-boundary-missing",
             "never-before-order-violation",
         )
     ]
-    + [{"code": "order-step-missing", "index": 0}],
+    + [
+        {"code": code, "key": "id"}
+        for code in (
+            "tool-argument-field-missing",
+            "tool-argument-value-mismatch",
+        )
+    ]
+    + [
+        {"code": code, "index": 0}
+        for code in ("order-step-absent", "order-step-out-of-order")
+    ],
     "outcome": [
         {"code": "predicate-unmet", "index": 0},
         {"code": "no-predicate-met"},
     ],
     "tool_result": [
-        {"code": code}
-        for code in ("tool-missing", "result-missing", "result-subset-mismatch")
+        {"code": code} for code in ("tool-missing", "result-missing")
+    ]
+    + [
+        {"code": code, "key": "status"}
+        for code in ("result-field-missing", "result-field-value-mismatch")
     ],
     "tool_error": [
         {"code": code}
@@ -80,24 +93,29 @@ KIND_ATOMS = {
         {"code": code}
         for code in ("unexpected-handoff", "handoff-missing", "handoff-target-mismatch")
     ],
-    "dtmf": [
-        {"code": code}
-        for code in ("unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch")
-    ],
     "termination": [
         {"code": code}
+        for code in ("unexpected-termination", "termination-missing")
+    ]
+    + [
+        {"code": code, "field": "reason"}
         for code in (
-            "unexpected-termination",
-            "termination-missing",
-            "termination-attribute-mismatch",
+            "termination-attribute-missing",
+            "termination-attribute-value-mismatch",
         )
     ],
-    "latency": [{"code": "latency-threshold-exceeded"}],
+    "latency": [
+        {"code": "latency-declared-threshold-exceeded"},
+        {"code": "latency-default-threshold-exceeded"},
+    ],
     "entity_accuracy": [
         {"code": code, "key": "order_id"}
         for code in ("entity-missing", "entity-value-mismatch")
     ],
-    "sequence": [{"code": "sequence-step-missing", "index": 0}],
+    "sequence": [
+        {"code": "sequence-step-absent", "index": 0},
+        {"code": "sequence-step-out-of-order", "index": 0},
+    ],
     "count": [{"code": "count-below"}, {"code": "count-above"}],
 }
 
@@ -211,7 +229,6 @@ def test_selected_and_complete_source_atom_set_are_both_kind_coupled(
         ("tool_error", {"code": "required-tool-error-missing"}),
         ("state", {"code": "state-field-mismatch", "field": "status"}),
         ("handoff", {"code": "required-handoff-missing"}),
-        ("dtmf", {"code": "required-dtmf-missing"}),
         ("termination", {"code": "required-termination-missing"}),
         ("entity_accuracy", {"code": "entity-mismatch", "key": "order_id"}),
         ("count", {"code": "count-not-equal"}),

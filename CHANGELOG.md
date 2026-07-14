@@ -18,7 +18,8 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   digest, result/content/trace identities, derived reports and scripts, and a
   resource-bounded manifest. Current-evaluator reproduction, `git bisect`
   predicate semantics, share-safe export, machine JSON, and MCP parity ship on
-  the same local, deterministic path.
+  the same local, deterministic path. The scripted proof lane covers 15
+  assertion kinds through 48 closed, schema-coupled failure branches.
 
 ### Security
 - **Counterexample capsules fail closed under tampering and resource pressure.**
@@ -26,12 +27,20 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   proof artifact, and canonical human projection. Share-safe capsules use an
   exact member allowlist and canonical reports. Manifest members, streaming
   journals, JSON depth/number handling, scripted evidence, and proof-regex work
-  have explicit limits before replay.
+  have explicit limits before replay. Minimality verification refuses more than
+  512 accepted transformations and 512 remaining deletion units. Accepted
+  steps require fresh evaluations, and proof-lane regexes exclude variable
+  quantifiers so an untrusted no-match search cannot introduce backtracking
+  amplification.
 
 ### Fixed
 - Failure identity distinguishes missing evidence from mismatched values across
-  tools, state, entities, handoffs, termination, DTMF, counts, and ordering, so
-  minimization cannot delete the decisive evidence and retain a coarser failure.
+  tool arguments/results, state, entities, and termination attributes; ordering
+  distinguishes an absent step from one present before the accepted prefix;
+  latency distinguishes a declared measurement from the simulator default.
+  Minimization cannot delete the decisive evidence and retain a coarser branch.
+- Coarse reduction descends into free-form mock tool arguments and results, so
+  unrelated payload entries can be deleted while the keyed mismatch survives.
 - Share-safe reports expose a closed payload-free failure code while omitting
   source fields, keys, rule names, reducer paths, and runnable inputs.
 

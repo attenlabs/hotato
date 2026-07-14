@@ -21,7 +21,7 @@
     "final_test_digest": {"$ref": "#/definitions/digest"},
     "failure_fingerprint": {"$ref": "#/definitions/digest"},
     "accepted_steps": {
-      "type": "array", "maxItems": 100000,
+      "type": "array", "maxItems": 512,
       "items": {"$ref": "#/definitions/accepted_step"}
     },
     "journal_sha256": {"$ref": "#/definitions/digest"},
@@ -65,7 +65,7 @@
       "properties": {
         "kind": {"const": "hotato.delete-only.v1"},
         "operations": {
-          "type": "array", "minItems": 1, "maxItems": 100000,
+          "type": "array", "minItems": 1, "maxItems": 10000,
           "uniqueItems": true,
           "items": {"$ref": "#/definitions/deletion_operation"}
         }
@@ -89,7 +89,7 @@
         "kind": {"const": "remove-path-set"},
         "phase": {"type": "string", "minLength": 1},
         "paths": {
-          "type": "array", "minItems": 1, "maxItems": 100000,
+          "type": "array", "minItems": 1, "maxItems": 10000,
           "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
         }
@@ -129,7 +129,7 @@
         "oracle_result_digest", "failure_atom_digest"
       ],
       "properties": {
-        "step": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "step": {"type": "integer", "minimum": 1, "maximum": 512},
         "parent_digest": {"$ref": "#/definitions/raw_digest"},
         "child_digest": {"$ref": "#/definitions/raw_digest"},
         "operation": {"$ref": "#/definitions/reducer_operation"},

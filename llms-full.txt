@@ -5136,7 +5136,13 @@ The v1 boundary is narrow:
   state;
 - transformations only delete units named by `hotato.reducers.v1`;
 - model-judged targets, provider sessions, captured recordings, external
-  timing bundles, and custom policy-pack paths are refused.
+  timing bundles, DTMF targets, and custom policy-pack paths are refused.
+
+The scripted proof lane covers 15 deterministic assertion kinds through 48
+closed, schema-coupled failure branches: `phrase`, `pii`, `policy`,
+`tool_call`, `outcome`, `tool_result`, `tool_error`, `state`, `state_change`,
+`handoff`, `termination`, `latency`, `entity_accuracy`, `sequence`, and
+`count`.
 
 The compiler does not invoke a voice agent, provider, model, TTS service, STT
 service, command oracle, or network endpoint. Its result describes the
@@ -5223,11 +5229,15 @@ is still present in the candidate's atom set.
 
 An atom carries only the discriminator needed to keep failure branches apart:
 for example, an assertion index, detector, policy rule/type, state field, or
-entity key. Tool arguments that disagree therefore remain a
-`tool-arguments-mismatch`; deleting the only named call changes the branch to
-`tool-missing` and is `DRIFTED`, even though the assertion still reports
-`FAIL`. Payload values, transcript text, and broad diagnostic counts are not
-part of the atom.
+entity key. A wrong tool argument therefore becomes
+`tool-argument-value-mismatch` plus its key. Deleting that value changes the
+branch to `tool-argument-field-missing`; deleting the named call changes it to
+`tool-missing`. Either candidate is `DRIFTED`, even though the assertion still
+reports `FAIL`. Results and termination attributes use the same
+missing-versus-value distinction. Required-order and sequence assertions keep
+present-but-out-of-order evidence separate from an absent step. Latency atoms
+distinguish a declared mock measurement from the simulator default. Payload
+values, transcript text, and broad diagnostic counts are not part of an atom.
 
 The fingerprint binds the test and assertion identity, assertion bytes, kind,
 dimension, deterministic authority, required `FAIL` status, and selected
@@ -5256,7 +5266,7 @@ scripted scenario. It can attempt to remove:
 - variation-matrix, facts, and environment entries;
 - caller behavior and interruption declarations;
 - caller turns while retaining at least one turn;
-- mock tool calls and optional tool fields;
+- mock tool calls, optional tool fields, and nested argument/result entries;
 - handoff and termination records;
 - mock-state resources, rows, snapshots, and nested leaves;
 - optional additive scenario fields.
@@ -5378,9 +5388,15 @@ Counterexample compilation and replay add a narrower proof-lane budget:
 - rendered transcript text is at most 256 KiB of UTF-8;
 - one deterministic assertion result is at most 2 MiB in canonical JSON;
 - `hits` and `matched_rules` evidence collections are capped at 10,000 rows;
-- each proof-lane regex is at most 1,024 UTF-8 bytes and belongs to a closed
-  replay subset: groups, alternation, backreferences, and more than one
-  variable quantifier are refused.
+- an accepted proof chain contains at most 512 deletion steps and one step
+  contains at most 10,000 deletion operations;
+- a completed minimality proof contains at most 512 remaining deletion units;
+- each proof-lane regex is at most 1,024 UTF-8 bytes and belongs to a closed,
+  fixed-width replay subset: groups, alternation, backreferences, and variable
+  quantifiers are refused.
+
+The assertion and regex byte bounds run before the general assertion validator
+can invoke Python's regex parser.
 
 The selected structured failure branch is still the preservation identity;
 these limits bound the repeated work needed to establish it. A candidate that
@@ -5462,10 +5478,11 @@ single-unit rows become an aggregate count by outcome; the projection contains
 no reducer paths or per-candidate digests.
 
 The share target and canonical reports expose the selected failure code, such
-as `tool-arguments-mismatch` or `state-field-value-mismatch`, so the failure
-category remains readable without a payload. Atom discriminators such as a
-field, key, rule, detector, or index stay private. `failure_atom_digest` binds
-the complete selected atom without publishing those discriminator values.
+as `tool-argument-value-mismatch` or `state-field-value-mismatch`, so the
+failure category remains readable without a payload. Atom discriminators such
+as a field, key, rule, detector, or index stay private.
+`failure_atom_digest` binds the complete selected atom without publishing those
+discriminator values.
 
 `share-safe-v1` is an engineering access boundary, not an anonymity claim.
 Capsule, source, assertion, evaluator, fingerprint, and failure-atom digests
@@ -5555,7 +5572,9 @@ This can locate the revision where Hotato evaluator or scripted-simulator
 behavior begins reproducing the recorded failure. The capsule retains its own
 source and reduced inputs, so changes to external scenario/test files are not
 part of the predicate. A revision that cannot load or evaluate the capsule is
-skipped with `125`.
+skipped with `125`. As with `git bisect run` generally, skipped revisions near
+the transition can leave a candidate range instead of identifying one first
+bad revision.
 
 Bisecting agent implementations, hosted models, provider configurations, or
 prompt revisions requires a separately defined adapter that executes those
@@ -5569,8 +5588,12 @@ The compiler fails closed when:
 - the target is in the rubric lane or does not fail twice identically;
 - required evidence is missing and the target is inconclusive;
 - a `timing_contract` depends on an external bundle;
-- a latency assertion reads an external timing field rather than a scripted
-  tool span;
+- a DTMF assertion requests trace evidence the scripted simulator cannot emit;
+- an outcome predicate reads an external timing field;
+- a latency assertion reads an external timing field or a span type other than
+  a scripted `tool_call`;
+- a keyed tool argument/result target uses an empty key, or an entity reference
+  uses an empty key or a null expected value;
 - a policy assertion uses an external `pack_path`;
 - an input escapes the workspace or traverses a symlink;
 - the output path already exists;
@@ -8684,9 +8707,9 @@ byte-reproducible instead of carrying wall-clock ZIP timestamps no rebuild
 can match:
 
 ```bash
-python3 -m pip install "build==1.2.2.post1" "setuptools==83.0.0" "wheel==0.45.1" "twine"
+python3 -m pip install "pip==26.1.2" "build==1.2.2.post1" "setuptools==83.0.0" "wheel==0.46.2" "twine==6.2.0"
 SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)" python3 -m build --no-isolation
-python3 -m twine check dist/*
+python3 -m twine check --strict dist/*
 python3 -m twine upload dist/*    # token scoped to the `hotato` project
 ```
 
@@ -9560,10 +9583,15 @@ source-to-final delete-only chain.
 
 Replay also bounds proof-specific work: 256 KiB per selected assertion, 2 MiB
 per canonical candidate scenario, 256 KiB of rendered transcript text, 2 MiB
-per assertion result, and 10,000 evidence rows. Proof regexes use a closed
-1,024-byte subset that refuses groups, alternation, backreferences, and more
-than one variable quantifier. These limits apply to counterexample compilation
-and replay; they are not global evaluator limits.
+per assertion result, 10,000 evidence rows, 512 accepted proof-chain steps,
+10,000 deletion operations per accepted step, and 512 remaining deletion
+units in a completed minimality proof. Accepted steps require fresh oracle
+evaluations; cached preserved journal rows cannot inflate the chain. Proof
+regexes use a closed, fixed-width 1,024-byte subset that refuses groups,
+alternation, backreferences, and variable quantifiers. These limits apply to
+counterexample compilation and replay; they are not global evaluator limits.
+The selected-assertion and proof-regex byte checks run before the general
+assertion validator can invoke Python's regex parser.
 
 Each profile also has an exact member allowlist. A manifest cannot authorize a
 new file outside that profile. For `share-safe-v1`, the only members are
@@ -10562,7 +10590,7 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
     "assertion_kind": {
       "enum": [
         "phrase", "pii", "policy", "tool_call", "outcome", "tool_result",
-        "tool_error", "state", "state_change", "handoff", "dtmf",
+        "tool_error", "state", "state_change", "handoff",
         "termination", "latency", "entity_accuracy", "sequence", "count"
       ]
     },
@@ -10575,15 +10603,14 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
           "properties": {
             "code": {"enum": [
               "forbidden-match", "no-qualifying-turns", "required-match-missing",
-              "tool-missing", "tool-arguments-mismatch", "tool-count-below",
+              "tool-missing", "tool-arguments-missing", "tool-count-below",
               "tool-count-above", "never-before-boundary-missing",
               "never-before-order-violation",
-              "no-predicate-met", "result-missing", "result-subset-mismatch", "unexpected-tool-error",
+              "no-predicate-met", "result-missing", "unexpected-tool-error",
               "tool-error-missing", "tool-error-pattern-mismatch", "state-record-missing",
               "unexpected-handoff", "handoff-missing", "handoff-target-mismatch",
-              "unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch",
               "unexpected-termination", "termination-missing",
-              "termination-attribute-mismatch", "latency-threshold-exceeded",
+              "latency-declared-threshold-exceeded", "latency-default-threshold-exceeded",
               "count-below", "count-above"
             ]}
           }
@@ -10592,7 +10619,7 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
           "type": "object", "additionalProperties": false,
           "required": ["code", "index"],
           "properties": {
-            "code": {"enum": ["order-step-missing", "predicate-unmet", "sequence-step-missing"]},
+            "code": {"enum": ["order-step-absent", "order-step-out-of-order", "predicate-unmet", "sequence-step-absent", "sequence-step-out-of-order"]},
             "index": {"$ref": "#/definitions/nonnegative_integer"}
           }
         },
@@ -10617,7 +10644,7 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
           "type": "object", "additionalProperties": false,
           "required": ["code", "field"],
           "properties": {
-            "code": {"enum": ["state-field-missing", "state-field-value-mismatch", "before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged"]},
+            "code": {"enum": ["state-field-missing", "state-field-value-mismatch", "before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged", "termination-attribute-missing", "termination-attribute-value-mismatch"]},
             "field": {"type": "string", "minLength": 1}
           }
         },
@@ -10625,7 +10652,7 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
           "type": "object", "additionalProperties": false,
           "required": ["code", "key"],
           "properties": {
-            "code": {"enum": ["entity-missing", "entity-value-mismatch"]},
+            "code": {"enum": ["entity-missing", "entity-value-mismatch", "tool-argument-field-missing", "tool-argument-value-mismatch", "result-field-missing", "result-field-value-mismatch"]},
             "key": {"type": "string", "minLength": 1}
           }
         }
@@ -10674,10 +10701,6 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
           "then": {"$ref": "#/definitions/target_atom_codes_handoff"}
         },
         {
-          "if": {"properties": {"kind": {"const": "dtmf"}}, "required": ["kind"]},
-          "then": {"$ref": "#/definitions/target_atom_codes_dtmf"}
-        },
-        {
           "if": {"properties": {"kind": {"const": "termination"}}, "required": ["kind"]},
           "then": {"$ref": "#/definitions/target_atom_codes_termination"}
         },
@@ -10719,8 +10742,8 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
     },
     "target_atom_codes_tool_call": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-missing", "tool-argument-field-missing", "tool-argument-value-mismatch", "tool-count-below", "tool-count-above", "order-step-absent", "order-step-out-of-order", "never-before-boundary-missing", "never-before-order-violation"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-missing", "tool-argument-field-missing", "tool-argument-value-mismatch", "tool-count-below", "tool-count-above", "order-step-absent", "order-step-out-of-order", "never-before-boundary-missing", "never-before-order-violation"]}}}}
       }
     },
     "target_atom_codes_outcome": {
@@ -10731,8 +10754,8 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
     },
     "target_atom_codes_tool_result": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-field-missing", "result-field-value-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-field-missing", "result-field-value-mismatch"]}}}}
       }
     },
     "target_atom_codes_tool_error": {
@@ -10759,22 +10782,16 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
         "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-handoff", "handoff-missing", "handoff-target-mismatch"]}}}}
       }
     },
-    "target_atom_codes_dtmf": {
-      "properties": {
-        "failure_atom": {"properties": {"code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]}}}}
-      }
-    },
     "target_atom_codes_termination": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-missing", "termination-attribute-value-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-missing", "termination-attribute-value-mismatch"]}}}}
       }
     },
     "target_atom_codes_latency": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"const": "latency-threshold-exceeded"}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"const": "latency-threshold-exceeded"}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["latency-declared-threshold-exceeded", "latency-default-threshold-exceeded"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["latency-declared-threshold-exceeded", "latency-default-threshold-exceeded"]}}}}
       }
     },
     "target_atom_codes_entity_accuracy": {
@@ -10785,8 +10802,8 @@ FILE: src/hotato/schema/counterexample-oracle.v1.json
     },
     "target_atom_codes_sequence": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"const": "sequence-step-missing"}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"const": "sequence-step-missing"}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["sequence-step-absent", "sequence-step-out-of-order"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["sequence-step-absent", "sequence-step-out-of-order"]}}}}
       }
     },
     "target_atom_codes_count": {
@@ -10865,7 +10882,7 @@ FILE: src/hotato/schema/reduction-certificate.v1.json
     "final_test_digest": {"$ref": "#/definitions/digest"},
     "failure_fingerprint": {"$ref": "#/definitions/digest"},
     "accepted_steps": {
-      "type": "array", "maxItems": 100000,
+      "type": "array", "maxItems": 512,
       "items": {"$ref": "#/definitions/accepted_step"}
     },
     "journal_sha256": {"$ref": "#/definitions/digest"},
@@ -10909,7 +10926,7 @@ FILE: src/hotato/schema/reduction-certificate.v1.json
       "properties": {
         "kind": {"const": "hotato.delete-only.v1"},
         "operations": {
-          "type": "array", "minItems": 1, "maxItems": 100000,
+          "type": "array", "minItems": 1, "maxItems": 10000,
           "uniqueItems": true,
           "items": {"$ref": "#/definitions/deletion_operation"}
         }
@@ -10933,7 +10950,7 @@ FILE: src/hotato/schema/reduction-certificate.v1.json
         "kind": {"const": "remove-path-set"},
         "phase": {"type": "string", "minLength": 1},
         "paths": {
-          "type": "array", "minItems": 1, "maxItems": 100000,
+          "type": "array", "minItems": 1, "maxItems": 10000,
           "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
         }
@@ -10973,7 +10990,7 @@ FILE: src/hotato/schema/reduction-certificate.v1.json
         "oracle_result_digest", "failure_atom_digest"
       ],
       "properties": {
-        "step": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "step": {"type": "integer", "minimum": 1, "maximum": 512},
         "parent_digest": {"$ref": "#/definitions/raw_digest"},
         "child_digest": {"$ref": "#/definitions/raw_digest"},
         "operation": {"$ref": "#/definitions/reducer_operation"},
@@ -11078,7 +11095,7 @@ FILE: src/hotato/schema/counterexample.v1.json
     "assertion_kind": {
       "enum": [
         "phrase", "pii", "policy", "tool_call", "outcome", "tool_result",
-        "tool_error", "state", "state_change", "handoff", "dtmf",
+        "tool_error", "state", "state_change", "handoff",
         "termination", "latency", "entity_accuracy", "sequence", "count"
       ]
     },
@@ -11092,15 +11109,14 @@ FILE: src/hotato/schema/counterexample.v1.json
           "properties": {
             "code": {"enum": [
               "forbidden-match", "no-qualifying-turns", "required-match-missing",
-              "tool-missing", "tool-arguments-mismatch", "tool-count-below",
+              "tool-missing", "tool-arguments-missing", "tool-count-below",
               "tool-count-above", "never-before-boundary-missing",
               "never-before-order-violation",
-              "no-predicate-met", "result-missing", "result-subset-mismatch", "unexpected-tool-error",
+              "no-predicate-met", "result-missing", "unexpected-tool-error",
               "tool-error-missing", "tool-error-pattern-mismatch", "state-record-missing",
               "unexpected-handoff", "handoff-missing", "handoff-target-mismatch",
-              "unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch",
               "unexpected-termination", "termination-missing",
-              "termination-attribute-mismatch", "latency-threshold-exceeded",
+              "latency-declared-threshold-exceeded", "latency-default-threshold-exceeded",
               "count-below", "count-above"
             ]}
           }
@@ -11109,7 +11125,7 @@ FILE: src/hotato/schema/counterexample.v1.json
           "type": "object", "additionalProperties": false,
           "required": ["code", "index"],
           "properties": {
-            "code": {"enum": ["order-step-missing", "predicate-unmet", "sequence-step-missing"]},
+            "code": {"enum": ["order-step-absent", "order-step-out-of-order", "predicate-unmet", "sequence-step-absent", "sequence-step-out-of-order"]},
             "index": {"$ref": "#/definitions/nonnegative_integer"}
           }
         },
@@ -11134,7 +11150,7 @@ FILE: src/hotato/schema/counterexample.v1.json
           "type": "object", "additionalProperties": false,
           "required": ["code", "field"],
           "properties": {
-            "code": {"enum": ["state-field-missing", "state-field-value-mismatch", "before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged"]},
+            "code": {"enum": ["state-field-missing", "state-field-value-mismatch", "before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged", "termination-attribute-missing", "termination-attribute-value-mismatch"]},
             "field": {"type": "string", "minLength": 1}
           }
         },
@@ -11142,7 +11158,7 @@ FILE: src/hotato/schema/counterexample.v1.json
           "type": "object", "additionalProperties": false,
           "required": ["code", "key"],
           "properties": {
-            "code": {"enum": ["entity-missing", "entity-value-mismatch"]},
+            "code": {"enum": ["entity-missing", "entity-value-mismatch", "tool-argument-field-missing", "tool-argument-value-mismatch", "result-field-missing", "result-field-value-mismatch"]},
             "key": {"type": "string", "minLength": 1}
           }
         }
@@ -11191,10 +11207,6 @@ FILE: src/hotato/schema/counterexample.v1.json
           "then": {"$ref": "#/definitions/target_atom_codes_handoff"}
         },
         {
-          "if": {"properties": {"kind": {"const": "dtmf"}}, "required": ["kind"]},
-          "then": {"$ref": "#/definitions/target_atom_codes_dtmf"}
-        },
-        {
           "if": {"properties": {"kind": {"const": "termination"}}, "required": ["kind"]},
           "then": {"$ref": "#/definitions/target_atom_codes_termination"}
         },
@@ -11239,9 +11251,9 @@ FILE: src/hotato/schema/counterexample.v1.json
     },
     "target_atom_codes_tool_call": {
       "properties": {
-        "failure_code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]},
-        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]}}}}
+        "failure_code": {"enum": ["tool-missing", "tool-arguments-missing", "tool-argument-field-missing", "tool-argument-value-mismatch", "tool-count-below", "tool-count-above", "order-step-absent", "order-step-out-of-order", "never-before-boundary-missing", "never-before-order-violation"]},
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-missing", "tool-argument-field-missing", "tool-argument-value-mismatch", "tool-count-below", "tool-count-above", "order-step-absent", "order-step-out-of-order", "never-before-boundary-missing", "never-before-order-violation"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-missing", "tool-argument-field-missing", "tool-argument-value-mismatch", "tool-count-below", "tool-count-above", "order-step-absent", "order-step-out-of-order", "never-before-boundary-missing", "never-before-order-violation"]}}}}
       }
     },
     "target_atom_codes_outcome": {
@@ -11253,9 +11265,9 @@ FILE: src/hotato/schema/counterexample.v1.json
     },
     "target_atom_codes_tool_result": {
       "properties": {
-        "failure_code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]},
-        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]}}}}
+        "failure_code": {"enum": ["tool-missing", "result-missing", "result-field-missing", "result-field-value-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-field-missing", "result-field-value-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-field-missing", "result-field-value-mismatch"]}}}}
       }
     },
     "target_atom_codes_tool_error": {
@@ -11286,25 +11298,18 @@ FILE: src/hotato/schema/counterexample.v1.json
         "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-handoff", "handoff-missing", "handoff-target-mismatch"]}}}}
       }
     },
-    "target_atom_codes_dtmf": {
-      "properties": {
-        "failure_code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]},
-        "failure_atom": {"properties": {"code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]}}}}
-      }
-    },
     "target_atom_codes_termination": {
       "properties": {
-        "failure_code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]},
-        "failure_atom": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]}}}}
+        "failure_code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-missing", "termination-attribute-value-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-missing", "termination-attribute-value-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-missing", "termination-attribute-value-mismatch"]}}}}
       }
     },
     "target_atom_codes_latency": {
       "properties": {
-        "failure_code": {"const": "latency-threshold-exceeded"},
-        "failure_atom": {"properties": {"code": {"const": "latency-threshold-exceeded"}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"const": "latency-threshold-exceeded"}}}}
+        "failure_code": {"enum": ["latency-declared-threshold-exceeded", "latency-default-threshold-exceeded"]},
+        "failure_atom": {"properties": {"code": {"enum": ["latency-declared-threshold-exceeded", "latency-default-threshold-exceeded"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["latency-declared-threshold-exceeded", "latency-default-threshold-exceeded"]}}}}
       }
     },
     "target_atom_codes_entity_accuracy": {
@@ -11316,9 +11321,9 @@ FILE: src/hotato/schema/counterexample.v1.json
     },
     "target_atom_codes_sequence": {
       "properties": {
-        "failure_code": {"const": "sequence-step-missing"},
-        "failure_atom": {"properties": {"code": {"const": "sequence-step-missing"}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"const": "sequence-step-missing"}}}}
+        "failure_code": {"enum": ["sequence-step-absent", "sequence-step-out-of-order"]},
+        "failure_atom": {"properties": {"code": {"enum": ["sequence-step-absent", "sequence-step-out-of-order"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["sequence-step-absent", "sequence-step-out-of-order"]}}}}
       }
     },
     "target_atom_codes_count": {
@@ -11474,7 +11479,7 @@ FILE: src/hotato/schema/counterexample.v1.json
         "candidate_evaluations": {"type": "integer", "minimum": 0, "maximum": 100000},
         "qualification_evaluations": {"const": 4},
         "total_evaluations": {"type": "integer", "minimum": 4, "maximum": 100004},
-        "accepted": {"$ref": "#/definitions/nonnegative_integer"},
+        "accepted": {"type": "integer", "minimum": 0, "maximum": 512},
         "cache_hits": {"$ref": "#/definitions/nonnegative_integer"},
         "budget": {"type": "integer", "minimum": 1, "maximum": 100000},
         "termination": {"enum": ["one_minimal", "budget_exhausted"]}
@@ -11510,7 +11515,7 @@ FILE: src/hotato/schema/counterexample.v1.json
         "status": {"enum": ["one_minimal", "budget_exhausted"]},
         "reducer_set": {"const": "hotato.reducers.v1"},
         "claim": {"type": "string", "minLength": 1},
-        "remaining_unit_checks": {"type": "array", "items": {"$ref": "#/definitions/minimality_check"}},
+        "remaining_unit_checks": {"type": "array", "maxItems": 512, "items": {"$ref": "#/definitions/minimality_check"}},
         "frozen_components": {
           "type": "array", "uniqueItems": true,
           "items": {"enum": ["script", "tools", "state", "handoff", "termination"]}
@@ -11538,7 +11543,7 @@ FILE: src/hotato/schema/counterexample.v1.json
           "type": "object", "additionalProperties": false,
           "required": ["count", "outcomes"],
           "properties": {
-            "count": {"$ref": "#/definitions/nonnegative_integer"},
+            "count": {"type": "integer", "minimum": 0, "maximum": 512},
             "outcomes": {
               "type": "object", "additionalProperties": false,
               "required": ["PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED"],

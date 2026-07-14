@@ -28,11 +28,15 @@ def _tool(name: str, **fields: Any) -> dict[str, Any]:
     return span
 
 
-def _atom(assertion: dict[str, Any], context: A.Context) -> dict[str, Any]:
+def _atom(
+    assertion: dict[str, Any],
+    context: A.Context,
+    scenario: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     A.validate_assertions_doc({"version": 1, "assertions": [assertion]})
     result = A.evaluate_assertion(assertion, context)
     assert result["status"] == "FAIL", result
-    atoms = failure_atoms(assertion, result, context)
+    atoms = failure_atoms(assertion, result, context, scenario)
     assert len(atoms) == 1, atoms
     return atoms[0]
 
@@ -139,7 +143,64 @@ def test_state_wrong_value_compile_retains_wrong_value_evidence(tmp_path):
     assert rows == [{"id": "A-1", "status": "pending"}]
 
 
-def test_tool_result_atoms_separate_tool_result_and_subset_absence():
+def test_tool_argument_atoms_separate_container_field_and_value_absence():
+    assertion = {
+        "id": "call-target",
+        "kind": "tool_call",
+        "name": "issue_refund",
+        "args_subset": {"id": "A-1"},
+    }
+
+    assert _atom(
+        assertion, A.build_context(spans=[_tool("issue_refund")])
+    ) == {"code": "tool-arguments-missing"}
+    assert _atom(
+        assertion,
+        A.build_context(
+            spans=[_tool("issue_refund", arguments={"other": True})]
+        ),
+    ) == {"code": "tool-argument-field-missing", "key": "id"}
+    assert _atom(
+        assertion,
+        A.build_context(
+            spans=[_tool("issue_refund", arguments={"id": "B-2"})]
+        ),
+    ) == {"code": "tool-argument-value-mismatch", "key": "id"}
+
+
+def test_tool_argument_value_mismatch_compile_retains_wrong_value(tmp_path):
+    assertion = {
+        "id": "call-target",
+        "kind": "tool_call",
+        "name": "issue_refund",
+        "args_subset": {"id": "A-1"},
+    }
+    result, reduced = _compile(
+        tmp_path,
+        assertion=assertion,
+        agent_mock={
+            "tools": [
+                {
+                    "name": "issue_refund",
+                    "arguments": {"id": "B-2", "irrelevant": True},
+                },
+                {"name": "unrelated"},
+            ]
+        },
+        stem="argument-value-mismatch",
+    )
+
+    assert result["target"]["failure_atom"] == {
+        "code": "tool-argument-value-mismatch",
+        "key": "id",
+    }
+    tools = reduced["agent_mock"]["tools"]
+    assert len(tools) == 1
+    assert tools[0]["name"] == "issue_refund"
+    assert tools[0]["arguments"]["id"] == "B-2"
+
+
+def test_tool_result_atoms_separate_tool_result_field_and_value_absence():
     assertion = {
         "id": "result-target",
         "kind": "tool_result",
@@ -159,10 +220,14 @@ def test_tool_result_atoms_separate_tool_result_and_subset_absence():
         A.build_context(
             spans=[_tool("issue_refund", result={"status": "pending"})]
         ),
-    ) == {"code": "result-subset-mismatch"}
+    ) == {"code": "result-field-value-mismatch", "key": "status"}
+    assert _atom(
+        assertion,
+        A.build_context(spans=[_tool("issue_refund", result={})]),
+    ) == {"code": "result-field-missing", "key": "status"}
 
 
-def test_tool_result_subset_mismatch_compile_retains_tool(tmp_path):
+def test_tool_result_value_mismatch_compile_retains_wrong_value(tmp_path):
     assertion = {
         "id": "result-target",
         "kind": "tool_result",
@@ -182,15 +247,17 @@ def test_tool_result_subset_mismatch_compile_retains_tool(tmp_path):
                 {"name": "unrelated", "result": {"ok": True}},
             ]
         },
-        stem="result-subset-mismatch",
+        stem="result-value-mismatch",
     )
 
     assert result["target"]["failure_atom"] == {
-        "code": "result-subset-mismatch"
+        "code": "result-field-value-mismatch",
+        "key": "status",
     }
     assert [tool["name"] for tool in reduced["agent_mock"]["tools"]] == [
         "issue_refund"
     ]
+    assert reduced["agent_mock"]["tools"][0]["result"]["status"] == "pending"
 
 
 def test_entity_atoms_separate_missing_from_wrong_values():
@@ -305,6 +372,12 @@ def test_tool_error_atoms_separate_missing_tool_error_and_pattern():
         assertion,
         A.build_context(spans=[_tool("charge_card", error="timeout")]),
     ) == {"code": "tool-error-pattern-mismatch"}
+    assert _atom(
+        assertion,
+        A.build_context(
+            spans=[_tool("charge_card", error_message="declined")]
+        ),
+    ) == {"code": "tool-error-missing"}
 
 
 def test_tool_error_pattern_mismatch_compile_retains_error(tmp_path):
@@ -332,6 +405,32 @@ def test_tool_error_pattern_mismatch_compile_retains_error(tmp_path):
     assert reduced["agent_mock"]["tools"] == [
         {"name": "charge_card", "error": "timeout"}
     ]
+
+
+def test_state_change_null_comparison_uses_evaluator_equality_semantics():
+    assertion = {
+        "id": "state-change-target",
+        "kind": "state_change",
+        "resource": "account",
+        "field": "balance",
+        "from": None,
+        "changed": True,
+    }
+    context = A.build_context(
+        state_adapter=MockStateAdapter(
+            {
+                "account": {
+                    "before": [{"id": "U"}],
+                    "after": [{"id": "U"}],
+                }
+            }
+        )
+    )
+
+    assert _atom(assertion, context) == {
+        "code": "state-unchanged",
+        "field": "balance",
+    }
 
 
 def test_handoff_atoms_separate_missing_from_target_mismatch():
@@ -369,7 +468,7 @@ def test_handoff_target_mismatch_compile_retains_handoff(tmp_path):
     assert reduced["agent_mock"]["handoff"] == {"to": "support"}
 
 
-def test_termination_atoms_separate_missing_from_attribute_mismatch():
+def test_termination_atoms_separate_missing_attribute_and_wrong_value():
     assertion = {
         "id": "termination-target",
         "kind": "termination",
@@ -384,42 +483,34 @@ def test_termination_atoms_separate_missing_from_attribute_mismatch():
         A.build_context(
             spans=[{"type": "termination", "reason": "completed"}]
         ),
-    ) == {"code": "termination-attribute-mismatch"}
+    ) == {
+        "code": "termination-attribute-value-mismatch",
+        "field": "reason",
+    }
+    assert _atom(
+        assertion,
+        A.build_context(spans=[{"type": "termination"}]),
+    ) == {"code": "termination-attribute-missing", "field": "reason"}
 
 
-def test_termination_attribute_mismatch_compile_retains_termination(tmp_path):
+def test_termination_attribute_mismatch_compile_retains_wrong_value(tmp_path):
     assertion = {
         "id": "termination-target",
         "kind": "termination",
-        "reason": "dropped",
+        "by": "caller",
     }
     result, reduced = _compile(
         tmp_path,
         assertion=assertion,
-        agent_mock={"termination": {"reason": "completed"}},
-        stem="termination-attribute-mismatch",
+        agent_mock={"termination": {"reason": "completed", "by": "agent"}},
+        stem="termination-attribute-value-mismatch",
     )
 
     assert result["target"]["failure_atom"] == {
-        "code": "termination-attribute-mismatch"
+        "code": "termination-attribute-value-mismatch",
+        "field": "by",
     }
-    assert reduced["agent_mock"]["termination"] == {"reason": "completed"}
-
-
-def test_dtmf_atoms_separate_missing_from_digits_mismatch():
-    assertion = {
-        "id": "dtmf-target",
-        "kind": "dtmf",
-        "digits": "99",
-    }
-
-    assert _atom(assertion, A.build_context(spans=[])) == {
-        "code": "dtmf-missing"
-    }
-    assert _atom(
-        assertion,
-        A.build_context(spans=[{"type": "dtmf", "digits": "42"}]),
-    ) == {"code": "dtmf-digits-mismatch"}
+    assert reduced["agent_mock"]["termination"] == {"by": "agent"}
 
 
 def test_never_before_atoms_separate_missing_boundary_from_order_violation():
@@ -469,21 +560,114 @@ def test_never_before_order_violation_compile_retains_boundary(tmp_path):
     ]
 
 
+def test_required_order_compile_retains_out_of_order_step(tmp_path):
+    assertion = {
+        "id": "required-order-target",
+        "kind": "tool_call",
+        "require_order": ["lookup", "refund"],
+    }
+    result, reduced = _compile(
+        tmp_path,
+        assertion=assertion,
+        agent_mock={
+            "tools": [
+                {"name": "refund"},
+                {"name": "lookup"},
+                {"name": "unrelated"},
+            ]
+        },
+        stem="required-order-out-of-order",
+    )
+
+    assert result["target"]["failure_atom"] == {
+        "code": "order-step-out-of-order",
+        "index": 1,
+    }
+    assert [row["name"] for row in reduced["agent_mock"]["tools"]] == [
+        "refund",
+        "lookup",
+    ]
+
+
+def test_sequence_compile_retains_out_of_order_step(tmp_path):
+    assertion = {
+        "id": "sequence-target",
+        "kind": "sequence",
+        "steps": [{"tool": "lookup"}, {"tool": "refund"}],
+    }
+    result, reduced = _compile(
+        tmp_path,
+        assertion=assertion,
+        agent_mock={
+            "tools": [
+                {"name": "refund"},
+                {"name": "lookup"},
+                {"name": "unrelated"},
+            ]
+        },
+        stem="sequence-out-of-order",
+    )
+
+    assert result["target"]["failure_atom"] == {
+        "code": "sequence-step-out-of-order",
+        "index": 1,
+    }
+    assert [row["name"] for row in reduced["agent_mock"]["tools"]] == [
+        "refund",
+        "lookup",
+    ]
+
+
+def test_latency_compile_retains_declared_measurement_provenance(tmp_path):
+    assertion = {
+        "id": "latency-target",
+        "kind": "latency",
+        "tool": "refund",
+        "max_ms": 100,
+    }
+    result, reduced = _compile(
+        tmp_path,
+        assertion=assertion,
+        agent_mock={
+            "tools": [
+                {"name": "refund", "latency_ms": 1000},
+                {"name": "unrelated"},
+            ]
+        },
+        stem="latency-declared",
+    )
+
+    assert result["target"]["failure_atom"] == {
+        "code": "latency-declared-threshold-exceeded"
+    }
+    assert reduced["agent_mock"]["tools"] == [
+        {"name": "refund", "latency_ms": 1000}
+    ]
+
+
 def test_runtime_branch_matrix_exercises_every_closed_failure_code():
+    assert len(FAILURE_ATOM_FIELDS) == 15
+    assert sum(len(branches) for branches in FAILURE_ATOM_FIELDS.values()) == 48
     cases: dict[
         tuple[str, str],
-        tuple[dict[str, Any], A.Context, dict[str, Any]],
+        tuple[
+            dict[str, Any],
+            A.Context,
+            dict[str, Any],
+            dict[str, Any] | None,
+        ],
     ] = {}
 
     def add(
         assertion: dict[str, Any],
         context: A.Context,
         expected: dict[str, Any],
+        scenario: dict[str, Any] | None = None,
     ) -> None:
         assertion = {"id": f"branch-{len(cases)}", **assertion}
         key = (assertion["kind"], expected["code"])
         assert key not in cases
-        cases[key] = assertion, context, expected
+        cases[key] = assertion, context, expected, scenario
 
     add(
         {"kind": "phrase", "regex": "blocked", "absent": True},
@@ -529,8 +713,26 @@ def test_runtime_branch_matrix_exercises_every_closed_failure_code():
             "name": "refund",
             "args_subset": {"id": "A"},
         },
+        A.build_context(spans=[_tool("refund")]),
+        {"code": "tool-arguments-missing"},
+    )
+    add(
+        {
+            "kind": "tool_call",
+            "name": "refund",
+            "args_subset": {"id": "A"},
+        },
+        A.build_context(spans=[_tool("refund", arguments={})]),
+        {"code": "tool-argument-field-missing", "key": "id"},
+    )
+    add(
+        {
+            "kind": "tool_call",
+            "name": "refund",
+            "args_subset": {"id": "A"},
+        },
         A.build_context(spans=[_tool("refund", arguments={"id": "B"})]),
-        {"code": "tool-arguments-mismatch"},
+        {"code": "tool-argument-value-mismatch", "key": "id"},
     )
     add(
         {"kind": "tool_call", "name": "refund", "count": 1},
@@ -548,7 +750,15 @@ def test_runtime_branch_matrix_exercises_every_closed_failure_code():
             "require_order": ["lookup", "refund"],
         },
         A.build_context(spans=[_tool("lookup")]),
-        {"code": "order-step-missing", "index": 1},
+        {"code": "order-step-absent", "index": 1},
+    )
+    add(
+        {
+            "kind": "tool_call",
+            "require_order": ["lookup", "refund"],
+        },
+        A.build_context(spans=[_tool("refund"), _tool("lookup")]),
+        {"code": "order-step-out-of-order", "index": 1},
     )
     add(
         {
@@ -590,7 +800,12 @@ def test_runtime_branch_matrix_exercises_every_closed_failure_code():
     add(
         result_assertion,
         A.build_context(spans=[_tool("refund", result={"status": "pending"})]),
-        {"code": "result-subset-mismatch"},
+        {"code": "result-field-value-mismatch", "key": "status"},
+    )
+    add(
+        result_assertion,
+        A.build_context(spans=[_tool("refund", result={})]),
+        {"code": "result-field-missing", "key": "status"},
     )
     error_assertion = {
         "kind": "tool_error",
@@ -728,21 +943,6 @@ def test_runtime_branch_matrix_exercises_every_closed_failure_code():
         {"code": "unexpected-handoff"},
     )
     add(
-        {"kind": "dtmf", "digits": "99"},
-        A.build_context(spans=[]),
-        {"code": "dtmf-missing"},
-    )
-    add(
-        {"kind": "dtmf", "digits": "99"},
-        A.build_context(spans=[{"type": "dtmf", "digits": "42"}]),
-        {"code": "dtmf-digits-mismatch"},
-    )
-    add(
-        {"kind": "dtmf", "digits": "99", "absent": True},
-        A.build_context(spans=[{"type": "dtmf", "digits": "99"}]),
-        {"code": "unexpected-dtmf"},
-    )
-    add(
         {"kind": "termination", "reason": "dropped"},
         A.build_context(spans=[]),
         {"code": "termination-missing"},
@@ -752,7 +952,15 @@ def test_runtime_branch_matrix_exercises_every_closed_failure_code():
         A.build_context(
             spans=[{"type": "termination", "reason": "complete"}]
         ),
-        {"code": "termination-attribute-mismatch"},
+        {
+            "code": "termination-attribute-value-mismatch",
+            "field": "reason",
+        },
+    )
+    add(
+        {"kind": "termination", "reason": "dropped"},
+        A.build_context(spans=[{"type": "termination"}]),
+        {"code": "termination-attribute-missing", "field": "reason"},
     )
     add(
         {"kind": "termination", "reason": "dropped", "absent": True},
@@ -764,7 +972,15 @@ def test_runtime_branch_matrix_exercises_every_closed_failure_code():
     add(
         {"kind": "latency", "tool": "refund", "max_ms": 100},
         A.build_context(spans=[_tool("refund", latency_ms=200)]),
-        {"code": "latency-threshold-exceeded"},
+        {"code": "latency-declared-threshold-exceeded"},
+    )
+    add(
+        {"kind": "latency", "tool": "refund", "max_ms": 100},
+        A.build_context(spans=[_tool("refund", latency_ms=400)]),
+        {"code": "latency-default-threshold-exceeded"},
+        {
+            "agent_mock": {"tools": [{"name": "refund"}]},
+        },
     )
     entity_assertion = {
         "kind": "entity_accuracy",
@@ -786,7 +1002,15 @@ def test_runtime_branch_matrix_exercises_every_closed_failure_code():
             "steps": [{"tool": "lookup"}, {"tool": "refund"}],
         },
         A.build_context(spans=[_tool("lookup")]),
-        {"code": "sequence-step-missing", "index": 1},
+        {"code": "sequence-step-absent", "index": 1},
+    )
+    add(
+        {
+            "kind": "sequence",
+            "steps": [{"tool": "lookup"}, {"tool": "refund"}],
+        },
+        A.build_context(spans=[_tool("refund"), _tool("lookup")]),
+        {"code": "sequence-step-out-of-order", "index": 1},
     )
     count_assertion = {
         "kind": "count",
@@ -806,8 +1030,8 @@ def test_runtime_branch_matrix_exercises_every_closed_failure_code():
         for code in branches
     }
     assert set(cases) == runtime_codes
-    for assertion, context, expected in cases.values():
-        assert _atom(assertion, context) == expected
+    for assertion, context, expected, scenario in cases.values():
+        assert _atom(assertion, context, scenario) == expected
 
 
 def _state_oracle(expect: dict[str, Any]) -> tuple[FailureOracle, dict[str, Any]]:

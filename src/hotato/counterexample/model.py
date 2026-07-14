@@ -32,6 +32,14 @@ MAX_TURNS = 10_000
 MAX_TOOLS = 10_000
 MAX_BUDGET = 100_000
 DEFAULT_BUDGET = 512
+# Accepted candidates form a replayed, re-evaluated proof chain. Bound that
+# cumulative work separately from the search budget an operator may request.
+MAX_ACCEPTED_STEPS = 512
+# A strict verifier deep-copies and replays one candidate per remaining unit.
+# Keep that work independently bounded even when an untrusted capsule declares
+# the maximum search budget. Typical scripted fixtures are far below this cap.
+MAX_MINIMALITY_UNITS = 512
+MAX_TRANSFORM_OPERATIONS = 10_000
 MAX_CAPSULE_FILES = 1_024
 MAX_CAPSULE_DIRECTORIES = 4_096
 MAX_CAPSULE_DEPTH = 64

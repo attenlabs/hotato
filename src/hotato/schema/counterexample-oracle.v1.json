@@ -23,7 +23,7 @@
     "assertion_kind": {
       "enum": [
         "phrase", "pii", "policy", "tool_call", "outcome", "tool_result",
-        "tool_error", "state", "state_change", "handoff", "dtmf",
+        "tool_error", "state", "state_change", "handoff",
         "termination", "latency", "entity_accuracy", "sequence", "count"
       ]
     },
@@ -36,15 +36,14 @@
           "properties": {
             "code": {"enum": [
               "forbidden-match", "no-qualifying-turns", "required-match-missing",
-              "tool-missing", "tool-arguments-mismatch", "tool-count-below",
+              "tool-missing", "tool-arguments-missing", "tool-count-below",
               "tool-count-above", "never-before-boundary-missing",
               "never-before-order-violation",
-              "no-predicate-met", "result-missing", "result-subset-mismatch", "unexpected-tool-error",
+              "no-predicate-met", "result-missing", "unexpected-tool-error",
               "tool-error-missing", "tool-error-pattern-mismatch", "state-record-missing",
               "unexpected-handoff", "handoff-missing", "handoff-target-mismatch",
-              "unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch",
               "unexpected-termination", "termination-missing",
-              "termination-attribute-mismatch", "latency-threshold-exceeded",
+              "latency-declared-threshold-exceeded", "latency-default-threshold-exceeded",
               "count-below", "count-above"
             ]}
           }
@@ -53,7 +52,7 @@
           "type": "object", "additionalProperties": false,
           "required": ["code", "index"],
           "properties": {
-            "code": {"enum": ["order-step-missing", "predicate-unmet", "sequence-step-missing"]},
+            "code": {"enum": ["order-step-absent", "order-step-out-of-order", "predicate-unmet", "sequence-step-absent", "sequence-step-out-of-order"]},
             "index": {"$ref": "#/definitions/nonnegative_integer"}
           }
         },
@@ -78,7 +77,7 @@
           "type": "object", "additionalProperties": false,
           "required": ["code", "field"],
           "properties": {
-            "code": {"enum": ["state-field-missing", "state-field-value-mismatch", "before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged"]},
+            "code": {"enum": ["state-field-missing", "state-field-value-mismatch", "before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged", "termination-attribute-missing", "termination-attribute-value-mismatch"]},
             "field": {"type": "string", "minLength": 1}
           }
         },
@@ -86,7 +85,7 @@
           "type": "object", "additionalProperties": false,
           "required": ["code", "key"],
           "properties": {
-            "code": {"enum": ["entity-missing", "entity-value-mismatch"]},
+            "code": {"enum": ["entity-missing", "entity-value-mismatch", "tool-argument-field-missing", "tool-argument-value-mismatch", "result-field-missing", "result-field-value-mismatch"]},
             "key": {"type": "string", "minLength": 1}
           }
         }
@@ -135,10 +134,6 @@
           "then": {"$ref": "#/definitions/target_atom_codes_handoff"}
         },
         {
-          "if": {"properties": {"kind": {"const": "dtmf"}}, "required": ["kind"]},
-          "then": {"$ref": "#/definitions/target_atom_codes_dtmf"}
-        },
-        {
           "if": {"properties": {"kind": {"const": "termination"}}, "required": ["kind"]},
           "then": {"$ref": "#/definitions/target_atom_codes_termination"}
         },
@@ -180,8 +175,8 @@
     },
     "target_atom_codes_tool_call": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-missing", "tool-argument-field-missing", "tool-argument-value-mismatch", "tool-count-below", "tool-count-above", "order-step-absent", "order-step-out-of-order", "never-before-boundary-missing", "never-before-order-violation"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-missing", "tool-argument-field-missing", "tool-argument-value-mismatch", "tool-count-below", "tool-count-above", "order-step-absent", "order-step-out-of-order", "never-before-boundary-missing", "never-before-order-violation"]}}}}
       }
     },
     "target_atom_codes_outcome": {
@@ -192,8 +187,8 @@
     },
     "target_atom_codes_tool_result": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-field-missing", "result-field-value-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-field-missing", "result-field-value-mismatch"]}}}}
       }
     },
     "target_atom_codes_tool_error": {
@@ -220,22 +215,16 @@
         "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-handoff", "handoff-missing", "handoff-target-mismatch"]}}}}
       }
     },
-    "target_atom_codes_dtmf": {
-      "properties": {
-        "failure_atom": {"properties": {"code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]}}}}
-      }
-    },
     "target_atom_codes_termination": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-missing", "termination-attribute-value-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-missing", "termination-attribute-value-mismatch"]}}}}
       }
     },
     "target_atom_codes_latency": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"const": "latency-threshold-exceeded"}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"const": "latency-threshold-exceeded"}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["latency-declared-threshold-exceeded", "latency-default-threshold-exceeded"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["latency-declared-threshold-exceeded", "latency-default-threshold-exceeded"]}}}}
       }
     },
     "target_atom_codes_entity_accuracy": {
@@ -246,8 +235,8 @@
     },
     "target_atom_codes_sequence": {
       "properties": {
-        "failure_atom": {"properties": {"code": {"const": "sequence-step-missing"}}},
-        "source_failure_atoms": {"items": {"properties": {"code": {"const": "sequence-step-missing"}}}}
+        "failure_atom": {"properties": {"code": {"enum": ["sequence-step-absent", "sequence-step-out-of-order"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["sequence-step-absent", "sequence-step-out-of-order"]}}}}
       }
     },
     "target_atom_codes_count": {

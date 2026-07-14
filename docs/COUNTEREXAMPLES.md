@@ -28,7 +28,13 @@ The v1 boundary is narrow:
   state;
 - transformations only delete units named by `hotato.reducers.v1`;
 - model-judged targets, provider sessions, captured recordings, external
-  timing bundles, and custom policy-pack paths are refused.
+  timing bundles, DTMF targets, and custom policy-pack paths are refused.
+
+The scripted proof lane covers 15 deterministic assertion kinds through 48
+closed, schema-coupled failure branches: `phrase`, `pii`, `policy`,
+`tool_call`, `outcome`, `tool_result`, `tool_error`, `state`, `state_change`,
+`handoff`, `termination`, `latency`, `entity_accuracy`, `sequence`, and
+`count`.
 
 The compiler does not invoke a voice agent, provider, model, TTS service, STT
 service, command oracle, or network endpoint. Its result describes the
@@ -115,11 +121,15 @@ is still present in the candidate's atom set.
 
 An atom carries only the discriminator needed to keep failure branches apart:
 for example, an assertion index, detector, policy rule/type, state field, or
-entity key. Tool arguments that disagree therefore remain a
-`tool-arguments-mismatch`; deleting the only named call changes the branch to
-`tool-missing` and is `DRIFTED`, even though the assertion still reports
-`FAIL`. Payload values, transcript text, and broad diagnostic counts are not
-part of the atom.
+entity key. A wrong tool argument therefore becomes
+`tool-argument-value-mismatch` plus its key. Deleting that value changes the
+branch to `tool-argument-field-missing`; deleting the named call changes it to
+`tool-missing`. Either candidate is `DRIFTED`, even though the assertion still
+reports `FAIL`. Results and termination attributes use the same
+missing-versus-value distinction. Required-order and sequence assertions keep
+present-but-out-of-order evidence separate from an absent step. Latency atoms
+distinguish a declared mock measurement from the simulator default. Payload
+values, transcript text, and broad diagnostic counts are not part of an atom.
 
 The fingerprint binds the test and assertion identity, assertion bytes, kind,
 dimension, deterministic authority, required `FAIL` status, and selected
@@ -148,7 +158,7 @@ scripted scenario. It can attempt to remove:
 - variation-matrix, facts, and environment entries;
 - caller behavior and interruption declarations;
 - caller turns while retaining at least one turn;
-- mock tool calls and optional tool fields;
+- mock tool calls, optional tool fields, and nested argument/result entries;
 - handoff and termination records;
 - mock-state resources, rows, snapshots, and nested leaves;
 - optional additive scenario fields.
@@ -270,9 +280,15 @@ Counterexample compilation and replay add a narrower proof-lane budget:
 - rendered transcript text is at most 256 KiB of UTF-8;
 - one deterministic assertion result is at most 2 MiB in canonical JSON;
 - `hits` and `matched_rules` evidence collections are capped at 10,000 rows;
-- each proof-lane regex is at most 1,024 UTF-8 bytes and belongs to a closed
-  replay subset: groups, alternation, backreferences, and more than one
-  variable quantifier are refused.
+- an accepted proof chain contains at most 512 deletion steps and one step
+  contains at most 10,000 deletion operations;
+- a completed minimality proof contains at most 512 remaining deletion units;
+- each proof-lane regex is at most 1,024 UTF-8 bytes and belongs to a closed,
+  fixed-width replay subset: groups, alternation, backreferences, and variable
+  quantifiers are refused.
+
+The assertion and regex byte bounds run before the general assertion validator
+can invoke Python's regex parser.
 
 The selected structured failure branch is still the preservation identity;
 these limits bound the repeated work needed to establish it. A candidate that
@@ -354,10 +370,11 @@ single-unit rows become an aggregate count by outcome; the projection contains
 no reducer paths or per-candidate digests.
 
 The share target and canonical reports expose the selected failure code, such
-as `tool-arguments-mismatch` or `state-field-value-mismatch`, so the failure
-category remains readable without a payload. Atom discriminators such as a
-field, key, rule, detector, or index stay private. `failure_atom_digest` binds
-the complete selected atom without publishing those discriminator values.
+as `tool-argument-value-mismatch` or `state-field-value-mismatch`, so the
+failure category remains readable without a payload. Atom discriminators such
+as a field, key, rule, detector, or index stay private.
+`failure_atom_digest` binds the complete selected atom without publishing those
+discriminator values.
 
 `share-safe-v1` is an engineering access boundary, not an anonymity claim.
 Capsule, source, assertion, evaluator, fingerprint, and failure-atom digests
@@ -447,7 +464,9 @@ This can locate the revision where Hotato evaluator or scripted-simulator
 behavior begins reproducing the recorded failure. The capsule retains its own
 source and reduced inputs, so changes to external scenario/test files are not
 part of the predicate. A revision that cannot load or evaluate the capsule is
-skipped with `125`.
+skipped with `125`. As with `git bisect run` generally, skipped revisions near
+the transition can leave a candidate range instead of identifying one first
+bad revision.
 
 Bisecting agent implementations, hosted models, provider configurations, or
 prompt revisions requires a separately defined adapter that executes those
@@ -461,8 +480,12 @@ The compiler fails closed when:
 - the target is in the rubric lane or does not fail twice identically;
 - required evidence is missing and the target is inconclusive;
 - a `timing_contract` depends on an external bundle;
-- a latency assertion reads an external timing field rather than a scripted
-  tool span;
+- a DTMF assertion requests trace evidence the scripted simulator cannot emit;
+- an outcome predicate reads an external timing field;
+- a latency assertion reads an external timing field or a span type other than
+  a scripted `tool_call`;
+- a keyed tool argument/result target uses an empty key, or an entity reference
+  uses an empty key or a null expected value;
 - a policy assertion uses an external `pack_path`;
 - an input escapes the workspace or traverses a symlink;
 - the output path already exists;

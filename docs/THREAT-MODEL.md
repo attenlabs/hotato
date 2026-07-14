@@ -78,10 +78,15 @@ source-to-final delete-only chain.
 
 Replay also bounds proof-specific work: 256 KiB per selected assertion, 2 MiB
 per canonical candidate scenario, 256 KiB of rendered transcript text, 2 MiB
-per assertion result, and 10,000 evidence rows. Proof regexes use a closed
-1,024-byte subset that refuses groups, alternation, backreferences, and more
-than one variable quantifier. These limits apply to counterexample compilation
-and replay; they are not global evaluator limits.
+per assertion result, 10,000 evidence rows, 512 accepted proof-chain steps,
+10,000 deletion operations per accepted step, and 512 remaining deletion
+units in a completed minimality proof. Accepted steps require fresh oracle
+evaluations; cached preserved journal rows cannot inflate the chain. Proof
+regexes use a closed, fixed-width 1,024-byte subset that refuses groups,
+alternation, backreferences, and variable quantifiers. These limits apply to
+counterexample compilation and replay; they are not global evaluator limits.
+The selected-assertion and proof-regex byte checks run before the general
+assertion validator can invoke Python's regex parser.
 
 Each profile also has an exact member allowlist. A manifest cannot authorize a
 new file outside that profile. For `share-safe-v1`, the only members are
