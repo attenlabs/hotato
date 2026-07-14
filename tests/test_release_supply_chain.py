@@ -174,6 +174,25 @@ def test_reproducible_second_build_hash_check_exists():
     )
 
 
+def test_trusted_publish_uses_the_canonical_build_action():
+    workflow = os.path.join(WORKFLOWS_DIR, "publish-pypi-oidc.yml")
+    action = os.path.join(ROOT, ".github", "actions", "build-python-dist", "action.yml")
+    if not os.path.exists(workflow) or not os.path.exists(action):
+        pytest.skip("canonical build action or trusted-publish workflow is absent")
+    assert re.search(
+        r"(?m)^\s*uses:\s+\./\.github/actions/build-python-dist\s*$",
+        _read(workflow),
+    ), (
+        "trusted publishing must use the same repository-owned pinned build "
+        "action as release validation"
+    )
+    action_text = _read(action)
+    assert 'echo "SOURCE_DATE_EPOCH=$source_date_epoch" >> "$GITHUB_ENV"' in action_text, (
+        "the canonical action must export its commit-derived epoch for the "
+        "trusted workflow's second build"
+    )
+
+
 # ---------------------------------------------------------------------------
 # (e) gen_sbom.py --check passes on a freshly generated SBOM
 # ---------------------------------------------------------------------------
@@ -286,3 +305,23 @@ def test_fallback_publish_path_builds_reproducibly():
         "pinned backend) so a hand-published wheel is byte-reproducible; "
         "otherwise its ZIP timestamps/modes drift from a rebuild"
     )
+
+
+def test_fallback_publish_path_mirrors_canonical_toolchain():
+    checklist = os.path.join(ROOT, "docs", "RELEASE-CHECKLIST.md")
+    action = os.path.join(ROOT, ".github", "actions", "build-python-dist", "action.yml")
+    if not os.path.exists(checklist) or not os.path.exists(action):
+        pytest.skip("release checklist or canonical build action is absent")
+    fallback = _read(checklist).split("Fallback: manual token upload", 1)[-1]
+    canonical = _read(action)
+    pin_pattern = r'"((?:pip|build|setuptools|wheel|twine)==[^"\s]+)"'
+    canonical_pins = re.findall(pin_pattern, canonical)
+    fallback_pins = re.findall(pin_pattern, fallback)
+    assert len(canonical_pins) == 5, (
+        f"expected five exact canonical tool pins, got {canonical_pins}"
+    )
+    assert fallback_pins == canonical_pins, (
+        "manual publish toolchain must exactly mirror canonical pins; "
+        f"canonical={canonical_pins}, fallback={fallback_pins}"
+    )
+    assert "twine check --strict" in fallback, "manual fallback must retain strict metadata checks"

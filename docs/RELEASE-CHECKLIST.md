@@ -83,9 +83,9 @@ byte-reproducible instead of carrying wall-clock ZIP timestamps no rebuild
 can match:
 
 ```bash
-python3 -m pip install "build==1.2.2.post1" "setuptools==83.0.0" "wheel==0.45.1" "twine"
+python3 -m pip install "pip==26.1.2" "build==1.2.2.post1" "setuptools==83.0.0" "wheel==0.46.2" "twine==6.2.0"
 SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)" python3 -m build --no-isolation
-python3 -m twine check dist/*
+python3 -m twine check --strict dist/*
 python3 -m twine upload dist/*    # token scoped to the `hotato` project
 ```
 

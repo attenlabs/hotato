@@ -97,23 +97,13 @@ jobs:
       - name: Full test suite
         run: python -m pytest -q
 
-      - name: Build sdist and wheel (pinned backend, reproducible)
-        run: |
-          python -m pip install --upgrade pip
-          # Pin the build backend so the wheel/sdist bytes are reproducible; the
-          # reproducible-build check below rebuilds with these SAME pins and
-          # fails on any drift. --no-isolation forces the build to use exactly
-          # these pinned tools (an isolated build would re-resolve setuptools to
-          # latest per pyproject's `requires = ["setuptools>=77"]`).
-          python -m pip install "build==1.2.2.post1" "setuptools==83.0.0" "wheel==0.45.1" "twine"
-          # Deterministic archive timestamps, derived from the release commit.
-          SDE="$(git log -1 --pretty=%ct)"
-          echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
-          SOURCE_DATE_EPOCH="$SDE" python -m build --no-isolation
-          ls -1 dist/
-
-      - name: twine check
-        run: python -m twine check dist/*
+      # The release sanity job and trusted publisher share this exact pinned
+      # toolchain. The action also exports its commit-derived
+      # SOURCE_DATE_EPOCH for the independent second build below.
+      - name: Build canonical sdist and wheel
+        uses: ./.github/actions/build-python-dist
+        with:
+          output-directory: dist
 
       # Reproducible-build check: rebuild the wheel + sdist a SECOND time into a
       # clean directory with the same SOURCE_DATE_EPOCH and pinned backend, then
