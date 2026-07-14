@@ -19,9 +19,7 @@
 #   - every input is passed to python through the environment and used as an
 #     argv token; no input string is ever shell evaluated.
 name: hotato conversation QA
-description: >-
-  Gate CI on how your voice agent held the conversation: run committed hotato
-  suites, tests, or contracts offline and fail the job on a regression.
+description: Gate CI on your voice agent's conversations: run hotato suites, tests, or contracts offline.
 author: Attention Labs
 branding:
   icon: check-circle
