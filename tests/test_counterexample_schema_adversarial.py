@@ -480,7 +480,7 @@ def test_inspect_rejects_schema_invalid_private_capsule(
     "atom",
     [
         {"code": []},
-        {"code": "sequence-step-missing", "index": True},
+        {"code": "sequence-step-absent", "index": True},
         {"code": "pii-detected", "detector": {}},
         {"code": "policy-violation", "rule": [], "type": "banned"},
         {"code": "state-field-value-mismatch", "field": []},

@@ -20,7 +20,7 @@ from .model import (
     prefixed_digest,
 )
 
-_REFUSED_KINDS = frozenset({"timing_contract"})
+_REFUSED_KINDS = frozenset({"timing_contract", "dtmf"})
 _RUBRIC_KINDS = frozenset(A.RUBRIC_KINDS)
 _MAX_PROOF_REGEX_BYTES = 1_024
 _MAX_TARGET_ASSERTION_BYTES = 256 * 1024
@@ -46,7 +46,9 @@ def _validate_proof_regex(pattern: str, field: str) -> None:
     The main assertion engine supports Python regexes. A counterexample may be
     replayed many times against untrusted capsules, so its proof lane refuses
     constructs with backtracking-dependent complexity: groups, alternation,
-    backreferences, and more than one variable quantifier.
+    backreferences, and every variable quantifier. Python's backtracking
+    engine can make even one unanchored repetition quadratic on a no-match
+    search, so the proof lane accepts only fixed-width patterns.
     """
     if len(pattern.encode("utf-8")) > _MAX_PROOF_REGEX_BYTES:
         raise CounterexampleRefusal(
@@ -55,7 +57,6 @@ def _validate_proof_regex(pattern: str, field: str) -> None:
         )
     escaped = False
     in_class = False
-    quantifiers = 0
     for char in pattern:
         if escaped:
             if char.isdigit() or char == "g":
@@ -81,12 +82,36 @@ def _validate_proof_regex(pattern: str, field: str) -> None:
                 f"{field} uses grouping or alternation outside the proof-regex profile",
             )
         if char in "*+?{":
-            quantifiers += 1
-            if quantifiers > 1:
-                raise CounterexampleRefusal(
-                    "unsupported_target_regex",
-                    f"{field} uses multiple variable quantifiers outside the proof-regex profile",
+            raise CounterexampleRefusal(
+                "unsupported_target_regex",
+                f"{field} uses a variable quantifier outside the proof-regex profile",
+            )
+
+
+def _raw_proof_regex_fields(assertion: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """Extract string regexes without invoking the general regex validator."""
+    kind = assertion.get("kind")
+    fields: List[Tuple[str, str]] = []
+    if kind == "phrase" and isinstance(assertion.get("regex"), str):
+        fields.append((assertion["regex"], "phrase.regex"))
+    elif kind == "count" and isinstance(assertion.get("phrase"), str):
+        fields.append((assertion["phrase"], "count.phrase"))
+    elif kind == "tool_error" and isinstance(assertion.get("error_matches"), str):
+        fields.append((assertion["error_matches"], "tool_error.error_matches"))
+    elif kind == "outcome":
+        # Preflight both lanes independently. The exactly-one rule is enforced
+        # after generic shape validation, so using ``all_of or any_of`` here
+        # would let an invalid second lane reach ``re.compile`` first.
+        for lane in ("all_of", "any_of"):
+            predicates = assertion.get(lane) or []
+            if isinstance(predicates, list):
+                fields.extend(
+                    (predicate["phrase"], f"outcome.{lane}[{index}].phrase")
+                    for index, predicate in enumerate(predicates)
+                    if isinstance(predicate, dict)
+                    and isinstance(predicate.get("phrase"), str)
                 )
+    return fields
 
 
 def target_assertion(test_doc: Dict[str, Any], target_id: str) -> Dict[str, Any]:
@@ -105,6 +130,16 @@ def target_assertion(test_doc: Dict[str, Any], target_id: str) -> Dict[str, Any]
             f"target {target_id!r} must identify exactly one deterministic assertion",
         )
     assertion = dict(matches[0])
+    # These bounds run before the general assertion validator calls
+    # ``re.compile``. A proof target is untrusted input, so an oversized or
+    # backtracking-dependent regex must never reach Python's regex parser.
+    if len(_json_bytes(assertion)) > _MAX_TARGET_ASSERTION_BYTES:
+        raise CounterexampleRefusal(
+            "unsupported_target",
+            f"target assertion exceeds {_MAX_TARGET_ASSERTION_BYTES} bytes",
+        )
+    for pattern, field in _raw_proof_regex_fields(assertion):
+        _validate_proof_regex(pattern, field)
     A.validate_assertions_doc({"version": 1, "assertions": [assertion]})
     if assertion["kind"] == "outcome":
         all_of = assertion.get("all_of")
@@ -127,27 +162,14 @@ def target_assertion(test_doc: Dict[str, Any], target_id: str) -> Dict[str, Any]
                     "unsupported_target",
                     "outcome proof predicates use a closed field set",
                 )
-    if len(_json_bytes(assertion)) > _MAX_TARGET_ASSERTION_BYTES:
-        raise CounterexampleRefusal(
-            "unsupported_target",
-            f"target assertion exceeds {_MAX_TARGET_ASSERTION_BYTES} bytes",
-        )
-    regex_fields: List[Tuple[str, str]] = []
-    if assertion["kind"] == "phrase":
-        regex_fields.append((assertion["regex"], "phrase.regex"))
-    elif assertion["kind"] == "count" and "phrase" in assertion:
-        regex_fields.append((assertion["phrase"], "count.phrase"))
-    elif assertion["kind"] == "tool_error" and assertion.get("error_matches"):
-        regex_fields.append((assertion["error_matches"], "tool_error.error_matches"))
-    elif assertion["kind"] == "outcome":
+    if assertion["kind"] == "outcome":
         predicates = assertion.get("all_of") or assertion.get("any_of") or []
-        regex_fields.extend(
-            (predicate["phrase"], f"outcome[{index}].phrase")
-            for index, predicate in enumerate(predicates)
-            if "phrase" in predicate
-        )
-    for pattern, field in regex_fields:
-        _validate_proof_regex(pattern, field)
+        if any("field_present" in predicate for predicate in predicates):
+            raise CounterexampleRefusal(
+                "unsupported_target",
+                "outcome field_present predicates require external timing context "
+                "and are outside the scripted-scenario oracle",
+            )
     # The project validators are additive, while the counterexample proof
     # schemas are deliberately closed. Refuse edge values that the assertion
     # evaluator can consume but that cannot be represented by the v1 typed
@@ -170,6 +192,26 @@ def target_assertion(test_doc: Dict[str, Any], target_id: str) -> Dict[str, Any]
         raise CounterexampleRefusal(
             "unsupported_target", "entity_accuracy reference keys must be non-empty strings"
         )
+    if assertion["kind"] == "entity_accuracy" and any(
+        value is None for value in assertion.get("reference", {}).values()
+    ):
+        raise CounterexampleRefusal(
+            "unsupported_target",
+            "entity_accuracy null reference values cannot produce a passing "
+            "comparison in the deterministic evaluator",
+        )
+    if assertion["kind"] in {"tool_call", "tool_result"}:
+        subset_name = (
+            "args_subset" if assertion["kind"] == "tool_call" else "result_subset"
+        )
+        if any(
+            not isinstance(key, str) or not key
+            for key in assertion.get(subset_name, {})
+        ):
+            raise CounterexampleRefusal(
+                "unsupported_target",
+                f"{assertion['kind']} {subset_name} keys must be non-empty strings",
+            )
     if assertion["kind"] == "state" and any(
         not isinstance(path, str) or not path for path in assertion.get("expect", {})
     ):
@@ -177,6 +219,12 @@ def target_assertion(test_doc: Dict[str, Any], target_id: str) -> Dict[str, Any]
             "unsupported_target", "state expectation paths must be non-empty strings"
         )
     if assertion["kind"] in _REFUSED_KINDS:
+        if assertion["kind"] == "dtmf":
+            raise CounterexampleRefusal(
+                "unsupported_target",
+                "DTMF assertions require trace evidence the scripted simulator "
+                "does not emit",
+            )
         raise CounterexampleRefusal(
             "unsupported_target",
             f"assertion kind {assertion['kind']!r} depends on an external bundle and is outside reducers v1",
@@ -185,6 +233,14 @@ def target_assertion(test_doc: Dict[str, Any], target_id: str) -> Dict[str, Any]
         raise CounterexampleRefusal(
             "unsupported_target",
             "latency assertions over an external timing field are outside the scripted-scenario oracle",
+        )
+    if (
+        assertion["kind"] == "latency"
+        and assertion.get("span_type") not in (None, "tool_call")
+    ):
+        raise CounterexampleRefusal(
+            "unsupported_target",
+            "the scripted-scenario oracle exposes latency_ms only on tool_call spans",
         )
     if assertion["kind"] == "policy" and assertion.get("pack_path"):
         raise CounterexampleRefusal(
@@ -222,6 +278,24 @@ def _span_field(span: Dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _span_field_with_presence(
+    span: Dict[str, Any], *keys: str
+) -> Tuple[Any, bool]:
+    """Return the assertion-visible value and whether any source field exists.
+
+    The main evaluator treats top-level and ``attributes`` payloads as one
+    observation surface. Proof branches additionally need to distinguish a
+    deleted field from a present field whose value is ``null`` or otherwise
+    wrong; collapsing those cases would let reduction erase the evidence named
+    by a value-mismatch branch.
+    """
+    value = _span_field(span, *keys)
+    if value is not None:
+        return value, True
+    attrs = span.get("attributes") or {}
+    return None, any(key in span or key in attrs for key in keys)
+
+
 def _typed_spans(ctx: A.Context, span_type: str, name: Optional[str] = None) -> List[Dict[str, Any]]:
     return [
         span for span in (ctx.spans or [])
@@ -240,13 +314,19 @@ def _tool_entries(ctx: A.Context) -> List[Dict[str, Any]]:
     for index, span in enumerate(ctx.spans or []):
         if span.get("type") != "tool_call":
             continue
-        args = _span_field(span, "arguments")
+        args, arguments_present = _span_field_with_presence(span, "arguments")
         out.append({
             "index": index,
             "name": span.get("name"),
             "arguments": args if isinstance(args, dict) else {},
+            "arguments_present": arguments_present,
             "result": _span_field(span, "result"),
-            "error": _span_field(span, "error", "error_message", "message"),
+            # Mirror assert_._span_errored exactly: an error_message alone is
+            # diagnostic text, not an error indicator.
+            "error": _span_field(span, "error"),
+            "error_message": _span_field(
+                span, "error", "error_message", "message"
+            ),
             "status": _span_field(span, "status"),
             "ok": _span_field(span, "ok"),
         })
@@ -279,26 +359,39 @@ def _get_path(value: Any, path: str) -> Tuple[Any, bool]:
     return current, True
 
 
-def _sequence_prefix(assertion: Dict[str, Any], ctx: A.Context) -> int:
+def _sequence_failure_atom(
+    assertion: Dict[str, Any], ctx: A.Context
+) -> Dict[str, Any]:
     last = -1
-    matched = 0
-    for step in assertion["steps"]:
-        found = None
-        for index, span in enumerate(ctx.spans or []):
-            if index <= last:
-                continue
-            ok = (
+    for index, step in enumerate(assertion["steps"]):
+        candidates = [
+            span_index
+            for span_index, span in enumerate(ctx.spans or [])
+            if (
                 span.get("type") == "tool_call" and span.get("name") == step["tool"]
-                if "tool" in step else span.get("type") == step["span_type"]
+                if "tool" in step
+                else span.get("type") == step["span_type"]
             )
-            if ok:
-                found = index
+        ]
+        found = None
+        for span_index in candidates:
+            if span_index > last:
+                found = span_index
                 break
         if found is None:
-            break
-        matched += 1
+            return {
+                "code": (
+                    "sequence-step-out-of-order"
+                    if candidates
+                    else "sequence-step-absent"
+                ),
+                "index": index,
+            }
         last = found
-    return matched
+    raise CounterexampleRefusal(
+        "failure_atom_unavailable",
+        "failed sequence assertion has no typed missing or out-of-order step",
+    )
 
 
 FAILURE_ATOM_FIELDS: Dict[str, Dict[str, Tuple[str, ...]]] = {
@@ -311,10 +404,13 @@ FAILURE_ATOM_FIELDS: Dict[str, Dict[str, Tuple[str, ...]]] = {
     "policy": {"policy-violation": ("rule", "type")},
     "tool_call": {
         "tool-missing": (),
-        "tool-arguments-mismatch": (),
+        "tool-arguments-missing": (),
+        "tool-argument-field-missing": ("key",),
+        "tool-argument-value-mismatch": ("key",),
         "tool-count-below": (),
         "tool-count-above": (),
-        "order-step-missing": ("index",),
+        "order-step-absent": ("index",),
+        "order-step-out-of-order": ("index",),
         "never-before-boundary-missing": (),
         "never-before-order-violation": (),
     },
@@ -325,7 +421,8 @@ FAILURE_ATOM_FIELDS: Dict[str, Dict[str, Tuple[str, ...]]] = {
     "tool_result": {
         "tool-missing": (),
         "result-missing": (),
-        "result-subset-mismatch": (),
+        "result-field-missing": ("key",),
+        "result-field-value-mismatch": ("key",),
     },
     "tool_error": {
         "tool-missing": (),
@@ -350,22 +447,24 @@ FAILURE_ATOM_FIELDS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "handoff-target-mismatch": (),
         "unexpected-handoff": (),
     },
-    "dtmf": {
-        "dtmf-missing": (),
-        "dtmf-digits-mismatch": (),
-        "unexpected-dtmf": (),
-    },
     "termination": {
         "termination-missing": (),
-        "termination-attribute-mismatch": (),
+        "termination-attribute-missing": ("field",),
+        "termination-attribute-value-mismatch": ("field",),
         "unexpected-termination": (),
     },
-    "latency": {"latency-threshold-exceeded": ()},
+    "latency": {
+        "latency-declared-threshold-exceeded": (),
+        "latency-default-threshold-exceeded": (),
+    },
     "entity_accuracy": {
         "entity-missing": ("key",),
         "entity-value-mismatch": ("key",),
     },
-    "sequence": {"sequence-step-missing": ("index",)},
+    "sequence": {
+        "sequence-step-absent": ("index",),
+        "sequence-step-out-of-order": ("index",),
+    },
     "count": {
         "count-below": (),
         "count-above": (),
@@ -434,7 +533,10 @@ def _outcome_predicate_met(predicate: Dict[str, Any], ctx: A.Context) -> bool:
 
 
 def failure_atoms(
-    assertion: Dict[str, Any], result: Dict[str, Any], ctx: A.Context
+    assertion: Dict[str, Any],
+    result: Dict[str, Any],
+    ctx: A.Context,
+    scenario: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Return the closed, payload-free failure branches for one deterministic FAIL."""
     kind = assertion["kind"]
@@ -472,13 +574,24 @@ def failure_atoms(
             qualifying = [row for row in named if _is_subset(args, row["arguments"])]
             spec = assertion.get("count")
             if spec is None and not qualifying:
-                atoms.append({
-                    "code": (
-                        "tool-arguments-mismatch"
-                        if named and args
-                        else "tool-missing"
-                    )
-                })
+                if not named:
+                    atoms.append({"code": "tool-missing"})
+                elif args:
+                    for row in named:
+                        if not row["arguments_present"]:
+                            atoms.append({"code": "tool-arguments-missing"})
+                            continue
+                        for key, expected in args.items():
+                            if key not in row["arguments"]:
+                                atoms.append({
+                                    "code": "tool-argument-field-missing",
+                                    "key": key,
+                                })
+                            elif row["arguments"][key] != expected:
+                                atoms.append({
+                                    "code": "tool-argument-value-mismatch",
+                                    "key": key,
+                                })
             elif spec is not None:
                 observed = len(qualifying)
                 if isinstance(spec, int):
@@ -504,7 +617,14 @@ def failure_atoms(
                 None,
             )
             if found is None:
-                atoms.append({"code": "order-step-missing", "index": index})
+                atoms.append({
+                    "code": (
+                        "order-step-out-of-order"
+                        if any(row["name"] == tool for row in entries)
+                        else "order-step-absent"
+                    ),
+                    "index": index,
+                })
                 break
             last = found
         boundary = assertion.get("never_before")
@@ -540,10 +660,23 @@ def failure_atoms(
         if not rows:
             atoms.append({"code": "tool-missing"})
         else:
-            results = [row["result"] for row in rows if isinstance(row["result"], dict)]
-            atoms.append({
-                "code": "result-subset-mismatch" if results else "result-missing"
-            })
+            subset = assertion.get("result_subset") or {}
+            for row in rows:
+                observed = row["result"]
+                if not isinstance(observed, dict):
+                    atoms.append({"code": "result-missing"})
+                    continue
+                for key, expected in subset.items():
+                    if key not in observed:
+                        atoms.append({
+                            "code": "result-field-missing",
+                            "key": key,
+                        })
+                    elif observed[key] != expected:
+                        atoms.append({
+                            "code": "result-field-value-mismatch",
+                            "key": key,
+                        })
     elif kind == "tool_error":
         if assertion.get("absent"):
             atoms.append({"code": "unexpected-tool-error"})
@@ -588,21 +721,22 @@ def failure_atoms(
         field = assertion["field"]
         before_value, before_found = _get_path(before, field) if before is not None else (None, False)
         after_value, after_found = _get_path(after, field) if after is not None else (None, False)
-        if "from" in assertion and not before_found:
-            atoms.append({"code": "before-field-missing", "field": field})
-        elif "from" in assertion and before_value != assertion["from"]:
-            atoms.append({"code": "before-value-mismatch", "field": field})
-        if "to" in assertion and not after_found:
-            atoms.append({"code": "after-field-missing", "field": field})
-        elif "to" in assertion and after_value != assertion["to"]:
-            atoms.append({"code": "after-value-mismatch", "field": field})
-        if assertion.get("changed") and before_found and after_found and before_value == after_value:
+        if "from" in assertion and before_value != assertion["from"]:
+            atoms.append({
+                "code": (
+                    "before-value-mismatch" if before_found else "before-field-missing"
+                ),
+                "field": field,
+            })
+        if "to" in assertion and after_value != assertion["to"]:
+            atoms.append({
+                "code": (
+                    "after-value-mismatch" if after_found else "after-field-missing"
+                ),
+                "field": field,
+            })
+        if assertion.get("changed") and before_value == after_value:
             atoms.append({"code": "state-unchanged", "field": field})
-        elif assertion.get("changed") and before_value == after_value:
-            if not before_found:
-                atoms.append({"code": "before-field-missing", "field": field})
-            if not after_found:
-                atoms.append({"code": "after-field-missing", "field": field})
     elif kind == "handoff":
         if assertion.get("absent"):
             atoms.append({"code": "unexpected-handoff"})
@@ -614,17 +748,6 @@ def failure_atoms(
             atoms.append({
                 "code": "handoff-target-mismatch" if rows else "handoff-missing"
             })
-    elif kind == "dtmf":
-        if assertion.get("absent"):
-            atoms.append({"code": "unexpected-dtmf"})
-        else:
-            rows = [
-                span for span in (ctx.spans or [])
-                if span.get("type") == "dtmf"
-            ]
-            atoms.append({
-                "code": "dtmf-digits-mismatch" if rows else "dtmf-missing"
-            })
     elif kind == "termination":
         if assertion.get("absent"):
             atoms.append({"code": "unexpected-termination"})
@@ -635,33 +758,74 @@ def failure_atoms(
                     "termination", "call_ended", "call_terminated", "hangup",
                 }
             ]
-            atoms.append({
-                "code": (
-                    "termination-attribute-mismatch"
-                    if rows
-                    else "termination-missing"
-                )
-            })
+            if not rows:
+                atoms.append({"code": "termination-missing"})
+            else:
+                for row in rows:
+                    for field, keys in (
+                        ("reason", ("reason",)),
+                        ("by", ("by", "terminated_by")),
+                    ):
+                        if field not in assertion:
+                            continue
+                        observed, found = _span_field_with_presence(row, *keys)
+                        if not found:
+                            atoms.append({
+                                "code": "termination-attribute-missing",
+                                "field": field,
+                            })
+                        elif observed != assertion[field]:
+                            atoms.append({
+                                "code": "termination-attribute-value-mismatch",
+                                "field": field,
+                            })
     elif kind == "latency":
-        atoms.append({"code": "latency-threshold-exceeded"})
+        matching = [
+            span
+            for span in (ctx.spans or [])
+            if (
+                span.get("type") == "tool_call"
+                and span.get("name") == assertion["tool"]
+                if "tool" in assertion
+                else span.get("type") == assertion["span_type"]
+            )
+            and isinstance(_span_field(span, "latency_ms"), (int, float))
+            and not isinstance(_span_field(span, "latency_ms"), bool)
+            and _span_field(span, "latency_ms") > assertion["max_ms"]
+        ]
+        if scenario is None:
+            atoms.append({"code": "latency-declared-threshold-exceeded"})
+        else:
+            specs = list((scenario.get("agent_mock") or {}).get("tools") or [])
+            rendered_tools = _typed_spans(ctx, "tool_call")
+            declared_by_identity = {
+                id(span): "latency_ms" in spec
+                for span, spec in zip(rendered_tools, specs)
+            }
+            for span in matching:
+                atoms.append({
+                    "code": (
+                        "latency-declared-threshold-exceeded"
+                        if declared_by_identity.get(id(span), False)
+                        else "latency-default-threshold-exceeded"
+                    )
+                })
     elif kind == "entity_accuracy":
         observed: Dict[str, Any] = {}
         for row in _tool_entries(ctx):
             observed.update(row["arguments"])
         case_sensitive = bool(assertion.get("case_sensitive", False))
         for key, expected in assertion["reference"].items():
+            found = key in observed
             got = observed.get(key)
             left = str(got) if case_sensitive else str(got).lower()
             right = str(expected) if case_sensitive else str(expected).lower()
-            if got is None:
+            if not found:
                 atoms.append({"code": "entity-missing", "key": key})
             elif left != right:
                 atoms.append({"code": "entity-value-mismatch", "key": key})
     elif kind == "sequence":
-        atoms.append({
-            "code": "sequence-step-missing",
-            "index": _sequence_prefix(assertion, ctx),
-        })
+        atoms.append(_sequence_failure_atom(assertion, ctx))
     elif kind == "count":
         atoms.append({
             "code": _count_failure_code(int(result.get("observed", 0)), assertion["count"])
@@ -785,7 +949,11 @@ class FailureOracle:
                     "code": "resource_limit_exceeded",
                     "detail": "assertion evidence exceeds the deterministic oracle limit",
                 }
-            atoms = failure_atoms(self.assertion, result, ctx) if result.get("status") == "FAIL" else []
+            atoms = (
+                failure_atoms(self.assertion, result, ctx, doc)
+                if result.get("status") == "FAIL"
+                else []
+            )
             if result.get("status") == "FAIL" and not atoms:
                 return {
                     "status": UNRESOLVED,

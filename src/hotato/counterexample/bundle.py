@@ -24,10 +24,13 @@ from .model import (
     CERTIFICATE_KIND,
     DEFAULT_BUDGET,
     KIND,
+    MAX_ACCEPTED_STEPS,
     MAX_BUDGET,
     MAX_CAPSULE_BYTES,
     MAX_CAPSULE_FILES,
     MAX_CAPSULE_MEMBER_BYTES,
+    MAX_MINIMALITY_UNITS,
+    MAX_TRANSFORM_OPERATIONS,
     ORACLE_KIND,
     PRIVATE_PROFILE,
     REDUCER_SET,
@@ -68,7 +71,7 @@ _MANIFEST_KIND = "hotato.counterexample-manifest.v1"
 
 _ASSERTION_KINDS = frozenset({
     "phrase", "pii", "policy", "tool_call", "outcome", "tool_result",
-    "tool_error", "state", "state_change", "handoff", "dtmf",
+    "tool_error", "state", "state_change", "handoff",
     "termination", "latency", "entity_accuracy", "sequence", "count",
 })
 _DIMENSIONS = frozenset({
@@ -1038,6 +1041,13 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
         raise CounterexampleRefusal("capsule_schema", "candidate evaluations exceed their budget")
     if reduction["attempts"] < reduction["accepted"]:
         raise CounterexampleRefusal("capsule_schema", "accepted reductions exceed attempts")
+    if (
+        reduction["accepted"] > MAX_ACCEPTED_STEPS
+        or reduction["accepted"] > reduction["candidate_evaluations"]
+    ):
+        raise CounterexampleRefusal(
+            "capsule_schema", "accepted reduction chain exceeds its work bounds"
+        )
     if reduction["qualification_evaluations"] != 4:
         raise CounterexampleRefusal("capsule_schema", "qualification evaluation count must be four")
     if reduction["total_evaluations"] != reduction["candidate_evaluations"] + 4:
@@ -1075,7 +1085,7 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
         raise CounterexampleRefusal("capsule_schema", "minimality frozen components are malformed")
     if profile == PRIVATE_PROFILE:
         checks = minimality.get("remaining_unit_checks")
-        if not isinstance(checks, list):
+        if not isinstance(checks, list) or len(checks) > MAX_MINIMALITY_UNITS:
             raise CounterexampleRefusal(
                 "capsule_schema", "minimality checks are malformed"
             )
@@ -1109,7 +1119,9 @@ def _validate_capsule(capsule: Dict[str, Any]) -> None:
         if (
             not isinstance(summary, dict)
             or set(summary) != {"count", "outcomes"}
-            or not _nonnegative_integer(summary.get("count"))
+            or not _nonnegative_integer(
+                summary.get("count"), maximum=MAX_MINIMALITY_UNITS
+            )
             or not isinstance(outcomes, dict)
             or set(outcomes) != expected_outcomes
             or any(not _nonnegative_integer(value) for value in outcomes.values())
@@ -1427,7 +1439,7 @@ def _operation_shape(operation: Any, *, journal: bool = False) -> None:
             set(operation) == required
             and isinstance(paths, list)
             and bool(paths)
-            and len(paths) <= MAX_BUDGET
+            and len(paths) <= MAX_TRANSFORM_OPERATIONS
             and all(isinstance(path, str) and path for path in paths)
             and paths == sorted(set(paths))
         )
@@ -1480,8 +1492,13 @@ def _operation_matches_transform(operation: Dict[str, Any], transform: Any) -> N
     if not isinstance(transform, dict) or transform.get("kind") != "hotato.delete-only.v1":
         raise CounterexampleRefusal("certificate_transform", "deletion transform is malformed")
     rows = transform.get("operations")
-    if not isinstance(rows, list) or not rows or len(rows) > MAX_BUDGET:
+    if not isinstance(rows, list) or not rows:
         raise CounterexampleRefusal("certificate_transform", "deletion transform is empty")
+    if len(rows) > MAX_TRANSFORM_OPERATIONS:
+        raise CounterexampleRefusal(
+            "certificate_transform_limit",
+            "deletion transform exceeds the proof operation limit",
+        )
     paths = [_transform_path_text(row.get("path") if isinstance(row, dict) else None) for row in rows]
     if operation["kind"] in {"remove-field", "remove-single-unit"}:
         if len(paths) != 1 or paths[0] != operation["path"]:
@@ -1534,7 +1551,11 @@ def _validate_certificate_document(certificate: Any) -> None:
     if not _nonnegative_integer(certificate.get("cache_hits")):
         raise CounterexampleRefusal("certificate_schema", "certificate cache count is malformed")
     steps = certificate.get("accepted_steps")
-    if not isinstance(steps, list) or len(steps) > MAX_BUDGET:
+    if (
+        not isinstance(steps, list)
+        or len(steps) > MAX_ACCEPTED_STEPS
+        or len(steps) > certificate["candidate_evaluations"]
+    ):
         raise CounterexampleRefusal("certificate_schema", "certificate steps are malformed")
     for index, step in enumerate(steps):
         if not isinstance(step, dict) or set(step) != {
@@ -1610,6 +1631,11 @@ def _validate_journal(
         elif row.get("code") != "budget_exhausted":
             evaluated += 1
         if row["status"] == "PRESERVED":
+            if row["cached"]:
+                raise CounterexampleRefusal(
+                    "journal_chain_mismatch",
+                    "an accepted delete-only child cannot be a cached journal result",
+                )
             if accepted_index >= len(accepted):
                 raise CounterexampleRefusal(
                     "journal_chain_mismatch",
@@ -1824,7 +1850,18 @@ def verify_counterexample(path: str) -> Dict[str, Any]:
     unit_checks = 0
     if minimality_status == "one_minimal":
         unit_count = len(enumerate_units(scenario, oracle.frozen))
-        verifier = SearchState(max(1, unit_count + 1), oracle.evaluate)
+        if unit_count > MAX_MINIMALITY_UNITS:
+            raise CounterexampleRefusal(
+                "minimality_work_limit",
+                f"counterexample has {unit_count} remaining deletion units; "
+                f"the proof limit is {MAX_MINIMALITY_UNITS}",
+            )
+        if len(stored_min["remaining_unit_checks"]) != unit_count:
+            raise CounterexampleRefusal(
+                "minimality_evidence_mismatch",
+                "stored single-unit inventory does not match the reduced scenario",
+            )
+        verifier = SearchState(max(1, unit_count), oracle.evaluate)
         checks, preserved = verify_single_units(scenario, verifier, oracle.frozen)
         unit_checks = len(checks)
         if preserved:

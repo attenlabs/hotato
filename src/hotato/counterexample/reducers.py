@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple, Union
 
-from .model import PRESERVED
+from .model import MAX_MINIMALITY_UNITS, PRESERVED, CounterexampleRefusal
 from .search import SearchState, ddmin_indices
 
 PathPart = Union[str, int]
@@ -151,6 +151,29 @@ def _state_hierarchy(
     return current
 
 
+def _tool_payload_hierarchy(
+    current: Dict[str, Any], state: SearchState
+) -> Dict[str, Any]:
+    """Reduce free-form tool arguments/results without rewriting values."""
+    if not _has(current, ("agent_mock", "tools")):
+        return current
+    tools = _get(current, ("agent_mock", "tools"))
+    if not isinstance(tools, list):
+        return current
+    for index in range(len(tools)):
+        for field in ("arguments", "result"):
+            path = ("agent_mock", "tools", index, field)
+            if not _has(current, path):
+                continue
+            value = _get(current, path)
+            phase = f"tool-payload:{index}:{field}"
+            if isinstance(value, dict):
+                current = _reduce_dict_keys(current, path, state, phase)
+            elif isinstance(value, list):
+                current = _reduce_list(current, path, state, phase)
+    return current
+
+
 def hierarchical_reduce(
     scenario: Dict[str, Any], state: SearchState, frozen: Set[str]
 ) -> Dict[str, Any]:
@@ -188,6 +211,8 @@ def hierarchical_reduce(
         )
         if not _get(current, ("agent_mock", "tools")):
             current = _try_delete_key(current, ("agent_mock", "tools"), state, "empty-tools")
+        else:
+            current = _tool_payload_hierarchy(current, state)
 
     if "handoff" not in frozen:
         current = _try_delete_key(current, ("agent_mock", "handoff"), state, "handoff")
@@ -307,7 +332,20 @@ def enumerate_units(scenario: Dict[str, Any], frozen: Set[str]) -> List[Dict[str
             for index, tool in enumerate(tools):
                 if isinstance(tool, dict):
                     for key in sorted(set(tool).difference({"name"})):
-                        add(("agent_mock", "tools", index, key), "tool-field")
+                        path = ("agent_mock", "tools", index, key)
+                        add(path, "tool-field")
+                        value = tool[key]
+                        if key in {"arguments", "result"} and isinstance(
+                            value, (dict, list)
+                        ):
+                            units.extend(
+                                {
+                                    "path": nested_path,
+                                    "component": "tool-field",
+                                    "min_items": 0,
+                                }
+                                for nested_path in _nested_leaf_units(value, path)
+                            )
             if "tools" in agent_mock:
                 add(("agent_mock", "tools"), "tools")
         if "handoff" not in frozen and "handoff" in agent_mock:
@@ -346,6 +384,20 @@ def enumerate_units(scenario: Dict[str, Any], frozen: Set[str]) -> List[Dict[str
     return unique
 
 
+def _bounded_units(
+    scenario: Dict[str, Any], frozen: Set[str]
+) -> List[Dict[str, Any]]:
+    """Enumerate the proof work, refusing before any candidate deep copy."""
+    units = enumerate_units(scenario, frozen)
+    if len(units) > MAX_MINIMALITY_UNITS:
+        raise CounterexampleRefusal(
+            "minimality_work_limit",
+            f"counterexample has {len(units)} remaining deletion units; "
+            f"the proof limit is {MAX_MINIMALITY_UNITS}",
+        )
+    return units
+
+
 def _can_delete(scenario: Dict[str, Any], unit: Dict[str, Any]) -> bool:
     path = unit["path"]
     if not _has(scenario, path):
@@ -362,7 +414,7 @@ def final_single_unit_pass(
     current = copy.deepcopy(scenario)
     while not state.exhausted:
         accepted_one = False
-        for unit in enumerate_units(current, frozen):
+        for unit in _bounded_units(current, frozen):
             if not _can_delete(current, unit):
                 continue
             candidate = copy.deepcopy(current)
@@ -384,7 +436,7 @@ def final_single_unit_pass(
     checks: List[Dict[str, Any]] = []
     if state.exhausted:
         return current, checks, False
-    for unit in enumerate_units(current, frozen):
+    for unit in _bounded_units(current, frozen):
         if not _can_delete(current, unit):
             continue
         candidate = copy.deepcopy(current)
@@ -424,7 +476,7 @@ def verify_single_units(
     """Independently re-run every deletion represented by the final algebra."""
     checks: List[Dict[str, Any]] = []
     preserved: List[str] = []
-    for unit in enumerate_units(scenario, frozen):
+    for unit in _bounded_units(scenario, frozen):
         if not _can_delete(scenario, unit):
             continue
         candidate = copy.deepcopy(scenario)

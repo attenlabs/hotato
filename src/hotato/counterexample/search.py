@@ -5,7 +5,15 @@ from __future__ import annotations
 import copy
 from typing import Any, Callable, Dict, List, Sequence, Tuple, Union
 
-from .model import PRESERVED, UNRESOLVED, digest_obj, prefixed_digest
+from .model import (
+    MAX_ACCEPTED_STEPS,
+    MAX_TRANSFORM_OPERATIONS,
+    PRESERVED,
+    UNRESOLVED,
+    CounterexampleRefusal,
+    digest_obj,
+    prefixed_digest,
+)
 
 PathPart = Union[str, int]
 Deletion = Dict[str, Any]
@@ -186,10 +194,22 @@ class SearchState:
         candidate: Dict[str, Any],
         operation: Dict[str, Any],
     ) -> Tuple[Dict[str, Any], bool]:
+        if self.accepted >= MAX_ACCEPTED_STEPS:
+            raise CounterexampleRefusal(
+                "accepted_step_limit",
+                f"reduction reached the {MAX_ACCEPTED_STEPS}-step proof-chain limit",
+            )
         parent_digest = digest_obj(current)
         transform = deletion_transform(current, candidate)
         if not transform["operations"]:
             raise RuntimeError("candidate did not change the scenario")
+        if len(transform["operations"]) > MAX_TRANSFORM_OPERATIONS:
+            raise CounterexampleRefusal(
+                "transform_work_limit",
+                "candidate deletion has "
+                f"{len(transform['operations'])} operations; the proof limit is "
+                f"{MAX_TRANSFORM_OPERATIONS}",
+            )
         # ddmin is used over both lists and sorted dictionary keys. Bind its
         # descriptive operation to the exact replayed paths rather than to
         # internal search indices, whose meaning cannot be reconstructed from
@@ -202,6 +222,11 @@ class SearchState:
         result = self.evaluate(candidate, operation)
         if result.get("status") != PRESERVED:
             return current, False
+        if result.get("cached"):
+            raise CounterexampleRefusal(
+                "cached_preservation_refused",
+                "an accepted delete-only child must have a fresh oracle evaluation",
+            )
         child_digest = digest_obj(candidate)
         self.accepted += 1
         step = {
@@ -243,6 +268,14 @@ def ddmin_indices(
     kept = list(range(size))
     granularity = 2
     while len(kept) > min_items and not state.exhausted:
+        # Every accepted candidate becomes a replayed certificate transform.
+        # Keep coarse partitions inside the same operation bound enforced by
+        # the compiler, schema, and verifier. This preserves useful reduction
+        # for large inputs without emitting a capsule that rejects itself.
+        minimum_bounded_granularity = (
+            len(kept) + MAX_TRANSFORM_OPERATIONS - 1
+        ) // MAX_TRANSFORM_OPERATIONS
+        granularity = max(granularity, minimum_bounded_granularity)
         changed = False
         for chunk in _partitions(kept, granularity):
             remove = set(chunk)

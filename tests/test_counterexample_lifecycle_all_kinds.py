@@ -97,17 +97,13 @@ CASES: dict[str, LifecycleCase] = {
         assertion={"to": "billing"},
         failure_atom={"code": "handoff-missing"},
     ),
-    "dtmf": LifecycleCase(
-        assertion={"digits": "99"},
-        failure_atom={"code": "dtmf-missing"},
-    ),
     "termination": LifecycleCase(
         assertion={"reason": "dropped"},
         failure_atom={"code": "termination-missing"},
     ),
     "latency": LifecycleCase(
         assertion={"tool": "issue_refund", "max_ms": 500},
-        failure_atom={"code": "latency-threshold-exceeded"},
+        failure_atom={"code": "latency-declared-threshold-exceeded"},
         agent_mock={
             "tools": [
                 {
@@ -126,7 +122,7 @@ CASES: dict[str, LifecycleCase] = {
         assertion={
             "steps": [{"tool": "lookup_order"}, {"tool": "issue_refund"}]
         },
-        failure_atom={"code": "sequence-step-missing", "index": 0},
+        failure_atom={"code": "sequence-step-absent", "index": 0},
     ),
     "count": LifecycleCase(
         assertion={"span_type": "tool_call", "count": 1},
@@ -161,8 +157,8 @@ def _documents(kind: str, case: LifecycleCase) -> tuple[dict[str, Any], dict[str
     return scenario, test_doc
 
 
-def test_lifecycle_matrix_covers_every_counterexample_assertion_kind() -> None:
-    assert set(CASES) == set(A.KINDS).difference({"timing_contract"})
+def test_lifecycle_matrix_covers_every_scripted_counterexample_assertion_kind() -> None:
+    assert set(CASES) == set(A.KINDS).difference({"timing_contract", "dtmf"})
 
 
 @pytest.mark.parametrize("kind", sorted(CASES))

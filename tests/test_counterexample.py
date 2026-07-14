@@ -139,12 +139,14 @@ def test_tool_argument_failure_cannot_reduce_to_missing_tool(tmp_path):
 
     assert result["exit_code"] == 0
     assert result["target"]["failure_atom"] == {
-        "code": "tool-arguments-mismatch"
+        "code": "tool-argument-value-mismatch",
+        "key": "id",
     }
     reduced = _load(out / "input" / "scenario.json")
     assert [tool["name"] for tool in reduced["agent_mock"]["tools"]] == [
         "issue_refund"
     ]
+    assert reduced["agent_mock"]["tools"][0]["arguments"] == {"id": "B"}
     assert verify_counterexample(str(out))["ok"] is True
 
 
