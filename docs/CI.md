@@ -14,11 +14,11 @@ offline -- it runs the pinned Action revision itself off PYTHONPATH (no
 pip, no package index), installs no model, no ASR, no Node tool, calls no
 external judge, and reads no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.6.1), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.6.2), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.6.1
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.6.2
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.6.1
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.6.2
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -78,7 +78,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.6.1` | `pip install --no-deps hotato==1.6.1` |
+| an exact version, e.g. `1.6.2` | `pip install --no-deps hotato==1.6.2` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact

@@ -8,6 +8,8 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-07-14
+
 ### Added
 - **`hotato init ci`: the turn-taking gate for GitLab CI, Jenkins, Azure
   Pipelines, and CircleCI.** `hotato init ci --system
@@ -18,6 +20,15 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   JUnit file, and fail the pipeline on a regression. Gates are guarded, so
   an empty `contracts/` or `fixtures/` directory stays a green starting
   state. See `docs/CI.md`.
+
+### Changed
+- README and all docs rewritten for clarity: point-first headings, one idea
+  per sentence, front-door pages readable in under a minute. Every command,
+  link, and scope boundary is preserved.
+- Emitted paths and the scorer-identity hash use forward slashes on every
+  OS, so artifacts and `wheel_hash` are byte-identical across machines.
+  POSIX-only tests carry explicit skip reasons on Windows.
+
 
 ## [1.6.1] - 2026-07-14
 
