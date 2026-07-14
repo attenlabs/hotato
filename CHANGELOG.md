@@ -8,6 +8,19 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-14
+
+### Changed
+- First run leads with `uvx hotato start --demo` everywhere, so the first
+  command works on a machine with an externally managed Python. pip stays
+  shown for CI and container images, and pipx or a virtualenv for a project
+  install.
+- The demo and `contract verify` output reads as a designed surface: a metric
+  with no finite value shows `n/a`, times carry their `s` unit, and a bundle
+  whose canonical digest matches reads as `integrity: intact`. The stored
+  `authenticity` field and schema are unchanged.
+
+
 ## [1.6.0] - 2026-07-14
 
 ### Added
