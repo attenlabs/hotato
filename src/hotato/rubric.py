@@ -1047,11 +1047,17 @@ class VerdictCache:
                 digest = fh.read().strip()
         except OSError:
             return None
-        if not digest or not self.store.has(digest):
+        # A corrupted index file could hold a non-canonical digest; the store now
+        # rejects those with ValueError, so treat it as a cache miss (return None)
+        # rather than crashing the read.
+        try:
+            if not digest or not self.store.has(digest):
+                return None
+            if not self.store.verify(digest):
+                return None
+            return self.store.get_json(digest)
+        except ValueError:
             return None
-        if not self.store.verify(digest):
-            return None
-        return self.store.get_json(digest)
 
     def put(self, cache_key: str, record: Dict[str, Any]) -> str:
         # Store the verdict WITHOUT runtime-only fields so a cache hit replays a
