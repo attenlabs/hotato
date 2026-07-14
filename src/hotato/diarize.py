@@ -1429,6 +1429,7 @@ def build_pyannoteai_backend() -> BackendFn:
     try:
         import os
 
+        from pyannoteai.sdk import Client  # noqa: F401  # type: ignore
     except Exception as exc:
         raise BackendUnavailable(
             "the 'pyannoteai' hosted diarizer requires the optional extra: "
