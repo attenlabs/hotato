@@ -80,6 +80,12 @@ def test_cli_budget_exhaustion_writes_capsule_and_exits_one(tmp_path, capsys):
     assert output.is_dir()
 
 
+def test_parent_help_promises_explicit_proof_status_not_unconditional_minimality():
+    help_text = " ".join(cli.build_parser().format_help().split())
+    assert "offline regression capsule with explicit proof status" in help_text
+    assert "into a minimal, portable regression capsule" not in help_text
+
+
 def test_cli_refusal_is_structured_json_and_leaves_no_partial_output(tmp_path, capsys):
     workspace, scenario, test = _inputs(tmp_path)
     output = tmp_path / "must not exist"
