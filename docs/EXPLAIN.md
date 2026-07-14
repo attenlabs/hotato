@@ -2,12 +2,12 @@
 
 `hotato explain` reads a finished result and turns it into a root-cause
 attribution: which layer likely failed, whether a fix is safe to try, the
-opposite-risk tradeoff, and a plain next command. It is compositional: no new
-scoring engine. It reframes `hotato diagnose`'s per-event findings and the
-same policy gate `hotato plan` enforces (a mapped knob, one bounded step, a
-passing opposite-risk fixture in the battery, config-only-safe), plus, for a
-contract bundle, the bundle's own trust report and policy bounds and an
-attached voice trace when present.
+opposite-risk tradeoff, and a plain next command. It is compositional — no
+new scoring engine. It reframes `hotato diagnose`'s per-event findings and
+the same policy gate `hotato plan` enforces (a mapped knob, one bounded
+step, a passing opposite-risk fixture in the battery, config-only-safe),
+plus, for a contract bundle, the bundle's own trust report and policy
+bounds and an attached voice trace when present.
 
 When the evidence cannot support picking ONE root cause, explain states the
 reason plainly.
@@ -19,21 +19,21 @@ hotato explain result.json
 
 ## Three input shapes, auto-detected
 
-- **A run envelope** -- example: `hotato explain result.json`. What happens:
+- **A run envelope** — example: `hotato explain result.json`. What happens:
   full diagnose + policy-gate attribution, per failing event.
-- **A sweep/analyze candidate ref** -- example:
-  `hotato explain hotato-sweep.json#1`. What happens: ALWAYS refused -- a
+- **A sweep/analyze candidate ref** — example:
+  `hotato explain hotato-sweep.json#1`. What happens: ALWAYS refused — a
   candidate carries no human label.
-- **A contract bundle directory** -- example:
+- **A contract bundle directory** — example:
   `hotato explain contracts/refund-cutoff-001.hotato`. What happens:
   attributed from the contract's own measurement + policy bounds, or
   refused when disambiguation needs a signal the bundle does not carry.
 
 ## The attribution shape
 
-Layer-general by design, so a future layer (asr, tool, policy, latency,
-handoff, ...) can be added without a version bump. Only `turn_taking` is
-populated in this build:
+Layer-general by design: `turn_taking` is the populated layer in this
+build, and the shape has room for the next one (asr, tool, policy, latency,
+handoff, ...) without a version bump.
 
 ```
 {"event_id":         the failing event, or null for a battery-level finding,
@@ -54,42 +54,41 @@ populated in this build:
 
 `fixability` reuses the SAME gate `hotato plan` already enforces:
 
-* `safe_to_patch` -- the failure maps to one setting AND the battery already
+* `safe_to_patch` — the failure maps to one setting AND the battery already
   contains a passing opposite-risk fixture on that axis (the same coverage
   `hotato plan` requires before it proposes a change).
-* `insufficient_evidence` -- the failure maps to one setting but the
+* `insufficient_evidence` — the failure maps to one setting but the
   opposite-risk fixture is missing, so a change could not be verified; or a
   contract bundle's own policy-bound comparison found a violation with no
   companion moment in the bundle to verify a change against.
-* `needs_human` -- an audio-path problem (echo bleed).
-* `do_not_patch` -- the threshold funnel: the battery missed a real
+* `needs_human` — an audio-path problem (echo bleed).
+* `do_not_patch` — the threshold funnel: the battery missed a real
   interruption AND false-stopped on a backchannel in the SAME battery. No
-  single sensitivity threshold can fix both; the fix class is
-  engagement-control. This produces one COMPOSITE
-  battery-level attribution (`event_id: null`, `type: threshold_funnel`) in
-  addition to the two per-event attributions it explains.
+  single sensitivity threshold fixes both; the fix class is
+  engagement-control. This produces one COMPOSITE battery-level attribution
+  (`event_id: null`, `type: threshold_funnel`) in addition to the two
+  per-event attributions it explains.
 
 ## Refusals: a precise account of the gap
 
-A refusal states exactly which gap in the evidence blocks attributing ONE root
-cause:
+A refusal states exactly which gap in the evidence blocks attributing ONE
+root cause:
 
-* **a not-scorable event** -- an input problem.
-* **an ambiguous slow yield** (`unknown_root_cause`, no passing opposite-risk
-  fixture) -- TTS buffering, transport latency, and VAD smoothing are
-  indistinguishable from one recording.
-* **an echo-tagged false stop** -- the agent most likely heard its own TTS
+* **a not-scorable event** — an input problem.
+* **an ambiguous slow yield** (`unknown_root_cause`, no passing
+  opposite-risk fixture) — TTS buffering, transport latency, and VAD
+  smoothing read as indistinguishable from one recording.
+* **an echo-tagged false stop** — the agent most likely heard its own TTS
   bleed, an audio-path problem.
-* **a sweep/analyze candidate ref** -- ALWAYS refused. A candidate carries no
-  human label (`yield` vs `hold`); explain prints the exact promote command
-  for BOTH labels and lets a human choose.
-* **a contract's false stop with no disambiguating `candidate_kind`** -- a
-  `contract.json` does not carry the raw echo/ambient signal a full run
-  envelope's `diagnose` has, so a false stop on `hold` could be a
-  backchannel-discrimination miss, ambient non-speech noise, or echo bleed.
-  Explain names the ambiguity and points back at
-  `hotato run --dump-frames` / `hotato diagnose` on the original envelope for
-  a definitive read.
+* **a sweep/analyze candidate ref** — ALWAYS refused. A candidate carries
+  no human label (`yield` vs `hold`); explain prints the exact promote
+  command for BOTH labels and lets a human choose.
+* **a contract's false stop with no disambiguating `candidate_kind`** — a
+  `contract.json` carries a narrower signal set than a full run envelope's
+  `diagnose`, so a false stop on `hold` could be a backchannel-
+  discrimination miss, ambient non-speech noise, or echo bleed. Explain
+  names the ambiguity and points back at `hotato run --dump-frames` /
+  `hotato diagnose` on the original envelope for a definitive read.
 
 ```
 {"event_id":         the refused event, or null,
@@ -101,27 +100,28 @@ cause:
 
 ## Contract bundles: attributed from the bundle's OWN fields, bounded
 
-`contract.json` does not carry the scorer's raw `reasons` text a run
-envelope's event does, so a contract-bundle attribution is deliberately
-narrower than a full `diagnose`:
+A `contract.json` carries a narrower field set than a run envelope's raw
+`reasons` text, so a contract-bundle attribution is deliberately narrower
+than a full `diagnose`:
 
-* a missed interruption (`expect: yield`, `did_yield: false`) is unambiguous
-  and always attributed;
-* a "yielded but still failed its policy" contract is attributed by comparing
-  the MEASURED `seconds_to_yield` / `talk_over_sec` against the contract's OWN
-  `policy.pass_conditions` bounds -- a bound comparison, never a guess;
+* a missed interruption (`expect: yield`, `did_yield: false`) is
+  unambiguous and always attributed;
+* a "yielded but still failed its policy" contract is attributed by
+  comparing the MEASURED `seconds_to_yield` / `talk_over_sec` against the
+  contract's OWN `policy.pass_conditions` bounds — a bound comparison,
+  never a guess;
 * a false stop on `hold` is attributed as echo ONLY when the contract's
   `source.candidate_kind` says so (it was created `--from-candidate` an
   `echo_correlated_activity` moment); otherwise it is refused (see above);
-* a single bundle carries coverage for one moment only, so a contract-bundle
-  attribution caps at `insufficient_evidence` until a companion contract or
-  fixture on the other axis exists.
+* a single bundle carries coverage for one moment only, so a
+  contract-bundle attribution caps at `insufficient_evidence` until a
+  companion contract or fixture on the other axis exists.
 
 When a voice trace is attached (`hotato trace attach`), its findings
-(`traces/voice_trace.jsonl`) are folded into `evidence_for`; when it is not
-attached, explain adds an explicit unknown saying so -- TTS-cancellation lag,
-transport latency, and VAD smoothing stay indistinguishable from timing alone
-without one. See [`TRACE.md`](TRACE.md).
+(`traces/voice_trace.jsonl`) fold into `evidence_for`; without one, explain
+adds an explicit unknown — TTS-cancellation lag, transport latency, and VAD
+smoothing stay indistinguishable from timing alone without one. See
+[`TRACE.md`](TRACE.md).
 
 ## Output
 
@@ -141,9 +141,9 @@ without one. See [`TRACE.md`](TRACE.md).
 
 ## What explain measures
 
-Every attribution here is evidence-based -- a measurement scoped to root
+Every attribution here is evidence-based — a measurement scoped to root
 cause, with its `evidence_against` and `unknowns` stated on every record.
-`explain` is read-only, exactly like `diagnose` and `plan`: applying a change
-stays a human decision in your own stack; see [`FIX-PLANS.md`](FIX-PLANS.md)
-and [`FIX-LOOP.md`](FIX-LOOP.md) for the guarded ladder from a plan to a
-proven fix.
+`explain` is read-only, exactly like `diagnose` and `plan`: applying a
+change stays a human decision in your own stack; see
+[`FIX-PLANS.md`](FIX-PLANS.md) and [`FIX-LOOP.md`](FIX-LOOP.md) for the
+guarded ladder from a plan to a proven fix.

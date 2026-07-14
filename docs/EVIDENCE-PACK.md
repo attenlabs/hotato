@@ -1,45 +1,45 @@
 # The evidence pack
 
-Hotato ships proof as reproducible commands, recorded audio, and deterministic,
-byte-stable verdicts you can rerun on your own machine.
+Hotato's proof is reproducible: commands, recorded audio, and deterministic,
+byte-stable verdicts you rerun on your own machine.
 
-The standard every artifact in this pack is held to, and why it is ranked the
-way it is, lives in [evidence/README.md](evidence/README.md). Read that first
-if you are deciding how much to trust any single piece below.
+The standard every artifact in this pack is held to, and why it is ranked
+the way it is, lives in [evidence/README.md](evidence/README.md). Read that
+first when deciding how much to trust any single piece below.
 
 ## What's in the pack
 
-- **Bundled demo** -- two recorded calls a provider-default agent fails,
+- **Bundled demo** — two recorded calls a provider-default agent fails,
   scored offline in under a minute, one command. `hotato demo` ·
   [START.md](START.md)
-- **Recorded provider-default battery** -- 12 scripted calls against a live
+- **Recorded provider-default battery** — 12 scripted calls against a live
   voice agent on its default settings; a missed interruption and a false
   stop fail in the same run.
   [`corpus/vapi-defaults/README.md`](../corpus/vapi-defaults/README.md)
-- **Determinism check** -- same recording, same numbers, every run, on
-  every OS CI verifies (Linux proven; macOS/Windows now checked, pending a
-  first green run). [VALIDATION.md](VALIDATION.md) Job 1
-- **Not-scorable gallery** -- eight input conditions and the exact verdict
+- **Determinism check** — the same recording produces the same numbers on
+  every run. CI runs the check on Linux, macOS, and Windows, with Linux
+  green today. [VALIDATION.md](VALIDATION.md) Job 1
+- **Not-scorable gallery** — eight input conditions and the exact verdict
   each produces, including three hard refusals. [GALLERY.md](GALLERY.md) ·
   [TRUST-GALLERY.md](TRUST-GALLERY.md)
-- **Trust contract** -- the input-condition table the gallery demonstrates.
+- **Trust contract** — the input-condition table the gallery demonstrates.
   [TRUST-MATRIX.md](TRUST-MATRIX.md)
-- **What is and is not validated** -- the three jobs Hotato is measured on,
-  and the explicit does-not-claim list. [VALIDATION.md](VALIDATION.md)
-- **Where Hotato fits next to a QA platform** -- named-vendor routing
+- **What is and is not validated** — the three jobs Hotato is measured on,
+  stated alongside its explicit scope limits. [VALIDATION.md](VALIDATION.md)
+- **Where Hotato fits next to a QA platform** — named-vendor routing
   guide. [COMPARE.md](COMPARE.md)
-- **Case studies** -- recorded-audio write-ups, each with a repro command
-  and a mandatory "What Hotato did not prove" scope section.
+- **Case studies** — recorded-audio write-ups, each with a repro command
+  and a scope section on exactly what that run proved.
   [`case-studies/`](case-studies/README.md)
-- **Shareable cards** -- self-contained SVGs of a candidate, a
+- **Shareable cards** — self-contained SVGs of a candidate, a
   threshold-funnel finding, or a verify result. [CARDS.md](CARDS.md) ·
   [`assets/cards/`](assets/cards/)
-- **Launch-bar status** -- the checklist of what is done and what is still
-  an open gap. [evidence/validation-plan.md](evidence/validation-plan.md)
+- **Launch-bar status** — the checklist scoring where each launch item
+  stands. [evidence/validation-plan.md](evidence/validation-plan.md)
 
-## How to check it yourself
+## Check it yourself
 
-Every artifact above is re-derivable from a command, not asserted from memory:
+Every artifact above is re-derivable from a command:
 
 ```bash
 hotato demo --no-open --format text          # the two bundled failures
@@ -47,11 +47,11 @@ hotato run --stereo FILE.wav --expect yield  # diff two runs, get nothing
 hotato trust --stereo FILE.wav               # the refusal contract, live
 ```
 
-Every command above runs offline, on your machine -- reproduce it yourself
+Every command above runs offline, on your machine — reproduce it yourself
 instead of taking the claim on faith.
 
 ## What counts as evidence here
 
-Proof in this pack is reproducible: a command, a recording, a verdict you can
+Proof in this pack is reproducible: a command, a recording, a verdict you
 check yourself, ranked by the standard in
 [evidence/README.md](evidence/README.md).
