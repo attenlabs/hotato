@@ -1,8 +1,8 @@
 # fix trial: one before/after proof, composed, fail-closed
 
 `hotato fix trial` is the last rung of the fix ladder: it composes the
-already-shipped, already-guarded primitives into ONE before/after report that
-says whether a candidate change holds. No new scoring engine, no new
+already-shipped, already-guarded primitives into ONE before/after report
+that says whether a candidate change holds. No new scoring engine, no new
 networked path:
 
 * **`hotato apply`'s exact offline gate** (`build_apply`, `clone=True`):
@@ -16,7 +16,7 @@ networked path:
   created separately with `hotato apply --clone --yes`), scoring EVERY paired
   fixture, not just the target failure -- the "neighbouring cases" check.
 * **`hotato contract verify`**, when `--contracts DIR` is given: another
-  neighbouring-cases check, on real labelled moments outside the battery.
+  neighbouring-cases check, against labelled moments outside the battery.
 * **`hotato explain`**, folded in as the report's attribution section: root
   cause of the ORIGINAL failure, reused exactly.
 
@@ -55,21 +55,21 @@ hotato fix trial patch.json --name staging-refund-fix \
   re-score, not a recapture).
 
 **`inconclusive` is fail-closed, not a pass.** A low-n battery or a
-zero-improvement battery exits the SAME non-zero code as a real regression,
-so CI never treats "we could not tell" as green. A hold fixture that flips
-from passing to failing (the opposite-risk axis) is `compare.classify_pair`'s
+zero-improvement battery exits the SAME non-zero code as a regression, so CI
+never treats "we could not tell" as green. A hold fixture that flips from
+passing to failing (the opposite-risk axis) is `compare.classify_pair`'s
 `"regressed"` result whichever axis it is on, so it is caught by the same
-check that catches a talk-over regression -- there is no separate,
-weaker gate for the opposite-risk axis.
+check that catches a talk-over regression -- there is no separate, weaker
+gate for the opposite-risk axis.
 
 ## Refusal: correct output, not an error
 
 If the patch is `do_not_tune_single_threshold` (the battery missed a real
 interruption AND false-stopped on a backchannel in the same battery), fix
 trial refuses before reading `--before` / `--after` / `--contracts` at all,
-prints the exact canon recommendation, and exits `3` -- the SAME distinct
-code `hotato apply` uses for the same refusal, so a script that already
-branches on apply's refusal code recognizes fix trial's too.
+prints the canon recommendation, and exits `3` -- the SAME distinct code
+`hotato apply` uses for the same refusal, so a script that already branches
+on apply's refusal code recognizes fix trial's too.
 
 ```
 No config patch will be applied
@@ -81,11 +81,11 @@ Recommended: enable or add engagement-control / backchannel-aware turn detection
 
 `hotato apply`'s clone-only gate and `hotato verify`'s battery-scale rollup
 answer "did the numbers move." Neither one asks whether the AFTER evidence
-was RE-CAPTURED, or is just the SAME recording the BEFORE run
-scored, re-scored under a looser threshold. That gap is exploitable: run the
-same fixture twice with different `--max-time-to-yield` / `--max-talk-over`
-bounds, and you get a convincing "improved" verdict with no code,
-config, or model change behind it at all.
+was RE-CAPTURED, or is the SAME recording the BEFORE run scored, re-scored
+under a looser threshold. That gap is exploitable: run the same fixture
+twice with different `--max-time-to-yield` / `--max-talk-over` bounds, and
+you get a convincing "improved" verdict with no code, config, or model
+change behind it.
 
 Every run envelope records an `audio_provenance` block per event: a streamed
 sha256 of the raw file bytes AND a streamed sha256 of the decoded PCM samples
@@ -93,42 +93,41 @@ sha256 of the raw file bytes AND a streamed sha256 of the decoded PCM samples
 / `hotato capture`. `hotato fix trial` does not trust the string; it VERIFIES
 the identity for every GUARDED fixture -- the fail->pass targets AND the
 still-passing holds (a frozen hold is a re-score too, so holds get the same
-guard). The guard's job is narrower: make the
-motivated failure modes impossible or loud, recompute what can be recomputed
-from the actual files, and state exactly what was and was NOT verified:
+guard). The guard recomputes what it can from the files on disk and states
+exactly what was and was not verified:
 
 - **Well-formed, freshly distinct (decoded PCM) identity, recomputed from
-  the audio present on disk and matching** -- what it is: a verified fresh
-  recapture. Effect on verdict: proceeds -- eligible for `improved`.
-- **Identical decoded PCM before vs. after on any guarded fixture** -- what
-  it is: the after run re-scored the SAME conversation (a header-only edit
-  or trailing-byte append cannot hide it -- the comparison is on samples,
-  not container bytes). Effect on verdict: `refused` (exit `3`).
-- **Recorded digest does NOT match the audio present on disk** -- what it
-  is: the provenance was hand-edited or the audio was swapped after
-  capture. Effect on verdict: `refused` (exit `3`).
+  the audio present on disk and matching** -- a verified fresh recapture.
+  Effect on verdict: proceeds -- eligible for `improved`.
+- **Identical decoded PCM before vs. after on any guarded fixture** -- the
+  after run re-scored the SAME conversation (a header-only edit or
+  trailing-byte append cannot hide it -- the comparison is on samples, not
+  container bytes). Effect on verdict: `refused` (exit `3`).
+- **Recorded digest does NOT match the audio present on disk** -- the
+  provenance was hand-edited or the audio was swapped after capture. Effect
+  on verdict: `refused` (exit `3`).
 - **A required before fixture (target or hold) missing from the after
-  set** -- what it is: a cherry-picked, incomplete comparison. Effect on
-  verdict: `refused` (exit `3`).
+  set** -- a cherry-picked, incomplete comparison. Effect on verdict:
+  `refused` (exit `3`).
 - **Malformed block (non-hex digest, absurd sample rate / frame count, or a
-  top-level digest inconsistent with the per-side digests)** -- what it is:
-  an unvalidated assertion, not a distinct recording. Effect on verdict:
+  top-level digest inconsistent with the per-side digests)** -- an
+  unvalidated assertion, not a distinct recording. Effect on verdict:
   `inconclusive` (exit `1`).
-- **A provenance block missing on either side** -- what it is: an older
-  envelope, or one hand-built without `audio_provenance` -- identity is
-  UNKNOWN. Effect on verdict: `inconclusive` (exit `1`).
+- **A provenance block missing on either side** -- an older envelope, or one
+  hand-built without `audio_provenance`: identity is UNKNOWN. Effect on
+  verdict: `inconclusive` (exit `1`).
 - **Well-formed identity that hotato could NOT recompute (the audio was not
-  present)** -- what it is: asserted, not proven. Effect on verdict:
-  `inconclusive` (exit `1`).
+  present)** -- asserted, not proven. Effect on verdict: `inconclusive`
+  (exit `1`).
 
 A provenance-guard refusal is NOT the apply-gate refusal: it fires AFTER
 `verify` / `contract verify` / `explain` have already run, so (unlike the
-both-axes refusal, which reads no evidence at all) the full report --
-verify's proof, the contract rollup, the provenance identities, the
-attribution -- still renders below the refusal banner. Every refusal path
-exits the SAME code `3`; `refusal_kind` in the JSON output
-(`"threshold_funnel"`, `"incomplete_after"`, `"recompute_mismatch"`,
-`"same_audio_recapture"`) tells them apart for a script that wants to.
+both-axes refusal, which reads no evidence at all) the full report -- verify's
+proof, the contract rollup, the provenance identities, the attribution --
+still renders below the refusal banner. Every refusal path exits the SAME
+code `3`; `refusal_kind` in the JSON output (`"threshold_funnel"`,
+`"incomplete_after"`, `"recompute_mismatch"`, `"same_audio_recapture"`) tells
+them apart for a script that wants to.
 
 ```
 No fix will be certified from re-scored audio
@@ -138,7 +137,7 @@ Recommended: recapture the fixture(s) through the applied clone (hotato apply --
 
 Every rendered report (text, `--format json`, `--html`) surfaces the short
 digest and the verified status for every guarded fixture, before and after --
-so a reader never has to take "fresh capture" on faith, and can see exactly
+a reader never has to take "fresh capture" on faith, and can see exactly
 what was verified versus merely asserted. The effective `--min-n` is echoed
 in every surface too, so a lowered floor is always visible. The report's own
 conclusion states plainly what a passing check proves: that the fresh take
@@ -156,13 +155,13 @@ for the fuller claim-language table this line is drawn from.
 
 ## What this does not stop
 
-This is an offline tool: a user who controls every input can always lie to
-themselves. Recomputing identity from the actual audio (above) makes the
-specific forgeries an external red-team demonstrated against a prior build --
-hand-written envelopes, a flipped header byte, a re-scored recording, a
-cherry-picked after set -- impossible or loud. It does not close everything,
-and none of the following is a bug the guard failed to catch; each is outside
-what an offline recompute over supplied files can ever establish:
+This is an offline tool: a user who controls every input can lie to
+themselves. Recomputing identity from the audio (above) makes the specific
+forgeries an external red-team demonstrated against a prior build -- hand-
+written envelopes, a flipped header byte, a re-scored recording, a
+cherry-picked after set -- impossible or loud. None of the following is a
+bug the guard failed to catch; each is outside what an offline recompute
+over supplied files can ever establish:
 
 * **Fabricated inputs are still yours to fabricate.** Hand fix trial a
   fresh recording of a call that never happened, or one that does
@@ -233,9 +232,9 @@ created=False applies_change=False`, plus the plain-English sentence right
 under it), JSON (top-level `apply_dry_run` / `apply_created` /
 `apply_applies_change` / `apply_receipt_note`, alongside `verdict`), and HTML
 (pills and a header line, in the `<header>` block itself). Proving the change
-reached the clone or agent is `hotato apply --clone --yes`'s job,
-recorded in its own receipt -- fix trial only proves what the before/after
-evidence shows once that has already happened.
+reached the clone or agent is `hotato apply --clone --yes`'s job, recorded in
+its own receipt -- fix trial only proves what the before/after evidence shows
+once that has already happened.
 
 * **text** (default): the apply receipt, the verdict, verify's own rendered
   proof, the contract verify rollup when `--contracts` was given, and the
@@ -249,9 +248,9 @@ evidence shows once that has already happened.
   parent verdict controls, and the render says so rather than leaving a
   clean-looking claim floating under a red result.
 * **`--format json`**: the full machine shape, schema `hotato.fix_trial.v1`.
-  Every sub-result is the REAL nested result the underlying command already
-  produces (`apply`, `verify`, `contract_verify`, `attribution`) -- nothing
-  here is a re-derived summary. `apply_dry_run` / `apply_created` /
+  Every sub-result is the nested result the underlying command already
+  produces (`apply`, `verify`, `contract_verify`, `attribution`), not a
+  re-derived summary. `apply_dry_run` / `apply_created` /
   `apply_applies_change` / `apply_receipt_note` sit at the top level next to
   `verdict`, not only inside the nested `apply` object.
 * **`--html PATH`**: a self-contained report, reusing the same house style

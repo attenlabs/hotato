@@ -1,13 +1,13 @@
 # `hotato ingest` -- the composable passive on-ramp
 
-Wire a webhook to invoke `hotato ingest` once, and every completed call is
-scanned for **candidate** turn-taking moments automatically.
+Wire a webhook to `hotato ingest` once and every completed call gets scanned
+for **candidate** turn-taking moments, automatically.
 
 `ingest` surfaces timing candidates for you to review. You decide which ones
-matter and promote them to a permanent regression test with
-`hotato fixture create` -- the yield/hold label always comes from you.
+matter and promote them to a permanent regression test with `hotato fixture
+create` -- the yield/hold label always comes from you.
 
-It is built by **composition** and adds only a per-stack webhook parser:
+It is built by **composition**, adding only a per-stack webhook parser:
 
 ```
 parse the webhook payload   ->  extract the call id / recording locator
@@ -18,12 +18,12 @@ write a candidate report     ->  JSON always; --out an HTML report (optional)
 
 ## How it runs
 
-- **You own the trigger.** Hotato ships the command; wire it to a webhook
-  handler, a serverless function, or a cron over your call log, and it runs
-  offline and self-hosted, on your infrastructure. The only network call is
-  the same recording fetch `hotato capture` already makes.
-- **You own the label.** A candidate is a timing event. Only you know whether
-  a caller sound was "mhm" or "stop", so the label is yours.
+- **You own the trigger.** Wire the command to a webhook handler, a
+  serverless function, or a cron over your call log; it runs offline and
+  self-hosted, on your infrastructure. The only network call is the same
+  recording fetch `hotato capture` already makes.
+- **You own the label.** A candidate is a timing event. Only you know
+  whether a caller sound was "mhm" or "stop", so the label is yours.
 
 ## Contract
 
@@ -34,18 +34,20 @@ hotato ingest --stack {vapi|retell|twilio|livekit|pipecat} \
 ```
 
 - **Exit 0** = ran (candidates reported, possibly zero).
-- **Exit 2** = parse / fetch / IO error, or not-scorable input (for example a mono
-  recording, which cannot attribute overlap to caller vs agent). Never a pass/fail.
+- **Exit 2** = parse / fetch / IO error, or not-scorable input (a mono
+  recording, for example, which cannot attribute overlap to caller vs
+  agent). Never a pass/fail.
 
-`--format` controls stdout (`text` listing or the `json` candidate list, capped by
-`--top`). `--out` additionally writes an HTML candidate report containing every
-candidate. A webhook payload is **untrusted DATA**: `ingest` reads only the named
-locator fields out of it.
+`--format` controls stdout (`text` listing or the `json` candidate list,
+capped by `--top`). `--out` additionally writes an HTML candidate report
+containing every candidate. A webhook payload is **untrusted DATA**:
+`ingest` reads only the named locator fields out of it.
 
 ## Wire your webhook -> `hotato ingest`
 
-Point your platform's call-completed webhook at a small handler that saves the
-payload and shells out to `ingest`. The pattern is identical for every stack:
+Point your platform's call-completed webhook at a small handler that saves
+the payload and shells out to `ingest`. The pattern is identical for every
+stack:
 
 ```python
 # a minimal webhook handler (framework-agnostic pseudocode)
@@ -78,9 +80,9 @@ done
 
 ### Per-stack recipe
 
-Webhook field paths verified against live vendor docs (2026-07-07). Where a field
-could not be confirmed from the live docs, `ingest` parses it **defensively** (a
-missing field is simply absent, never fabricated).
+Webhook field paths verified against live vendor docs (2026-07-07). Where a
+field could not be confirmed from the live docs, `ingest` parses it
+**defensively**: a missing field is simply absent, never fabricated.
 
 | Stack | Webhook | Field ingest reads | Credentials for the fetch |
 |-------|---------|--------------------|---------------------------|
@@ -90,16 +92,16 @@ missing field is simply absent, never fabricated).
 | **livekit** | egress webhook | `egressInfo.fileResults[].location` / `.filename` (defensive) | none -- egress lands in your storage |
 | **pipecat** | your own event | `recording_path` / `recording_url` (defensive) | none -- you produced the file |
 
-For **vapi / retell / twilio**, `ingest` extracts the identifier from the payload
-and delegates the dual-channel recording fetch to the same adapter `hotato capture`
-uses (which already resolved the recording URLs; see
-[ADAPTER-STATUS.md](ADAPTER-STATUS.md)) -- the recording URL always comes from
-that validated fetch, not the raw payload.
+For **vapi / retell / twilio**, `ingest` extracts the identifier from the
+payload and delegates the dual-channel recording fetch to the same adapter
+`hotato capture` uses (which already resolved the recording URLs; see
+[ADAPTER-STATUS.md](ADAPTER-STATUS.md)) -- the recording URL always comes
+from that validated fetch, not the raw payload.
 
-For **livekit / pipecat**, the recording lands in *your* infra, so the event
-carries the locator directly. LiveKit egress files land in your storage bucket;
-supply a `recording_url` (downloaded) or a `recording_path` (read locally). A
-Pipecat event is whatever you emit, for example:
+For **livekit / pipecat**, the recording lands in *your* infra, so the
+event carries the locator directly. LiveKit egress files land in your
+storage bucket; supply a `recording_url` (downloaded) or a `recording_path`
+(read locally). A Pipecat event is whatever you emit, for example:
 
 ```json
 { "recording_path": "captured.wav" }
@@ -115,7 +117,8 @@ hotato ingest --stack pipecat --event event.json                        # local 
 
 ## From a candidate to a regression test
 
-`ingest` finds the moment; you decide what should have happened and freeze it:
+`ingest` finds the moment; you decide what should have happened and freeze
+it:
 
 ```bash
 # 1. ingest surfaces a candidate at t=42.18s in a call recording
@@ -130,8 +133,8 @@ See [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md) for the full bad-call-to-CI loop.
 
 ## Notes on `--allow-mono`
 
-Discovery needs one party per channel to attribute overlap. `--allow-mono` (or
-`HOTATO_ALLOW_MONO=1`) lets the *fetch* pull a mono-only recording on retell/twilio
-(matching `hotato capture`), but a mono mix is still reported **not-scorable**
-(exit 2) for discovery, because overlap cannot be split between caller and agent.
-Record dual-channel to get candidates.
+Discovery needs one party per channel to attribute overlap. `--allow-mono`
+(or `HOTATO_ALLOW_MONO=1`) lets the *fetch* pull a mono-only recording on
+retell/twilio (matching `hotato capture`), but a mono mix still reports
+**not-scorable** (exit 2) for discovery: overlap cannot be split between
+caller and agent. Record dual-channel to get candidates.

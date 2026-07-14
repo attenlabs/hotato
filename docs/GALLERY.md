@@ -1,7 +1,7 @@
 # Gallery
 
-Every image and worked example Hotato ships, in one place, each one reproducible
-with the command shown next to it.
+Every image and worked example Hotato ships, in one place, each one
+reproducible with the command shown beside it.
 
 ## Cards: shareable findings
 
@@ -24,8 +24,9 @@ font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
 
 ## The bundled demo, rendered
 
-The self-contained dashboard `hotato demo` writes, with embedded audio and a
-hear-the-bug playhead, and the terminal output next to it:
+`hotato demo` writes a self-contained dashboard with embedded audio and a
+hear-the-bug playhead. The report and the terminal walkthrough that produced
+it:
 
 - Report: [`assets/hotato-demo-report.png`](assets/hotato-demo-report.png) ·
   [`assets/hotato-demo-report.html`](assets/hotato-demo-report.html)
