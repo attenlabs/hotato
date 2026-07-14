@@ -52,9 +52,14 @@ FROZEN_8 = {
 }
 
 
-def _silero_installed() -> bool:
+def _neural_available() -> bool:
+    """Is the [neural] extra actually usable here? Since Silero VAD now runs
+    DIRECTLY on onnxruntime (the ONNX weights ship inside hotato, and the
+    segmentation is a numpy port -- no silero-vad, no torch), the extra is
+    available exactly when onnxruntime + numpy import."""
     try:
-        import silero_vad  # noqa: F401
+        import numpy  # noqa: F401
+        import onnxruntime  # noqa: F401
         return True
     except Exception:
         return False
@@ -166,8 +171,8 @@ def test_missing_extra_raises_clean_backend_unavailable():
     """With the real Silero factory registered (from importing hotato) and the
     [neural] extra absent, a neural request raises BackendUnavailable -- never a
     silent fallback to energy."""
-    if _silero_installed():
-        pytest.skip("silero-vad is installed here; the missing-extra path is not exercisable")
+    if _neural_available():
+        pytest.skip("the [neural] extra (onnxruntime) is installed here; the missing-extra path is not exercisable")
     samples = _make_samples()
     rms, hop = frame_rms(samples, SR, 20.0, 10.0)
     with pytest.raises(BackendUnavailable) as ei:
@@ -177,8 +182,8 @@ def test_missing_extra_raises_clean_backend_unavailable():
 
 
 def test_missing_extra_error_through_score_channels():
-    if _silero_installed():
-        pytest.skip("silero-vad is installed here; the missing-extra path is not exercisable")
+    if _neural_available():
+        pytest.skip("the [neural] extra (onnxruntime) is installed here; the missing-extra path is not exercisable")
     samples = _make_samples()
     cfg = ScoreConfig(
         caller_vad=VADParams(backend="neural"),
@@ -278,8 +283,8 @@ def test_cli_suite_ignores_neural_and_stays_energy(capsys):
 
 
 def test_cli_backend_neural_missing_extra_is_clean_exit_2(capsys):
-    if _silero_installed():
-        pytest.skip("silero-vad is installed here; the missing-extra path is not exercisable")
+    if _neural_available():
+        pytest.skip("the [neural] extra (onnxruntime) is installed here; the missing-extra path is not exercisable")
     code = cli.main([
         "run", "--stereo", _bundled("01-hard-interruption"),
         "--backend", "neural", "--format", "json",
@@ -305,9 +310,9 @@ def test_cli_backend_neural_missing_extra_is_clean_exit_2(capsys):
 # actionable unsupported-rate error); they assert nothing about what the model
 # marks active, because that is a model behavior, not a seam contract.
 
-requires_silero = pytest.mark.skipif(
-    not _silero_installed(),
-    reason="requires the optional [neural] extra (pip install 'hotato[neural]')",
+requires_neural = pytest.mark.skipif(
+    not _neural_available(),
+    reason="requires the optional [neural] extra (pip install 'hotato[neural]': onnxruntime + numpy)",
 )
 
 
@@ -325,7 +330,7 @@ def real_neural():
         register_neural_backend(saved) if saved is not None else _vad.clear_neural_backend()
 
 
-@requires_silero
+@requires_neural
 def test_real_silero_vadresult_contract_and_determinism(real_neural):
     """The real model honors the shared VADResult contract on a bundled fixture
     and is deterministic: two runs over the same audio give identical tracks."""
@@ -351,7 +356,7 @@ def test_real_silero_vadresult_contract_and_determinism(real_neural):
     assert r1 == r2
 
 
-@requires_silero
+@requires_neural
 def test_real_silero_end_to_end_score_is_deterministic(real_neural):
     """backend='neural' with the real model produces a normal ScoreResult through
     the public scorer, identical across two runs on the same recording."""
@@ -369,7 +374,7 @@ def test_real_silero_end_to_end_score_is_deterministic(real_neural):
     assert r1.as_dict() == r2.as_dict()
 
 
-@requires_silero
+@requires_neural
 def test_real_silero_unsupported_rate_is_an_actionable_error(real_neural):
     """REGRESSION: Silero supports 8 kHz, 16 kHz, and 16 kHz multiples. A 44.1 kHz
     recording must fail with the seam's actionable resample message (never a
