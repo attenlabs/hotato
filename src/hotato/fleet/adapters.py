@@ -43,7 +43,14 @@ import hashlib
 import os
 from typing import Dict, List, Optional, Set
 
+from .. import errors as _errors
 from .. import manifest as _manifest
+
+
+# A successful DELETE body is diagnostic-only and normally empty.  Keep the
+# same small ceiling used for notification acknowledgements: enough for a
+# provider message, never enough for a remote peer to drive an unbounded read.
+_HTTP_DELETE_RESPONSE_MAX_BYTES = 64 * 1024
 
 CAPABILITIES = (
     "inspect_config", "pull_recordings", "dual_channel_capture", "clone_agent",
@@ -460,7 +467,12 @@ class VapiAdapter(_CredentialGatedAdapter):
                 "delete_clone only removes staging clones this tool created.")
         req = urllib.request.Request(url, method="DELETE", headers=headers)
         try:
-            urllib.request.urlopen(req, timeout=30).read()
+            with urllib.request.urlopen(req, timeout=30) as response:
+                _errors.read_bounded_http_body(
+                    response,
+                    max_bytes=_HTTP_DELETE_RESPONSE_MAX_BYTES,
+                    subject="Vapi delete-clone response",
+                )
             return {"deleted": True, "clone_id": cid}
         except urllib.error.HTTPError as e:
             if e.code == 404:
