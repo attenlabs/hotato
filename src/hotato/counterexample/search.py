@@ -175,8 +175,8 @@ class SearchState:
             "code": result.get("code"),
             "cached": bool(result.get("cached")),
         }
-        if result.get("witness_digest"):
-            row["witness_digest"] = result["witness_digest"]
+        if result.get("failure_atom_digest"):
+            row["failure_atom_digest"] = result["failure_atom_digest"]
         self.journal.append(row)
         return result
 
@@ -211,7 +211,7 @@ class SearchState:
             "operation": operation,
             "transform": transform,
             "oracle_result_digest": result.get("result_digest"),
-            "witness_digest": result.get("witness_digest"),
+            "failure_atom_digest": result.get("failure_atom_digest"),
         }
         self.accepted_steps.append(step)
         return candidate, True

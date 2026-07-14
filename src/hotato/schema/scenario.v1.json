@@ -85,6 +85,7 @@
               "arguments": { "type": "object" },
               "result": { "type": "object" },
               "error": {},
+              "at_ms": { "type": "number", "minimum": 0 },
               "latency_ms": { "type": "number", "minimum": 0 }
             }
           }

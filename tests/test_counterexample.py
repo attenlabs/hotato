@@ -89,6 +89,65 @@ def test_compile_reduces_and_verifies(tmp_path):
     assert reproduced["evaluator_match"] is True
 
 
+def test_tool_argument_failure_cannot_reduce_to_missing_tool(tmp_path):
+    scenario = {
+        "kind": "hotato.scenario",
+        "version": 1,
+        "id": "wrong-refund-arguments",
+        "goal": {"type": "refund", "target": "order"},
+        "caller": {"script": [{"say": "Please refund my order."}]},
+        "agent_mock": {
+            "tools": [
+                {
+                    "name": "issue_refund",
+                    "arguments": {"id": "B"},
+                    "result": {"accepted": True},
+                }
+            ]
+        },
+    }
+    test_doc = {
+        "kind": "hotato.conversation-test",
+        "version": 1,
+        "id": "wrong-refund-arguments-test",
+        "agent": "fixture-agent",
+        "assertions": {
+            "deterministic": [
+                {
+                    "id": "refund-call",
+                    "kind": "tool_call",
+                    "name": "issue_refund",
+                    "args_subset": {"id": "A"},
+                }
+            ],
+            "rubric": [],
+        },
+    }
+    scenario_path = tmp_path / "scenario.json"
+    test_path = tmp_path / "test.json"
+    scenario_path.write_text(canonical_json(scenario, pretty=True), encoding="utf-8")
+    test_path.write_text(canonical_json(test_doc, pretty=True), encoding="utf-8")
+    out = tmp_path / "wrong-arguments.hotato-repro"
+
+    result = compile_counterexample(
+        str(scenario_path),
+        str(test_path),
+        target="refund-call",
+        out_dir=str(out),
+        workspace=str(tmp_path),
+    )
+
+    assert result["exit_code"] == 0
+    assert result["target"]["failure_atom"] == {
+        "code": "tool-arguments-mismatch"
+    }
+    reduced = _load(out / "input" / "scenario.json")
+    assert [tool["name"] for tool in reduced["agent_mock"]["tools"]] == [
+        "issue_refund"
+    ]
+    assert verify_counterexample(str(out))["ok"] is True
+
+
 def test_same_inputs_are_byte_identical(tmp_path):
     one, _ = _compile(tmp_path, "one.hotato-repro")
     two, _ = _compile(tmp_path, "two.hotato-repro")
@@ -176,7 +235,7 @@ def test_special_file_input_is_refused_without_reading(tmp_path):
 
 
 def test_share_safe_export_contains_no_source_content(tmp_path):
-    private, _ = _compile(tmp_path)
+    private, _ = _compile_fixture(tmp_path, "state", "refund-posted")
     public = tmp_path / "public"
     result = export_counterexample(str(private), out_dir=str(public))
     assert result["runnable"] is False
@@ -184,10 +243,16 @@ def test_share_safe_export_contains_no_source_content(tmp_path):
         path.read_bytes() for path in public.rglob("*") if path.is_file()
     )
     for secret in (
-        b"person@example.com", b"A-1", b"lookup_account", b"fixture-agent",
+        b"A-1", b"lookup_order", b"fixture-agent", b"refund_status",
+        b"agent_mock.state.orders",
         str(tmp_path).encode("utf-8"),
     ):
         assert secret not in all_bytes
+    public_capsule = _load(public / "capsule.json")
+    assert public_capsule["privacy"]["omitted"][-1] == "deletion_paths"
+    summary = public_capsule["minimality"]["check_summary"]
+    assert summary["count"] == sum(summary["outcomes"].values())
+    assert "remaining_unit_checks" not in public_capsule["minimality"]
     assert not (public / "input").exists()
 
 

@@ -18,7 +18,7 @@
     "artifacts": {"$ref": "#/definitions/artifacts"},
     "artifact_digests": {"$ref": "#/definitions/artifact_digests"},
     "reduction": {"$ref": "#/definitions/reduction"},
-    "minimality": {"$ref": "#/definitions/minimality"},
+    "minimality": {},
     "preservation": {"$ref": "#/definitions/preservation"},
     "privacy": {},
     "provenance": {}
@@ -31,6 +31,7 @@
           "properties": {
             "source": {"$ref": "#/definitions/private_source"},
             "target": {"$ref": "#/definitions/private_target"},
+            "minimality": {"$ref": "#/definitions/private_minimality"},
             "privacy": {"$ref": "#/definitions/private_privacy"},
             "provenance": {"$ref": "#/definitions/private_provenance"}
           }
@@ -45,6 +46,7 @@
           "properties": {
             "source": {"$ref": "#/definitions/share_source"},
             "target": {"$ref": "#/definitions/share_target"},
+            "minimality": {"$ref": "#/definitions/share_minimality"},
             "privacy": {"$ref": "#/definitions/share_privacy"},
             "provenance": {"$ref": "#/definitions/share_provenance"}
           }
@@ -89,323 +91,258 @@
       ]
     },
     "nonnegative_integer": {"type": "integer", "minimum": 0},
-    "count_bounds": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["observed", "expected", "relation"],
-          "properties": {
-            "observed": {"$ref": "#/definitions/nonnegative_integer"},
-            "expected": {"$ref": "#/definitions/nonnegative_integer"},
-            "relation": {"const": "equal"}
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["observed", "min", "max"],
-          "properties": {
-            "observed": {"$ref": "#/definitions/nonnegative_integer"},
-            "min": {"type": ["integer", "null"], "minimum": 0},
-            "max": {"type": ["integer", "null"], "minimum": 0}
-          },
-          "not": {"properties": {"min": {"const": null}, "max": {"const": null}}}
-        }
-      ]
-    },
-    "phrase_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "mode", "matches"],
-      "properties": {
-        "type": {"const": "phrase-failure"},
-        "mode": {"enum": ["forbidden-present", "required-missing"]},
-        "matches": {"$ref": "#/definitions/nonnegative_integer"}
-      }
-    },
-    "pii_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "detector_roles", "hits", "hit_anchors"],
-      "properties": {
-        "type": {"const": "pii-failure"},
-        "detector_roles": {
-          "type": "array",
-          "items": {
-            "type": "array", "minItems": 2, "maxItems": 2,
-            "items": [
-              {"enum": ["ssn", "card_luhn", "email", "phone"]},
-              {"type": ["string", "null"]}
-            ],
-            "additionalItems": false
-          }
-        },
-        "hits": {"$ref": "#/definitions/nonnegative_integer"},
-        "hit_anchors": {
-          "type": "array",
-          "items": {
-            "type": "object", "additionalProperties": false,
-            "required": ["detector", "role", "turn_text_digest"],
-            "properties": {
-              "detector": {"enum": ["ssn", "card_luhn", "email", "phone"]},
-              "role": {"type": ["string", "null"]},
-              "turn_text_digest": {
-                "oneOf": [{"$ref": "#/definitions/digest"}, {"type": "null"}]
-              }
-            }
-          }
-        }
-      }
-    },
-    "policy_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "violations", "pack"],
-      "properties": {
-        "type": {"const": "policy-failure"},
-        "violations": {
-          "type": "array",
-          "items": {
-            "type": "object", "additionalProperties": false,
-            "required": ["rule", "type"],
-            "properties": {
-              "rule": {"type": "string"},
-              "type": {"enum": ["banned", "required_disclosure_missing"]}
-            }
-          }
-        },
-        "pack": {
-          "type": "object", "additionalProperties": false,
-          "required": ["name", "version"],
-          "properties": {
-            "name": {"type": ["string", "null"]},
-            "version": {"type": ["integer", "string", "null"]}
-          }
-        }
-      }
-    },
-    "tool_call_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "named_matches"],
-      "properties": {
-        "type": {"const": "tool_call-failure"},
-        "named_matches": {"$ref": "#/definitions/nonnegative_integer"},
-        "count": {"$ref": "#/definitions/count_bounds"},
-        "order_prefix": {"$ref": "#/definitions/nonnegative_integer"},
-        "order_steps": {"type": "integer", "minimum": 1},
-        "never_before": {
-          "type": "object", "additionalProperties": false,
-          "required": ["offenders", "until_present"],
-          "properties": {
-            "offenders": {"$ref": "#/definitions/nonnegative_integer"},
-            "until_present": {"type": "boolean"}
-          }
-        }
-      },
-      "dependencies": {"order_prefix": ["order_steps"], "order_steps": ["order_prefix"]}
-    },
-    "outcome_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "mode", "met", "of", "predicates"],
-      "properties": {
-        "type": {"const": "outcome-failure"},
-        "mode": {"enum": ["all_of", "any_of"]},
-        "met": {"$ref": "#/definitions/nonnegative_integer"},
-        "of": {"type": "integer", "minimum": 1},
-        "predicates": {
-          "type": "array", "minItems": 1,
-          "items": {"$ref": "#/definitions/outcome_predicate"}
-        }
-      }
-    },
-    "outcome_predicate": {
+    "failure_atom": {
+      "$comment": "Closed payload-free branch identity; kind coupling is enforced by the target schema.",
       "oneOf": [
         {
           "type": "object", "additionalProperties": false,
-          "required": ["index", "kind", "matches"],
+          "required": ["code"],
           "properties": {
-            "index": {"$ref": "#/definitions/nonnegative_integer"},
-            "kind": {"const": "tool_called"},
-            "matches": {"$ref": "#/definitions/nonnegative_integer"}
+            "code": {"enum": [
+              "forbidden-match", "no-qualifying-turns", "required-match-missing",
+              "tool-missing", "tool-arguments-mismatch", "tool-count-below",
+              "tool-count-above", "never-before-boundary-missing",
+              "never-before-order-violation",
+              "no-predicate-met", "result-missing", "result-subset-mismatch", "unexpected-tool-error",
+              "tool-error-missing", "tool-error-pattern-mismatch", "state-record-missing",
+              "unexpected-handoff", "handoff-missing", "handoff-target-mismatch",
+              "unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch",
+              "unexpected-termination", "termination-missing",
+              "termination-attribute-mismatch", "latency-threshold-exceeded",
+              "count-below", "count-above"
+            ]}
           }
         },
         {
           "type": "object", "additionalProperties": false,
-          "required": ["index", "kind", "matches", "turn_text_digests"],
+          "required": ["code", "index"],
           "properties": {
-            "index": {"$ref": "#/definitions/nonnegative_integer"},
-            "kind": {"const": "phrase"},
-            "matches": {"$ref": "#/definitions/nonnegative_integer"},
-            "turn_text_digests": {"type": "array", "items": {"$ref": "#/definitions/digest"}}
+            "code": {"enum": ["order-step-missing", "predicate-unmet", "sequence-step-missing"]},
+            "index": {"$ref": "#/definitions/nonnegative_integer"}
           }
         },
         {
           "type": "object", "additionalProperties": false,
-          "required": ["index", "kind", "present"],
+          "required": ["code", "detector"],
           "properties": {
-            "index": {"$ref": "#/definitions/nonnegative_integer"},
-            "kind": {"const": "field_present"},
-            "present": {"const": false}
+            "code": {"const": "pii-detected"},
+            "detector": {"enum": ["ssn", "card_luhn", "email", "phone"]}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["code", "rule", "type"],
+          "properties": {
+            "code": {"const": "policy-violation"},
+            "rule": {"type": "string", "minLength": 1},
+            "type": {"enum": ["banned", "required_disclosure_missing"]}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["code", "field"],
+          "properties": {
+            "code": {"enum": ["state-field-missing", "state-field-value-mismatch", "before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged"]},
+            "field": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["code", "key"],
+          "properties": {
+            "code": {"enum": ["entity-missing", "entity-value-mismatch"]},
+            "key": {"type": "string", "minLength": 1}
           }
         }
       ]
     },
-    "tool_result_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "calls", "matching_results"],
-      "properties": {
-        "type": {"const": "tool_result-failure"},
-        "calls": {"$ref": "#/definitions/nonnegative_integer"},
-        "matching_results": {"$ref": "#/definitions/nonnegative_integer"}
-      }
-    },
-    "tool_error_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "mode", "matching_errors"],
-      "properties": {
-        "type": {"const": "tool_error-failure"},
-        "mode": {"enum": ["error-forbidden", "error-required"]},
-        "matching_errors": {"$ref": "#/definitions/nonnegative_integer"}
-      }
-    },
-    "state_witness": {
-      "oneOf": [
+    "target_kind_atom_coupling": {
+      "allOf": [
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["type", "record"],
-          "properties": {"type": {"const": "state-failure"}, "record": {"const": "absent"}}
+          "if": {"properties": {"kind": {"const": "phrase"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_phrase"}
         },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["type", "record", "mismatched"],
-          "properties": {
-            "type": {"const": "state-failure"},
-            "record": {"const": "present"},
-            "mismatched": {
-              "type": "array",
-              "items": {
-                "type": "object", "additionalProperties": false,
-                "required": ["path", "observed"],
-                "properties": {
-                  "path": {"type": "string", "minLength": 1},
-                  "observed": {"oneOf": [{"$ref": "#/definitions/digest"}, {"type": "null"}]}
-                }
-              }
-            }
-          }
+          "if": {"properties": {"kind": {"const": "pii"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_pii"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "policy"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_policy"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "tool_call"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_tool_call"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "outcome"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_outcome"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "tool_result"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_tool_result"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "tool_error"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_tool_error"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "state"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_state"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "state_change"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_state_change"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "handoff"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_handoff"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "dtmf"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_dtmf"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "termination"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_termination"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "latency"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_latency"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "entity_accuracy"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_entity_accuracy"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "sequence"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_sequence"}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "count"}}, "required": ["kind"]},
+          "then": {"$ref": "#/definitions/target_atom_codes_count"}
         }
       ]
     },
-    "state_change_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "before_present", "after_present", "checks", "before_value", "after_value"],
+    "target_atom_codes_phrase": {
       "properties": {
-        "type": {"const": "state_change-failure"},
-        "before_present": {"type": "boolean"},
-        "after_present": {"type": "boolean"},
-        "checks": {
-          "type": "array", "uniqueItems": true,
-          "items": {"enum": ["from-mismatch", "to-mismatch", "unchanged"]}
-        },
-        "before_value": {"oneOf": [{"$ref": "#/definitions/digest"}, {"type": "null"}]},
-        "after_value": {"oneOf": [{"$ref": "#/definitions/digest"}, {"type": "null"}]}
+        "failure_code": {"enum": ["forbidden-match", "no-qualifying-turns", "required-match-missing"]},
+        "failure_atom": {"properties": {"code": {"enum": ["forbidden-match", "no-qualifying-turns", "required-match-missing"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["forbidden-match", "no-qualifying-turns", "required-match-missing"]}}}}
       }
     },
-    "handoff_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "mode", "matches"],
+    "target_atom_codes_pii": {
       "properties": {
-        "type": {"const": "handoff-failure"},
-        "mode": {"enum": ["forbidden", "required"]},
-        "matches": {"$ref": "#/definitions/nonnegative_integer"}
+        "failure_code": {"const": "pii-detected"},
+        "failure_atom": {"properties": {"code": {"const": "pii-detected"}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"const": "pii-detected"}}}}
       }
     },
-    "dtmf_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "mode", "contains", "stream_digest"],
+    "target_atom_codes_policy": {
       "properties": {
-        "type": {"const": "dtmf-failure"},
-        "mode": {"enum": ["forbidden", "required"]},
-        "contains": {"type": "boolean"},
-        "stream_digest": {"$ref": "#/definitions/digest"}
+        "failure_code": {"const": "policy-violation"},
+        "failure_atom": {"properties": {"code": {"const": "policy-violation"}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"const": "policy-violation"}}}}
       }
     },
-    "termination_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "mode", "matches"],
+    "target_atom_codes_tool_call": {
       "properties": {
-        "type": {"const": "termination-failure"},
-        "mode": {"enum": ["forbidden", "required"]},
-        "matches": {"$ref": "#/definitions/nonnegative_integer"}
+        "failure_code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]},
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "tool-arguments-mismatch", "tool-count-below", "tool-count-above", "order-step-missing", "never-before-boundary-missing", "never-before-order-violation"]}}}}
       }
     },
-    "latency_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "measured", "measured_ms"],
+    "target_atom_codes_outcome": {
       "properties": {
-        "type": {"const": "latency-failure"},
-        "measured": {"type": "null"},
-        "measured_ms": {"type": "number", "minimum": 0}
+        "failure_code": {"enum": ["predicate-unmet", "no-predicate-met"]},
+        "failure_atom": {"properties": {"code": {"enum": ["predicate-unmet", "no-predicate-met"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["predicate-unmet", "no-predicate-met"]}}}}
       }
     },
-    "entity_accuracy_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": [
-        "type", "met", "of", "require", "mismatched_keys", "observed_value_digests"
-      ],
+    "target_atom_codes_tool_result": {
       "properties": {
-        "type": {"const": "entity_accuracy-failure"},
-        "met": {"$ref": "#/definitions/nonnegative_integer"},
-        "of": {"type": "integer", "minimum": 1},
-        "require": {"enum": ["all", "any"]},
-        "mismatched_keys": {
-          "type": "array", "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1}
-        },
-        "observed_value_digests": {
-          "type": "object",
-          "propertyNames": {"minLength": 1},
-          "additionalProperties": {"$ref": "#/definitions/digest"}
-        }
+        "failure_code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "result-missing", "result-subset-mismatch"]}}}}
       }
     },
-    "sequence_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "matched_prefix", "steps"],
+    "target_atom_codes_tool_error": {
       "properties": {
-        "type": {"const": "sequence-failure"},
-        "matched_prefix": {"$ref": "#/definitions/nonnegative_integer"},
-        "steps": {"type": "integer", "minimum": 1}
+        "failure_code": {"enum": ["tool-missing", "unexpected-tool-error", "tool-error-missing", "tool-error-pattern-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["tool-missing", "unexpected-tool-error", "tool-error-missing", "tool-error-pattern-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["tool-missing", "unexpected-tool-error", "tool-error-missing", "tool-error-pattern-mismatch"]}}}}
       }
     },
-    "count_witness": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "count"],
-      "properties": {"type": {"const": "count-failure"}, "count": {"$ref": "#/definitions/count_bounds"}}
+    "target_atom_codes_state": {
+      "properties": {
+        "failure_code": {"enum": ["state-record-missing", "state-field-missing", "state-field-value-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["state-record-missing", "state-field-missing", "state-field-value-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["state-record-missing", "state-field-missing", "state-field-value-mismatch"]}}}}
+      }
     },
-    "typed_witness": {
-      "oneOf": [
-        {"$ref": "#/definitions/phrase_witness"},
-        {"$ref": "#/definitions/pii_witness"},
-        {"$ref": "#/definitions/policy_witness"},
-        {"$ref": "#/definitions/tool_call_witness"},
-        {"$ref": "#/definitions/outcome_witness"},
-        {"$ref": "#/definitions/tool_result_witness"},
-        {"$ref": "#/definitions/tool_error_witness"},
-        {"$ref": "#/definitions/state_witness"},
-        {"$ref": "#/definitions/state_change_witness"},
-        {"$ref": "#/definitions/handoff_witness"},
-        {"$ref": "#/definitions/dtmf_witness"},
-        {"$ref": "#/definitions/termination_witness"},
-        {"$ref": "#/definitions/latency_witness"},
-        {"$ref": "#/definitions/entity_accuracy_witness"},
-        {"$ref": "#/definitions/sequence_witness"},
-        {"$ref": "#/definitions/count_witness"}
-      ]
+    "target_atom_codes_state_change": {
+      "properties": {
+        "failure_code": {"enum": ["before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged"]},
+        "failure_atom": {"properties": {"code": {"enum": ["before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["before-field-missing", "before-value-mismatch", "after-field-missing", "after-value-mismatch", "state-unchanged"]}}}}
+      }
+    },
+    "target_atom_codes_handoff": {
+      "properties": {
+        "failure_code": {"enum": ["unexpected-handoff", "handoff-missing", "handoff-target-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["unexpected-handoff", "handoff-missing", "handoff-target-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-handoff", "handoff-missing", "handoff-target-mismatch"]}}}}
+      }
+    },
+    "target_atom_codes_dtmf": {
+      "properties": {
+        "failure_code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-dtmf", "dtmf-missing", "dtmf-digits-mismatch"]}}}}
+      }
+    },
+    "target_atom_codes_termination": {
+      "properties": {
+        "failure_code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["unexpected-termination", "termination-missing", "termination-attribute-mismatch"]}}}}
+      }
+    },
+    "target_atom_codes_latency": {
+      "properties": {
+        "failure_code": {"const": "latency-threshold-exceeded"},
+        "failure_atom": {"properties": {"code": {"const": "latency-threshold-exceeded"}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"const": "latency-threshold-exceeded"}}}}
+      }
+    },
+    "target_atom_codes_entity_accuracy": {
+      "properties": {
+        "failure_code": {"enum": ["entity-missing", "entity-value-mismatch"]},
+        "failure_atom": {"properties": {"code": {"enum": ["entity-missing", "entity-value-mismatch"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["entity-missing", "entity-value-mismatch"]}}}}
+      }
+    },
+    "target_atom_codes_sequence": {
+      "properties": {
+        "failure_code": {"const": "sequence-step-missing"},
+        "failure_atom": {"properties": {"code": {"const": "sequence-step-missing"}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"const": "sequence-step-missing"}}}}
+      }
+    },
+    "target_atom_codes_count": {
+      "properties": {
+        "failure_code": {"enum": ["count-below", "count-above"]},
+        "failure_atom": {"properties": {"code": {"enum": ["count-below", "count-above"]}}},
+        "source_failure_atoms": {"items": {"properties": {"code": {"enum": ["count-below", "count-above"]}}}}
+      }
     },
     "private_target": {
+      "$comment": "Runtime validation also requires canonical UTF-8 atom ordering, de-duplication, selected atom first, and a matching fingerprint.",
       "type": "object", "additionalProperties": false,
       "required": [
         "test_id", "assertion_digest", "assertion_id", "kind", "dimension",
-        "authority", "required_status", "witness", "fingerprint"
+        "authority", "required_status", "failure_atom", "source_failure_atoms",
+        "fingerprint"
       ],
       "properties": {
         "test_id": {"type": "string", "minLength": 1},
@@ -415,31 +352,19 @@
         "dimension": {"$ref": "#/definitions/dimension"},
         "authority": {"const": "deterministic"},
         "required_status": {"const": "FAIL"},
-        "witness": {"$ref": "#/definitions/typed_witness"},
+        "failure_atom": {"$ref": "#/definitions/failure_atom"},
+        "source_failure_atoms": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"$ref": "#/definitions/failure_atom"}
+        },
         "fingerprint": {"$ref": "#/definitions/digest"}
       },
-      "allOf": [
-        {"if": {"properties": {"kind": {"const": "phrase"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/phrase_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "pii"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/pii_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "policy"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/policy_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "tool_call"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/tool_call_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "outcome"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/outcome_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "tool_result"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/tool_result_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "tool_error"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/tool_error_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "state"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/state_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "state_change"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/state_change_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "handoff"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/handoff_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "dtmf"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/dtmf_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "termination"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/termination_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "latency"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/latency_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "entity_accuracy"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/entity_accuracy_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "sequence"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/sequence_witness"}}}},
-        {"if": {"properties": {"kind": {"const": "count"}}}, "then": {"properties": {"witness": {"$ref": "#/definitions/count_witness"}}}}
-      ]
+      "allOf": [{"$ref": "#/definitions/target_kind_atom_coupling"}]
     },
     "share_target": {
+      "$comment": "failure_code is the selected private atom code; failure_atom_digest binds the complete private atom.",
       "type": "object", "additionalProperties": false,
-      "required": ["assertion_ref", "kind", "dimension", "authority", "required_status", "fingerprint", "witness_digest"],
+      "required": ["assertion_ref", "kind", "dimension", "authority", "required_status", "fingerprint", "failure_code", "failure_atom_digest"],
       "properties": {
         "assertion_ref": {"$ref": "#/definitions/digest"},
         "kind": {"$ref": "#/definitions/assertion_kind"},
@@ -447,8 +372,10 @@
         "authority": {"const": "deterministic"},
         "required_status": {"const": "FAIL"},
         "fingerprint": {"$ref": "#/definitions/digest"},
-        "witness_digest": {"$ref": "#/definitions/digest"}
-      }
+        "failure_code": {"type": "string", "minLength": 1},
+        "failure_atom_digest": {"$ref": "#/definitions/digest"}
+      },
+      "allOf": [{"$ref": "#/definitions/target_kind_atom_coupling"}]
     },
     "private_source": {
       "type": "object", "additionalProperties": false,
@@ -566,13 +493,25 @@
       "required": ["path", "component", "outcome", "code", "candidate_digest"],
       "properties": {
         "path": {"type": "string", "minLength": 1},
-        "component": {"type": "string", "minLength": 1},
+        "component": {"enum": [
+          "top-level-optional", "goal-optional", "caller-optional",
+          "variation_matrix", "facts", "environment", "interruptions",
+          "behavior", "script", "script-field", "tools", "tool-field",
+          "handoff-field", "handoff", "termination-field", "termination",
+          "state", "agent-mock-optional", "agent_mock"
+        ]},
         "outcome": {"enum": ["PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED"]},
-        "code": {"type": ["string", "null"]},
+        "code": {"enum": [
+          null, "budget_exhausted", "simulator_invalid",
+          "assertion_contract_invalid", "assertion_inconclusive",
+          "target_failed", "target_absent", "candidate_invalid",
+          "failure_identity_drift", "failure_atom_unavailable",
+          "resource_limit_exceeded"
+        ]},
         "candidate_digest": {"$ref": "#/definitions/raw_digest"}
       }
     },
-    "minimality": {
+    "private_minimality": {
       "type": "object", "additionalProperties": false,
       "required": ["status", "reducer_set", "claim", "remaining_unit_checks", "frozen_components"],
       "properties": {
@@ -580,6 +519,46 @@
         "reducer_set": {"const": "hotato.reducers.v1"},
         "claim": {"type": "string", "minLength": 1},
         "remaining_unit_checks": {"type": "array", "items": {"$ref": "#/definitions/minimality_check"}},
+        "frozen_components": {
+          "type": "array", "uniqueItems": true,
+          "items": {"enum": ["script", "tools", "state", "handoff", "termination"]}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "one_minimal"}}},
+          "then": {"properties": {"claim": {"const": "1-minimal under hotato.reducers.v1 with the recorded observation-scope freezes"}}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "budget_exhausted"}}},
+          "then": {"properties": {"claim": {"const": "failure preserved; minimality incomplete because the candidate budget ended"}}}
+        }
+      ]
+    },
+    "share_minimality": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reducer_set", "claim", "check_summary", "frozen_components"],
+      "properties": {
+        "status": {"enum": ["one_minimal", "budget_exhausted"]},
+        "reducer_set": {"const": "hotato.reducers.v1"},
+        "claim": {"type": "string", "minLength": 1},
+        "check_summary": {
+          "type": "object", "additionalProperties": false,
+          "required": ["count", "outcomes"],
+          "properties": {
+            "count": {"$ref": "#/definitions/nonnegative_integer"},
+            "outcomes": {
+              "type": "object", "additionalProperties": false,
+              "required": ["PRESERVED", "ABSENT", "DRIFTED", "UNRESOLVED"],
+              "properties": {
+                "PRESERVED": {"$ref": "#/definitions/nonnegative_integer"},
+                "ABSENT": {"$ref": "#/definitions/nonnegative_integer"},
+                "DRIFTED": {"$ref": "#/definitions/nonnegative_integer"},
+                "UNRESOLVED": {"$ref": "#/definitions/nonnegative_integer"}
+              }
+            }
+          }
+        },
         "frozen_components": {
           "type": "array", "uniqueItems": true,
           "items": {"enum": ["script", "tools", "state", "handoff", "termination"]}
@@ -656,7 +635,7 @@
           "const": [
             "audio", "transcript_body", "scenario_body", "assertion_body",
             "tool_payload", "state_value", "credentials", "absolute_paths",
-            "provider_identifiers"
+            "provider_identifiers", "deletion_paths"
           ]
         },
         "runnable": {"const": false},

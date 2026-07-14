@@ -126,7 +126,7 @@
       "additionalProperties": false,
       "required": [
         "step", "parent_digest", "child_digest", "operation", "transform",
-        "oracle_result_digest", "witness_digest"
+        "oracle_result_digest", "failure_atom_digest"
       ],
       "properties": {
         "step": {"type": "integer", "minimum": 1, "maximum": 100000},
@@ -135,7 +135,7 @@
         "operation": {"$ref": "#/definitions/reducer_operation"},
         "transform": {"$ref": "#/definitions/deletion_transform"},
         "oracle_result_digest": {"$ref": "#/definitions/digest"},
-        "witness_digest": {"$ref": "#/definitions/digest"}
+        "failure_atom_digest": {"$ref": "#/definitions/digest"}
       }
     }
   }

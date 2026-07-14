@@ -112,8 +112,8 @@ existing path.
 | Tool | Scope | Does |
 | --- | --- | --- |
 | `counterexample_compile` | local write | reduces one failing scripted `hotato.scenario` + conversation-test target into a new private `.hotato-repro` capsule |
-| `counterexample_verify` | read-only | audits source bytes, evaluator provenance, the replayed delete-only chain, the exact typed failure, and a completed local-minimality claim |
-| `counterexample_reproduce` | read-only | runs only the reduced fixture under the current evaluator, permitting evaluator-version drift while still requiring the exact typed failure identity |
+| `counterexample_verify` | read-only | audits source bytes, evaluator provenance, the replayed delete-only chain, the source-selected structured failure branch, and a completed local-minimality claim |
+| `counterexample_reproduce` | read-only | runs only the reduced fixture under the current evaluator, permitting evaluator-version drift while still requiring the source-selected structured failure branch |
 
 `counterexample_compile` parameters are `scenario_path`, `test_path`,
 `target`, `out_dir`, optional `budget` (candidate evaluations), and optional

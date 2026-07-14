@@ -76,6 +76,25 @@ member, and 256 MiB total. `reproduce` is a separate current-evaluator check:
 it permits evaluator drift, but still validates capsule integrity and the
 source-to-final delete-only chain.
 
+Replay also bounds proof-specific work: 256 KiB per selected assertion, 2 MiB
+per canonical candidate scenario, 256 KiB of rendered transcript text, 2 MiB
+per assertion result, and 10,000 evidence rows. Proof regexes use a closed
+1,024-byte subset that refuses groups, alternation, backreferences, and more
+than one variable quantifier. These limits apply to counterexample compilation
+and replay; they are not global evaluator limits.
+
+Each profile also has an exact member allowlist. A manifest cannot authorize a
+new file outside that profile. For `share-safe-v1`, the only members are
+`capsule.json`, `report.md`, `report.html`, `card.svg`, `README.md`, and
+`MANIFEST.sha256.json`; each human-facing file is reconstructed canonically and
+compared byte for byte during inspection. This prevents a modified report,
+README, or card from becoming accepted merely because its replacement digest
+was written into a new manifest.
+
+The canonical share renderer bytes are frozen as part of the capsule v1
+exchange contract. A future renderer must retain v1 output or use a versioned
+profile/format rather than silently changing bytes under an existing proof.
+
 The evaluator digest binds the shipped Python source closure and package
 version, not the interpreter build, host platform, CPU, or native libraries.
 Strict replay compares the recorded result, content, and trace hashes, so a
@@ -91,9 +110,14 @@ untrusted capsules into a private, non-writable workspace before verification.
 
 `counterexample export` derives a non-runnable projection after strict private
 verification. It omits scenario/test bodies, transcript content, tool payloads,
-state values, and provider identifiers. Its hashes are correlators, so a team
-with low-entropy or externally known inputs should keep even the projection in
-its normal engineering-artifact access boundary.
+state values, provider identifiers, reducer paths, and per-candidate digests.
+Private minimality rows are reduced to aggregate outcome counts. The projection
+exposes the payload-free selected failure code for review while keeping its
+field/key/rule/detector/index discriminator private. It also contains
+identifiers and hashes that remain correlators; low-entropy or
+externally known source material can be tested against them. `share-safe-v1`
+therefore belongs inside the team's normal engineering-artifact access
+boundary and does not claim anonymous public disclosure.
 
 ## Network: only when you explicitly request it
 

@@ -10,9 +10,9 @@ from hotato import assert_ as A
 from hotato.counterexample.model import canonical_json
 from hotato.counterexample.oracle import (
     FailureOracle,
+    failure_atoms,
     failure_fingerprint,
     target_assertion,
-    typed_witness,
 )
 from hotato.state_adapter import MockStateAdapter
 
@@ -122,29 +122,38 @@ def test_case_matrix_covers_every_supported_deterministic_kind():
 
 
 @pytest.mark.parametrize("kind", sorted(_cases()))
-def test_typed_witness_is_structured_stable_and_reason_free(kind):
+def test_failure_atom_is_structured_stable_and_reason_free(kind):
     assertion, context = _cases()[kind]
     A.validate_assertions_doc({"version": 1, "assertions": [assertion]})
     result = A.evaluate_assertion(assertion, context)
     assert result["status"] == "FAIL", (kind, result)
-    witness = typed_witness(assertion, result, context)
-    assert witness["type"] == f"{kind}-failure"
-    assert "reason" not in canonical_json(witness).lower()
-    one = failure_fingerprint("oracle-test", assertion, witness)
-    two = failure_fingerprint("oracle-test", copy.deepcopy(assertion), copy.deepcopy(witness))
+    atoms = failure_atoms(assertion, result, context)
+    assert atoms
+    assert all(set(atom).issubset({"code", "detector", "rule", "type", "index", "field", "key"}) for atom in atoms)
+    assert "reason" not in canonical_json(atoms).lower()
+    one = failure_fingerprint("oracle-test", assertion, atoms[0], atoms)
+    two = failure_fingerprint(
+        "oracle-test",
+        copy.deepcopy(assertion),
+        copy.deepcopy(atoms[0]),
+        copy.deepcopy(atoms),
+    )
     assert one == two
     assert one["required_status"] == "FAIL"
     assert one["authority"] == "deterministic"
 
 
-def test_pii_and_outcome_witnesses_reject_same_count_different_failure_lineage():
+def test_atoms_ignore_payload_changes_and_distinguish_outcome_branches():
     pii_assertion, _ = _cases()["pii"]
     first_ctx = A.build_context(transcript=[{"role": "caller", "text": "one@example.com"}])
     second_ctx = A.build_context(transcript=[{"role": "caller", "text": "two@example.com"}])
-    first = typed_witness(pii_assertion, A.evaluate_assertion(pii_assertion, first_ctx), first_ctx)
-    second = typed_witness(pii_assertion, A.evaluate_assertion(pii_assertion, second_ctx), second_ctx)
-    assert first["hits"] == second["hits"] == 1
-    assert first != second
+    first = failure_atoms(
+        pii_assertion, A.evaluate_assertion(pii_assertion, first_ctx), first_ctx
+    )
+    second = failure_atoms(
+        pii_assertion, A.evaluate_assertion(pii_assertion, second_ctx), second_ctx
+    )
+    assert first == second == [{"code": "pii-detected", "detector": "email"}]
 
     outcome_assertion, _ = _cases()["outcome"]
     no_matches = A.build_context(spans=[_tool("lookup_order")], transcript=[{"role": "caller", "text": "waiting"}])
@@ -152,23 +161,69 @@ def test_pii_and_outcome_witnesses_reject_same_count_different_failure_lineage()
     first_result = A.evaluate_assertion(outcome_assertion, no_matches)
     second_result = A.evaluate_assertion(outcome_assertion, phrase_only)
     assert first_result["status"] == second_result["status"] == "FAIL"
-    assert typed_witness(outcome_assertion, first_result, no_matches) != typed_witness(
-        outcome_assertion, second_result, phrase_only,
+    assert failure_atoms(outcome_assertion, first_result, no_matches) != failure_atoms(
+        outcome_assertion, second_result, phrase_only
     )
+
+
+def test_tool_call_atom_distinguishes_wrong_arguments_from_missing_tool():
+    assertion = {
+        "id": "refund-call",
+        "kind": "tool_call",
+        "name": "issue_refund",
+        "args_subset": {"id": "A"},
+    }
+    wrong = A.build_context(
+        spans=[_tool("issue_refund", arguments={"id": "B"})]
+    )
+    missing = A.build_context(spans=[])
+    wrong_result = A.evaluate_assertion(assertion, wrong)
+    missing_result = A.evaluate_assertion(assertion, missing)
+    assert wrong_result["status"] == missing_result["status"] == "FAIL"
+    assert failure_atoms(assertion, wrong_result, wrong) == [
+        {"code": "tool-arguments-mismatch"}
+    ]
+    assert failure_atoms(assertion, missing_result, missing) == [
+        {"code": "tool-missing"}
+    ]
+
+
+def test_phrase_atom_distinguishes_no_role_turns_from_nonmatching_turns():
+    assertion = {
+        "id": "disclosure",
+        "kind": "phrase",
+        "regex": "recorded",
+        "role": "agent",
+    }
+    no_agent = A.build_context(
+        transcript=[{"role": "caller", "text": "hello"}]
+    )
+    wrong_agent = A.build_context(
+        transcript=[{"role": "agent", "text": "hello"}]
+    )
+    no_agent_result = A.evaluate_assertion(assertion, no_agent)
+    wrong_agent_result = A.evaluate_assertion(assertion, wrong_agent)
+    assert no_agent_result["status"] == wrong_agent_result["status"] == "FAIL"
+    assert failure_atoms(assertion, no_agent_result, no_agent) == [
+        {"code": "no-qualifying-turns"}
+    ]
+    assert failure_atoms(assertion, wrong_agent_result, wrong_agent) == [
+        {"code": "required-match-missing"}
+    ]
 
 
 def test_oracle_reports_drifted_instead_of_absent_for_a_different_failure_identity():
     scenario = {
         "kind": "hotato.scenario", "version": 1, "id": "drift-source",
         "goal": {"type": "support", "target": "account"},
-        "caller": {"script": [{"say": "one@example.com"}]},
+        "caller": {"script": [{"say": "one@example.com and 416-555-1212"}]},
     }
     test_doc = {
         "kind": "hotato.conversation-test", "version": 1,
         "id": "drift-test", "agent": "fixture-agent",
         "assertions": {
             "deterministic": [{
-                "id": "pii", "kind": "pii", "detectors": ["email"],
+                "id": "pii", "kind": "pii", "detectors": ["email", "phone"],
                 "mode": "must_not_leak",
             }],
             "rubric": [],
@@ -178,7 +233,7 @@ def test_oracle_reports_drifted_instead_of_absent_for_a_different_failure_identi
     oracle = FailureOracle(test_doc, assertion, 0)
     oracle.freeze_source(scenario)
     changed = copy.deepcopy(scenario)
-    changed["caller"]["script"][0]["say"] = "two@example.com"
+    changed["caller"]["script"][0]["say"] = "416-555-1212"
     result = oracle.evaluate(changed)
     assert result["status"] == "DRIFTED"
     assert result["code"] == "failure_identity_drift"

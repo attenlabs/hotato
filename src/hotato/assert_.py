@@ -703,6 +703,23 @@ def _validate_outcome_predicate(aid: str, p: Any) -> None:
             f"assertion {aid!r} (outcome): each predicate must have exactly "
             f"one of {_OUTCOME_PRED_KEYS}, got {sorted(p.keys())}"
         )
+    field = present[0]
+    value = p[field]
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            f"assertion {aid!r} (outcome): {field!r} must be a non-empty string"
+        )
+    if "role" in p and not isinstance(p["role"], str):
+        raise ValueError(
+            f"assertion {aid!r} (outcome): predicate 'role' must be a string"
+        )
+    if field == "phrase":
+        try:
+            re.compile(value)
+        except re.error as exc:
+            raise ValueError(
+                f"assertion {aid!r} (outcome): invalid phrase regex {value!r}: {exc}"
+            ) from exc
 
 
 def _validate_kind_fields(aid: str, kind: str, item: Dict[str, Any]) -> None:

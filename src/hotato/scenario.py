@@ -28,6 +28,7 @@ Reproducibility here is scoped to "a seeded replay is byte-identical", never
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Dict
 
 from .assert_ import parse_assertions_yaml
@@ -211,9 +212,20 @@ def _validate_agent_mock(am: Any) -> None:
                 raise ValueError(f"agent_mock.tools[{j}].result must be a mapping")
             lat = t.get("latency_ms")
             if lat is not None and (isinstance(lat, bool)
-                                    or not isinstance(lat, (int, float)) or lat < 0):
+                                    or not isinstance(lat, (int, float))
+                                    or not math.isfinite(lat) or lat < 0):
                 raise ValueError(
                     f"agent_mock.tools[{j}].latency_ms must be a number >= 0")
+            at = t.get("at_ms")
+            if at is not None and (
+                isinstance(at, bool)
+                or not isinstance(at, (int, float))
+                or not math.isfinite(at)
+                or at < 0
+            ):
+                raise ValueError(
+                    f"agent_mock.tools[{j}].at_ms must be a finite number >= 0"
+                )
     handoff = am.get("handoff")
     if handoff is not None:
         if not isinstance(handoff, dict) or not handoff.get("to"):
