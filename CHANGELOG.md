@@ -8,6 +8,19 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-14
+
+### Added
+- **Transcription cache with verify-by-diff.** Transcripts are cached
+  content-addressed (audio bytes + model + device + compute type + language +
+  options); a hit replays the byte-identical stored transcript.
+  `--no-transcribe-cache` re-runs the model fresh and surfaces any drift as a
+  diff beside the cached baseline.
+- **Silero VAD runs directly on onnxruntime.** The MIT-licensed
+  `silero_vad.onnx` weights ship inside the package and the `[neural]` extra
+  installs onnxruntime + numpy. Segmentation output is equivalence-tested
+  against the reference implementation.
+
 ### Added
 - **Proof-preserving counterexample compiler.** `hotato counterexample compile`
   reduces one failing deterministic scripted scenario to a private runnable
