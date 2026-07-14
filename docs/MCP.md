@@ -1,11 +1,13 @@
 # MCP: the hotato server
 
 hotato ships an MCP server, `hotato-mcp`, that speaks MCP over stdio and
-exposes twelve tools: one scoring tool, `voice_eval_run`, which returns the
-identical JSON envelope (`schema_version` "1") the CLI emits, plus eleven
-fleet tools. Eight read, verify, and propose over a local fleet workspace;
-three are clone-scoped actions that recompute and hand the deploy decision
-back to you. Everything, including audio, runs and stays on your machine.
+exposes fifteen tools: one scoring tool, `voice_eval_run`, which returns the
+identical JSON envelope (`schema_version` "1") the CLI emits; three
+proof-preserving counterexample tools that compile and check offline
+regression capsules; plus eleven fleet tools. Eight read, verify, and propose
+over a local fleet workspace; three are clone-scoped actions that recompute and
+hand the deploy decision back to you. Everything, including audio, runs and
+stays on your machine.
 
 Every tool response carries a uniform control envelope: four keys ride on
 every response (pure reads included) so an autonomous caller parses one
@@ -97,6 +99,32 @@ pick:
 Pass exactly one input mode: `stereo`, OR `caller` + `agent` together, OR
 `suite`. Mixing modes (or passing none) returns a structured error you can
 parse programmatically, with a stable `error_code` and message; see below.
+
+## The counterexample tools
+
+These three tools call the same stdlib-only core as
+`hotato counterexample ...`. `HOTATO_MCP_INPUT_DIR` confines scenario, test,
+and capsule reads. `HOTATO_MCP_REPORT_DIR` confines new capsule writes. When
+neither variable is configured, reads and writes stay under the current working
+directory or the OS temporary directory. Compilation never overwrites an
+existing path.
+
+| Tool | Scope | Does |
+| --- | --- | --- |
+| `counterexample_compile` | local write | reduces one failing scripted `hotato.scenario` + conversation-test target into a new private `.hotato-repro` capsule |
+| `counterexample_verify` | read-only | audits source bytes, evaluator provenance, the replayed delete-only chain, the exact typed failure, and a completed local-minimality claim |
+| `counterexample_reproduce` | read-only | runs only the reduced fixture under the current evaluator, permitting evaluator-version drift while still requiring the exact typed failure identity |
+
+`counterexample_compile` parameters are `scenario_path`, `test_path`,
+`target`, `out_dir`, optional `budget` (candidate evaluations), and optional
+`seed`. The compiler selects the base scenario at that seed; it does not expand
+`variation_matrix`. `counterexample_verify` and `counterexample_reproduce`
+each take one `path`.
+
+The evidence status is `asserted` because this path operates on a deterministic
+scripted simulation, without claiming measured call audio. Every response still
+carries the uniform control envelope. No tool publishes a capsule or promotes it
+into a corpus.
 
 ## Output
 

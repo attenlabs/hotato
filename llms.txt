@@ -232,6 +232,14 @@
   evidence, input-health report, card, CI policy), verify a directory of them
   for CI, inspect one, or pack/unpack the portable archive. Detail:
   `docs/CONTRACTS.md`.
+- `hotato counterexample compile|verify|reproduce|inspect|export|predicate` --
+  reduce one failing deterministic scripted scenario into a private runnable
+  `.hotato-repro`, with the exact typed failure identity, replayed delete-only
+  proof chain, independent local-minimality check, and explicit budget-limited
+  status. Strict verification pins the evaluator; reproduction permits
+  evaluator drift; export emits a verified non-runnable projection with input
+  bodies omitted. This path is offline and does not call a deployed voice
+  agent. Detail: `docs/COUNTEREXAMPLES.md`.
 - `hotato explain RESULT` -- read-only layer attribution for a finished run
   envelope, a sweep/analyze candidate ref (FILE#N), or a contract bundle:
   failure_layer, fixability (safe_to_patch | needs_human |
@@ -294,9 +302,9 @@
   `hotato_score` fixture, plus `pytest --hotato-suite` to fail the session on
   a regression (`--hotato-suite-scenarios DIR --hotato-suite-audio DIR` for
   your own sets). Detail: `docs/PYTEST.md`.
-- As an MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes twelve
-  tools -- one scoring tool, `voice_eval_run`, returning the identical JSON
-  envelope, plus eleven fleet tools that read/verify/propose over a local fleet
+- As an MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes a
+  local tool set: the `voice_eval_run` scorer, `counterexample_compile`,
+  `counterexample_verify`, `counterexample_reproduce`, plus fleet tools that read/verify/propose over a local fleet
   workspace (fleet_status, candidate_list, contract_list, trial_explain,
   artifact_verify, experiment_propose) and run clone-scoped experiments
   (experiment_run, clone_cleanup); none deploys to production. On
@@ -453,11 +461,14 @@ it, never whether the policy itself was right.
   `investigate label` into a signed contract.
 - docs/CONTRACTS.md: `hotato contract create|verify|inspect|pack|unpack`, the
   portable, CI-enforced <id>.hotato failure-contract bundle.
+- docs/COUNTEREXAMPLES.md: one deterministic scripted failure to a private,
+  content-addressed replay capsule; exact claim ceiling, proof verification,
+  current-evaluator reproduction, bisect predicate, and share-safe export.
 - docs/PYTEST.md: the pytest fixture and the suite gate.
 - docs/SUITES.md: the tiered corpus suites and the deterministic builder.
 - docs/CI.md: the GitHub PR check and the sticky results comment.
-- docs/MCP.md: the hotato MCP server (the voice_eval_run scorer plus eleven
-  fleet tools), copy-paste client configs (Claude Desktop, Cursor, Codex CLI),
+- docs/MCP.md: the hotato MCP server (`voice_eval_run`, counterexample tools,
+  and fleet tools), copy-paste client configs (Claude Desktop, Cursor, Codex CLI),
   and the `uvx --from "hotato[mcp]" hotato-mcp` footgun to avoid.
 - docs/API.md: the Python API and the shared success/error schema reference.
 - docs/SUBMITTING.md: contribute a consented, labelled real call.

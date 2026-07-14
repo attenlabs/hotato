@@ -1,0 +1,22 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "counterexample-latency-source",
+  "goal": {"type": "refund", "target": "order A-1"},
+  "caller": {
+    "script": [
+      {"say": "I need a refund for order A-1."},
+      {"say": "The item arrived damaged."},
+      {"say": "Please confirm when it is submitted."}
+    ]
+  },
+  "environment": {"locale": "en-US", "route": "phone"},
+  "agent_mock": {
+    "tools": [
+      {"name": "lookup_order", "arguments": {"id": "A-1"}, "result": {"found": true}, "latency_ms": 80},
+      {"name": "issue_refund", "arguments": {"id": "A-1"}, "result": {"status": "posted"}, "latency_ms": 900},
+      {"name": "send_receipt", "arguments": {"id": "A-1"}, "result": {"sent": true}, "latency_ms": 60}
+    ],
+    "termination": {"reason": "complete", "by": "agent"}
+  }
+}

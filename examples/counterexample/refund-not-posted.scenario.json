@@ -1,0 +1,80 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "counterexample-refund-not-posted",
+  "seed": 7,
+  "goal": {
+    "type": "refund",
+    "target": "order A-1"
+  },
+  "caller": {
+    "script": [
+      {
+        "say": "I need a refund for order A-1."
+      },
+      {
+        "say": "The item arrived damaged."
+      },
+      {
+        "say": "Please confirm when it is submitted."
+      }
+    ]
+  },
+  "environment": {
+    "locale": "en-US",
+    "route": "phone"
+  },
+  "variation_matrix": {
+    "noise": [
+      "clean",
+      "cafe"
+    ],
+    "repetitions": 2,
+    "speaking_rate": [
+      0.9,
+      1.1
+    ]
+  },
+  "agent_mock": {
+    "tools": [
+      {
+        "name": "lookup_order",
+        "arguments": {
+          "id": "A-1"
+        },
+        "result": {
+          "found": true
+        }
+      },
+      {
+        "name": "issue_refund",
+        "arguments": {
+          "id": "A-1"
+        },
+        "result": {
+          "accepted": true
+        }
+      }
+    ],
+    "state": {
+      "orders": [
+        {
+          "id": "A-1",
+          "refund_status": "pending",
+          "amount": 42
+        },
+        {
+          "id": "A-2",
+          "refund_status": "posted",
+          "amount": 9
+        }
+      ],
+      "unrelated": [
+        {
+          "id": "U-1",
+          "value": "unused"
+        }
+      ]
+    }
+  }
+}

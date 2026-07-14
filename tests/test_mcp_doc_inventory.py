@@ -127,7 +127,10 @@ def test_no_human_doc_states_a_wrong_tool_count():
     import re
     names = _registered_tool_names()
     total = len(names)
-    fleet = total - 1  # every tool except the voice_eval_run scorer
+    fleet = len([
+        name for name in names
+        if name != "voice_eval_run" and not name.startswith("counterexample_")
+    ])
     docs = [REPO_ROOT / "README.md", REPO_ROOT / "docs" / "MCP.md",
             REPO_ROOT / "llms.txt"]
     wrong = []

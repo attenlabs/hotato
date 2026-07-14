@@ -15,7 +15,10 @@ verify`, `contract inspect`, `contract pack`, `contract unpack`, `trace
 attach`, `trace export`, `scan`, `trust`, `analyze`, `patch`, `verify`, `fix
 trial`, `loop`, `describe`, `init starter`, `init webhook` (the scaffold
 generator — the server it scaffolds is a local listener, see below),
-`setup`.
+`setup`, and every `counterexample` subcommand (`compile`, `verify`,
+`reproduce`, `inspect`, `export`, `predicate`). Counterexample compilation
+uses the local scripted simulator and deterministic assertion engine; it never
+executes a provider adapter, judge, download, or arbitrary command.
 
 These read local files (recordings, scenarios, `hotato.yaml`, connection
 files) and write local files. `connect` also belongs here: it validates and

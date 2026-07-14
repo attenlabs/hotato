@@ -209,6 +209,37 @@ _EXIT_CODES: dict = {
             "private-only artifact, or a source that does not reproduce a "
             "failure; no partial output is left at --out"),
     ),
+    "counterexample": (
+        (2, "no subcommand given (see hotato counterexample compile/verify/reproduce/inspect/export/predicate)"),
+    ),
+    "counterexample compile": (
+        (0, "the exact deterministic failure was preserved and the atomic private capsule earned one_minimal"),
+        (1, "the exact deterministic failure was preserved in an atomic private capsule, but the candidate budget ended before one-minimality was proved"),
+        (2, "refused: target is absent/advisory/inconclusive/unsupported, an input escapes the workspace, the output exists, or proof cannot complete safely"),
+    ),
+    "counterexample verify": (
+        (0, "source and final replays, accepted deletion chain, exact failure identity, evaluator provenance, and any claimed one-minimality verified"),
+        (1, "the capsule is intact but the target failure or claimed one-minimality no longer reproduces"),
+        (2, "refused: malformed, tampered, unsafe, unsupported, or inconclusive capsule"),
+    ),
+    "counterexample reproduce": (
+        (0, "the reduced fixture reproduced the exact typed failure twice under the current evaluator"),
+        (1, "the capsule is intact but the exact target failure is absent under the current evaluator"),
+        (2, "refused: malformed, tampered, unsafe, unsupported, or inconclusive capsule"),
+    ),
+    "counterexample inspect": (
+        (0, "the integrity-checked capsule summary was printed without executing it"),
+        (2, "refused: malformed, tampered, unsafe, or unreadable capsule"),
+    ),
+    "counterexample export": (
+        (0, "a non-runnable share-safe projection was written atomically after the private capsule verified"),
+        (2, "refused: source did not verify, unsupported profile, unsafe path, or existing output"),
+    ),
+    "counterexample predicate": (
+        (0, "the exact target failure is absent under the current evaluator (git-bisect good)"),
+        (1, "the exact target failure reproduces under the current evaluator (git-bisect bad)"),
+        (125, "the capsule or evaluator state is untestable for this revision (git-bisect skip)"),
+    ),
     "contract": (
         (2, "no subcommand given (see hotato contract create/verify/inspect/"
             "pack/unpack --help)"),
@@ -1856,6 +1887,116 @@ def _cmd_regression_prepare(args) -> int:
     # A prepared bundle exits 0; a human review is still required (printed
     # above). Every refusal raises through the shared HANDLED boundary (exit 2).
     return 0
+
+
+def _counterexample_terminal(value, limit=500) -> str:
+    """Render user-controlled labels and paths without terminal controls."""
+    out = []
+    for char in str(value):
+        code = ord(char)
+        out.append(char if code >= 32 and code != 127 else f"\\u{code:04x}")
+    rendered = "".join(out)
+    return rendered if len(rendered) <= limit else rendered[: limit - 1] + "…"
+
+
+def _counterexample_text(result) -> str:
+    kind = result.get("kind")
+    if kind == "counterexample-compile":
+        r = result["reduction"]
+        return (
+            f"counterexample compiled: {_counterexample_terminal(result['target']['assertion_id'])}\n"
+            f"failure fingerprint: {result['target']['fingerprint']}\n"
+            f"minimality: {result['minimality']} under hotato.reducers.v1 and recorded scope freezes\n"
+            f"caller turns: {r['initial']['turns']} -> {r['final']['turns']}\n"
+            f"trace spans: {r['initial']['trace_spans']} -> {r['final']['trace_spans']}\n"
+            f"candidate evaluations: {r['candidate_evaluations']} (budget {r['budget']})\n"
+            f"output: {_counterexample_terminal(result['output'])}\n"
+            f"reproduce: {_counterexample_terminal(result['reproduce'])}\n"
+            f"evaluator bisect: git bisect run {_counterexample_terminal(result['predicate'])}\n"
+        )
+    if kind == "counterexample-verify":
+        return (
+            f"counterexample {_counterexample_terminal(result['status'])}: {result['counterexample_id']}\n"
+            f"failure fingerprint: {result.get('failure_fingerprint', 'absent')}\n"
+            f"minimality: {result.get('minimality', 'unverified')}\n"
+            f"source replays: {result.get('source_replays', 0)}\n"
+            f"final replays: {result.get('final_replays', 0)}\n"
+            f"accepted steps replayed: {result.get('accepted_steps_replayed', 0)}\n"
+            f"single-unit checks: {result.get('single_unit_checks', 0)}\n"
+        )
+    if kind == "counterexample-reproduce":
+        return (
+            f"counterexample {_counterexample_terminal(result['status'])}: {result['counterexample_id']}\n"
+            f"failure fingerprint: {result['failure_fingerprint']}\n"
+            f"evaluator matches compiler: {str(result.get('evaluator_match', False)).lower()}\n"
+        )
+    if kind == "counterexample-export":
+        return (
+            f"share-safe projection written: {_counterexample_terminal(result['output'])}\n"
+            "runnable: false (content-bearing inputs are omitted)\n"
+        )
+    return _errors.safe_json_dumps(result, indent=2) + "\n"
+
+
+def _emit_counterexample(args, result) -> None:
+    if getattr(args, "format", "text") == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_counterexample_text(result), end="")
+
+
+def _cmd_counterexample_compile(args) -> int:
+    from .counterexample import compile_counterexample
+
+    result = compile_counterexample(
+        args.scenario,
+        args.test,
+        target=args.target,
+        out_dir=args.out,
+        workspace=args.workspace,
+        budget=args.budget,
+        seed=args.seed,
+    )
+    _emit_counterexample(args, result)
+    return int(result["exit_code"])
+
+
+def _cmd_counterexample_verify(args) -> int:
+    from .counterexample import verify_counterexample
+
+    result = verify_counterexample(args.path)
+    _emit_counterexample(args, result)
+    return int(result["exit_code"])
+
+
+def _cmd_counterexample_reproduce(args) -> int:
+    from .counterexample import reproduce_counterexample
+
+    result = reproduce_counterexample(args.path)
+    _emit_counterexample(args, result)
+    return int(result["exit_code"])
+
+
+def _cmd_counterexample_inspect(args) -> int:
+    from .counterexample import inspect_counterexample
+
+    result = inspect_counterexample(args.path)
+    _emit_counterexample(args, result)
+    return 0
+
+
+def _cmd_counterexample_export(args) -> int:
+    from .counterexample import export_counterexample
+
+    result = export_counterexample(args.path, out_dir=args.out, profile=args.profile)
+    _emit_counterexample(args, result)
+    return 0
+
+
+def _cmd_counterexample_predicate(args) -> int:
+    from .counterexample import predicate_counterexample
+
+    return predicate_counterexample(args.path)
 
 
 # --- fleet: the local Guardian control plane over the evidence kernel ------
@@ -3834,6 +3975,9 @@ def build_capability_manifest() -> dict:
         "schemas": {
             "envelope": _schema_id("envelope.v1.json"),
             "error": _schema_id("error.v1.json"),
+            "counterexample": _schema_id("counterexample.v1.json"),
+            "counterexample_oracle": _schema_id("counterexample-oracle.v1.json"),
+            "reduction_certificate": _schema_id("reduction-certificate.v1.json"),
         },
         "subcommands": subcommands,
     }
@@ -3841,8 +3985,9 @@ def build_capability_manifest() -> dict:
 
 def _render_describe_text(manifest: dict) -> str:
     lines = [f"hotato {manifest['version']} -- capability manifest"]
-    lines.append(f"schemas: envelope={manifest['schemas']['envelope']} "
-                 f"error={manifest['schemas']['error']}")
+    lines.append("schemas: " + " ".join(
+        f"{name}={url}" for name, url in manifest["schemas"].items()
+    ))
     lines.append("")
 
     def _walk(cmds, indent=""):
@@ -5142,6 +5287,119 @@ def build_parser() -> argparse.ArgumentParser:
                      help="replace an existing --out directory")
     _add_format_arg(rp2, choices=("text", "json"))
     rp2.set_defaults(func=_cmd_regression_prepare)
+
+    # --- counterexample: one failure -> minimal runnable capsule ------------
+    cx = sub.add_parser(
+        "counterexample",
+        help="compile one deterministic failure into a minimal, portable regression capsule",
+        description=(
+            "Reduce one failing scripted scenario while preserving the exact "
+            "typed deterministic assertion failure. Every accepted deletion is "
+            "re-evaluated through Hotato's existing assertion engine. The default "
+            "path is offline, stdlib-only, and atomic. A completed final deletion "
+            "pass earns '1-minimal under hotato.reducers.v1 with the recorded "
+            "observation-scope freezes'; a spent budget is "
+            "reported separately and never upgraded into a minimality claim."
+        ),
+        epilog=_exit_codes_epilog("counterexample"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cxsub = cx.add_subparsers(
+        dest="counterexample_command", required=True,
+        metavar="compile|verify|reproduce|inspect|export|predicate",
+    )
+
+    cxc = cxsub.add_parser(
+        "compile",
+        help="reduce one failing scenario/test pair and emit a .hotato-repro directory",
+        description=(
+            "Compile one private runnable counterexample. V1 accepts a deterministic "
+            "hotato.scenario plus conversation-test and a unique deterministic "
+            "assertion id. Model-judged targets, external timing bundles, and custom "
+            "policy-pack paths are refused. The output path must not exist."
+        ),
+        epilog=(
+            _exit_codes_epilog("counterexample compile") + "\n\n"
+            "Example:\n"
+            "  hotato counterexample compile --scenario refund.scenario.json "
+            "--test refund.test.json --target refund-posted "
+            "--out repros/refund-posted.hotato-repro"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cxc.add_argument("--scenario", required=True, metavar="FILE",
+                     help="deterministic hotato.scenario JSON/YAML-subset file")
+    cxc.add_argument("--test", required=True, metavar="FILE",
+                     help="conversation-test containing the target deterministic assertion")
+    cxc.add_argument("--target", required=True, metavar="ASSERTION_ID",
+                     help="unique assertion id in assertions.deterministic")
+    cxc.add_argument("--out", required=True, metavar="DIR",
+                     help="new .hotato-repro directory; built then atomically promoted")
+    cxc.add_argument("--workspace", default=None, metavar="DIR",
+                     help="root both input files must resolve inside (default: their common parent)")
+    cxc.add_argument("--budget", type=int, default=512,
+                     help="maximum uncached candidate evaluations (default 512; hard max 100000)")
+    cxc.add_argument("--seed", type=int, default=None,
+                     help="scripted replay seed (default: scenario.seed or 0)")
+    _add_format_arg(cxc, choices=("text", "json"))
+    cxc.set_defaults(func=_cmd_counterexample_compile)
+
+    cxv = cxsub.add_parser(
+        "verify",
+        help="independently verify integrity, exact failure replay, and claimed minimality",
+        epilog=_exit_codes_epilog("counterexample verify"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cxv.add_argument("path", metavar="DIR", help="private runnable .hotato-repro directory")
+    _add_format_arg(cxv, choices=("text", "json"))
+    cxv.set_defaults(func=_cmd_counterexample_verify)
+
+    cxr = cxsub.add_parser(
+        "reproduce",
+        help="run the reduced fixture under the current evaluator without asserting provenance equality",
+        description=(
+            "Check whether the exact typed failure still occurs under the current "
+            "Hotato evaluator. Integrity and the delete-only source-to-fixture chain "
+            "remain enforced. Historical intermediate verdicts are not replayed when "
+            "the evaluator differs; use verify for the full proof audit."
+        ),
+        epilog=_exit_codes_epilog("counterexample reproduce"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cxr.add_argument("path", metavar="DIR", help="private runnable .hotato-repro directory")
+    _add_format_arg(cxr, choices=("text", "json"))
+    cxr.set_defaults(func=_cmd_counterexample_reproduce)
+
+    cxi = cxsub.add_parser(
+        "inspect",
+        help="print an integrity-checked capsule summary without executing it",
+        epilog=_exit_codes_epilog("counterexample inspect"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cxi.add_argument("path", metavar="DIR")
+    _add_format_arg(cxi, choices=("text", "json"))
+    cxi.set_defaults(func=_cmd_counterexample_inspect)
+
+    cxe = cxsub.add_parser(
+        "export",
+        help="derive a non-runnable share-safe projection after private verification",
+        epilog=_exit_codes_epilog("counterexample export"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cxe.add_argument("path", metavar="DIR", help="verified private runnable capsule")
+    cxe.add_argument("--out", required=True, metavar="DIR", help="new share-safe directory")
+    cxe.add_argument("--profile", default="share-safe-v1", choices=("share-safe-v1",))
+    _add_format_arg(cxe, choices=("text", "json"))
+    cxe.set_defaults(func=_cmd_counterexample_export)
+
+    cxp = cxsub.add_parser(
+        "predicate",
+        help="evaluator git-bisect predicate: target present=1, absent=0, untestable=125",
+        epilog=_exit_codes_epilog("counterexample predicate"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cxp.add_argument("path", metavar="DIR")
+    cxp.set_defaults(func=_cmd_counterexample_predicate)
 
     # --- contract: the portable failure contract -----------------------------
     ct = sub.add_parser(
