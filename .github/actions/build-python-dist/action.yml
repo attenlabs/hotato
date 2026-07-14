@@ -29,6 +29,10 @@ runs:
         fi
         mkdir -p "$HOTATO_DIST_DIR"
         source_date_epoch="$(git log -1 --pretty=%ct)"
+        # Share the exact epoch with any later verification step in the
+        # calling workflow. Both release and trusted publishing use this
+        # repository-owned action as the canonical first build.
+        echo "SOURCE_DATE_EPOCH=$source_date_epoch" >> "$GITHUB_ENV"
         SOURCE_DATE_EPOCH="$source_date_epoch" \
           python -m build --no-isolation --outdir "$HOTATO_DIST_DIR"
         python -m twine check --strict "$HOTATO_DIST_DIR"/*
