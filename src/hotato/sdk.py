@@ -222,7 +222,9 @@ class SuiteResult:
 
     :attr:`passed` is the process-level pass (exit code 0), and :attr:`failed`
     is the count of failed scorable events, so ``run_suite`` reads as a boolean
-    pass plus a failure count without re-deriving the exit code.
+    pass plus a failure count without re-deriving the exit code. :attr:`suite`
+    is the suite id on a suite run and ``None`` on a single-recording run,
+    matching the key's presence in the JSON.
     """
 
     tool: str
@@ -237,6 +239,7 @@ class SuiteResult:
     fix_map: Tuple[Mapping[str, Any], ...]
     funnel: Optional[Mapping[str, Any]]
     exit_code: int
+    suite: Optional[str] = None
 
     @property
     def passed(self) -> bool:
@@ -261,6 +264,7 @@ class SuiteResult:
             fix_map=tuple(dict(f) for f in d.get("fix_map", ())),
             funnel=(dict(d["funnel"]) if d.get("funnel") is not None else None),
             exit_code=int(d["exit_code"]),
+            suite=d.get("suite"),
         )
 
 
@@ -372,8 +376,8 @@ class ContractResult:
     """One contract's verify result, mirroring an entry of ``results``.
 
     :attr:`authenticity` is the attestation string exactly as the JSON reports
-    it: one of ``authenticated``, ``unsigned``, ``unattested``, ``unverified``,
-    or ``tampered``. It is passed through with no relabeling.
+    it: one of ``authenticated``, ``unsigned``, ``unattested``, or
+    ``tampered``. It is passed through with no relabeling.
     """
 
     id: str
@@ -643,8 +647,10 @@ class CounterexampleVerifyResult:
     """A ``hotato counterexample verify`` result, one field per JSON key.
 
     The keys after :attr:`counterexample_id` are populated on the ``verified``
-    status and stay ``None`` on a negative status. :attr:`passed` reads
-    :attr:`ok`.
+    status and stay ``None`` on a negative status, with one exception:
+    :attr:`preserved_deletions` is populated on the ``minimality_regressed``
+    status, listing the deletions that kept the failure alive. :attr:`passed`
+    reads :attr:`ok`.
     """
 
     kind: str
