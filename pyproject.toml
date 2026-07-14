@@ -29,7 +29,11 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
+    # Suite-verified platforms only: .github/workflows/tests.yml runs the FULL
+    # suite on Linux and macOS as gating jobs (Windows runs measured-only,
+    # continue-on-error), so the metadata names the verified set.
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
     "Environment :: Console",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",

@@ -23,6 +23,9 @@ runs:
       env:
         HOTATO_DIST_DIR: ${{ inputs.output-directory }}
       run: |
+        # Pin the process umask so artifact bytes do not depend on the
+        # runner's default (0644 vs 0664 external attrs in the archives).
+        umask 022
         if [ -e "$HOTATO_DIST_DIR" ] && [ -n "$(find "$HOTATO_DIST_DIR" -mindepth 1 -print -quit)" ]; then
           echo "::error::output directory '$HOTATO_DIST_DIR' is not empty"
           exit 1

@@ -25,7 +25,8 @@ Every gate to clear before a release ships, top to bottom: green means proceed.
 
 ## Package
 
-- [ ] Build sdist and wheel from a clean tree; install the wheel in a fresh venv and run `hotato run --suite barge-in`. CI does this on every version tag in the `release.yml` `sanity` job.
+- [ ] Build the release artifacts with `python3 scripts/build_release.py` -- the REQUIRED build step: a release build comes from the tagged tree, via this script. It exports `git archive HEAD` into a fresh temporary directory (so only committed files can enter the artifacts -- generated corpus renders, `examples/reference-agent/.out/`, and other working-tree leftovers cannot), forces `umask 022` for mode-stable bytes, builds with `SOURCE_DATE_EPOCH` from the release commit, and writes the sdist, wheel, and their sha256s to `./dist`. `tests/test_release_supply_chain.py` holds the same tag-faithfulness invariant in CI.
+- [ ] Install the built wheel in a fresh venv and run `hotato run --suite barge-in`. CI does this on every version tag in the `release.yml` `sanity` job.
 - [ ] Generate and validate the SBOM(s), then attach them to the GitHub release: `python3 scripts/gen_sbom.py` writes `dist/hotato.sbom.cdx.json` -- a minimal CycloneDX bill of materials for the core package and every declared dependency, generated offline from `pyproject.toml`. For a per-profile breakdown: `python3 scripts/gen_sbom.py --list-profiles` lists `core` plus each declared extra, and `python3 scripts/gen_sbom.py --profile <name>` writes `dist/hotato.sbom.<name>.cdx.json` (core alone, or core plus that one extra). Validate each with `python3 scripts/gen_sbom.py --check <file>`, then upload `dist/*.cdx.json` alongside the sdist/wheel. CI does all of this automatically: `release.yml` uploads them in the `hotato-release-dist` artifact, `publish-pypi-oidc.yml` in the `hotato-sbom` artifact.
 - [ ] Publish to PyPI via **Trusted Publishing (OIDC)**, the default path (see below): dispatch `publish-pypi-oidc.yml` with `version` = the release's `pyproject.toml` version and `confirm` = `PUBLISH`. That workflow builds reproducibly (a second, pinned-backend build has its `sha256sum` compared against the first -- a mismatch fails the run), generates and validates the SBOMs, and uploads the built artifacts; a separate gated `publish` job downloads those exact bytes, attests build provenance over them, and uploads to PyPI with a short-lived OIDC token minted fresh each run.
 - [ ] Verify the build-provenance attestation for the published wheel and sdist: `gh attestation verify dist/hotato-<version>-py3-none-any.whl --repo attenlabs/hotato` (and again for `dist/hotato-<version>.tar.gz`). This checks the GitHub-signed provenance emitted by the `publish` job's `actions/attest-build-provenance` step, confirming those exact bytes were built by this repo's workflow.
@@ -84,9 +85,9 @@ timestamps no rebuild can match:
 
 ```bash
 python3 -m pip install "pip==26.1.2" "build==1.2.2.post1" "setuptools==83.0.0" "wheel==0.46.2" "twine==6.2.0"
-SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)" python3 -m build --no-isolation
-python3 -m twine check --strict dist/*
-python3 -m twine upload dist/*    # token scoped to the `hotato` project
+python3 scripts/build_release.py  # git-archive export of HEAD; umask 022; SOURCE_DATE_EPOCH from the release commit
+python3 -m twine check --strict dist/*.tar.gz dist/*.whl
+python3 -m twine upload dist/*.tar.gz dist/*.whl    # token scoped to the `hotato` project
 ```
 
 This path uses a long-lived credential and skips build-provenance

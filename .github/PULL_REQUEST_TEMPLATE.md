@@ -22,7 +22,7 @@ an accuracy claim gets sent back regardless. Keep the diff small and focused.
 - [ ] **No accuracy percentage, no blended score.** No `accuracy %`, no invented
  benchmark result, no leaderboard, no `overall_score`. Validity is millisecond
  measurement error, per-dimension counts, and a confusion matrix
- ([`docs/BENCHMARK.md`](docs/BENCHMARK.md)).
+ ([`docs/BENCHMARK.md`](../docs/BENCHMARK.md)).
 - [ ] **No fabricated numbers.** Every number is a reproducible measurement from a
  recorded or clearly-labeled-synthetic input, or a documented threshold.
 - [ ] **Energy is not intent.** No speaker-identity, emotion, or intent claim, in
@@ -53,7 +53,7 @@ an accuracy claim gets sent back regardless. Keep the diff small and focused.
 - [ ] Audio is **dual-channel** (caller and agent on separate channels).
 - [ ] `source_type` is set to match the audio (`real-call` / `role-played`).
 - [ ] Consent is on file for **every** audible party (see
- [`docs/CORPUS-GOVERNANCE.md`](docs/CORPUS-GOVERNANCE.md)); the reusable release
+ [`docs/CORPUS-GOVERNANCE.md`](../docs/CORPUS-GOVERNANCE.md)); the reusable release
  paragraph was used.
 - [ ] PII is stripped per the policy; **no PHI**; redaction preserved timing.
 - [ ] The label passes `python3 corpus/validate.py <label.json> <audio.wav>`.
