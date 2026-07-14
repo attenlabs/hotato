@@ -1035,7 +1035,8 @@ def _run_diarized_mono(
 # independently timed sub-events, e.g. ``trace.py`` spans -- not needed here.)
 
 def _attach_transcript_context(
-    env: dict, path: str, model: str, device: str
+    env: dict, path: str, model: str, device: str,
+    *, transcript_cache=None, transcribe_no_cache: bool = False,
 ) -> dict:
     """Transcribe ``path`` and attach the result as a top-level ``transcript``
     block: the whole-recording text, timed segments, and provenance (model,
@@ -1044,10 +1045,21 @@ def _attach_transcript_context(
     diarize/neural seams) -- it never falls back to skipping the transcript
     silently. Purely additive: ``env["events"]`` is never read or written by
     this function, so the timing/verdict fields on every event are the exact
-    same object, untouched."""
-    from .transcribe import transcribe as _transcribe
+    same object, untouched.
 
-    t = _transcribe(path, model=model, device=device)
+    ``transcript_cache`` (default None -- caching off) routes the call
+    through ``hotato.transcribe.transcribe_cached``: a cache hit replays a
+    byte-identical transcript and skips the model; ``transcribe_no_cache``
+    re-transcribes fresh and surfaces any drift against the cached baseline
+    as an additive ``transcript.cache.drift`` field. Advisory provenance
+    only -- never a gate, never changes the timing/verdict path."""
+    from .transcribe import transcribe_cached as _transcribe_cached
+
+    result = _transcribe_cached(
+        path, model=model, device=device,
+        cache=transcript_cache, no_cache=transcribe_no_cache,
+    )
+    t = result.transcript
     env["transcript"] = {
         "text": t.text,
         "segments": [
@@ -1057,6 +1069,11 @@ def _attach_transcript_context(
         "device": t.device,
         "compute_type": t.compute_type,
         "language": t.language,
+        "cache": {
+            "cache_key": result.cache_key,
+            "cached": result.cached,
+            "drift": result.drift,
+        },
     }
     return env
 
@@ -1086,6 +1103,8 @@ def run_single(
     transcribe: bool = False,
     transcribe_model: str = "base.en",
     transcribe_device: str = "auto",
+    transcribe_cache=None,
+    transcribe_no_cache: bool = False,
 ) -> dict:
     """Score ONE recording and return the standard envelope.
 
@@ -1117,6 +1136,13 @@ def run_single(
     byte-identical to the same run with ``transcribe=False``. Requires a
     single audio file: ``caller``+``agent`` (two separate files) is not
     supported and raises a clean usage error naming ``--stereo`` instead.
+
+    ``transcribe_cache`` (default None -- caching off) is an optional
+    ``hotato.transcribe.TranscriptCache``: a cache hit replays a
+    byte-identical transcript and skips the model; ``transcribe_no_cache``
+    re-transcribes fresh and surfaces any drift against the cached baseline
+    as an additive ``transcript.cache.drift`` field. Advisory provenance
+    only, never a gate; the timing/verdict path is unaffected either way.
     """
     if cfg is None:
         cfg = ScoreConfig()
@@ -1139,7 +1165,9 @@ def run_single(
         )
         if transcribe:
             env = _attach_transcript_context(
-                env, mono, transcribe_model, transcribe_device
+                env, mono, transcribe_model, transcribe_device,
+                transcript_cache=transcribe_cache,
+                transcribe_no_cache=transcribe_no_cache,
             )
         return env
 
@@ -1213,7 +1241,11 @@ def run_single(
                 "--stereo FILE (or --mono FILE --diarize). Separate --caller/"
                 "--agent files are not supported by --transcribe."
             )
-        env = _attach_transcript_context(env, stereo, transcribe_model, transcribe_device)
+        env = _attach_transcript_context(
+            env, stereo, transcribe_model, transcribe_device,
+            transcript_cache=transcribe_cache,
+            transcribe_no_cache=transcribe_no_cache,
+        )
     return env
 
 

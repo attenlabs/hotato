@@ -803,6 +803,17 @@ def _print_transcript_panel(block: dict) -> None:
         "-- never affects the verdict above; see --format json for the full "
         "transcript"
     )
+    cache = block.get("cache") or {}
+    if cache:
+        tag = "cached" if cache.get("cached") else "fresh"
+        print(f"    transcript cache: {tag} (cache_key={cache.get('cache_key')})")
+        drift = cache.get("drift")
+        if drift:
+            print(
+                f"    DRIFT: fresh re-transcription differs from the cached "
+                f"baseline (cached_sha256={drift.get('cached_sha256')} "
+                f"fresh_sha256={drift.get('fresh_sha256')})"
+            )
 
 
 def _cmd_run(args) -> int:
@@ -876,6 +887,14 @@ def _cmd_run(args) -> int:
                 caller_vad=VADParams(backend=backend),
                 agent_vad=VADParams(backend=backend),
             )
+        # The transcript cache is only built when --transcribe is actually
+        # requested, so a purely-timing run never touches ~/.hotato -- exactly
+        # like the rubric judge/cache only being built when a rubric lane
+        # exists.
+        transcribe_on = getattr(args, "transcribe", False)
+        transcribe_cache = None
+        if transcribe_on and not getattr(args, "no_transcribe_store", False):
+            transcribe_cache = _build_transcribe_cache(args)
         env = run_single(
             stereo=args.stereo,
             caller=args.caller,
@@ -895,9 +914,11 @@ def _cmd_run(args) -> int:
             caller_speaker=getattr(args, "caller_speaker", None),
             agent_speaker=getattr(args, "agent_speaker", None),
             egress_opt_in=getattr(args, "egress_opt_in", False),
-            transcribe=getattr(args, "transcribe", False),
+            transcribe=transcribe_on,
             transcribe_model=getattr(args, "transcribe_model", "base.en"),
             transcribe_device=getattr(args, "transcribe_device", "auto"),
+            transcribe_cache=transcribe_cache,
+            transcribe_no_cache=bool(getattr(args, "no_transcribe_cache", False)),
         )
     _emit(env, args.format)
     if args.no_fail:
@@ -2501,15 +2522,35 @@ def _cmd_assert_run(args) -> int:
     if args.transcript:
         transcript_path = args.transcript
     elif args.transcribe:
-        from .transcribe import transcribe as _transcribe
+        from .transcribe import transcribe_cached as _transcribe_cached
 
-        t = _transcribe(
-            args.stereo, model=args.transcribe_model, device=args.transcribe_device,
+        transcribe_cache = (
+            None if getattr(args, "no_transcribe_store", False)
+            else _build_transcribe_cache(args)
         )
+        result = _transcribe_cached(
+            args.stereo, model=args.transcribe_model, device=args.transcribe_device,
+            cache=transcribe_cache,
+            no_cache=bool(getattr(args, "no_transcribe_cache", False)),
+        )
+        t = result.transcript
         transcript = [
             {"role": None, "text": seg.text, "start": seg.start, "end": seg.end}
             for seg in t.segments
         ]
+        # assert.v1's envelope has no `transcript` field to attach drift to
+        # (unlike core.run_single's envelope); surface it on stderr instead --
+        # never silently overwritten, never hidden, mirroring the rubric
+        # cache's own drift warning.
+        if result.drift:
+            print(
+                "warning: transcript drift detected (--no-transcribe-cache "
+                "re-transcribed fresh, and it differs from the cached "
+                f"baseline): cached_sha256={result.drift.get('cached_sha256')} "
+                f"fresh_sha256={result.drift.get('fresh_sha256')}\n"
+                f"{result.drift.get('diff_summary')}",
+                file=sys.stderr,
+            )
 
     timing = None
     if args.stereo:
@@ -2633,6 +2674,24 @@ def _build_cache(args):
             file=sys.stderr,
         )
         return None
+
+
+def _build_transcribe_cache(args):
+    """Construct the content-addressed transcript cache from
+    ``--transcribe-cache-dir``, gracefully degrading to no caching (with a
+    stderr warning) only when the DEFAULT ``~/.hotato/transcribe-cache``
+    location is unwritable -- mirrors ``_build_cache`` above (the rubric
+    verdict cache's own graceful-degrade) via
+    ``hotato.transcribe.build_transcript_cache``. An EXPLICIT
+    --transcribe-cache-dir is a persistence request and stays a strict
+    exit-2 usage error on failure."""
+    from . import transcribe as T
+
+    explicit = getattr(args, "transcribe_cache_dir", None)
+    cache, warning = T.build_transcript_cache(explicit)
+    if warning:
+        print(f"warning: {warning}", file=sys.stderr)
+    return cache
 
 
 def _cmd_rubric_run(args) -> int:
@@ -3947,6 +4006,17 @@ def build_parser() -> argparse.ArgumentParser:
                    help="faster-whisper model name or local path (default base.en)")
     r.add_argument("--transcribe-device", default="auto", choices=["auto", "cpu", "cuda"],
                    help="device for --transcribe (default auto: cuda if available, else cpu)")
+    r.add_argument("--transcribe-cache-dir", default=None, metavar="DIR",
+                   help="the content-addressed transcript cache (default: "
+                        "~/.hotato/transcribe-cache); a cache hit replays a "
+                        "byte-identical transcript and skips the model")
+    r.add_argument("--no-transcribe-cache", action="store_true",
+                   help="re-transcribe fresh and DIFF against the cached "
+                        "transcript, surfacing drift instead of replaying")
+    r.add_argument("--no-transcribe-store", action="store_true",
+                   help="do not read or write the transcript cache at all "
+                        "(every --transcribe run transcribes fresh; no drift "
+                        "baseline is kept)")
     r.add_argument("--caller-channel", type=int, default=0)
     r.add_argument("--agent-channel", type=int, default=1)
     r.add_argument("--format", default="text", choices=["json", "text"],
@@ -5567,6 +5637,17 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=["auto", "cpu", "cuda"],
                     help="device for --transcribe (default auto: cuda if "
                          "available, else cpu)")
+    ar.add_argument("--transcribe-cache-dir", default=None, metavar="DIR",
+                    help="the content-addressed transcript cache (default: "
+                         "~/.hotato/transcribe-cache); a cache hit replays a "
+                         "byte-identical transcript and skips the model")
+    ar.add_argument("--no-transcribe-cache", action="store_true",
+                    help="re-transcribe fresh and DIFF against the cached "
+                         "transcript, surfacing drift instead of replaying")
+    ar.add_argument("--no-transcribe-store", action="store_true",
+                    help="do not read or write the transcript cache at all "
+                         "(every --transcribe run transcribes fresh; no "
+                         "drift baseline is kept)")
     ar.add_argument("--trace", default=None, metavar="FILE",
                     help="a hotato.voice_trace.v1 JSONL (from `hotato "
                          "trace ingest`); tool_call assertions read only "

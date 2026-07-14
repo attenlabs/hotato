@@ -28,21 +28,51 @@ model is cached. ``device="auto"`` picks ``cuda`` if CTranslate2 reports a CUDA
 device, else ``cpu``; ``compute_type`` defaults to ``float16`` on GPU and
 ``int8`` on CPU (CTranslate2's documented CPU-friendly quantization), each
 overridable.
+
+Reproducibility, stated precisely (never oversold, mirrors ``hotato.rubric``'s
+posture on its model judge): ``transcribe()`` is NOT claimed bit-for-bit
+deterministic across a machine/library/CTranslate2-build change, and
+faster-whisper can escalate a hard-to-decode segment from its default
+temperature-0 first pass to temperature > 0 on low confidence. What IS
+deterministic is REPLAY: :func:`transcribe_cached` content-addresses every
+call by ``sha256(model:device:compute_type:language:word_timestamps:
+vad_filter\\n sha256(audio bytes))`` (reusing :class:`hotato.fleet.store.
+ArtifactStore`, exactly like :class:`hotato.rubric.VerdictCache`); a cache hit
+replays the byte-identical stored :class:`Transcript` and skips the model
+entirely. ``no_cache=True`` (the CLI's ``--no-transcribe-cache``) always
+re-transcribes fresh and DIFFS it against any cached baseline, surfacing drift
+-- never silently overwriting, never hiding a mismatch. The cache is purely
+advisory provenance around the timing path, never a gate: attaching it never
+changes ``did_yield`` / ``talk_over_sec`` / ``time_to_yield`` or any other
+verdict/measurement field.
 """
 
 from __future__ import annotations
 
+import difflib
+import hashlib
+import json
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from ._engine.vad import BackendUnavailable
+from .errors import open_regular as _open_regular
 from .errors import require_regular_file
+from .manifest import _sha256_str as _sha256_text
+from .manifest import canonical_json as _canonical
 
 __all__ = [
     "TranscriptSegment",
     "Transcript",
     "transcribe",
     "align_transcript_to_events",
+    "TranscriptCache",
+    "CachedTranscribeResult",
+    "transcribe_cached",
+    "transcript_cache_key",
+    "default_transcript_cache_dir",
+    "build_transcript_cache",
 ]
 
 
@@ -272,3 +302,296 @@ def align_transcript_to_events(
         }
         aligned.append(new_event)
     return aligned
+
+
+# =========================================================================
+# Content-addressed transcript cache (mirrors hotato.rubric.VerdictCache)
+# + verify-by-diff. Advisory provenance only -- never a gate, never on the
+# timing/verdict path (see the module docstring's reproducibility note).
+# =========================================================================
+
+_DIFF_SUMMARY_MAX_LINES = 40
+
+
+def _stream_sha256(path) -> str:
+    """Streamed sha256 of the raw audio bytes, in fixed-size chunks -- the
+    same shape ``core.py``'s own audio-provenance hash uses, kept local here
+    so ``hotato.transcribe`` never imports ``hotato.core`` (avoiding a
+    cycle; ``core.py`` already imports this module lazily)."""
+    h = hashlib.sha256()
+    # open-ok: callers guard `path` with require_regular_file before reaching
+    # here (transcribe_cached does so up front).
+    with _open_regular(path) as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def transcript_cache_key(
+    *, model: str, device: str, compute_type: str, language: Optional[str],
+    word_timestamps: bool, vad_filter: bool, audio_sha256: str,
+) -> str:
+    """Content address of one transcription call: every parameter that can
+    change the output (model, the RESOLVED device/compute_type -- not the
+    literal ``"auto"``, since that is not itself determinism-affecting --
+    language, word_timestamps, vad_filter) plus the exact audio bytes.
+    Mirrors ``hotato.rubric``'s ``cache_key = sha256(provider:model +
+    prompt_sha256 + input_sha256)`` formula."""
+    key_text = (
+        f"{model}:{device}:{compute_type}:{language}:{word_timestamps}:"
+        f"{vad_filter}\n{audio_sha256}"
+    )
+    return _sha256_text(key_text)
+
+
+def _segment_to_dict(seg: TranscriptSegment) -> Dict[str, Any]:
+    return {"start": seg.start, "end": seg.end, "text": seg.text, "words": seg.words}
+
+
+def _segment_from_dict(d: Dict[str, Any]) -> TranscriptSegment:
+    return TranscriptSegment(
+        start=d["start"], end=d["end"], text=d.get("text", ""), words=d.get("words"),
+    )
+
+
+def _transcript_to_dict(t: Transcript) -> Dict[str, Any]:
+    return {
+        "text": t.text,
+        "segments": [_segment_to_dict(s) for s in t.segments],
+        "language": t.language,
+        "model": t.model,
+        "device": t.device,
+        "compute_type": t.compute_type,
+    }
+
+
+def _transcript_from_dict(d: Dict[str, Any]) -> Transcript:
+    return Transcript(
+        text=d.get("text", ""),
+        segments=[_segment_from_dict(s) for s in (d.get("segments") or [])],
+        language=d.get("language"),
+        model=d.get("model", "unknown"),
+        device=d.get("device", "unknown"),
+        compute_type=d.get("compute_type", "unknown"),
+    )
+
+
+def _diff_transcripts(cached: Dict[str, Any], fresh: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Diff a freshly re-transcribed result against the cached baseline.
+    Returns None when the two are byte-identical (same content digest), else a
+    drift object naming exactly what changed -- surfaced on the result, never
+    hidden. Mirrors ``hotato.rubric._diff_verdicts``."""
+    c_sha = _sha256_text(_canonical(cached))
+    f_sha = _sha256_text(_canonical(fresh))
+    if c_sha == f_sha:
+        return None
+    cached_text = cached.get("text") or ""
+    fresh_text = fresh.get("text") or ""
+    diff_lines = list(difflib.unified_diff(
+        cached_text.splitlines(), fresh_text.splitlines(),
+        fromfile="cached", tofile="fresh", lineterm="",
+    ))
+    if diff_lines:
+        shown = diff_lines[:_DIFF_SUMMARY_MAX_LINES]
+        if len(diff_lines) > _DIFF_SUMMARY_MAX_LINES:
+            shown.append(
+                f"... ({len(diff_lines) - _DIFF_SUMMARY_MAX_LINES} more diff "
+                "line(s) truncated)"
+            )
+        diff_summary = "\n".join(shown)
+    else:
+        diff_summary = (
+            "transcript text is identical; a non-text field (segment timing, "
+            "language, model, device, or compute_type) differs"
+        )
+    return {
+        "changed": True,
+        "cached_sha256": c_sha,
+        "fresh_sha256": f_sha,
+        "diff_summary": diff_summary,
+        "note": (
+            "the fresh transcript differs from the cached one -- faster-whisper "
+            "is not claimed bit-for-bit deterministic (a low-confidence segment "
+            "can fall back to temperature > 0 on noisy audio, or the model/"
+            "device/library build changed); only cached replay is byte-identical"
+        ),
+    }
+
+
+class TranscriptCache:
+    """A content-addressed transcript cache, mirroring
+    :class:`hotato.rubric.VerdictCache` exactly: the serialized
+    :class:`Transcript` BLOB is stored via
+    :class:`hotato.fleet.store.ArtifactStore` (sha256 of its bytes ->
+    integrity, de-dup, ``verify``); a thin key index maps ``cache_key`` (the
+    content address of model+device+compute_type+language+word_timestamps+
+    vad_filter+audio bytes, see :func:`transcript_cache_key`) to that blob
+    digest. A hit returns the byte-identical stored transcript and SKIPS the
+    model."""
+
+    def __init__(self, root: str):
+        from .fleet.store import ArtifactStore
+        self.root = os.path.abspath(root)
+        self.store = ArtifactStore(os.path.join(self.root, "store"))
+        self.index_dir = os.path.join(self.root, "keys")
+        os.makedirs(self.index_dir, exist_ok=True)
+
+    def _key_path(self, cache_key: str) -> str:
+        sub = os.path.join(self.index_dir, cache_key[:2])
+        os.makedirs(sub, exist_ok=True)
+        return os.path.join(sub, cache_key)
+
+    def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        path = self._key_path(cache_key)
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as fh:  # open-ok: our own index file
+                digest = fh.read().strip()
+        except OSError:
+            return None
+        # A corrupted index file could hold a non-canonical digest; the store
+        # rejects those with ValueError, so treat it as a cache miss (return
+        # None) rather than crashing the read.
+        try:
+            if not digest or not self.store.has(digest):
+                return None
+            if not self.store.verify(digest):
+                return None
+            return self.store.get_json(digest)
+        except ValueError:
+            return None
+
+    def put(self, cache_key: str, transcript_dict: Dict[str, Any]) -> str:
+        stored = json.loads(_canonical(transcript_dict))
+        digest = self.store.put_json(stored, kind="transcript")
+        tmp = self._key_path(cache_key) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:  # open-ok: our own index file
+            fh.write(digest)
+        os.replace(tmp, self._key_path(cache_key))
+        return digest
+
+
+def default_transcript_cache_dir() -> str:
+    return os.path.join(os.path.expanduser("~"), ".hotato", "transcribe-cache")
+
+
+def build_transcript_cache(cache_dir: Optional[str] = None):
+    """Construct a :class:`TranscriptCache`, gracefully degrading to
+    ``(None, warning)`` when the DEFAULT cache location is unwritable --
+    mirrors ``hotato.cli._build_cache`` (the rubric verdict cache's own
+    graceful-degrade). An EXPLICITLY requested ``cache_dir`` is a persistence
+    REQUEST and is never degraded: an ``OSError`` there propagates so a
+    replay/drift baseline is never silently discarded.
+
+    Returns ``(cache_or_None, warning_or_None)``; the caller decides how to
+    surface the warning (the CLI prints it to stderr, MCP attaches it as
+    advisory provenance on the response)."""
+    explicit = cache_dir is not None
+    resolved = cache_dir or default_transcript_cache_dir()
+    try:
+        return TranscriptCache(resolved), None
+    except OSError as exc:
+        if explicit:
+            raise
+        return None, (
+            "the default transcript cache is unavailable "
+            f"({resolved}: {exc}); continuing without transcript caching."
+        )
+
+
+@dataclass
+class CachedTranscribeResult:
+    """The outcome of one :func:`transcribe_cached` call: the
+    :class:`Transcript` itself, plus advisory cache provenance (never a gate).
+    ``cached`` is True only on a byte-identical replay that skipped the model
+    entirely. ``drift`` is populated only when ``no_cache=True`` forced a
+    fresh re-transcription AND it differs from the cached baseline; ``None``
+    on a normal cache hit, a normal fresh miss (no baseline yet), or a
+    ``no_cache`` re-query that reproduced the same transcript."""
+
+    transcript: Transcript
+    cache_key: str
+    cached: bool
+    drift: Optional[Dict[str, Any]] = None
+
+
+def transcribe_cached(
+    path,
+    model: str = "base.en",
+    device: str = "auto",
+    *,
+    compute_type: Optional[str] = None,
+    word_timestamps: bool = False,
+    vad_filter: bool = False,
+    language: Optional[str] = None,
+    cache: Optional[TranscriptCache] = None,
+    no_cache: bool = False,
+) -> CachedTranscribeResult:
+    """The cache-aware entry point every call site (``core.run_single``,
+    ``hotato assert run --transcribe``, the MCP ``voice_eval_run`` tool)
+    uses instead of calling :func:`transcribe` directly.
+
+    * ``cache=None`` (the default) -- caching is off entirely; behaves exactly
+      like calling :func:`transcribe` directly (``cached=False``,
+      ``drift=None``), just with a cache_key computed for free.
+    * A cache HIT (and not ``no_cache``) -- returns the byte-identical stored
+      Transcript, SKIPPING the model call entirely.
+    * ``no_cache=True`` -- ALWAYS re-transcribes fresh. If a cached baseline
+      exists, the fresh Transcript is DIFFED against it and the drift is
+      surfaced on the result (never silently overwritten, never hidden); the
+      stored baseline is left untouched so drift stays visible on the next
+      default (cache-hitting) run -- mirrors ``hotato.rubric``'s
+      ``--no-cache``.
+    * A fresh MISS (no cached baseline) -- transcribes, then persists the
+      result (unless ``cache`` is None).
+
+    This never changes the timing/verdict path: it is purely an optional
+    provenance/performance layer around the same :func:`transcribe` this
+    module has always shipped, and callers that never pass a ``cache`` see
+    identical behaviour to before this cache existed.
+    """
+    require_regular_file(path)
+    resolved_device = _resolve_device(device)
+    resolved_compute_type = compute_type or (
+        "float16" if resolved_device == "cuda" else "int8"
+    )
+    audio_sha256 = _stream_sha256(path)
+    cache_key = transcript_cache_key(
+        model=model, device=resolved_device, compute_type=resolved_compute_type,
+        language=language, word_timestamps=word_timestamps, vad_filter=vad_filter,
+        audio_sha256=audio_sha256,
+    )
+
+    cached_dict = cache.get(cache_key) if cache is not None else None
+
+    # Cache hit (and not no_cache): replay the byte-identical stored transcript
+    # and skip the model entirely.
+    if cached_dict is not None and not no_cache:
+        return CachedTranscribeResult(
+            transcript=_transcript_from_dict(cached_dict),
+            cache_key=cache_key, cached=True, drift=None,
+        )
+
+    fresh = transcribe(
+        path, model=model, device=resolved_device,
+        compute_type=resolved_compute_type, word_timestamps=word_timestamps,
+        vad_filter=vad_filter, language=language,
+    )
+    fresh_dict = _transcript_to_dict(fresh)
+
+    # --no-transcribe-cache drift: diff the fresh transcript against the
+    # cached one, never hide it.
+    drift = None
+    if cached_dict is not None and no_cache:
+        drift = _diff_transcripts(cached_dict, fresh_dict)
+
+    # Persist the fresh transcript (unless this was an explicit no-cache
+    # re-query against an existing entry -- leave the cached baseline intact
+    # so drift stays visible on the next default run).
+    if cache is not None and not (no_cache and cached_dict is not None):
+        cache.put(cache_key, fresh_dict)
+
+    return CachedTranscribeResult(
+        transcript=fresh, cache_key=cache_key, cached=False, drift=drift,
+    )
