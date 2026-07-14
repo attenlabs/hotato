@@ -4839,8 +4839,7 @@ member order, fixed timestamps, and every other value written into each member's
 ZipInfo, including its `create_system` byte): a contract's pack is a pure
 function of its bundle contents, deterministic for a fixed hotato version.
 Byte-identical re-runs are verified in CI on Linux x86_64, Python 3.10, 3.11,
-and 3.12; the same suite now also runs on macOS and Windows in CI, not yet green
--- see [VALIDATION.md](VALIDATION.md) Job 1.
+and 3.12 -- see [VALIDATION.md](VALIDATION.md) Job 1.
 
 ### Security: unpack treats an archive as hostile input
 
@@ -5040,8 +5039,7 @@ python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte
 `--check` regenerating byte-identical output is the reproducibility guarantee:
 the audio on disk is exactly what the labelled timings say, deterministic for a
 fixed hotato version (byte-identical re-runs verified in CI on Linux x86_64,
-Python 3.10, 3.11, 3.12; also now checked, not yet green, on macOS and Windows
--- see `.github/workflows/tests.yml`, jobs `portability` and `determinism`). CI
+Python 3.10, 3.11, 3.12 -- see `.github/workflows/tests.yml`, job `determinism`). CI
 can run it as a drift gate.
 
 ## Additive scenario classes
@@ -6329,8 +6327,7 @@ bounds at least one hop away from a value you need to hold.
 ```bash
 # render the synthetic fixtures deterministically (sha256-seeded; byte-identical
 # for a fixed hotato version -- verified in CI on Linux x86_64, Python 3.10,
-# 3.11, and 3.12; also now checked, not yet green, on macOS and Windows -- see
-# .github/workflows/tests.yml), then run the harness over them
+# 3.11, and 3.12 -- see .github/workflows/tests.yml), then run the harness over them
 python3 examples/render_examples.py
 PYTHONPATH=src python3 -m hotato.benchmark
 ```
@@ -6587,8 +6584,7 @@ if the frozen evidence regresses, and recaptures to check the live agent.
   onset, label, and scoring config, it produces the same timing numbers every
   run, so a changed result means at least one pinned input, policy, or scorer
   component changed -- most commonly the audio itself. Byte-identical re-runs
-  are verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12; the same
-  check now also runs on macOS and Windows, not yet green -- see
+  are verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12 -- see
   [VALIDATION.md](VALIDATION.md) Job 1.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the same
@@ -9086,8 +9082,7 @@ x86_64, Python 3.10, 3.11, and 3.12 -- `.github/workflows/tests.yml`, job
 `pytest`. The same double-run check now also runs in CI on macOS and Windows,
 with the digest additionally compared ACROSS those OSes -- jobs `portability`
 and `determinism` in the same file. Cross-OS agreement is measured and
-reported there, not asserted: it has not yet run green, so it is not part of
-this claim.)
+reported there, not asserted -- it is not part of this claim.)
 
 **What is reported.** Per scored event: `did_yield` (true/false),
 `seconds_to_yield`, and `talk_over_sec`, plus the exact thresholds used

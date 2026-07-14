@@ -77,8 +77,7 @@ if the frozen evidence regresses, and recaptures to check the live agent.
   onset, label, and scoring config, it produces the same timing numbers every
   run, so a changed result means at least one pinned input, policy, or scorer
   component changed -- most commonly the audio itself. Byte-identical re-runs
-  are verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12; the same
-  check now also runs on macOS and Windows, not yet green -- see
+  are verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12 -- see
   [VALIDATION.md](VALIDATION.md) Job 1.
 - **Portable.** A confirmed failure becomes a labelled fixture (audio, human
   label, explicit policy) that travels with the repository and verifies the same
