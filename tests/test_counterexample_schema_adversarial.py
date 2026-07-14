@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import shutil
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -238,6 +239,12 @@ def test_runnable_artifact_path_escape_is_refused(templates, tmp_path, relative)
     assert raised.value.code == "unsafe_member"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="planting the symlink this refusal is exercised against needs the "
+           "SeCreateSymbolicLink privilege on Windows (absent by default); the "
+           "symlink-rejection logic itself is POSIX-exercised here",
+)
 def test_symlinked_artifact_is_refused_before_use(templates, tmp_path):
     root = _clone(templates["private"], tmp_path)
     artifact = root / "input" / "scenario.json"
@@ -249,6 +256,12 @@ def test_symlinked_artifact_is_refused_before_use(templates, tmp_path):
     assert raised.value.code == "symlink_refused"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="creating the directory symlink this refusal is exercised against "
+           "needs the SeCreateSymbolicLink privilege on Windows (absent by "
+           "default); the symlink-rejection logic itself is POSIX-exercised here",
+)
 def test_symlinked_capsule_root_is_refused(templates, tmp_path):
     root = _clone(templates["private"], tmp_path, "source")
     alias = tmp_path / "alias"
@@ -1146,6 +1159,12 @@ def test_verify_caps_empty_directory_depth(templates, tmp_path, monkeypatch):
     assert raised.value.code == "capsule_too_deep"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="creating the directory symlink this refusal is exercised against "
+           "needs the SeCreateSymbolicLink privilege on Windows (absent by "
+           "default); the symlink-rejection logic itself is POSIX-exercised here",
+)
 def test_inspect_rejects_symlinked_capsule_root(templates, tmp_path):
     root = _clone(templates["share"], tmp_path, "source")
     alias = tmp_path / "alias"
@@ -1155,6 +1174,12 @@ def test_inspect_rejects_symlinked_capsule_root(templates, tmp_path):
         inspect_counterexample(str(alias))
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the mid-read TOCTOU substitution swaps in a directory symlink, which "
+           "needs the SeCreateSymbolicLink privilege on Windows (absent by "
+           "default); the substitution-rejection logic itself is POSIX-exercised here",
+)
 def test_bundle_member_refuses_ancestor_symlink_substitution(templates, tmp_path, monkeypatch):
     import hotato.counterexample.bundle as bundle
 

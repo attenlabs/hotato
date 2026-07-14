@@ -208,7 +208,12 @@ def _iter_wavs(folder: str) -> List[Tuple[str, str]]:
         for name in files:
             if name.lower().endswith(".wav"):
                 ap = os.path.join(root, name)
-                rel = os.path.relpath(ap, folder)
+                # Normalise to forward slashes so the relpath used as the sort
+                # key AND emitted in every output field ("source"/"file") is
+                # byte-identical across machines, as this function's docstring
+                # promises -- os.sep is already "/" on POSIX (a no-op there) and
+                # "\\" on Windows (which would otherwise diverge the output).
+                rel = os.path.relpath(ap, folder).replace(os.sep, "/")
                 found.append((rel, ap))
     found.sort(key=lambda pair: pair[0])
     return found

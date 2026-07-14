@@ -150,6 +150,7 @@ def test_explicit_unwritable_cache_request_remains_strict(
     a persistence request and must still fail instead of silently discarding
     the replay/drift baseline."""
     monkeypatch.setenv("HOME", str(tmp_path / "otherwise-writable-home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "otherwise-writable-home"))
     blocked_cache_parent = tmp_path / "cache-parent-is-a-file"
     blocked_cache_parent.write_text("not a directory")
     out = tmp_path / "conv-artifact"

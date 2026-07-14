@@ -288,6 +288,12 @@ def test_gate_refuses_bad_inputs(tmp_path, inputs):
     assert "ERROR" in step_summary
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="creating the escaping symlink this refusal is exercised against "
+           "needs the SeCreateSymbolicLink privilege on Windows (absent by "
+           "default); the symlink-escape refusal itself is POSIX-exercised here",
+)
 def test_gate_symlink_escape_refused(tmp_path):
     ws = _workspace(tmp_path)
     outside = tmp_path / "outside.suite.json"

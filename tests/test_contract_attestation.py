@@ -35,6 +35,7 @@ def _isolate_key(monkeypatch, tmp_path):
     load_attest_key() returns None and creation produces an UNSIGNED marker."""
     monkeypatch.delenv(_attest.ATTEST_KEY_ENV, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
 
 def _make(tmp_path, cid="ct-attest-001", expect="yield", onset=2.40, **kw):
@@ -207,6 +208,7 @@ def test_signed_then_body_edited_is_tampered(tmp_path, monkeypatch):
 
 def test_bundle_created_with_a_key_is_authenticated_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))                 # no competing key file
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv(_attest.ATTEST_KEY_ENV, "end-to-end-secret")
     res = _make(tmp_path)
     c = res["contract"]
@@ -246,6 +248,7 @@ def test_load_attest_key_from_env_and_file(tmp_path, monkeypatch):
 
     monkeypatch.delenv(_attest.ATTEST_KEY_ENV, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     assert _attest.load_attest_key() is None          # neither source present
 
     keydir = tmp_path / ".hotato"

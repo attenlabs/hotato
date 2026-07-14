@@ -65,6 +65,7 @@ def test_clone_run_reaches_attested_tier_with_key(tmp_path, monkeypatch):
     # trust a real one for every fixture so this trial genuinely earns ATTESTED,
     # isolated from the real machine's own key store.
     monkeypatch.setenv("HOME", str(tmp_path / "sign-home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "sign-home"))
     from hotato import labelrecord as _labelrecord
     from hotato import manifest as _manifest_mod
     from hotato import sign as _sign

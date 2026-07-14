@@ -84,7 +84,12 @@ def wheel_hash() -> str:
                     if not f.endswith(".py"):
                         continue
                     fp = os.path.join(root, f)
-                    rel = os.path.relpath(fp, pkg_dir)
+                    # Forward-slash the manifest key so the scorer-identity hash
+                    # depends only on source CONTENT, not on the host path
+                    # separator: os.sep is "/" on POSIX (no-op) but "\\" on
+                    # Windows, which would otherwise give the same _engine source
+                    # a different wheel_hash per OS.
+                    rel = os.path.relpath(fp, pkg_dir).replace(os.sep, "/")
                     with _open_regular(fp) as fh:
                         parts.append((rel, hashlib.sha256(fh.read()).hexdigest()))
         if not parts:

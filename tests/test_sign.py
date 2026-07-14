@@ -129,6 +129,7 @@ def test_missing_extra_raises_clean_backend_unavailable_on_verify(monkeypatch):
 @CRYPTO
 def test_saved_private_key_file_is_0600(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     private_bytes, _public_bytes, key_id = S.keygen()
     path = S.save_signing_key(key_id, private_bytes)
 
@@ -140,6 +141,7 @@ def test_saved_private_key_file_is_0600(tmp_path, monkeypatch):
 @CRYPTO
 def test_save_and_load_signing_key_roundtrip_explicit_key_id(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     private_bytes, _public_bytes, key_id = S.keygen()
     S.save_signing_key(key_id, private_bytes)
 
@@ -150,6 +152,7 @@ def test_save_and_load_signing_key_roundtrip_explicit_key_id(tmp_path, monkeypat
 @CRYPTO
 def test_load_signing_key_resolves_the_sole_saved_key_with_no_explicit_id(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.delenv(S.SIGN_KEY_ID_ENV, raising=False)
     private_bytes, _public_bytes, key_id = S.keygen()
     S.save_signing_key(key_id, private_bytes)
@@ -160,6 +163,7 @@ def test_load_signing_key_resolves_the_sole_saved_key_with_no_explicit_id(tmp_pa
 @CRYPTO
 def test_load_signing_key_is_ambiguous_with_multiple_saved_keys_and_no_explicit_id(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.delenv(S.SIGN_KEY_ID_ENV, raising=False)
     priv_a, _pub_a, id_a = S.keygen()
     priv_b, _pub_b, id_b = S.keygen()
@@ -173,6 +177,7 @@ def test_load_signing_key_is_ambiguous_with_multiple_saved_keys_and_no_explicit_
 
 def test_load_signing_key_missing_is_a_clean_none(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     assert S.load_signing_key("no-such-key-id") is None
     assert S.load_signing_key() is None
 
@@ -180,6 +185,7 @@ def test_load_signing_key_missing_is_a_clean_none(tmp_path, monkeypatch):
 @CRYPTO
 def test_save_and_load_trust_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _private_bytes, public_bytes, key_id = S.keygen()
     S.save_trust(key_id, public_bytes)
 
@@ -188,6 +194,7 @@ def test_save_and_load_trust_roundtrip(tmp_path, monkeypatch):
 
 def test_load_trust_unknown_key_id_is_a_clean_none_refused(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     assert S.load_trust("never-registered") is None
 
 

@@ -451,8 +451,10 @@ def _run_stereo_flow(stereo, *, out_dir, fmt, label, onset_sec,
             # create_contract's own channel-mapping gate never re-refuses a
             # verdict this flow already got a human confirmation for.
             confirm_channels=confirm_channels)
+        # Forward-slash the stored contract "dir" so the emitted artifact is
+        # portable: os.sep is "/" on POSIX (no-op) but "\\" on Windows.
         contract_info = {"id": "own-call-001", "dir": os.path.relpath(
-            res.get("dir", cdir), out_dir)}
+            res.get("dir", cdir), out_dir).replace(os.sep, "/")}
         # evidence tier for ONE measured recording (never paired here)
         vector = {"input_health": input_health,
                   "channel_mapping": "suspect" if possible_swap else "confirmed",

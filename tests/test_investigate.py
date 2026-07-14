@@ -347,6 +347,7 @@ def test_investigate_label_without_signing_key_floors_asserted_never_crashes(
 ):
     monkeypatch.delenv("HOTATO_ATTEST_KEY", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setenv("HOTATO_REVIEWER", "qa-dana")
     state = str(tmp_path / "state.json")
     result, _ = _investigate.run_investigate(call_wav, state_path=state)
@@ -372,6 +373,7 @@ def test_investigate_label_explicit_reviewer_overrides_env_default(
 ):
     monkeypatch.delenv("HOTATO_ATTEST_KEY", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setenv("HOTATO_REVIEWER", "env-default-reviewer")
     state = str(tmp_path / "state.json")
     result, _ = _investigate.run_investigate(call_wav, state_path=state)
@@ -389,6 +391,7 @@ def test_investigate_label_terminal_summary_classifies_capture_origin(
 ):
     monkeypatch.delenv("HOTATO_ATTEST_KEY", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     state = str(tmp_path / "state.json")
     result, _ = _investigate.run_investigate(call_wav, state_path=state)
     ref = result["next"][0]["ref"]

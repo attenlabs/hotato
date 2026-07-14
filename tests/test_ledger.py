@@ -237,6 +237,7 @@ def test_replay_error_is_a_value_error_subclass():
 
 def test_head_unsigned_when_no_signer_configured(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.delenv("HOTATO_ATTEST_KEY", raising=False)
     log_path, head_path = _paths(tmp_path)
     commit = L.commit_challenge(trial_id="t", manifest_hash="m", ledger_path=log_path, head_path=head_path)
@@ -249,6 +250,7 @@ def test_head_unsigned_when_no_signer_configured(tmp_path, monkeypatch):
 
 def test_head_hmac_signed_when_shared_key_configured(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setenv("HOTATO_ATTEST_KEY", "sharedsecret")
     log_path, head_path = _paths(tmp_path)
     commit = L.commit_challenge(trial_id="t", manifest_hash="m", ledger_path=log_path, head_path=head_path)
@@ -262,6 +264,7 @@ def test_head_hmac_signed_when_shared_key_configured(tmp_path, monkeypatch):
 def test_head_ed25519_signed_when_local_key_configured(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.delenv("HOTATO_SIGN_KEY_ID", raising=False)
     priv, pub, key_id = S.keygen()
     S.save_signing_key(key_id, priv)

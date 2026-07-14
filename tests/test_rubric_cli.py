@@ -21,6 +21,7 @@ def _run(argv):
 def _home(monkeypatch, tmp_path):
     # keep the default cache under a per-test tmp dir, never ~/.hotato
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
 
 def _write(tmp_path, name, obj):

@@ -344,6 +344,12 @@ def test_refuse_path_traversal(tmp_path):
         match="unsafe|traver")
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="creating the escaping symlink this refusal is exercised against "
+           "needs the SeCreateSymbolicLink privilege on Windows (absent by "
+           "default); the symlink-escape refusal itself is POSIX-exercised here",
+)
 def test_refuse_symlink_escape(tmp_path):
     # an evidence file that exists but is a symlink pointing outside workspace.
     ws = tmp_path / "ws"
