@@ -14,11 +14,11 @@ model, no ASR, no Node tool, and calls no external judge. No secret is read
 or needed.
 
 The Action is available as a composite Action from release v1.4.0 onward. Adopt
-the current release (v1.5.2) and pin the revision you adopt by its full commit
+the current release (v1.5.3) and pin the revision you adopt by its full commit
 SHA; resolve a tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.5.2
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.5.3
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.5.2
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.5.3
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -74,7 +74,7 @@ hotato's own `--gate-judge` so the model-judged rubric lane gates), and
 - `action` (default): install the pinned Action revision itself, with
   `--no-deps` and no package-index egress. The code that runs is exactly the
   revision your workflow pinned.
-- an exact version such as `1.5.2`: `pip install --no-deps hotato==1.5.2`.
+- an exact version such as `1.5.3`: `pip install --no-deps hotato==1.5.3`.
 - `preinstalled`: skip installation (hotato is already on the runner).
 
 Ranges and `latest` are refused. Suite policy lives in the committed suite
