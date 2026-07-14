@@ -143,19 +143,37 @@ hotato trust --stereo call.wav --format json
     "duration_sec": 32.0,
     "channels": 2,
     "clipping": {
-      "caller": {"peak": 0.7906, "peak_dbfs": -2.1, "clipped_fraction": 0.0, "clipped": false},
-      "agent": {"peak": 0.9016, "peak_dbfs": -0.9, "clipped_fraction": 0.0, "clipped": false}
+      "caller": {
+        "peak": 0.7906, "peak_dbfs": -2.1,
+        "clipped_fraction": 0.0, "clipped": false
+      },
+      "agent": {
+        "peak": 0.9016, "peak_dbfs": -0.9,
+        "clipped_fraction": 0.0, "clipped": false
+      }
     },
     "leading_silence_sec": 0.45
   },
   "channels": {
-    "caller": {"channel": 0, "active_sec": 3.32, "first_speech_sec": 3.27, "has_speech": true, "enough_activity": true},
-    "agent": {"channel": 1, "active_sec": 23.3, "first_speech_sec": 0.45, "has_speech": true, "enough_activity": true},
+    "caller": {
+      "channel": 0, "active_sec": 3.32, "first_speech_sec": 3.27,
+      "has_speech": true, "enough_activity": true
+    },
+    "agent": {
+      "channel": 1, "active_sec": 23.3, "first_speech_sec": 0.45,
+      "has_speech": true, "enough_activity": true
+    },
     "possible_swap": false,
     "swap_reason": null
   },
-  "crosstalk_risk": {"coherence": 0.057, "lag_sec": 0.39, "suspected": false, "leakage_db": null, "leakage_direction": null},
-  "scorability": {"separated_tracks": true, "enough_caller_activity": true, "enough_agent_activity": true},
+  "crosstalk_risk": {
+    "coherence": 0.057, "lag_sec": 0.39, "suspected": false,
+    "leakage_db": null, "leakage_direction": null
+  },
+  "scorability": {
+    "separated_tracks": true, "enough_caller_activity": true,
+    "enough_agent_activity": true
+  },
   "warnings": [],
   "scorable": true,
   "recommendation": "eligible for scan",

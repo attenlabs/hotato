@@ -30,13 +30,29 @@ reassembled by `hotato.trace.load_voice_trace_jsonl`:
 {
   "schema": "hotato.voice_trace.v1",
   "call_id": null,
-  "deployment": {"stack": "vapi", "agent_id": null, "git_sha": "deadbeef", "config_hash": "sha256:..."},
+  "deployment": {
+    "stack": "vapi",
+    "agent_id": null,
+    "git_sha": "deadbeef",
+    "config_hash": "sha256:..."
+  },
   "spans": [
     {"type": "agent_audio_active", "start_sec": 0.0, "end_sec": 2.9},
     {"type": "tts_cancel_requested", "time_sec": 2.6},
     {"type": "tts_audio_stopped", "time_sec": 2.9},
-    {"type": "asr_partial", "start_sec": 2.4, "end_sec": 2.95, "text_redacted": true},
-    {"type": "tool_call", "start_sec": 1.1, "end_sec": 1.42, "name": "lookup_order", "latency_ms": 320}
+    {
+      "type": "asr_partial",
+      "start_sec": 2.4,
+      "end_sec": 2.95,
+      "text_redacted": true
+    },
+    {
+      "type": "tool_call",
+      "start_sec": 1.1,
+      "end_sec": 1.42,
+      "name": "lookup_order",
+      "latency_ms": 320
+    }
   ],
   "source": {"format": "otel-jsonl-bridge", "input_span_count": 6}
 }

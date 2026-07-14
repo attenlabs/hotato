@@ -112,11 +112,17 @@ reliability distinct from production reliability.
 
 ## Exit codes
 
-| code | meaning |
-| --- | --- |
-| `0` | every test in the suite passed under the suite's `inconclusive_policy` (and no run was `SIMULATOR_INVALID`) |
-| `1` | at least one test FAILed (a `success.required` condition failed, a deterministic assertion FAILed, or -- under `inconclusive_policy fail` -- an INCONCLUSIVE gated), or a run was `SIMULATOR_INVALID` (a broken fixture, kept separate from any agent PASS/FAIL) |
-| `2` | under `inconclusive_policy refuse` a scored INCONCLUSIVE withheld the verdict (takes precedence over a FAIL); OR a usage error / unusable input: a malformed suite / conversation-test / scenario file, or an unresolvable test/scenario ref |
+- **`0`** -- every test in the suite passed under the suite's
+  `inconclusive_policy` (and no run was `SIMULATOR_INVALID`).
+- **`1`** -- at least one test FAILed (a `success.required` condition
+  failed, a deterministic assertion FAILed, or -- under
+  `inconclusive_policy fail` -- an INCONCLUSIVE gated), or a run was
+  `SIMULATOR_INVALID` (a broken fixture, kept separate from any agent
+  PASS/FAIL).
+- **`2`** -- under `inconclusive_policy refuse` a scored INCONCLUSIVE
+  withheld the verdict (takes precedence over a FAIL); OR a usage error /
+  unusable input: a malformed suite / conversation-test / scenario file, or
+  an unresolvable test/scenario ref.
 
 ## See also
 
