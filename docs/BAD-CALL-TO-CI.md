@@ -1,28 +1,24 @@
 # From a bad call to a CI gate
 
-Turn one bad call moment into a permanent, offline regression test in five
-steps. Everything, audio included, runs locally on your machine.
+Turn one bad call into a permanent, offline regression test. Five steps,
+audio included, all local.
 
 ## The label comes from you
 
-You label the expected behavior for the event: yield means the agent should
-stop for the caller, hold means the agent should keep speaking through a
-backchannel, noise, or acknowledgement. Hotato measures whether the timing
-matched that label.
+Yield means the agent should stop for the caller. Hold means it should keep
+talking through a backchannel, noise, or acknowledgement. Hotato measures
+whether the timing matched your label.
 
-That is the whole contract. "mhm" and "stop" can carry identical speech
-energy, indistinguishable by timing alone, so Hotato measures the one thing
-timing can settle, reproducibly: whether the agent did what your label says
-it should have done, and how many seconds it took.
+`"mhm"` and `"stop"` can carry identical speech energy -- no timing
+measurement tells them apart. So Hotato measures the one thing timing can
+settle: did the agent do what your label says, and how fast.
 
-Hotato's main scorer requires separated caller and agent tracks -- either one
-two-channel WAV or two aligned mono WAVs -- the level of separation needed to
-attribute talk-over reliably.
+The main scorer needs separated tracks: one two-channel WAV, or two aligned
+mono WAVs, enough to attribute talk-over reliably.
 
 ## Step 1: turn the moment into a fixture
 
-You have a recording where the agent talked over a caller at 42.18 seconds.
-Label it:
+Say the agent talked over a caller at 42.18 seconds. Label it:
 
 ```bash
 hotato fixture create --stereo bad-call.wav \
@@ -32,22 +28,21 @@ hotato fixture create --stereo bad-call.wav \
     --out tests/hotato
 ```
 
-This writes `tests/hotato/scenarios/refund-interruption-001.json` (the label,
-with provenance) and `tests/hotato/audio/refund-interruption-001.example.wav`
-(a two-channel clip around the event, onset re-based to the clip). The
-fixture is scored immediately on creation; an input that cannot be judged is
-refused with the reason and exit code 2.
+Writes the labeled scenario with provenance
+(`tests/hotato/scenarios/refund-interruption-001.json`) and a two-channel
+audio clip (`tests/hotato/audio/refund-interruption-001.example.wav`),
+scored on creation. An unjudgeable input is refused with the reason, exit
+code 2.
 
-Don't know the onset? List the candidate moments first:
+Don't know the onset? List the candidates first:
 
 ```bash
 hotato scan --stereo bad-call.wav
 ```
 
-`scan` reports timing facts only (overlap onsets, agent starts during caller
-speech, long response gaps, an agent going quiet with no caller energy nearby,
-a caller run that correlates with the agent's own audio, i.e. suspected TTS
-echo). You pick the moment and supply the label.
+`scan` reports timing facts only -- overlap, an agent starting over caller
+speech, long gaps, dead air, or suspected TTS echo. You pick the moment and
+supply the label.
 
 ## Step 2: run it
 
@@ -55,12 +50,12 @@ echo). You pick the moment and supply the label.
 hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
 ```
 
-The bad take fails, by design: that is the regression you are pinning. Exit
+The bad take fails, by design: that's the regression you're pinning. Exit
 codes are the contract: 0 all pass, 1 a regression, 2 unusable input.
 
 ## Step 3: fix your agent, then compare
 
-Change the setting, re-capture the same scenario, and let the numbers speak:
+Change the setting, re-capture the same scenario, let the numbers speak:
 
 ```bash
 hotato compare --before bad-call.wav --after new-take.wav \
@@ -77,10 +72,9 @@ hotato compare: bad-call.wav -> new-take.wav
 result: fixed
 ```
 
-If the moment shifted between takes, pass `--before-onset` and
-`--after-onset` separately. `--out report.html` writes the shareable HTML
-report with the before take as the base. A side that cannot be judged renders
-NOT SCORABLE and exits 2.
+Moment shifted between takes? Pass `--before-onset` and `--after-onset`
+separately. `--out report.html` writes a shareable HTML report. An
+unjudgeable side renders NOT SCORABLE and exits 2.
 
 ## Step 4: gate CI on it
 
@@ -99,12 +93,11 @@ jobs:
       - run: hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio --format json
 ```
 
-`hotato run` exits 1 on any regression, so the job fails when the timing
-regresses. Already running pytest? `pytest --hotato-suite
---hotato-suite-scenarios tests/hotato/scenarios --hotato-suite-audio
-tests/hotato/audio` adds the same gate to the run you have (see
-[PYTEST.md](PYTEST.md)). The richer PR check with a sticky results comment is
-in [CI.md](CI.md).
+`hotato run` exits 1 on a regression, failing the job. Already running
+pytest? `pytest --hotato-suite --hotato-suite-scenarios
+tests/hotato/scenarios --hotato-suite-audio tests/hotato/audio` adds the
+same gate (see [PYTEST.md](PYTEST.md)). The richer PR check with a sticky
+results comment is in [CI.md](CI.md).
 
 ## Step 5: when it fails, plan the fix
 
@@ -114,33 +107,23 @@ hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio \
 hotato plan result.json --stack vapi --assistant-id <id>
 ```
 
-`plan` is read-only and guarded: it proposes at most one bounded step on one
-setting, holds off tuning a single threshold when the battery fails on both
-axes at once, and downgrades to a checklist when the evidence cannot isolate
-the layer. It only proposes -- `platform_mutation.performed` is always false.
-Details: [FIX-PLANS.md](FIX-PLANS.md).
+`plan` is read-only and guarded: one bounded step on one setting at most,
+never a single-threshold fix when the battery fails on both axes at once,
+and a checklist when the evidence can't isolate the layer. It only proposes
+-- `platform_mutation.performed` is always false. Details:
+[FIX-PLANS.md](FIX-PLANS.md).
 
 ## Use Hotato when
 
-- You have (or can capture) separated caller/agent audio for the call.
-- You can point at a moment and label what should have happened: yield or
-  hold.
-- You want a local, deterministic regression test that fails CI when the
-  turn-taking timing regresses.
+- You have (or can capture) separated caller/agent audio.
+- You can point at a moment and label it: yield or hold.
+- You want a local, deterministic CI regression test on turn-taking timing.
 
-## Outside the timing lane
+## What Hotato measures
 
-Hotato measures turn-taking timing from separated audio tracks. Reach for
-other tooling for:
-
-- Transcript quality or wording checks -- Hotato scores timing, not text.
-- Task success or goal completion -- Hotato scores timing, not call outcome.
-- Sentiment, tone, or emotion.
-- Compliance or script adherence review.
-- Tool-call or API-behavior testing.
-- Mixed mono recordings -- a summed channel can't attribute talk-over to a
-  speaker.
-- Live, in-call decisions -- Hotato scores recordings after the fact, not at
-  runtime.
-- Unlabeled whole-call analysis -- `hotato scan` surfaces candidate moments,
-  and every verdict needs your yield or hold label.
+Turn-taking timing from separated audio tracks: talk-over, response gaps,
+and yield/hold timing against your label. Not transcript wording, call
+outcome, sentiment, compliance, or tool-call behavior. Not live, in-call
+decisions either -- Hotato scores recordings after the fact. And `hotato
+scan` surfaces candidates only; every verdict still needs your yield or
+hold label.

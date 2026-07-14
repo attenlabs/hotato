@@ -1,53 +1,36 @@
 # `hotato investigate`: one recording in, ranked candidate moments out
 
-Point `hotato investigate` at one recording -- a local dual-channel WAV, or a
-live pull from a connected stack by call id -- and it authenticates where the
-audio came from, runs the input-health / K6 verdict-eligibility gate, scans
-for candidate turn-taking moments, and prints the exact next command that
-turns each candidate into a signed, CI-ready contract.
-
-It surfaces candidates and prints the command; the one decision that matters
--- which candidate is a bug, and whether the agent should have *yielded* or
-*held* -- stays with you:
+Point it at one recording -- a local dual-channel WAV, or a live pull by
+call id -- and it authenticates the source, runs the input-health gate,
+scans for candidate turn-taking moments, and prints the exact command to
+turn each one into a signed, CI-ready contract.
 
 ```bash
 hotato investigate label <candidate_ref> --expect yield|hold
 ```
 
-Every step reuses a shipped primitive: audio-in is the same per-stack fetch
-`hotato pull` uses; the gate is `hotato trust` in contract mode; discovery is
-`hotato scan`; the label step wraps `hotato contract create --from-candidate`.
-
-## The label comes from you
-
-`yield` means the agent should stop for the caller; `hold` means the agent
-should keep speaking through a backchannel, noise, or acknowledgement.
-Hotato measures whether the timing matched your label. `"mhm"` and `"stop"`
-can carry identical speech energy -- no timing measurement tells them apart,
-so the label is yours to make.
+The one decision that stays with you: which candidate is a bug, and whether
+the agent should have *yielded* (stopped) or *held* (kept talking through a
+backchannel, noise, or ack). `"mhm"` and `"stop"` can sound identical by
+energy, so the label is yours.
 
 ## Scan one recording
 
 ```bash
-# a local dual-channel WAV you already have
-hotato investigate call.wav
-
-# or pull it live from a connected stack by call id
-hotato investigate --stack vapi --call-id abc123
+hotato investigate call.wav                        # a local WAV
+hotato investigate --stack vapi --call-id abc123    # or pull live
 ```
 
-Give it either a local `SOURCE` path or `--stack STACK --call-id ID`, never
-both. Connectable stacks: `vapi`, `twilio`, `retell`, `bland`, `elevenlabs`,
-`synthflow`, `millis`, `cartesia`. LiveKit and Pipecat capture in your own
-infrastructure -- run `hotato setup --stack <name>` and pass the resulting WAV
-as `SOURCE`. `--allow-mono` permits a mono/mixed stack recording, but a
-summed channel is degraded and not candidate-eligible for separated scoring.
+Give it a local `SOURCE` path, or `--stack`/`--call-id`, never both. Stacks:
+`vapi`, `twilio`, `retell`, `bland`, `elevenlabs`, `synthflow`, `millis`,
+`cartesia`. LiveKit and Pipecat capture in your own infra: run `hotato setup
+--stack <name>` and pass the resulting WAV as `SOURCE`. `--allow-mono`
+accepts a mono/mixed recording, but a summed channel can't score separated
+candidates.
 
-Useful flags: `--min-gap` (minimum response gap in seconds to surface,
-default `2.0`), `--top` (how many top candidates to show and print label
-commands for, default `10`; `0` shows all), `--caller-channel` /
-`--agent-channel`, and `--state PATH` (default
-`.hotato/investigate-state.json`).
+Flags: `--min-gap` (min. gap in seconds to surface, default `2.0`), `--top`
+(candidates shown, default `10`, `0` = all), `--caller-channel` /
+`--agent-channel`, `--state PATH` (default `.hotato/investigate-state.json`).
 
 ### What it reports
 
@@ -62,54 +45,42 @@ hotato investigate [run 1]: call.wav
   state remembered at: .hotato/investigate-state.json
 ```
 
-The onset above is illustrative -- candidates are timing facts, ready for
-you to label.
+## Capture origin: tracked every run
 
-## Capture origin: tracked for every run
+Every run tags how the audio arrived: `frozen_regression` (a pinned hotato
+fixture, replayed exactly), `provider_pulled` (fetched live from the
+stack's own recording API -- for the stronger, signed claim see
+[RECAPTURE.md](RECAPTURE.md)), or `operator_asserted_local` (a local WAV,
+taken at face value).
 
-Every run records where the audio came from, one of three kinds:
+## The verdict gate
 
-- **`frozen_regression`** -- a previously-created hotato fixture clip (a
-  sibling scenario file names this exact audio): a pinned regression, played
-  back exactly.
-- **`provider_pulled`** -- fetched just now from the stack's own recording
-  API for a named call id, a stronger claim than an arbitrary file. For the
-  stronger, signed, machine-verified claim, see [RECAPTURE.md](RECAPTURE.md).
-- **`operator_asserted_local`** -- you handed hotato a local WAV path, taken
-  at face value.
-
-## The K6 verdict gate
-
-Trust runs in contract mode -- the same, stricter crosstalk/leakage bar
-`hotato contract create` itself checks, since this command exists to produce
-a contract. Two outcomes matter:
+Trust runs in contract mode, the same crosstalk/leakage bar `hotato contract
+create` checks. Two outcomes:
 
 - **NOT SCORABLE** (mono, identical channels, a silent required channel): no
-  candidates are scanned, the report names the reason, and the command exits
-  `2`. Fix the input and re-run.
+  candidates scanned, the reason named, exit `2`. Fix the input and re-run.
 - **Verdict path REFUSED** (a suspected channel swap or crosstalk/leakage):
-  candidates still surface as timing facts, and a labeled event carries a
-  yield/hold verdict once you confirm the mapping with `--confirm-channels`
-  or fix the crosstalk. See [TRUST.md](TRUST.md).
+  candidates still surface; a labeled event carries a verdict once you fix
+  the crosstalk or confirm the mapping with `--confirm-channels`. See
+  [TRUST.md](TRUST.md).
 
-The two gates are different widths: `scan` runs whenever the input is
-scorable, so candidates appear even when the verdict path is refused.
+Scan runs whenever the input is scorable, so candidates appear even when the
+verdict path is refused.
 
 ## State and candidate refs
 
 State persists to `.hotato/investigate-state.json` (run-numbered, atomically
-written, with a history log) in the same shape `hotato analyze` / `hotato
-sweep` produce, so it is itself a valid `FILE#N` candidate ref: `hotato
-fixture promote` and `hotato contract create --from-candidate` read it
-directly. `#1` is the top-ranked candidate, `#2` the next, and so on.
+written) in the same shape `hotato analyze` / `hotato sweep` use, so it's a
+valid `FILE#N` candidate ref for `hotato fixture promote` and `hotato
+contract create --from-candidate`. `#1` is the top-ranked candidate.
 
 ## Label a candidate into a contract
 
-`hotato investigate label` is the label step. Your `--expect` goes straight
-to `hotato contract create --from-candidate`, which mints a signed
-label-record bound to the exact decoded audio when a signing key is
-configured. Without a signing key, the contract's `label_authority` floors
-at `asserted`.
+Your `--expect` goes straight to `hotato contract create --from-candidate`,
+which mints a signed label-record bound to the exact decoded audio when a
+signing key is configured. Without one, `label_authority` floors at
+`asserted`.
 
 ```bash
 hotato investigate label .hotato/investigate-state.json#1 \
@@ -118,45 +89,43 @@ hotato investigate label .hotato/investigate-state.json#1 \
     --reviewer "$USER" --out contracts
 ```
 
-This writes `contracts/<id>.hotato/`. The id defaults to a slug derived from
-the source, onset, and label; pass `--id` to name it, `--force` to
-overwrite. Clipping keeps `--pre` seconds before the onset (default `2.0`)
-and `--post` after (default `6.0`); `--no-clip` keeps the full recording. If
-the verdict path was refused, add `--confirm-channels` to carry the
-contract's verdict through `contract verify`. Source basenames are redacted
-from the bundle by default; pass `--include-identifiers` to keep them.
+Writes `contracts/<id>.hotato/`. The id defaults to a slug from the source,
+onset, and label; `--id` names it, `--force` overwrites. `--pre`/`--post`
+(defaults `2.0`/`6.0`) set the clip window before/after the onset;
+`--no-clip` keeps the full recording. If the verdict path was refused, add
+`--confirm-channels` to carry it through `contract verify`. Source
+basenames are redacted by default; `--include-identifiers` keeps them.
 
-Building a contract, not a bare fixture, is deliberate: it carries the K6
-trust block, the CI policy, and the exact `hotato contract verify` command
--- the handoff point from investigate into
-[BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md) and [CONTRACTS.md](CONTRACTS.md).
+A contract, not a bare fixture, is the point: it carries the trust block,
+the CI policy, and the exact `hotato contract verify` command -- the
+handoff into [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md) and
+[CONTRACTS.md](CONTRACTS.md).
 
-Scanning, the trust gate, and labeling run offline; audio stays on your
-machine unless you explicitly pull it from your own stack
+Scanning, the gate, and labeling all run offline; audio stays on your
+machine unless you pull it from your own stack
 ([THREAT-MODEL.md](THREAT-MODEL.md)).
 
 ## Exit codes
 
 `hotato investigate`:
 
-- **`0`** -- the recording is candidate-eligible: trust + scan ran and
-  candidates (if any) were persisted; a yield/hold VERDICT may still be
-  refused (K6) -- see `verdict_status`.
-- **`2`** -- usage error (neither `SOURCE` nor `--stack/--call-id`, both
-  given, a bad channel/`--min-gap` flag, a missing credential, or an
-  unreadable state file), or the recording is NOT SCORABLE at all.
+- **`0`** -- candidate-eligible: trust + scan ran, candidates (if any)
+  persisted. A verdict may still be refused; see `verdict_status`.
+- **`2`** -- usage error (no `SOURCE`/`--stack`+`--call-id`, both given, a
+  bad flag, a missing credential, an unreadable state file), or NOT
+  SCORABLE.
 
 `hotato investigate label`:
 
-- **`0`** -- a signed, CI-ready contract was written from this candidate.
+- **`0`** -- a signed, CI-ready contract was written.
 - **`2`** -- usage error (a bad `--expect`, a bad candidate ref, an
-  unresolved source recording, or an existing contract without `--force`),
-  or the candidate turned out not scorable.
+  unresolved source, an existing contract without `--force`), or not
+  scorable.
 
 ## See also
 
 - [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md) -- the bad-call to CI-gate flow this feeds.
 - [CONTRACTS.md](CONTRACTS.md) -- the failure-contract bundle.
-- [TRUST.md](TRUST.md) -- the input-health / K6 scorability gate.
+- [TRUST.md](TRUST.md) -- the input-health scorability gate.
 - [RECAPTURE.md](RECAPTURE.md) -- the stronger, signed fresh-recapture claim.
 - [CONVERSATION-TEST.md](CONVERSATION-TEST.md), [SUITE-RUN.md](SUITE-RUN.md) -- the conversation-QA path.
