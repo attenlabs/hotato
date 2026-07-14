@@ -1,12 +1,11 @@
 # Benchmarking voice stacks with hotato
 
 `hotato benchmark` runs one fixed scenario battery through your configured
-voice stack and scores every stack against the same scenarios, the same
-labels, and the same thresholds -- so the result files line up directly,
-stack against stack.
+voice stack, scoring every stack against the same scenarios, labels, and
+thresholds -- so result files line up directly, stack against stack.
 
-Every number comes from the recordings you capture, scored the same way for
-every stack. A benchmark result describes your setup, on the day you
+Every number comes from the recordings you capture, scored the same way
+for every stack -- a benchmark result describes your setup, on the day you
 captured it.
 
 ## 1. Pick the scenario set
@@ -20,13 +19,13 @@ corpus/suites/silver/scenarios
 ```
 
 Each scenario JSON carries the caller transcript, the caller onset timing,
-and the pass thresholds. The corpus suites also ship each scenario's caller
-stimulus as `audio/<id>.caller.wav`.
+and the pass thresholds; the corpus suites also ship each scenario's
+caller stimulus as `audio/<id>.caller.wav`.
 
 ## 2. Capture the battery through your stack
 
-For every scenario, drive the caller side through your stack and record the
-call dual-channel (caller on channel 0, agent on channel 1):
+For every scenario, drive the caller side through your stack and record
+the call dual-channel (caller on channel 0, agent on channel 1):
 
 - Corpus suites: play the shipped `<id>.caller.wav` stimulus into your
   stack. For the bundled battery, reproduce the caller side from each
@@ -53,16 +52,16 @@ hotato benchmark --stack livekit --recordings captures/livekit --out livekit.jso
 hotato benchmark --stack vapi    --recordings captures/vapi    --out vapi.json
 ```
 
-Each result JSON records the stack, the scenario set, every measured signal
-(the same events `hotato run` produces), the exact scoring thresholds, and a
-provenance block: who ran it, on which files, with each file's mtime. The
-result timestamp comes from the input files, not the wall clock, so the
-same inputs reproduce the same result.
+Each result JSON records the stack, the scenario set, every measured
+signal (the same events `hotato run` produces), the exact scoring
+thresholds, and a provenance block: who ran it, on which files, with each
+file's mtime. The timestamp comes from the input files, not the wall
+clock, so the same inputs reproduce the same result.
 
 Scenarios without a matching recording land under `not_captured`, kept out
-of both the scoring and the failure count. The exit code is 0 when the run
+of both the scoring and the failure count. Exit code is 0 when the run
 completes; add `--fail-on-regression` to exit 1 when a scored event fails
-its scenario thresholds.
+its thresholds.
 
 ## 4. Compare stacks
 
@@ -72,9 +71,9 @@ hotato benchmark compare livekit.json vapi.json
 
 Side by side, per scenario: yielded, talk-over seconds, and time-to-yield
 seconds for each input, with signed deltas against the first file, plus
-summary medians. When the files cover different scenario sets, the
-intersection is compared and everything else is listed as skipped, with the
-files it was missing from.
+summary medians. When the files cover different scenario sets, only the
+intersection is compared; the rest is listed as skipped, with the files
+each was missing from.
 
 ## What the numbers are
 

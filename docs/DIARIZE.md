@@ -1,28 +1,25 @@
 # `hotato run --mono call.wav --diarize`: score a single-channel recording
 
-Hotato's gold reference is a **two-channel** recording — the caller on one
-channel, the agent on the other, each channel one party, no separation
-needed. That path, and every published/golden number, stays unchanged. A
-**mono** (single, mixed channel) recording hits the coverage wall by default:
-with both voices summed into one waveform, the scorer cannot attribute
-energy to a speaker, so it is rejected as not scorable.
+Hotato's gold reference is **two-channel** audio: caller on one channel,
+agent on the other, no separation needed. That path, and every published
+number, stays unchanged. A **mono** (single, mixed) recording fails by
+default: both voices sum into one waveform, so the scorer cannot attribute
+energy to a speaker and rejects it as not scorable.
 
-The opt-in `[diarize]` front-end widens that coverage. It runs an
+The opt-in `[diarize]` front-end widens that coverage: it runs an
 off-the-shelf **speaker diarizer** over the mono to recover *who was active
-when*, reconstructs two caller/agent tracks, and feeds the **existing**
-scorer — so a mono call becomes scorable. It is **quality-gated** and
-labeled by tier: above the confidence bar the verdict is a `diarized-mono`
-verdict; below it, the verdict is labeled indicative only and no SLA gate
-fires; a non-separable file is refused. A diarized-mono verdict is labeled
-and gated separately from a true dual-channel measurement for sub-second
-talk-over, and the gate enforces that per file.
+when*, reconstructs caller/agent tracks, and hands them to the **existing**
+scorer -- so a mono call becomes scorable. The result is **quality-gated**
+and tiered per file: above the confidence bar it is a `diarized-mono`
+verdict; below it, indicative only with no SLA gate; non-separable, it is
+refused.
 
 **Turn-timing reconstruction, from anonymous labels.** Hotato scores
-*timing* (who was active when, and overlap), which a diarizer's turn
-timestamps reconstruct directly: it assigns anonymous `SPEAKER_00` /
-`SPEAKER_01` labels to each turn and hands the boundaries to the existing
-scorer. The audio stays mixed, and the labels carry only channel timing —
-never a name, a voice-print match, or an identity.
+*timing* -- who was active when, and overlap -- and a diarizer's turn
+timestamps reconstruct that directly: anonymous `SPEAKER_00` / `SPEAKER_01`
+labels per turn, handed to the scorer as boundaries. The audio stays mixed;
+the labels carry only channel timing, never a name, a voice-print match, or
+an identity.
 
 ## Quickstart
 
@@ -40,15 +37,15 @@ hotato run --mono call.wav --diarize --format json  # diarized-mono verdict
 ```
 
 Without the extra (or the token/model), `--diarize` exits `2` with a clean
-error: it always requires the diarizer to run before scoring.
+error -- it always requires the diarizer to run before scoring.
 
 ## Backends and extras
 
-A pluggable backend seam, mirroring the neural-VAD seam. Pick with
-`--diarizer`; install only the extra you select. The default backend follows
-the downstream benchmark's measured results: `pyannote` is the accessible
-local default, and a user who needs best-in-class accuracy on telephone
-audio picks `sortformer` (local) or `pyannoteai` (hosted).
+A pluggable backend seam, mirroring the neural-VAD seam: pick with
+`--diarizer`, install only the extra you select. `pyannote` is the
+accessible local default, chosen from the downstream benchmark; for
+best-in-class telephone-audio accuracy, pick `sortformer` (local) or
+`pyannoteai` (hosted).
 
 - **`pyannote`** (default)
   - Extra: `[diarize]`
@@ -77,23 +74,23 @@ diarize-hosted = ["pyannoteai-sdk>=0.3"]
 ```
 
 The `[diarize]` path raises the effective Python floor to **>=3.10**
-(pyannote 4.x); the stdlib core stays >=3.9 — this only constrains the
+(pyannote 4.x); the stdlib core stays >=3.9 -- this only constrains the
 optional path.
 
 ### Model licenses (log per FTO note)
 
 Off-the-shelf diarizers are an integration, orthogonal to any Hotato IP
-claim, but the dependency licenses are logged here and carried in the score
-envelope's `diarization.licenses` block:
+claim; licenses are logged here and carried in the score envelope's
+`diarization.licenses` block:
 
-- `pyannote-audio` — **MIT** (code)
-- `speaker-diarization-community-1` weights — **CC-BY-4.0** (attribution required)
-- `segmentation-3.0` weights — **MIT**; `wespeaker` embedding — **CC-BY-4.0**
-- `torch` — **BSD-3-Clause**; `torchaudio` — **BSD-2-Clause**
-- `nemo-toolkit` — **Apache-2.0**
-- Sortformer **streaming v2** — **CC-BY-4.0** (the offline v1 is **CC-BY-NC**
-  — non-commercial, kept out of the shipped extras)
-- pyannoteAI hosted — proprietary terms (verify before enabling egress)
+- `pyannote-audio`: **MIT** (code)
+- `speaker-diarization-community-1` weights: **CC-BY-4.0** (attribution required)
+- `segmentation-3.0` weights: **MIT**; `wespeaker` embedding: **CC-BY-4.0**
+- `torch`: **BSD-3-Clause**; `torchaudio`: **BSD-2-Clause**
+- `nemo-toolkit`: **Apache-2.0**
+- Sortformer **streaming v2**: **CC-BY-4.0** (the offline v1 is **CC-BY-NC**,
+  non-commercial, kept out of the shipped extras)
+- pyannoteAI hosted: proprietary terms (verify before enabling egress)
 
 For a permissive weights license, prefer `speaker-diarization-3.1` (MIT
 weights) over community-1 (CC-BY-4.0) via `HOTATO_DIARIZE_MODEL`.
@@ -115,18 +112,17 @@ at runtime, with no ground truth**. Six signals feed a
 
 **Tiers:**
 
-- **high** — score normally; the verdict is always tagged
-  `source: "diarized-mono"` and `confidence_tier: "high"`, distinct at every
-  step from a dual-channel verdict.
-- **low** — score, but the envelope carries `indicative_only: true`: the
-  verdict reads "indicative only, reconstructed from single-channel
-  diarization." The pass/fail SLA gate (`--max-talk-over` /
-  `--max-time-to-yield`) stays off on a low tier.
-- **refuse** — `scorable: false`, a reason naming the failed signal, exit
-  `2` (exactly like today's mono rejection).
+- **high** -- scores normally, tagged `source: "diarized-mono"` and
+  `confidence_tier: "high"`, distinct at every step from a dual-channel
+  verdict.
+- **low** -- scores with `indicative_only: true`, reading "indicative only,
+  reconstructed from single-channel diarization." The pass/fail SLA gate
+  (`--max-talk-over` / `--max-time-to-yield`) stays off at this tier.
+- **refuse** -- `scorable: false`, a reason naming the failed signal, exit
+  `2` (same as today's mono rejection).
 
-The thresholds are provisional and **uncalibrated** — pinned by the
-downstream verdict-agreement benchmark, not asserted as accuracy — and are
+The thresholds are provisional and **uncalibrated**, pinned by the
+downstream verdict-agreement benchmark rather than asserted as accuracy, and
 exposed as constants in `hotato/diarize.py`.
 
 ## Caller vs agent assignment (proposed, stated, overridable)
@@ -135,13 +131,12 @@ A diarizer returns anonymous `SPEAKER_00` / `SPEAKER_01`; Hotato needs
 caller/agent. The mapping is proposed, stated as an assumption, and
 overridable:
 
-- **default proposal** — reuse the floor-dominance heuristic (`trust`'s
+- **default proposal** -- the floor-dominance heuristic (`trust`'s
   possible-swap band): an agent usually holds the floor longer, so the
-  higher-talk-time speaker is proposed as the agent. Ambiguous (balanced
-  floor time) mappings are broken by who-speaks-first and flagged
-  `balanced: true`, which downgrades the verdict to indicative until
-  confirmed.
-- **override** — `--caller-speaker SPEAKER_00 --agent-speaker SPEAKER_01`;
+  higher-talk-time speaker is proposed as agent. A balanced (ambiguous)
+  floor time is broken by who-speaks-first and flagged `balanced: true`,
+  downgrading the verdict to indicative until confirmed.
+- **override** -- `--caller-speaker SPEAKER_00 --agent-speaker SPEAKER_01`;
   when both are given, no heuristic runs.
 
 The chosen mapping and its basis are emitted in
@@ -150,10 +145,9 @@ The chosen mapping and its basis are emitted in
 ## Echo / crosstalk is N/A on this path
 
 The two reconstructed tracks are slices of **one physical microphone**, so
-`signals.echo` / crosstalk coherence carries no echo information (it reads
-trivially high in overlap). On the diarized-mono path the echo block is
-marked `applicable: false`, since `--echo-gate` is meaningful only across
-two physically separate channels.
+`signals.echo` / crosstalk coherence carries no real signal (it reads
+trivially high on overlap) and is marked `applicable: false` on this path --
+`--echo-gate` only means something across two physically separate channels.
 
 ## Limits (what stays indicative or refused)
 
@@ -162,19 +156,17 @@ two physically separate channels.
 - **heavy crosstalk / echo bleed** → overlap balloons → low/refuse.
 - **>2 speakers** (a supervisor, hold music with vocals) → refuse.
 - **deep sustained overlap** and **sub-second boundary precision** run
-  inherently weaker than dual-channel and are stamped as such, never
-  hidden.
+  weaker than dual-channel and are stamped as such, never hidden.
 - **balanced speaker map** → mapping uncertain → indicative until
   confirmed.
 
-A de-risk spike (with a *perfect* diarizer) confirmed the
-masked-reconstruction path systematically inflates sub-second talk-over by
-~0.1-0.36s and can bridge a short backchannel gap — an error intrinsic to
-single-channel masking that no diarizer quality removes. That is precisely
-why elevated-overlap and short-yield cases land in the fragile `low` zone
-(indicative, no SLA gate). Direct diarization-timeline injection (skipping
-the reconstruction re-VAD) is the recommended follow-up; under either
-approach the error budget is governed by the gate above.
+A de-risk spike, with a *perfect* diarizer, confirmed the
+masked-reconstruction path inflates sub-second talk-over by ~0.1-0.36s and
+can bridge a short backchannel gap -- an error intrinsic to single-channel
+masking that no diarizer quality removes. That is why elevated-overlap and
+short-yield cases land in the fragile `low` zone. The recommended follow-up
+is direct diarization-timeline injection, skipping the reconstruction
+re-VAD; either way, the gate above governs the error budget.
 
 ## JSON shape (agents)
 
