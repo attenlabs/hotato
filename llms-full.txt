@@ -300,6 +300,7 @@ The highest-value PR is one labeled dual-channel call: the corpus compounds, eve
 - **Set-and-forget monitoring**: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) &middot; [`examples/set-and-forget/`](examples/set-and-forget/README.md)
 - **Bad call to CI, step by step**: [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md) &middot; [`examples/bad-call-to-ci/`](examples/bad-call-to-ci/README.md)
 - **What it measures** (three timing signals): [`METHODOLOGY.md`](METHODOLOGY.md) &middot; [`docs/API.md`](docs/API.md)
+- **Typed Python SDK** (frozen dataclasses over the CLI JSON): [`docs/SDK.md`](docs/SDK.md)
 - **The fix ladder** (failure &rarr; fix class): [`docs/FIX-PLANS.md`](docs/FIX-PLANS.md)
 - **Rule out non-turn-taking bugs first** (STT, buffering, verbosity, refusals, language): [`docs/WHY.md`](docs/WHY.md)
 - **Pull a call from your stack** (Vapi, Twilio, Retell, LiveKit, Pipecat): [`adapters/README.md`](adapters/README.md) &middot; [`docs/ADAPTER-STATUS.md`](docs/ADAPTER-STATUS.md)
@@ -5554,11 +5555,11 @@ offline -- it runs the pinned Action revision itself off PYTHONPATH (no
 pip, no package index), installs no model, no ASR, no Node tool, calls no
 external judge, and reads no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.6.2), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.7.0), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.6.2
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.7.0
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -5580,7 +5581,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.6.2
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.7.0
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -5618,7 +5619,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.6.2` | `pip install --no-deps hotato==1.6.2` |
+| an exact version, e.g. `1.7.0` | `pip install --no-deps hotato==1.7.0` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
@@ -6409,6 +6410,81 @@ runs count such events in `summary.not_scorable`, keeping their 0/1
 semantics. Malformed input (bad WAV, out-of-range channel, negative onset,
 unknown suite or stack) raises `ValueError`, surfaced as exit code 2: only
 a file the scorer can fully read gets scored.
+
+
+================================================================================
+FILE: docs/SDK.md
+================================================================================
+
+# Python SDK (`hotato.sdk`)
+
+`hotato.sdk` is a typed facade over the same functions the CLI runs. It imports the internal code paths directly, so there is no subprocess. Every result is a frozen dataclass whose fields are the keys of the JSON the CLI emits with `--format json`.
+
+## Install
+
+`pip install hotato` ships the SDK and its `py.typed` marker, so a type checker reads the package as typed. The scoring core is stdlib-only. Transcription uses the optional `hotato[transcribe]` extra.
+
+## Run a suite
+
+```python
+from hotato.sdk import run_suite
+
+result = run_suite()                  # the bundled labelled battery, zero files
+print(result.passed, result.failed)   # process pass (exit 0) and failure count
+for event in result.events:
+    print(event.event_id, event.passed, event.seconds_to_yield, event.talk_over_sec)
+```
+
+Point `run_suite` at your own labelled set with `run_suite(scenarios="scenarios/", audio="audio/")`.
+
+## Verify contracts
+
+```python
+from hotato.sdk import verify_contracts
+
+result = verify_contracts("contracts/")
+print(result.passed, result.summary["failed"])
+for c in result.results:
+    print(c.id, c.passed, c.authenticity)   # authenticity passes through verbatim
+```
+
+A regressed or tampered contract sets `passed` to `False` with `exit_code` 1. It returns as data; it does not raise. A missing or corrupt bundle raises `ValueError`.
+
+## Compile a counterexample
+
+```python
+from hotato.sdk import compile_counterexample, verify_counterexample
+
+compiled = compile_counterexample(
+    "case.scenario.json", "case.test.json",
+    target="pii-email", out="case.hotato-repro")
+print(compiled.minimality, compiled.output)
+
+verified = verify_counterexample("case.hotato-repro")
+print(verified.status, verified.passed)
+```
+
+A deterministic refusal raises `CounterexampleRefusal`, which carries a stable `.code`.
+
+## The JSON contract
+
+The dataclass fields are the CLI's JSON keys. `SuiteResult`, `ContractVerifyResult`, `InvestigateResult`, `CounterexampleResult`, and `CounterexampleVerifyResult` mirror `hotato run`, `hotato contract verify`, `hotato investigate`, and `hotato counterexample`. A `SuiteResult.passed` is `exit_code == 0`, and `failed` is the count of failed scorable events. A NOT-SCORABLE or INCONCLUSIVE result keeps its own status; nothing is blended into a single number.
+
+## Errors
+
+Bad input raises `ValueError` and its subclasses. A missing optional extra raises `BackendUnavailable`. A counterexample refusal raises `CounterexampleRefusal`. All of these sit inside `hotato.errors.HANDLED`, the same set the CLI and MCP surfaces map to a structured error.
+
+## Transcription
+
+```python
+from hotato.sdk import transcribe, build_transcript_cache
+
+cache, _warning = build_transcript_cache()
+transcript = transcribe("call.wav", cache=cache)
+print(transcript.text)
+```
+
+A transcript is context beside the timing score. It leaves `did_yield`, `seconds_to_yield`, and `talk_over_sec` unchanged. For the cache-hit flag and the cache key, call `transcribe_cached` and read its `CachedTranscribeResult`.
 
 
 ================================================================================
@@ -9498,7 +9574,7 @@ FILE: docs/TRUST-GALLERY.md
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.6.2, offline. The rows
+Every block below is verbatim CLI output from hotato 1.7.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean and echo cases use the bundled examples

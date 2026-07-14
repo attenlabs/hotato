@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.6.2"
+version = "1.7.0"
 description = "Conversation QA for voice agents. Catch the calls that pass every text check but talk over the caller, skip a required disclosure, or claim a task that never happened. Self-hosted, offline, MIT."
 readme = "README.pypi.md"
 # Support policy: requires-python is lower-bounded only. There is no upper cap

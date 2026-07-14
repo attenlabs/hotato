@@ -8,6 +8,20 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-14
+
+### Added
+- **`hotato.sdk`: the typed Python SDK.** Frozen dataclasses over the same
+  code paths the CLI uses, fields verbatim from the CLI JSON: `run_suite`,
+  `run_single`, `verify_contracts`, `investigate`, `compile_counterexample`,
+  `verify_counterexample`, `transcribe`. The package ships `py.typed`, so a
+  type checker reads it as typed. See `docs/SDK.md`.
+- **TypeScript SDK at `sdk/typescript`.** A zero-dependency typed client that
+  drives the CLI's JSON contract from Node: `runSuite`, `verifyContracts`,
+  `compileCounterexample`, `predicate` with bisect exit semantics, and typed
+  refusal errors. Tested against the CLI on the bundled fixtures.
+
+
 ## [1.6.2] - 2026-07-14
 
 ### Added
