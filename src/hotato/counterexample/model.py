@@ -8,7 +8,7 @@ import json
 import math
 import os
 import stat
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 KIND = "hotato.counterexample.v1"
 ORACLE_KIND = "hotato.counterexample-oracle.v1"
@@ -33,6 +33,8 @@ MAX_TOOLS = 10_000
 MAX_BUDGET = 100_000
 DEFAULT_BUDGET = 512
 MAX_CAPSULE_FILES = 1_024
+MAX_CAPSULE_DIRECTORIES = 4_096
+MAX_CAPSULE_DEPTH = 64
 MAX_CAPSULE_BYTES = 256 * 1024 * 1024
 MAX_CAPSULE_MEMBER_BYTES = 64 * 1024 * 1024
 
@@ -241,9 +243,23 @@ def inventory_files(root: str, *, exclude: Iterable[str] = ()) -> List[Dict[str,
     excluded = set(exclude)
     rows: List[Dict[str, Any]] = []
     total_bytes = 0
+    directory_count = 1
     for base, dirs, files in os.walk(root, topdown=True, followlinks=False):
+        relative_base = os.path.relpath(base, root)
+        depth = 0 if relative_base == "." else len(relative_base.split(os.sep))
+        if depth > MAX_CAPSULE_DEPTH:
+            raise CounterexampleRefusal(
+                "capsule_too_deep",
+                f"capsule exceeds {MAX_CAPSULE_DEPTH} directory levels",
+            )
         dirs.sort()
         files.sort()
+        directory_count += len(dirs)
+        if directory_count > MAX_CAPSULE_DIRECTORIES:
+            raise CounterexampleRefusal(
+                "capsule_too_many_directories",
+                f"capsule exceeds {MAX_CAPSULE_DIRECTORIES} directories",
+            )
         for name in dirs:
             absolute_dir = os.path.join(base, name)
             lst = os.lstat(absolute_dir)

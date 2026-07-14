@@ -8,6 +8,18 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **Proof-preserving counterexample compiler.** `hotato counterexample compile`
+  reduces one failing deterministic scripted scenario to a private runnable
+  capsule while preserving the exact typed failure identity. The closed
+  `hotato.reducers.v1` deletion algebra can earn a replay-verified 1-minimal
+  claim or report budget exhaustion without upgrading the claim. Strict
+  verification binds the source-to-final transform chain, evaluator source
+  digest, result/content/trace identities, derived reports and scripts, and a
+  resource-bounded manifest. Current-evaluator reproduction, `git bisect`
+  predicate semantics, share-safe export, machine JSON, and MCP parity ship on
+  the same local, deterministic path.
+
 ## [1.5.4] - 2026-07-14
 
 Documentation and packaging refresh.

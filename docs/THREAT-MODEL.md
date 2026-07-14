@@ -69,10 +69,25 @@ promotes a sibling staging directory only after all files and hashes exist.
 
 The verifier rejects path traversal, symlinked members and directories,
 special files, undeclared files, oversized/deep inputs, digest mismatches,
-broken deletion chains, evaluator drift on the strict proof path, and a
-minimality claim that admits a preserving unit deletion. `reproduce` is a
-separate current-evaluator check: it permits evaluator drift, but still
-validates capsule integrity and the source-to-final delete-only chain.
+broken deletion chains, evaluator-source drift on the strict proof path, and a
+minimality claim that admits a preserving unit deletion. The preflight caps a
+capsule at 1,024 files, 4,096 directories, 64 directory levels, 64 MiB per
+member, and 256 MiB total. `reproduce` is a separate current-evaluator check:
+it permits evaluator drift, but still validates capsule integrity and the
+source-to-final delete-only chain.
+
+The evaluator digest binds the shipped Python source closure and package
+version, not the interpreter build, host platform, CPU, or native libraries.
+Strict replay compares the recorded result, content, and trace hashes, so a
+runtime difference that changes behavior is rejected. Accepted transforms and
+the final single-unit inventory are proof-bearing; non-`PRESERVED` journal
+rows are diagnostic history and are not independently replayed.
+
+The capsule directory is required to remain unchanged during a command.
+Persistent mutation, root replacement, and symlink or special-file
+substitution are detected. A privileged local process that can swap and
+restore bytes between individual reads is outside the v1 proof snapshot; move
+untrusted capsules into a private, non-writable workspace before verification.
 
 `counterexample export` derives a non-runnable projection after strict private
 verification. It omits scenario/test bodies, transcript content, tool payloads,

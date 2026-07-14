@@ -8,7 +8,12 @@ import pytest
 
 from hotato import assert_ as A
 from hotato.counterexample.model import canonical_json
-from hotato.counterexample.oracle import FailureOracle, failure_fingerprint, target_assertion, typed_witness
+from hotato.counterexample.oracle import (
+    FailureOracle,
+    failure_fingerprint,
+    target_assertion,
+    typed_witness,
+)
 from hotato.state_adapter import MockStateAdapter
 
 

@@ -7,7 +7,6 @@ import shutil
 
 from hotato import mcp_server
 
-
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "counterexample")
 
 

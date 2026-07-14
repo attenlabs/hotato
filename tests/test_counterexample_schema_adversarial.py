@@ -27,7 +27,6 @@ from hotato.counterexample.model import (
     sha256_bytes,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).parent / "fixtures" / "counterexample"
 SCHEMAS = ROOT / "src" / "hotato" / "schema"
@@ -1039,8 +1038,8 @@ def test_predicate_skips_malformed_certificate_instead_of_crashing(templates, tm
 
 
 def test_evaluator_digest_binds_transitive_synth_dependency(tmp_path, monkeypatch):
-    import hotato.synth as synth
     import hotato.counterexample.bundle as bundle
+    import hotato.synth as synth
 
     original = bundle._evaluator_digest()
     replacement = tmp_path / "synth.py"
@@ -1141,6 +1140,33 @@ def test_verify_rejects_unmanifested_empty_directory(templates, tmp_path):
 
     with pytest.raises(CounterexampleRefusal):
         verify_counterexample(str(root))
+
+
+def test_verify_caps_empty_directory_count_before_unbounded_walk(
+    templates, tmp_path, monkeypatch
+):
+    import hotato.counterexample.model as model
+
+    root = _clone(templates["private"], tmp_path)
+    (root / "extra-one").mkdir()
+    (root / "extra-two").mkdir()
+    monkeypatch.setattr(model, "MAX_CAPSULE_DIRECTORIES", 2)
+
+    with pytest.raises(CounterexampleRefusal) as raised:
+        verify_counterexample(str(root))
+    assert raised.value.code == "capsule_too_many_directories"
+
+
+def test_verify_caps_empty_directory_depth(templates, tmp_path, monkeypatch):
+    import hotato.counterexample.model as model
+
+    root = _clone(templates["private"], tmp_path)
+    (root / "extra" / "nested").mkdir(parents=True)
+    monkeypatch.setattr(model, "MAX_CAPSULE_DEPTH", 1)
+
+    with pytest.raises(CounterexampleRefusal) as raised:
+        verify_counterexample(str(root))
+    assert raised.value.code == "capsule_too_deep"
 
 
 def test_inspect_rejects_symlinked_capsule_root(templates, tmp_path):

@@ -11,7 +11,6 @@ from jsonschema import Draft7Validator
 
 from hotato.counterexample import compile_counterexample, export_counterexample
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = ROOT / "src" / "hotato" / "schema"
 FIXTURES = Path(__file__).parent / "fixtures" / "counterexample"
