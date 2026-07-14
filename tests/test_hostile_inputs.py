@@ -27,7 +27,6 @@ import pytest
 from hotato import cli
 from hotato.core import run_suite
 
-
 # --- fixture helpers ------------------------------------------------------
 
 def _write_valid_wav(path, sample_rate=16000, n_channels=2, n_frames=1600):

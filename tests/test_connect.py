@@ -13,8 +13,7 @@ import urllib.request
 import pytest
 
 from hotato import capture as cap
-from hotato import cli
-from hotato import connections
+from hotato import cli, connections
 
 
 class _Resp:

@@ -27,7 +27,6 @@ from hotato import card as _card
 from hotato import evidence as _evidence
 from hotato import verify as _verify
 
-
 # --- fixtures: reuse the exact envelope shape the verify tests build --------
 #
 # (mirrors tests/test_verify.py :: _ev / _env / _write, so this exercises the

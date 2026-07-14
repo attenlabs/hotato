@@ -11,8 +11,6 @@ Everything runs offline; no audio leaves the machine.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import argparse
 import json
 import os
@@ -23,8 +21,10 @@ from . import __version__
 from . import capture as _capture
 from . import errors as _errors
 from ._engine.score import ScoreConfig
-from ._engine.vad import BackendUnavailable, VADParams
+from ._engine.vad import VADParams
 from .core import SUITE_ID, dump_frames_for_input, process_exit_code, run_single, run_suite
+from .errors import open_regular as _open_regular
+
 
 def _atomic_write_text(path: str, text: str) -> None:
     """Write ``text`` to ``path`` atomically: a temp file in the SAME directory,

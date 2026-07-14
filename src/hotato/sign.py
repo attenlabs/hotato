@@ -43,8 +43,8 @@ import os
 import tempfile
 from typing import Optional, Tuple
 
-from .errors import open_regular as _open_regular
 from ._engine.vad import BackendUnavailable
+from .errors import open_regular as _open_regular
 
 # Directories (under the user's home; expanded lazily so tests can point HOME
 # at an isolated tmp_path). Mirrors attest.py's ATTEST_KEY_FILE convention.

@@ -45,12 +45,9 @@ a proof of root cause.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 from datetime import datetime, timezone
-from typing import Optional
 
 from . import analyze as _analyze
 from . import contract as _contract
@@ -60,6 +57,7 @@ from . import report as _report
 from . import trace as _trace
 from . import trust as _trust
 from .diagnose import OPPOSITE_RISK
+from .errors import open_regular as _open_regular
 from .fixplan import ENGAGEMENT_CONTROL_FIX
 
 __all__ = [

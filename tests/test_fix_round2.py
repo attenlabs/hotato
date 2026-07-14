@@ -41,15 +41,13 @@ import pytest
 
 from hotato import aggregate as _aggregate
 from hotato import capture as cap
-from hotato import cli
+from hotato import cli, mcp_server
 from hotato import compare as _compare
 from hotato import inspectcfg as _inspect
 from hotato import loop as _loop
-from hotato import mcp_server
 from hotato import scan as _scan
 from hotato import verify as _verify
 from hotato.patch import build_patch
-
 
 SR = 16000
 

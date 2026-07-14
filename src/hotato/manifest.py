@@ -18,8 +18,6 @@ re-run is reproducible; a fleet runner supplies a real random nonce).
 """
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import hashlib
 import hmac
 import json
@@ -30,6 +28,7 @@ from typing import Optional
 from . import __version__
 from ._engine.score import ScoreConfig
 from ._engine.vad import VADParams
+from .errors import open_regular as _open_regular
 
 SCHEMA_VERSION = "1"
 

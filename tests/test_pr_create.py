@@ -20,9 +20,7 @@ import sys
 
 import pytest
 
-from hotato import cli
-from hotato import prcmd
-
+from hotato import cli, prcmd
 
 # --- a real promoted fixtures directory on disk ------------------------------
 

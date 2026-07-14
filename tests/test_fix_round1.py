@@ -31,16 +31,14 @@ import wave
 import pytest
 
 from hotato import capture as cap
-from hotato import cli
+from hotato import cli, mcp_server
 from hotato import compare as _compare
 from hotato import ingest as ing
-from hotato import mcp_server
 from hotato import verify as _verify
 from hotato.core import run_single
 from hotato.export import run_export
 from hotato.fixmap import classify_event, systemic_pointer
 from hotato.patch import build_patch
-
 
 SR = 16000
 
@@ -420,6 +418,7 @@ def test_patch_refuses_injected_assistant_id():
 
 def test_patch_curl_shell_quotes_the_body():
     import shlex
+
     from hotato.patch import _nest
     malicious = "3'; touch /tmp/pwned; echo 'done"
     plan = _propose_plan("vapi", "assistant-123", malicious)

@@ -10,11 +10,11 @@ the blob layer -- the tests below assert exactly that boundary, without
 overclaiming blob-layer isolation. A scoring worker holds no provider secret."""
 import json
 
-from hotato.fleet.registry import Registry
-from hotato.fleet.api import FleetAPI
-from hotato.fleet.jobs import JobQueue, idempotency_key
-from hotato.fleet.store import ArtifactStore
 from hotato.fleet import adapters
+from hotato.fleet.api import FleetAPI
+from hotato.fleet.jobs import idempotency_key
+from hotato.fleet.registry import Registry
+from hotato.fleet.store import ArtifactStore
 from tests import _trial_audio as ta
 
 

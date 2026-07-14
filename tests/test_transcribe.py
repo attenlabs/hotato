@@ -258,8 +258,8 @@ def test_transcribe_attaches_context_without_changing_any_timing_number(monkeypa
     attaching a transcript must never alter the timing verdict or measurements.
     Monkeypatches the (optional, absent-here) faster-whisper call with a fake
     Transcript so this is exercisable without the extra installed."""
-    from hotato import core
     import hotato.transcribe as T
+    from hotato import core
 
     path = _bundled("01-hard-interruption")
     baseline = core.run_single(stereo=path)

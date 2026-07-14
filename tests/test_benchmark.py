@@ -25,6 +25,8 @@ import os
 
 import pytest
 
+from hotato._engine.score import ScoreConfig
+from hotato._engine.vad import VADParams
 from hotato.benchmark import (
     ERROR_SIGNALS,
     default_fixture_sets,
@@ -35,8 +37,6 @@ from hotato.benchmark import (
     run_benchmark,
     write_artifacts,
 )
-from hotato._engine.score import ScoreConfig
-from hotato._engine.vad import VADParams
 
 
 def _no_hangover_cfg():

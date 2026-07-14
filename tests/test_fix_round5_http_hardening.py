@@ -37,7 +37,6 @@ import pytest
 from hotato import apply as _apply
 from hotato import capture as cap
 
-
 # --- #13: IncompleteRead (and sibling read-time disconnects) escape ---------
 
 class _RespRaisesOnRead:

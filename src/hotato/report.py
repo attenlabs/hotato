@@ -90,8 +90,6 @@ imports ``hotato.trace`` at module scope -- the trace is duck-typed as data.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import base64
 import html
 import math
@@ -102,12 +100,12 @@ from ._engine.score import ScoreConfig
 from ._stats import dist_summary
 from .core import (
     LIMITS,
-    SUITE_ID,
     _bundled_audio_path,
     dump_frames_for_input,
     run_single,
     run_suite,
 )
+from .errors import open_regular as _open_regular
 
 __all__ = ["build_report_html", "build_report_md", "write_report",
            "AUDIO_NONE", "AUDIO_SELF_CONTAINED", "AUDIO_REFERENCE"]
@@ -1771,7 +1769,7 @@ def _event_card(model: dict, audio_mode: str = AUDIO_NONE) -> str:
     exp = "yield" if model["expected_yield"] else "hold"
     did = "yes" if model["did_yield"] else "no"
 
-    parts = [f'<section class="card">']
+    parts = ['<section class="card">']
     parts.append('<div class="chead">')
     parts.append(
         f'<div><div class="ctitle">{_esc(title)}</div>'

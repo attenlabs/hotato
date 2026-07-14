@@ -34,14 +34,14 @@ lands the fixtures and the command that scores them read the same files.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 import re
 import shlex
 import subprocess
 from typing import List, Optional, Sequence
+
+from .errors import open_regular as _open_regular
 
 __all__ = [
     "load_fixtures",

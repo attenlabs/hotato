@@ -40,7 +40,6 @@ write); a local test recording server on ``127.0.0.1`` requires the documented
 from __future__ import annotations
 
 import math
-import os
 import time
 from typing import Any, Dict, Optional
 

@@ -29,8 +29,6 @@ recording's basename on a candidate card.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 from functools import lru_cache
@@ -39,7 +37,7 @@ from typing import List
 
 from . import evidence as _evidence
 from . import fixture as _fixture
-
+from .errors import open_regular as _open_regular
 
 # --- claim-language contract (src/hotato/data/evidence_language.json) ------
 #

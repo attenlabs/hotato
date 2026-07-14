@@ -22,7 +22,6 @@ import re as _re
 
 from ._engine.vad import BackendUnavailable
 
-
 _URL_IN_TEXT_RE = _re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+"
 )

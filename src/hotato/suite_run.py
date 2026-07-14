@@ -30,7 +30,6 @@ raised to >=1 by any SIMULATOR_INVALID run.
 
 from __future__ import annotations
 
-import copy
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -559,8 +558,8 @@ def render_report_md(result: Dict[str, Any]) -> str:
         f"- Release: `{result['release_id']}`",
         f"- inconclusive_policy: `{result['inconclusive_policy']}` "
         f"(required_for_release: {result['required_for_release']})",
-        f"- Origin: **simulated** (a scripted-caller simulation; a simulator's "
-        f"replay reliability is never production reliability)",
+        "- Origin: **simulated** (a scripted-caller simulation; a simulator's "
+        "replay reliability is never production reliability)",
         f"- Exit code: **{result['exit_code']}**",
         "",
         f"Tests: {c['tests']} ({c['passed_tests']} pass, {c['failed_tests']} fail, "

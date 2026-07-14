@@ -162,3 +162,67 @@ hotato = [
 # fail collection. testpaths bounds discovery to tests/ and makes CI match a local
 # `pytest tests/`.
 testpaths = ["tests"]
+
+# ---------------------------------------------------------------------------
+# Ruff: lint gate + declared format style.
+#
+# This is a RATCHET baseline, deliberately GREEN on the current tree, never a
+# red job (the CI `ruff` job in .github/workflows/tests.yml runs `ruff check`
+# against exactly this config). It is intended to be TIGHTENED over time by
+# removing entries from `lint.ignore` as the tree is brought into conformance,
+# not by loosening it. The value it locks in now: import ordering (I), pyflakes
+# correctness checks (F -- undefined names, unused imports, f-string mistakes,
+# redefinitions), the pycodestyle logic/syntax checks (E), and the flake8-bugbear
+# bug patterns (B), with only the currently-tripped noisy codes deferred below.
+[tool.ruff]
+# ruff's assumed syntax/target. The package's SUPPORTED runtime floor stays
+# >=3.9 (see requires-python above); py310 only tells ruff which language
+# features it may assume when checking -- it does not raise the shipped floor.
+target-version = "py310"
+line-length = 100
+# Webhook TEMPLATE fragments are code SNIPPETS assembled into a generated file,
+# not importable modules: they reference names (`json`, `os`, `hmac`,
+# `HTTPException`, `Request`, ...) supplied by the assembly context, so in
+# isolation every one is an "undefined name" (F821) even though the assembled
+# output is correct. They ship as package DATA (see package-data above), so
+# exclude them from linting rather than annotate each line.
+#
+# src/hotato/_engine is a VENDORED upstream mirror (barge_scoring) that
+# sync_engine.py keeps BYTE-IDENTICAL to its source; tests/test_engine_parity.py
+# hard-fails on any drift. It is not ours to restyle in place -- lint/format
+# changes there would break parity -- so it is excluded entirely. Upstream owns
+# its style; re-sync via `python sync_engine.py`, don't lint it here.
+extend-exclude = [
+    "src/hotato/templates/webhook/fragments",
+    "src/hotato/_engine",
+]
+
+[tool.ruff.lint]
+# Conservative, high-signal families. `UP` (pyupgrade) is intentionally NOT
+# selected: its dominant findings here are PEP 585 / PEP 604 annotation
+# rewrites (UP006/UP007/UP045 -> `list[str]`, `X | None`), which are evaluated
+# at runtime under the >=3.9 support floor and would break 3.9 without a
+# `from __future__ import annotations` sweep. Re-add `UP` once the floor moves
+# to 3.10, or after that sweep.
+select = ["E", "F", "I", "B"]
+# Currently-tripped codes, DEFERRED to keep the baseline green. Each is a
+# ratchet item: fix the occurrences, then delete the entry so the rule starts
+# gating. None of these is a correctness defect on the current tree.
+ignore = [
+    "E501", # line-too-long: the tree predates a ruff-format pass; enforcing a hard
+            # wrap now would force a whole-codebase reflow. Deferred to a formatting pass.
+    "E402", # module-import-not-at-top-of-file: a few files import after a deliberate
+            # preamble (guarded/late imports).
+    "E702", # multiple-statements-on-one-line (semicolon): compact `a; b` style in tests.
+    "E741", # ambiguous variable name (l/I/O).
+    "F841", # local variable assigned but never used (no runtime effect).
+    "B007", # loop control variable not used within the loop body.
+    "B011", # `assert False` (appears only in tests).
+    "B023", # function definition does not bind loop variable (reviewed: consumed in-iteration).
+    "B904", # `raise ... from` inside `except` (exception-chaining polish).
+    "B905", # `zip(..., strict=...)`: the `strict=` keyword only exists on Python
+            # 3.10+, but the package's SUPPORTED runtime floor is 3.9 (requires-python
+            # above). `target-version = "py310"` makes ruff surface (and its autofix
+            # would inject) `strict=False`, which raises TypeError on 3.9. Disabled
+            # until the runtime floor is 3.10.
+]

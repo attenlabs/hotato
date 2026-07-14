@@ -10,9 +10,10 @@ import copy
 import json
 import os
 
-import pytest
-
-from hotato import core, manifest as m, recompute as rc, evidence as ev
+from hotato import core
+from hotato import evidence as ev
+from hotato import manifest as m
+from hotato import recompute as rc
 from tests import _trial_audio as ta
 
 

@@ -18,13 +18,12 @@ already bound in that log.
 """
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import hashlib
 import hmac
 import os
 from typing import Optional
 
+from .errors import open_regular as _open_regular
 from .manifest import canonical_json
 
 SCHEMA_VERSION = "1"

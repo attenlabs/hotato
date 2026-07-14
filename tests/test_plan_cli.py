@@ -14,7 +14,6 @@ from hotato.core import run_suite
 from hotato.diagnose import diagnose_envelope
 from hotato.fixplan import build_plan
 
-
 # --- minimal envelope builders (same shapes as test_fixplan.py) ---------------
 
 def _event(event_id, *, expected_yield, did_yield, passed, reasons=(),

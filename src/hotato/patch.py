@@ -42,14 +42,12 @@ them). Field-name and endpoint basis, verified 2026-07-06:
 
 from __future__ import annotations
 
-import json
 import math
-
-from . import errors as _errors
 import re
 import shlex
 from typing import Optional
 
+from . import errors as _errors
 from . import fixmap as _fixmap
 
 SCHEMA_ID = "hotato.patch.v1"

@@ -10,7 +10,6 @@ em/en dashes, vendor-neutral).
 import copy
 import json
 import re
-
 from importlib import resources
 
 from hotato import cli, report

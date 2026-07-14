@@ -26,7 +26,6 @@ from hotato import conversation_test as CT
 from hotato import scenario as SC
 from hotato import simulate as SIM
 
-
 # --- the builder + packaged example -----------------------------------------
 
 def test_build_starter_round_trips_validates_and_renders_faithfully():

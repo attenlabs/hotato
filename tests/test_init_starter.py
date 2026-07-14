@@ -238,8 +238,8 @@ def test_gitignore_keeps_pinned_audio_committed(tmp_path, stack):
 
 def _describe_manifest():
     out = cli.main
-    import io
     import contextlib
+    import io
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):

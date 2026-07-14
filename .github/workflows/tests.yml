@@ -23,6 +23,50 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: python -m pytest -q
 
+  # Lint gate (RATCHET). Runs Ruff against the config baked into pyproject.toml
+  # ([tool.ruff]): `ruff check` is the enforced gate. It is a deliberately GREEN
+  # baseline -- never a red job -- tightened over time by shrinking
+  # `lint.ignore` in pyproject, not by loosening it. `ruff format` style is
+  # declared in the same config for local use and a future one-time
+  # normalization pass; whole-tree `ruff format --check` is intentionally NOT
+  # gated here yet because the tree predates ruff-format and enforcing it now
+  # would require reformatting nearly every file. Kept a separate job,
+  # ubuntu-latest, one python, mirroring the sdist-guard structure.
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.13.0
+      - run: ruff --version
+      - run: ruff check src tests
+
+  # MCP-server contract exercised WITH the optional MCP SDK installed. The
+  # default `pytest` job installs only ".[dev]", so the MCP tool-registration
+  # and initialize/version checks in test_mcp_parity.py SKIP there (they guard
+  # on `import mcp`). This job installs the `mcp` extra so those checks actually
+  # RUN: the server imports, its twelve tools register against the in-module
+  # inventory tuple, the scoring tool's envelope matches the CLI core, and the
+  # fleet tools' shapes hold. Deterministic and fast (stdio/local, no network,
+  # no models). Separate job, ubuntu-latest, one python.
+  mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,mcp]"
+      - run: >-
+          python -m pytest -q
+          tests/test_mcp_parity.py
+          tests/test_mcp_fleet_tools.py
+          tests/test_mcp_new_tools.py
+          tests/test_mcp_doc_inventory.py
+          tests/test_mcp_report_path.py
+
   # Cross-platform coverage, added 2026-07-10. The determinism claim in the
   # docs was previously scoped to "Linux x86_64" only because that is all this
   # matrix ran; this job extends the FULL suite to macOS and Windows so that

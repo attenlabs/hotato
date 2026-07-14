@@ -23,12 +23,12 @@ The stored shape is ``{stack: {field: value, ...}, ...}`` -- e.g.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 import tempfile
 from typing import Dict, List, Optional
+
+from .errors import open_regular as _open_regular
 
 __all__ = [
     "home_dir",
