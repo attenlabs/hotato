@@ -16,7 +16,6 @@ from .model import (
     PRESERVED,
     UNRESOLVED,
     CounterexampleRefusal,
-    digest_obj,
     prefixed_digest,
 )
 

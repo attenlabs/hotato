@@ -19,7 +19,6 @@ from hotato.counterexample import (
 )
 from hotato.counterexample.model import canonical_json, prefixed_digest
 
-
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "counterexample")
 SCENARIO = os.path.join(FIXTURES, "pii.scenario.json")
 TEST = os.path.join(FIXTURES, "pii.test.json")

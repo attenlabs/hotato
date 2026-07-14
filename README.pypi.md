@@ -252,6 +252,7 @@ Configs and the tool contract: [`docs/MCP.md`](https://github.com/attenlabs/hota
 | Verify contracts in CI | `hotato contract verify contracts/ --junit contracts-junit.xml` |
 | Attach observability traces to a contract | `hotato trace attach contracts/refund-cutoff-001.hotato --trace voice_trace.jsonl` ([`docs/TRACE.md`](https://github.com/attenlabs/hotato/blob/main/docs/TRACE.md)) |
 | Test a candidate fix, before/after, fail-closed | `hotato fix trial patch.json --name staging-x --before before/ --after after/` ([`docs/FIX-TRIAL.md`](https://github.com/attenlabs/hotato/blob/main/docs/FIX-TRIAL.md)) |
+| Reduce a scripted deterministic failure to a verified repro | `hotato counterexample compile --scenario case.json --test test.json --target assertion-id --out case.hotato-repro` ([`docs/COUNTEREXAMPLES.md`](https://github.com/attenlabs/hotato/blob/main/docs/COUNTEREXAMPLES.md)) |
 | Share a finding in a PR or slide | `hotato card hotato-sweep.json#1 --out finding.svg` |
 | Drive it from a coding agent | `uvx --from "hotato[mcp]" hotato-mcp` ([`docs/MCP.md`](https://github.com/attenlabs/hotato/blob/main/docs/MCP.md)) |
 

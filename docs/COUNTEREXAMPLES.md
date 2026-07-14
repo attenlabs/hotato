@@ -32,8 +32,8 @@ The v1 boundary is narrow:
 
 The compiler does not invoke a voice agent, provider, model, TTS service, STT
 service, command oracle, or network endpoint. Its result describes the
-scripted fixture under the pinned Hotato evaluator. It does not establish the
-behavior of a deployed agent.
+scripted fixture under the recorded Hotato evaluator source identity. It does
+not establish the behavior of a deployed agent.
 
 ## Run the example
 
@@ -65,7 +65,9 @@ hotato counterexample reproduce /tmp/refund-not-posted.hotato-repro
 ```
 
 `--out` must name a path that does not exist. Compilation builds a sibling
-temporary directory and moves the completed capsule into place atomically.
+temporary directory and promotes it with an operating-system no-replace
+primitive. Linux, macOS, and Windows have explicit implementations; an
+unsupported platform refuses instead of falling back to an overwriting move.
 
 ## Source and target selection
 
@@ -155,8 +157,9 @@ This is a local claim over the named deletion algebra. It is not a global
 minimum, a root-cause determination, or a semantic-equivalence claim. A
 remaining deletion can make the target `PASS`, change the typed failure
 witness, invalidate the scenario, or make required evidence unavailable. All
-of those outcomes mean that deletion did not preserve the pinned failure; the
-individual outcome remains recorded in `minimality.json`.
+of those outcomes mean that deletion did not preserve the recorded exact
+failure identity; the individual outcome remains recorded in
+`minimality.json`.
 
 ## Budgets
 
@@ -214,12 +217,44 @@ case.hotato-repro/
 ```
 
 `MANIFEST.sha256.json` binds every other file. The capsule ID also binds the
-proof-relevant documents and their digests. Verification rejects missing,
-changed, extra, symlinked, or unsafe members.
+proof-relevant documents and their digests. Strict verification rejects
+missing, changed, extra, symlinked, or unsafe members and independently
+re-renders `report.md`, `report.html`, `card.svg`, `reproduce.sh`, and
+`predicate.sh` before accepting their bytes.
 
 The Markdown, HTML, and SVG reports summarize identifiers, proof status, and
-reduction counts. They are projections of the capsule; they do not replace
-verification.
+reduction counts. They are bound, reproducible projections of the capsule;
+they do not replace verification.
+
+### Resource and local-filesystem boundary
+
+Verification refuses a capsule before replay when it exceeds any of these
+limits:
+
+- 1,024 files;
+- 4,096 directories;
+- 64 directory levels;
+- 64 MiB for one member;
+- 256 MiB across all members.
+
+Each source JSON file is limited to 16 MiB and 96 JSON levels. The scripted
+scenario also caps caller turns and mock tools at 10,000 each.
+
+The capsule directory must remain unchanged for the duration of `verify`,
+`reproduce`, `inspect`, or `export`. Persistent mutation, a root replacement,
+and symlink or special-file substitution are detected. A privileged local
+process that can swap bytes between individual reads and restore them before
+the final manifest pass is outside this version's proof snapshot. Copy an
+untrusted capsule into a private, non-writable workspace before verification.
+
+### What the journal proves
+
+`certificate.json` and the `PRESERVED` rows in `reduction.jsonl` carry the
+accepted delete-only chain. Strict verification reconstructs those transforms
+and reruns the final single-unit deletion inventory for a `one_minimal` claim.
+`ABSENT`, `DRIFTED`, and `UNRESOLVED` journal rows are diagnostic reduction
+history. Their candidate payloads are not part of the accepted proof chain and
+are not independently replayed by `verify`.
 
 ## Verify, reproduce, and inspect
 
@@ -227,13 +262,17 @@ These commands answer different questions.
 
 | Command | Question | Evaluator rule | Work performed |
 |---|---|---|---|
-| `verify` | Is this the same intact proof produced by the recorded evaluator? | Recorded evaluator digest must match the installed implementation. | Replays source and final cases twice, reconstructs every accepted deletion, checks the exact failure identity and expected result, and recomputes claimed single-unit minimality. |
+| `verify` | Is this the same intact proof produced by the recorded evaluator source? | Recorded package version and evaluator source digest must match the installed implementation. | Replays source and final cases twice, reconstructs every accepted deletion, checks the exact failure identity and expected result, re-renders derived artifacts, and recomputes claimed single-unit minimality. |
 | `reproduce` | Does the reduced fixture still produce the exact typed failure under the installed evaluator? | Evaluator drift is allowed and reported. | Checks capsule integrity and the delete-only chain, then runs the reduced fixture twice. It does not reassert historical intermediate verdicts or renew the original minimality proof under changed code. |
 | `inspect` | What does the intact capsule claim? | No evaluator execution. | Checks the manifest and capsule schema, then prints target, reduction, minimality, preservation, and profile metadata. |
 
-Use `verify` for proof audit and artifact integrity with the pinned Hotato
-implementation. Use `reproduce` when evaluating the frozen reduced fixture
-after Hotato evaluator or simulator code changes.
+Use `verify` for proof audit and artifact integrity with the recorded Hotato
+package version and evaluator source closure. The evaluator digest does not
+bind the Python interpreter build, operating system, CPU, or native libraries.
+Strict replay still compares the recorded result, content, and trace hashes,
+so a runtime difference that changes evaluator behavior fails verification.
+Use `reproduce` when evaluating the frozen reduced fixture after Hotato
+evaluator or simulator code changes.
 
 `reproduce` returning `0` means the failure was reproduced. That success code
 answers the reproduction question; it is the inverse of a conventional
@@ -305,7 +344,7 @@ to `git bisect run` semantics:
 
 ## CI and evaluator bisect boundaries
 
-### Pinned proof audit
+### Recorded-evaluator proof audit
 
 Use `verify` when CI installs the Hotato evaluator recorded in the capsule:
 
@@ -313,9 +352,11 @@ Use `verify` when CI installs the Hotato evaluator recorded in the capsule:
 hotato counterexample verify tests/repros/refund-not-posted.hotato-repro
 ```
 
-This detects capsule mutation and proof drift. A changed evaluator digest is a
-refusal (`2`), because a different implementation cannot silently validate the
-historical proof.
+This detects capsule mutation and evaluator-source drift. A changed evaluator
+digest is a refusal (`2`), because a different implementation cannot silently
+validate the historical proof. Interpreter and platform identity are not part
+of that digest; the replayed result, content, and trace hashes remain the
+behavioral check across runtimes.
 
 ### Current-evaluator regression
 
@@ -338,7 +379,7 @@ git bisect run /absolute/path/to/refund-not-posted.hotato-repro/predicate.sh
 ```
 
 This can locate the revision where Hotato evaluator or scripted-simulator
-behavior begins reproducing the pinned failure. The capsule retains its own
+behavior begins reproducing the recorded failure. The capsule retains its own
 source and reduced inputs, so changes to external scenario/test files are not
 part of the predicate. A revision that cannot load or evaluate the capsule is
 skipped with `125`.

@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import ctypes
 import errno
-import hashlib
 import json
 import os
 import posixpath
@@ -283,23 +282,23 @@ def _load_inputs(
 
 def _evaluator_digest() -> str:
     """Pin every local module that can change the scripted target verdict."""
+    import importlib
+
     from .. import __name__ as package_name
     from .. import assert_ as assertion_module
+    from .. import conversation as conversation_module
     from .. import conversation_test as conversation_test_module
+    from .. import errors as errors_module
     from .. import scenario as scenario_module
     from .. import simulate as simulate_module
     from .. import state_adapter as state_module
     from .. import synth as synth_module
-    from .. import conversation as conversation_module
     from .. import trace as trace_module
-    from .. import errors as errors_module
     from . import model as counterexample_model_module
     from . import oracle as counterexample_oracle_module
     from . import reducers as counterexample_reducers_module
     from . import render as counterexample_render_module
     from . import search as counterexample_search_module
-
-    import importlib
 
     package_module = importlib.import_module(package_name)
 

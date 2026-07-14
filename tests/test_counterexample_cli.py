@@ -8,7 +8,6 @@ import shutil
 
 from hotato import cli
 
-
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "counterexample")
 
 
