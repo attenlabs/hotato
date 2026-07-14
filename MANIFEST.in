@@ -39,16 +39,6 @@ include NOTICE
 include Dockerfile docker-compose.yml .dockerignore
 recursive-include deploy *
 
-# Internal, gitignored demonstration artifacts (curated 2026-07-05 in
-# .gitignore): kept local, never published. MANIFEST.in reads the working
-# tree, not git, so without these excludes a locally-built sdist ships files
-# that a clean checkout (and the CI sdist-guard) never sees -- the 0.3.1
-# sdist did exactly that.
-exclude docs/SAA-FIX-POINTER.md
-exclude docs/SAA-BEHAVIOR-CARD.md
-exclude docs/saa_behavior_card.py
-exclude tests/test_saa_card.py
-
 # Corpus and examples: ship the SMALL, non-audio test dependencies so the
 # shipped test suite collects and runs from an extracted sdist, while keeping
 # the heavy real and rendered audio pruned. The extension filters below match
@@ -56,8 +46,24 @@ exclude tests/test_saa_card.py
 # never match *.wav, so no heavy audio is carried. Suite and class audio is
 # regenerated deterministically by tests/conftest.py (seed = sha256(id)) when
 # absent; tests that need genuinely-absent heavy real audio skip cleanly.
-recursive-include corpus *.json *.py *.md *.txt *.html
+recursive-include corpus *.json *.py *.md *.html
 recursive-include examples *.json *.py *.md *.sh *.yaml
+
+# Generated-at-run-time output (gitignored, regenerates on demand) that the
+# include filters above would otherwise sweep up from a working tree where
+# tests or the reference agent have run -- the 1.6.1/1.6.2 sdists shipped
+# 1,151 files under examples/reference-agent/.out/ this way. MANIFEST.in
+# reads the working tree, not git, so these prunes are only the belt: the
+# canonical release build (scripts/build_release.py) exports `git archive
+# HEAD` into a fresh directory, and the tag-faithfulness test in
+# tests/test_release_supply_chain.py asserts every sdist member is a
+# git-tracked path. Generated corpus renders that land NEXT TO tracked files
+# in corpus/suites/ and corpus/classes/ cannot be pattern-separated here at
+# all; only that clean-tree build path keeps them out.
+prune examples/reference-agent/.out
+prune examples/reference-agent/.workspace
+prune corpus/suites/*/audio
+prune corpus/classes/*/audio
 # the schema example's small stereo wav is the validator's PASS fixture, not
 # heavy audio (~0.4 MB); ship it so test_corpus_validate has its example.
 include corpus/examples/sample-contribution.example.wav

@@ -19,11 +19,13 @@ present (e.g. a minimal sdist without them), rather than hard-failing.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
 
 import pytest
 
@@ -325,3 +327,102 @@ def test_fallback_publish_path_mirrors_canonical_toolchain():
         f"canonical={canonical_pins}, fallback={fallback_pins}"
     )
     assert "twine check --strict" in fallback, "manual fallback must retain strict metadata checks"
+
+
+# ---------------------------------------------------------------------------
+# (h) tag-faithfulness: an sdist built from `git archive HEAD` contains ONLY
+#     git-tracked paths (modulo the build-generated PKG-INFO / setup.cfg /
+#     *.egg-info members). The published 1.6.1 and 1.6.2 sdists carried ~1,300
+#     generated working-tree files (1,151 under examples/reference-agent/.out/
+#     plus untracked corpus renders) because the release was built in place;
+#     generated corpus files land NEXT TO tracked ones, so MANIFEST.in patterns
+#     cannot separate them -- this member-level check is the enforcement, and
+#     scripts/build_release.py is the build path that satisfies it by
+#     construction. Builds one sdist with the declared PEP 517 backend
+#     (setuptools.build_meta, a dev dependency), bounded well under a minute;
+#     skips cleanly outside a git checkout (e.g. CI's extracted-sdist run).
+# ---------------------------------------------------------------------------
+def _git(*args):
+    return subprocess.run(
+        ["git", "-C", ROOT, *args], capture_output=True, check=False
+    )
+
+
+# Members setuptools generates into every sdist; everything else must be a
+# git-tracked path.
+_BUILD_GENERATED = ("PKG-INFO", "setup.cfg")
+
+
+def test_sdist_from_git_archive_ships_only_tracked_paths(tmp_path):
+    try:
+        head = _git("rev-parse", "--verify", "HEAD")
+    except FileNotFoundError:
+        pytest.skip("git is not available")
+    if head.returncode != 0:
+        pytest.skip("not a git checkout (extracted sdist?)")
+    setuptools = pytest.importorskip("setuptools")
+    if int(setuptools.__version__.split(".")[0]) < 77:
+        pytest.skip("building needs setuptools >= 77 (PEP 639 metadata)")
+
+    tracked = set(
+        _git("ls-tree", "-r", "--name-only", "HEAD")
+        .stdout.decode("utf-8")
+        .splitlines()
+    )
+    assert tracked, "git ls-tree returned no tracked paths"
+
+    src = tmp_path / "src"
+    src.mkdir()
+    archive = _git("archive", "--format=tar", "HEAD")
+    assert archive.returncode == 0, archive.stderr.decode("utf-8", "replace")
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tf:
+        if hasattr(tarfile, "data_filter"):
+            tf.extractall(src, filter="data")
+        else:  # pragma: no cover -- pre-3.12 interpreters
+            tf.extractall(src)
+
+    out = tmp_path / "dist"
+    out.mkdir()
+    built = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from setuptools import build_meta; "
+            "print(build_meta.build_sdist(sys.argv[1]))",
+            str(out),
+        ],
+        cwd=src,
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, (
+        f"sdist build failed:\n{built.stdout}\n{built.stderr}"
+    )
+    sdists = sorted(out.glob("*.tar.gz"))
+    assert len(sdists) == 1, f"expected exactly one sdist, got {sdists}"
+
+    with tarfile.open(sdists[0]) as tf:
+        member_paths = [m.name for m in tf.getmembers() if m.isfile()]
+    assert member_paths, "sdist has no file members"
+
+    # The H-01 signature first, by name, so a regression reads instantly.
+    out_members = [p for p in member_paths if "/.out/" in p]
+    assert not out_members, (
+        "sdist carries generated reference-agent output "
+        f"(examples/reference-agent/.out/): {out_members[:5]} ..."
+    )
+
+    untracked = []
+    for path in member_paths:
+        rel = path.split("/", 1)[1] if "/" in path else path
+        if rel in _BUILD_GENERATED or ".egg-info" in rel:
+            continue
+        if rel not in tracked:
+            untracked.append(rel)
+    assert not untracked, (
+        f"{len(untracked)} sdist member(s) are not git-tracked paths -- a "
+        "release built this way would ship working-tree contamination "
+        "(H-01: 1.6.1/1.6.2 shipped generated .out/ and corpus files). "
+        "Build releases with scripts/build_release.py. First offenders: "
+        + ", ".join(untracked[:10])
+    )

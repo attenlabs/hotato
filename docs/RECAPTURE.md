@@ -6,7 +6,7 @@ fail only on changed evidence, policy, or scorer -- never because your
 deployed agent changed. Proving the CURRENT agent still avoids a bug takes
 a NEW recording of the same caller stimulus, scored the same way: this
 page is the manual walkthrough. See the two-lane table in
-[`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it)
+[`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-same-command-two-different-proofs)
 for the guarantee each lane gives.
 
 Reproducing a caller's stimulus against a live agent is a human task:
@@ -138,7 +138,7 @@ what you have:
 - Overclaim to avoid: "The deployed agent no longer has this bug." A pass
   here fails only if the evidence, policy, or scorer changed -- never
   because the deployed agent changed. See the two-lane table in
-  [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it).
+  [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-same-command-two-different-proofs).
 
 **Separately captured current-agent take**
 - How you get it: Steps 1-5 above, standalone (no paired before/after).
@@ -233,10 +233,10 @@ note at length, in the context of the automated guard it applies to.
 ## Read more
 
 - The two-lane distinction this page exists to close:
-  [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it)
+  [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-same-command-two-different-proofs)
 - The automated before/after path for clone-appliable stacks:
   [`docs/FIX-TRIAL.md`](FIX-TRIAL.md) · [`docs/APPLY.md`](APPLY.md)
 - Battery-scale before/after proof, coincidence not causation:
   [`docs/FIX-LOOP.md`](FIX-LOOP.md)
-- What a contract does and does not prove:
-  [`docs/CONTRACTS.md`](CONTRACTS.md#what-a-contract-does-not-prove)
+- What a contract proves, precisely:
+  [`docs/CONTRACTS.md`](CONTRACTS.md#what-a-contract-proves-precisely)
