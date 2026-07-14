@@ -1,13 +1,6 @@
 <div align="center">
 
-<pre>
-               ) )   ( (
-              ( (     ) )
- __           __          __
-|  |--.-----.|  |_.---.-.|  |_.-----.
-|     |  _  ||   _|  _  ||   _|  _  |
-|__|__|_____||____|___._||____|_____|
-</pre>
+<img src=".github/assets/hotato-banner.svg" alt="hotato" width="440">
 
 <h1>hotato</h1>
 
