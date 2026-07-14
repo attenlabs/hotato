@@ -4,8 +4,8 @@
 every one synthetic shaped noise rendered deterministically from its own
 labelled timings (seed `sha256(scenario_id)`). The timings are the ground
 truth. Synthetic audio is the floor: these suites prove the scorer runs end to
-end and catch regressions; validity on your system comes from your own labelled
-calls (`docs/SUBMITTING.md`).
+end and catch regressions. Validity on your system comes from your own labelled
+calls ([`docs/SUBMITTING.md`](SUBMITTING.md)).
 
 ## The four suites
 
@@ -16,27 +16,25 @@ calls (`docs/SUBMITTING.md`).
 | `gold` | 40 | hard conditions: noise floors, 8 kHz, gain extremes, echo, edge timings, endurance | `0` |
 | `gold-defects` | 16 | hard-condition defect renders, plus two labelled capture-defect cases | `1` |
 
-The scenario families span the behaviours that matter on a real call: hard
-interruptions (onset, speed, duration, resume), backchannels, short
-acknowledgements like "mhm" that the agent should talk through (varied in
-position, density, repeats, and length), double-talk, one-word interruptions,
-stutter onsets, multi-turn exchanges, resume-then-reinterrupt, and latency
-prompts.
-`corpus/suites/manifest.json` is the machine-readable inventory: per suite the
-family and category breakdown, sample rates, and the expected exit code.
+Scenario families span what matters on a real call: hard interruptions (onset,
+speed, duration, resume), backchannels, short acknowledgements like "mhm" the
+agent should talk through (varied in position, density, repeats, length),
+double-talk, one-word interruptions, stutter onsets, multi-turn exchanges,
+resume-then-reinterrupt, and latency prompts. `corpus/suites/manifest.json` is
+the machine-readable inventory: per suite the family and category breakdown,
+sample rates, and expected exit code.
 
 ## Defect suites fail by design
 
-Every scenario in `silver-defects` and `gold-defects` is rendered to fail on
-its labelled axis: an agent that keeps talking through a real interruption, or
-stops for a backchannel, or misses its latency budget. A defect suite that
-exits `1` is the scorer catching what it claims to catch; a defect suite that
-exits `0` would be a bug. This is the negative control the positive suites
-need to mean anything.
+Every `silver-defects` / `gold-defects` scenario is rendered to fail on its
+labelled axis: an agent that keeps talking through a real interruption, or stops
+for a backchannel, or misses its latency budget. A defect suite that exits `1`
+is the scorer catching what it claims to; a defect suite that exits `0` would be
+a bug. This is the negative control the positive suites need to mean anything.
 
 ## Run a suite
 
-Any suite is just a scenarios directory plus an audio directory:
+A suite is just a scenarios directory plus an audio directory:
 
 ```bash
 hotato run --suite barge-in \
@@ -47,7 +45,7 @@ hotato run --suite barge-in \
 The same directories plug into every other surface: `hotato report ... --out
 report.html` for the visual report, `hotato export ... --out research/` for
 CSVs, and `pytest --hotato-suite --hotato-suite-scenarios ... --hotato-suite-audio ...`
-for the session gate (`docs/PYTEST.md`).
+for the session gate ([`docs/PYTEST.md`](PYTEST.md)).
 
 ## Deterministic builder
 
@@ -59,32 +57,37 @@ python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte
 ```
 
 `--check` regenerating byte-identical output is the reproducibility guarantee:
-the audio on disk is exactly what the labelled timings say it is, deterministic
-for a fixed hotato version (byte-identical re-runs verified in CI on Linux
-x86_64, Python 3.10, 3.11, and 3.12; also now checked, not yet green, on macOS
-and Windows -- see `.github/workflows/tests.yml`, jobs `portability` and
-`determinism`). CI can run it as a drift gate.
+the audio on disk is exactly what the labelled timings say, deterministic for a
+fixed hotato version (byte-identical re-runs verified in CI on Linux x86_64,
+Python 3.10, 3.11, 3.12; also now checked, not yet green, on macOS and Windows
+-- see `.github/workflows/tests.yml`, jobs `portability` and `determinism`). CI
+can run it as a drift gate.
 
 ## Additive scenario classes
 
-`corpus/classes/` ships four small, deterministic classes on top of the four
-suites above, built the same way (synthetic shaped noise, seed
-`sha256(scenario_id)`, `--check` byte-compares a rebuild): `mid-utterance-pause`
-(a multi-second thinking gap mid-turn, distinct from a true turn end), `backchannel-multilingual`
-(short non-English acknowledgement tokens, since Hotato's energy-based VAD
-treats them the same as English ones), `noise-hold` (sustained background
-presence, distinct from a brief backchannel, that the agent should hold through), and
-`telephony-degraded` (an existing gold scenario re-rendered through G.711
-mu-law plus a fixed packet-loss schedule, to prove the verdict is stable
-across codec degradation). Kept separate from `corpus/suites/` because
-`mid-utterance-pause` needs a non-default `turn_end_silence_sec` beyond what the
-generic suite tests apply. Full per-class detail: `corpus/classes/README.md`.
+`corpus/classes/` ships four small, deterministic classes on top of the suites
+above, built the same way (synthetic shaped noise, seed `sha256(scenario_id)`,
+`--check` byte-compares a rebuild):
+
+- `mid-utterance-pause` -- a multi-second thinking gap mid-turn, distinct from a
+  true turn end.
+- `backchannel-multilingual` -- short non-English acknowledgement tokens, since
+  Hotato's energy-based VAD treats them the same as English ones.
+- `noise-hold` -- sustained background presence, distinct from a brief
+  backchannel, that the agent should hold through.
+- `telephony-degraded` -- an existing gold scenario re-rendered through G.711
+  mu-law plus a fixed packet-loss schedule, to prove the verdict is stable
+  across codec degradation.
+
+Kept separate from `corpus/suites/` because `mid-utterance-pause` needs a
+non-default `turn_end_silence_sec` beyond what the generic suite tests apply.
+Full per-class detail: `corpus/classes/README.md`.
 
 ## Against a live stack
 
-To run scenario audio through a real voice stack and score what comes back,
-see [`docs/BENCHMARK-STACKS.md`](BENCHMARK-STACKS.md). Measurement-error
-methodology for the scorer itself is in [`docs/BENCHMARK.md`](BENCHMARK.md).
+To run scenario audio through a real voice stack and score what comes back, see
+[`docs/BENCHMARK-STACKS.md`](BENCHMARK-STACKS.md). Measurement-error methodology
+for the scorer itself is in [`docs/BENCHMARK.md`](BENCHMARK.md).
 
 ## Contribute scenarios
 
