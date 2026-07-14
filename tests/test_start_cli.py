@@ -135,7 +135,7 @@ def test_start_demo_prints_verified_contract_fail_as_expected(tmp_path, capsys):
     rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "verified contract: FAIL as expected" in out
+    assert "re-scored FAIL, by design" in out
 
 
 def test_start_demo_scopes_the_ci_gate_to_evidence_and_policy(tmp_path, capsys):
@@ -145,9 +145,9 @@ def test_start_demo_scopes_the_ci_gate_to_evidence_and_policy(tmp_path, capsys):
     rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert ("a CI gate on this contract catches any change to the evidence "
-            "or policy") in out
-    assert "catching the AGENT regressing requires a fresh recapture" in out
+    assert "CI gate flags any" in out
+    assert "later change to its evidence or policy" in out
+    assert "improved uses a fresh recapture" in out
     assert "docs/RECAPTURE.md" in out
     assert "exact failure a CI regression gate would catch" not in out
 
@@ -160,8 +160,8 @@ def test_start_demo_explains_its_own_exit_0(tmp_path, capsys):
     rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert ("start --demo itself exits 0 because setup succeeded" in out)
-    assert "run the next command to see the contract's CI exit 1" in out
+    assert "Setup finished, so start --demo exits 0" in out
+    assert "gate return exit 1" in out
     assert "hotato contract verify contracts/" in out
 
 

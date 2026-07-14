@@ -1119,8 +1119,8 @@ def render_create_text(result: dict) -> str:
         lines.append(f"  passed:   {m['passed']}")
         lines.append(
             f"  measured: did_yield={m['did_yield']} "
-            f"seconds_to_yield={m['seconds_to_yield']} "
-            f"talk_over={m['talk_over_sec']}"
+            f"seconds_to_yield={_report._s(m['seconds_to_yield'])} "
+            f"talk_over={_report._s(m['talk_over_sec'])}"
         )
         if m["indicative_only"]:
             lines.append("  note:     indicative only (diarized-mono, below "
@@ -1528,6 +1528,19 @@ def _assertions_text_line(r: dict) -> Optional[str]:
     return line
 
 
+# Display-only relabel of the stored `authenticity` field for the human-facing
+# `contract verify` / `contract unpack` text and HTML. The JSON field and the
+# schema are unchanged; this only maps its four states to words that read as an
+# evidence state on a first run: a fresh unsigned bundle whose canonical digest
+# matches reads as `intact`, and a tampered one stays loud.
+_INTEGRITY_LABEL = {
+    "authenticated": "signed",
+    "unsigned": "intact",
+    "unattested": "unverified",
+    "tampered": "tampered",
+}
+
+
 def render_verify_text(v: dict) -> str:
     lines = [
         f"hotato contract verify: {v['dir']} ({v['count']} contract"
@@ -1538,7 +1551,7 @@ def render_verify_text(v: dict) -> str:
         if not r["scorable"]:
             lines.append(
                 f"  [NOT SCORABLE] {r['id']}: {r['not_scorable_reason']} "
-                f"| authenticity: {auth}"
+                f"| integrity: {_INTEGRITY_LABEL.get(auth, auth)}"
             )
         elif not r.get("verdict_eligible", True):
             # K6: REFUSED, distinct from FAIL -- the engine found the audio
@@ -1546,7 +1559,7 @@ def render_verify_text(v: dict) -> str:
             # contract-mode crosstalk/leakage), so no verdict is invented.
             lines.append(
                 f"  [REFUSED] {r['id']} (expect {r['expect']}): "
-                f"{r.get('verdict_ineligible_reason')} | authenticity: {auth}"
+                f"{r.get('verdict_ineligible_reason')} | integrity: {_INTEGRITY_LABEL.get(auth, auth)}"
             )
         else:
             mark = "PASS" if r["passed"] else "FAIL"
@@ -1554,9 +1567,9 @@ def render_verify_text(v: dict) -> str:
             lines.append(
                 f"  [{mark}] {r['id']} (expect {r['expect']}): "
                 f"did_yield={m['did_yield']} "
-                f"seconds_to_yield={m['seconds_to_yield']} "
-                f"talk_over={m['talk_over_sec']} "
-                f"| authenticity: {auth}"
+                f"seconds_to_yield={_report._s(m['seconds_to_yield'])} "
+                f"talk_over={_report._s(m['talk_over_sec'])} "
+                f"| integrity: {_INTEGRITY_LABEL.get(auth, auth)}"
             )
             if auth == "tampered":
                 lines.append(
@@ -1664,8 +1677,8 @@ def render_verify_html(v: dict) -> str:
             mark = "PASS" if r["passed"] else "FAIL"
             color = "#74c98a" if r["passed"] else "#e0664f"
             detail = (f"did_yield={m['did_yield']} "
-                     f"seconds_to_yield={m['seconds_to_yield']} "
-                     f"talk_over={m['talk_over_sec']}")
+                     f"seconds_to_yield={_report._s(m['seconds_to_yield'])} "
+                     f"talk_over={_report._s(m['talk_over_sec'])}")
         auth = r.get("authenticity", "unattested")
         acolor = "#e0664f" if auth == "tampered" else (
             "#74c98a" if auth == "authenticated" else "#b7ab97")
@@ -1683,7 +1696,7 @@ def render_verify_html(v: dict) -> str:
             f'<td>{esc(r["expect"])}</td>'
             f'<td style="color:{color};font-weight:700">{mark}</td>'
             f'<td class="mono">{esc(detail)}</td>'
-            f'<td style="color:{acolor};font-weight:600">{esc(auth)}</td>'
+            f'<td style="color:{acolor};font-weight:600">{esc(_INTEGRITY_LABEL.get(auth, auth))}</td>'
             f'<td style="color:{acolor2};font-weight:600">{esc(amark)}</td></tr>'
         )
     s = v["summary"]
@@ -1705,7 +1718,7 @@ def render_verify_html(v: dict) -> str:
         f'<p>{esc(v["dir"])}: {s["passed"]}/{v["count"]} contracts pass.</p>'
         f'<p style="color:#e8c547;font-weight:600">{esc(_STORED_EVIDENCE_CAVEAT)}</p>'
         '<table><thead><tr><th>id</th><th>expect</th><th>result</th>'
-        '<th>measured</th><th>authenticity</th><th>assertions</th></tr></thead><tbody>'
+        '<th>measured</th><th>integrity</th><th>assertions</th></tr></thead><tbody>'
         + "".join(rows)
         + "</tbody></table>"
         f'<p style="color:#b7ab97;font-size:12.5px;margin-top:18px">'
@@ -1740,8 +1753,8 @@ def render_inspect_text(contract: dict) -> str:
     if m["scorable"]:
         lines.append(
             f"  measured:  did_yield={m['did_yield']} "
-            f"seconds_to_yield={m['seconds_to_yield']} "
-            f"talk_over={m['talk_over_sec']} passed={m['passed']}"
+            f"seconds_to_yield={_report._s(m['seconds_to_yield'])} "
+            f"talk_over={_report._s(m['talk_over_sec'])} passed={m['passed']}"
         )
         if m["indicative_only"]:
             lines.append("  note:      indicative only (diarized-mono)")
@@ -2178,7 +2191,7 @@ def render_unpack_text(result: dict) -> str:
     return (
         f"unpacked {result['archive']} -> {result['path']} "
         f"({result['files']} files, sha256-verified; "
-        f"authenticity: {result.get('authenticity', 'unattested')})"
+        f"integrity: {_INTEGRITY_LABEL.get(result.get('authenticity', 'unattested'), 'unverified')})"
     )
 
 

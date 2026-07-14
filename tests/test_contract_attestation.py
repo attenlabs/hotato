@@ -88,9 +88,9 @@ def test_verify_reports_unsigned_for_a_fresh_bundle(tmp_path, monkeypatch, capsy
     assert r["authenticated"] is False
     assert v["exit_code"] == 0          # unsigned does NOT fail the batch
     text = _contract.render_verify_text(v)
-    assert "authenticity: unsigned" in text
+    assert "integrity: intact" in text
     # never mislabels an unsigned bundle as authenticated
-    assert "authenticity: authenticated" not in text
+    assert "integrity: signed" not in text  # unsigned bundle must not read as signed
 
 
 # --- (b) a loosened policy without a re-digest is caught as tampered --------

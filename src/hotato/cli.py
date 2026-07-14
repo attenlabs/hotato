@@ -773,10 +773,12 @@ def _emit(env: dict, fmt: str) -> None:
             continue
         mark = "PASS" if v["passed"] else "FAIL"
         tty = v["seconds_to_yield"]
-        tty_s = "-" if tty is None else f"{tty:.2f}s"
+        tty_s = "n/a" if tty is None else f"{tty:.2f}s"
+        tov = v["talk_over_sec"]
+        tov_s = "n/a" if tov is None else f"{tov:.2f}s"
         print(
             f"  [{mark}] {e['event_id']}: did_yield={v['did_yield']} "
-            f"seconds_to_yield={tty_s} talk_over={v['talk_over_sec']:.2f}s"
+            f"seconds_to_yield={tty_s} talk_over={tov_s}"
         )
         if not v["passed"] and e.get("fix"):
             fx = e["fix"]
