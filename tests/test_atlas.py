@@ -460,9 +460,10 @@ def test_stored_cli_transcript_matches_a_live_record_render(tmp_path):
     provenance version so the content-addressed ``record_id`` is reproducible
     across real tool-version bumps -- the same pinning discipline
     ``test_failure_render`` uses for its golden record."""
-    import io
     import contextlib
+    import io
     from types import SimpleNamespace
+
     from hotato import cli
     from hotato import failure_record as FR
 

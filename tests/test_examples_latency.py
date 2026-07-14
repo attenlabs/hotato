@@ -17,11 +17,9 @@ level against the pure-timing ``signals.latency`` values; the scorer is unchange
 import json
 import os
 
-import pytest
-
-from hotato.core import run_single
 from hotato._engine.score import ScoreConfig
 from hotato._engine.vad import VADParams
+from hotato.core import run_single
 
 EXAMPLES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples")
 SCEN = os.path.join(EXAMPLES, "scenarios")

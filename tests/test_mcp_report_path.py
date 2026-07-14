@@ -7,12 +7,10 @@ test_mcp_parity).
 
 import json
 import os
-
 from importlib import resources
 
 from hotato import mcp_server
 from hotato.core import run_single, run_suite
-
 
 _CONTROL_FIELDS = (
     "evidence_status", "refusal_reason", "artifact_digests",

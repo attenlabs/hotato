@@ -6,7 +6,8 @@ fields existed must still load, verify, and score -- never a hard break."""
 import json
 import os
 
-from hotato import contract as _contract, core, verify as _verify
+from hotato import contract as _contract
+from hotato import verify as _verify
 from tests import _trial_audio as ta
 
 

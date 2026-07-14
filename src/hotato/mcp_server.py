@@ -28,8 +28,6 @@ deployment approval, or null) -- so an autonomous caller parses one shape.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import os
 import sys
 from typing import Optional
@@ -37,6 +35,7 @@ from typing import Optional
 from . import errors as _errors
 from . import evidence as _evidence
 from .core import LIMITS, SUITE_ID, process_exit_code, run_single, run_suite
+from .errors import open_regular as _open_regular
 
 _TOOL_DESCRIPTION = f"""\
 Offline turn-taking analysis and regression evidence for dual-channel
@@ -592,6 +591,7 @@ def mcp_candidate_inspect(home: Optional[str] = None, workspace_id: str = "defau
     the trust findings recorded at discovery. Read-only; NEVER labels -- a
     candidate stays an unlabelled MOMENT until a human decides."""
     import json as _json
+
     from .fleet.api import FleetAPI
     from .fleet.registry import DEFAULT_HOME
     api = FleetAPI(home=home or DEFAULT_HOME)
@@ -728,8 +728,9 @@ def mcp_artifact_verify(report_path: str) -> dict:
     """Verify a contract bundle's authenticity + evidence WITHOUT trusting it.
     Read-only; recomputes the canonical digest and reports the authenticity axis."""
     safe = _guard_input_path(report_path, "report_path")
-    from . import contract as _contract
     import os as _os
+
+    from . import contract as _contract
     target = _os.path.dirname(safe) if _os.path.isfile(safe) else safe
     try:
         v = _contract.verify_contracts(target)
@@ -777,7 +778,9 @@ def mcp_experiment_run(home: Optional[str] = None, workspace_id: str = "default"
                       after_path: str = "", min_n: int = 1) -> dict:
     """Clone-scoped action: recompute a before/after trial (offline, no network,
     no production mutation) and record a recommendation. Never deploys."""
-    import json as _json, os as _os
+    import json as _json
+    import os as _os
+
     from .fleet.api import FleetAPI
     from .fleet.registry import DEFAULT_HOME
 
@@ -824,7 +827,9 @@ def mcp_experiment_create(home: Optional[str] = None, workspace_id: str = "defau
     of the results and cannot be cherry-picked later. Never captures, never
     deploys. Wraps ``FleetAPI.experiment_create``; ``experiment run --manifest``
     then consumes exactly this manifest."""
-    import json as _json, os as _os
+    import json as _json
+    import os as _os
+
     from .fleet.api import FleetAPI
     from .fleet.registry import DEFAULT_HOME
 

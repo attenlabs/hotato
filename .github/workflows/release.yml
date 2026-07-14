@@ -87,10 +87,15 @@ jobs:
           print(f"server.json version {pv} matches pyproject.toml (name: {server['name']})")
           PY
 
-      - name: Build sdist and wheel
-        run: |
-          python -m pip install --upgrade pip build
-          python -m build
+      # Canonical build through the repository-owned composite action: one
+      # pinned toolchain (pip/build/setuptools/wheel/twine), a commit-derived
+      # SOURCE_DATE_EPOCH, a --no-isolation build, a strict `twine check`, and
+      # SHA-256 hashes of both artifacts. Repository-local `uses: ./...` is
+      # bound to the checked-out commit, so it needs no SHA pin.
+      - name: Build canonical sdist and wheel
+        uses: ./.github/actions/build-python-dist
+        with:
+          output-directory: dist
 
       - name: Install the built wheel into a fresh venv and smoke test
         run: |

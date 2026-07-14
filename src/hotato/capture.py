@@ -31,21 +31,18 @@ vendored MIT engine). This module adds only capture plumbing.
 
 from __future__ import annotations
 
-from .errors import wav_read as _wav_read
-
 import base64
 import json
-
-from . import errors as _errors
 import os
 import shutil
 import sys
 import tempfile
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
+from . import errors as _errors
 from ._engine.audio import write_wav  # noqa: F401  (used by the pipecat scaffold)
 from .core import process_exit_code, run_single
-
+from .errors import wav_read as _wav_read
 
 # Provider metadata and action responses are small JSON documents.  Recording
 # downloads are deliberately given a much larger ceiling, but still cannot ask

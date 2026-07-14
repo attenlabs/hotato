@@ -24,9 +24,8 @@ import time
 import pytest
 
 from hotato.fleet.api import FleetAPI
-from hotato.fleet.registry import Registry, RegistrySchemaVersionError, SCHEMA_VERSION, TABLE_PK
+from hotato.fleet.registry import SCHEMA_VERSION, TABLE_PK, Registry, RegistrySchemaVersionError
 from tests import _trial_audio as ta
-
 
 # --- #7: real UPSERT preserves unset columns -------------------------------
 

@@ -44,17 +44,16 @@ timing correlation, never intent.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 import tempfile
 from datetime import datetime, timezone
 from typing import Optional
 
-from ._engine.score import ScoreConfig
 from . import contract as _contract
 from . import report as _report
+from ._engine.score import ScoreConfig
+from .errors import open_regular as _open_regular
 
 __all__ = [
     "SCHEMA",

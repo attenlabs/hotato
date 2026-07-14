@@ -16,8 +16,6 @@ Covers:
 """
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from hotato import ledger as L

@@ -33,7 +33,6 @@ import pytest
 
 from hotato import cli
 
-
 # A bundled dual-channel example call; scan/investigate/loop score it offline.
 EXAMPLE_WAV = str(
     resources.files("hotato").joinpath(

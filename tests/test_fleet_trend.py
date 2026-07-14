@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from hotato import cli
 from hotato._stats import dist_summary, percentile
 from hotato.fleet import trend as _trend

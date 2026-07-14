@@ -23,8 +23,8 @@ import wave
 
 from hotato.trust import (
     CAUTION_RECOMMENDATION,
-    SAFE_RECOMMENDATION,
     LEAKAGE_WARN_DB,
+    SAFE_RECOMMENDATION,
     trust_report,
 )
 

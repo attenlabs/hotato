@@ -336,8 +336,9 @@ def test_constant_time_compare_semantics():
     assert constant_time_eq("abc", "abcd") is False
     assert constant_time_eq("", "") is True
     # it is the hmac.compare_digest path (timing-safe), not ==
-    import hotato.serve.security as sec
     import inspect
+
+    import hotato.serve.security as sec
     src = inspect.getsource(sec.constant_time_eq)
     assert "compare_digest" in src
 

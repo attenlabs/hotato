@@ -30,7 +30,6 @@ import pytest
 from hotato import cli
 from hotato import conversation as CV
 
-
 # --- fixtures (the real bundled call + its committed trace/transcript) -------
 
 def _bundled_wav() -> str:

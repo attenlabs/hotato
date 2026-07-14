@@ -50,9 +50,9 @@ def test_scoring_parity_across_import_paths():
     # Upstream, imported fresh from the source tree.
     up = _load_upstream(src)
     # Vendored.
-    from hotato import _engine as vend
-
     from importlib import resources
+
+    from hotato import _engine as vend
 
     audio_dir = resources.files("hotato").joinpath("data", "audio")
     scen_dir = resources.files("hotato").joinpath("data", "scenarios")

@@ -54,8 +54,6 @@ them), verified 2026-07-06:
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import copy
 import json
 import os
@@ -63,6 +61,7 @@ import re
 from typing import Optional
 
 from . import errors as _errors
+from .errors import open_regular as _open_regular
 
 SCHEMA_ID = "hotato.apply.v1"
 _PATCH_KIND = "patch"

@@ -41,15 +41,14 @@ import os
 import pytest
 
 from hotato import apply as _apply
-from hotato import manifest as _manifest
 from hotato import cli
 from hotato import core as _core
 from hotato import evidence as _evidence
 from hotato import fix_trial as _fix_trial
 from hotato import fixplan as _fixplan
+from hotato import manifest as _manifest
 from hotato import patch as _patch
 from hotato.diagnose import OPPOSITE_RISK
-
 from tests import _trial_audio as ta
 
 HARD = None
@@ -448,8 +447,8 @@ def test_threshold_funnel_refuses_before_reading_before_after(
         funnel_patch, tmp_path, capsys, monkeypatch):
     # The apply-gate refusal fires before verify / recompute / explain ever run:
     # even nonexistent before/after paths are never opened.
-    from hotato import verify as _verify
     from hotato import recompute as _recompute
+    from hotato import verify as _verify
 
     def boom(*a, **k):
         raise AssertionError("fix trial read before/after on the refused path")

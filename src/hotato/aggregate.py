@@ -27,13 +27,12 @@ fractions of real verdicts.
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import json
 import os
 from typing import Optional
 
 from ._stats import dist_summary, latency_sla
+from .errors import open_regular as _open_regular
 from .report import _C, _esc
 
 __all__ = ["load_run_dir", "aggregate_runs", "build_team_section_html",

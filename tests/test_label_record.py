@@ -14,7 +14,10 @@ import os
 
 import pytest
 
-from hotato import core, evidence as ev, labelrecord as lr, manifest as m, sign
+from hotato import core, sign
+from hotato import evidence as ev
+from hotato import labelrecord as lr
+from hotato import manifest as m
 from tests import _labels
 from tests import _trial_audio as ta
 
@@ -200,8 +203,9 @@ def test_tampered_label_record_refuses_not_downgrades(tmp_path):
 # --- `hotato fixture create` mints and embeds a label-record ----------------
 
 def test_fixture_create_mints_label_record_when_a_key_is_configured(tmp_path, monkeypatch):
-    from hotato import fixture as _fixture
     from importlib import resources
+
+    from hotato import fixture as _fixture
 
     monkeypatch.setenv("HOTATO_ATTEST_KEY", "fixture-create-key")
     src = str(resources.files("hotato").joinpath(
@@ -228,8 +232,9 @@ def test_fixture_create_mints_label_record_when_a_key_is_configured(tmp_path, mo
 
 
 def test_fixture_create_without_any_key_degrades_to_asserted_not_crash(tmp_path, monkeypatch):
-    from hotato import fixture as _fixture
     from importlib import resources
+
+    from hotato import fixture as _fixture
 
     monkeypatch.delenv("HOTATO_ATTEST_KEY", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

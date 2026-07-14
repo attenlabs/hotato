@@ -26,7 +26,6 @@ from hotato import capture as cap
 from hotato import cli
 from hotato._engine.audio import read_wav, write_wav
 
-
 # --- offline HTTP plumbing --------------------------------------------------
 
 class _Resp:

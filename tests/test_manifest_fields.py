@@ -12,7 +12,8 @@ import json
 import os
 import tempfile
 
-from hotato import core, manifest as m
+from hotato import core
+from hotato import manifest as m
 from tests import _trial_audio as ta
 
 

@@ -52,7 +52,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import errors as _errors
 from .errors import open_regular as _open_regular
 
-
 _HTTP_STATE_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
 
 __all__ = [

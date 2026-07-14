@@ -24,8 +24,6 @@ Honesty is the design constraint, stated here and enforced below:
 
 from __future__ import annotations
 
-from .errors import open_regular as _open_regular
-
 import getpass
 import json
 import os
@@ -44,6 +42,7 @@ from .core import (
     _safe_scenario_id,
     run_suite,
 )
+from .errors import open_regular as _open_regular
 
 __all__ = [
     "BENCH_STACKS",

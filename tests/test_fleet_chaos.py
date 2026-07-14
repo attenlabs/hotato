@@ -11,8 +11,8 @@ import time
 
 import pytest
 
-from hotato.fleet.registry import Registry
 from hotato.fleet.jobs import JobQueue
+from hotato.fleet.registry import Registry
 from hotato.fleet.store import ArtifactStore
 
 

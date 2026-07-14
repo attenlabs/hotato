@@ -74,12 +74,13 @@ def _all_workflow_text():
 # (a) every `uses:` is pinned to a 40-hex commit SHA (+ a # vX comment)
 # ---------------------------------------------------------------------------
 def _is_local_action(line):
-    """``uses: ./`` (the repository's own root action.yml) runs the exact
-    checked-out commit, so it is immutable by construction and carries no
-    remote ref to pin. Only the bare local form is exempt; a remote ref
-    still needs the 40-hex SHA."""
+    """A repository-local ``uses: ./...`` (the root ``action.yml`` via ``./`` or a
+    composite action under ``./.github/actions/...``) runs the exact checked-out
+    commit, so it is immutable by construction and carries no remote ref to pin.
+    Every local ``./``-prefixed form is exempt; a remote ``owner/repo@ref`` still
+    needs the 40-hex SHA."""
     m = _USES_LINE.match(line)
-    return bool(m) and m.group(1) == "./"
+    return bool(m) and m.group(1).startswith("./")
 
 
 def test_every_uses_is_sha_pinned():

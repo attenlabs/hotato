@@ -27,7 +27,6 @@ codebase (``contract pack/unpack``'s ``_safe_member_parts`` /
 from __future__ import annotations
 
 import json
-import os
 import wave
 from importlib import resources
 

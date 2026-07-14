@@ -439,10 +439,10 @@ def test_pcm_sha256_streams_in_bounded_chunks(tmp_path, monkeypatch):
 def test_mono_stereo_file_rejected():
     """A single-channel file passed as --stereo must raise, never silently
     mis-score as if it had separated channels."""
-    import wave
+    import os
     import struct
     import tempfile
-    import os
+    import wave
 
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()

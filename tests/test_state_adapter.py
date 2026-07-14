@@ -21,7 +21,6 @@ import pytest
 from hotato import assert_ as A
 from hotato.state_adapter import MockStateAdapter, StateAdapter
 
-
 # --- the interface / query contract ----------------------------------------
 
 def test_query_returns_first_matching_record():

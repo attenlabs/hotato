@@ -8,9 +8,8 @@ K7: a present-but-failing signature must not silently read as clean; the tier
 map must place it at the refuse floor, distinct from an honestly-unsigned or a
 signature-we-could-not-check manifest.
 """
-from hotato import manifest as _manifest
 from hotato import evidence as _evidence
-
+from hotato import manifest as _manifest
 
 KEY = b"kernel-test-key"
 
@@ -68,7 +67,10 @@ def test_k2_k7_tier_map_places_signature_states_correctly():
 def test_k1_wheel_hash_covers_more_than_init_py():
     """The pin must not be just sha256(__init__.py); a change to _engine/score.py
     (the actual scorer) has to change it. Prove it is NOT the old init-only hash."""
-    import hashlib as _h, os as _os, hotato as _pkg
+    import hashlib as _h
+    import os as _os
+
+    import hotato as _pkg
     from hotato import manifest as _m
     init = _pkg.__file__
     init_only = _h.sha256(open(init, "rb").read()).hexdigest()

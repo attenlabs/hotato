@@ -47,17 +47,21 @@ from typing import Any, Dict, List, Optional, Sequence
 from . import errors as _errors
 from .errors import (
     load_json_file as _load_json_file,
+)
+from .errors import (
     open_regular as _open_regular,
+)
+from .errors import (
     reject_overall_score as _reject_overall_score,
 )
-
 
 _HTTP_MODEL_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
 # Canonical-JSON + sha256-of-canonical are the established shared primitives in
 # hotato.manifest (already reused by labelrecord/ledger/receipt); import them
 # here instead of reimplementing (audit finding #2). ``_sha256_json`` stays a
 # local one-line composition of the two.
-from .manifest import canonical_json as _canonical, _sha256_str as _sha256_text
+from .manifest import _sha256_str as _sha256_text
+from .manifest import canonical_json as _canonical
 
 SCHEMA = "rubric.v1"
 KIND = "rubric"
@@ -343,6 +347,7 @@ def _urllib_json_call(url: str, *, data: Optional[bytes], headers: Dict[str, str
     network-touching command in a process, so this must run before ANY request."""
     import urllib.error
     import urllib.request
+
     from . import capture as _capture
     _capture._ensure_safe_opener()
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
@@ -921,6 +926,7 @@ def _sign_record(record: Dict[str, Any]) -> None:
     try:
         import hashlib as _h
         import hmac as _hmac
+
         from . import receipt as _receipt
         shared = _receipt.load_key()
         if shared is not None:

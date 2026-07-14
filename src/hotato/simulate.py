@@ -49,7 +49,9 @@ from . import conversation as CV
 from . import conversation_test as _ct
 from . import scenario as _scn
 from . import synth as _synth
-from .errors import open_regular as _open_regular  # noqa: F401  (parity import; scenario/CV own the FIFO guard)
+from .errors import (
+    open_regular as _open_regular,  # noqa: F401  (parity import; scenario/CV own the FIFO guard)
+)
 
 __all__ = [
     "MODEL_ID",

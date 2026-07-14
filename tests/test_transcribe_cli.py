@@ -24,8 +24,7 @@ from importlib import resources
 
 import pytest
 
-from hotato import cli
-from hotato import core
+from hotato import cli, core
 from hotato import transcribe as T
 
 

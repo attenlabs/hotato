@@ -6,7 +6,6 @@ byte-equal to a plain run. Stdlib csv only; empty cell = not derivable.
 
 import csv
 import json
-
 from importlib import resources
 
 from hotato import cli, export

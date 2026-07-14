@@ -39,11 +39,11 @@ import os
 import time
 from typing import Optional
 
-from .errors import open_regular as _open_regular
-from ._engine.vad import BackendUnavailable
-from .manifest import canonical_json, _sha256_str
 from . import receipt as _receipt
 from . import sign as _sign
+from ._engine.vad import BackendUnavailable
+from .errors import open_regular as _open_regular
+from .manifest import _sha256_str, canonical_json
 
 SCHEMA = "hotato.label-record.v1"
 TAXONOMY_VERSION_DEFAULT = "1"

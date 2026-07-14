@@ -1,0 +1,35 @@
+name: Build verified Python distribution
+description: Build Hotato's canonical sdist and wheel with one pinned toolchain
+inputs:
+  output-directory:
+    description: Empty directory that receives the sdist and wheel
+    required: false
+    default: dist
+runs:
+  using: composite
+  steps:
+    - name: Install the canonical release toolchain
+      shell: bash
+      run: >-
+        python -m pip install
+        "pip==26.1.2"
+        "build==1.2.2.post1"
+        "setuptools==83.0.0"
+        "wheel==0.46.2"
+        "twine==6.2.0"
+
+    - name: Build and validate the canonical artifacts
+      shell: bash
+      env:
+        HOTATO_DIST_DIR: ${{ inputs.output-directory }}
+      run: |
+        if [ -e "$HOTATO_DIST_DIR" ] && [ -n "$(find "$HOTATO_DIST_DIR" -mindepth 1 -print -quit)" ]; then
+          echo "::error::output directory '$HOTATO_DIST_DIR' is not empty"
+          exit 1
+        fi
+        mkdir -p "$HOTATO_DIST_DIR"
+        source_date_epoch="$(git log -1 --pretty=%ct)"
+        SOURCE_DATE_EPOCH="$source_date_epoch" \
+          python -m build --no-isolation --outdir "$HOTATO_DIST_DIR"
+        python -m twine check --strict "$HOTATO_DIST_DIR"/*
+        sha256sum "$HOTATO_DIST_DIR"/*.whl "$HOTATO_DIST_DIR"/*.tar.gz

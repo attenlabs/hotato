@@ -6,13 +6,11 @@ touch (egress opt-in). The live model path is proven in test_rubric.py's
 ``test_ollama_judge_live``.
 """
 import json
-import os
 
 import pytest
 
 from hotato import cli
-from hotato import rubric as R
-from tests.test_rubric import FakeJudge, _pass, _fail
+from tests.test_rubric import FakeJudge, _fail, _pass
 
 
 def _run(argv):

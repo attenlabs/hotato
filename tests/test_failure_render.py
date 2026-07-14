@@ -29,7 +29,6 @@ import pytest
 from hotato import cli
 from hotato import failure_record as FR
 from hotato import failure_render as FRR
-
 from tests._failure_sources import det_row, make_test_run
 
 GOLDEN_DIR = os.path.join(os.path.dirname(__file__), "golden", "failure_record")

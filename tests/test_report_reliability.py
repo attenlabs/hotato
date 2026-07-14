@@ -28,10 +28,8 @@ from importlib import resources
 import pytest
 
 from hotato import assert_ as A
-from hotato import cli
-from hotato import report
+from hotato import cli, report
 from hotato import simulate as SIM
-
 
 # --- fixtures ---------------------------------------------------------------
 

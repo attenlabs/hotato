@@ -24,7 +24,6 @@ from hotato import cli
 from hotato import ingest as ing
 from hotato._engine.audio import read_wav, write_wav
 
-
 # --- mandatory local-path sandbox ------------------------------------------
 # Local recording_path ingest is a sandboxed, opt-in primitive: HOTATO_INGEST_DIR
 # must be set and the path must resolve inside it. The composition tests write
