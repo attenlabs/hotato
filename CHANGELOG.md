@@ -8,6 +8,23 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-07-14
+
+Documentation and packaging refresh.
+
+### Documentation
+- README and docs streamlined for scannability, and optimized to render cleanly
+  on narrow / mobile screens: wide tables restructured into readable lists,
+  long code lines wrapped, dense diagrams normalized. The README (which is also
+  the PyPI project page) states verified-Linux CI support plainly.
+
+### Build & CI
+- A Ruff lint gate (import-sort, pyflakes, bugbear) runs in CI as a green
+  ratchet, plus an MCP tool-registration smoke job.
+- Release builds run through a pinned, hash-checked composite build action for
+  reproducible sdists and wheels.
+
+
 ## [1.5.3] - 2026-07-13
 
 Data-loss and security hardening from a continued independent audit.
