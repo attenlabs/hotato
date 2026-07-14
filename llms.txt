@@ -481,6 +481,8 @@ it, never whether the policy itself was right.
   and fleet tools), copy-paste client configs (Claude Desktop, Cursor, Codex CLI),
   and the `uvx --from "hotato[mcp]" hotato-mcp` footgun to avoid.
 - docs/API.md: the Python API and the shared success/error schema reference.
+- docs/SDK.md: the typed Python SDK (hotato.sdk), frozen dataclasses whose fields
+  are the keys of the JSON the CLI emits with --format json.
 - docs/SUBMITTING.md: contribute a consented, labelled real call.
 - CONTRIBUTING.md, docs/CORPUS-GOVERNANCE.md: contribute real labelled fixtures.
 - CITATION.cff: how to cite hotato.
