@@ -7508,11 +7508,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             _exit_codes_epilog("init ci") + "\n\n"
-            "Examples:\n"
-            "  hotato init ci --system gitlab             # .gitlab-ci.yml\n"
-            "  hotato init ci --system jenkins            # Jenkinsfile\n"
-            "  hotato init ci --system azure              # azure-pipelines.yml\n"
-            "  hotato init ci --system circleci           # .circleci/config.yml\n"
+            "Examples (gitlab writes .gitlab-ci.yml, jenkins a Jenkinsfile,\n"
+            "azure azure-pipelines.yml, circleci .circleci/config.yml):\n"
+            "  hotato init ci --system gitlab\n"
+            "  hotato init ci --system jenkins\n"
+            "  hotato init ci --system azure\n"
+            "  hotato init ci --system circleci\n"
             "  hotato init ci --system gitlab --out ./repo --force\n\n"
             "Then:\n"
             "  hotato contract create --stereo call.wav --onset 42.18 "
