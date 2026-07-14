@@ -76,7 +76,11 @@ numbers to the same run without it. Not yet supported with `suite`. On success
 the envelope additionally carries a top-level `transcript` block (text,
 segments, model/device provenance) and each event gains a `transcript_context`
 key (the overlapping transcript text for that event's window); both are purely
-additive.
+additive. Every transcription is content-addressed and cached (a repeat call
+over the same audio+settings replays byte-identical and skips the model,
+recorded on `transcript.cache`); set `transcribe_no_cache=true` to force a
+fresh re-transcription that DIFFS against any cached baseline and surfaces
+drift, never silently overwriting a mismatch.
 
 FIX MAP: every failing event carries a fix. fix_class is one of:
   * "config"            - a concrete knob for the named `stack`
@@ -279,6 +283,7 @@ def _attach_transcript(
     caller: Optional[str],
     agent: Optional[str],
     suite: Optional[str],
+    no_cache: bool = False,
 ) -> dict:
     """Attach a transcript as pure, additive CONTEXT to an already-scored
     envelope. Never called for ``suite`` (raises a clean ``ValueError`` instead
@@ -292,6 +297,14 @@ def _attach_transcript(
     ``transcribe()`` call raises ``BackendUnavailable`` (in ``errors.HANDLED``),
     which the caller (:func:`_run_tool`) turns into the SAME clean refusal
     envelope every other optional-extra failure uses -- never a crash.
+
+    Every file is routed through ``hotato.transcribe.transcribe_cached`` (the
+    content-addressed cache mirroring ``hotato.rubric.VerdictCache``): a cache
+    hit replays a byte-identical transcript and skips the model. The DEFAULT
+    ``~/.hotato/transcribe-cache`` location gracefully degrades to no caching
+    (with a ``cache_note`` on the response, never a crash) when unwritable.
+    ``no_cache=True`` re-transcribes fresh and surfaces drift against any
+    cached baseline; advisory provenance only, never a gate.
 
     Returns a NEW envelope dict: the input ``env`` is not mutated. Every
     existing key (timing, verdict, summary, funnel, ...) passes through
@@ -307,17 +320,34 @@ def _attach_transcript(
         )
     from . import transcribe as _transcribe
 
+    cache, cache_warning = _transcribe.build_transcript_cache()
+
     tagged_segments = []
+    cache_provenance = []
     if stereo:
-        t = _transcribe.transcribe(stereo)
+        r = _transcribe.transcribe_cached(stereo, cache=cache, no_cache=no_cache)
+        t = r.transcript
+        cache_provenance.append({
+            "role": "stereo", "cache_key": r.cache_key, "cached": r.cached,
+            "drift": r.drift,
+        })
         for seg in t.segments:
             tagged_segments.append((seg.start, seg.end, seg.text, None))
         language, model, device, compute_type = (
             t.language, t.model, t.device, t.compute_type,
         )
     else:
-        tc = _transcribe.transcribe(caller)
-        ta = _transcribe.transcribe(agent)
+        rc = _transcribe.transcribe_cached(caller, cache=cache, no_cache=no_cache)
+        ra = _transcribe.transcribe_cached(agent, cache=cache, no_cache=no_cache)
+        tc, ta = rc.transcript, ra.transcript
+        cache_provenance.append({
+            "role": "caller", "cache_key": rc.cache_key, "cached": rc.cached,
+            "drift": rc.drift,
+        })
+        cache_provenance.append({
+            "role": "agent", "cache_key": ra.cache_key, "cached": ra.cached,
+            "drift": ra.drift,
+        })
         for seg in tc.segments:
             tagged_segments.append((seg.start, seg.end, seg.text, "caller"))
         for seg in ta.segments:
@@ -357,6 +387,8 @@ def _attach_transcript(
             for s in tagged_segments
         ],
         "note": _TRANSCRIPT_NOTE,
+        "cache": cache_provenance,
+        "cache_note": cache_warning,
     }
     return new_env
 
@@ -399,6 +431,7 @@ def _run_tool(
     max_time_to_yield_sec: Optional[float] = None,
     report_path: Optional[str] = None,
     transcribe: bool = False,
+    transcribe_no_cache: bool = False,
 ) -> dict:
     """The single MCP tool. Returns the success envelope, or the SAME structured
     error object the CLI emits (schema/error.v1.json) for a bad input, so the
@@ -415,7 +448,12 @@ def _run_tool(
     ``transcribe`` (opt-in, default off) attaches a transcript as CONTEXT ONLY
     (see :func:`_attach_transcript`); it never changes any timing/verdict field,
     and a missing ``[transcribe]`` extra is the same clean refusal envelope as
-    any other optional-extra failure, never a crash.
+    any other optional-extra failure, never a crash. Every transcription is
+    routed through the content-addressed transcript cache (a repeat call over
+    the same audio+settings replays byte-identical and skips the model);
+    ``transcribe_no_cache=True`` re-transcribes fresh and surfaces drift
+    against any cached baseline on ``transcript.cache`` (mirrors the CLI's
+    ``--no-transcribe-cache``), never silently overwriting a mismatch.
     """
     try:
         # Structurally enforce EXACTLY ONE input mode (the oneOf / root-validator
@@ -447,7 +485,8 @@ def _run_tool(
         )
         if transcribe:
             env = _attach_transcript(
-                env, stereo=stereo, caller=caller, agent=agent, suite=suite
+                env, stereo=stereo, caller=caller, agent=agent, suite=suite,
+                no_cache=transcribe_no_cache,
             )
     except _errors.HANDLED as exc:
         return _control_error(_errors.mcp_error(exc))
@@ -950,6 +989,7 @@ def build_server():
         max_time_to_yield_sec: Optional[float] = None,
         report_path: Optional[str] = None,
         transcribe: bool = False,
+        transcribe_no_cache: bool = False,
     ) -> dict:
         return _run_tool(
             stereo=stereo,
@@ -965,6 +1005,7 @@ def build_server():
             max_time_to_yield_sec=max_time_to_yield_sec,
             report_path=report_path,
             transcribe=transcribe,
+            transcribe_no_cache=transcribe_no_cache,
         )
 
     @server.tool(name="fleet_status", description="Read the local fleet workspace rollup (counts + jobs). Read-only.")

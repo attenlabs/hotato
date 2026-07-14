@@ -34,6 +34,14 @@ from hotato.transcribe import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _home(monkeypatch, tmp_path):
+    # A CLI `--transcribe` run builds the default transcript cache under
+    # HOME; keep it under a per-test tmp dir, never the real ~/.hotato.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+
 def _faster_whisper_installed() -> bool:
     try:
         import faster_whisper  # noqa: F401
@@ -269,14 +277,23 @@ def test_transcribe_attaches_context_without_changing_any_timing_number(monkeypa
         segments=[T.TranscriptSegment(start=0.0, end=100.0, text="fake context")],
         language="en", model="base.en", device="cpu", compute_type="int8",
     )
-    monkeypatch.setattr(T, "transcribe", lambda path, model=None, device=None: fake)
+    monkeypatch.setattr(
+        T, "transcribe", lambda path, model=None, device=None, **kw: fake
+    )
 
     with_transcript = core.run_single(stereo=path, transcribe=True)
 
     assert with_transcript["events"][0]["verdict"] == baseline["events"][0]["verdict"]
     assert with_transcript["events"][0]["measurements"] == baseline["events"][0]["measurements"]
     assert with_transcript["events"][0]["signals"] == baseline["events"][0]["signals"]
-    assert with_transcript["transcript"] == {
+    transcript_block = dict(with_transcript["transcript"])
+    # transcribe_cache was not passed to run_single, so caching is off:
+    # cached=False, drift=None, but a cache_key is still computed (a pure
+    # content address, free provenance even without a cache backend).
+    cache = transcript_block.pop("cache")
+    assert cache["cached"] is False and cache["drift"] is None
+    assert isinstance(cache["cache_key"], str) and len(cache["cache_key"]) == 64
+    assert transcript_block == {
         "text": "fake context",
         "segments": [{"start": 0.0, "end": 100.0, "text": "fake context"}],
         "model": "base.en", "device": "cpu", "compute_type": "int8", "language": "en",

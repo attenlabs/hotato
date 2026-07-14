@@ -34,6 +34,14 @@ from hotato import transcribe as _transcribe_mod
 from tests import _trial_audio as ta
 
 
+@pytest.fixture(autouse=True)
+def _home(monkeypatch, tmp_path):
+    # transcribe=True builds the default transcript cache under HOME; keep it
+    # under a per-test tmp dir, never the real ~/.hotato.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+
 def _faster_whisper_installed() -> bool:
     try:
         import faster_whisper  # noqa: F401
@@ -59,10 +67,13 @@ def _write_mono(path, active_windows, total_sec, freq, rate=16000, amp=12000):
 
 
 def _fake_transcribe(text, start, end, *, model="stub", device="cpu"):
-    """Build a canned two-arg-compatible stand-in for
-    ``hotato.transcribe.transcribe`` returning one segment."""
+    """Build a canned stand-in for ``hotato.transcribe.transcribe`` returning
+    one segment. Always reports the CLOSURE's model/device (simulating what a
+    real backend actually used), regardless of what ``transcribe_cached``
+    passes through (its resolved device/compute_type, needed for the cache
+    key) -- so the test asserts on a fixed, known value."""
 
-    def _fn(path, model=model, device=device, **kwargs):
+    def _fn(path, **kwargs):
         return _transcribe_mod.Transcript(
             text=text,
             segments=[_transcribe_mod.TranscriptSegment(start=start, end=end, text=text)],

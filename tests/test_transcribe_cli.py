@@ -28,6 +28,14 @@ from hotato import cli, core
 from hotato import transcribe as T
 
 
+@pytest.fixture(autouse=True)
+def _home(monkeypatch, tmp_path):
+    # A CLI `--transcribe` run builds the default transcript cache under
+    # HOME; keep it under a per-test tmp dir, never the real ~/.hotato.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+
 def _bundled(sid):
     return str(
         resources.files("hotato").joinpath("data", "audio", sid + ".example.wav")
