@@ -139,11 +139,16 @@ attributed to its own variation cell, each scored on its own lane.
 
 ## Exit codes
 
-| Code | Meaning |
-| ---- | ------- |
-| `0`  | every produced conversation is `origin=simulated` and validated as a faithful rendering (and, under `--matrix --conversation-test`, every scored aggregate passed). |
-| `1`  | at least one produced simulation was `SIMULATOR_INVALID` -- a broken fixture, kept distinct from an agent PASS/FAIL -- or, under `--matrix --conversation-test`, a scored aggregate FAILed. |
-| `2`  | usage error / unusable input: a malformed or unreadable scenario / conversation-test file (or, under `--matrix --conversation-test` with `inconclusive_policy refuse`, a withheld verdict). |
+- **`0`** -- every produced conversation is `origin=simulated` and
+  validated as a faithful rendering (and, under `--matrix
+  --conversation-test`, every scored aggregate passed).
+- **`1`** -- at least one produced simulation was `SIMULATOR_INVALID` -- a
+  broken fixture, kept distinct from an agent PASS/FAIL -- or, under
+  `--matrix --conversation-test`, a scored aggregate FAILed.
+- **`2`** -- usage error / unusable input: a malformed or unreadable
+  scenario / conversation-test file (or, under `--matrix
+  --conversation-test` with `inconclusive_policy refuse`, a withheld
+  verdict).
 
 ## Related
 

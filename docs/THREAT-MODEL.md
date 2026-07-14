@@ -26,23 +26,30 @@ ask, and the guarantees that hold either way.
 These commands read and write only the local files you point them at, opening
 no sockets. This is the whole scoring, analysis, and fixture surface.
 
-| Command | What it touches |
-|---|---|
-| `run` | Score a local WAV (or the bundled self-test battery). |
-| `scan` | List candidate moments in a local recording. |
-| `trust` | Input-health check on a local recording. |
-| `report` | Render a self-contained HTML report from local run data. |
-| `fixture` | Create / promote a local moment into a regression fixture. |
-| `compare` | Score a before/after pair of local takes. |
-| `verify` | Roll up before/after run envelopes on disk. |
-| `diagnose` | Explain a finished local run envelope (read-only). |
-| `plan` | Combine a diagnosis + config into a proposed fix plan JSON. |
-| `patch` | Render a fix plan into a paste-ready patch. Never applies it. |
-| `demo` | Run the packaged two-call battery. Zero extra files. |
-| `team`, `export`, `benchmark` | Aggregate / export local run data. |
-| `setup`, `describe`, `init` | Print recording config, emit the CLI manifest, scaffold local integration files. |
-| `rubric run`, `rubric calibrate` | Score a local transcript against a rubric with a **LOCAL** model (Ollama at `localhost`). Default path opens no off-box socket; the verdict cache is local. Reaches the network only with an explicit hosted / non-local judge (see below). |
-| `test run` (rubric lane) | Same LOCAL model judge as `rubric run`, run inline on a conversation-test's `assertions.rubric` lane. Local by default. |
+- **`run`** -- score a local WAV (or the bundled self-test battery).
+- **`scan`** -- list candidate moments in a local recording.
+- **`trust`** -- input-health check on a local recording.
+- **`report`** -- render a self-contained HTML report from local run data.
+- **`fixture`** -- create / promote a local moment into a regression
+  fixture.
+- **`compare`** -- score a before/after pair of local takes.
+- **`verify`** -- roll up before/after run envelopes on disk.
+- **`diagnose`** -- explain a finished local run envelope (read-only).
+- **`plan`** -- combine a diagnosis + config into a proposed fix plan
+  JSON.
+- **`patch`** -- render a fix plan into a paste-ready patch. Never applies
+  it.
+- **`demo`** -- run the packaged two-call battery. Zero extra files.
+- **`team`, `export`, `benchmark`** -- aggregate / export local run data.
+- **`setup`, `describe`, `init`** -- print recording config, emit the CLI
+  manifest, scaffold local integration files.
+- **`rubric run`, `rubric calibrate`** -- score a local transcript against
+  a rubric with a **LOCAL** model (Ollama at `localhost`). Default path
+  opens no off-box socket; the verdict cache is local. Reaches the network
+  only with an explicit hosted / non-local judge (see below).
+- **`test run` (rubric lane)** -- same LOCAL model judge as `rubric run`,
+  run inline on a conversation-test's `assertions.rubric` lane. Local by
+  default.
 
 Default retention is local-only: reports, envelopes, and exports are written
 exactly where you point them.
@@ -52,21 +59,62 @@ exactly where you point them.
 These commands reach outside the machine, and only because reaching out is their
 job. Each requires you to name a stack, a repository, or a webhook you configured.
 
-| Command | Network surface | Notes |
-|---|---|---|
-| `connect` | none at connect time | Stores a stack's credentials locally at `0600`. Setup for the pull path; no audio moves. |
-| `pull` | your voice stack's API | Bulk-fetch recent recordings from a stack **you** connected, into a local folder. |
-| `capture` | your voice stack's API | Fetch and score one real call from your stack. |
-| `sweep` | your voice stack's API | `pull` + analyze in one command. |
-| `inspect` | your voice stack's API | Read (never write) the current turn-taking config. Read-only. |
-| `ingest` | a webhook endpoint you host | Worker that scans each completed call. Payloads are data, not instructions (guarantee 3). |
-| `issue` | GitHub, via your local `gh` | File a sweep's candidates as an issue. Uses your existing `gh` auth. |
-| `pr` | GitHub, via your local `gh` | Open a PR adding promoted fixtures. Uses your existing `gh` auth. |
-| `apply` | a git clone you point it at | Applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel. |
-| `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only AUDIO path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
-| `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | Sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a LOCAL Ollama model that stays on the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md). |
-| `test run --state` **http adapter** | your system-of-record's REST API | Only when the state-config names `adapter: http`, and only with `egress_opt_in: true` in that config. Sends the mapped filter VALUES for one `state`/`state_change` query -- audio, transcript, and the config itself stay local. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md). |
-| `test run --state` **sql adapter over a `dsn`** | your database, over the network | Only when the state-config names `adapter: sql` with a `dsn`, and only with `egress_opt_in: true`. A parameterized, read-only SELECT with the mapped filter values bound as data. A local `sqlite_path` opens no socket. |
+- **`connect`**
+  - Network surface: none at connect time.
+  - Notes: stores a stack's credentials locally at `0600`. Setup for the
+    pull path; no audio moves.
+- **`pull`**
+  - Network surface: your voice stack's API.
+  - Notes: bulk-fetch recent recordings from a stack **you** connected,
+    into a local folder.
+- **`capture`**
+  - Network surface: your voice stack's API.
+  - Notes: fetch and score one real call from your stack.
+- **`sweep`**
+  - Network surface: your voice stack's API.
+  - Notes: `pull` + analyze in one command.
+- **`inspect`**
+  - Network surface: your voice stack's API.
+  - Notes: read (never write) the current turn-taking config. Read-only.
+- **`ingest`**
+  - Network surface: a webhook endpoint you host.
+  - Notes: worker that scans each completed call. Payloads are data, not
+    instructions (guarantee 3).
+- **`issue`**
+  - Network surface: GitHub, via your local `gh`.
+  - Notes: file a sweep's candidates as an issue. Uses your existing `gh`
+    auth.
+- **`pr`**
+  - Network surface: GitHub, via your local `gh`.
+  - Notes: open a PR adding promoted fixtures. Uses your existing `gh`
+    auth.
+- **`apply`**
+  - Network surface: a git clone you point it at.
+  - Notes: applies a patch to a fresh **staging** clone only, never the
+    source. Dry-run by default; refuses a both-axes threshold funnel.
+- **`--diarizer pyannoteai`**
+  - Network surface: Attention Labs hosted diarizer.
+  - Notes: the only AUDIO path that can send audio off-box, and only with
+    `--egress-opt-in`. The default diarizer is local.
+- **`--judge-provider hosted` / non-local `--judge-endpoint`** (any rubric
+  command)
+  - Network surface: a hosted or remote model host you name.
+  - Notes: sends the transcript + rubric criterion off-box for judging.
+    Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a
+    LOCAL Ollama model that stays on the box. See
+    [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md).
+- **`test run --state` http adapter**
+  - Network surface: your system-of-record's REST API.
+  - Notes: only when the state-config names `adapter: http`, and only with
+    `egress_opt_in: true` in that config. Sends the mapped filter VALUES for
+    one `state`/`state_change` query -- audio, transcript, and the config
+    itself stay local. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md).
+- **`test run --state` sql adapter over a `dsn`**
+  - Network surface: your database, over the network.
+  - Notes: only when the state-config names `adapter: sql` with a `dsn`,
+    and only with `egress_opt_in: true`. A parameterized, read-only SELECT
+    with the mapped filter values bound as data. A local `sqlite_path`
+    opens no socket.
 
 The state adapters read a post-call **system of record** to ground an Authority-2
 `state` assertion (did the refund/appointment get written?). A record

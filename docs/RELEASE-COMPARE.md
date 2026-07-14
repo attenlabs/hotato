@@ -93,10 +93,10 @@ all per-scenario status changes:
 
 ## Exit codes
 
-| code | meaning |
-| --- | --- |
-| `0` | the two releases were compared (per-dimension deltas + new-failures / fixed-since printed; a side with no runs is reported as an empty state, exit stays `0`) |
-| `2` | a usage error or an unreadable registry `--registry` |
+- **`0`** -- the two releases were compared (per-dimension deltas +
+  new-failures / fixed-since printed; a side with no runs is reported as an
+  empty state, exit stays `0`).
+- **`2`** -- a usage error or an unreadable registry `--registry`.
 
 ## See also
 

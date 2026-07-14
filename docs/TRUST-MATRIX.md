@@ -12,18 +12,68 @@ Worked examples with real CLI output for every row are in
 
 ## The contract
 
-| Input condition | `trust` behavior | Exit | Scoring downstream |
-|---|---|---|---|
-| **Clean dual-channel (stereo)** | `eligible for scan` | 0 | **Full scoring.** `scan`, `run`, `compare`, `verify` all run normally. |
-| **Silent caller channel** | `NOT SCORABLE: caller channel has no detected speech` | 2 | **Refused.** There is no caller to measure a yield against. |
-| **Silent agent channel** | `NOT SCORABLE: agent channel has no detected speech` | 2 | **Refused.** There is no agent floor to interrupt. |
-| **Channel swap risk** | `eligible for scan` **plus** `possible channel swap` **warning** | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
-| **High crosstalk / echo bleed** | `eligible for scan` **plus** high `crosstalk: coherence` **warning** | 0 | Scores at **lower confidence.** `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
-| **Mixed mono (single channel)** | `NOT SCORABLE: single channel, caller and agent cannot be told apart` | 2 | **Refused by default.** Export dual-channel, or take one of the two opt-in escapes (below). |
-| **Mono, opt-in `--allow-mono`** | accepted in **degraded mode**, results **indicative only** | 0 | On `capture` / `pull` / `sweep` for a mono-only stack. Talk-over cannot be attributed, so no SLA gate fires. The dual-channel path stays the gold reference. |
-| **Mono, opt-in `--diarize`** | separability **tier**: `high` / `low` / `refuse` | 0 (high/low), 2 (refuse) | The separation front-end. `hotato run --mono call.wav --diarize` scores it; at `low` the verdict is stamped `indicative_only`. The dual-channel path stays the gold reference. |
-| **Short backchannel ("mhm") overlap** | outside `trust`'s scope; `scan` lists it as a **candidate** | 0 | **Candidate only, human labels.** `trust`/`scan` report the timing; you always label `yield` vs `hold`. |
-| **Noisy / false-positive candidate** | `trust` warns (clipping, crosstalk, hot capture); `scan` still lists the candidate | 0 | Surfaced **with** the warning, as a candidate for you to inspect and label `hold`. |
+- **Clean dual-channel (stereo)**
+  - `trust` behavior: `eligible for scan`.
+  - Exit: 0.
+  - Scoring downstream: **full scoring.** `scan`, `run`, `compare`,
+    `verify` all run normally.
+- **Silent caller channel**
+  - `trust` behavior: `NOT SCORABLE: caller channel has no detected
+    speech`.
+  - Exit: 2.
+  - Scoring downstream: **refused.** There is no caller to measure a
+    yield against.
+- **Silent agent channel**
+  - `trust` behavior: `NOT SCORABLE: agent channel has no detected
+    speech`.
+  - Exit: 2.
+  - Scoring downstream: **refused.** There is no agent floor to
+    interrupt.
+- **Channel swap risk**
+  - `trust` behavior: `eligible for scan` **plus** `possible channel
+    swap` **warning**.
+  - Exit: 0.
+  - Scoring downstream: scores, but confirm the mapping first
+    (`--caller-channel` / `--agent-channel`). A swap silently inverts
+    every yield/hold.
+- **High crosstalk / echo bleed**
+  - `trust` behavior: `eligible for scan` **plus** high `crosstalk:
+    coherence` **warning**.
+  - Exit: 0.
+  - Scoring downstream: scores at **lower confidence.** `scan` tags the
+    moment `echo_correlated_activity`; a "yield" there may be the agent
+    hearing itself.
+- **Mixed mono (single channel)**
+  - `trust` behavior: `NOT SCORABLE: single channel, caller and agent
+    cannot be told apart`.
+  - Exit: 2.
+  - Scoring downstream: **refused by default.** Export dual-channel, or
+    take one of the two opt-in escapes (below).
+- **Mono, opt-in `--allow-mono`**
+  - `trust` behavior: accepted in **degraded mode**, results **indicative
+    only**.
+  - Exit: 0.
+  - Scoring downstream: on `capture` / `pull` / `sweep` for a mono-only
+    stack. Talk-over cannot be attributed, so no SLA gate fires. The
+    dual-channel path stays the gold reference.
+- **Mono, opt-in `--diarize`**
+  - `trust` behavior: separability **tier**: `high` / `low` / `refuse`.
+  - Exit: 0 (high/low), 2 (refuse).
+  - Scoring downstream: the separation front-end. `hotato run --mono
+    call.wav --diarize` scores it; at `low` the verdict is stamped
+    `indicative_only`. The dual-channel path stays the gold reference.
+- **Short backchannel ("mhm") overlap**
+  - `trust` behavior: outside `trust`'s scope; `scan` lists it as a
+    **candidate**.
+  - Exit: 0.
+  - Scoring downstream: **candidate only, human labels.** `trust`/`scan`
+    report the timing; you always label `yield` vs `hold`.
+- **Noisy / false-positive candidate**
+  - `trust` behavior: `trust` warns (clipping, crosstalk, hot capture);
+    `scan` still lists the candidate.
+  - Exit: 0.
+  - Scoring downstream: surfaced **with** the warning, as a candidate for
+    you to inspect and label `hold`.
 
 **Reading the two axes.** `trust` answers one question: is this audio good enough
 to score? The exit code is the machine contract, `0` = eligible for scan (possibly

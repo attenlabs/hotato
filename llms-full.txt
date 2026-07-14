@@ -2263,19 +2263,37 @@ hotato trust --stereo call.wav --format json
     "duration_sec": 32.0,
     "channels": 2,
     "clipping": {
-      "caller": {"peak": 0.7906, "peak_dbfs": -2.1, "clipped_fraction": 0.0, "clipped": false},
-      "agent": {"peak": 0.9016, "peak_dbfs": -0.9, "clipped_fraction": 0.0, "clipped": false}
+      "caller": {
+        "peak": 0.7906, "peak_dbfs": -2.1,
+        "clipped_fraction": 0.0, "clipped": false
+      },
+      "agent": {
+        "peak": 0.9016, "peak_dbfs": -0.9,
+        "clipped_fraction": 0.0, "clipped": false
+      }
     },
     "leading_silence_sec": 0.45
   },
   "channels": {
-    "caller": {"channel": 0, "active_sec": 3.32, "first_speech_sec": 3.27, "has_speech": true, "enough_activity": true},
-    "agent": {"channel": 1, "active_sec": 23.3, "first_speech_sec": 0.45, "has_speech": true, "enough_activity": true},
+    "caller": {
+      "channel": 0, "active_sec": 3.32, "first_speech_sec": 3.27,
+      "has_speech": true, "enough_activity": true
+    },
+    "agent": {
+      "channel": 1, "active_sec": 23.3, "first_speech_sec": 0.45,
+      "has_speech": true, "enough_activity": true
+    },
     "possible_swap": false,
     "swap_reason": null
   },
-  "crosstalk_risk": {"coherence": 0.057, "lag_sec": 0.39, "suspected": false, "leakage_db": null, "leakage_direction": null},
-  "scorability": {"separated_tracks": true, "enough_caller_activity": true, "enough_agent_activity": true},
+  "crosstalk_risk": {
+    "coherence": 0.057, "lag_sec": 0.39, "suspected": false,
+    "leakage_db": null, "leakage_direction": null
+  },
+  "scorability": {
+    "separated_tracks": true, "enough_caller_activity": true,
+    "enough_agent_activity": true
+  },
   "warnings": [],
   "scorable": true,
   "recommendation": "eligible for scan",
@@ -2769,13 +2787,29 @@ reassembled by `hotato.trace.load_voice_trace_jsonl`:
 {
   "schema": "hotato.voice_trace.v1",
   "call_id": null,
-  "deployment": {"stack": "vapi", "agent_id": null, "git_sha": "deadbeef", "config_hash": "sha256:..."},
+  "deployment": {
+    "stack": "vapi",
+    "agent_id": null,
+    "git_sha": "deadbeef",
+    "config_hash": "sha256:..."
+  },
   "spans": [
     {"type": "agent_audio_active", "start_sec": 0.0, "end_sec": 2.9},
     {"type": "tts_cancel_requested", "time_sec": 2.6},
     {"type": "tts_audio_stopped", "time_sec": 2.9},
-    {"type": "asr_partial", "start_sec": 2.4, "end_sec": 2.95, "text_redacted": true},
-    {"type": "tool_call", "start_sec": 1.1, "end_sec": 1.42, "name": "lookup_order", "latency_ms": 320}
+    {
+      "type": "asr_partial",
+      "start_sec": 2.4,
+      "end_sec": 2.95,
+      "text_redacted": true
+    },
+    {
+      "type": "tool_call",
+      "start_sec": 1.1,
+      "end_sec": 1.42,
+      "name": "lookup_order",
+      "latency_ms": 320
+    }
   ],
   "source": {"format": "otel-jsonl-bridge", "input_span_count": 6}
 }
@@ -3942,11 +3976,16 @@ attributed to its own variation cell, each scored on its own lane.
 
 ## Exit codes
 
-| Code | Meaning |
-| ---- | ------- |
-| `0`  | every produced conversation is `origin=simulated` and validated as a faithful rendering (and, under `--matrix --conversation-test`, every scored aggregate passed). |
-| `1`  | at least one produced simulation was `SIMULATOR_INVALID` -- a broken fixture, kept distinct from an agent PASS/FAIL -- or, under `--matrix --conversation-test`, a scored aggregate FAILed. |
-| `2`  | usage error / unusable input: a malformed or unreadable scenario / conversation-test file (or, under `--matrix --conversation-test` with `inconclusive_policy refuse`, a withheld verdict). |
+- **`0`** -- every produced conversation is `origin=simulated` and
+  validated as a faithful rendering (and, under `--matrix
+  --conversation-test`, every scored aggregate passed).
+- **`1`** -- at least one produced simulation was `SIMULATOR_INVALID` -- a
+  broken fixture, kept distinct from an agent PASS/FAIL -- or, under
+  `--matrix --conversation-test`, a scored aggregate FAILed.
+- **`2`** -- usage error / unusable input: a malformed or unreadable
+  scenario / conversation-test file (or, under `--matrix
+  --conversation-test` with `inconclusive_policy refuse`, a withheld
+  verdict).
 
 ## Related
 
@@ -4074,11 +4113,17 @@ reliability distinct from production reliability.
 
 ## Exit codes
 
-| code | meaning |
-| --- | --- |
-| `0` | every test in the suite passed under the suite's `inconclusive_policy` (and no run was `SIMULATOR_INVALID`) |
-| `1` | at least one test FAILed (a `success.required` condition failed, a deterministic assertion FAILed, or -- under `inconclusive_policy fail` -- an INCONCLUSIVE gated), or a run was `SIMULATOR_INVALID` (a broken fixture, kept separate from any agent PASS/FAIL) |
-| `2` | under `inconclusive_policy refuse` a scored INCONCLUSIVE withheld the verdict (takes precedence over a FAIL); OR a usage error / unusable input: a malformed suite / conversation-test / scenario file, or an unresolvable test/scenario ref |
+- **`0`** -- every test in the suite passed under the suite's
+  `inconclusive_policy` (and no run was `SIMULATOR_INVALID`).
+- **`1`** -- at least one test FAILed (a `success.required` condition
+  failed, a deterministic assertion FAILed, or -- under
+  `inconclusive_policy fail` -- an INCONCLUSIVE gated), or a run was
+  `SIMULATOR_INVALID` (a broken fixture, kept separate from any agent
+  PASS/FAIL).
+- **`2`** -- under `inconclusive_policy refuse` a scored INCONCLUSIVE
+  withheld the verdict (takes precedence over a FAIL); OR a usage error /
+  unusable input: a malformed suite / conversation-test / scenario file, or
+  an unresolvable test/scenario ref.
 
 ## See also
 
@@ -4188,10 +4233,10 @@ all per-scenario status changes:
 
 ## Exit codes
 
-| code | meaning |
-| --- | --- |
-| `0` | the two releases were compared (per-dimension deltas + new-failures / fixed-since printed; a side with no runs is reported as an empty state, exit stays `0`) |
-| `2` | a usage error or an unreadable registry `--registry` |
+- **`0`** -- the two releases were compared (per-dimension deltas +
+  new-failures / fixed-since printed; a side with no runs is reported as an
+  empty state, exit stays `0`).
+- **`2`** -- a usage error or an unreadable registry `--registry`.
 
 ## See also
 
@@ -4734,17 +4779,19 @@ unless you explicitly pull it from your own stack ([THREAT-MODEL.md](THREAT-MODE
 
 `hotato investigate`:
 
-| code | meaning |
-| --- | --- |
-| `0` | the recording is candidate-eligible: trust + scan ran and candidates (if any) were persisted; a yield/hold VERDICT may still be refused (K6) -- see `verdict_status` |
-| `2` | usage error (neither `SOURCE` nor `--stack/--call-id`, both given, a bad channel/`--min-gap` flag, a missing credential, or an unreadable state file), or the recording is NOT SCORABLE at all |
+- **`0`** -- the recording is candidate-eligible: trust + scan ran and
+  candidates (if any) were persisted; a yield/hold VERDICT may still be
+  refused (K6) -- see `verdict_status`.
+- **`2`** -- usage error (neither `SOURCE` nor `--stack/--call-id`, both
+  given, a bad channel/`--min-gap` flag, a missing credential, or an
+  unreadable state file), or the recording is NOT SCORABLE at all.
 
 `hotato investigate label`:
 
-| code | meaning |
-| --- | --- |
-| `0` | a signed, CI-ready contract was written from this candidate |
-| `2` | usage error (a bad `--expect`, a bad candidate ref, an unresolved source recording, or an existing contract without `--force`), or the candidate turned out not scorable |
+- **`0`** -- a signed, CI-ready contract was written from this candidate.
+- **`2`** -- usage error (a bad `--expect`, a bad candidate ref, an
+  unresolved source recording, or an existing contract without `--force`),
+  or the candidate turned out not scorable.
 
 ## See also
 
@@ -7762,13 +7809,64 @@ The same word ("verified", "fixed", "passed") means something different
 depending on which of these five you are holding. Match what you say to what
 you have:
 
-| Evidence you have | How you get it | Accurate to say | Inaccurate (common overclaim) |
-| --- | --- | --- | --- |
-| **Historical contract only** | `hotato contract create` ran once; you are reading `contract.json` / `hotato contract inspect`, no `verify` run since | "On \[created_at], a human labeled this call and hotato measured \[timing] against that label; this is the frozen record of that one measurement." | "This proves our agent behaves correctly" -- nothing has been re-checked since capture; it speaks to that one recorded moment, not to now. |
-| **Contract plus unchanged historical audio** | `hotato contract verify` re-scored the SAME `audio/event.wav` the contract was created from | "`hotato contract verify` re-measured stored evidence and it still meets its policy." (This is the literal caveat `contract verify` now prints -- see below.) | "The deployed agent no longer has this bug." Per the two-lane table in [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it), a pass here can only fail if the evidence, policy, or scorer changed, never because the deployed agent changed. |
-| **Separately captured current-agent take** | Steps 1 to 5 above: a fresh recording of the same stimulus, a new contract created from it, verified once, standalone (no paired before/after) | "The CURRENT agent, on a fresh recording of the same stimulus captured \[date], still meets the labeled policy. One data point." | "This proves the fix caused the improvement" (coincidence, not causation) or "this guarantees the next call passes too" (one recapture is one data point, not a rate -- see Limits below). |
-| **Fresh take plus opposite-risk cases** | `hotato fix trial` `improved`: paired before/after with verified (recomputed, freshly distinct decoded-PCM) `audio_provenance` on every guarded target AND hold fixture (the provenance guard held) AND the hold/opposite-risk fixture still passed | "This proves the specific fresh capture scored above, at the revision it was captured from, including that a paired hold/opposite-risk case did not flip." (The literal caution `fix trial` prints -- see below.) | "This fix is now permanently verified" or "it will keep holding after future deploys." A later deploy is a new revision this report says nothing about, and nothing here re-runs itself. |
-| **Production rerun after deploy** | You (there is no automatic trigger) recaptured again against the LIVE deployed agent post-deploy, per this page, on your own schedule | "As of \[date], a fresh production capture reverified the same labeled stimulus against the live agent." Still one data point per run. | "The fix is confirmed working in production, no further checks needed." This does not run in CI by itself (see Limits below); each rerun is one more independent data point, not a standing guarantee that survives the NEXT deploy. |
+**Historical contract only**
+- How you get it: `hotato contract create` ran once; you are reading
+  `contract.json` / `hotato contract inspect`, no `verify` run since.
+- Accurate to say: "On \[created_at], a human labeled this call and hotato
+  measured \[timing] against that label; this is the frozen record of that
+  one measurement."
+- Inaccurate (common overclaim): "This proves our agent behaves correctly"
+  -- nothing has been re-checked since capture; it speaks to that one
+  recorded moment, not to now.
+
+**Contract plus unchanged historical audio**
+- How you get it: `hotato contract verify` re-scored the SAME
+  `audio/event.wav` the contract was created from.
+- Accurate to say: "`hotato contract verify` re-measured stored evidence
+  and it still meets its policy." (This is the literal caveat `contract
+  verify` now prints -- see below.)
+- Inaccurate (common overclaim): "The deployed agent no longer has this
+  bug." Per the two-lane table in
+  [`docs/CONTRACTS.md`](CONTRACTS.md#two-lanes-what-verify-proves-depends-on-which-recording-you-feed-it),
+  a pass here can only fail if the evidence, policy, or scorer changed,
+  never because the deployed agent changed.
+
+**Separately captured current-agent take**
+- How you get it: Steps 1 to 5 above: a fresh recording of the same
+  stimulus, a new contract created from it, verified once, standalone (no
+  paired before/after).
+- Accurate to say: "The CURRENT agent, on a fresh recording of the same
+  stimulus captured \[date], still meets the labeled policy. One data
+  point."
+- Inaccurate (common overclaim): "This proves the fix caused the
+  improvement" (coincidence, not causation) or "this guarantees the next
+  call passes too" (one recapture is one data point, not a rate -- see
+  Limits below).
+
+**Fresh take plus opposite-risk cases**
+- How you get it: `hotato fix trial` `improved`: paired before/after with
+  verified (recomputed, freshly distinct decoded-PCM) `audio_provenance` on
+  every guarded target AND hold fixture (the provenance guard held) AND the
+  hold/opposite-risk fixture still passed.
+- Accurate to say: "This proves the specific fresh capture scored above, at
+  the revision it was captured from, including that a paired
+  hold/opposite-risk case did not flip." (The literal caution `fix trial`
+  prints -- see below.)
+- Inaccurate (common overclaim): "This fix is now permanently verified" or
+  "it will keep holding after future deploys." A later deploy is a new
+  revision this report says nothing about, and nothing here re-runs itself.
+
+**Production rerun after deploy**
+- How you get it: you (there is no automatic trigger) recaptured again
+  against the LIVE deployed agent post-deploy, per this page, on your own
+  schedule.
+- Accurate to say: "As of \[date], a fresh production capture reverified
+  the same labeled stimulus against the live agent." Still one data point
+  per run.
+- Inaccurate (common overclaim): "The fix is confirmed working in
+  production, no further checks needed." This does not run in CI by itself
+  (see Limits below); each rerun is one more independent data point, not a
+  standing guarantee that survives the NEXT deploy.
 
 Two of these statements are not just guidance in this doc -- they are wired
 into the command output, so a reader never has to take the caution on
@@ -8737,23 +8835,30 @@ ask, and the guarantees that hold either way.
 These commands read and write only the local files you point them at, opening
 no sockets. This is the whole scoring, analysis, and fixture surface.
 
-| Command | What it touches |
-|---|---|
-| `run` | Score a local WAV (or the bundled self-test battery). |
-| `scan` | List candidate moments in a local recording. |
-| `trust` | Input-health check on a local recording. |
-| `report` | Render a self-contained HTML report from local run data. |
-| `fixture` | Create / promote a local moment into a regression fixture. |
-| `compare` | Score a before/after pair of local takes. |
-| `verify` | Roll up before/after run envelopes on disk. |
-| `diagnose` | Explain a finished local run envelope (read-only). |
-| `plan` | Combine a diagnosis + config into a proposed fix plan JSON. |
-| `patch` | Render a fix plan into a paste-ready patch. Never applies it. |
-| `demo` | Run the packaged two-call battery. Zero extra files. |
-| `team`, `export`, `benchmark` | Aggregate / export local run data. |
-| `setup`, `describe`, `init` | Print recording config, emit the CLI manifest, scaffold local integration files. |
-| `rubric run`, `rubric calibrate` | Score a local transcript against a rubric with a **LOCAL** model (Ollama at `localhost`). Default path opens no off-box socket; the verdict cache is local. Reaches the network only with an explicit hosted / non-local judge (see below). |
-| `test run` (rubric lane) | Same LOCAL model judge as `rubric run`, run inline on a conversation-test's `assertions.rubric` lane. Local by default. |
+- **`run`** -- score a local WAV (or the bundled self-test battery).
+- **`scan`** -- list candidate moments in a local recording.
+- **`trust`** -- input-health check on a local recording.
+- **`report`** -- render a self-contained HTML report from local run data.
+- **`fixture`** -- create / promote a local moment into a regression
+  fixture.
+- **`compare`** -- score a before/after pair of local takes.
+- **`verify`** -- roll up before/after run envelopes on disk.
+- **`diagnose`** -- explain a finished local run envelope (read-only).
+- **`plan`** -- combine a diagnosis + config into a proposed fix plan
+  JSON.
+- **`patch`** -- render a fix plan into a paste-ready patch. Never applies
+  it.
+- **`demo`** -- run the packaged two-call battery. Zero extra files.
+- **`team`, `export`, `benchmark`** -- aggregate / export local run data.
+- **`setup`, `describe`, `init`** -- print recording config, emit the CLI
+  manifest, scaffold local integration files.
+- **`rubric run`, `rubric calibrate`** -- score a local transcript against
+  a rubric with a **LOCAL** model (Ollama at `localhost`). Default path
+  opens no off-box socket; the verdict cache is local. Reaches the network
+  only with an explicit hosted / non-local judge (see below).
+- **`test run` (rubric lane)** -- same LOCAL model judge as `rubric run`,
+  run inline on a conversation-test's `assertions.rubric` lane. Local by
+  default.
 
 Default retention is local-only: reports, envelopes, and exports are written
 exactly where you point them.
@@ -8763,21 +8868,62 @@ exactly where you point them.
 These commands reach outside the machine, and only because reaching out is their
 job. Each requires you to name a stack, a repository, or a webhook you configured.
 
-| Command | Network surface | Notes |
-|---|---|---|
-| `connect` | none at connect time | Stores a stack's credentials locally at `0600`. Setup for the pull path; no audio moves. |
-| `pull` | your voice stack's API | Bulk-fetch recent recordings from a stack **you** connected, into a local folder. |
-| `capture` | your voice stack's API | Fetch and score one real call from your stack. |
-| `sweep` | your voice stack's API | `pull` + analyze in one command. |
-| `inspect` | your voice stack's API | Read (never write) the current turn-taking config. Read-only. |
-| `ingest` | a webhook endpoint you host | Worker that scans each completed call. Payloads are data, not instructions (guarantee 3). |
-| `issue` | GitHub, via your local `gh` | File a sweep's candidates as an issue. Uses your existing `gh` auth. |
-| `pr` | GitHub, via your local `gh` | Open a PR adding promoted fixtures. Uses your existing `gh` auth. |
-| `apply` | a git clone you point it at | Applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel. |
-| `--diarizer pyannoteai` | Attention Labs hosted diarizer | The only AUDIO path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local. |
-| `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | Sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a LOCAL Ollama model that stays on the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md). |
-| `test run --state` **http adapter** | your system-of-record's REST API | Only when the state-config names `adapter: http`, and only with `egress_opt_in: true` in that config. Sends the mapped filter VALUES for one `state`/`state_change` query -- audio, transcript, and the config itself stay local. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md). |
-| `test run --state` **sql adapter over a `dsn`** | your database, over the network | Only when the state-config names `adapter: sql` with a `dsn`, and only with `egress_opt_in: true`. A parameterized, read-only SELECT with the mapped filter values bound as data. A local `sqlite_path` opens no socket. |
+- **`connect`**
+  - Network surface: none at connect time.
+  - Notes: stores a stack's credentials locally at `0600`. Setup for the
+    pull path; no audio moves.
+- **`pull`**
+  - Network surface: your voice stack's API.
+  - Notes: bulk-fetch recent recordings from a stack **you** connected,
+    into a local folder.
+- **`capture`**
+  - Network surface: your voice stack's API.
+  - Notes: fetch and score one real call from your stack.
+- **`sweep`**
+  - Network surface: your voice stack's API.
+  - Notes: `pull` + analyze in one command.
+- **`inspect`**
+  - Network surface: your voice stack's API.
+  - Notes: read (never write) the current turn-taking config. Read-only.
+- **`ingest`**
+  - Network surface: a webhook endpoint you host.
+  - Notes: worker that scans each completed call. Payloads are data, not
+    instructions (guarantee 3).
+- **`issue`**
+  - Network surface: GitHub, via your local `gh`.
+  - Notes: file a sweep's candidates as an issue. Uses your existing `gh`
+    auth.
+- **`pr`**
+  - Network surface: GitHub, via your local `gh`.
+  - Notes: open a PR adding promoted fixtures. Uses your existing `gh`
+    auth.
+- **`apply`**
+  - Network surface: a git clone you point it at.
+  - Notes: applies a patch to a fresh **staging** clone only, never the
+    source. Dry-run by default; refuses a both-axes threshold funnel.
+- **`--diarizer pyannoteai`**
+  - Network surface: Attention Labs hosted diarizer.
+  - Notes: the only AUDIO path that can send audio off-box, and only with
+    `--egress-opt-in`. The default diarizer is local.
+- **`--judge-provider hosted` / non-local `--judge-endpoint`** (any rubric
+  command)
+  - Network surface: a hosted or remote model host you name.
+  - Notes: sends the transcript + rubric criterion off-box for judging.
+    Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a
+    LOCAL Ollama model that stays on the box. See
+    [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md).
+- **`test run --state` http adapter**
+  - Network surface: your system-of-record's REST API.
+  - Notes: only when the state-config names `adapter: http`, and only with
+    `egress_opt_in: true` in that config. Sends the mapped filter VALUES for
+    one `state`/`state_change` query -- audio, transcript, and the config
+    itself stay local. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md).
+- **`test run --state` sql adapter over a `dsn`**
+  - Network surface: your database, over the network.
+  - Notes: only when the state-config names `adapter: sql` with a `dsn`,
+    and only with `egress_opt_in: true`. A parameterized, read-only SELECT
+    with the mapped filter values bound as data. A local `sqlite_path`
+    opens no socket.
 
 The state adapters read a post-call **system of record** to ground an Authority-2
 `state` assertion (did the refund/appointment get written?). A record
@@ -9351,18 +9497,68 @@ Worked examples with real CLI output for every row are in
 
 ## The contract
 
-| Input condition | `trust` behavior | Exit | Scoring downstream |
-|---|---|---|---|
-| **Clean dual-channel (stereo)** | `eligible for scan` | 0 | **Full scoring.** `scan`, `run`, `compare`, `verify` all run normally. |
-| **Silent caller channel** | `NOT SCORABLE: caller channel has no detected speech` | 2 | **Refused.** There is no caller to measure a yield against. |
-| **Silent agent channel** | `NOT SCORABLE: agent channel has no detected speech` | 2 | **Refused.** There is no agent floor to interrupt. |
-| **Channel swap risk** | `eligible for scan` **plus** `possible channel swap` **warning** | 0 | Scores, but confirm the mapping first (`--caller-channel` / `--agent-channel`). A swap silently inverts every yield/hold. |
-| **High crosstalk / echo bleed** | `eligible for scan` **plus** high `crosstalk: coherence` **warning** | 0 | Scores at **lower confidence.** `scan` tags the moment `echo_correlated_activity`; a "yield" there may be the agent hearing itself. |
-| **Mixed mono (single channel)** | `NOT SCORABLE: single channel, caller and agent cannot be told apart` | 2 | **Refused by default.** Export dual-channel, or take one of the two opt-in escapes (below). |
-| **Mono, opt-in `--allow-mono`** | accepted in **degraded mode**, results **indicative only** | 0 | On `capture` / `pull` / `sweep` for a mono-only stack. Talk-over cannot be attributed, so no SLA gate fires. The dual-channel path stays the gold reference. |
-| **Mono, opt-in `--diarize`** | separability **tier**: `high` / `low` / `refuse` | 0 (high/low), 2 (refuse) | The separation front-end. `hotato run --mono call.wav --diarize` scores it; at `low` the verdict is stamped `indicative_only`. The dual-channel path stays the gold reference. |
-| **Short backchannel ("mhm") overlap** | outside `trust`'s scope; `scan` lists it as a **candidate** | 0 | **Candidate only, human labels.** `trust`/`scan` report the timing; you always label `yield` vs `hold`. |
-| **Noisy / false-positive candidate** | `trust` warns (clipping, crosstalk, hot capture); `scan` still lists the candidate | 0 | Surfaced **with** the warning, as a candidate for you to inspect and label `hold`. |
+- **Clean dual-channel (stereo)**
+  - `trust` behavior: `eligible for scan`.
+  - Exit: 0.
+  - Scoring downstream: **full scoring.** `scan`, `run`, `compare`,
+    `verify` all run normally.
+- **Silent caller channel**
+  - `trust` behavior: `NOT SCORABLE: caller channel has no detected
+    speech`.
+  - Exit: 2.
+  - Scoring downstream: **refused.** There is no caller to measure a
+    yield against.
+- **Silent agent channel**
+  - `trust` behavior: `NOT SCORABLE: agent channel has no detected
+    speech`.
+  - Exit: 2.
+  - Scoring downstream: **refused.** There is no agent floor to
+    interrupt.
+- **Channel swap risk**
+  - `trust` behavior: `eligible for scan` **plus** `possible channel
+    swap` **warning**.
+  - Exit: 0.
+  - Scoring downstream: scores, but confirm the mapping first
+    (`--caller-channel` / `--agent-channel`). A swap silently inverts
+    every yield/hold.
+- **High crosstalk / echo bleed**
+  - `trust` behavior: `eligible for scan` **plus** high `crosstalk:
+    coherence` **warning**.
+  - Exit: 0.
+  - Scoring downstream: scores at **lower confidence.** `scan` tags the
+    moment `echo_correlated_activity`; a "yield" there may be the agent
+    hearing itself.
+- **Mixed mono (single channel)**
+  - `trust` behavior: `NOT SCORABLE: single channel, caller and agent
+    cannot be told apart`.
+  - Exit: 2.
+  - Scoring downstream: **refused by default.** Export dual-channel, or
+    take one of the two opt-in escapes (below).
+- **Mono, opt-in `--allow-mono`**
+  - `trust` behavior: accepted in **degraded mode**, results **indicative
+    only**.
+  - Exit: 0.
+  - Scoring downstream: on `capture` / `pull` / `sweep` for a mono-only
+    stack. Talk-over cannot be attributed, so no SLA gate fires. The
+    dual-channel path stays the gold reference.
+- **Mono, opt-in `--diarize`**
+  - `trust` behavior: separability **tier**: `high` / `low` / `refuse`.
+  - Exit: 0 (high/low), 2 (refuse).
+  - Scoring downstream: the separation front-end. `hotato run --mono
+    call.wav --diarize` scores it; at `low` the verdict is stamped
+    `indicative_only`. The dual-channel path stays the gold reference.
+- **Short backchannel ("mhm") overlap**
+  - `trust` behavior: outside `trust`'s scope; `scan` lists it as a
+    **candidate**.
+  - Exit: 0.
+  - Scoring downstream: **candidate only, human labels.** `trust`/`scan`
+    report the timing; you always label `yield` vs `hold`.
+- **Noisy / false-positive candidate**
+  - `trust` behavior: `trust` warns (clipping, crosstalk, hot capture);
+    `scan` still lists the candidate.
+  - Exit: 0.
+  - Scoring downstream: surfaced **with** the warning, as a candidate for
+    you to inspect and label `hold`.
 
 **Reading the two axes.** `trust` answers one question: is this audio good enough
 to score? The exit code is the machine contract, `0` = eligible for scan (possibly
