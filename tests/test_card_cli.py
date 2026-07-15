@@ -324,17 +324,15 @@ def test_card_writes_to_stdout_without_out(tmp_path, capsys):
 @pytest.mark.skipif(not os.path.isdir(CARDS),
                     reason="docs/assets/cards pruned from sdist "
                            "(regenerate with scripts/render_card_assets.py)")
-def test_committed_cards_match_a_fresh_render(tmp_path):
-    _, plan = _demo_plan(tmp_path)
-    sweep, agg = _demo_sweep(tmp_path)
-    expected = {
-        "no-single-threshold-card.svg": _card.render_plan_card(plan),
-        "talk-over-card.svg": _card.make_card(
-            f"{sweep}#{_rank_of(agg, _TALK_OVER)}"),
-        "false-stop-card.svg": _card.make_card(
-            f"{sweep}#{_rank_of(agg, _FALSE_STOP)}"),
-    }
-    for name, svg in expected.items():
+def test_committed_cards_match_a_fresh_render():
+    # The committed illustrative cards are the exact output of the one generator
+    # (scripts/render_card_assets.build_cards), embedded brand faces and all, so
+    # values and styling cannot drift between the two copies of these assets.
+    import sys
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import render_card_assets  # noqa: E402
+
+    for name, svg in render_card_assets.build_cards().items():
         committed = open(os.path.join(CARDS, name), encoding="utf-8").read()
         assert committed == svg, (
             f"{name} is stale; regenerate with "
