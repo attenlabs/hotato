@@ -367,14 +367,28 @@ _EXIT_CODES: dict = {
         (2, "a usage error or an unreadable registry --registry"),
     ),
     "record": (
-        (2, "no subcommand given (see hotato record render --help)"),
+        (2, "no subcommand given (see hotato record render/verify --help)"),
     ),
     "record render": (
-        (0, "wrote failure-record.json, .md, .html, and .svg into --out"),
+        (0, "wrote failure-record.json, .md, .html, and .svg into --out; with "
+            "--all, wrote index.json/index.md plus one sha256-<hex>/ child "
+            "record per non-passing unit (an all-pass source writes a "
+            "zero-record index and no child, never a fabricated failure)"),
         (2, "usage error or unusable input: a source that is not a hotato "
             "result, a selector matching zero or several failing results, an "
-            "all-pass source (no failure to record), or a field the "
-            "share-safe projection refuses"),
+            "all-pass source without --all (no failure to record), a "
+            "SOURCE#selector combined with --all, a duplicate unit id, or a "
+            "field the share-safe projection refuses"),
+    ),
+    "record verify": (
+        (0, "the record is valid: schema/oracle invariants, content address, "
+            "the deterministic-gate authority wall, the reproduction "
+            "contract, reliability semantics, and the share-safe privacy "
+            "profile all hold (and, with --evidence-root, every evidence file "
+            "re-hashed to its recorded digest)"),
+        (2, "the record is malformed, tampered (content-address or evidence "
+            "digest mismatch), unsafe (an absolute or traversing path), or "
+            "missing a required evidence file under --evidence-root"),
     ),
     "rubric": (
         (2, "no subcommand given (see hotato rubric run/calibrate --help)"),
@@ -3109,6 +3123,26 @@ def _cmd_record_render(args) -> int:
                 "(for example suite-run.json#greeting-test) or drop the "
                 "number sign entirely"
             )
+
+    render_all_units = getattr(args, "all", False)
+    limit = getattr(args, "limit", None)
+    if limit is not None and limit < 1:
+        raise ValueError(
+            "--limit must be a positive integer: it caps how many records a "
+            "record set renders, in source order"
+        )
+    if limit is not None and not render_all_units:
+        raise ValueError(
+            "--limit caps a record SET; add --all to render one record per "
+            "non-passing unit, or drop --limit to render a single record"
+        )
+    if render_all_units and selector is not None:
+        raise ValueError(
+            "cannot combine a SOURCE#selector with --all: --all renders one "
+            "record for every non-passing unit, while SOURCE#selector renders "
+            "exactly the one unit you name -- use one or the other"
+        )
+
     doc = _errors.load_json_file(raw, label=f"source result {raw!r}")
     if not isinstance(doc, dict):
         raise ValueError(
@@ -3116,6 +3150,10 @@ def _cmd_record_render(args) -> int:
             "hotato test-run, suite-run, or contract-verify result saved "
             "with --format json"
         )
+
+    if render_all_units:
+        return _render_record_set(FR, FRR, doc, raw, args.out, limit)
+
     # The reproduction argv inside the record always says `--out record` (a
     # fixed relative name): the record's content address must not change with
     # the caller's output directory, which is presentation, not identity.
@@ -3129,6 +3167,101 @@ def _cmd_record_render(args) -> int:
           + ", ".join(sorted(outputs)))
     print(f"record_id: {record['record_id']}")
     return 0
+
+
+def _render_record_set(FR, FRR, doc, source_path, out_dir, limit) -> int:
+    """Render one share-safe Failure Record for every non-passing unit of
+    ``doc`` into ``out_dir`` under content-addressed ``sha256-<hex>`` child
+    directories, plus a deterministic ``index.json`` / ``index.md``. Selection
+    (and the duplicate-id refusal) happens BEFORE any directory is created, so a
+    refused set writes nothing; an all-pass source writes a zero-record index
+    and no child directory (it never fabricates a failure)."""
+    selectors = FR.failure_selectors(doc)
+    total = len(selectors)
+    rendered_selectors = selectors if limit is None else selectors[:limit]
+    truncated = limit is not None and total > limit
+
+    with _open_regular(source_path, "rb") as fh:
+        source_digest = FR.digest_bytes(fh.read())
+
+    records = [
+        FR.project(doc, selector=sel, source_path=source_path)
+        for sel in rendered_selectors
+    ]
+    index_out = FRR.render_record_set(
+        records, source_digest, total, truncated=truncated,
+        source_kind=doc.get("kind"),
+    )
+
+    os.makedirs(out_dir, exist_ok=True)
+    for record in records:
+        child = os.path.join(out_dir, FRR.record_directory(record))
+        os.makedirs(child, exist_ok=True)
+        for name, content in FRR.render_all(record).items():
+            _atomic_write_text(os.path.join(child, name), content)
+    _atomic_write_text(os.path.join(out_dir, "index.json"),
+                       index_out["index.json"])
+    _atomic_write_text(os.path.join(out_dir, "index.md"),
+                       index_out["index.md"])
+
+    print(f"wrote {len(records)} failure record(s) of {total} non-passing "
+          f"unit(s) to {out_dir}/: index.json, index.md")
+    if truncated:
+        print(f"truncated to the first {len(records)} of {total} in source "
+              f"order (--limit {limit})")
+    for record in records:
+        print(f"record_id: {record['record_id']}")
+    return 0
+
+
+def _cmd_record_verify(args) -> int:
+    from . import failure_record as FR
+
+    record = FR.load_record(args.record)
+    valid = True
+    reason = None
+    checks: list = []
+    try:
+        checks = FR.validate_record(record, root=args.evidence_root)
+    except ValueError as exc:
+        valid = False
+        reason = str(exc)
+
+    record_id = record.get("record_id")
+    status = record.get("status")
+    privacy_profile = (record.get("privacy") or {}).get("profile") \
+        if isinstance(record.get("privacy"), dict) else None
+
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL,
+            "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "hotato.failure-record-verification.v1",
+            "valid": valid,
+            "record_id": record_id,
+            "status": status,
+            "privacy_profile": privacy_profile,
+            "checks": checks,
+        }
+        if not valid:
+            payload["reason"] = reason
+        print(_errors.safe_json_dumps(payload, indent=2))
+        return 0 if valid else 2
+
+    if valid:
+        import shlex
+        print(f"VALID {record_id}")
+        print(f"  status: {status} · privacy profile: {privacy_profile}")
+        print(f"  checks: {', '.join(checks)}")
+        # The reproduction argv REGENERATES the projection from the privately
+        # held source result; it does NOT replay the call (that needs the
+        # private artifacts the share-safe record deliberately omits).
+        print("  Regenerate from the private source result: "
+              + shlex.join(record["reproduction"]["argv"]))
+        return 0
+
+    print(f"INVALID {record_id or '(no record_id)'}: {reason}", file=sys.stderr)
+    return 2
 
 
 def _cmd_release_compare(args) -> int:
@@ -6241,7 +6374,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     recsub = rec.add_subparsers(dest="record_command", required=True,
-                                metavar="render")
+                                metavar="render|verify")
     rcr = recsub.add_parser(
         "render",
         help="render failure-record.json/.md/.html/.svg from a result file",
@@ -6251,11 +6384,14 @@ def build_parser() -> argparse.ArgumentParser:
             "--format json` result, or a `hotato contract verify --format "
             "json` envelope, each saved to a file. A suite or contract "
             "source with several failing entries needs a selector appended "
-            "to the path: SOURCE#TEST_ID. A source whose checks all passed "
-            "is refused with a clear no-failure diagnostic -- a passing "
-            "result is never relabeled as a Failure Record. All four files "
-            "carry the same content-addressed record_id and are "
-            "byte-deterministic for the same source."
+            "to the path: SOURCE#TEST_ID -- or pass --all to render one "
+            "record per non-passing unit into content-addressed sha256-<hex>/ "
+            "child directories under a deterministic index.json/index.md. A "
+            "source whose checks all passed is refused (single mode) or "
+            "yields a zero-record index (--all) -- a passing result is never "
+            "relabeled as a Failure Record. All files carry the same "
+            "content-addressed record_id and are byte-deterministic for the "
+            "same source."
         ),
         epilog=(
             _exit_codes_epilog("record render") + "\n\n"
@@ -6264,7 +6400,8 @@ def build_parser() -> argparse.ArgumentParser:
             "--format json > result.json\n"
             "  hotato record render result.json --out record\n"
             "  hotato record render suite-out/suite-run.json#TEST_ID "
-            "--out record"
+            "--out record\n"
+            "  hotato record render suite-out/suite-run.json --all --out records"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6272,12 +6409,63 @@ def build_parser() -> argparse.ArgumentParser:
         "source", metavar="SOURCE",
         help="path to the source result JSON; append a number-sign selector "
              "(SOURCE#TEST_ID) to pick one failing entry out of a suite-run "
-             "or contract-verify source")
+             "or contract-verify source (mutually exclusive with --all)")
     rcr.add_argument(
         "--out", required=True, metavar="DIR",
-        help="directory to write failure-record.json/.md/.html/.svg into "
-             "(created if absent; files are replaced atomically)")
+        help="directory to write into (created if absent; files are replaced "
+             "atomically). Single mode writes failure-record.json/.md/.html/"
+             ".svg here; --all writes index.json/index.md plus one "
+             "sha256-<hex>/ child directory per record")
+    rcr.add_argument(
+        "--all", action="store_true",
+        help="render one record for EVERY non-passing unit in the source "
+             "(cannot be combined with a SOURCE#selector); an all-pass source "
+             "writes a zero-record index and no child directory")
+    rcr.add_argument(
+        "--limit", type=int, default=None, metavar="N",
+        help="with --all: cap the number of records rendered (the first N in "
+             "source order); the index reports total_failures, rendered, and "
+             "truncated=true when the cap drops units")
     rcr.set_defaults(func=_cmd_record_render)
+
+    rcv = recsub.add_parser(
+        "verify",
+        help="verify one Failure Record: oracle invariants, content address, "
+             "privacy, and (optionally) evidence files",
+        description=(
+            "The public-reader command: re-run the reference oracle over one "
+            "failure-record.json -- the closed top-level contract, the "
+            "content-addressed record_id, the five separate lanes with no "
+            "blended score, the deterministic-gate authority wall, evidence "
+            "reference integrity, the safe reproduction contract, reliability "
+            "semantics, and the share-safe privacy profile. Structure only: it "
+            "opens no socket and mutates no file. Pass --evidence-root DIR to "
+            "additionally require and re-hash every evidence locator relative "
+            "to the private source tree. Exit 0 for a valid record; exit 2 for "
+            "a malformed, tampered, unsafe, or missing-required-evidence "
+            "record. The reproduction command regenerates the projection from "
+            "the private source result; it does not replay the call."
+        ),
+        epilog=(
+            _exit_codes_epilog("record verify") + "\n\n"
+            "Examples:\n"
+            "  hotato record verify record/failure-record.json\n"
+            "  hotato record verify record/failure-record.json --format json\n"
+            "  hotato record verify record/failure-record.json "
+            "--evidence-root ."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rcv.add_argument(
+        "record", metavar="RECORD",
+        help="path to a failure-record.json to verify")
+    rcv.add_argument(
+        "--evidence-root", default=None, metavar="DIR",
+        help="also require and re-hash every evidence locator relative to DIR "
+             "(the private source tree); omit to verify structure only, which "
+             "succeeds even when the private evidence files are absent")
+    _add_format_arg(rcv, choices=("text", "json"))
+    rcv.set_defaults(func=_cmd_record_verify)
 
     # --- rubric: the REAL model-judge lane (schema rubric.v1) ----------------
     rb = sub.add_parser(

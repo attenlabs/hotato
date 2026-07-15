@@ -26,7 +26,16 @@ __all__ = [
     "render_html",
     "render_svg",
     "render_all",
+    "record_directory",
+    "build_record_index",
+    "render_index_md",
+    "render_record_set",
+    "INDEX_KIND",
+    "INDEX_VERSION",
 ]
+
+INDEX_KIND = "hotato.failure-record-index.v1"
+INDEX_VERSION = "1.0"
 
 # The same warm-charcoal family the report/suite renderers use.
 _BG = "#1b1714"
@@ -334,4 +343,135 @@ def render_all(record: Dict[str, Any]) -> Dict[str, str]:
         "failure-record.md": render_markdown(record),
         "failure-record.html": render_html(record),
         "failure-record.svg": render_svg(record),
+    }
+
+
+# =========================================================================
+# record SET: a deterministic index over every rendered failure record
+# =========================================================================
+
+def record_directory(record: Dict[str, Any]) -> str:
+    """The digest-scoped child directory name for one record: ``sha256-<64
+    lowercase hex>`` derived from the content-addressed ``record_id``. NEVER a
+    test id -- the digest prevents traversal, collisions, case-folding bugs,
+    and accidental disclosure of a test id in a path."""
+    record_id = record["record_id"]
+    hexpart = record_id.split(":", 1)[1] if ":" in record_id else record_id
+    return "sha256-" + hexpart
+
+
+def build_record_index(
+    records: List[Dict[str, Any]],
+    source_digest: str,
+    total_failures: int,
+    truncated: bool = False,
+    *,
+    source_kind: Optional[str] = None,
+) -> Dict[str, Any]:
+    """The closed ``hotato.failure-record-index.v1`` dict over a set of records
+    rendered from ONE source. Structure only: the source kind + digest, how
+    many non-passing units the source had (``total_failures``), how many were
+    rendered, whether the set was truncated by a record limit, and one entry
+    per record in SOURCE ORDER pointing at its content-addressed child
+    directory. No wall-clock field and no aggregate score -- an index groups
+    records, it never blends them.
+
+    ``source_kind`` defaults to the records' shared ``origin.source``; it must
+    be supplied for an empty (all-pass) set, which has no record to derive it
+    from."""
+    if source_kind is None:
+        source_kind = records[0]["origin"]["source"] if records else "unknown"
+    entries = [
+        {
+            "record_id": record["record_id"],
+            "status": record["status"],
+            "test_id": record["subject"]["test_id"],
+            "headline": record["headline"],
+            "directory": record_directory(record),
+        }
+        for record in records
+    ]
+    return {
+        "kind": INDEX_KIND,
+        "version": INDEX_VERSION,
+        "source": {"kind": source_kind, "digest": source_digest},
+        "total_failures": int(total_failures),
+        "rendered": len(records),
+        "truncated": bool(truncated),
+        "records": entries,
+    }
+
+
+def render_index_json(index: Dict[str, Any]) -> str:
+    """Canonical machine form of the index: UTF-8, sorted keys, two-space
+    indent, newline at EOF. The ``records`` array stays in source order (only
+    object keys sort), so the bytes are deterministic for the same source."""
+    return safe_json_dumps(index, indent=2, sort_keys=True,
+                           ensure_ascii=False) + "\n"
+
+
+def render_index_md(index: Dict[str, Any]) -> str:
+    """The human index: one row per record, linking its relative Markdown /
+    HTML / SVG paths and carrying the same headline. Byte-deterministic for the
+    same index; an all-pass source renders an explicit zero-record note (never
+    a fabricated failure)."""
+    source = index["source"]
+    lines = [
+        f"# Failure records ({index['rendered']})",
+        "",
+        (f"Source `{_md_text(source['kind'])}` `{_md_text(source['digest'])}` "
+         f"· rendered {index['rendered']} of {index['total_failures']} "
+         "non-passing unit(s)"
+         + (" (truncated by the record limit)" if index["truncated"] else "")
+         + "."),
+        "",
+    ]
+    if not index["records"]:
+        lines.append(
+            "Every check passed: no non-passing unit was found, so no failure "
+            "record was written."
+        )
+        lines.append("")
+        return "\n".join(lines)
+    lines.append("| Status | Test | Headline | Formats |")
+    lines.append("|---|---|---|---|")
+    for entry in index["records"]:
+        directory = entry["directory"]
+        formats = (
+            f"[json]({directory}/failure-record.json) · "
+            f"[md]({directory}/failure-record.md) · "
+            f"[html]({directory}/failure-record.html) · "
+            f"[svg]({directory}/failure-record.svg)"
+        )
+        lines.append(
+            f"| {_md_text(entry['status'])} | {_md_text(entry['test_id'])} "
+            f"| {_md_text(entry['headline'])} | {formats} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_record_set(
+    records: List[Dict[str, Any]],
+    source_digest: str,
+    total_failures: int,
+    truncated: bool = False,
+    *,
+    source_kind: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build the record-set index for a set of ALREADY-PROJECTED records
+    (each re-validated here against the same oracle before it is indexed).
+    Returns ``{"index": <dict>, "index.json": <str>, "index.md": <str>}``.
+    Deterministic: the same records + the same source digest = the same bytes.
+    No wall clock, no aggregate score."""
+    for record in records:
+        validate_record(record)
+    index = build_record_index(
+        records, source_digest, total_failures, truncated,
+        source_kind=source_kind,
+    )
+    return {
+        "index": index,
+        "index.json": render_index_json(index),
+        "index.md": render_index_md(index),
     }
