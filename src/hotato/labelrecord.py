@@ -180,17 +180,24 @@ def mint_label_record(
 
 def verify_label_record(record: dict, *, pubkey_or_key, event_pcm_sha256=None) -> dict:
     """Verify a label-record's signature (given the caller-supplied key
-    material) and, when ``event_pcm_sha256`` is given, that it is bound to
-    that exact decoded audio.
+    material) AND that it is bound to the exact decoded audio named by
+    ``event_pcm_sha256``. The audio binding is MANDATORY: a positive
+    ("human" / "human-shared") authority is NEVER granted on signature alone.
+    Without a non-None ``event_pcm_sha256`` to check the record's
+    ``event_audio_pcm_sha256`` field against, this refuses (K5): a validly
+    signed record could otherwise be lifted from the recording it was made
+    about onto an unrelated (or audio-less) fixture, forging a "human"
+    attestation.
 
     Returns ``{ok, authority, reason}``:
       * ``authority`` is ``"human"`` for a valid Ed25519 signature,
         ``"human-shared"`` for a valid HMAC signature, or ``None`` for
         anything that does not verify -- a tampered body, a wrong key, an
-        unbound event, a malformed record, or an unknown/missing algo. A
-        refusal is never silently downgraded to a weaker but still-positive
-        authority; the caller decides what a refused record means for its
-        own evidence vocabulary.
+        unbound event (no binding hash supplied, or a hash that does not
+        match), a malformed record, or an unknown/missing algo. A refusal is
+        never silently downgraded to a weaker but still-positive authority;
+        the caller decides what a refused record means for its own evidence
+        vocabulary.
 
     Never raises: a missing ``[sign]`` extra needed to check an Ed25519
     signature comes back as a clean ``ok: False``, not a crash.
@@ -200,7 +207,19 @@ def verify_label_record(record: dict, *, pubkey_or_key, event_pcm_sha256=None) -
     if record.get("schema") != SCHEMA:
         return {"ok": False, "authority": None,
                 "reason": f"unexpected schema {record.get('schema')!r}"}
-    if event_pcm_sha256 is not None and record.get("event_audio_pcm_sha256") != event_pcm_sha256:
+    if event_pcm_sha256 is None:
+        # The audio binding is mandatory, not opportunistic: with no event
+        # audio hash to check against, we cannot confirm this signed record was
+        # made about THIS recording, so it earns no positive authority. Skipping
+        # the check here (the pre-fix behaviour) let any validly signed record
+        # be trusted as "human"/"human-shared" for a fixture whose audio it was
+        # never bound to -- the K5 signature-reuse forgery this module exists to
+        # prevent.
+        return {"ok": False, "authority": None,
+                "reason": "cannot confirm the label-record is bound to this event's "
+                          "decoded audio (no event audio hash supplied to check "
+                          "event_audio_pcm_sha256 against)"}
+    if record.get("event_audio_pcm_sha256") != event_pcm_sha256:
         return {"ok": False, "authority": None,
                 "reason": "label-record is not bound to this event's decoded audio "
                           "(event_audio_pcm_sha256 mismatch)"}
@@ -241,6 +260,11 @@ def verify_label_record_local(record: dict, *, event_pcm_sha256=None) -> dict:
     for an hmac signer. This is what :func:`hotato.manifest.build_manifest`
     calls -- it never has a caller-supplied key, only what this machine
     already trusts.
+
+    The audio binding is MANDATORY here too: ``event_pcm_sha256`` is forwarded
+    unchanged to :func:`verify_label_record`, so a caller that cannot supply the
+    event's decoded-audio hash gets a clean refusal (authority ``None``), never
+    a signature-only "human"/"human-shared".
 
     Never raises: an unresolvable key_id, an untrusted signer, a missing
     ``[sign]`` extra, or a malformed record are all a clean refusal."""

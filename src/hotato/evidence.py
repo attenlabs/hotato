@@ -137,6 +137,9 @@ _DIMENSIONS: Dict[str, Dict[Optional[str], int]] = {
         # the recompute ran under a scorer whose source bytes differ from the one
         # the manifest pinned: not a verifiable recompute under the pinned scorer
         "scorer_changed": TIER_NONE,        # refuse
+        # the recompute ran under a scorer CONFIG that differs from the manifest's
+        # pinned config: same non-verifiable status as scorer_changed
+        "config_changed": TIER_NONE,        # refuse
         "mismatch": TIER_NONE,              # stored verdict != recomputed: refuse
         None: TIER_ASSERTED,
     },
