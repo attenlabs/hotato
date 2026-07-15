@@ -251,6 +251,7 @@ def create_contract(
     include_identifiers: bool = False,
     confirm_channels: bool = False,
     reviewer_principal: Optional[str] = None,
+    human_review_attested: bool = False,
     candidate_ref: Optional[str] = None,
     candidate_kind: Optional[str] = None,
 ) -> dict:
@@ -286,12 +287,26 @@ def create_contract(
     unverified flag.
 
     ``reviewer_principal`` (K5, ``--from-candidate``/``--stereo``/
-    ``--caller``+``--agent`` paths only): the human reviewer's name to bind
-    into the signed label-record :func:`hotato.fixture.create_fixture` mints
-    for this event (falling back to ``fixture._default_reviewer_principal()``
-    -- ``HOTATO_REVIEWER``/``USER``/``USERNAME`` -- when omitted). The minted
-    record (or ``None`` if no signing key is configured anywhere) is carried
-    on the returned contract as ``contract["label_record"]``, and an
+    ``--caller``+``--agent`` paths only): the accountable human reviewer's name
+    to bind into the signed label-record :func:`hotato.fixture.create_fixture`
+    mints for this event. R-09: an EXPLICIT reviewer is required to mint a
+    signed record -- when omitted, the ``HOTATO_REVIEWER``/``USER``/``USERNAME``
+    env fallback still populates the DISPLAY ``identity.reviewer`` name, but the
+    signing path is NOT auto-filled from it, so the label honestly degrades to
+    ``"asserted"`` rather than a falsely-signed ``"human"``/``"human-shared"``.
+
+    ``human_review_attested`` (R-09, ``--i-attest-human-review``): a reviewer
+    NAME alone is only a claim. A signed record is minted ONLY when a
+    human-review confirmation also holds -- an interactive terminal on stdin,
+    or this explicit attestation. A non-interactive caller that merely passes a
+    reviewer name (no TTY, no attestation) degrades honestly to ``"asserted"``,
+    so a script can never launder a machine-chosen ``--expect`` as human
+    authority.
+
+    The minted record (or ``None`` when no explicit reviewer was named, no
+    human-review confirmation held, or no signing key is configured anywhere)
+    is carried on the returned contract as
+    ``contract["label_record"]``, and an
     HONEST tier -- ``"human"`` (Ed25519), ``"human-shared"`` (HMAC),
     ``"asserted"`` (no key configured, never fabricated), or ``"invalid"``
     (a record was minted but does not locally verify) -- as
@@ -361,6 +376,7 @@ def create_contract(
                 include_identifiers=include_identifiers,
                 confirm_channels=confirm_channels,
                 reviewer_principal=reviewer_principal,
+                human_review_attested=human_review_attested,
                 candidate_ref_override=candidate_ref,
                 candidate_kind_override=candidate_kind,
             )
@@ -715,8 +731,8 @@ def _create_from_fixture_path(
     contract_id, want_yield, expect, onset_sec, stack, max_talk_over_sec,
     max_time_to_yield_sec, rationale, pre_sec, post_sec, no_clip,
     caller_channel, agent_channel, include_identifiers, confirm_channels=False,
-    reviewer_principal=None, candidate_ref_override=None,
-    candidate_kind_override=None,
+    reviewer_principal=None, human_review_attested=False,
+    candidate_ref_override=None, candidate_kind_override=None,
 ) -> dict:
     fx_kwargs, resolved_onset, recording_type, candidate_ref, candidate_kind = (
         _resolve_raw_input(from_candidate=from_candidate, stereo=stereo,
@@ -741,10 +757,14 @@ def _create_from_fixture_path(
         source_sha = _sha256_file(fx_kwargs["stereo"])
         source_name = os.path.basename(fx_kwargs["stereo"])
 
-    # K5: resolve the reviewer name ONCE, before minting, so the label-record's
-    # own reviewer_principal and the contract's identity.reviewer (bound into
-    # the attestation digest) can never independently drift onto two different
-    # fallback values.
+    # K5: resolve the reviewer name ONCE, before minting, so the contract's
+    # identity.reviewer (bound into the attestation digest) is deterministic.
+    # R-09: resolved_reviewer is the DISPLAY identity ONLY (env fallback is fine
+    # for a provenance name string). The SIGNING path below is handed the RAW,
+    # explicitly-supplied reviewer_principal -- an env-derived name must never
+    # satisfy the mint, so a non-interactive `hotato contract create` (no
+    # --reviewer) can never launder a machine-chosen --expect as human /
+    # human-shared authority; it degrades honestly to "asserted".
     resolved_reviewer = (reviewer_principal
                          or _fixture._default_reviewer_principal())
 
@@ -768,7 +788,13 @@ def _create_from_fixture_path(
             caller_channel=caller_channel,
             agent_channel=agent_channel,
             created_by=CREATED_BY,
-            reviewer_principal=resolved_reviewer,
+            # R-09: RAW reviewer (may be None) drives the signing decision, NOT
+            # resolved_reviewer -- no env-var auto-fill onto human authority.
+            reviewer_principal=reviewer_principal,
+            # R-09: the human-review confirmation (TTY / --i-attest-human-review)
+            # is required in ADDITION to a named reviewer before a signed record
+            # is minted; a scripted contract create degrades to "asserted".
+            human_review_attested=human_review_attested,
             rationale=rationale,
         )
         # A ValueError above (not-scorable) propagates as-is: no bundle files
