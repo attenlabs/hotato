@@ -1,5 +1,11 @@
 # hotato
 
+> Self-hosted conversation QA for voice agents. Give it both channels of a
+> recorded call and it measures the timing between the two voices: did the agent
+> yield when the caller took the floor, how fast, and how many seconds both
+> talked at once. Measures timing, not intent; a mono or bad export is NOT
+> SCORABLE. MIT, offline, zero-install, deterministic exit 0 pass / 1 regression.
+>
 > Open-source, self-hosted conversation QA for voice agents, MIT and
 > zero-install: simulate, evaluate, review, and track calls across five
 > dimensions (outcome, policy, conversation, speech, reliability) with the
@@ -15,15 +21,27 @@
 > mid-task, as a CLI or an MCP server: machine JSON on every scoring command
 > (--format json), exit codes 0 pass / 1 regression / 2 refuse, one error
 > shape.
-> Version 1.8.0. This file is the machine-readable index; `hotato describe
+> This file is the machine-readable index; `hotato describe
 > --format json` regenerates the same command data straight from the CLI's
 > argparse, so it never drifts from the real flags.
+
+## Start here
+
+- Agent wiring a repo: AGENTS.md (the safe, ordered recipe + the machine contract).
+- Human quickstart + scope: README.md.
+- One command to see a catch: `uvx hotato demo --fail` (exit 1 by design).
+- Precondition: scoring needs two separate channels; mono is NOT SCORABLE (exit 2).
+- Reproducible measurement error: on 13 recorded AMI Meeting Corpus clips the
+  median caller-onset error vs the human word-alignment label is 20 ms. Re-run:
+  `PYTHONPATH=src python3 -m hotato.benchmark --scenarios corpus/real/scenarios --audio corpus/real/audio`.
+  Method: docs/BENCHMARK.md. Provenance + caveats: corpus/real/README.md.
 
 ## Run it (zero-install)
 
 - The 5-minute path: `uvx hotato doctor --stereo call.wav` scores the recording,
   writes the visual HTML report, opens it. `uvx hotato doctor` runs the bundled
   self-test instead.
+- No uv? `pipx run hotato demo --fail`, or `pip install hotato && python -m hotato demo --fail`. Every command below also works as `python -m hotato ...`.
 - See a catch: `uvx hotato demo` scores the packaged intentionally failing
   battery and opens its report (exit 0 by design; `--fail` returns the real
   regression exit code).
@@ -31,6 +49,16 @@
   caller starts talking while the agent is talking).
 - Score one recording (two-channel WAV, caller and agent on separate channels):
   `uvx hotato run --stereo call.wav --stack livekit --format json`
+
+## Core commands (start here; the rest are advanced)
+
+- `hotato demo [--fail]` -- see a catch on the bundled battery, offline.
+- `hotato trust --stereo call.wav` -- is this recording scorable? (mono = no)
+- `hotato scan --stereo call.wav` -- list candidate turn-taking moments to label.
+- `hotato run --stereo call.wav --format json` -- score one recording.
+- `hotato contract verify contracts/ --junit hotato.xml` -- the CI gate.
+- `hotato init starter --stack <s> --out .` -- scaffold the gate into a repo.
+- `hotato describe --format json` -- the full machine contract; read it first.
 
 ## Every command (all offline; `--format json` on the scoring commands is for machines)
 
@@ -358,6 +386,13 @@ of the verdict instead of counting it as a clean pass. `signals.resume`
 (yielded events only) reports whether, how fast, and with how long a run the
 agent came back after it yielded, the timing fingerprint of a
 restart-from-the-top.
+
+Schemas also ship in-package at `src/hotato/schema/*.v1.json` (envelope.v1.json,
+error.v1.json, and the counterexample proof schemas); validate the `--format
+json` output against these offline. The envelope carries `schema_version` and
+`tool`, not an inline resolvable `$schema` key, so a consumer maps those two
+fields to `src/hotato/schema/envelope.v1.json` to pick the file to validate
+against.
 
 Structured errors (any expected bad input: missing/mono/mismatched/not-found
 file, unknown suite, ambiguous input mode, or a well-formed input with no

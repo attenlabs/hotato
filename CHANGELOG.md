@@ -329,19 +329,17 @@ The Voice Failure Atlas and the delta prove-and-stop gate (deltas D5, D6).
   zero-record stub since no cleared non-addressed-speech fixture exists yet.
   Two builds from the same sources are byte-identical. `tests/test_atlas.py`
   (27 tests, including a gate check that an `origin=fixture` record's
-  cited fixtures resolve to shipped files under `examples/`). See
-  `implementation-notes/D5-ATLAS.md`.
+  cited fixtures resolve to shipped files under `examples/`).
 
-- **Delta prove-and-stop verifier** (delta D6): `scripts/verify_delta.py`, a
-  machine-verifiable gate that confirms the D2/D3/D5 deliverables and their
-  tests, the adjacent offline security and consumer suites, a frozen-surface
-  check (the delta touched only additive surfaces), and a recorded cold-path
-  proof. `scripts/cold_path_proof.py` records share-safe evidence that a clean
-  install of the released package runs the credentialless offline first-run
-  (`hotato start --demo`) with no key and zero intervention. The two human cold
-  batteries (unfamiliar engineers; hosted starts) ship as an un-fabricated
-  template with empty slots -- they are never filled with invented counts. See
-  `implementation-notes/D6-PROVE-AND-STOP.md`.
+- **Cold-path proof** (delta D6): `scripts/cold_path_proof.py` records
+  share-safe evidence that a clean install of the released package runs the
+  credentialless offline first-run (`hotato start --demo`) with no key and
+  zero intervention. Every recorded string is path-redacted and the
+  deterministic evidence is byte-identical run to run, so a clean rerun
+  reproduces it. The two human cold batteries (unfamiliar engineers; hosted
+  starts) are recorded as un-fabricated and never filled with invented counts.
+  `tests/test_cold_path_proof.py` asserts the path-hygiene and reproducibility
+  invariants.
 
 ## [1.4.1] - 2026-07-13
 
