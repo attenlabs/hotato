@@ -310,6 +310,8 @@ def _event_from_result(
     expected_yield_explicit: bool = True,
     label_record: Optional[dict] = None,
     vad_backend: Optional[dict] = None,
+    verdict_ineligible_reason: Optional[str] = None,
+    channel_mapping_caveat: Optional[dict] = None,
 ) -> dict:
     verdict = evaluate(result, expected)
     expected_yield = bool(expected.get("yield", True))
@@ -463,6 +465,16 @@ def _event_from_result(
             "than a real caller. Fix the audio path (echo cancellation, channel "
             "separation) before treating this as a yield."
         )
+    # K6: a genuine cross-channel LEAKAGE refusal (the principled, correlation-
+    # based signal computed by trust.trust_report on this exact recording -- one
+    # channel carrying a delayed COPY of the other) fails the verdict CLOSED
+    # through the SAME not-scorable machinery below, so a leaky `hotato run`
+    # refuses (exit 2) instead of emitting a confident pass/fail. None on clean,
+    # channel-confirmed, or merely swap-suspected input (a suspected swap does NOT
+    # refuse -- see channel_mapping_caveat below), so an eligible recording is
+    # byte-identical to before this gate existed.
+    if reason is None and verdict_ineligible_reason:
+        reason = verdict_ineligible_reason
     if reason is not None:
         # The `scorable` key is emitted ONLY here, on not-scorable events, so
         # every envelope for a valid recording stays byte-identical to before.
@@ -474,6 +486,13 @@ def _event_from_result(
         event["verdict"]["passed"] = False
         event["verdict"]["reasons"] = [reason]
         return event
+    # K6: a NON-FATAL channel-mapping caveat (a suspected caller/agent SWAP, which
+    # is NOT reliably detectable from timing -- addressee detection, not speaker-ID)
+    # rides along a STILL-SCORING event. Additive and present only when a swap was
+    # suspected and the mapping was not confirmed, so a clean recording stays
+    # byte-identical; it never changes the verdict or the exit code.
+    if channel_mapping_caveat is not None:
+        event["channel_mapping_caveat"] = channel_mapping_caveat
     if not verdict.passed:
         event["fix"] = classify_event(
             expected_yield=expected_yield,
@@ -1088,6 +1107,8 @@ def run_single(
     mono: Optional[str] = None,
     caller_channel: int = 0,
     agent_channel: int = 1,
+    channel_map_confirmed: bool = False,
+    gate_verdict_eligibility: bool = False,
     onset_sec: Optional[float] = None,
     expect: str = "yield",
     stack: Optional[str] = None,
@@ -1143,6 +1164,22 @@ def run_single(
     re-transcribes fresh and surfaces any drift against the cached baseline
     as an additive ``transcript.cache.drift`` field. Advisory provenance
     only, never a gate; the timing/verdict path is unaffected either way.
+
+    ``gate_verdict_eligibility`` (opt-in, default off) reads trust on the STEREO
+    recording and applies its two channel signals with DIFFERENT policies (hotato
+    does ADDRESSEE detection, not speaker-ID): a genuine cross-channel LEAKAGE
+    (the correlation-based signal -- one channel a delayed copy of the other)
+    REFUSES the verdict as not-scorable (process exit 2), because the yield/hold
+    cannot be trusted; but a suspected channel SWAP (unreliable from timing) does
+    NOT refuse -- the recording still scores and carries a non-fatal
+    ``channel_mapping_caveat`` on the event. The ``hotato run`` command and the MCP
+    run tool enable it; a raw-measurement caller that applies its own gate
+    (``contract`` re-scores at the stricter contract mode) leaves it off.
+    ``channel_map_confirmed`` (the ``--confirm-channels`` flag) is a HUMAN
+    confirmation that the caller/agent mapping is correct; it SUPPRESSES the swap
+    caveat (a genuine leak still refuses -- confirming the mapping does not fix
+    echo bleed). With the gate off (the default) the envelope is byte-identical to
+    before this gate existed.
     """
     if cfg is None:
         cfg = ScoreConfig()
@@ -1171,6 +1208,14 @@ def run_single(
             )
         return env
 
+    # The two K6 stereo-gate outputs, kept SEPARATE (see the gate block below):
+    #  * verdict_ineligible_reason -- a genuine cross-channel LEAKAGE refusal
+    #    (fail-closed, not-scorable). None for every other path and for a clean or
+    #    barge-in stereo recording (byte-identical to before).
+    #  * channel_mapping_caveat -- a NON-FATAL suspected-swap caveat that rides
+    #    along a still-scoring event. None unless a swap is suspected + unconfirmed.
+    verdict_ineligible_reason = None
+    channel_mapping_caveat = None
     if stereo:
         signal = _read_wav(stereo)
         if signal.num_channels < 2:
@@ -1192,6 +1237,39 @@ def run_single(
         resume = _resume_block(signal.get(agent_channel), signal.sample_rate, result, cfg)
         source = os.path.basename(stereo)
         audio_provenance = _audio_provenance(("stereo", stereo))
+        # K6: when the verdict-eligibility gate is enabled (the `hotato run`
+        # COMMAND enables it; a raw-measurement caller such as `contract`, which
+        # applies its OWN stricter contract-mode gate on top, leaves it off), read
+        # trust.trust_report on this exact recording and apply its TWO channel
+        # signals with DIFFERENT policies -- because they carry different
+        # certainty. hotato does ADDRESSEE detection, not speaker-ID:
+        #  * Genuine cross-channel LEAKAGE (the principled, correlation-based
+        #    signal: one channel is a delayed COPY of the other, so the raw
+        #    waveforms correlate) means the yield/hold cannot be trusted, so the
+        #    verdict is REFUSED as not-scorable (fail-closed, process exit 2). It is
+        #    a physical audio defect, so confirming the channel mapping does not
+        #    clear it. A genuine barge-in (distinct speakers, uncorrelated
+        #    waveforms) is NOT leakage and scores normally.
+        #  * A suspected channel SWAP is NOT reliably detectable from timing (a
+        #    caller-dominant recording is an ordinary caller-led yield far more
+        #    often than a swapped mapping), so it does NOT refuse: the recording
+        #    STILL SCORES and carries a non-fatal channel_mapping_caveat, which
+        #    --confirm-channels (channel_map_confirmed) suppresses.
+        # Only reached when scorable -- a not-scorable recording already refuses on
+        # its own reason. With the gate off (the default) run_single never even
+        # reads the file for trust, so its envelope stays byte-identical to before.
+        if gate_verdict_eligibility:
+            from . import trust as _trust
+            _trust_rep = _trust.trust_report(
+                stereo, caller_channel=caller_channel, agent_channel=agent_channel,
+                cfg=cfg, mode=_trust.VERDICT_MODE_SCAN,
+                channel_map_confirmed=channel_map_confirmed,
+            )
+            if _trust_rep.get("scorable"):
+                if _trust_rep.get("crosstalk_verdict_refused"):
+                    verdict_ineligible_reason = _trust.CROSSTALK_VERDICT_REASON
+                else:
+                    channel_mapping_caveat = _trust_rep.get("channel_mapping_caveat")
     elif caller and agent:
         c = _read_wav(caller)
         a = _read_wav(agent)
@@ -1232,6 +1310,8 @@ def run_single(
         resume=resume,
         audio_provenance=audio_provenance,
         vad_backend=_vad_backend_provenance(cfg),
+        verdict_ineligible_reason=verdict_ineligible_reason,
+        channel_mapping_caveat=channel_mapping_caveat,
     )
     env = _envelope(mode="single", stack=stack, events=[event])
     if transcribe:

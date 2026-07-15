@@ -785,6 +785,13 @@ def _emit(env: dict, fmt: str) -> None:
             f"  [{mark}] {e['event_id']}: did_yield={v['did_yield']} "
             f"seconds_to_yield={tty_s} talk_over={tov_s}"
         )
+        # Non-fatal channel-mapping caveat (a suspected caller/agent SWAP): the
+        # event still scored, but the mapping is unconfirmed. Printed as a caveat
+        # under the verdict, never as a failure. --confirm-channels suppresses it.
+        cav = e.get("channel_mapping_caveat")
+        if cav:
+            print(f"         caveat: {cav['reason']}")
+            print(f"            {cav['hint']}")
         if not v["passed"] and e.get("fix"):
             fx = e["fix"]
             print(f"         fix[{fx['fix_class']}]: {fx['title']}")
@@ -940,6 +947,13 @@ def _cmd_run(args) -> int:
             mono=getattr(args, "mono", None),
             caller_channel=args.caller_channel,
             agent_channel=args.agent_channel,
+            channel_map_confirmed=getattr(args, "confirm_channels", False),
+            # K6: the `hotato run` COMMAND is a load-bearing verdict surface, so
+            # it routes the stereo verdict through the channel-mapping
+            # verdict-eligibility gate (a swapped/high-crosstalk recording refuses
+            # instead of passing). Raw-measurement callers that gate themselves
+            # (e.g. contract re-scoring) keep the default-off engine behavior.
+            gate_verdict_eligibility=True,
             onset_sec=args.onset,
             expect=args.expect,
             stack=args.stack,
@@ -4194,6 +4208,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "baseline is kept)")
     r.add_argument("--caller-channel", type=int, default=0)
     r.add_argument("--agent-channel", type=int, default=1)
+    r.add_argument("--confirm-channels", action="store_true",
+                   help="confirm the caller/agent channel mapping is correct, "
+                        "suppressing the channel-mapping caveat a suspected swap "
+                        "(caller-dominant timing) otherwise attaches to a scored "
+                        "--stereo verdict. (Genuine cross-channel leakage still "
+                        "refuses the verdict as not-scorable, exit 2 -- confirming "
+                        "the mapping does not fix echo bleed.)")
     r.add_argument("--format", default="text", choices=["json", "text"],
                    help="output format (default text; use json for the machine envelope)")
     r.add_argument("--dump-frames", default=None, metavar="PATH",
