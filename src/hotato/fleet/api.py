@@ -430,7 +430,10 @@ class FleetAPI:
                 res = _contract.create_contract(
                     stereo=tf.name, onset_sec=cand.get("onset_sec"), expect=decision,
                     contract_id=cid, out_dir=cdir, stack=stack,
-                    reviewer_principal=reviewer, rationale=rationale,
+                    # governed fleet approval: the reviewer comes from the
+                    # approval flow, which is the human-review attestation (R-09).
+                    reviewer_principal=reviewer, human_review_attested=True,
+                    rationale=rationale,
                     candidate_ref=candidate_id, candidate_kind=cand.get("cluster"),
                     include_identifiers=True,
                     max_talk_over_sec=max_talk_over_sec,

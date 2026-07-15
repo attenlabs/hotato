@@ -588,6 +588,11 @@ def run_investigate_label(
 
     result = _contract.create_contract(
         from_candidate=ref,
+        # `investigate label` is a deliberate human-review act that already
+        # requires an explicit --reviewer, so that reviewer IS the human
+        # attestation (R-09); the tty/--i-attest gate applies to the plain
+        # `fixture create`/`contract create` scripted path, not this one.
+        human_review_attested=True,
         contract_id=cid,
         expect=expect,
         out_dir=out_dir,
