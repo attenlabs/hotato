@@ -943,20 +943,39 @@ def mcp_experiment_create(home: Optional[str] = None, workspace_id: str = "defau
         pending_irreversible_action=None)
 
 
-def mcp_clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = ".") -> dict:
-    """Clone-scoped action: delete a STAGING clone. Never touches production
-    (delete_clone targets only a staging resource an experiment created)."""
+def mcp_clone_cleanup(home: Optional[str] = None, workspace_id: str = "default",
+                      trial_id: str = "", receipt_id: str = "", stack: str = "mock",
+                      work_dir: str = ".") -> dict:
+    """Clone-scoped action: delete a STAGING clone THIS tool created, authorized by
+    the DURABLE clone receipt recorded at clone-creation time and referenced by
+    ``trial_id`` or ``receipt_id`` -- NEVER by an unconstrained clone id or a
+    mutable provider display name. The receipt is resolved from the workspace-
+    scoped registry, so an unregistered clone id (e.g. a production assistant that
+    merely carries a 'hotato' prefix) has no receipt and is refused. Never touches
+    production."""
     from .fleet import adapters as _ad
+    from .fleet.api import FleetAPI
+    from .fleet.registry import DEFAULT_HOME
+    if not (trial_id or receipt_id):
+        reason = ("clone_cleanup requires a governed reference: pass trial_id or "
+                  "receipt_id (the durable clone receipt this tool recorded when the "
+                  "staging clone was created); a raw clone id is not accepted.")
+        return _envelope({"tool": "hotato", "kind": "clone_cleanup", "ok": False,
+                          "error": reason}, refusal_reason=reason)
     adapter = _ad.get_adapter(stack, work_dir=work_dir)
     if not adapter.supports("delete_clone"):
         reason = f"{stack} adapter does not support delete_clone"
         return _envelope({"tool": "hotato", "kind": "clone_cleanup", "ok": False,
                           "error": reason}, refusal_reason=reason)
+    api = FleetAPI(home=home or DEFAULT_HOME)
     try:
-        result = adapter.delete_clone(clone_ref)
+        result = api.cleanup_clone(workspace_id, adapter=adapter,
+                                   receipt_id=receipt_id or None, trial_id=trial_id or None)
     except Exception as exc:  # noqa: BLE001
         return _envelope({"tool": "hotato", "kind": "clone_cleanup", "ok": False,
                           "error": str(exc)}, refusal_reason=str(exc))
+    finally:
+        api.close()
     return _envelope({"tool": "hotato", "kind": "clone_cleanup", "ok": True,
                       "result": result})
 
@@ -1221,9 +1240,11 @@ def build_server():
         return mcp_experiment_run(home, workspace_id, agent_id, trial_id, battery_path,
                                   before_path, after_path, min_n)
 
-    @server.tool(name="clone_cleanup", description="Clone-scoped: delete a STAGING clone an experiment created. Never touches production.")
-    def clone_cleanup(stack: str = "mock", clone_ref: str = "", work_dir: str = ".") -> dict:
-        return mcp_clone_cleanup(stack, clone_ref, work_dir)
+    @server.tool(name="clone_cleanup", description="Clone-scoped: delete a STAGING clone THIS tool created, authorized by its durable clone receipt (referenced by trial_id or receipt_id) -- never a raw clone id or display name. Never touches production.")
+    def clone_cleanup(home: Optional[str] = None, workspace_id: str = "default",
+                      trial_id: str = "", receipt_id: str = "", stack: str = "mock",
+                      work_dir: str = ".") -> dict:
+        return mcp_clone_cleanup(home, workspace_id, trial_id, receipt_id, stack, work_dir)
 
     return server
 

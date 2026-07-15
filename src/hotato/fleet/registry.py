@@ -15,6 +15,7 @@ import json
 import os
 import sqlite3
 import time
+from contextlib import contextmanager
 from typing import Optional
 
 DEFAULT_HOME = os.path.expanduser("~/.hotato/fleet")
@@ -45,6 +46,7 @@ TABLE_PK = {
     "contract_sets": ("workspace_id", "set_id"),
     "deployment_receipts": ("workspace_id", "receipt_id"),
     "attestations": ("workspace_id", "attestation_id"),
+    "clone_receipts": ("workspace_id", "receipt_id"),
     "variants": ("workspace_id", "variant_id"),
     "watermarks": ("workspace_id", "agent_id", "source"),
     # Phase-1 §F 8-entity conversation-QA model (additive).
@@ -334,6 +336,31 @@ CREATE TABLE IF NOT EXISTS watermarks (
   PRIMARY KEY (workspace_id, agent_id, source)
 );
 
+-- clone_receipts: the DURABLE authorization record for a staging clone an
+-- experiment created (plan §22.5). Persisted the moment a clone may exist, it is
+-- the ONLY thing that authorizes a later delete_clone: deletion names the exact
+-- clone_id this row records, scoped to THIS workspace + provider, so a mutable
+-- provider display-name marker is never sufficient and a production assistant
+-- (which this tool never cloned, so has no receipt) can never be deleted. The
+-- lifecycle_state (created | deleted | cleanup_needed) also drives a janitor
+-- retry for a leaked clone. Additive: created on every open via IF NOT EXISTS.
+CREATE TABLE IF NOT EXISTS clone_receipts (
+  workspace_id TEXT NOT NULL,
+  receipt_id TEXT NOT NULL,
+  provider TEXT,                  -- adapter stack (vapi/mock/...); no cross-provider replay
+  trial_id TEXT,
+  source_id TEXT,                 -- the source assistant the clone was made from
+  clone_id TEXT,                  -- the concrete provider clone id (the delete target)
+  nonce TEXT,                     -- trial nonce; binds the receipt to this trial's precommit
+  name_marker TEXT,               -- the staging display-name marker (SECONDARY invariant)
+  lifecycle_state TEXT DEFAULT 'created',  -- created | deleted | cleanup_needed
+  receipt_digest TEXT,            -- sha256 over the canonical binding fields
+  detail_json TEXT,
+  created_at REAL,
+  updated_at REAL,
+  PRIMARY KEY (workspace_id, receipt_id)
+);
+
 -- =====================================================================
 -- Phase-1 §F: the 8-entity conversation-QA model. ADDITIVE -- these are
 -- NEW tables alongside the existing ones; nothing is dropped or reshaped in
@@ -471,6 +498,7 @@ CREATE INDEX IF NOT EXISTS idx_conv_ws_run ON conversations (workspace_id, run_i
 CREATE INDEX IF NOT EXISTS idx_eval_ws_conv ON evaluations (workspace_id, conversation_id);
 CREATE INDEX IF NOT EXISTS idx_review_ws_eval ON reviews (workspace_id, evaluation_id);
 CREATE INDEX IF NOT EXISTS idx_arun_ws_agent ON assertion_runs (workspace_id, agent_id, call_id);
+CREATE INDEX IF NOT EXISTS idx_clonercpt_ws_trial ON clone_receipts (workspace_id, trial_id);
 """
 
 
@@ -597,6 +625,44 @@ class Registry:
         self.close()
 
     # --- generic helpers ------------------------------------------------
+    def _commit(self):
+        """Commit a single-statement write UNLESS the caller opened an explicit
+        multi-statement :meth:`transaction` (whose one COMMIT/ROLLBACK then
+        covers this write). The connection is autocommit (isolation_level=None),
+        so OUTSIDE a transaction() ``conn.in_transaction`` is False and this
+        commits exactly as before; INSIDE one it is True and the commit is
+        deferred so the block stays all-or-nothing."""
+        if not self.conn.in_transaction:
+            self.conn.commit()
+
+    @contextmanager
+    def transaction(self):
+        """Run several writes as ONE atomic unit. The connection is autocommit
+        (isolation_level=None), so each mutator normally commits its own single
+        statement; inside this block ``conn.in_transaction`` is True, so mutators
+        that route their commit through :meth:`_commit` DEFER to the single
+        COMMIT here (or the ROLLBACK on any error). Reentrant: a nested
+        ``transaction()`` joins the outer one instead of issuing a second BEGIN
+        (SQLite forbids nested transactions), so composing transactional helpers
+        is safe. Mirrors the explicit BEGIN IMMEDIATE..COMMIT recluster_agent
+        already relies on."""
+        if self.conn.in_transaction:
+            # already inside a caller-managed transaction: join it, do not open
+            # (or commit) a second one -- the outermost block owns COMMIT/ROLLBACK.
+            yield
+            return
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+            self.conn.execute("COMMIT")
+        except BaseException:
+            if self.conn.in_transaction:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.OperationalError:
+                    pass
+            raise
+
     def _busy_wrap(self, fn):
         """Run a write and translate a busy-database sqlite3.OperationalError
         (lock contention past the busy_timeout window) into the shared
@@ -648,7 +714,7 @@ class Registry:
                 sql = (f"INSERT INTO {table} ({col_list}) VALUES ({marks}) "
                       f"ON CONFLICT({conflict}) DO NOTHING")
         self._busy_wrap(lambda: (self.conn.execute(sql, tuple(row.values())),
-                                 self.conn.commit()))
+                                 self._commit()))
 
     def _now(self):
         # time.time() is allowed here (registry is runtime state, not a
@@ -766,7 +832,7 @@ class Registry:
             self.conn.execute(
                 "UPDATE candidates SET status=? WHERE workspace_id=? AND candidate_id=?",
                 (status, workspace_id, candidate_id)),
-            self.conn.commit()))
+            self._commit()))
 
     def add_label(self, workspace_id, label_id, *, candidate_id=None, reviewer=None,
                   decision=None, rationale=None, revision=1):
@@ -897,6 +963,68 @@ class Registry:
         q += " ORDER BY created_at DESC LIMIT ?"
         args.append(limit)
         return self._all(q, tuple(args))
+
+    # --- clone receipts (staging-clone lifecycle authorization) ---------
+    def add_clone_receipt(self, workspace_id, receipt_id, *, provider=None, trial_id=None,
+                          source_id=None, clone_id=None, nonce=None, name_marker=None,
+                          lifecycle_state="created", receipt_digest=None, detail_json=None,
+                          created_at=None):
+        """Persist (or upsert) the DURABLE authorization record for a staging clone
+        (plan §22.5). Recorded the moment a clone may exist, it is the ONLY thing
+        that authorizes a later delete: :meth:`FleetAPI.cleanup_clone` deletes
+        exactly the ``clone_id`` this row names, scoped to this workspace + provider.
+        Upsert (replace) so the post-clone stage row can be refined with the
+        concrete provider clone id once ``apply_variant`` returns it, without a
+        second receipt. The created_at is preserved on upsert (not in the SET
+        clause is unnecessary here since replace only overwrites passed columns,
+        and created_at is passed only on first insert)."""
+        self.ensure_workspace(workspace_id)
+        now = created_at if created_at is not None else self._now()
+        row = {"workspace_id": workspace_id, "receipt_id": receipt_id,
+               "provider": provider, "trial_id": trial_id, "source_id": source_id,
+               "clone_id": clone_id, "nonce": nonce, "name_marker": name_marker,
+               "lifecycle_state": lifecycle_state, "receipt_digest": receipt_digest,
+               "detail_json": detail_json, "updated_at": now}
+        # created_at only on first insert: a refining upsert must not rewind it.
+        if self.get_clone_receipt(workspace_id, receipt_id) is None:
+            row["created_at"] = now
+        self._insert("clone_receipts", row, replace=True)
+
+    def get_clone_receipt(self, workspace_id, receipt_id):
+        return self._one(
+            "SELECT * FROM clone_receipts WHERE workspace_id=? AND receipt_id=?",
+            (workspace_id, receipt_id))
+
+    def find_clone_receipt(self, workspace_id, trial_id):
+        """The most recent clone receipt for a trial in this workspace, or None."""
+        return self._one(
+            "SELECT * FROM clone_receipts WHERE workspace_id=? AND trial_id=? "
+            "ORDER BY created_at DESC LIMIT 1", (workspace_id, trial_id))
+
+    def list_clone_receipts(self, workspace_id, *, lifecycle_state=None, limit=50):
+        q = "SELECT * FROM clone_receipts WHERE workspace_id=?"
+        args = [workspace_id]
+        if lifecycle_state:
+            q += " AND lifecycle_state=?"; args.append(lifecycle_state)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return self._all(q, tuple(args))
+
+    def set_clone_receipt_state(self, workspace_id, receipt_id, lifecycle_state, *,
+                                clone_id=None, detail_json=None):
+        """Advance a clone receipt's lifecycle (created -> deleted | cleanup_needed).
+        Only the fields passed are updated; a janitor reads ``cleanup_needed`` rows
+        to retry a leaked clone."""
+        sets = ["lifecycle_state=?", "updated_at=?"]
+        args = [lifecycle_state, self._now()]
+        if clone_id is not None:
+            sets.append("clone_id=?"); args.append(clone_id)
+        if detail_json is not None:
+            sets.append("detail_json=?"); args.append(detail_json)
+        args.extend([workspace_id, receipt_id])
+        sql = (f"UPDATE clone_receipts SET {', '.join(sets)} "
+               "WHERE workspace_id=? AND receipt_id=?")
+        self._busy_wrap(lambda: (self.conn.execute(sql, tuple(args)), self._commit()))
 
     def add_variant(self, workspace_id, variant_id, *, trial_id=None, agent_id=None,
                     config_delta_json=None, expected_json=None, observed_json=None,

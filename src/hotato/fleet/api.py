@@ -384,7 +384,6 @@ class FleetAPI:
         import tempfile as _tf
 
         from .. import contract as _contract
-        data = self.store.get_bytes(rec["artifact_digest"])
         cdir = _os.path.join(self.home, "contracts", workspace_id)
         _os.makedirs(cdir, exist_ok=True)
         # Collision-free contract id: derived from the FULL candidate id, never a
@@ -393,42 +392,77 @@ class FleetAPI:
         # onto one id and the second mint collided; the full id is unique per
         # candidate and is already a valid contract slug.
         cid = contract_id or f"ct-{candidate_id}"
-        tf = _tf.NamedTemporaryFile(suffix=".wav", delete=False)
-        try:
-            tf.write(data); tf.flush(); tf.close()
-            # Mint + seal the contract BEFORE any registry mutation. This is the
-            # fail-prone step (a colliding id raises here), so no label/status is
-            # written unless the sealed bundle exists. Forward reviewer/stack/
-            # rationale/candidate ref+kind so the signed record matches the label.
-            res = _contract.create_contract(
-                stereo=tf.name, onset_sec=cand.get("onset_sec"), expect=decision,
-                contract_id=cid, out_dir=cdir, stack=stack,
-                reviewer_principal=reviewer, rationale=rationale,
-                candidate_ref=candidate_id, candidate_kind=cand.get("cluster"),
-                include_identifiers=True,
-                max_talk_over_sec=max_talk_over_sec,
-                max_time_to_yield_sec=max_time_to_yield_sec)
-        finally:
-            try:
-                _os.unlink(tf.name)
-            except OSError:
-                pass
-        bundle_dir = res["dir"]
-        digest = self.store.put_file(_os.path.join(bundle_dir, "contract.json"),
-                                     kind="contract", workspace_id=workspace_id)
-        cjson = res.get("contract") or {}
-        canonical = (cjson.get("attestation") or {}).get("canonical_digest")
-        # The sealed bundle exists: NOW commit the human label, register the
-        # contract, and flip the candidate's status -- in that order, so the
-        # review-queue-dropping status change is the LAST write. label_id is
-        # derived from the FULL candidate id (mirrors label()), never a truncation.
+        # label_id derived from the FULL candidate id (mirrors label()), never a
+        # truncation, so sibling candidates never overwrite each other's decision.
         label_id = f"label-{candidate_id}"
-        self.registry.add_label(workspace_id, label_id, candidate_id=candidate_id,
-                                reviewer=reviewer, decision=decision, rationale=rationale)
-        self.register_contract(workspace_id, contract_id=cid, agent_id=agent_id,
-                               label_id=label_id, canonical_digest=canonical,
-                               artifact_digest=digest, high_stakes=high_stakes)
-        self.registry.set_candidate_status(workspace_id, candidate_id, "labeled")
+        bundle_dir = _os.path.join(cdir, cid + _contract.BUNDLE_SUFFIX)
+
+        # --- idempotent artifact staging + reconciliation -------------------
+        # Minting + sealing the bundle and publishing its CAS ref are the
+        # fail-prone, NON-transactional steps; the three registry writes below are
+        # ONE SQLite transaction. On a retry after a partial failure the bundle may
+        # already exist on disk (create_contract writes it atomically). Reconcile
+        # rather than re-mint: REUSE a bundle THIS candidate already minted, but
+        # REFUSE (loudly, before any registry write, so the candidate stays 'new')
+        # a bundle an explicit --contract-id already bound to a DIFFERENT candidate
+        # -- a real id collision. A fresh id mints a new bundle.
+        contract_json_path = _os.path.join(bundle_dir, "contract.json")
+        if _os.path.isdir(bundle_dir) and _os.path.exists(contract_json_path):
+            try:
+                with open(contract_json_path, encoding="utf-8") as _fh:
+                    cjson = json.load(_fh)
+            except (OSError, ValueError):
+                cjson = {}
+            existing_ref = (cjson.get("source") or {}).get("candidate_ref")
+            if existing_ref not in (None, candidate_id):
+                raise ValueError(
+                    f"contract id {cid!r} already exists for a different candidate "
+                    f"({existing_ref!r}); pass a fresh --contract-id to mint a new "
+                    "contract for this candidate.")
+        else:
+            data = self.store.get_bytes(rec["artifact_digest"])
+            tf = _tf.NamedTemporaryFile(suffix=".wav", delete=False)
+            try:
+                tf.write(data); tf.flush(); tf.close()
+                # Mint + seal the contract. Forward reviewer/stack/rationale/
+                # candidate ref+kind so the signed record matches the label.
+                res = _contract.create_contract(
+                    stereo=tf.name, onset_sec=cand.get("onset_sec"), expect=decision,
+                    contract_id=cid, out_dir=cdir, stack=stack,
+                    reviewer_principal=reviewer, rationale=rationale,
+                    candidate_ref=candidate_id, candidate_kind=cand.get("cluster"),
+                    include_identifiers=True,
+                    max_talk_over_sec=max_talk_over_sec,
+                    max_time_to_yield_sec=max_time_to_yield_sec)
+            finally:
+                try:
+                    _os.unlink(tf.name)
+                except OSError:
+                    pass
+            bundle_dir = res["dir"]
+            contract_json_path = _os.path.join(bundle_dir, "contract.json")
+            cjson = res.get("contract") or {}
+        # Publish the sealed bundle to the CAS. Content-addressed, so a replayed
+        # put on retry converges on the SAME digest + workspace reference edge.
+        digest = self.store.put_file(contract_json_path,
+                                     kind="contract", workspace_id=workspace_id)
+        canonical = (cjson.get("attestation") or {}).get("canonical_digest")
+        # --- ONE atomic transaction: label + contract + status --------------
+        # register_contract/add_label/set_candidate_status route their commit
+        # through Registry._commit, which DEFERS inside this transaction() block,
+        # so the three writes commit together or ROLL BACK together. A failure
+        # before OR after any boundary leaves NO partial state (never a labeled
+        # candidate with no contract, nor an orphan label), and a retry -- the
+        # upserts are keyed by id, the status flip is idempotent -- converges to
+        # exactly one label, one contract, one labeled candidate. The
+        # review-queue-dropping status flip is written LAST.
+        with self.registry.transaction():
+            self.registry.add_label(workspace_id, label_id, candidate_id=candidate_id,
+                                    reviewer=reviewer, decision=decision, rationale=rationale)
+            self.register_contract(workspace_id, contract_id=cid, agent_id=agent_id,
+                                   label_id=label_id, canonical_digest=canonical,
+                                   artifact_digest=digest, high_stakes=high_stakes)
+            self.registry.set_candidate_status(workspace_id, candidate_id, "labeled")
         return {"contract_id": cid, "dir": bundle_dir, "label_id": label_id,
                 "high_stakes": bool(high_stakes), "decision": decision}
 
@@ -596,6 +630,90 @@ class FleetAPI:
                 "refusal": rc["refusal"], "flags": rc["flags"], "metrics": metrics,
                 "evidence": rc["evidence"], "job_id": _job["job_id"]}
 
+    # --- staging-clone lifecycle (durable receipt authorizes deletion) --------
+    @staticmethod
+    def _resolve_clone_id(clone, applied):
+        """The concrete provider clone id that delete_clone must target. A live
+        adapter's clone_agent is a pending stage; apply_variant is what creates the
+        clone and returns its ``clone_id`` -- prefer that. The mock returns the id
+        as a bare string from clone_agent."""
+        if isinstance(applied, dict) and applied.get("clone_id"):
+            return applied.get("clone_id")
+        if isinstance(clone, dict):
+            return clone.get("clone_id") or clone.get("id")
+        return clone
+
+    def _record_clone_receipt(self, workspace_id, *, trial_id, adapter, source_ref,
+                              clone, applied, nonce, name_marker, lifecycle_state="created"):
+        """Persist (or refine) the durable clone receipt that authorizes a later
+        deletion. Keyed per trial, so the post-clone stage row is upserted with the
+        concrete provider clone id once apply_variant returns it. Returns the
+        receipt fields (incl. ``receipt_id``) so the caller can drive cleanup."""
+        provider = getattr(adapter, "stack", None) or type(adapter).__name__
+        clone_id = self._resolve_clone_id(clone, applied)
+        receipt_id = f"clonercpt-{trial_id}"
+        body = {"provider": provider, "trial_id": trial_id, "source_id": str(source_ref),
+                "clone_id": clone_id, "nonce": nonce, "name_marker": name_marker}
+        digest = _manifest._sha256_str(_manifest.canonical_json(body))
+        self.registry.add_clone_receipt(
+            workspace_id, receipt_id, provider=provider, trial_id=trial_id,
+            source_id=str(source_ref), clone_id=clone_id, nonce=nonce,
+            name_marker=name_marker, lifecycle_state=lifecycle_state, receipt_digest=digest)
+        return {"receipt_id": receipt_id, "provider": provider, "trial_id": trial_id,
+                "source_id": str(source_ref), "clone_id": clone_id, "nonce": nonce,
+                "name_marker": name_marker, "receipt_digest": digest}
+
+    def cleanup_clone(self, workspace_id, *, adapter, receipt_id=None, trial_id=None) -> dict:
+        """GOVERNED staging-clone deletion (plan §22.5). Deletion is authorized ONLY
+        by a durable clone receipt THIS tool recorded at clone-creation time --
+        never by a caller-supplied clone id or a mutable provider display name.
+
+        Resolves the receipt SCOPED to this workspace (a receipt cannot be replayed
+        across workspaces), refuses a provider mismatch (no cross-provider replay),
+        then deletes exactly the ``clone_id`` the receipt names, passing the receipt
+        to the adapter as defense-in-depth binding. On an adapter delete failure it
+        records ``cleanup_needed`` on the receipt (for a janitor) and returns
+        structured state rather than raising, so a caller in a ``finally`` never has
+        its primary exception masked. An unresolved/unregistered receipt is a hard
+        refusal (ValueError): an unregistered clone id is never deletable."""
+        if not receipt_id and trial_id:
+            row = self.registry.find_clone_receipt(workspace_id, trial_id)
+            receipt_id = dict(row)["receipt_id"] if row else None
+        row = self.registry.get_clone_receipt(workspace_id, receipt_id) if receipt_id else None
+        if not row:
+            ref = receipt_id or (f"trial {trial_id!r}" if trial_id else "the request")
+            raise ValueError(
+                f"refusing clone cleanup: no durable clone receipt for {ref} in "
+                f"workspace {workspace_id!r}; deletion requires a receipt this tool "
+                "recorded when the staging clone was created (an unregistered clone "
+                "id -- e.g. a production assistant -- is never deletable).")
+        receipt = dict(row)
+        provider = receipt.get("provider")
+        adapter_stack = getattr(adapter, "stack", None) or type(adapter).__name__
+        if provider and adapter_stack and str(provider) != str(adapter_stack):
+            raise ValueError(
+                f"refusing clone cleanup: receipt {receipt.get('receipt_id')!r} is "
+                f"for provider {provider!r}, not {adapter_stack!r} (a receipt cannot "
+                "be replayed across providers).")
+        clone_id = receipt.get("clone_id")
+        rid = receipt.get("receipt_id")
+        if not clone_id:
+            # No live clone was ever created (e.g. apply_variant raised before the
+            # provider create): nothing to delete; resolve the receipt.
+            self.registry.set_clone_receipt_state(workspace_id, rid, "deleted")
+            return {"deleted": False, "reason": "no clone id on receipt", "receipt_id": rid}
+        try:
+            outcome = adapter.delete_clone(clone_id, receipt=receipt)
+        except Exception as exc:  # noqa: BLE001 - record, never mask a caller's primary error
+            self.registry.set_clone_receipt_state(
+                workspace_id, rid, "cleanup_needed",
+                detail_json=json.dumps({"error": str(exc)}))
+            return {"deleted": False, "receipt_id": rid, "cleanup_error": str(exc)}
+        ok = outcome.get("deleted") if isinstance(outcome, dict) else outcome
+        self.registry.set_clone_receipt_state(
+            workspace_id, rid, "deleted" if ok else "cleanup_needed")
+        return {"deleted": bool(ok), "receipt_id": rid, "result": outcome}
+
     # --- automatic experiment loop (clone -> apply -> recapture -> recompute) --
     def experiment_clone_run(self, workspace_id, agent_id, *, trial_id, adapter,
                              source_ref, variant, scenarios, before_env, before_dir,
@@ -624,72 +742,98 @@ class FleetAPI:
             workspace_id, agent_id, trial_id=trial_id,
             battery_env=battery_env or before_env, policy=policy, min_n=min_n)
         nonce = created.get("nonce")
-        # 1) clone (clone-only; production untouched) + apply the variant to the clone
-        clone = adapter.clone_agent(source_ref, name=f"hotato-staging-{trial_id}")
-        applied = adapter.apply_variant(clone, variant)
-        # 2) run each scenario against the clone and capture fresh audio
-        after_dir = _os.path.join(work_dir, "after")
-        _os.makedirs(after_dir, exist_ok=True)
-        for sc in scenarios:
-            cap = adapter.run_scenario(clone, sc)
-            rec = cap["recording"]
-            dest = _os.path.join(after_dir, f"{sc['id']}.example.wav")
-            if _os.path.abspath(rec) != _os.path.abspath(dest):
-                _os.replace(rec, dest)
-        # 3) score the fresh recaptures into an after envelope
-        scen_dir = _os.path.join(work_dir, "scen")
-        _os.makedirs(scen_dir, exist_ok=True)
-        for sc in scenarios:
-            _json.dump(sc, open(_os.path.join(scen_dir, f"{sc['id']}.json"), "w"))
-        after_env = _core.run_suite(scenarios_dir=scen_dir, audio_dir=after_dir,
-                                    suffix=".example.wav")
-        _json.dump(after_env, open(_os.path.join(after_dir, "run.json"), "w"))
-        # 3b) EMIT a signed capture receipt per fixture, binding the fresh recording
-        # to this trial + nonce + its decoded-PCM identity. A receipt is machine-
-        # attested ONLY when a signing key is present (HOTATO_ATTEST_KEY or
-        # ~/.hotato/attest.key); this is what lifts a clean paired result to the
-        # ATTESTED tier (runner-verified fresh recapture). Without a key the pair
-        # is still operator-asserted -- never silently upgraded.
-        key = _receipt.load_key()
-        receipts = None
-        if key is not None:
-            receipts = {}
-            for _ev in after_env.get("events", []):
-                _sides = (_ev.get("audio_provenance") or {}).get("sides") or []
-                _pcm = _recompute._side_pcm(_sides)
-                _raw = _sides[0].get("sha256") if _sides else None
-                if not _pcm:
-                    continue
-                _stim = _recompute._caller_pcm(after_dir, _ev)
-                _fkey = _manifest.fixture_key(_ev)
-                receipts[_fkey] = _receipt.build_receipt(
-                    trial_id=trial_id, nonce=nonce, recording_locator=_fkey,
-                    raw_sha256=_raw or "", pcm_sha256=_pcm, runner=f"{adapter_name}-runner",
-                    agent_id=agent_id, deployment_id=clone,
-                    scenario_stimulus_hash=_stim, channel_layout="stereo",
-                    adapter=adapter_name, key=key)
-        # 4) recompute the before/after trial against the COMMITTED manifest, with
-        # the capture receipts (runner-attested when signed).
-        result = self.experiment_run(
-            workspace_id, agent_id, trial_id=trial_id,
-            manifest_ref=created["manifest_digest"], before_env=before_env,
-            before_dir=before_dir, after_env=after_env, after_dir=after_dir,
-            min_n=min_n, capture_receipts=receipts, capture_context="operator")
-        result["clone"] = {"ref": clone, "config_hash": applied.get("config_hash"),
-                           "cleaned_up": False, "attested": bool(receipts)}
-        # 5) clean up the test clone (best-effort; never leaves prod state).
-        # Live adapters return the created clone's id on the APPLIED dict (the
-        # clone_agent return is just a pending stage), so prefer that; and only
-        # report cleaned_up when the adapter says the delete happened -- a
-        # {"deleted": False} outcome is a leaked staging clone, not a success.
-        cleanup_ref = (applied if isinstance(applied, dict) and applied.get("clone_id")
-                       else clone)
+        name_marker = f"hotato-staging-{trial_id}"
+        receipt = None
+        result = None
         try:
-            outcome = adapter.delete_clone(cleanup_ref)
-            ok = outcome.get("deleted") if isinstance(outcome, dict) else outcome
-            result["clone"]["cleaned_up"] = bool(ok)
-        except Exception:  # noqa: BLE001
-            pass
+            # 1) clone (clone-only; production untouched) + apply the variant to the clone
+            clone = adapter.clone_agent(source_ref, name=name_marker)
+            # 1a) Persist a DURABLE clone receipt the MOMENT a staging resource may
+            # exist -- BEFORE any downstream step that could raise. It is the ONLY
+            # thing that later AUTHORIZES delete_clone (a mutable display-name marker
+            # is not sufficient), and it is the janitor-retry record for a leaked
+            # clone if apply/scenario/capture/score/recompute raises.
+            receipt = self._record_clone_receipt(
+                workspace_id, trial_id=trial_id, adapter=adapter, source_ref=source_ref,
+                clone=clone, applied=None, nonce=nonce, name_marker=name_marker)
+            applied = adapter.apply_variant(clone, variant)
+            # 1b) refine the receipt with the concrete provider clone id: for a live
+            # adapter the real clone is created HERE (apply_variant), so its id is
+            # only now known; the delete target must be that id.
+            receipt = self._record_clone_receipt(
+                workspace_id, trial_id=trial_id, adapter=adapter, source_ref=source_ref,
+                clone=clone, applied=applied, nonce=nonce, name_marker=name_marker)
+            # 2) run each scenario against the clone and capture fresh audio
+            after_dir = _os.path.join(work_dir, "after")
+            _os.makedirs(after_dir, exist_ok=True)
+            for sc in scenarios:
+                cap = adapter.run_scenario(clone, sc)
+                rec = cap["recording"]
+                dest = _os.path.join(after_dir, f"{sc['id']}.example.wav")
+                if _os.path.abspath(rec) != _os.path.abspath(dest):
+                    _os.replace(rec, dest)
+            # 3) score the fresh recaptures into an after envelope
+            scen_dir = _os.path.join(work_dir, "scen")
+            _os.makedirs(scen_dir, exist_ok=True)
+            for sc in scenarios:
+                _json.dump(sc, open(_os.path.join(scen_dir, f"{sc['id']}.json"), "w"))
+            after_env = _core.run_suite(scenarios_dir=scen_dir, audio_dir=after_dir,
+                                        suffix=".example.wav")
+            _json.dump(after_env, open(_os.path.join(after_dir, "run.json"), "w"))
+            # 3b) EMIT a signed capture receipt per fixture, binding the fresh recording
+            # to this trial + nonce + its decoded-PCM identity. A receipt is machine-
+            # attested ONLY when a signing key is present (HOTATO_ATTEST_KEY or
+            # ~/.hotato/attest.key); this is what lifts a clean paired result to the
+            # ATTESTED tier (runner-verified fresh recapture). Without a key the pair
+            # is still operator-asserted -- never silently upgraded.
+            key = _receipt.load_key()
+            receipts = None
+            if key is not None:
+                receipts = {}
+                for _ev in after_env.get("events", []):
+                    _sides = (_ev.get("audio_provenance") or {}).get("sides") or []
+                    _pcm = _recompute._side_pcm(_sides)
+                    _raw = _sides[0].get("sha256") if _sides else None
+                    if not _pcm:
+                        continue
+                    _stim = _recompute._caller_pcm(after_dir, _ev)
+                    _fkey = _manifest.fixture_key(_ev)
+                    receipts[_fkey] = _receipt.build_receipt(
+                        trial_id=trial_id, nonce=nonce, recording_locator=_fkey,
+                        raw_sha256=_raw or "", pcm_sha256=_pcm, runner=f"{adapter_name}-runner",
+                        agent_id=agent_id, deployment_id=clone,
+                        scenario_stimulus_hash=_stim, channel_layout="stereo",
+                        adapter=adapter_name, key=key)
+            # 4) recompute the before/after trial against the COMMITTED manifest, with
+            # the capture receipts (runner-attested when signed).
+            result = self.experiment_run(
+                workspace_id, agent_id, trial_id=trial_id,
+                manifest_ref=created["manifest_digest"], before_env=before_env,
+                before_dir=before_dir, after_env=after_env, after_dir=after_dir,
+                min_n=min_n, capture_receipts=receipts, capture_context="operator")
+            result["clone"] = {"ref": clone, "config_hash": applied.get("config_hash"),
+                               "cleaned_up": False, "attested": bool(receipts)}
+        finally:
+            # 5) OUTER cleanup: delete the staging clone regardless of how we got
+            # here (apply/scenario/capture/score/recompute may all raise), so a
+            # provider clone is never leaked. Deletion is GOVERNED by the durable
+            # receipt (never a raw clone id / display name). The primary exception,
+            # if any, propagates through this finally UNMASKED: cleanup_clone never
+            # raises on an adapter delete failure -- it records cleanup_needed on
+            # the receipt for a janitor -- and any residual error here is caught and
+            # recorded separately rather than replacing the caller's real error.
+            if receipt is not None:
+                try:
+                    out = self.cleanup_clone(
+                        workspace_id, adapter=adapter, receipt_id=receipt["receipt_id"])
+                    if result is not None:
+                        result["clone"]["cleaned_up"] = bool(out.get("deleted"))
+                except Exception:  # noqa: BLE001 - cleanup failure never masks the primary error
+                    try:
+                        self.registry.set_clone_receipt_state(
+                            workspace_id, receipt["receipt_id"], "cleanup_needed")
+                    except Exception:  # noqa: BLE001
+                        pass
         return result
 
     # --- bounded experiment engine (propose -> run -> rank; §9.4-9.6) ---------
@@ -975,11 +1119,17 @@ class FleetAPI:
         """Record a HUMAN approval decision on a trial recommendation. Recorded only
         -- it NEVER deploys (no auto-deploy in this release; plan §10/§16).
 
-        Approval is GATED on the trial's OWN evidence, never on mere existence: a
-        refused verdict (a hard-gate refusal) or an evidence tier of 0/none has no
-        green paired proof to deploy, so it is REJECTED here as a structured
-        refusal -- no approval decision row is written -- rather than silently
-        recorded as approved. An unknown trial is still a usage error (ValueError)."""
+        Approval is GATED on the trial's OWN evidence through the SAME shared
+        eligibility predicate the canary gate uses
+        (:func:`fleet.canary.trial_eligibility`), so the two authorization layers
+        can never disagree: the verdict must be EXACTLY 'improved', the evidence
+        tier must reach the documented paired minimum, and every recorded hard gate
+        must be green. Any other verdict -- refused, inconclusive, created, an
+        unknown string, or missing -- and any tier below the paired floor is
+        REJECTED here as a structured refusal; NO approval decision row is written,
+        rather than silently recorded as approved. An unknown trial is still a
+        usage error (ValueError)."""
+        from .canary import MIN_ELIGIBLE_TIER, trial_eligibility
         trial = self.registry._one(
             "SELECT * FROM trials WHERE workspace_id=? AND trial_id=?", (workspace_id, trial_id))
         if not trial:
@@ -987,16 +1137,33 @@ class FleetAPI:
         trial = dict(trial)
         verdict = trial.get("verdict")
         tier = trial.get("evidence_tier")
-        tier_val = tier if isinstance(tier, int) else 0
-        if verdict == "refused" or tier_val <= 0:
+        # The trial's recorded hard-gate flags live on its recommendation decision
+        # (approved=0, written at experiment_run time); every flag must be green.
+        # A directly-inserted trial with no such decision row simply has no flags
+        # to check (its verdict/tier still gate it).
+        hard_flags = None
+        dec = self.registry._one(
+            "SELECT hard_gate_json FROM decisions WHERE workspace_id=? AND trial_id=? "
+            "AND approved=0 AND hard_gate_json IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+            (workspace_id, trial_id))
+        if dec:
+            try:
+                hard_flags = json.loads(dict(dec).get("hard_gate_json") or "null")
+            except (TypeError, ValueError):
+                hard_flags = None
+            if not isinstance(hard_flags, dict):
+                hard_flags = None
+        elig = trial_eligibility(verdict=verdict, evidence_tier=tier, hard_gate_flags=hard_flags)
+        if not elig["eligible"]:
             return {
                 "trial_id": trial_id, "approved": False, "refused": True,
                 "verdict": verdict, "evidence_tier": tier, "approver": approver,
                 "reason": (
-                    f"approval rejected: trial {trial_id!r} has verdict {verdict!r} at "
-                    f"evidence tier {tier if tier is not None else 'none'}; approval "
-                    "requires a non-refused verdict at evidence tier >= 1 (a refused or "
-                    "tier-0 trial has no green paired proof to deploy)."),
+                    "approval rejected: " + "; ".join(elig["reasons"])
+                    + f"; approval requires an 'improved' verdict at evidence tier "
+                    f">= {MIN_ELIGIBLE_TIER} with all hard gates green (a refused, "
+                    "inconclusive, or below-paired trial has no green paired proof "
+                    "to deploy)."),
             }
         self.registry.add_decision(
             workspace_id, f"approval-{_short(trial_id)}", trial_id=trial_id,

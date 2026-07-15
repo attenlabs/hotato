@@ -108,6 +108,46 @@ def _validated_source_id(source_id, stack: str) -> str:
     return sid
 
 
+def _require_clone_receipt(receipt, clone_id: str, stack: str) -> None:
+    """PRIMARY authorization for a destructive clone delete: a DURABLE clone
+    receipt (recorded by this tool at clone-creation time) must name THIS exact
+    clone id and provider. A mutable provider display-name marker is only a
+    SECONDARY invariant -- it is not sufficient, because a production assistant
+    can legitimately carry a ``hotato`` prefix. This binds the delete to the
+    concrete resource the experiment created and refuses replaying a receipt onto
+    a different assistant or provider.
+
+    The receipt's authenticity/existence is enforced upstream by
+    :meth:`FleetAPI.cleanup_clone`, which resolves it from the workspace-scoped
+    registry (an unregistered clone id has no receipt and is never deletable);
+    this adapter-level check is defense-in-depth binding of clone id + provider +
+    nonce."""
+    if not isinstance(receipt, dict):
+        raise ValueError(
+            f"refusing to delete {clone_id}: no clone receipt was supplied. "
+            "delete_clone requires the durable staging-clone receipt recorded when "
+            "the clone was created (a mutable display name is not sufficient "
+            "authorization; a production assistant carrying a 'hotato' prefix has "
+            "no such receipt and is never deletable).")
+    r_id = receipt.get("clone_id")
+    r_stack = receipt.get("provider") or receipt.get("stack")
+    r_nonce = receipt.get("nonce")
+    if r_id != clone_id:
+        raise ValueError(
+            f"refusing to delete {clone_id}: the clone receipt names a different "
+            f"clone id ({r_id!r}); a receipt cannot be replayed onto another "
+            "assistant.")
+    if r_stack and str(r_stack) != str(stack):
+        raise ValueError(
+            f"refusing to delete {clone_id}: the clone receipt is for provider "
+            f"{r_stack!r}, not {stack!r}; a receipt cannot be replayed across "
+            "providers.")
+    if not r_nonce:
+        raise ValueError(
+            f"refusing to delete {clone_id}: the clone receipt carries no nonce, so "
+            "it does not bind this delete to a committed trial.")
+
+
 def _nest_dotted(patch: dict) -> dict:
     """Turn a flat patch that may use dotted paths ("stopSpeakingPlan.numWords": 0)
     or a {field,to} pair into a nested JSON merge-patch ({stopSpeakingPlan:{numWords:0}}).
@@ -297,7 +337,7 @@ class Adapter:
         self._require("rollback"); raise NotImplementedError
 
     @_unimplemented
-    def delete_clone(self, clone_ref):
+    def delete_clone(self, clone_ref, *, receipt=None):
         self._require("delete_clone"); raise NotImplementedError
 
 
@@ -397,7 +437,7 @@ class _CredentialGatedAdapter(Adapter):
     # @_unimplemented so a provider whose API differs (e.g. Retell) never
     # advertises an op that was never tested against it.
     @_unimplemented
-    def delete_clone(self, clone_ref):
+    def delete_clone(self, clone_ref, *, receipt=None):
         raise NotImplementedError(
             f"{self.stack} delete_clone is not wired for this provider; only "
             "stacks with a verified delete endpoint implement it")
@@ -427,14 +467,20 @@ class VapiAdapter(_CredentialGatedAdapter):
     stack = "vapi"
 
     # Both verified against the live Vapi API (clone lifecycle + stereo pull).
-    def delete_clone(self, clone_ref):
-        """Delete a STAGING clone (never the source). Two TECHNICAL guards, not a
-        docstring promise: (1) the id must be a plain platform id (same rule as
-        every id-to-URL path here, so nothing can smuggle an extra URL segment);
-        (2) the assistant is FETCHED first and must carry the "hotato" staging
-        name marker apply_variant stamps at create time -- an id that points at a
-        production assistant (which never carries the marker) REFUSES instead of
-        deleting. Idempotent-ish: a 404 (already gone) is a no-op."""
+    def delete_clone(self, clone_ref, *, receipt=None):
+        """Delete a STAGING clone (never the source). The PRIMARY authorization is
+        a DURABLE clone receipt (``receipt``) that names THIS exact clone id +
+        provider -- recorded by this tool when the clone was created, and resolved
+        from the workspace-scoped registry by :meth:`FleetAPI.cleanup_clone`, so a
+        production assistant this tool never cloned has no receipt and can never be
+        deleted. Three TECHNICAL guards, not a docstring promise: (1) the id must
+        be a plain platform id (same rule as every id-to-URL path here, so nothing
+        can smuggle an extra URL segment); (2) the clone receipt must bind this
+        clone id + provider + a trial nonce (:func:`_require_clone_receipt`); and
+        (3) as a SECONDARY invariant, the assistant is FETCHED first and must carry
+        the "hotato" staging name marker apply_variant stamps at create time. An id
+        that points at a production assistant REFUSES (no receipt, and no marker).
+        Idempotent-ish: a 404 (already gone) is a no-op."""
         self._require("delete_clone"); self._need_key("delete_clone")
         cid = clone_ref.get("clone_id") if isinstance(clone_ref, dict) else clone_ref
         if not cid:
@@ -444,6 +490,10 @@ class VapiAdapter(_CredentialGatedAdapter):
 
         from .. import apply as _apply
         cid = _validated_source_id(cid, self.stack)
+        # PRIMARY authorization: the durable clone receipt must name THIS clone id
+        # + provider before any network read or DELETE is issued. The name marker
+        # below is only a secondary invariant.
+        _require_clone_receipt(receipt, cid, self.stack)
         url = _apply._CLONE_ENDPOINTS[self.stack]["read_url_template"].format(id=cid)
         headers = {"Authorization": f"Bearer {self.api_key}",
                    "User-Agent": f"hotato/{_apply._ua_version()} (+https://hotato.dev)"}
@@ -719,7 +769,7 @@ class MockAdapter(Adapter):
     def rollback(self, ref, revision):
         return {"ref": ref, "restored_revision": revision}
 
-    def delete_clone(self, clone_ref):
+    def delete_clone(self, clone_ref, *, receipt=None):
         self._clones.pop(clone_ref, None)
         return {"deleted": clone_ref}
 

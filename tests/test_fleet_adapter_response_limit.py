@@ -39,6 +39,12 @@ def _adapter_with_staging_clone(monkeypatch):
     return adapters.get_adapter("vapi", api_key="test-key")
 
 
+# The durable clone receipt naming clone-1 -- the PRIMARY authorization
+# delete_clone now requires before it issues any read or DELETE.
+_RECEIPT = {"receipt_id": "clonercpt-t1", "clone_id": "clone-1", "provider": "vapi",
+            "nonce": "n1", "trial_id": "t1"}
+
+
 def test_delete_clone_refuses_declared_oversize_before_reading(monkeypatch):
     response = _Response(
         headers={"Content-Length": "9"},
@@ -50,7 +56,7 @@ def test_delete_clone_refuses_declared_oversize_before_reading(monkeypatch):
     )
 
     with pytest.raises(errors.HttpResponseTooLarge, match="8-byte response limit"):
-        _adapter_with_staging_clone(monkeypatch).delete_clone("clone-1")
+        _adapter_with_staging_clone(monkeypatch).delete_clone("clone-1", receipt=_RECEIPT)
 
     assert response.read_sizes == []
 
@@ -66,6 +72,6 @@ def test_delete_clone_refuses_undeclared_stream_at_one_byte_over_limit(monkeypat
     )
 
     with pytest.raises(errors.HttpResponseTooLarge, match="8-byte response limit"):
-        _adapter_with_staging_clone(monkeypatch).delete_clone("clone-1")
+        _adapter_with_staging_clone(monkeypatch).delete_clone("clone-1", receipt=_RECEIPT)
 
     assert response.read_sizes == [9]
