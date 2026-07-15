@@ -51,6 +51,14 @@ _STATUS_COLOR = {
     "INCONCLUSIVE": _MUTED, "NOT_RUN": _MUTED, "UNAVAILABLE": _MUTED,
 }
 
+# Restrained attribution: one footer line, offline, no query string, no
+# tracking pixel, no remote asset. ``hotato.dev`` is plain text in the inert
+# HTML/SVG (only Markdown may make it a canonical link). It never competes
+# with the finding, and the evidence JSON never carries any of it.
+_SITE = "hotato.dev"
+_DEMO_CMD = "uvx hotato start --demo"
+_FOOTER = f"MIT · {_SITE} · Try it: {_DEMO_CMD}"
+
 
 def _esc(value: Any) -> str:
     return html.escape(str(value), quote=True)
@@ -92,6 +100,16 @@ def _lane_observed(record: Dict[str, Any], lane: str) -> str:
 
 def _command(record: Dict[str, Any]) -> str:
     return shlex.join(record["reproduction"]["argv"])
+
+
+def _verify_command(record: Dict[str, Any]) -> str:
+    """The public reader's local-verification command. It is pinned to the
+    record's own provenance version and is a distinct action from the
+    private-source regeneration command -- it checks the record in hand and
+    never replays the underlying call."""
+    version = record["provenance"]["hotato"]["version"]
+    return (f"uvx --from hotato=={version} hotato record verify "
+            "failure-record.json")
 
 
 def _reliability_line(record: Dict[str, Any]) -> str:
@@ -179,15 +197,25 @@ def render_markdown(record: Dict[str, Any]) -> str:
         "",
         _md_text(_reliability_line(record)),
         "",
-        "## Reproduce",
+        "## Regenerate from the private source result",
         "",
         "```bash",
         _command(record),
         "```",
         "",
+        "## Verify this record",
+        "",
+        "```bash",
+        _verify_command(record),
+        "```",
+        "",
         (f"`{record['record_id']}` · hotato "
          f"{_md_text(record['provenance']['hotato']['version'])} · privacy "
          f"profile `{_md_text(record['privacy']['profile'])}`"),
+        "",
+        "---",
+        "",
+        f"MIT · [{_SITE}](https://{_SITE}) · Try it: `{_DEMO_CMD}`",
         "",
     ])
     return "\n".join(lines)
@@ -272,9 +300,11 @@ pre {{ white-space:pre-wrap; background:{_SURFACE}; border:1px solid {_BORDER}; 
 {primary_html}
 <section><h2>Evidence references</h2>
 <table aria-label="Evidence references"><thead><tr><th>Reference</th><th>Kind</th><th>Locator</th><th>Digest</th></tr></thead><tbody>{evidence_rows}</tbody></table></section>
-<section><h2>Reproduce</h2><pre><code>{_esc(_command(record))}</code></pre></section>
+<section><h2>Regenerate from the private source result</h2><pre><code>{_esc(_command(record))}</code></pre></section>
+<section><h2>Verify this record</h2><pre><code>{_esc(_verify_command(record))}</code></pre></section>
 <p class="meta"><code>{_esc(record['record_id'])}</code><br>
 hotato {_esc(record['provenance']['hotato']['version'])} · origin {_esc(record['origin']['kind'])} · privacy profile {_esc(record['privacy']['profile'])}</p>
+<p class="meta">{_esc(_FOOTER)}</p>
 </main>
 </body>
 </html>
@@ -319,13 +349,16 @@ def render_svg(record: Dict[str, Any]) -> str:
 <text x="56" y="166" fill="{_TEXT}" font-family="{font}" font-size="23">{_svg_esc(record['headline'], 112)}</text>
 <text x="56" y="205" fill="{_MUTED}" font-family="{font}" font-size="16">FIVE DIMENSIONS · EACH WITH ITS OWN STATUS · NEVER BLENDED</text>
 {''.join(lanes)}
-<text x="56" y="390" fill="{_MUTED}" font-family="{font}" font-size="17">PRIMARY EVIDENCE</text>
-<text x="56" y="426" fill="{_TEXT}" font-family="{font}" font-size="22">{_svg_esc(observed, 120)}</text>
-<text x="56" y="477" fill="{_MUTED}" font-family="{font}" font-size="17">REPRODUCE</text>
-<text x="56" y="510" fill="{_TEXT}" font-family="{mono}" font-size="17">{_svg_esc(_command(record), 118)}</text>
-<line x1="56" y1="548" x2="1144" y2="548" stroke="{_BORDER}"/>
-<text x="56" y="583" fill="{_MUTED}" font-family="{mono}" font-size="14">{_svg_esc(record['record_id'], 80)}</text>
-<text x="56" y="608" fill="{_MUTED}" font-family="{font}" font-size="14">deterministic gate: {_svg_esc(record['gate']['status'], 14)} · advisory: {_svg_esc(record['advisory']['status'], 14)} · origin: {_svg_esc(record['origin']['kind'], 14)}</text>
+<text x="56" y="376" fill="{_MUTED}" font-family="{font}" font-size="16">PRIMARY EVIDENCE</text>
+<text x="56" y="406" fill="{_TEXT}" font-family="{font}" font-size="21">{_svg_esc(observed, 120)}</text>
+<text x="56" y="446" fill="{_MUTED}" font-family="{font}" font-size="15">REGENERATE FROM THE PRIVATE SOURCE RESULT</text>
+<text x="56" y="472" fill="{_TEXT}" font-family="{mono}" font-size="16">{_svg_esc(_command(record), 118)}</text>
+<text x="56" y="504" fill="{_MUTED}" font-family="{font}" font-size="15">VERIFY THIS RECORD</text>
+<text x="56" y="530" fill="{_TEXT}" font-family="{mono}" font-size="16">{_svg_esc(_verify_command(record), 118)}</text>
+<line x1="56" y1="558" x2="1144" y2="558" stroke="{_BORDER}"/>
+<text x="56" y="580" fill="{_MUTED}" font-family="{mono}" font-size="13">{_svg_esc(record['record_id'], 80)}</text>
+<text x="56" y="600" fill="{_MUTED}" font-family="{font}" font-size="13">deterministic gate: {_svg_esc(record['gate']['status'], 14)} · advisory: {_svg_esc(record['advisory']['status'], 14)} · origin: {_svg_esc(record['origin']['kind'], 14)}</text>
+<text x="56" y="620" fill="{_MUTED}" font-family="{font}" font-size="14">{_FOOTER}</text>
 </svg>
 """
 

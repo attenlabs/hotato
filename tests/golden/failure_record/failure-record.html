@@ -32,9 +32,11 @@ pre { white-space:pre-wrap; background:#241f1a; border:1px solid #493d31; border
 <section><h2>Primary assertion</h2><p><code>assert.tool_call</code> · <code>FAIL</code></p><p><strong>Expected:</strong> The declared tool_call conditions hold against the supplied evidence.</p><p><strong>Observed:</strong> No tool call satisfied the declared call conditions.</p><p><strong>Evidence:</strong> assertion-refund-issued-evidence</p></section>
 <section><h2>Evidence references</h2>
 <table aria-label="Evidence references"><thead><tr><th>Reference</th><th>Kind</th><th>Locator</th><th>Digest</th></tr></thead><tbody><tr><td><code>assertion-refund-issued-evidence</code></td><td>tool_call</td><td>(digest only)</td><td><code>sha256:8adec3cb69c1c...</code></td></tr><tr><td><code>assertion-disclosure-present-evidence</code></td><td>policy_match</td><td>(digest only)</td><td><code>sha256:4a929d631fa1c...</code></td></tr><tr><td><code>assertion-yield-latency-evidence</code></td><td>timing_measurement</td><td>(digest only)</td><td><code>sha256:4bfed19f36210...</code></td></tr><tr><td><code>assertion-speech-latency-evidence</code></td><td>timing_measurement</td><td>(digest only)</td><td><code>sha256:ad92320c255d3...</code></td></tr></tbody></table></section>
-<section><h2>Reproduce</h2><pre><code>hotato record render source-result.json --out record</code></pre></section>
+<section><h2>Regenerate from the private source result</h2><pre><code>hotato record render source-result.json --out record</code></pre></section>
+<section><h2>Verify this record</h2><pre><code>uvx --from hotato==0.0.0-golden hotato record verify failure-record.json</code></pre></section>
 <p class="meta"><code>sha256:a53c49db05029463aba6406a926d991c4566576661077d3e9e922dd5e2609b98</code><br>
 hotato 0.0.0-golden · origin captured · privacy profile share-safe-v1</p>
+<p class="meta">MIT · hotato.dev · Try it: uvx hotato start --demo</p>
 </main>
 </body>
 </html>
