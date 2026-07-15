@@ -17,6 +17,7 @@ import os
 import pytest
 
 from hotato import start as S
+from hotato.failure_record import SelectorError
 
 
 def _demo_sweep(tmp_path):
@@ -217,7 +218,7 @@ def test_write_demo_record_is_an_essential_invariant_not_swallowed(tmp_path):
     broken["results"] = [dict(verify["results"][0], id="renamed-away")]
     out = tmp_path / "out"
     out.mkdir()
-    with pytest.raises(Exception):
+    with pytest.raises(SelectorError):
         S._write_demo_failure_record(str(out), broken)
     # nothing half-written: the selector fails before any record file lands
     assert not (out / S._DEMO_RECORD_DIR).exists()

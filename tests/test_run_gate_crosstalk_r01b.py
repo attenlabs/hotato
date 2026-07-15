@@ -35,11 +35,9 @@ import math
 import struct
 import wave
 
-from hotato import cli, core
+from hotato import cli, core, mcp_server
 from hotato import contract as contract_mod
-from hotato import mcp_server
 from hotato import trust as trust_mod
-
 
 # --- deterministic synthetic fixtures ---------------------------------------
 
@@ -236,8 +234,8 @@ def test_waveform_copy_corr_stdlib_fallback_matches_discrimination(tmp_path, mon
 
     sb = core._read_wav(barge)
     from hotato._engine.audio import frame_rms
-    from hotato._engine.vad import energy_vad
     from hotato._engine.score import ScoreConfig
+    from hotato._engine.vad import energy_vad
     cfg = ScoreConfig()
 
     def _active(sig):

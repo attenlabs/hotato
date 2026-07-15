@@ -22,12 +22,10 @@ import os
 import shutil
 import socket
 
-import pytest
-
 from hotato import cli
 from hotato import failure_record as FR
 from hotato import failure_render as FRR
-from tests._failure_sources import det_row, make_test_run
+from tests._failure_sources import make_test_run
 
 REFERENCE_DIR = os.path.join(os.path.dirname(__file__), "data",
                              "failure-record-reference")
