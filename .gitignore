@@ -82,6 +82,9 @@ hotato-review.html
 .claude/
 .audit/
 
+# Internal build/dev notes -- never publish
+implementation-notes/
+
 # TypeScript SDK (sdk/typescript): local install + build output
 sdk/typescript/node_modules/
 sdk/typescript/dist/

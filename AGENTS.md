@@ -1,148 +1,154 @@
 # AGENTS.md
 
-Guidance for a coding agent adding Hotato to a voice-agent repository. If you are
-a human, [`README.md`](README.md) is the faster read; this file is the safe recipe
-and the rules for an autonomous agent.
+You are an agent evaluating or wiring up **hotato** for a voice agent. This file
+is written to be executed top to bottom. Every command below is offline,
+reversible, and needs no account or key. Prefer the CLI's own contract
+(`hotato describe --format json`) over this prose when they disagree.
 
-Hotato is a self-hosted conversation-QA tool for voice agents. It scores a
-recorded call and measures whether the agent stopped talking when the caller
-started (a yield), how long that took, and how many seconds both were talking at
-once (talk-over). It runs on the machine that invokes it and never sits in the
-production audio path.
+## What it is
 
-## The machine contract
+hotato is self-hosted conversation QA for voice agents. Give it both channels of
+a recorded call (caller on one channel, agent on the other) and it measures the
+timing between the two voices: did the agent stop talking when the caller took
+the floor (a yield), how many seconds that took, and how many seconds both were
+talking at once (talk-over). It runs on the machine that invokes it and never
+sits in the production audio path.
 
-- **Discover every command from the CLI itself, not from prose.** `hotato describe
-  --format json` emits every subcommand, its flags, its exit codes, the schema
-  URLs, and the version, generated from the CLI's own argparse structure so it
-  cannot drift. Read that before you script anything.
-- **Exit codes are the signal.** For scoring commands: `0` = every scorable event
-  passed, `1` = a scorable event regressed, `2` = usage error or unusable input
-  (bad flags, a corrupt file, a mono recording with no scorable events). Gate CI on
-  the exit code; do not parse stdout to decide pass or fail.
-- **`--format json`** on the scoring commands emits a machine envelope
-  (`https://hotato.dev/schema/envelope.v1.json`); errors follow
-  `error.v1.json`. Prefer these over the human text output.
-- **MCP:** `uvx --from "hotato[mcp]" hotato-mcp` exposes the
-  `voice_eval_run` scorer, proof-preserving counterexample tools, and fleet
-  tools that read/verify/propose and run clone-scoped (staging-only)
-  before/after experiments. Client configs and the canonical inventory:
-  [`docs/MCP.md`](docs/MCP.md).
-- Deeper machine index: [`llms.txt`](llms.txt) and [`llms-full.txt`](llms-full.txt).
+The name is hot potato. A turn in a conversation is one: hold it a beat too long
+and you have dropped it. hotato measures how fast your agent passes it back, and
+whether it wrongly stops for a backchannel it should have talked through.
 
-## Recipe: add Hotato to a voice-agent repo
+## Precondition (check this first)
 
-Fast path: `hotato init starter --stack {vapi,retell,twilio,livekit,pipecat}
---out .` scaffolds step 2's directories and step 6's CI gate in one offline
-command (a stack-tuned `hotato.yaml`, `fixtures/`, `contracts/`, `reports/`,
-and `.github/workflows/hotato-contracts.yml`). Read the generated `HOTATO.md`
-for the exact next commands; full detail: [`docs/STARTER.md`](docs/STARTER.md).
-The steps below are the same recipe done by hand.
+Scoring needs two separate channels. A mono or mixed export is marked NOT
+SCORABLE (exit 2), not scored. If your provider only exports mono, that is the
+one real blocker; `hotato setup --stack <name>` prints the dual-channel capture
+config. Confirm a file is scorable before scoring it:
 
-Do these in order. Every step is offline and reversible.
+```bash
+hotato trust --stereo call.wav        # per-channel activity, swap flag, scorability
+```
 
-1. **Prove it runs, with no credentials.** `uvx hotato sweep --demo --out
-   hotato-sweep.html` (or `uvx hotato start --demo`). This sweeps two bundled
-   recorded calls a provider's default agent failed and writes the dashboard. No
-   account, no keys, no network. If this fails, stop and report; do not proceed.
+## Try it in 10 seconds (no credentials)
 
-2. **Create `tests/hotato/`** for the repo's own regression fixtures:
-   `tests/hotato/scenarios/` for the label JSON and `tests/hotato/audio/` for the
-   dual-channel WAVs. Commit this structure empty; humans fill it (step 4).
+```bash
+uvx hotato demo --fail                 # zero-install; scores the bundled battery
+# no uv on this box:
+pipx run hotato demo --fail
+# or: pip install hotato && python -m hotato demo --fail
+```
 
-3. **Score a recording the repo already has**, if any two-channel WAV is checked in
-   or reachable without pulling customer data: `uvx hotato scan --stereo call.wav`.
-   Check it is scorable first with `hotato trust call.wav`. A mono file is marked
-   NOT SCORABLE; do not try to make it scorable by mixing or faking a channel.
+It scores two recorded calls a provider's default agent got wrong, prints each
+caught moment (`did_yield`, `seconds_to_yield`, `talk_over`), writes an HTML
+report to a temp path, and **exits 1** because both fail on timing. Exit 1 is the
+signal, not an error. `hotato demo` without `--fail` runs the same battery and
+exits 0.
 
-4. **Hand candidate moments to a human to label.** A sweep or scan surfaces
-   *candidate* moments with measured timing. It does not decide what the agent
-   should have done. A person labels each one `yield` (the agent should have
-   stopped for the caller) or `hold` (the caller event was a backchannel; the agent
-   should keep the floor), then promotes it:
-   `hotato fixture promote hotato-sweep.json#1 --expect yield --out tests/hotato`.
-   You may draft the command and the diff; you must not invent the label.
+## Is it worth wiring in?
 
-5. **Turn a confirmed candidate into a portable, CI-enforced contract.**
-   `hotato contract create --from-candidate hotato-sweep.json#1 --expect yield
-   --id refund-cutoff-001 --out contracts` writes a self-contained `.hotato`
-   bundle (audio, frame evidence, a trust report, a card, and a CI policy) and
-   scores it immediately. Re-score the whole directory the same way CI will:
-   `hotato contract verify contracts/ --junit contracts-junit.xml`. Docs:
-   [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+- **Transcript and text tests do not see timing.** A clean transcript can come
+  from an agent that talked over the caller for two seconds before it yielded.
+  That failure lives in the audio timeline, between the two voices, where a
+  text-level eval cannot reach it.
+- **The measurement is checkable against human labels.** On 13 recorded clips
+  from the AMI Meeting Corpus, the median error between the scorer's measured
+  caller-onset and the human word-alignment label is 20 ms. Re-run it yourself
+  (see "Verify it yourself"); the report is a per-signal error distribution and a
+  yield/hold confusion matrix, with no accuracy percentage anywhere.
+- **It gates CI deterministically.** Same audio in, same numbers out, exit 0
+  pass / 1 regression. A caught moment becomes a portable contract, so it stays
+  caught across releases.
+- **MIT, self-hosted, offline.** The scoring core is stdlib-only and makes zero
+  network calls; nothing is uploaded, no account, no key. Network is confined to
+  opt-in stack-pull paths you invoke deliberately.
+- **Scope is fixed by construction.** It measures timing, not intent. It
+  surfaces candidate moments; a person labels each one yield (should have
+  stopped) or hold (a backchannel to talk through). It never claims what the
+  agent meant.
 
-6. **Wire a weekly CI gate.** Add a scheduled GitHub Action (weekly `cron`) that
-   runs the committed fixtures and contracts:
-   `hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio`
-   and `hotato contract verify contracts --junit hotato.xml`. The job fails
-   (exit `1`) when a fixture's or a contract's timing regresses. Pattern and
-   pytest plugin: [`docs/CI.md`](docs/CI.md) · [`docs/PYTEST.md`](docs/PYTEST.md).
+### Which part answers your question
 
-7. **When CI fails, explain before you tune.** `hotato explain result.json` (or a
-   `hotato-sweep.json#N` candidate ref, or a `.hotato` contract bundle) turns a
-   failing result into root-cause-by-layer evidence: likely layer, fixability
-   (`safe_to_patch` / `needs_human` / `insufficient_evidence` / `do_not_patch`),
-   the opposite-risk tradeoff, and a `safe_next_action`. It composes
-   `diagnose` and `plan`'s own policy gate; it adds no new scoring engine. When
-   the evidence cannot support one root cause, explain REFUSES with the reason
-   instead of guessing; treat a refusal as a correct answer, not a bug.
-   `--format json` for the machine shape, `--html` for a report. Docs:
-   [`docs/EXPLAIN.md`](docs/EXPLAIN.md).
+- Turn-taking / barge-in / talk-over, day one: `demo`, `scan`, `run` work
+  offline now on a two-channel recording.
+- Latency / response-gap: the same commands, the speech signals in the envelope.
+- Answer-correctness / task-completion / policy disclosures: you supply the
+  transcript, state, labels, or a local judge; these are not measured
+  automatically from audio.
+- Mono-only capture: NOT SCORABLE (exit 2) until you export both channels.
 
-8. **Prove a fix before closing it.** When someone changes turn-taking config, run
-   the battery before and after and compare:
-   `hotato verify --before before.json --after after.json`. It reports what moved
-   across the whole battery (coincidence, not causation); it does not certify a
-   root cause.
+## Integrate
 
-9. **Or run the composed proof in one command.** `hotato fix trial patch.json
-   --name staging-x --before before/ --after after/` runs `hotato apply`'s
-   clone-only offline gate, `hotato verify`'s battery-scale rollup, an
-   optional `--contracts` re-verify, and `hotato explain`'s attribution on
-   the original failure, then emits one fail-closed verdict: `improved`,
-   `regressed`, or `inconclusive` (inconclusive is NOT a pass; it exits the
-   same non-zero code as a regression). The both-axes threshold funnel
-   refuses before it reads any evidence, exit `3`, same as `apply`. It never
-   creates a clone and never touches the network. Docs:
-   [`docs/FIX-TRIAL.md`](docs/FIX-TRIAL.md).
+Scaffold a CI gate into an existing repo in one offline command:
 
-## Rules an agent must not break
+```bash
+hotato init starter --stack {vapi,retell,twilio,livekit,pipecat} --out .
+```
 
-- A private `.hotato-repro` contains content-bearing source inputs. Use
-  `hotato counterexample export PRIVATE --out SHARE` for a verified,
-  non-runnable projection; never infer that a hash is anonymous.
-- `counterexample verify` audits the recorded proof engine. `counterexample
-  reproduce` checks the reduced fixture under the installed evaluator. Neither
-  command calls a deployed voice agent, and the generated predicate is for
-  Hotato evaluator/scenario revisions.
+It writes `hotato.yaml`, `fixtures/`, `contracts/`, `reports/`, a weekly GitHub
+Action, and a `HOTATO.md` with the exact next commands. Read `HOTATO.md`.
 
-- **Never upload customer audio, and never pull it, without explicit human
-  consent.** Connecting a stack (`hotato connect`) and pulling recordings
-  (`hotato sweep --stack`, `hotato pull`) touch customer data. Do not run them on
-  your own initiative. The demo path needs none of this.
-- **Never claim intent.** Hotato measures timing. It surfaces candidate moments; a
-  human decides `yield` vs `hold`. Do not write code, comments, or PR text that
-  states what the agent "meant" or "tried to do."
-- **Never mutate production.** Hotato is read-only over recordings and never changes
-  a live agent's settings. `hotato apply` (and `hotato fix trial`, which composes
-  it) is CLONE-ONLY: there is no production-apply path, ever. A fix plan and a
-  patch are proposals; only a human decides to apply the change in their own
-  stack, and only a NEW staging clone is ever created, never the source.
-- **No mono-first.** Scoring needs the caller and agent on separate channels. If
-  only a mixed mono track exists, report NOT SCORABLE and ask for a dual-channel
-  recording config (`hotato setup --stack <name>` prints it). Do not fabricate a
-  second channel.
-- **Keep credentials in secrets.** Any stack key belongs in the CI provider's
-  secret store and is read from the environment. `hotato connect` stores keys
-  `0600`, local only; never commit a key, a token, or a raw recording.
-- **Do not claim an accuracy number.** There is none anywhere in Hotato. Every
-  verdict is a reproducible timing quoted with the command that produced it. Do not
-  summarize results as a percentage or a score.
+CI gate one-liner (fails the job on a timing regression):
 
-## Read more
+```bash
+hotato contract verify contracts/ --junit hotato.xml
+```
 
-- The one-command starter kit: [`docs/STARTER.md`](docs/STARTER.md)
-- The loop, end to end: [`docs/SET-AND-FORGET.md`](docs/SET-AND-FORGET.md) ·
-  [`docs/BAD-CALL-TO-CI.md`](docs/BAD-CALL-TO-CI.md)
-- What it measures: [`METHODOLOGY.md`](METHODOLOGY.md) · API [`docs/API.md`](docs/API.md)
-- Security and data handling: [`SECURITY.md`](SECURITY.md)
+**Exit-code contract** for the scoring commands (gate on this, do not parse
+stdout):
+
+- `0` every scorable event passed
+- `1` a scorable event regressed
+- `2` usage error or unusable input (bad flags, corrupt file, mono recording, or
+  a well-formed input with no scorable event)
+
+## Verify it yourself
+
+Do not take the numbers on trust; regenerate them.
+
+```bash
+# tests: the benchmark harness is pinned by its own suite
+PYTHONPATH=src python3 -m pytest tests/test_benchmark.py -q
+
+# re-run the measurement-error benchmark on the recorded AMI clips
+PYTHONPATH=src python3 -m hotato.benchmark \
+  --scenarios corpus/real/scenarios --audio corpus/real/audio
+
+# and on the deterministic synthetic floor (byte-identical re-runs)
+python3 examples/render_examples.py
+PYTHONPATH=src python3 -m hotato.benchmark
+```
+
+The AMI run reports the per-signal error table (median caller-onset error 20 ms,
+n=13) and the yield/hold confusion matrix. `corpus/real/README.md` documents the
+provenance chain (CC BY 4.0 source, sha256-pinned, human word alignments as
+ground truth) and the caveats, including the backchannel clips where a human
+micro-pause reads as a yield.
+
+## Machine surfaces
+
+- `hotato describe --format json` emits every subcommand, its flags, its exit
+  codes, the schema URLs, and the version, generated from the CLI's own argparse
+  so it cannot drift. Read this before you script anything; do not hardcode the
+  version or the command list.
+- Schemas ship in-package at `src/hotato/schema/*.v1.json` (for example
+  `envelope.v1.json`, `error.v1.json`). Validate the `--format json` output
+  offline against these; the `schema_version` and `tool` fields in the envelope
+  map to the matching file.
+- `llms.txt` and `llms-full.txt` are the machine index; `llms-full.txt` inlines
+  every doc for a single-fetch context dump.
+- MCP (local stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes the
+  `voice_eval_run` scorer and read/verify/propose fleet tools. Note the footgun:
+  `uvx hotato-mcp` without `--from` fails. Configs: `docs/MCP.md`.
+
+## Scope boundaries (properties of how it works)
+
+- Reads audio energy over time only: no speaker identification, no
+  transcription, no emotion detection.
+- Measures timing, not intent: it surfaces candidate moments; a person supplies
+  every yield/hold label. Do not write code, comments, or PR text that states
+  what the agent "meant" or "tried to do."
+- Read-only over recordings: it never changes a live agent's settings and never
+  auto-applies a fix. `hotato apply` is clone-only (a new staging assistant),
+  never a production write.
+- Never upload or pull customer audio without explicit human consent. The demo,
+  scan, benchmark, and contract paths need none of it.
