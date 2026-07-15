@@ -20,6 +20,7 @@
     "interface_conformance",
     "behavioral_evidence",
     "failure_record",
+    "reproduction_metadata",
     "evidence_provenance",
     "cli_transcript",
     "content_digest"
@@ -51,6 +52,8 @@
     "interface_conformance": { "$ref": "#/$defs/interfaceConformance" },
     "behavioral_evidence": { "$ref": "#/$defs/behavioralEvidence" },
     "failure_record": { "$ref": "#/$defs/embeddedFailureRecord" },
+    "reproduction_metadata": { "$ref": "#/$defs/reproductionMetadata" },
+    "supersedes": { "$ref": "#/$defs/supersession" },
     "evidence_provenance": { "$ref": "#/$defs/evidenceProvenance" },
     "cli_transcript": {
       "description": "Verbatim CLI output for every command listed in evidence_provenance.source_cli_commands, in the docs/TRUST-GALLERY.md worked-example style: a real command run against the bundled fixture, and its exact stdout. Never hand-typed or paraphrased.",
@@ -184,6 +187,88 @@
           "type": "object",
           "required": ["outcome", "policy", "conversation", "speech", "reliability"]
         }
+      }
+    },
+    "reproductionMetadata": {
+      "description": "Structured, drift-proof reproduction recipe for THIS record. The atlas builder GENERATES the displayed command list from these fields (so the page and the metadata cannot diverge), the build gate refuses to publish when hotato_version, bundle.digest, the generated commands, expected_record_id, or the live re-projection disagree, and the clean-directory test runs the generated commands in an empty directory and asserts the rendered record_id equals expected_record_id. Because it drives everything, a reader who runs the displayed chain in an empty directory with the packaged hotato reproduces expected_record_id exactly.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hotato_version",
+        "reviewer_principal",
+        "working_directory",
+        "bundle",
+        "contract",
+        "verify_output",
+        "selector",
+        "record_out",
+        "expected_record_id"
+      ],
+      "properties": {
+        "hotato_version": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "reviewer_principal": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "working_directory": { "const": "." },
+        "bundle": {
+          "description": "The committed, immutable audio bundle the displayed chain consumes, pinned by content digest. The reader copies it (by filename) into the working directory; the build gate re-hashes committed_path and refuses on digest drift.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["committed_path", "filename", "digest"],
+          "properties": {
+            "committed_path": {
+              "type": "string",
+              "maxLength": 240,
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?![A-Za-z]:).+$"
+            },
+            "filename": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            },
+            "digest": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "contract": {
+          "description": "The `hotato contract create` arguments the displayed create command is generated from. Numeric CLI values are stored as their exact displayed string tokens so the generated command is byte-stable.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "expect", "onset", "stack", "rationale"],
+          "properties": {
+            "id": { "$ref": "#/$defs/slug" },
+            "expect": { "enum": ["yield", "hold"] },
+            "onset": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$" },
+            "stack": {
+              "enum": ["generic", "vapi", "twilio", "livekit", "pipecat", "retell"]
+            },
+            "max_talk_over": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$" },
+            "max_time_to_yield": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$" },
+            "rationale": { "type": "string", "minLength": 1, "maxLength": 400 }
+          }
+        },
+        "verify_output": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "selector": { "$ref": "#/$defs/slug" },
+        "record_out": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "expected_record_id": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "supersession": {
+      "description": "Explicit history: a content-addressed atlas record is never silently rewritten. When an intentionally-republished record's content changes, the prior failure-record record_id is retained here so the earlier content address stays traceable.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id", "reason"],
+      "properties": {
+        "record_id": { "$ref": "#/$defs/digest" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 }
       }
     },
     "evidenceProvenance": {

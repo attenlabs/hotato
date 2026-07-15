@@ -40,7 +40,7 @@ hotato start: swept the 2 bundled demo calls offline.
 Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
-  Verify the record:  uvx --from hotato==1.7.0 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.8.0 hotato record verify hotato-failure-record/failure-record.json
 
 Add hotato to your repo (durable: a CI gate + contracts/ + fixtures/)
   hotato init starter --stack generic --out .
