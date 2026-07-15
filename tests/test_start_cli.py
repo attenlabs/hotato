@@ -73,12 +73,24 @@ def test_start_demo_writes_sweep_json_html_and_card(tmp_path):
 
 
 def test_start_demo_prints_the_next_commands(tmp_path, capsys):
+    from hotato import start as S
+
     rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "hotato fixture promote hotato-sweep.json#1" in out
+    # The golden-path promote/card refs point at the EVIDENCE-SELECTED missed
+    # interruption (the moment --expect yield is CORRECT for), computed the same
+    # way the demo contract picks it -- never a hardcoded #1, which on the
+    # bundled demo is the backchannel the agent yielded to (a hold moment).
+    sweep = json.loads((tmp_path / "hotato-sweep.json").read_text())
+    rank = S._select_demo_candidate(sweep, S._demo_scenario())
+    assert (f"hotato fixture promote hotato-sweep.json#{rank} --expect yield"
+            in out)
     assert "hotato run --scenarios tests/hotato/scenarios" in out
-    assert "hotato card hotato-sweep.json#1" in out
+    assert f"hotato card hotato-sweep.json#{rank} --out candidate.svg" in out
+    # the backchannel #1 must NOT be presented as a --expect yield regression
+    assert ("hotato fixture promote hotato-sweep.json#1 --expect yield"
+            not in out)
 
 
 def test_start_demo_json_format(tmp_path, capsys):
