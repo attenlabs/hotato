@@ -25,10 +25,20 @@
 
 pass@1=0.400 pass@k=1.000 pass^k=0.000 (2 of 5 trials passed); 95% Wilson interval [0.117621, 0.769280]
 
-## Reproduce
+## Regenerate from the private source result
 
 ```bash
 hotato record render source-result.json --out record
 ```
 
+## Verify this record
+
+```bash
+uvx --from hotato==0.0.0-golden hotato record verify failure-record.json
+```
+
 `sha256:a53c49db05029463aba6406a926d991c4566576661077d3e9e922dd5e2609b98` · hotato 0.0.0-golden · privacy profile `share-safe-v1`
+
+---
+
+MIT · [hotato.dev](https://hotato.dev) · Try it: `uvx hotato start --demo`

@@ -200,6 +200,83 @@ def test_quotes_cannot_escape_svg_attributes():
 
 
 # --------------------------------------------------------------------------
+# restrained attribution footer (Workstream E)
+# --------------------------------------------------------------------------
+
+_HUMAN_FORMATS = ("failure-record.md", "failure-record.html",
+                  "failure-record.svg")
+_INERT_FORMATS = ("failure-record.html", "failure-record.svg")
+_MARKETING_TOKENS = ("hotato.dev", "MIT", "uvx hotato start --demo")
+
+
+def test_footer_appears_in_every_human_format(golden_record):
+    outputs = FRR.render_all(golden_record)
+    for name in _HUMAN_FORMATS:
+        content = outputs[name]
+        for token in _MARKETING_TOKENS:
+            assert token in content, (name, token)
+
+
+def test_json_carries_no_presentation_only_marketing(golden_record):
+    raw = FRR.render_json(golden_record)
+    for token in _MARKETING_TOKENS + ("Try it:", "hotato start --demo"):
+        assert token not in raw, token
+    # and it is still exactly the evidence object, nothing added
+    assert json.loads(raw) == golden_record
+
+
+def test_footer_adds_no_tracking_remote_asset_or_query_string(golden_record):
+    svg_ns = 'xmlns="http://www.w3.org/2000/svg"'
+    for name in _INERT_FORMATS:
+        content = FRR.render_all(golden_record)[name]
+        low = content.lower()
+        assert "utm_" not in low, name
+        assert "?" not in content, name            # no query string
+        assert "beacon" not in low, name
+        assert "@font-face" not in low, name
+        assert "url(" not in low, name             # no remote font/asset
+        assert "//" not in content.replace(svg_ns, ""), name
+        assert not re.search(r"<script\b|javascript:|\son\w+=", content,
+                             re.IGNORECASE), name
+
+
+def test_verify_and_regenerate_are_distinct_labelled_commands(golden_record):
+    outputs = FRR.render_all(golden_record)
+    version = golden_record["provenance"]["hotato"]["version"]
+    verify_cmd = (f"uvx --from hotato=={version} hotato record verify "
+                  "failure-record.json")
+    regen_cmd = " ".join(golden_record["reproduction"]["argv"])
+    assert verify_cmd != regen_cmd
+    for name in _HUMAN_FORMATS:
+        content = outputs[name]
+        assert verify_cmd in content, name
+    # Markdown/HTML carry the two distinct headings; SVG the two distinct
+    # labels. The regeneration command is never described as a replay.
+    for name in ("failure-record.md", "failure-record.html"):
+        content = outputs[name]
+        assert "Regenerate from the private source result" in content, name
+        assert "Verify this record" in content, name
+    svg = outputs["failure-record.svg"]
+    assert "REGENERATE FROM THE PRIVATE SOURCE RESULT" in svg
+    assert "VERIFY THIS RECORD" in svg
+    for name in FORMATS:
+        assert "replay" not in outputs[name].lower(), name
+
+
+def test_footer_is_a_single_line_that_does_not_precede_the_finding(
+        golden_record):
+    outputs = FRR.render_all(golden_record)
+    headline = golden_record["headline"]
+    for name in _HUMAN_FORMATS:
+        content = outputs[name]
+        # the demo call appears once, in the footer
+        assert content.count("uvx hotato start --demo") == 1, name
+        # the finding leads; the footer never competes for first position
+        assert content.index(headline) < content.index(
+            "uvx hotato start --demo"), name
+
+
+# --------------------------------------------------------------------------
 # CLI: hotato record render SOURCE[#SELECTOR] --out DIR
 # --------------------------------------------------------------------------
 
