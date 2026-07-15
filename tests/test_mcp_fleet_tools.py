@@ -82,5 +82,16 @@ def test_experiment_run_action_is_offline_and_gates_deploy(tmp_path):
     res = m.mcp_experiment_run(home, "default", "bot", "t1", str(bdir), str(bdir), str(adir), 1)
     assert res["ok"] and res["verdict"] == "improved"
     assert res["pending_irreversible_action"] is not None    # deploy stays human-gated
-    # cleanup targets only a staging clone
-    assert m.mcp_clone_cleanup("mock", "c1", home)["ok"]
+    # cleanup targets only a staging clone THIS tool created, authorized by the
+    # durable clone receipt referenced by trial_id -- never a raw clone id.
+    api = FleetAPI(home=home)
+    api.registry.add_clone_receipt("default", "clonercpt-tc", provider="mock",
+                                   trial_id="tc", source_id="src", clone_id="mock-clone-1",
+                                   nonce="n1", name_marker="hotato-staging-tc")
+    api.close()
+    out = m.mcp_clone_cleanup(home=home, workspace_id="default", trial_id="tc", stack="mock")
+    assert out["ok"] and out["result"]["deleted"]
+    # an unregistered reference (no receipt) is REFUSED, not silently accepted
+    refused = m.mcp_clone_cleanup(home=home, workspace_id="default", trial_id="nope",
+                                  stack="mock")
+    assert refused["ok"] is False and refused["refusal_reason"]

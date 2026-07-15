@@ -44,6 +44,14 @@ def _vapi():
     return adapters.get_adapter("vapi", api_key="k-test")
 
 
+def _receipt(clone_id, *, provider="vapi", nonce="nonce-1"):
+    """A durable clone receipt that names THIS clone id + provider -- the PRIMARY
+    authorization delete_clone now requires. A production assistant this tool
+    never cloned has no such receipt."""
+    return {"receipt_id": f"clonercpt-{clone_id}", "clone_id": clone_id,
+            "provider": provider, "nonce": nonce, "trial_id": "t1"}
+
+
 def test_delete_clone_requires_a_clone_id():
     out = _vapi().delete_clone({"source_id": "abc", "pending": True})
     assert out == {"deleted": False, "reason": "no clone id"}
@@ -51,19 +59,53 @@ def test_delete_clone_requires_a_clone_id():
 
 def test_delete_clone_refuses_url_smuggling_id():
     with pytest.raises(ValueError, match="not a valid"):
-        _vapi().delete_clone("abc/../../org")
+        _vapi().delete_clone("abc/../../org", receipt=_receipt("abc/../../org"))
+
+
+def test_delete_clone_refuses_without_a_receipt():
+    # PRIMARY authorization: even a validly-named staging clone id cannot be
+    # deleted without the durable clone receipt (a mutable display name is not
+    # sufficient; the production-assistant attack has no receipt).
+    with pytest.raises(ValueError, match="no clone receipt"):
+        _vapi().delete_clone("abc123")
+
+
+def test_delete_clone_refuses_production_assistant_named_hotato_without_receipt(monkeypatch):
+    # THE audit scenario: a PRODUCTION assistant that legitimately carries a
+    # 'hotato' name prefix. Without a durable clone receipt it is refused BEFORE
+    # any network read or DELETE -- the mutable name marker is never sufficient
+    # authorization, so the prod assistant can never be destroyed.
+    def _no_net(*a, **k):  # pragma: no cover - reaching this is the failure
+        raise AssertionError("no network call may happen without a clone receipt")
+    monkeypatch.setattr(apply_mod, "_http_json", _no_net)
+    monkeypatch.setattr(urllib.request, "urlopen", _no_net)
+    with pytest.raises(ValueError, match="no clone receipt"):
+        _vapi().delete_clone("prod-123")
+
+
+def test_delete_clone_refuses_receipt_for_a_different_clone():
+    # A receipt cannot be replayed onto another assistant: the id it names must
+    # match the id being deleted.
+    with pytest.raises(ValueError, match="different clone id"):
+        _vapi().delete_clone("prod-123", receipt=_receipt("staging-999"))
+
+
+def test_delete_clone_refuses_receipt_for_a_different_provider():
+    with pytest.raises(ValueError, match="across providers"):
+        _vapi().delete_clone("abc123", receipt=_receipt("abc123", provider="retell"))
 
 
 def test_delete_clone_refuses_assistant_without_staging_marker(monkeypatch):
-    # the fetched assistant is named like a production agent -> REFUSE, and the
-    # DELETE request must never be issued
+    # the fetched assistant is named like a production agent -> REFUSE (the name
+    # marker is a SECONDARY invariant), and the DELETE request must never be
+    # issued -- even WITH a receipt, the name marker still guards.
     monkeypatch.setattr(apply_mod, "_http_json",
                         lambda *a, **k: {"id": "abc123", "name": "Riley"})
     def _no_delete(*a, **k):  # pragma: no cover - reaching this is the failure
         raise AssertionError("DELETE must not be issued for a non-staging name")
     monkeypatch.setattr(urllib.request, "urlopen", _no_delete)
     with pytest.raises(ValueError, match="staging marker"):
-        _vapi().delete_clone("abc123")
+        _vapi().delete_clone("abc123", receipt=_receipt("abc123"))
 
 
 def test_delete_clone_deletes_marked_staging_clone(monkeypatch):
@@ -75,7 +117,7 @@ def test_delete_clone_deletes_marked_staging_clone(monkeypatch):
         issued["url"] = req.full_url
         return io.BytesIO(b"")
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
-    out = _vapi().delete_clone({"clone_id": "abc123"})
+    out = _vapi().delete_clone({"clone_id": "abc123"}, receipt=_receipt("abc123"))
     assert out == {"deleted": True, "clone_id": "abc123"}
     assert issued["method"] == "DELETE" and issued["url"].endswith("/abc123")
 
@@ -86,7 +128,7 @@ def test_delete_clone_404_on_fetch_is_a_noop(monkeypatch):
         err.status_code = 404
         raise err
     monkeypatch.setattr(apply_mod, "_http_json", _gone)
-    out = _vapi().delete_clone("abc123")
+    out = _vapi().delete_clone("abc123", receipt=_receipt("abc123"))
     assert out["deleted"] is True and out["already_gone"] is True
 
 
@@ -104,7 +146,7 @@ def test_delete_clone_non_404_error_with_404_in_text_is_not_a_noop(monkeypatch):
         raise err
     monkeypatch.setattr(apply_mod, "_http_json", _real_error)
     with pytest.raises(ValueError, match="HTTP 500"):
-        _vapi().delete_clone("abc123")
+        _vapi().delete_clone("abc123", receipt=_receipt("abc123"))
 
 
 def test_delete_clone_error_without_status_code_is_not_a_noop(monkeypatch):
@@ -115,7 +157,7 @@ def test_delete_clone_error_without_status_code_is_not_a_noop(monkeypatch):
         raise ValueError("clone read failed: HTTP 404 for that id")
     monkeypatch.setattr(apply_mod, "_http_json", _no_status)
     with pytest.raises(ValueError, match="404"):
-        _vapi().delete_clone("abc123")
+        _vapi().delete_clone("abc123", receipt=_receipt("abc123"))
 
 
 # --- capture_result download validation ---------------------------------------

@@ -19,6 +19,49 @@ from .. import evidence as _evidence
 # adapters/api already import it the same way.
 from .. import manifest as _manifest
 
+# The documented minimum paired-evidence tier a trial must reach before it is
+# eligible for EITHER a deployment approval OR a canary. Single source of truth
+# so the two authorization layers can never drift apart (they did: approval used
+# to accept any non-refused verdict at tier >= 1, while the canary correctly
+# required verdict == "improved" at >= paired).
+MIN_ELIGIBLE_TIER = _evidence.TIER_PAIRED
+
+
+def trial_eligibility(*, verdict, evidence_tier, hard_gate_flags=None,
+                      lifecycle_ok: bool = True) -> dict:
+    """The ONE shared eligibility predicate for a trial, used by BOTH deployment
+    approval (:meth:`FleetAPI.approve_trial`) and canary planning
+    (:func:`evaluate_gate`). Returns ``{eligible, reasons}``.
+
+    A trial is eligible ONLY when ALL hold:
+      * its verdict is EXACTLY ``"improved"`` -- every other value is ineligible,
+        including ``None`` (missing), ``"refused"``, ``"inconclusive"``,
+        ``"created"``, and any unexpected/unknown string;
+      * its evidence tier reaches the documented paired minimum
+        (:data:`MIN_ELIGIBLE_TIER`); a missing/``None`` tier is treated as 0;
+      * every recorded hard gate is green (no flag in ``hard_gate_flags`` is
+        truthy) -- a tripped hard gate would already have forced a ``"refused"``
+        verdict, but this makes "complete green hard gates" explicit; and
+      * the trial's lifecycle state is eligible (``lifecycle_ok``).
+
+    A single failed condition makes it ineligible regardless of average
+    improvement (plan §9.5 hard gates)."""
+    reasons = []
+    if verdict != "improved":
+        shown = verdict if verdict is not None else "missing"
+        reasons.append(f"trial verdict is {shown!r}, not 'improved'")
+    tier = evidence_tier if isinstance(evidence_tier, int) and not isinstance(evidence_tier, bool) else 0
+    if tier < MIN_ELIGIBLE_TIER:
+        shown_tier = evidence_tier if evidence_tier is not None else "none"
+        reasons.append(f"evidence tier {shown_tier} below paired ({MIN_ELIGIBLE_TIER})")
+    if hard_gate_flags:
+        tripped = sorted(k for k, v in hard_gate_flags.items() if v)
+        if tripped:
+            reasons.append(f"hard gate(s) tripped: {', '.join(tripped)}")
+    if not lifecycle_ok:
+        reasons.append("trial lifecycle state is not eligible for approval")
+    return {"eligible": not reasons, "reasons": reasons}
+
 
 def approval_policy(*, agent_id: str, parameter_family: str,
                     within_documented_bounds: bool = True,
@@ -52,12 +95,14 @@ def evaluate_gate(policy: dict, *, trial_verdict: str, evidence_tier: int,
                   within_bounds: bool) -> dict:
     """Decide whether a variant is ELIGIBLE for a canary. Returns
     {eligible, reasons}. A single failed gate makes it ineligible regardless of
-    average improvement (plan §9.5 hard gates)."""
-    reasons = []
-    if trial_verdict != "improved":
-        reasons.append(f"trial verdict is {trial_verdict!r}, not 'improved'")
-    if evidence_tier < _evidence.TIER_PAIRED:
-        reasons.append(f"evidence tier {evidence_tier} below paired ({_evidence.TIER_PAIRED})")
+    average improvement (plan §9.5 hard gates).
+
+    The verdict + evidence-tier floor is the SHARED :func:`trial_eligibility`
+    predicate approval uses too, so the two authorization layers can never
+    disagree; the policy-specific hard gates (parameter family, documented
+    bounds, full battery, high-stakes, input health) layer on top."""
+    reasons = list(trial_eligibility(
+        verdict=trial_verdict, evidence_tier=evidence_tier)["reasons"])
     if parameter_family != policy["parameter_family"]:
         reasons.append(f"parameter family {parameter_family!r} not permitted by policy")
     if policy.get("within_documented_bounds") and not within_bounds:
@@ -134,4 +179,5 @@ def rollback(adapter, *, ref, revision, reason: str, actor: str, at: float) -> d
 
 
 __all__ = ["approval_policy", "evaluate_gate", "canary_plan", "observe",
-           "deployment_receipt", "rollback"]
+           "deployment_receipt", "rollback", "trial_eligibility",
+           "MIN_ELIGIBLE_TIER"]

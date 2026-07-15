@@ -222,7 +222,8 @@ def test_every_tool_response_carries_the_four_envelope_keys(fake_mcp, tmp_path):
             agent_id="bot", contract_id="c1"),
         "experiment_create": lambda: server.tools["experiment_create"](
             home=home, agent_id="bot", trial_id="t-env", battery_path=battery),
-        "clone_cleanup": lambda: server.tools["clone_cleanup"]("mock", "c1", home),
+        "clone_cleanup": lambda: server.tools["clone_cleanup"](
+            home=home, workspace_id="default", trial_id="none"),
     }
     for name, call in calls.items():
         resp = call()
