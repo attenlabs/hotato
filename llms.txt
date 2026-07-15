@@ -3,14 +3,18 @@
 > Open-source, self-hosted conversation QA for voice agents, MIT and
 > zero-install: simulate, evaluate, review, and track calls across five
 > dimensions (outcome, policy, conversation, speech, reliability) with the
-> evidence behind every result. Deterministic checks stay separate from the
+> evidence behind every result. Each caught bug becomes a CI contract and a
+> share-safe, content-addressed Failure Record a reviewer re-derives from the
+> same audio and config. Deterministic checks stay separate from the
 > model-judged rubric; no blended score. The conversation (turn-taking) dimension
 > measures whether the agent stopped talking when the caller started (a yield), how
 > many seconds that took, and how many seconds both were talking at once
 > (talk-over).
 > Some timing signatures map to a likely fix class; root cause may remain
 > unknown. Runs entirely on your machine. Built to be called by an AI agent
-> mid-task, as a CLI or an MCP server.
+> mid-task, as a CLI or an MCP server: machine JSON on every scoring command
+> (--format json), exit codes 0 pass / 1 regression / 2 refuse, one error
+> shape.
 > Version 1.8.0. This file is the machine-readable index; `hotato describe
 > --format json` regenerates the same command data straight from the CLI's
 > argparse, so it never drifts from the real flags.
@@ -310,17 +314,22 @@
   `hotato_score` fixture, plus `pytest --hotato-suite` to fail the session on
   a regression (`--hotato-suite-scenarios DIR --hotato-suite-audio DIR` for
   your own sets). Detail: `docs/PYTEST.md`.
-- As an MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes a
-  local tool set: the `voice_eval_run` scorer, `counterexample_compile`,
-  `counterexample_verify`, `counterexample_reproduce`, plus fleet tools that read/verify/propose over a local fleet
-  workspace (fleet_status, candidate_list, contract_list, trial_explain,
-  artifact_verify, experiment_propose) and run clone-scoped experiments
-  (experiment_run, clone_cleanup); none deploys to production. On
-  `voice_eval_run`, optional `report_path` also writes the HTML report; the
+- As an MCP server (stdio): `uvx --from "hotato[mcp]" hotato-mcp` exposes
+  fifteen local tools, every response carrying one uniform control envelope
+  (evidence_status, refusal_reason, artifact_digests, pending_irreversible_action):
+  (1) the `voice_eval_run` scorer, which returns the identical envelope the CLI
+  emits; (3) proof-preserving counterexample tools (`counterexample_compile`,
+  `counterexample_verify`, `counterexample_reproduce`); and (11) fleet tools --
+  eight that read/verify/propose over a local fleet workspace (fleet_status,
+  candidate_list, candidate_inspect, contract_list, trial_explain,
+  experiment_status, artifact_verify, experiment_propose) and three clone-scoped
+  actions that recompute and hand the deploy decision back to you
+  (experiment_create, experiment_run, clone_cleanup). None deploys to production.
+  On `voice_eval_run`, optional `report_path` also writes the HTML report; the
   envelope carries the path. NOTE (avoid the footgun): `uvx hotato-mcp` (no
   `--from`) FAILS -- uv then looks for a package literally named `hotato-mcp` on
-  PyPI, which does not exist. Copy-paste client configs (Claude Desktop, Cursor,
-  Codex CLI): `docs/MCP.md`.
+  PyPI, which does not exist. Full tool contract + copy-paste client configs
+  (Claude Desktop, Cursor, Codex CLI): `docs/MCP.md`.
 - Tiered corpus suites (silver, silver-defects, gold, gold-defects; the defect
   suites fail on purpose and exit 1):
   `hotato run --suite barge-in --scenarios corpus/suites/gold/scenarios --audio corpus/suites/gold/audio`
