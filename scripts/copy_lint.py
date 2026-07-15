@@ -154,6 +154,29 @@ def collect_targets() -> list[tuple[str, str]]:
     return targets
 
 
+# Em / en dashes are banned in prose copy (operator style law 2026-07-15): a
+# clean sentence uses a period, comma, colon, or parentheses instead. Matched as
+# literal glyphs and as their HTML entities; hyphen-minus in compound words is
+# left alone. Applied only to prose surfaces (markdown / toml / txt / json), not
+# to Python source, where a stray glyph in a range or comment is out of scope.
+_DASH_TOKENS = ("—", "–", "&mdash;", "&ndash;")
+
+
+def _scan_dashes(label: str, text: str) -> list[str]:
+    hits = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for tok in _DASH_TOKENS:
+            if tok in line:
+                name = {
+                    "—": "em dash", "–": "en dash",
+                    "&mdash;": "&mdash;", "&ndash;": "&ndash;",
+                }[tok]
+                hits.append(
+                    f"{label}:{lineno}: banned {name} (use a period, comma, "
+                    f"colon, or parentheses): {line.strip()}")
+    return hits
+
+
 def _scan_text(label: str, text: str) -> list[str]:
     hits = []
     for lineno, line in enumerate(text.splitlines(), 1):
@@ -209,6 +232,8 @@ def run() -> list[str]:
     for label, text in collect_targets():
         hits.extend(_scan_text(label, text))
         hits.extend(_scan_evidence_claims(label, text, claims))
+        if not label.endswith(".py"):
+            hits.extend(_scan_dashes(label, text))
     return hits
 
 

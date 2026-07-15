@@ -10,13 +10,13 @@ FILE: README.md
 
 **Open-source, self-hosted conversation QA for voice agents.**
 
-Grades a call on five separate dimensions &mdash; **outcome, policy, conversation, speech, reliability** &mdash; from the two-channel audio, then turns every catch into a CI contract.
+Grades a call on five separate dimensions (**outcome, policy, conversation, speech, reliability**) from the two-channel audio, then turns every catch into a CI contract.
 
-<sub>Runs offline &middot; MIT &middot; zero dependencies.</sub>
+<sub>Scoring runs locally &middot; MIT &middot; zero dependencies.</sub>
 
 <p align="center">
 
-[![PyPI version](https://img.shields.io/pypi/v/hotato.svg)](https://pypi.org/project/hotato/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.9 to 3.13](https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg) ![offline: yes](https://img.shields.io/badge/offline-yes-blue.svg) ![runtime deps: zero](https://img.shields.io/badge/runtime%20deps-zero-blue.svg) [![tests](https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg)](https://github.com/attenlabs/hotato/actions/workflows/tests.yml)
+[![PyPI version](https://img.shields.io/pypi/v/hotato.svg)](https://pypi.org/project/hotato/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.9 to 3.13](https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg) ![self-hosted](https://img.shields.io/badge/self--hosted-yes-blue.svg) ![runtime deps: zero](https://img.shields.io/badge/runtime%20deps-zero-blue.svg) [![tests](https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg)](https://github.com/attenlabs/hotato/actions/workflows/tests.yml)
 
 </p>
 
@@ -61,7 +61,7 @@ Add hotato to your repo (durable: a CI gate + contracts/ + fixtures/)
 <p align="center">
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/sweep-dashboard.png" alt="hotato candidate dashboard: 5 moments ranked by salience, each with a caller/agent timeline and a hear-the-bug playhead." width="760" style="max-width:100%;height:auto;">
 </p>
-<p align="center"><sub><code>hotato-sweep.html</code> &middot; candidates ranked by how far the timing missed &mdash; the worse the fumble, the higher it ranks. You label them into your verdict.</sub></p>
+<p align="center"><sub><code>hotato-sweep.html</code> &middot; candidates ranked by how far the timing missed: the worse the fumble, the higher it ranks. You label them into your verdict.</sub></p>
 
 Run the same loop on your own recording:
 
@@ -291,7 +291,7 @@ The highest-value PR is one labeled dual-channel call: the corpus compounds, eve
 
 - **Conversation QA that shows its work**, sitting next to your runtime voice layers: [`docs/COMPARE.md`](docs/COMPARE.md).
 - **Audio-timing scoring.** The opt-in `--transcribe` flag adds an ASR transcript beside the verdict, the score still grounded in the audio: [`docs/TRANSCRIBE.md`](docs/TRANSCRIBE.md).
-- **Offline, out-of-band, anonymous.** It reads recordings after the call over two channels, so your live audio path and running agent stay in your hands.
+- **Self-hosted, out-of-band, anonymous.** It reads recordings after the call over two channels, so your live audio path and running agent stay in your hands.
 
 ## Docs
 
@@ -9293,7 +9293,7 @@ you configured.
 | `issue` | GitHub, via your local `gh` | file a sweep's candidates as an issue. Uses your existing `gh` auth |
 | `pr` | GitHub, via your local `gh` | open a PR adding promoted fixtures. Uses your existing `gh` auth |
 | `apply` | a git clone you point it at | applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel |
-| `--diarizer pyannoteai` | Attention Labs hosted diarizer | the only audio path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local |
+| `--diarizer pyannoteai` | hosted diarizer backend | the only audio path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local |
 | `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a local Ollama model that stays on the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md) |
 | `test run --state` http adapter | your system-of-record's REST API | only when the state-config names `adapter: http`, and only with `egress_opt_in: true` in that config. Sends the mapped filter VALUES for one `state`/`state_change` query -- audio, transcript, and the config itself stay local. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md) |
 | `test run --state` sql adapter over a `dsn` | your database, over the network | only when the state-config names `adapter: sql` with a `dsn`, and only with `egress_opt_in: true`. A parameterized, read-only SELECT with the mapped filter values bound as data. A local `sqlite_path` opens no socket |

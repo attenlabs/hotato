@@ -6,13 +6,13 @@
 
 **Open-source, self-hosted conversation QA for voice agents.**
 
-Grades a call on five separate dimensions &mdash; **outcome, policy, conversation, speech, reliability** &mdash; from the two-channel audio, then turns every catch into a CI contract.
+Grades a call on five separate dimensions (**outcome, policy, conversation, speech, reliability**) from the two-channel audio, then turns every catch into a CI contract.
 
-<sub>Runs offline &middot; MIT &middot; zero dependencies.</sub>
+<sub>Scoring runs locally &middot; MIT &middot; zero dependencies.</sub>
 
 <p align="center">
 
-[![PyPI version](https://img.shields.io/pypi/v/hotato.svg)](https://pypi.org/project/hotato/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.9 to 3.13](https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg) ![offline: yes](https://img.shields.io/badge/offline-yes-blue.svg) ![runtime deps: zero](https://img.shields.io/badge/runtime%20deps-zero-blue.svg) [![tests](https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg)](https://github.com/attenlabs/hotato/actions/workflows/tests.yml)
+[![PyPI version](https://img.shields.io/pypi/v/hotato.svg)](https://pypi.org/project/hotato/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.9 to 3.13](https://img.shields.io/badge/python-3.9%20to%203.13-blue.svg) ![self-hosted](https://img.shields.io/badge/self--hosted-yes-blue.svg) ![runtime deps: zero](https://img.shields.io/badge/runtime%20deps-zero-blue.svg) [![tests](https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg)](https://github.com/attenlabs/hotato/actions/workflows/tests.yml)
 
 </p>
 
@@ -57,7 +57,7 @@ Add hotato to your repo (durable: a CI gate + contracts/ + fixtures/)
 <p align="center">
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/sweep-dashboard.png" alt="hotato candidate dashboard: 5 moments ranked by salience, each with a caller/agent timeline and a hear-the-bug playhead." width="760" style="max-width:100%;height:auto;">
 </p>
-<p align="center"><sub><code>hotato-sweep.html</code> &middot; candidates ranked by how far the timing missed &mdash; the worse the fumble, the higher it ranks. You label them into your verdict.</sub></p>
+<p align="center"><sub><code>hotato-sweep.html</code> &middot; candidates ranked by how far the timing missed: the worse the fumble, the higher it ranks. You label them into your verdict.</sub></p>
 
 Run the same loop on your own recording:
 
@@ -287,7 +287,7 @@ The highest-value PR is one labeled dual-channel call: the corpus compounds, eve
 
 - **Conversation QA that shows its work**, sitting next to your runtime voice layers: [`docs/COMPARE.md`](docs/COMPARE.md).
 - **Audio-timing scoring.** The opt-in `--transcribe` flag adds an ASR transcript beside the verdict, the score still grounded in the audio: [`docs/TRANSCRIBE.md`](docs/TRANSCRIBE.md).
-- **Offline, out-of-band, anonymous.** It reads recordings after the call over two channels, so your live audio path and running agent stay in your hands.
+- **Self-hosted, out-of-band, anonymous.** It reads recordings after the call over two channels, so your live audio path and running agent stay in your hands.
 
 ## Docs
 

@@ -133,7 +133,7 @@ you configured.
 | `issue` | GitHub, via your local `gh` | file a sweep's candidates as an issue. Uses your existing `gh` auth |
 | `pr` | GitHub, via your local `gh` | open a PR adding promoted fixtures. Uses your existing `gh` auth |
 | `apply` | a git clone you point it at | applies a patch to a fresh **staging** clone only, never the source. Dry-run by default; refuses a both-axes threshold funnel |
-| `--diarizer pyannoteai` | Attention Labs hosted diarizer | the only audio path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local |
+| `--diarizer pyannoteai` | hosted diarizer backend | the only audio path that can send audio off-box, and only with `--egress-opt-in`. The default diarizer is local |
 | `--judge-provider hosted` / non-local `--judge-endpoint` (any rubric command) | a hosted or remote model host you name | sends the transcript + rubric criterion off-box for judging. Refused (exit 2) unless `--judge-egress-opt-in`. The default judge is a local Ollama model that stays on the box. See [`docs/EGRESS.md`](EGRESS.md) and [`docs/RUBRIC.md`](RUBRIC.md) |
 | `test run --state` http adapter | your system-of-record's REST API | only when the state-config names `adapter: http`, and only with `egress_opt_in: true` in that config. Sends the mapped filter VALUES for one `state`/`state_change` query -- audio, transcript, and the config itself stay local. See [`docs/STATE-ADAPTERS.md`](STATE-ADAPTERS.md) |
 | `test run --state` sql adapter over a `dsn` | your database, over the network | only when the state-config names `adapter: sql` with a `dsn`, and only with `egress_opt_in: true`. A parameterized, read-only SELECT with the mapped filter values bound as data. A local `sqlite_path` opens no socket |

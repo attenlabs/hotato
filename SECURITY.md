@@ -23,8 +23,8 @@ reach out, and only against a stack, repository, or webhook you configured:
 - `apply` operates on a fresh staging clone only, dry-run by default; it never
   mutates the source or a production stack.
 
-**Hotato never mutates production by default, never uploads your recordings to
-Attention Labs, and never uses a webhook payload as instructions.** The single
+**Hotato never mutates production by default, never uploads your recordings
+off-box by default, and never uses a webhook payload as instructions.** The single
 off-box audio path is the hosted `--diarizer pyannoteai` backend, which requires
 an explicit `--egress-opt-in` flag; the default diarizer is local.
 

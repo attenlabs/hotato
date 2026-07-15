@@ -4,7 +4,7 @@ Guidance for a coding agent adding Hotato to a voice-agent repository. If you ar
 a human, [`README.md`](README.md) is the faster read; this file is the safe recipe
 and the rules for an autonomous agent.
 
-Hotato is an offline turn-taking regression tester for voice agents. It scores a
+Hotato is a self-hosted conversation-QA tool for voice agents. It scores a
 recorded call and measures whether the agent stopped talking when the caller
 started (a yield), how long that took, and how many seconds both were talking at
 once (talk-over). It runs on the machine that invokes it and never sits in the
