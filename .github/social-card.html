@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
-  Source for .github/social-preview.png (GitHub social card, Twitter/Slack/HN). 1280x640.
-  Rendered at 2x by scratchpad render.js. Fonts embedded as woff2 data URIs.
+  Source for .github/social-preview.png (GitHub social card, Twitter/Slack/HN). 1200x630.
+  Rendered at 2x then downscaled to a true 1200x630 PNG. Fonts embedded as woff2 data URIs.
   Punchier + more legible-at-thumbnail than the wide README banner.
   Palette + type match https://hotato.dev (dark theme).
 -->
@@ -23,10 +23,10 @@
     --mono:"SplineMono",ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace;
   }
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{width:1280px;height:640px}
+  html,body{width:1200px;height:630px}
   body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
   .card{
-    width:1280px;height:640px;position:relative;overflow:hidden;
+    width:1200px;height:630px;position:relative;overflow:hidden;
     background:
       radial-gradient(70% 90% at 50% -8%, rgba(255,90,31,.18), transparent 58%),
       radial-gradient(90% 70% at 50% 118%, rgba(255,90,31,.07), transparent 60%),
@@ -69,6 +69,7 @@
   .foot .pill{color:var(--ink-2);background:#120d09;border:1px solid var(--line);
     border-radius:9px;padding:9px 15px}
   .foot .pill .p{color:var(--ember);margin-right:9px}
+  .foot .pill .c{color:var(--pass)}
   .foot .sep{color:var(--faint)}
 </style>
 </head>
@@ -104,8 +105,8 @@
       </div>
 
       <div class="foot">
-        <span class="pill"><span class="p">$</span>pip install hotato</span>
-        <span class="sep">MIT &middot; self-hosted &middot; runs offline</span>
+        <span class="pill"><span class="p">$</span>uvx hotato start <span class="c">--demo</span></span>
+        <span class="sep">Self-hosted &middot; MIT</span>
       </div>
     </div>
   </div>

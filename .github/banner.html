@@ -2,7 +2,7 @@
 <!--
   Source for .github/banner.png (the README hero). 1200x630.
   Rendered at 2x by scratchpad render.js. Fonts (Bricolage / Hanken / SplineMono)
-  are embedded as woff2 data URIs so this file renders identically offline.
+  are embedded as woff2 data URIs so this file renders self-contained.
   Palette + type + scorecard visual language match https://hotato.dev (dark theme).
   The value prop here is canonical; if it changes, change the README too.
 -->
@@ -129,12 +129,11 @@
           </svg>
           <span class="wordmark">hotato</span>
         </div>
-        <div class="kicker">Open source &nbsp;&middot;&nbsp; Self-hosted</div>
+        <div class="kicker">Self-hosted &nbsp;&middot;&nbsp; MIT</div>
         <h1 class="headline">Conversation QA for voice agents</h1>
         <p class="sub">See exactly why a call passed, or failed. Five dimensions, scored separately, each with the evidence behind it.</p>
         <div class="install">
-          <span class="cmd"><span class="p">$</span>pip install hotato</span>
-          <span class="cmd"><span class="p">$</span>hotato start <span class="c">--demo</span></span>
+          <span class="cmd"><span class="p">$</span>uvx hotato start <span class="c">--demo</span></span>
         </div>
       </div>
 
