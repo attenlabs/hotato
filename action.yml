@@ -100,11 +100,18 @@ inputs:
     default: "action"
   render-records:
     description: >-
-      Set true to also render Failure Records through hotato record render
-      when the installed hotato ships that subcommand; when it does not, the
-      run carries on unchanged.
+      Render one share-safe Failure Record per non-passing unit. Set false to
+      disable local artifact generation.
     required: false
-    default: "false"
+    default: "true"
+  record-limit:
+    description: >-
+      Resource-safety cap on how many Failure Records a single run renders
+      (the first N non-passing units in source order); an integer from 1 to
+      500. When a run exceeds it the index reports the total and marks the set
+      truncated -- omission is never silent.
+    required: false
+    default: "100"
   python-version:
     description: Python version for actions/setup-python.
     required: false
@@ -126,6 +133,19 @@ outputs:
     description: >-
       Workspace-relative Failure Record directory when produced, else empty.
     value: ${{ steps.gate.outputs.records }}
+  records-index:
+    description: >-
+      Workspace-relative path of the record-set index.json when records were
+      produced, else empty.
+    value: ${{ steps.gate.outputs.records-index }}
+  records-count:
+    description: The number of Failure Records rendered, as a string.
+    value: ${{ steps.gate.outputs.records-count }}
+  records-total:
+    description: >-
+      The total number of non-passing units the source contained, as a string
+      (a rendered count below this means the set was truncated by record-limit).
+    value: ${{ steps.gate.outputs.records-total }}
   exit-code:
     description: The hotato process exit code, as a string.
     value: ${{ steps.gate.outputs.exit-code }}
@@ -160,5 +180,6 @@ runs:
         HOTATO_ACTION_STATE: ${{ inputs.state }}
         HOTATO_ACTION_VERSION: ${{ inputs.hotato-version }}
         HOTATO_ACTION_RENDER_RECORDS: ${{ inputs.render-records }}
+        HOTATO_ACTION_RECORD_LIMIT: ${{ inputs.record-limit }}
         HOTATO_ACTION_PATH: ${{ github.action_path }}
       run: python "${GITHUB_ACTION_PATH}/ci/action/gate.py"

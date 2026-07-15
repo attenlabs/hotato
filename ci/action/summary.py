@@ -83,6 +83,32 @@ def _cap_list(items: List[str], cap: int, more_hint: str) -> List[str]:
     return items[:cap] + [f"+{len(items) - cap} more (see {more_hint})"]
 
 
+def _records_section(meta: Dict[str, Any]) -> List[str]:
+    """The share-safe Failure Records section, built ONLY from index fields the
+    gate already validated (test id, bounded headline, and the record's
+    Markdown path). Rendered only when records were actually written and
+    cross-checked; a truncated set states the omission explicitly."""
+    rec = meta.get("record_set")
+    if not isinstance(rec, dict):
+        return []
+    entries = rec.get("entries") or []
+    if not entries:
+        return []
+    lines = [f"### Failure Records ({len(entries)})", ""]
+    for entry in entries:
+        lines.append(f"- `{entry['test_id']}` — "
+                     f"{_clip(entry['headline'], 240)}  ")
+        lines.append(f"  `{entry['path']}`")
+    if rec.get("truncated"):
+        lines.append("")
+        lines.append(
+            f"Rendered {rec.get('count')} of {rec.get('total')} non-passing"
+            f" units (record-limit={rec.get('limit')})."
+        )
+    lines.append("")
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # suite-run
 # ---------------------------------------------------------------------------
@@ -517,6 +543,7 @@ def render(
         md.append("### Failure headline")
         md.append(headline)
         md.append("")
+    md.extend(_records_section(meta))
     md.append("### Advisory (model-judged rubric lane)")
     md.extend(advisory)
     md.append(

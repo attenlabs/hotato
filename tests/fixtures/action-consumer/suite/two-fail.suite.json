@@ -1,0 +1,13 @@
+{
+  "inconclusive_policy": "fail",
+  "kind": "hotato.suite",
+  "name": "Action consumer fixture suite (two failing tests)",
+  "purpose": "Conformance fixture for the root GitHub Action: two offline simulated conversation tests that both fail their escalation handoff check, so a record set renders exactly two share-safe Failure Records under a count-2 index.",
+  "required_for_release": true,
+  "suite_id": "action-consumer-two-fail",
+  "tests": [
+    "tests/escalate-not-handed-off.test.json",
+    "tests/escalate-not-handed-off-b.test.json"
+  ],
+  "version": 1
+}

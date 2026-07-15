@@ -44,6 +44,15 @@ def _load_summary():
 summary = _load_summary()
 
 
+def _load_gate():
+    spec = importlib.util.spec_from_file_location(
+        "action_gate", os.path.join(ACTION_DIR, "gate.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _recorded(name):
     with open(os.path.join(RECORDED, name), "r", encoding="utf-8") as fh:
         return json.load(fh)
@@ -385,6 +394,332 @@ def test_gate_action_mode_runs_zero_egress_via_pythonpath(tmp_path):
     assert "PYTHONPATH, zero-egress" in summary, summary
     # the pip install path must not have run for the action mode
     assert "pip install" not in (proc.stdout + proc.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Failure Records: records-by-default, one per non-passing unit (Workstream D)
+# ---------------------------------------------------------------------------
+
+_SHA256_DIR = re.compile(r"^sha256-[0-9a-f]{64}$")
+
+
+def _load_index(ws, records_index):
+    with open(os.path.join(str(ws), records_index), "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _verify_record_valid(ws, record_json_rel):
+    """Run `hotato record verify` (Slice B) over a rendered record and return
+    the parsed JSON verdict; exit 0 and valid=true is a valid share-safe
+    record."""
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("HOTATO_ACTION_", "GITHUB_"))}
+    env["PYTHONPATH"] = os.path.join(ROOT, "src") + os.pathsep + env.get(
+        "PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, "-m", "hotato", "record", "verify",
+         record_json_rel, "--format", "json"],
+        env=env, capture_output=True, text=True, cwd=str(ws), timeout=120)
+    return proc.returncode, json.loads(proc.stdout)
+
+
+def test_render_records_yaml_default_is_true():
+    """The Action ships records-by-default: the render-records input default is
+    the string 'true', record-limit is 1..500 with a 100 default, and the new
+    count/index/total outputs are declared."""
+    yaml = pytest.importorskip("yaml")
+    with open(os.path.join(ROOT, "action.yml"), "r", encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    assert doc["inputs"]["render-records"]["default"] == "true"
+    assert "one share-safe Failure Record per non-passing unit" in \
+        doc["inputs"]["render-records"]["description"]
+    assert doc["inputs"]["record-limit"]["default"] == "100"
+    for name in ("records-index", "records-count", "records-total", "records"):
+        assert name in doc["outputs"], name
+
+
+def test_records_mixed_fail_writes_index_and_one_valid_record(tmp_path):
+    """A mixed pass/fail suite renders exactly one Failure Record (for the one
+    non-passing unit), under a digest-scoped index, and it validates."""
+    ws = _workspace(tmp_path)
+    proc, outputs, step_summary = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/consumer.suite.json",
+        "agent": "consumer-agent",
+        "render-records": "true",
+    })
+    assert proc.returncode == 1, proc.stderr
+    assert outputs["status"] == "fail"
+    assert outputs["records-count"] == "1"
+    assert outputs["records-total"] == "1"
+    assert "::warning::" not in proc.stdout
+
+    records_dir = outputs["records"]
+    assert records_dir.startswith(".hotato/results/records/sha256-")
+    assert (ws / records_dir).is_dir()
+    index = _load_index(ws, outputs["records-index"])
+    assert index["kind"] == "hotato.failure-record-index.v1"
+    assert index["rendered"] == 1 and index["total_failures"] == 1
+    assert len(index["records"]) == 1
+    entry = index["records"][0]
+    assert entry["test_id"] == "escalate-not-handed-off-test"
+    assert _SHA256_DIR.match(entry["directory"])
+    # exactly the index + one child sha256-<hex>/ dir of record files
+    children = sorted(p.name for p in (ws / records_dir).iterdir())
+    assert children == sorted(["index.json", "index.md", entry["directory"]])
+    record_json = os.path.join(records_dir, entry["directory"],
+                               "failure-record.json")
+    code, verdict = _verify_record_valid(ws, record_json)
+    assert code == 0 and verdict["valid"] is True
+    # the summary carries the bounded headline and the record path
+    assert "### Failure Records (1)" in step_summary
+    assert entry["headline"] in step_summary
+    assert record_json.replace(".json", ".md") in step_summary
+
+
+def test_records_two_failures_write_two_records(tmp_path):
+    """A synthetic two-failure suite renders two records under a count-2
+    index, one digest directory each, in source order."""
+    ws = _workspace(tmp_path)
+    proc, outputs, step_summary = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/two-fail.suite.json",
+        "agent": "consumer-agent",
+        "render-records": "true",
+    })
+    assert proc.returncode == 1, proc.stderr
+    assert outputs["records-count"] == "2"
+    assert outputs["records-total"] == "2"
+    index = _load_index(ws, outputs["records-index"])
+    assert index["rendered"] == 2 and index["total_failures"] == 2
+    ids = [e["test_id"] for e in index["records"]]
+    assert ids == ["escalate-not-handed-off-test",
+                   "escalate-not-handed-off-b-test"]  # source order preserved
+    dirs = {e["directory"] for e in index["records"]}
+    assert len(dirs) == 2 and all(_SHA256_DIR.match(d) for d in dirs)
+    for entry in index["records"]:
+        rj = os.path.join(outputs["records"], entry["directory"],
+                          "failure-record.json")
+        code, verdict = _verify_record_valid(ws, rj)
+        assert code == 0 and verdict["valid"] is True
+    assert "### Failure Records (2)" in step_summary
+
+
+def test_records_pass_returns_empty_outputs(tmp_path):
+    """An all-pass suite fabricates no failure: the record outputs are empty
+    and the summary states zero non-passing units."""
+    ws = _workspace(tmp_path)
+    proc, outputs, step_summary = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/pass.suite.json",
+        "agent": "consumer-agent",
+        "release": "harness-release",
+        "render-records": "true",
+    })
+    assert proc.returncode == 0, proc.stderr
+    assert outputs["status"] == "pass"
+    assert outputs["records"] == ""
+    assert outputs["records-index"] == ""
+    assert outputs["records-count"] == "0"
+    assert outputs["records-total"] == "0"
+    assert "0 non-passing units" in step_summary
+    assert "### Failure Records" not in step_summary
+    assert "::warning::" not in proc.stdout
+
+
+def test_records_disabled_returns_prior_behavior(tmp_path):
+    """render-records: false is the opt-out: no record attempt, empty outputs,
+    and the prior gate behavior is unchanged."""
+    ws = _workspace(tmp_path)
+    proc, outputs, step_summary = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/consumer.suite.json",
+        "agent": "consumer-agent",
+        "render-records": "false",
+    })
+    assert proc.returncode == 1, proc.stderr
+    assert outputs["status"] == "fail"
+    assert outputs["records"] == ""
+    assert outputs["records-index"] == ""
+    assert outputs["records-count"] == ""
+    assert outputs["records-total"] == ""
+    assert not (ws / ".hotato" / "results" / "records").exists()
+    assert "### Failure Records" not in step_summary
+
+
+def test_records_truncation_is_explicit_in_outputs_and_summary(tmp_path):
+    """record-limit caps the set: the first N in source order render, the
+    total is still reported, and the truncation is stated in the summary."""
+    ws = _workspace(tmp_path)
+    proc, outputs, step_summary = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/two-fail.suite.json",
+        "agent": "consumer-agent",
+        "render-records": "true",
+        "record-limit": "1",
+    })
+    assert proc.returncode == 1, proc.stderr
+    assert outputs["records-count"] == "1"
+    assert outputs["records-total"] == "2"
+    index = _load_index(ws, outputs["records-index"])
+    assert index["rendered"] == 1 and index["total_failures"] == 2
+    assert index["truncated"] is True
+    # only the first non-passing unit, in source order
+    assert [e["test_id"] for e in index["records"]] == \
+        ["escalate-not-handed-off-test"]
+    assert "Rendered 1 of 2 non-passing units (record-limit=1)." in step_summary
+
+
+def test_records_bad_limit_is_refused(tmp_path):
+    """record-limit outside 1..500 is refused before any run (exit 2)."""
+    ws = _workspace(tmp_path)
+    proc, outputs, _ = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/consumer.suite.json",
+        "agent": "consumer-agent",
+        "render-records": "true",
+        "record-limit": "0",
+    })
+    assert proc.returncode == 2
+    assert outputs["status"] == "error"
+
+
+def test_renderer_failure_warns_without_changing_exit(tmp_path):
+    """A failing evaluation whose record set is refused (duplicate unit id):
+    the gate STILL exits 1, a ::warning:: is emitted, and no records are
+    reported present."""
+    ws = _workspace(tmp_path)
+    proc, outputs, step_summary = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/dup-ids.suite.json",
+        "agent": "consumer-agent",
+        "render-records": "true",
+    })
+    # the evaluation exit is preserved exactly -- the renderer never touches it
+    assert proc.returncode == 1, proc.stderr
+    assert outputs["exit-code"] == "1"
+    assert outputs["status"] == "fail"
+    assert "::warning::" in proc.stdout
+    assert "Failure Record rendering failed" in proc.stdout
+    # a renderer error never reports records as present
+    assert outputs["records"] == ""
+    assert outputs["records-index"] == ""
+    assert outputs["records-count"] == ""
+    assert outputs["records-total"] == ""
+
+
+def test_failed_and_refused_exits_are_preserved_with_records_on(tmp_path):
+    """Records-on never changes the gate contract: a deterministic failure
+    stays exit 1 and a refused/usage error stays exit 2."""
+    ws = _workspace(tmp_path)
+    proc, outputs, _ = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/consumer.suite.json",
+        "agent": "consumer-agent",
+        "render-records": "true",
+    })
+    assert proc.returncode == 1 and outputs["exit-code"] == "1"
+
+    ws2 = _workspace(tmp_path / "b")
+    proc2, outputs2, _ = _run_gate(tmp_path / "b", ws2, {
+        "suite": "qa/suite/consumer.suite.json",
+        "agent": "bad agent!",  # unsafe id -> refused
+        "render-records": "true",
+    })
+    assert proc2.returncode == 2 and outputs2["exit-code"] == "2"
+    assert outputs2["status"] == "error"
+
+
+def test_records_paths_contained_within_output_spaces_and_symlinks(tmp_path):
+    """The digest-scoped record paths stay strictly beneath the configured
+    output, even with spaces in the path and an unrelated symlink in the tree."""
+    ws = _workspace(tmp_path)
+    external = tmp_path / "external"
+    external.mkdir()
+    # an unrelated symlink in the workspace must not let records resolve out
+    (ws / "qa" / "outside-link").symlink_to(external, target_is_directory=True)
+    proc, outputs, _ = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/two-fail.suite.json",
+        "agent": "consumer-agent",
+        "output": "out dir/results",
+        "render-records": "true",
+    })
+    assert proc.returncode == 1, proc.stderr
+    assert "::warning::" not in proc.stdout  # containment held; nothing refused
+    assert outputs["records-count"] == "2"
+    records_dir = outputs["records"]
+    assert records_dir.startswith("out dir/results/records/sha256-")
+    out_root = os.path.realpath(str(ws / "out dir" / "results"))
+    index = _load_index(ws, outputs["records-index"])
+    for entry in index["records"]:
+        for leaf in ("failure-record.json", "failure-record.md",
+                     "failure-record.html", "failure-record.svg"):
+            real = os.path.realpath(
+                str(ws / records_dir / entry["directory"] / leaf))
+            assert real == os.path.join(str(ws), records_dir,
+                                        entry["directory"], leaf) \
+                or real.startswith(out_root + os.sep)
+            assert real.startswith(out_root + os.sep), real
+
+
+def test_unsupported_older_hotato_is_a_note_not_a_warning():
+    """An exact pinned older hotato without `record render --all` is detected
+    from argparse's refusal text and reported as a graceful compat note, never
+    as a renderer-error warning; a genuine error is NOT misread as unsupported."""
+    gate = _load_gate()
+    assert gate._classify_unsupported(
+        "usage: hotato ...\nhotato: error: argument command: invalid choice:"
+        " 'record' (choose from 'suite', 'test')")
+    assert gate._classify_unsupported(
+        "hotato record render: error: unrecognized arguments: --all --limit 100")
+    # a real renderer error is not the unsupported case
+    assert not gate._classify_unsupported(
+        "error: cannot render a record set: the source contains duplicate unit"
+        " id(s) dup")
+    assert not gate._classify_unsupported("")
+
+
+def test_index_validation_rejects_a_digest_mismatch():
+    """The gate never trusts the index blindly: a source-digest mismatch, a
+    wrong kind, or a rendered/records-length disagreement is refused."""
+    gate = _load_gate()
+    good = {
+        "kind": "hotato.failure-record-index.v1", "version": "1.0",
+        "source": {"kind": "hotato.suite-run", "digest": "sha256:" + "a" * 64},
+        "total_failures": 1, "rendered": 1, "truncated": False,
+        "records": [{"record_id": "sha256:" + "b" * 64, "status": "FAIL",
+                     "test_id": "t", "headline": "h",
+                     "directory": "sha256-" + "b" * 64}],
+    }
+    assert gate._validate_index(good, "a" * 64) is None
+    assert gate._validate_index(good, "c" * 64) is not None  # digest mismatch
+    bad_kind = dict(good, kind="something.else")
+    assert gate._validate_index(bad_kind, "a" * 64) is not None
+    bad_count = dict(good, rendered=2)
+    assert gate._validate_index(bad_count, "a" * 64) is not None
+
+
+def test_action_performs_no_upload_comment_or_network(tmp_path):
+    """The Action source contains no upload/comment/notification API and no
+    HTTP client: zero-egress, read-only, presentation-only."""
+    banned = (
+        "api.github.com", "uploads.github.com", "github.com/repos",
+        "/issues/", "create_comment", "createComment", "issue_comment",
+        "requests.post", "requests.get", "urlopen", "http.client",
+        "smtplib", "webhook",
+    )
+    for name in ("gate.py", "summary.py"):
+        with open(os.path.join(ACTION_DIR, name), "r", encoding="utf-8") as fh:
+            src = fh.read()
+        for token in banned:
+            assert token not in src, f"{name} references {token!r}"
+
+    yaml = pytest.importorskip("yaml")
+    with open(os.path.join(ROOT, "action.yml"), "r", encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    # a composite Action must not escalate permissions
+    assert "permissions" not in doc
+    # the only steps are setup-python and the local gate script -- no upload,
+    # comment, or github-script step is present
+    for step in doc["runs"]["steps"]:
+        uses = step.get("uses", "")
+        assert "upload-artifact" not in uses
+        assert "github-script" not in uses
+        assert "comment" not in uses.lower()
+        run = step.get("run", "")
+        assert "curl" not in run and "gh api" not in run
 
 
 # ---------------------------------------------------------------------------

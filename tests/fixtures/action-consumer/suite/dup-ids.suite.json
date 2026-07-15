@@ -1,0 +1,13 @@
+{
+  "inconclusive_policy": "fail",
+  "kind": "hotato.suite",
+  "name": "Action consumer fixture suite (duplicate unit ids)",
+  "purpose": "Conformance fixture for the root GitHub Action: two offline conversation tests that both fail AND share one test id, so the evaluation exits 1 while a record set is refused (duplicate unit id) -- exercising that a renderer error is surfaced as a warning without changing the evaluation exit code.",
+  "required_for_release": true,
+  "suite_id": "action-consumer-dup-ids",
+  "tests": [
+    "tests/dup-escalation-a.test.json",
+    "tests/dup-escalation-b.test.json"
+  ],
+  "version": 1
+}
