@@ -199,11 +199,13 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
     portable contract, and ``contract verify`` catches it -- into something a
     first run actually sees once, offline, with no credential.
 
-    Returns ``{"bundle_dir", "bundle_rel", "contracts_dir", "passed",
-    "scorable", "verify"}`` -- ``verify`` is the FULL in-memory
-    ``contract-verify`` envelope, so the caller can project the canonical
-    Failure Record from the same evidence without re-reading or copying
-    anything to disk. Raises on the SAME conditions ``contract create``/
+    Returns ``{"bundle_dir", "bundle_rel", "contracts_dir", "candidate_rank",
+    "passed", "scorable", "verify"}`` -- ``candidate_rank`` is the 1-based sweep
+    rank of the evidence-selected missed interruption (so the printed golden
+    path promotes THAT moment with ``--expect yield``, never a hardcoded #1),
+    and ``verify`` is the FULL in-memory ``contract-verify`` envelope, so the
+    caller can project the canonical Failure Record from the same evidence
+    without re-reading or copying anything to disk. Raises on the SAME conditions ``contract create``/
     ``contract verify`` would (never on the bundled demo audio in practice);
     the caller treats a failure here the same defensive way it treats a card
     render failure -- the guided run still finishes.
@@ -236,6 +238,7 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
         "bundle_dir": create_result["dir"],
         "bundle_rel": _demo_contract_bundle_rel(),
         "contracts_dir": contracts_dir,
+        "candidate_rank": rank,
         "passed": result["passed"],
         "scorable": result["scorable"],
         "verify": verify,
@@ -316,7 +319,8 @@ def _demo_record_verify_command() -> str:
             f"{_DEMO_RECORD_DIR}/failure-record.json")
 
 
-def _next_commands_text(card_written: bool, contract_written: bool) -> str:
+def _next_commands_text(card_written: bool, contract_written: bool,
+                        candidate_rank: Optional[int] = None) -> str:
     alt = ", ".join(_DEMO_STARTER_STACKS)
     lines = [
         "",
@@ -327,10 +331,26 @@ def _next_commands_text(card_written: bool, contract_written: bool) -> str:
         "",
         "Then  (all offline, no account, no network)",
         "",
-        f"  Save a regression   hotato fixture promote {_SWEEP_JSON}#1 --expect yield --id my-first-fixture --out tests/hotato",
-        "  Run fixtures in CI  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio",
-        f"  Render a card       hotato card {_SWEEP_JSON}#1 --out candidate.svg",
     ]
+    if candidate_rank is not None:
+        # #{candidate_rank} is the EVIDENCE-SELECTED missed interruption (the
+        # agent talked over the caller), so --expect yield freezes the RIGHT
+        # moment. It is deliberately never the hardcoded #1 -- on the bundled
+        # demo #1 is the backchannel the agent yielded to (a --expect hold
+        # moment), so #1 --expect yield would enshrine the demonstrated defect
+        # as passing behavior.
+        lines += [
+            f"  Save a regression   hotato fixture promote {_SWEEP_JSON}#{candidate_rank} --expect yield --id my-first-fixture --out tests/hotato",
+            "  Run fixtures in CI  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio",
+            f"  Render a card       hotato card {_SWEEP_JSON}#{candidate_rank} --out candidate.svg",
+        ]
+    else:
+        # Rank unavailable (a contract-step hiccup): keep only the label-free,
+        # always-correct command rather than print a promote example whose
+        # --expect could be backwards for whatever candidate #1 happens to be.
+        lines += [
+            "  Run fixtures in CI  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio",
+        ]
     return "\n".join(lines)
 
 
@@ -394,6 +414,11 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
     except Exception:  # pragma: no cover - defensive for non-contract hiccups
         contract_info = None
     contract_written = contract_info is not None
+    # The 1-based sweep rank of the evidence-selected missed interruption, so
+    # the golden path promotes THAT moment with --expect yield (never #1, the
+    # backchannel). None only if the defensive contract step above hiccuped.
+    candidate_rank = (contract_info["candidate_rank"]
+                      if contract_written else None)
 
     # Project + render the canonical share-safe Failure Record from the SAME
     # verified evidence. Unlike the card/contract steps above, this is an
@@ -418,17 +443,26 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
         f"candidate moments; wrote {', '.join(written)}\n")
 
     if fmt == "json":
+        # Same evidence-selected rank as the text path: the promote/card refs
+        # point at the missed interruption (#{candidate_rank}), never a
+        # hardcoded #1 (the backchannel the agent yielded to).
+        next_commands = [_DEMO_STARTER_PRIMARY]
+        if candidate_rank is not None:
+            next_commands.append(
+                f"hotato fixture promote {_SWEEP_JSON}#{candidate_rank} "
+                "--expect yield --id my-first-fixture --out tests/hotato")
+        next_commands.append(
+            "hotato run --scenarios tests/hotato/scenarios --audio "
+            "tests/hotato/audio")
+        if candidate_rank is not None:
+            next_commands.append(
+                f"hotato card {_SWEEP_JSON}#{candidate_rank} "
+                "--out candidate.svg")
         payload = {
             "tool": "hotato", "kind": "start", "mode": "--demo", "ran": True,
             "offline": True, "written": written,
             "total_candidates": aggregate["total_candidates"],
-            "next_commands": [
-                _DEMO_STARTER_PRIMARY,
-                f"hotato fixture promote {_SWEEP_JSON}#1 --expect yield --id my-first-fixture --out tests/hotato",
-                "hotato run --scenarios tests/hotato/scenarios --audio "
-                "tests/hotato/audio",
-                f"hotato card {_SWEEP_JSON}#1 --out candidate.svg",
-            ],
+            "next_commands": next_commands,
         }
         if contract_written:
             payload["next_commands"].append(
@@ -482,7 +516,8 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             print(f"  Share in a PR:      {md_path}")
             print(f"  Share as an image:  {svg_path}")
             print(f"  Verify the record:  {_demo_record_verify_command()}")
-        print(_next_commands_text(card_written, contract_written))
+        print(_next_commands_text(card_written, contract_written,
+                                  candidate_rank))
     return 0
 
 
