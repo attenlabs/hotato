@@ -268,22 +268,83 @@ def build_argv(cfg: Dict[str, Any]) -> List[str]:
     return argv
 
 
+def _publish_flags() -> int:
+    """Open flags for publishing a brand-new output leaf: create-exclusive so an
+    existing name is refused, no-follow so a terminal symlink is never opened,
+    write-only. O_NOFOLLOW is absent on some platforms (defaulted to 0)."""
+    return (os.O_CREAT | os.O_EXCL | os.O_WRONLY
+            | getattr(os, "O_NOFOLLOW", 0))
+
+
+def _open_new(name: str, *, dir_fd: Optional[int] = None):
+    """Create a NEW output file with no-follow/exclusive semantics and return a
+    UTF-8 text handle. A planted symlink or pre-existing regular file at the
+    path can never be truncated: O_CREAT|O_EXCL fails (EEXIST) on any existing
+    name, and O_NOFOLLOW refuses a terminal symlink. ``name`` is opened relative
+    to ``dir_fd`` (the private output directory) when given, so the write is not
+    re-resolved through a hostile path prefix."""
+    try:
+        fd = os.open(name, _publish_flags(), 0o600, dir_fd=dir_fd)
+    except OSError as exc:
+        raise InputError(
+            f"refusing to publish output {name!r}: a file already exists at "
+            f"that path (possible planted symlink): {exc.strerror}"
+        )
+    return os.fdopen(fd, "w", encoding="utf-8")
+
+
+def _prepare_output_dir(workspace: str, output: str) -> Tuple[str, int]:
+    """Create the workspace output directory PRIVATELY and refuse a pre-existing
+    tree, then return (absolute_dir, dir_fd).
+
+    A consumer PR can commit ``<output>/`` -- or the fixed leaves inside it
+    (suite-run.json, summary.md, contracts-junit.xml, artifact/, records/) -- as
+    symlinks, so a naive open()/makedirs would truncate or redirect an
+    accessible target. Requiring the leaf directory to be created by us (mode
+    0700, ``mkdir`` never follows a final symlink) guarantees it is empty and
+    ours; the returned no-follow directory descriptor scopes every leaf write to
+    that directory."""
+    full = os.path.join(workspace, output)
+    parent = os.path.dirname(full) or workspace
+    os.makedirs(parent, exist_ok=True)
+    try:
+        os.mkdir(full, 0o700)
+    except FileExistsError:
+        raise InputError(
+            f"output directory {output!r} already exists; the Action refuses "
+            "to publish into a pre-existing tree because a committed symlink "
+            "there could redirect a write. Use a fresh 'output' path."
+        )
+    except OSError as exc:
+        raise InputError(f"cannot create output directory {output!r}: "
+                         f"{exc.strerror}")
+    dir_fd = os.open(full, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                     | getattr(os, "O_NOFOLLOW", 0))
+    return full, dir_fd
+
+
 def run_hotato(cfg: Dict[str, Any]) -> Tuple[int, str]:
     """Run the command from the workspace; capture stdout to the result file.
 
     Returns (exit_code, result_path). The captured exit code is preserved
-    exactly; stderr streams through to the step log.
+    exactly; stderr streams through to the step log. The output directory is
+    created privately and every fixed leaf is published with no-follow/
+    exclusive semantics, so a planted symlink cannot make the Action truncate an
+    accessible file. The private directory (created fresh, refused if it already
+    exists) also contains the subprocess's ``artifact/``, ``contracts-junit.xml``
+    and ``records/`` outputs, which therefore cannot land on a pre-planted link.
     """
     workspace = cfg["workspace"]
-    out_dir = os.path.join(workspace, cfg["output"])
-    os.makedirs(out_dir, exist_ok=True)
-    result_path = os.path.join(cfg["output"], _RESULT_NAME[cfg["mode"]])
+    full_out, dir_fd = _prepare_output_dir(workspace, cfg["output"])
+    cfg["_output_fd"] = dir_fd
+    cfg["_output_full"] = full_out
+    result_name = _RESULT_NAME[cfg["mode"]]
+    result_path = os.path.join(cfg["output"], result_name)
     argv = [sys.executable, "-m", "hotato"] + build_argv(cfg)
     proc = _run(argv, cwd=workspace, capture_output=True, text=True)
     if proc.stderr:
         sys.stderr.write(proc.stderr)
-    with open(os.path.join(workspace, result_path), "w",
-              encoding="utf-8") as fh:
+    with _open_new(result_name, dir_fd=dir_fd) as fh:
         fh.write(proc.stdout)
     return proc.returncode, result_path
 
@@ -345,6 +406,7 @@ def main() -> int:
     doc = None
     error: Optional[str] = None
     summary_path = ""
+    cfg: Optional[Dict[str, Any]] = None
 
     try:
         cfg = validate_inputs()
@@ -387,16 +449,22 @@ def main() -> int:
     outputs["exit-code"] = str(gate)
     outputs["status"] = status
 
-    if summary_path:
+    dir_fd = cfg.get("_output_fd") if isinstance(cfg, dict) else None
+    if summary_path and isinstance(dir_fd, int):
+        # summary.md is a direct child of the private output directory created
+        # by run_hotato; publish it descriptor-relative with the same no-follow/
+        # exclusive semantics so a planted symlink is refused, never followed.
         try:
-            workspace = _workspace()
-            full = os.path.join(workspace, summary_path)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
-            with open(full, "w", encoding="utf-8") as fh:
+            with _open_new("summary.md", dir_fd=dir_fd) as fh:
                 fh.write(markdown + "\n")
             outputs["summary"] = summary_path
-        except OSError:
+        except (OSError, InputError):
             outputs["summary"] = ""
+    if isinstance(dir_fd, int):
+        try:
+            os.close(dir_fd)
+        except OSError:
+            pass
     write_summary(markdown)
     write_outputs(outputs)
     print(markdown)
