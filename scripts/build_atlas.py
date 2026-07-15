@@ -665,7 +665,7 @@ def render_implementation_detail(impl: Dict[str, Any]) -> str:
     else:
         parts.append('<div class="notice">No atlas record is indexed as evidence for this recipe '
                      'yet; it documents the capability contract, not an observed case.</div>')
-    return page(impl["title"], "".join(parts))
+    return page(impl["title"], "".join(parts), noindex=not impl["verified_against"])
 
 
 def render_implementation_landing(capability: str, impls: List[Dict[str, Any]]) -> str:
@@ -790,7 +790,7 @@ def build(out_dir: str) -> Dict[str, Any]:
         cap_slug = CAPABILITY_SLUG[i["capability"]]
         body = render_implementation_detail(i)
         write(f'/implementations/{cap_slug}/{i["stack"]}/', body,
-              title=i["title"], summary=i["approach"], indexed=True,
+              title=i["title"], summary=i["approach"], indexed=bool(i["verified_against"]),
               kind="implementation", date=i["recorded_date"])
 
     for cap in sorted({i["capability"] for i in implementations}):

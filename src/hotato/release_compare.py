@@ -103,8 +103,8 @@ def compare_releases(release_a: str, release_b: str, *,
     """Compare two releases from the registry and return a per-dimension +
     per-scenario comparison envelope. ``release_a`` is the baseline,
     ``release_b`` the candidate. Never emits a single delta score. A side with no
-    runs is reported honestly (``*_present`` + ``*_has_runs``), never a fabricated
-    baseline."""
+    runs is stated directly (``*_present`` + ``*_has_runs``), with no aggregate
+    substitute."""
     home = registry_home or DEFAULT_HOME
     reg = Registry(home)
     try:

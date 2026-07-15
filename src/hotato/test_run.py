@@ -16,8 +16,7 @@ documented-and-hoped:
   deterministic summary. It is ADVISORY by default (a rubric FAIL does NOT gate
   the exit code); ``gate_judge=True`` opts a team into failing on a rubric FAIL.
   When the judge backend is unreachable, or a rubric's required evidence is
-  absent, the result is honestly ERROR/INCONCLUSIVE -- never a fabricated
-  verdict, and never a silent gate.
+  absent, the result is ERROR/INCONCLUSIVE -- never a silent gate.
 * Success is a BOOLEAN over the closed :data:`hotato.conversation_test.SUCCESS_CONDITIONS`
   vocabulary -- a conjunction of named conditions, NEVER a weight or a blended
   ``overall_score``. The per-dimension breakdown groups the SAME deterministic
@@ -25,12 +24,12 @@ documented-and-hoped:
   counts and nothing is blended.
 * Missing transcript/trace/state leaves the depending assertions INCONCLUSIVE
   (the evaluators' own posture) -- never a guessed PASS/FAIL.
-* Reliability (pass@1 / pass@k / pass^k) is REAL (Phase 2 shipped):
+* Reliability (pass@1 / pass@k / pass^k) shipped in Phase 2:
   ``repetitions > 1`` runs the deterministic lane N times and reports the per-run
-  results, the run count, AND a real :func:`hotato.simulate.reliability`
+  results, the run count, AND a :func:`hotato.simulate.reliability`
   aggregate (pass@1 / pass@k / pass^k + a Wilson CI). Every run scores the SAME
   supplied recording, so the deterministic lane has zero variance and
-  ``pass^k == pass@1`` -- reported honestly, not a fabricated number. pass^k is
+  ``pass^k == pass@1``. pass^k is
   its OWN dimension, never blended into any other and never an ``overall_score``.
 
 The exit code is the deterministic envelope's own ``exit_code`` (which already
@@ -51,7 +50,7 @@ from . import conversation_test as CT
 from . import rubric as RUB
 
 # Success conditions that read the model-judged (rubric) lane. These are
-# ADVISORY by default: their boolean is reported honestly, but they only affect
+# ADVISORY by default: their boolean is reported, but they only affect
 # the exit code when the run opts in with ``gate_judge=True`` (the CLI's
 # ``--gate-judge``). A model verdict never silently gates a release.
 _RUBRIC_SUCCESS_CONDITIONS = frozenset({"no_rubric_failure"})
@@ -250,17 +249,16 @@ def evaluate_conversation_test(
     # Reliability (pass@1 / pass@k / pass^k) over the ``reps`` deterministic runs
     # (Phase 2 shipped). A run passes iff its deterministic envelope's exit_code
     # is 0 (which already honors inconclusive_policy). Every run scores the SAME
-    # supplied recording, so the lane has zero variance and pass^k == pass@1 --
-    # reported honestly, not fabricated variance. Reused from the same
-    # reliability() the simulator matrix uses, so the number means exactly what it
-    # does everywhere else.
+    # supplied recording, so the lane has zero variance and pass^k == pass@1.
+    # Reused from the same reliability() the simulator matrix uses, so the
+    # number means exactly what it does everywhere else.
     from . import simulate as _sim
     origin_kind = _origin_from_doc(doc)["kind"]
     per_run_pass = [env["exit_code"] == 0 for env in per_run]
     rel_note = (
         f"reliability over {reps} repeated run(s) of the deterministic lane on "
-        f"the same supplied {origin_kind} recording; the lane has zero variance, "
-        "so pass^k == pass@1 -- reported honestly, not fabricated variance"
+        f"the same supplied {origin_kind} recording; pass^k == pass@1 because the "
+        "deterministic replay is byte-identical (zero run-to-run variance)"
     )
     rel_aggregate = dict(_sim.reliability(per_run_pass))
     rel_aggregate["note"] = rel_note
