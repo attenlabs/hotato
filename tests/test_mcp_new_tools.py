@@ -238,3 +238,113 @@ def test_every_tool_response_carries_the_four_envelope_keys(fake_mcp, tmp_path):
                                             battery_path="/nonexistent/battery")
     assert bad["ok"] is False
     assert bad["refusal_reason"]
+
+
+# --- R-03: EVERY tool returns the envelope on error, never a raw raise --------
+
+# tool name -> the module-level implementation its registration wrapper delegates
+# to. The choke point (:func:`mcp_server._guarded`) must convert ANY exception
+# from that body into the uniform ok:false envelope, so no tool can surface a
+# raw uncaught exception. Kept in lockstep with build_server's registrations
+# (asserted below), so a newly added tool that forgets the choke point trips it.
+_TOOL_DELEGATE = {
+    "voice_eval_run": "_run_tool",
+    "counterexample_compile": "mcp_counterexample_compile",
+    "counterexample_verify": "mcp_counterexample_verify",
+    "counterexample_reproduce": "mcp_counterexample_reproduce",
+    "fleet_status": "mcp_fleet_status",
+    "candidate_list": "mcp_candidate_list",
+    "candidate_inspect": "mcp_candidate_inspect",
+    "contract_list": "mcp_contract_list",
+    "trial_explain": "mcp_trial_explain",
+    "experiment_status": "mcp_experiment_status",
+    "artifact_verify": "mcp_artifact_verify",
+    "experiment_propose": "mcp_experiment_propose",
+    "experiment_create": "mcp_experiment_create",
+    "experiment_run": "mcp_experiment_run",
+    "clone_cleanup": "mcp_clone_cleanup",
+}
+
+# Satisfy each wrapper's own signature (a few take required positionals). The
+# delegate is patched to raise regardless of argument values, so these are dummies.
+_MINIMAL_CALL = {
+    "counterexample_compile": lambda t: t("s.json", "t.py", "tgt", "out"),
+    "counterexample_verify": lambda t: t("p"),
+    "counterexample_reproduce": lambda t: t("p"),
+    "artifact_verify": lambda t: t("x"),
+}
+
+
+@pytest.mark.parametrize("exc,expect_code", [
+    # a HANDLED class routes through errors.classify to its SPECIFIC schema code
+    (FileNotFoundError(2, "No such file", "/x/missing.wav"), "file_not_found"),
+    # an UNLISTED class (an adapter / registry / SQLite layer raising a
+    # RuntimeError, KeyError, ...) becomes the schema's catch-all, still enveloped
+    (RuntimeError("adapter blew up"), "usage_error"),
+])
+def test_every_tool_body_that_raises_still_returns_the_control_envelope(
+        fake_mcp, monkeypatch, exc, expect_code):
+    """R-03: no MCP tool may surface a raw uncaught exception. If a tool body
+    raises -- an expected class (:data:`errors.HANDLED`) or an unlisted one --
+    the choke point (:func:`mcp_server._guarded`) converts it into the SAME
+    ok:false control envelope every tool promises. Pre-fix, the ~10 tools whose
+    body opened a resource / ran an input guard OUTSIDE any except let the
+    exception escape the tool; this pins that all 15 now fail SAFE and uniform.
+
+    Patching each wrapper's delegate to raise proves the choke point catches
+    regardless of a body's own internal handling (defense in depth over the few
+    tools that already guarded themselves)."""
+    server = m.build_server()
+    assert set(server.tools) == set(_TOOL_DELEGATE), (
+        "the built server's tool set drifted from the R-03 delegate map; "
+        "a new tool must also route through the _guarded choke point"
+    )
+
+    def _raiser(*_a, **_k):
+        raise exc
+
+    # Patch every tool's body to raise. The wrappers resolve these module globals
+    # at CALL time, so patching after build_server takes effect.
+    for attr in _TOOL_DELEGATE.values():
+        monkeypatch.setattr(m, attr, _raiser)
+
+    for name in _TOOL_DELEGATE:
+        tool = server.tools[name]
+        caller = _MINIMAL_CALL.get(name, lambda t: t())
+        try:
+            resp = caller(tool)
+        except Exception as e:  # noqa: BLE001 - the whole point: it must NOT escape
+            pytest.fail(f"tool {name!r} let an exception escape the envelope: {e!r}")
+        assert isinstance(resp, dict), f"{name}: non-dict response {resp!r}"
+        assert resp.get("ok") is False, f"{name}: expected ok False, got {resp!r}"
+        _assert_envelope(resp)
+        assert resp.get("refusal_reason"), f"{name}: empty refusal_reason"
+        assert resp.get("error_code") == expect_code, (
+            f"{name}: expected error_code {expect_code!r}, "
+            f"got {resp.get('error_code')!r}"
+        )
+        # the uniform refusal carries no verdict, touched no artifact, gates nothing
+        assert resp["evidence_status"] is None
+        assert resp["artifact_digests"] == []
+        assert resp["pending_irreversible_action"] is None
+
+
+def test_artifact_verify_out_of_sandbox_path_is_enveloped_not_raised(
+        fake_mcp, monkeypatch):
+    """A concrete ordinary-bad-input reproduction of R-03 (no monkeypatched body):
+    ``artifact_verify`` runs its input-path guard BEFORE any except, so an
+    out-of-sandbox ``report_path`` raised a raw ValueError out of the tool
+    pre-fix. The choke point turns it into the uniform ok:false refusal
+    envelope."""
+    monkeypatch.delenv("HOTATO_MCP_INPUT_DIR", raising=False)
+    server = m.build_server()
+    try:
+        resp = server.tools["artifact_verify"](
+            report_path="/etc/hotato-guard-escape-xyz.json")
+    except Exception as e:  # noqa: BLE001
+        pytest.fail(f"artifact_verify raised instead of enveloping: {e!r}")
+    assert resp.get("ok") is False
+    _assert_envelope(resp)
+    assert resp["refusal_reason"]
+    # a refusal names no verdict and leaves no host path in the envelope surface
+    assert resp["evidence_status"] is None

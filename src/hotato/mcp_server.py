@@ -639,6 +639,35 @@ def _envelope(payload: dict, *, evidence_status=None, refusal_reason=None,
     return payload
 
 
+def _guarded(fn, *args, **kwargs):
+    """Absolute choke point for the uniform control envelope (module docstring).
+
+    Run a tool body and convert ANY escaping exception into the SAME structured
+    ``ok: false`` control envelope every tool promises, so no MCP tool can ever
+    surface a raw uncaught exception to the caller. An expected failure class
+    (bad input, a missing / oversized / mismatched recording, an unavailable
+    optional backend -- :data:`errors.HANDLED`) is mapped through
+    :func:`errors.mcp_error` to its stable, schema-enumerated ``error_code``;
+    anything else (a backend adapter, registry, or SQLite layer raising an
+    unlisted type such as ``RuntimeError``/``KeyError``/``sqlite3.OperationalError``)
+    becomes the schema's catch-all ``usage_error`` envelope carrying the failure
+    text, rather than escaping. Every returned envelope is the same
+    :func:`_control_error` shape (``ok: false``, ``exit_code`` 2, the four control
+    keys, ``refusal_reason`` mirroring the message): the call fails SAFE and
+    uniform, never a fabricated passing verdict. Wrapping every registration
+    body here is defense in depth over the tools that already guard their own
+    body, and it is drift-proof for any tool added later."""
+    try:
+        return fn(*args, **kwargs)
+    except _errors.HANDLED as exc:
+        return _control_error(_errors.mcp_error(exc))
+    except Exception as exc:  # noqa: BLE001 - the envelope contract is absolute
+        # An unexpected, unlisted exception: keep the promise anyway. The schema
+        # enum has no "internal" slug, so use its designated catch-all
+        # (usage_error) with the exception's own text as the message.
+        return _control_error(_errors.error_object("usage_error", str(exc)))
+
+
 def mcp_fleet_status(home: Optional[str] = None, workspace_id: str = "default") -> dict:
     from .fleet.api import FleetAPI
     from .fleet.registry import DEFAULT_HOME
@@ -1129,7 +1158,8 @@ def build_server():
         transcribe: bool = False,
         transcribe_no_cache: bool = False,
     ) -> dict:
-        return _run_tool(
+        return _guarded(
+            _run_tool,
             stereo=stereo,
             caller=caller,
             agent=agent,
@@ -1162,7 +1192,8 @@ def build_server():
         budget: int = 512,
         seed: Optional[int] = None,
     ) -> dict:
-        return mcp_counterexample_compile(
+        return _guarded(
+            mcp_counterexample_compile,
             scenario_path, test_path, target, out_dir, budget, seed,
         )
 
@@ -1175,7 +1206,7 @@ def build_server():
         ),
     )
     def counterexample_verify(path: str) -> dict:
-        return mcp_counterexample_verify(path)
+        return _guarded(mcp_counterexample_verify, path)
 
     @server.tool(
         name="counterexample_reproduce",
@@ -1186,65 +1217,65 @@ def build_server():
         ),
     )
     def counterexample_reproduce(path: str) -> dict:
-        return mcp_counterexample_reproduce(path)
+        return _guarded(mcp_counterexample_reproduce, path)
 
     @server.tool(name="fleet_status", description="Read the local fleet workspace rollup (counts + jobs). Read-only.")
     def fleet_status(home: Optional[str] = None, workspace_id: str = "default") -> dict:
-        return mcp_fleet_status(home, workspace_id)
+        return _guarded(mcp_fleet_status, home, workspace_id)
 
     @server.tool(name="candidate_list", description="List top candidate moments awaiting human review. Read-only; never labels.")
     def candidate_list(home: Optional[str] = None, workspace_id: str = "default",
                        agent_id: Optional[str] = None, limit: int = 10) -> dict:
-        return mcp_candidate_list(home, workspace_id, agent_id, limit)
+        return _guarded(mcp_candidate_list, home, workspace_id, agent_id, limit)
 
     @server.tool(name="candidate_inspect", description="Inspect one candidate moment: onset, measured components (severity/input_health/recurrence/novelty/covered_by_contract), and trust findings. Read-only; never labels.")
     def candidate_inspect(home: Optional[str] = None, workspace_id: str = "default",
                           candidate_id: str = "", agent_id: Optional[str] = None) -> dict:
-        return mcp_candidate_inspect(home, workspace_id, candidate_id, agent_id)
+        return _guarded(mcp_candidate_inspect, home, workspace_id, candidate_id, agent_id)
 
     @server.tool(name="contract_list", description="List contracts in a workspace. Read-only.")
     def contract_list(home: Optional[str] = None, workspace_id: str = "default") -> dict:
-        return mcp_contract_list(home, workspace_id)
+        return _guarded(mcp_contract_list, home, workspace_id)
 
     @server.tool(name="trial_explain", description="Explain a recorded trial's verdict, evidence tier, recommendation, and any pending human-gated action. Read-only.")
     def trial_explain(home: Optional[str] = None, workspace_id: str = "default",
                       trial_id: str = "") -> dict:
-        return mcp_trial_explain(home, workspace_id, trial_id)
+        return _guarded(mcp_trial_explain, home, workspace_id, trial_id)
 
     @server.tool(name="experiment_status", description="Report a trial's current verdict, evidence tier, recommendation, manifest hash, and any pending human-gated action. Read-only.")
     def experiment_status(home: Optional[str] = None, workspace_id: str = "default",
                           trial_id: str = "") -> dict:
-        return mcp_experiment_status(home, workspace_id, trial_id)
+        return _guarded(mcp_experiment_status, home, workspace_id, trial_id)
 
     @server.tool(name="artifact_verify", description="Verify a contract bundle's authenticity + evidence without trusting it. Read-only.")
     def artifact_verify(report_path: str) -> dict:
-        return mcp_artifact_verify(report_path)
+        return _guarded(mcp_artifact_verify, report_path)
 
     @server.tool(name="experiment_propose", description="Propose a bounded variant set with expected effects. Read-only; does not clone, apply, or deploy.")
     def experiment_propose(home: Optional[str] = None, workspace_id: str = "default",
                            agent_id: str = "", contract_id: str = "",
                            parameter: str = "interrupt_sensitivity") -> dict:
-        return mcp_experiment_propose(home, workspace_id, agent_id, contract_id, parameter)
+        return _guarded(mcp_experiment_propose, home, workspace_id, agent_id, contract_id, parameter)
 
     @server.tool(name="experiment_create", description="Clone-scoped: precommit a trial manifest from a committed battery BEFORE any capture, so the fixture universe is fixed ahead of the results. Never captures, never deploys.")
     def experiment_create(home: Optional[str] = None, workspace_id: str = "default",
                           agent_id: str = "", trial_id: str = "",
                           battery_path: str = "", min_n: int = 1) -> dict:
-        return mcp_experiment_create(home, workspace_id, agent_id, trial_id,
+        return _guarded(mcp_experiment_create, home, workspace_id, agent_id, trial_id,
                                      battery_path, min_n)
 
     @server.tool(name="experiment_run", description="Clone-scoped: recompute a before/after trial (offline, no network, no production mutation) and record a recommendation. Names any pending human-gated action.")
     def experiment_run(home: Optional[str] = None, workspace_id: str = "default",
                        agent_id: str = "", trial_id: str = "", battery_path: str = "",
                        before_path: str = "", after_path: str = "", min_n: int = 1) -> dict:
-        return mcp_experiment_run(home, workspace_id, agent_id, trial_id, battery_path,
+        return _guarded(mcp_experiment_run, home, workspace_id, agent_id, trial_id, battery_path,
                                   before_path, after_path, min_n)
 
     @server.tool(name="clone_cleanup", description="Clone-scoped: delete a STAGING clone THIS tool created, authorized by its durable clone receipt (referenced by trial_id or receipt_id) -- never a raw clone id or display name. Never touches production.")
     def clone_cleanup(home: Optional[str] = None, workspace_id: str = "default",
                       trial_id: str = "", receipt_id: str = "", stack: str = "mock",
                       work_dir: str = ".") -> dict:
-        return mcp_clone_cleanup(home, workspace_id, trial_id, receipt_id, stack, work_dir)
+        return _guarded(mcp_clone_cleanup, home, workspace_id, trial_id, receipt_id, stack, work_dir)
 
     return server
 
