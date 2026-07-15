@@ -489,71 +489,18 @@ def test_interface_conformance_and_behavioral_evidence_are_separate_sections(tmp
 
 
 # ---------------------------------------------------------------------------
-# (f) hardening: stored transcripts replay, OS-independent path gate,
-#     footer-only attribution
+# (f) hardening: OS-independent path gate, footer-only attribution
 # ---------------------------------------------------------------------------
-
-def test_stored_cli_transcript_matches_a_live_record_render(tmp_path):
-    """Replay equality (finding: stored transcript mismatch). Each atlas
-    record's stored ``hotato record render`` transcript must reproduce
-    byte-for-byte from a live run of the shipped CLI against the record's own
-    stored ``verify.json``: the render command's ``--out`` directory, its file
-    list, and its ``record_id`` are what the CLI actually emits, not
-    hand-edited. ``FR.__version__`` is pinned to the record's stored
-    provenance version so the content-addressed ``record_id`` is reproducible
-    across real tool-version bumps -- the same pinning discipline
-    ``test_failure_render`` uses for its golden record."""
-    import contextlib
-    import io
-    from types import SimpleNamespace
-
-    from hotato import cli
-    from hotato import failure_record as FR
-
-    records, _, _ = _all_sources()
-    for path in records:
-        doc = _load_json(path)
-        transcript = doc["cli_transcript"]
-        verify_entry = next(e for e in transcript
-                            if e["command"].startswith("hotato contract verify"))
-        render_entry = next(e for e in transcript
-                            if e["command"].startswith("hotato record render"))
-
-        # The verify step's stdout IS the verify.json the render step consumes;
-        # write it verbatim so the source-result digest -- and therefore the
-        # record_id -- is byte-identical to what produced the stored record.
-        workdir = tmp_path / doc["content_id"]
-        workdir.mkdir()
-        (workdir / "verify.json").write_text(verify_entry["output"], encoding="utf-8")
-
-        # Parse `hotato record render SOURCE#SEL --out OUT` back into args.
-        toks = render_entry["command"].split()
-        assert toks[:3] == ["hotato", "record", "render"], toks
-        assert toks[4] == "--out", toks
-        source_tok, out_name = toks[3], toks[5]
-        rawfile, _, selector = source_tok.partition("#")
-        live_source = str(workdir / rawfile) + (f"#{selector}" if selector else "")
-        live_out = workdir / out_name
-
-        pinned_version = doc["failure_record"]["provenance"]["hotato"]["version"]
-        args = SimpleNamespace(source=live_source, out=str(live_out))
-
-        original = FR.__version__
-        FR.__version__ = pinned_version
-        buf = io.StringIO()
-        try:
-            with contextlib.redirect_stdout(buf):
-                rc = cli._cmd_record_render(args)
-        finally:
-            FR.__version__ = original
-        assert rc == 0
-
-        # The transcript names the --out dir by its relative basename
-        # (presentation, not the caller's absolute temp path).
-        live_output = buf.getvalue().replace(str(live_out), out_name)
-        assert live_output == render_entry["output"], (
-            f"{path}: stored `record render` transcript diverges from a live run"
-        )
+#
+# NOTE: the former ``test_stored_cli_transcript_matches_a_live_record_render``
+# FAKED reproduction -- it wrote the stored verify.json verbatim and patched
+# ``FR.__version__`` to the record's stored provenance version before
+# live-running ONLY the render step. It never executed ``contract create`` +
+# ``contract verify``, and by pinning the version it hid exactly the kind of
+# behavior/version drift a reader would hit. The replacement is section (g)
+# below: a real clean-directory reproduction that runs EVERY displayed command
+# with the packaged hotato and no injection/patching, so the rendered record_id
+# is the id a reader actually gets.
 
 
 def test_is_unsafe_fixture_path_is_os_independent():
@@ -628,3 +575,203 @@ def test_attribution_is_footer_only_no_author_publisher_meta(tmp_path):
         assert '<meta name="publisher"' not in text, html_path
         # Attribution is still present -- footer-only.
         assert "Hotato is maintained by Attention Labs." in text, html_path
+
+
+# ---------------------------------------------------------------------------
+# (g) growth blocker #1: public Atlas reproduction (G6)
+#
+# Every published record carries structured reproduction metadata (exact hotato
+# version, committed bundle path + digest, selector, working directory, expected
+# record id). The displayed command list is GENERATED from that metadata, and a
+# clean-directory reproduction of that chain -- contract create -> contract
+# verify -> record render, with NO stored verification injected and NO package
+# version patched -- lands on the record's own published record_id. Asset,
+# digest, version, command, terminal-id, or behavior drift fails publication.
+# ---------------------------------------------------------------------------
+
+def test_every_record_carries_structured_reproduction_metadata():
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    for path in records:
+        rec = _load_json(path)
+        meta = rec["reproduction_metadata"]
+        # every G6 field present and pinned to the packaged version
+        assert meta["hotato_version"] == build_atlas.HOTATO_VERSION
+        assert meta["working_directory"] == "."
+        assert meta["bundle"]["committed_path"]
+        assert meta["bundle"]["digest"].startswith("sha256:")
+        assert meta["selector"]
+        assert meta["expected_record_id"] == rec["failure_record"]["record_id"]
+        # the DISPLAYED commands are generated from the metadata (page/metadata
+        # cannot drift): stored source_cli_commands + transcript commands both
+        # equal the generated list.
+        generated = build_atlas.generate_repro_commands(meta)
+        assert rec["evidence_provenance"]["source_cli_commands"] == generated
+        assert [e["command"] for e in rec["cli_transcript"]] == generated
+        # the displayed chain is SELF-CONTAINED: exactly one contract create,
+        # one verify, one render -- so the reader's clean-dir verify is count=1.
+        assert generated[0].startswith("hotato contract create")
+        assert generated[1].startswith("hotato contract verify")
+        assert generated[2].startswith("hotato record render")
+
+
+def test_each_record_reproduces_its_published_record_id_in_a_clean_room(tmp_path):
+    """G6 terminal condition. For EVERY published record, executing every
+    DISPLAYED command in a fresh empty directory with the current package --
+    contract create and contract verify actually run, no stored verify.json
+    injected, no FR.__version__ patched -- reproduces its OWN published
+    record_id exactly. This is the pre-release proof that reproduction holds
+    under the shipping src (external validation against the released wheel is a
+    separate release-time gate)."""
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    for path in records:
+        rec = _load_json(path)
+        work = tmp_path / rec["content_id"]
+        work.mkdir()
+        result = build_atlas.reproduce_record_clean_room(rec, ROOT, str(work))
+
+        published = rec["failure_record"]["record_id"]
+        expected = rec["reproduction_metadata"]["expected_record_id"]
+        # terminal condition: rendered record_id == published record_id
+        assert result["record_id"] == published, (
+            f"{path}: clean-room record_id {result['record_id']} != published {published}")
+        assert expected == published
+        # the displayed commands are exactly what ran, and the stored transcript
+        # is byte-identical to the live run (reviewer pinned, cwd-relative).
+        assert [e["command"] for e in result["transcript"]] == \
+            build_atlas.generate_repro_commands(rec["reproduction_metadata"])
+        assert result["transcript"] == rec["cli_transcript"], (
+            f"{path}: stored cli_transcript diverges from a live clean-room run")
+        # a self-contained chain: the reader's verify sees exactly this contract.
+        verify_out = [e["output"] for e in result["transcript"]
+                      if e["command"].startswith("hotato contract verify")][0]
+        assert '"count": 1' in verify_out
+
+
+def test_deep_verify_reproductions_passes_for_all_seeded_records():
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    docs = [_load_json(p) for p in records]
+    problems = build_atlas.verify_reproductions(docs, ROOT)
+    assert problems == [], "clean-room reproduction mismatch:\n" + "\n".join(problems)
+
+
+def test_reproduction_gate_refuses_version_drift():
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    doc = copy.deepcopy(_load_json(records[0]))
+    doc["reproduction_metadata"]["hotato_version"] = "0.0.1-not-the-package"
+    reasons = build_atlas.reproduction_gate_reasons(doc, ROOT)
+    assert any("hotato_version" in r for r in reasons)
+
+
+def test_reproduction_gate_refuses_bundle_digest_drift():
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    doc = copy.deepcopy(_load_json(records[0]))
+    doc["reproduction_metadata"]["bundle"]["digest"] = "sha256:" + "0" * 64
+    reasons = build_atlas.reproduction_gate_reasons(doc, ROOT)
+    assert any("asset drift" in r for r in reasons)
+
+
+def test_reproduction_gate_refuses_displayed_command_drift():
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    doc = copy.deepcopy(_load_json(records[0]))
+    # changing an onset token changes the GENERATED command but not the stored
+    # source_cli_commands / transcript -> command drift.
+    doc["reproduction_metadata"]["contract"]["onset"] = "9.99"
+    reasons = build_atlas.reproduction_gate_reasons(doc, ROOT)
+    assert any("drift from the metadata-generated command list" in r for r in reasons)
+
+
+def test_reproduction_gate_refuses_expected_record_id_drift():
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    doc = copy.deepcopy(_load_json(records[0]))
+    doc["reproduction_metadata"]["expected_record_id"] = "sha256:" + "1" * 64
+    reasons = build_atlas.reproduction_gate_reasons(doc, ROOT)
+    assert any("expected_record_id" in r for r in reasons)
+
+
+def test_reproduction_gate_refuses_behavior_drift_under_unchanged_version(monkeypatch):
+    """The strengthening. With the version STRING unchanged (it still matches the
+    packaged version), a changed projection must still fail the gate: the gate
+    re-runs the live projection on the stored source and requires it to reproduce
+    the embedded record_id. A bare ``meta.hotato_version == HOTATO_VERSION``
+    check would pass here; reproduce+compare does not."""
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    doc = copy.deepcopy(_load_json(records[0]))
+    # version is deliberately left UNCHANGED (equal to the packaged version).
+    assert doc["reproduction_metadata"]["hotato_version"] == build_atlas.HOTATO_VERSION
+
+    real_project = build_atlas.FR.project
+
+    def drifted_project(*args, **kwargs):
+        # simulate the projection code drifting: it now mints a different address
+        rec = copy.deepcopy(real_project(*args, **kwargs))
+        rec["record_id"] = "sha256:" + "b" * 64
+        return rec
+
+    monkeypatch.setattr(build_atlas.FR, "project", drifted_project)
+    reasons = build_atlas.reproduction_gate_reasons(doc, ROOT)
+    assert any("behavior drift" in r for r in reasons), reasons
+    # and no version-string reason -- the point is that version equality passed.
+    assert not any("does not match the packaged hotato version" in r for r in reasons)
+
+
+def test_build_refuses_a_record_with_a_tampered_expected_record_id(tmp_path, monkeypatch):
+    """A drifted expected_record_id must fail publication at build time -- the
+    whole build raises, no page is written."""
+    build_atlas = _load_build_atlas()
+    real_load = build_atlas.load_sources
+
+    def drifted_load_sources():
+        sources = real_load()
+        sources["records"][0]["reproduction_metadata"]["expected_record_id"] = \
+            "sha256:" + "2" * 64
+        return sources
+
+    monkeypatch.setattr(build_atlas, "load_sources", drifted_load_sources)
+    with pytest.raises(build_atlas.AtlasBuildError, match="reproduction gate failed"):
+        build_atlas.build(str(tmp_path / "site"))
+
+
+def test_deep_verify_reproductions_catches_a_wrong_expected_id():
+    build_atlas = _load_build_atlas()
+    records, _, _ = _all_sources()
+    doc = copy.deepcopy(_load_json(records[0]))
+    doc["reproduction_metadata"]["expected_record_id"] = "sha256:" + "3" * 64
+    problems = build_atlas.verify_reproductions([doc], ROOT)
+    assert problems, "deep reproduction did not catch a wrong expected id"
+
+
+def test_reproduction_metadata_and_generated_commands_render_on_the_page(tmp_path):
+    import html as _h
+    build_atlas = _load_build_atlas()
+    out = tmp_path / "site"
+    build_atlas.build(str(out))
+    records, _, _ = _all_sources()
+    for path in records:
+        rec = _load_json(path)
+        html = (out / "failures" / "records" / rec["content_id"]
+                / "index.html").read_text(encoding="utf-8")
+        meta = rec["reproduction_metadata"]
+        assert meta["expected_record_id"] in html
+        assert meta["bundle"]["digest"] in html
+        for cmd in build_atlas.generate_repro_commands(meta):
+            assert _h.escape(cmd) in html
+
+
+def test_supersedes_records_the_prior_content_address():
+    """Content-addressed records are history: a republished record retains the
+    prior record_id, and it differs from the new one."""
+    records, _, _ = _all_sources()
+    for path in records:
+        rec = _load_json(path)
+        sup = rec.get("supersedes")
+        assert sup, f"{path}: expected supersession metadata for a republished record"
+        assert sup["record_id"] != rec["failure_record"]["record_id"]
+        assert sup["record_id"].startswith("sha256:")

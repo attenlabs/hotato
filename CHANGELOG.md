@@ -8,6 +8,59 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-15
+
+### Added
+- **The Failure Record share loop.** A failed, inconclusive, or errored test
+  now yields one share-safe `hotato.failure-record.v1` artifact answering what
+  failed, the evidence, the owning CI lane, and how to verify it -- rendered as
+  JSON, Markdown, HTML, and SVG.
+  - Evidence-specific, share-safe headlines: a controlled `public_reason`
+    projects the lane and one bounded observed fact (e.g. `Conversation
+    failed: Agent did not yield; measured talk-over was 0.25 s.`) from
+    allowlisted structured fields only -- the raw evaluator reason never enters
+    a share-safe record. Every generated record validates against the oracle
+    and the shipped JSON Schema.
+  - `hotato record verify RECORD [--evidence-root DIR]`: the public-reader
+    command. Checks schema, content address, authority wall, reproduction
+    contract, reliability semantics, and share-safe privacy; opens no socket
+    and mutates no file.
+  - `hotato record render SOURCE --all [--limit N]`: renders one record per
+    non-passing unit into digest-named directories under a closed,
+    deterministic `hotato.failure-record-index.v1`.
+  - `hotato start --demo` emits the canonical Failure Record automatically and
+    scaffolds the durable starter next-step.
+  - The GitHub Action renders one share-safe Failure Record per non-passing
+    unit by default (`render-records`, `record-limit`), with digest-scoped
+    contained output and record counts in its summary. It performs no upload,
+    comment, notification, telemetry, network call, or permission escalation,
+    and a renderer error can never change the evaluation's exit code.
+  - A restrained one-line footer (`MIT · hotato.dev · Try it: uvx hotato
+    start --demo`) plus a version-pinned verify command appears in Markdown,
+    HTML, and SVG; the JSON stays a pure evidence object.
+- **Public Voice Failure Atlas reproduction.** Each published Atlas record
+  carries structured `reproduction_metadata` (exact hotato version, committed
+  bundle path and digest, selector, working directory, expected record id).
+  The displayed command chain is generated from that metadata, and a
+  clean-directory run of it -- `contract create` -> `contract verify` ->
+  `record render`, with no stored result injected and no package version
+  patched -- reproduces the record's own published `record_id`. Version, asset,
+  command, or terminal-id drift fails publication; superseded content addresses
+  are retained as history.
+
+### Changed
+- **Release-integrity and fleet hardening (27 fixes).** Source archives build
+  only from the immutable tagged tree and clear stale `dist/` first; a test
+  rejects any non-git-tracked sdist member. Human-authority labels are gated
+  behind an explicit reviewer and attestation, and recompute is pinned to the
+  manifest's scorer config against the label's own audio. Verdicts gate on
+  cross-channel leakage, `--confirm-channels` clears only a channel swap (never
+  crosstalk), and MCP tools return the uniform control envelope on bad input.
+  The fleet store content-addresses via a single-stream publish with
+  no-follow containment, receipt-gated clone deletion, and atomic mint; Action
+  outputs write with no-follow exclusive semantics; the Retell webhook template
+  verifies the documented `v=,d=` signature.
+
 ## [1.7.0] - 2026-07-14
 
 ### Added

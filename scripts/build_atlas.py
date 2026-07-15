@@ -30,14 +30,20 @@ import html as _html
 import json
 import os
 import re
+import shlex
+import shutil
+import subprocess
 import sys
+import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(REPO, "src"))
 
+from hotato import __version__ as HOTATO_VERSION  # noqa: E402
 from hotato import capability_routing as cr  # noqa: E402
+from hotato import failure_record as FR  # noqa: E402
 
 try:
     from hotato.report import _C as _C  # noqa: E402
@@ -167,6 +173,11 @@ def load_sources() -> Dict[str, List[Dict[str, Any]]]:
         _lint_text_fields(f"record:{r['content_id']}", r, ["title", "summary"])
         _lint_text_fields(f"record:{r['content_id']}.release",
                           r["release"], ["consent_and_rights_attestation"])
+        _lint_text_fields(f"record:{r['content_id']}.reproduction_metadata.contract",
+                          r["reproduction_metadata"]["contract"], ["rationale"])
+        if r.get("supersedes"):
+            _lint_text_fields(f"record:{r['content_id']}.supersedes",
+                              r["supersedes"], ["reason"])
     for c in contracts:
         _lint_text_fields(f"contract:{c['family']}", c, ["title", "summary"])
     for i in implementations:
@@ -357,6 +368,318 @@ def all_referenced_pattern_classes(records: List[Dict[str, Any]],
     for c in contracts:
         classes.update(c.get("related_pattern_classes") or [])
     return sorted(classes)
+
+
+# =========================================================================
+# public reproduction (growth blocker #1 / G6). The displayed command chain is
+# GENERATED from reproduction_metadata (so a page can never drift from its own
+# recipe), and a fresh clean-directory reproduction of that chain -- contract
+# create -> contract verify -> record render, no result injection, no version
+# patch -- must land on the record's own published record_id. Asset, digest,
+# version, command, or terminal-id drift fails the gate.
+# =========================================================================
+
+def generate_repro_commands(meta: Dict[str, Any]) -> List[str]:
+    """The exact three displayed commands, derived ONLY from
+    ``reproduction_metadata``. This is the single source of the command list the
+    page shows, the transcript records, and the clean-room test runs -- so the
+    three can never diverge. Numeric CLI values are stored as their literal
+    display tokens (``"2.00"``, ``"0.80"``) so the string is byte-stable."""
+    c = meta["contract"]
+    b = meta["bundle"]
+    create = [
+        "hotato contract create",
+        f"--stereo {b['filename']}",
+        f"--onset {c['onset']}",
+        f"--expect {c['expect']}",
+    ]
+    if c.get("max_talk_over") is not None:
+        create.append(f"--max-talk-over {c['max_talk_over']}")
+    if c.get("max_time_to_yield") is not None:
+        create.append(f"--max-time-to-yield {c['max_time_to_yield']}")
+    create.extend([
+        f"--id {c['id']}",
+        "--out contracts",
+        f"--stack {c['stack']}",
+        f'--rationale "{c["rationale"]}"',
+    ])
+    create_cmd = " ".join(create)
+    verify_cmd = f"hotato contract verify contracts --format json > {meta['verify_output']}"
+    render_cmd = (f"hotato record render {meta['verify_output']}#{meta['selector']} "
+                  f"--out {meta['record_out']}")
+    return [create_cmd, verify_cmd, render_cmd]
+
+
+def _bundle_digest(repo_root: str, committed_path: str) -> Optional[str]:
+    """sha256 of a committed bundle file, or ``None`` if it does not resolve to
+    a real file inside the repo. Refuses an unsafe (escaping) path."""
+    if _is_unsafe_fixture_path(committed_path):
+        return None
+    full = os.path.join(repo_root, committed_path)
+    if not os.path.isfile(full):
+        return None
+    h = hashlib.sha256()
+    with open(full, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
+
+def _stored_verify_doc(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The source document the render step consumed: the verbatim stdout of the
+    stored ``contract verify --format json`` transcript step, parsed as JSON.
+    ``None`` when the transcript has no such step or it is not JSON."""
+    for entry in record.get("cli_transcript", []):
+        if entry.get("command", "").startswith("hotato contract verify"):
+            try:
+                return json.loads(entry["output"])
+            except (ValueError, KeyError):
+                return None
+    return None
+
+
+def reproject_record_id(record: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """Re-derive this record's ``record_id`` from its stored source with the
+    CURRENT projection code, in-process. Returns ``(record_id, None)`` on
+    success or ``(None, error)`` on failure.
+
+    This is the cheap-but-real strengthening of the drift gate: it runs the
+    packaged ``failure_record.project`` on the exact verify.json the render step
+    consumed (the stored verify transcript step), pinning the source by digest
+    the same way the CLI's ``record render`` does. Because it re-runs the live
+    projection -- including the packaged ``__version__`` sealed into provenance
+    -- it catches BEHAVIOR DRIFT even when the version STRING is unchanged: a
+    changed projection reprojects a different id than the embedded one, which a
+    bare ``meta.hotato_version == HOTATO_VERSION`` comparison would miss. (The
+    full create->verify->render clean-room is ``reproduce_record_clean_room``.)"""
+    meta = record.get("reproduction_metadata") or {}
+    doc = _stored_verify_doc(record)
+    if doc is None:
+        return None, "no JSON `contract verify` step in the stored cli_transcript"
+    selector = meta.get("selector")
+    verify_name = meta.get("verify_output") or "verify.json"
+    # The source file's BYTES must equal what the CLI hashed when it minted the
+    # record: the verify step's stdout verbatim, not a re-serialization of the
+    # parsed doc (which could differ in whitespace and change the source digest).
+    verbatim = next(e["output"] for e in record["cli_transcript"]
+                    if e["command"].startswith("hotato contract verify"))
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, verify_name)
+            with open(src, "w", encoding="utf-8") as fh:
+                fh.write(verbatim)
+            projected = FR.project(doc, selector=selector, source_path=src)
+    except Exception as exc:  # projection is allowed to fail loudly -> a reason
+        return None, f"live re-projection raised {type(exc).__name__}: {exc}"
+    return projected.get("record_id"), None
+
+
+def reproduction_gate_reasons(record: Dict[str, Any], repo_root: str) -> List[str]:
+    """Every reason this record's reproduction_metadata FAILS the build-time
+    publication gate. Empty means the stored recipe, the displayed commands, and
+    the embedded record are mutually consistent, pinned to the packaged hotato
+    version and the committed bundle's real digest, AND the current projection
+    code re-derives the embedded record_id from the stored source. The DEEP
+    proof (running the full chain in an empty directory) is
+    ``verify_reproductions``; this gate makes version/asset/command/id AND
+    behavior drift fail every ``build()`` without spawning a process."""
+    reasons: List[str] = []
+    meta = record.get("reproduction_metadata") or {}
+    fr = record.get("failure_record") or {}
+    cid = record.get("content_id", "?")
+
+    if meta.get("hotato_version") != HOTATO_VERSION:
+        reasons.append(
+            f"reproduction_metadata.hotato_version {meta.get('hotato_version')!r} "
+            f"does not match the packaged hotato version {HOTATO_VERSION!r}")
+
+    embedded_prov_version = (((fr.get("provenance") or {}).get("hotato") or {})
+                             .get("version"))
+    if embedded_prov_version != meta.get("hotato_version"):
+        reasons.append(
+            f"embedded failure_record provenance version {embedded_prov_version!r} "
+            f"does not match reproduction_metadata.hotato_version "
+            f"{meta.get('hotato_version')!r}")
+
+    bundle = meta.get("bundle") or {}
+    real_digest = _bundle_digest(repo_root, bundle.get("committed_path", ""))
+    if real_digest is None:
+        reasons.append(
+            f"reproduction_metadata.bundle.committed_path "
+            f"{bundle.get('committed_path')!r} does not resolve to a committed file")
+    elif real_digest != bundle.get("digest"):
+        reasons.append(
+            f"reproduction_metadata.bundle.digest {bundle.get('digest')!r} does not "
+            f"match the committed bundle digest {real_digest!r} (asset drift)")
+    if bundle.get("filename") and os.path.basename(bundle.get("committed_path", "")) \
+            != bundle.get("filename"):
+        reasons.append(
+            "reproduction_metadata.bundle.filename does not match the committed_path basename")
+
+    # selector must name the created contract and the projected subject.
+    contract = meta.get("contract") or {}
+    if meta.get("selector") != contract.get("id"):
+        reasons.append("reproduction_metadata.selector does not match contract.id")
+    subject_id = (fr.get("subject") or {}).get("test_id")
+    if meta.get("selector") != subject_id:
+        reasons.append(
+            f"reproduction_metadata.selector {meta.get('selector')!r} does not match "
+            f"the embedded failure_record subject.test_id {subject_id!r}")
+
+    # displayed commands + stored transcript commands must equal the generated set.
+    try:
+        generated = generate_repro_commands(meta)
+    except (KeyError, TypeError) as exc:
+        reasons.append(f"reproduction_metadata is not command-generable: {exc}")
+        generated = None
+    if generated is not None:
+        stored_cmds = list((record.get("evidence_provenance") or {})
+                           .get("source_cli_commands") or [])
+        if stored_cmds != generated:
+            reasons.append(
+                "evidence_provenance.source_cli_commands drift from the metadata-"
+                "generated command list")
+        transcript_cmds = [e["command"] for e in record.get("cli_transcript", [])]
+        if transcript_cmds != generated:
+            reasons.append(
+                "cli_transcript commands drift from the metadata-generated command list")
+
+    # the embedded record_id must be the true content address of the embedded
+    # record AND must equal expected_record_id.
+    if fr:
+        try:
+            true_id = FR.compute_record_id(fr)
+        except Exception as exc:  # pragma: no cover - defensive
+            true_id = None
+            reasons.append(f"embedded failure_record is not addressable: {exc}")
+        if true_id is not None and true_id != fr.get("record_id"):
+            reasons.append(
+                f"embedded failure_record.record_id {fr.get('record_id')!r} is not its "
+                f"own content address {true_id!r}")
+    if meta.get("expected_record_id") != fr.get("record_id"):
+        reasons.append(
+            f"reproduction_metadata.expected_record_id {meta.get('expected_record_id')!r} "
+            f"does not match the embedded failure_record.record_id {fr.get('record_id')!r}")
+
+    # BEHAVIOR-DRIFT GUARD (reproduce + compare, not just version==): re-run the
+    # live projection on the stored source and require it to reproduce the
+    # embedded record_id. Catches a changed projection under an UNCHANGED
+    # version string -- the class of drift a version equality check cannot see.
+    reprojected, reproj_err = reproject_record_id(record)
+    if reproj_err is not None:
+        reasons.append(f"reproduction is not reprojectable: {reproj_err}")
+    elif reprojected != fr.get("record_id"):
+        reasons.append(
+            f"the current projection code reprojects record_id {reprojected!r} from the "
+            f"stored source, not the embedded {fr.get('record_id')!r} -- behavior drift "
+            f"under hotato_version {meta.get('hotato_version')!r} (regenerate the record)")
+
+    # a superseded id, if present, must differ from the current one (a real
+    # content change), never a same-id no-op.
+    sup = record.get("supersedes")
+    if sup and sup.get("record_id") == fr.get("record_id"):
+        reasons.append(
+            "supersedes.record_id equals the current record_id -- supersession must "
+            "record a DIFFERENT prior content address")
+
+    return [f"{cid}: {r}" for r in reasons]
+
+
+def _run_hotato(display_cmd: str, cwd: str, env: Dict[str, str]) -> Tuple[str, str, int]:
+    """Run one generated ``hotato ...`` command in ``cwd``. Honors a trailing
+    ``> FILE`` stdout redirect (the verify step) exactly as a shell would."""
+    toks = shlex.split(display_cmd)
+    if not toks or toks[0] != "hotato":
+        raise AtlasBuildError(f"not a hotato command: {display_cmd!r}")
+    redirect: Optional[str] = None
+    if ">" in toks:
+        gt = toks.index(">")
+        rest = toks[gt + 1:]
+        if len(rest) != 1:
+            raise AtlasBuildError(f"malformed redirect in {display_cmd!r}")
+        redirect = rest[0]
+        toks = toks[:gt]
+    argv = [sys.executable, "-m", "hotato", *toks[1:]]
+    proc = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True)
+    if redirect is not None:
+        with open(os.path.join(cwd, redirect), "w", encoding="utf-8") as fh:
+            fh.write(proc.stdout)
+    return proc.stdout, proc.stderr, proc.returncode
+
+
+def reproduce_record_clean_room(
+    record: Dict[str, Any], repo_root: str, workdir: str,
+) -> Dict[str, Any]:
+    """Run this record's GENERATED command chain in the empty directory
+    ``workdir`` with the packaged hotato and NO result injection and NO version
+    patching, then return the reproduced ``record_id`` plus the rendered
+    ``failure_record`` and the per-command transcript. This is the fresh
+    reproduction the acceptance gate and the clean-room test compare against
+    ``expected_record_id`` -- the terminal condition ``rendered record_id ==
+    published record_id``."""
+    # Resolve to an absolute root BEFORE deriving the bundle path or PYTHONPATH:
+    # the subprocess runs with cwd set to the (empty) workdir, so a relative
+    # repo_root would make PYTHONPATH point at a nonexistent ``./src`` and
+    # silently import some OTHER installed hotato -- a wrong-version record_id.
+    repo_root = os.path.abspath(repo_root)
+    meta = record["reproduction_metadata"]
+    bundle = meta["bundle"]
+    src = os.path.join(repo_root, bundle["committed_path"])
+    if not os.path.isfile(src):
+        raise AtlasBuildError(
+            f"bundle {bundle['committed_path']!r} does not resolve for reproduction")
+    shutil.copy(src, os.path.join(workdir, bundle["filename"]))
+
+    env = dict(os.environ)
+    # Prepend the repo's src so the subprocess imports THIS package, and pin the
+    # reviewer so the create step's transcript is reader-independent (the
+    # reviewer never enters the source digest or the record_id).
+    src_root = os.path.join(repo_root, "src")
+    env["PYTHONPATH"] = src_root + os.pathsep + env.get("PYTHONPATH", "")
+    env["HOTATO_REVIEWER"] = meta["reviewer_principal"]
+
+    transcript: List[Dict[str, str]] = []
+    for cmd in generate_repro_commands(meta):
+        out, err, rc = _run_hotato(cmd, workdir, env)
+        transcript.append({"command": cmd, "output": out})
+        # create + render exit 0; verify exits 1 (the contract fails, by design).
+        if cmd.startswith("hotato record render") and rc != 0:
+            raise AtlasBuildError(
+                f"reproduction render failed (rc={rc}) for {record['content_id']}: {err}")
+        if cmd.startswith("hotato contract create") and rc != 0:
+            raise AtlasBuildError(
+                f"reproduction create failed (rc={rc}) for {record['content_id']}: {err}")
+
+    rendered_fr_path = os.path.join(workdir, meta["record_out"], "failure-record.json")
+    with open(rendered_fr_path, encoding="utf-8") as fh:
+        rendered_fr = json.load(fh)
+    return {
+        "record_id": rendered_fr["record_id"],
+        "failure_record": rendered_fr,
+        "transcript": transcript,
+    }
+
+
+def verify_reproductions(records: List[Dict[str, Any]], repo_root: str) -> List[str]:
+    """Deep publication gate: for EVERY record, run the displayed chain in a
+    fresh empty directory and require the rendered record_id to equal the
+    published/expected record_id. Returns human-readable mismatch lines (empty
+    == every record reproduces its own published id)."""
+    problems: List[str] = []
+    for r in sorted(records, key=lambda x: x["content_id"]):
+        meta = r["reproduction_metadata"]
+        expected = meta["expected_record_id"]
+        with tempfile.TemporaryDirectory() as work:
+            result = reproduce_record_clean_room(r, repo_root, work)
+        got = result["record_id"]
+        if got != expected:
+            problems.append(
+                f"{r['content_id']}: clean-room record_id {got} != expected {expected}")
+        if got != r["failure_record"]["record_id"]:
+            problems.append(
+                f"{r['content_id']}: clean-room record_id {got} != embedded "
+                f"{r['failure_record']['record_id']}")
+    return problems
 
 
 # =========================================================================
@@ -551,10 +874,35 @@ def render_record_page(record: Dict[str, Any], verdict: Optional[Dict[str, Any]]
                      f'<td class="mono">{_esc(short)}</td></tr>')
     parts.append('</tbody></table></section>')
 
-    parts.append('<section class="card"><h2>Reproduce</h2>')
-    for cmd in record["evidence_provenance"]["source_cli_commands"]:
+    meta = record["reproduction_metadata"]
+    parts.append('<section class="card"><h2>Reproduce</h2>'
+                 '<div class="cldim">Run these commands in an empty directory with '
+                 '<span class="mono">hotato</span> '
+                 f'{_esc(meta["hotato_version"])} after copying the bundle below into it. '
+                 'The rendered record_id equals the published record_id.</div>'
+                 '<table><tbody>')
+    parts.append(_kv_row("hotato version", meta["hotato_version"]))
+    parts.append(_kv_row("bundle", meta["bundle"]["committed_path"]))
+    parts.append(_kv_row("bundle digest", meta["bundle"]["digest"]))
+    parts.append(_kv_row("selector", meta["selector"]))
+    parts.append(_kv_row("working directory", meta["working_directory"]))
+    parts.append(_kv_row("expected record id", meta["expected_record_id"]))
+    parts.append('</tbody></table>')
+    # The command list is GENERATED from the metadata above, so the page and
+    # the recipe can never drift.
+    for cmd in generate_repro_commands(meta):
         parts.append(f'<div class="mono cldim">$ {_esc(cmd)}</div>')
     parts.append('</section>')
+
+    if record.get("supersedes"):
+        sup = record["supersedes"]
+        parts.append('<section class="card"><h2>Supersedes</h2>'
+                     '<div class="cldim">This intentionally-republished record replaces an '
+                     'earlier content address; the prior record_id is retained as history.</div>'
+                     '<table><tbody>')
+        parts.append(_kv_row("prior record id", sup["record_id"]))
+        parts.append('</tbody></table>'
+                     f'<div class="cldim">{_esc(sup["reason"])}</div></section>')
 
     parts.append('<section class="card"><h2>CLI transcript</h2>'
                  '<div class="cldim">Verbatim output from the commands above, run against the '
@@ -736,6 +1084,20 @@ def build(out_dir: str) -> Dict[str, Any]:
 
     verdicts = compute_capability_verdicts(records)
     verify_implementation_evidence(implementations, records_by_id, verdicts)
+
+    # Build-time reproduction gate (no subprocess): version/asset/command/id
+    # drift between a record's structured recipe, its displayed commands, and
+    # its embedded record -- AND behavior drift under an unchanged version string
+    # (the live projection re-derives a different id) -- fails publication here,
+    # before a single page is written. The DEEP proof (running the full chain in
+    # an empty directory) is `verify_reproductions`, wired into
+    # `--verify-reproduction`.
+    repro_problems: List[str] = []
+    for r in records:
+        repro_problems.extend(reproduction_gate_reasons(r, REPO))
+    if repro_problems:
+        raise AtlasBuildError(
+            "atlas reproduction gate failed:\n  " + "\n  ".join(repro_problems))
 
     pages: List[Page] = []
 
@@ -946,7 +1308,24 @@ def _write_discovery(out_dir: str, pages: List[Page]) -> None:
 
 
 def main(argv=None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    if "--verify-reproduction" in argv:
+        argv.remove("--verify-reproduction")
+        sources = load_sources()
+        problems = verify_reproductions(sources["records"], REPO)
+        if problems:
+            print("atlas reproduction verification FAILED:", file=sys.stderr)
+            for p in problems:
+                print(f"  {p}", file=sys.stderr)
+            return 1
+        for r in sorted(sources["records"], key=lambda x: x["content_id"]):
+            print(f"reproduced {r['content_id']}: "
+                  f"{r['reproduction_metadata']['expected_record_id']}")
+        print(f"All {len(sources['records'])} atlas records reproduce their published "
+              "record_id from the displayed commands in a clean directory.")
+        return 0
+
     out_dir = argv[0] if argv else DEFAULT_OUT
     stats = build(out_dir)
     print(f"Built the Voice Failure Atlas into {out_dir}: "
