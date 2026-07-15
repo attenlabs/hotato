@@ -4,19 +4,10 @@
 
 </div>
 
-**hotato** is self-hosted conversation QA for voice agents. The name is hot potato.
-
-A turn is a hot potato: hold it a beat too long and you have dropped it. Give
-hotato both channels of a recorded call and it measures the timing between the
-two voices: how fast the agent yielded when the caller took the floor, how many
-seconds they talked over each other, and whether it stopped for a backchannel it
-should have talked through. It measures timing, not intent, so a mono or bad
-export is marked NOT SCORABLE instead of scored. Each catch locks into a CI
-contract, so a regression fails the build (exit 1) instead of shipping. MIT,
-offline, no account.
+**hotato** is self-hosted conversation QA for voice agents: give it both channels of a recorded call, it measures the timing between the two voices, and locks every catch into a CI contract. The name is hot potato, hold the turn too long and you drop the call. MIT, offline, no account.
 
 <p align="center">
-  <img src="docs/assets/hotato-demo.png" alt="hotato scoring two recorded calls: both fail on timing, exit 1." width="720" style="max-width:100%;height:auto;">
+  <img src="docs/assets/hotato-demo.gif" alt="hotato demo: uvx hotato demo --fail types out and scores two recorded calls, both fail on timing, exit 1." width="720" style="max-width:100%;height:auto;">
 </p>
 
 ## Install
