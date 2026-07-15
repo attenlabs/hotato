@@ -111,3 +111,125 @@ def test_repeated_demo_runs_select_the_same_event(tmp_path):
     ca = a["candidates"][S._select_demo_candidate(a, scenario) - 1]
     cb = b["candidates"][S._select_demo_candidate(b, scenario) - 1]
     assert (ca["source"], ca["kind"], ca["t_sec"]) == (cb["source"], cb["kind"], cb["t_sec"])
+
+
+# --- Slice C: the share-safe Failure Record is projected BY CONTRACT ID -------
+
+_RECORD_FILES = ("failure-record.json", "failure-record.md",
+                 "failure-record.html", "failure-record.svg")
+
+
+def _real_verify(tmp_path):
+    """Run the real bundled demo contract create+verify once and return the
+    FULL in-memory contract-verify envelope."""
+    out = str(tmp_path)
+    os.makedirs(out, exist_ok=True)
+    S._sweep_demo(out)
+    info = S._create_and_verify_demo_contract(out, os.path.join(out, S._SWEEP_JSON))
+    return info["verify"]
+
+
+def _decoy_failing_result(contract_id="decoy-failing-contract"):
+    """A second, FAILING contract-verify result. If the demo picked its moment
+    by POSITION (first failing result), a decoy placed first would win; because
+    selection is by SELECTOR _DEMO_CONTRACT_ID, the decoy is never chosen."""
+    return {
+        "id": contract_id,
+        "dir": "/should/never/leak/DECOY-PATH",
+        "expect": "yield",
+        "passed": False,
+        "scorable": True,
+        "verdict_eligible": True,
+        "verdict_ineligible_reason": None,
+        "not_scorable_reason": None,
+        "measurement": {"did_yield": False, "seconds_to_yield": None,
+                        "talk_over_sec": 1.5},
+        "authenticity": "unsigned",
+        "authenticated": False,
+        "authenticity_reason": None,
+        "assertions": None,
+    }
+
+
+def test_write_demo_record_selects_by_contract_id_not_position(tmp_path):
+    """The demo record is projected by SELECTOR _DEMO_CONTRACT_ID, never by
+    position: a FAILING decoy placed before/after the real contract, in either
+    order, never wins -- the frozen moment is always the demo's own contract."""
+    verify = _real_verify(tmp_path / "src")
+    real = verify["results"][0]
+    assert real["id"] == S._DEMO_CONTRACT_ID
+
+    before = dict(verify, results=[_decoy_failing_result(), real])
+    after = dict(verify, results=[real, _decoy_failing_result()])
+
+    (tmp_path / "b").mkdir()
+    (tmp_path / "a").mkdir()
+    S._write_demo_failure_record(str(tmp_path / "b"), before)
+    S._write_demo_failure_record(str(tmp_path / "a"), after)
+
+    records = {}
+    for key, base in (("before", tmp_path / "b"), ("after", tmp_path / "a")):
+        records[key] = json.load(
+            open(base / S._DEMO_RECORD_DIR / "failure-record.json",
+                 encoding="utf-8"))
+        # the demo's own contract is the frozen moment in BOTH orderings, never
+        # the decoy (id-based selection is position-independent)
+        assert records[key]["subject"]["test_id"] == S._DEMO_CONTRACT_ID
+        assert records[key]["status"] == "FAIL"
+    # the selected moment's evidence (its headline) does not depend on where the
+    # decoy sat in the result list
+    assert records["before"]["headline"] == records["after"]["headline"]
+
+
+def test_write_demo_record_does_not_copy_source_paths_or_media(tmp_path):
+    """No source envelope, absolute path, or media locator from the verify
+    envelope leaks into the share directory or any record file."""
+    verify = _real_verify(tmp_path / "src")
+    # Plant unmistakable markers on the envelope's non-projected fields (the
+    # per-run absolute bundle dir, and a decoy result's own dir).
+    verify = dict(verify, dir="/tmp/SENTINEL-9f3a77/should-not-leak")
+    decoy = _decoy_failing_result()
+    decoy["dir"] = "/tmp/SENTINEL-9f3a77/DECOY.wav"
+    verify = dict(verify, results=[verify["results"][0], decoy])
+
+    out = tmp_path / "out"
+    out.mkdir()
+    S._write_demo_failure_record(str(out), verify)
+
+    rec_dir = out / S._DEMO_RECORD_DIR
+    # only the four record files are written into the share directory
+    assert sorted(p.name for p in rec_dir.iterdir()) == sorted(_RECORD_FILES)
+    # the planted markers appear in NONE of them
+    for name in _RECORD_FILES:
+        blob = (rec_dir / name).read_text(encoding="utf-8")
+        assert "SENTINEL-9f3a77" not in blob, name
+        assert "should-not-leak" not in blob, name
+        assert "DECOY" not in blob, name
+
+
+def test_write_demo_record_is_an_essential_invariant_not_swallowed(tmp_path):
+    """Record generation is an essential demo invariant: if the selector no
+    longer resolves (the envelope has no demo-missed-interruption contract), the
+    failure RAISES rather than being silently swallowed or faked."""
+    verify = _real_verify(tmp_path / "src")
+    # rename the only result's id so the selector matches nothing
+    broken = dict(verify)
+    broken["results"] = [dict(verify["results"][0], id="renamed-away")]
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(Exception):
+        S._write_demo_failure_record(str(out), broken)
+    # nothing half-written: the selector fails before any record file lands
+    assert not (out / S._DEMO_RECORD_DIR).exists()
+
+
+def test_projection_envelope_strips_nondeterministic_absolute_paths(tmp_path):
+    """The projection view drops the per-run absolute bundle ``dir`` fields so
+    the record's content address depends only on the re-scored evidence."""
+    verify = _real_verify(tmp_path / "src")
+    verify = dict(verify, dir="/run/one/abs/path")
+    doc = S._projection_envelope(verify)
+    assert "dir" not in doc
+    assert all("dir" not in r for r in doc["results"])
+    # the original envelope is untouched (deep copy)
+    assert verify["dir"] == "/run/one/abs/path"

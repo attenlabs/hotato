@@ -18,6 +18,7 @@ import sys
 from importlib import resources
 from typing import Optional
 
+from . import __version__
 from . import card as _card
 from . import errors as _errors
 
@@ -26,6 +27,19 @@ _SWEEP_HTML = "hotato-sweep.html"
 _FUNNEL_CARD = "hotato-no-single-threshold.svg"
 _CONTRACTS_DIR = "contracts"
 _DEMO_CONTRACT_ID = "demo-missed-interruption"
+# The canonical share-safe Failure Record the first run leaves behind: one
+# evidence-specific artifact a reader attaches to a PR or verifies in one
+# command, rendered as JSON/Markdown/HTML/SVG. The directory holds ONLY these
+# four record files -- the contract-verify source envelope, audio, transcript,
+# trace, and state stay OUT of it (the demo contract bundle under contracts/
+# remains separately available for local replay).
+_DEMO_RECORD_DIR = "hotato-failure-record"
+_DEMO_RECORD_FILES = ("failure-record.json", "failure-record.md",
+                      "failure-record.html", "failure-record.svg")
+# The stack-agnostic durable adoption path the demo now leads with, plus the
+# stack-tuned alternatives documented beside it.
+_DEMO_STARTER_PRIMARY = "hotato init starter --stack generic --out ."
+_DEMO_STARTER_STACKS = ("vapi", "retell", "twilio", "livekit", "pipecat")
 # The demo contract's moment is selected SEMANTICALLY, never by rank. The
 # packaged should-yield scenario (fd-01-missed-interruption.json) declares the
 # audio file, the caller onset, and the expectation; the selector below finds
@@ -186,7 +200,10 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
     first run actually sees once, offline, with no credential.
 
     Returns ``{"bundle_dir", "bundle_rel", "contracts_dir", "passed",
-    "scorable"}``. Raises on the SAME conditions ``contract create``/
+    "scorable", "verify"}`` -- ``verify`` is the FULL in-memory
+    ``contract-verify`` envelope, so the caller can project the canonical
+    Failure Record from the same evidence without re-reading or copying
+    anything to disk. Raises on the SAME conditions ``contract create``/
     ``contract verify`` would (never on the bundled demo audio in practice);
     the caller treats a failure here the same defensive way it treats a card
     render failure -- the guided run still finishes.
@@ -221,19 +238,98 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
         "contracts_dir": contracts_dir,
         "passed": result["passed"],
         "scorable": result["scorable"],
+        "verify": verify,
     }
 
 
+def _projection_envelope(verify: dict) -> dict:
+    """A DETERMINISTIC, path-free view of the in-memory ``contract-verify``
+    envelope, ready to project. ``verify_contracts`` stamps an absolute bundle
+    ``dir`` on the envelope and on every result (the run's temp path); those
+    vary per run and per machine, so a record projected straight from the raw
+    envelope would get a different content address every time. They are dropped
+    here so the projected record and its ``record_id`` depend ONLY on the
+    re-scored evidence, never on where the demo happened to run. Nothing else is
+    copied or altered; the raw envelope stays available for local replay."""
+    import copy as _copy
+
+    doc = _copy.deepcopy(verify)
+    doc.pop("dir", None)
+    for result in doc.get("results") or []:
+        if isinstance(result, dict):
+            result.pop("dir", None)
+    return doc
+
+
+def _write_demo_failure_record(out_dir: str, verify: dict) -> dict:
+    """Project the demo's failing contract into the canonical share-safe
+    Failure Record and render its four formats -- JSON, Markdown, HTML, SVG --
+    into ``hotato-failure-record/``.
+
+    The contract is picked by SELECTOR ``_DEMO_CONTRACT_ID`` (never by
+    position), so reordering the verify results can never change which moment
+    the record freezes. This is the artifact the whole growth loop turns on: a
+    first run leaves one evidence-specific, share-safe record a reader can
+    attach to a PR or verify in one command, with no second step.
+
+    Record generation is an ESSENTIAL demo invariant: a selection, projection,
+    or render failure raises here rather than being silently swallowed -- a
+    first run never drops or fakes the record. The share directory is safe to
+    attach as-is: ONLY the four record files are written into it; the
+    contract-verify source envelope, audio, transcript, trace, and state are
+    never copied there (the demo contract bundle under ``contracts/`` remains
+    separately available for local replay).
+
+    Returns the JSON ``failure_record`` metadata block: ``{"dir", "record_id",
+    "headline", "privacy_profile", "files"}``.
+    """
+    from . import failure_record as _failure_record
+    from . import failure_render as _failure_render
+
+    record = _failure_record.project(
+        _projection_envelope(verify), selector=_DEMO_CONTRACT_ID)
+    outputs = _failure_render.render_all(record)
+    if set(outputs) != set(_DEMO_RECORD_FILES):
+        raise DemoSelectionError(
+            "internal contract: the Failure Record renderer produced "
+            f"{sorted(outputs)}, expected {list(_DEMO_RECORD_FILES)}")
+
+    record_dir = os.path.join(out_dir, _DEMO_RECORD_DIR)
+    os.makedirs(record_dir, exist_ok=True)
+    for name in _DEMO_RECORD_FILES:
+        _write_text(os.path.join(record_dir, name), outputs[name])
+
+    return {
+        "dir": _DEMO_RECORD_DIR,
+        "record_id": record["record_id"],
+        "headline": record["headline"],
+        "privacy_profile": record["privacy"]["profile"],
+        "files": list(_DEMO_RECORD_FILES),
+    }
+
+
+def _demo_record_verify_command() -> str:
+    """The public one-command verifier for the share-safe record, pinned to the
+    version that produced it (the same pin ``hotato record verify`` renders in
+    the record's own footer)."""
+    return (f"uvx --from hotato=={__version__} hotato record verify "
+            f"{_DEMO_RECORD_DIR}/failure-record.json")
+
+
 def _next_commands_text(card_written: bool, contract_written: bool) -> str:
+    alt = ", ".join(_DEMO_STARTER_STACKS)
     lines = [
+        "",
+        "Add hotato to your repo (durable: a CI gate + contracts/ + fixtures/)",
+        "",
+        f"  {_DEMO_STARTER_PRIMARY}",
+        f"  # stack-tuned instead:  --stack {alt}",
         "",
         "Then  (all offline, no account, no network)",
         "",
         f"  Save a regression   hotato fixture promote {_SWEEP_JSON}#1 --expect yield --id my-first-fixture --out tests/hotato",
         "  Run fixtures in CI  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio",
         f"  Render a card       hotato card {_SWEEP_JSON}#1 --out candidate.svg",
-        "",
-        "  Keep it             uvx tool install hotato",
     ]
     return "\n".join(lines)
 
@@ -299,10 +395,24 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
         contract_info = None
     contract_written = contract_info is not None
 
+    # Project + render the canonical share-safe Failure Record from the SAME
+    # verified evidence. Unlike the card/contract steps above, this is an
+    # ESSENTIAL demo invariant: NO try/except swallows a selection, projection,
+    # or render failure -- the whole point of the guided first run is that it
+    # leaves one valid, evidence-specific, share-safe record without a second
+    # command, so a broken record fails the run loudly instead of shipping a
+    # first run with a missing or faked artifact.
+    record_info = None
+    if contract_written:
+        record_info = _write_demo_failure_record(out_dir, contract_info["verify"])
+    record_written = record_info is not None
+
     written = ([_SWEEP_JSON, _SWEEP_HTML]
                + ([_FUNNEL_CARD] if card_written else [])
                + ([contract_info["bundle_rel"] + "/contract.json"]
-                  if contract_written else []))
+                  if contract_written else [])
+               + ([f"{_DEMO_RECORD_DIR}/{name}" for name in _DEMO_RECORD_FILES]
+                  if record_written else []))
     sys.stderr.write(
         f"[start] demo: swept 2 bundled calls, {aggregate['total_candidates']} "
         f"candidate moments; wrote {', '.join(written)}\n")
@@ -313,6 +423,7 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             "offline": True, "written": written,
             "total_candidates": aggregate["total_candidates"],
             "next_commands": [
+                _DEMO_STARTER_PRIMARY,
                 f"hotato fixture promote {_SWEEP_JSON}#1 --expect yield --id my-first-fixture --out tests/hotato",
                 "hotato run --scenarios tests/hotato/scenarios --audio "
                 "tests/hotato/audio",
@@ -329,6 +440,15 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
                 "scorable": contract_info["scorable"],
                 "passed": contract_info["passed"],
                 "verified_fail_as_expected": contract_info["passed"] is False,
+            }
+        if record_written:
+            payload["next_commands"].append(_demo_record_verify_command())
+            payload["failure_record"] = {
+                "dir": record_info["dir"],
+                "record_id": record_info["record_id"],
+                "headline": record_info["headline"],
+                "privacy_profile": record_info["privacy_profile"],
+                "files": record_info["files"],
             }
         print(_errors.safe_json_dumps(payload, indent=2))
     else:
@@ -353,6 +473,15 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             else:  # pragma: no cover - the bundled demo candidate always fails
                 mark = "PASS" if contract_info["passed"] else "NOT SCORABLE"
                 print(f"  verified contract: {mark}")
+        if record_written:
+            md_path = f"{_DEMO_RECORD_DIR}/failure-record.md"
+            svg_path = f"{_DEMO_RECORD_DIR}/failure-record.svg"
+            print("")
+            print(record_info["headline"])
+            print("")
+            print(f"  Share in a PR:      {md_path}")
+            print(f"  Share as an image:  {svg_path}")
+            print(f"  Verify the record:  {_demo_record_verify_command()}")
         print(_next_commands_text(card_written, contract_written))
     return 0
 

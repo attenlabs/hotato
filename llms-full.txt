@@ -31,20 +31,23 @@ pipx install hotato && hotato start --demo
 # or: python -m venv .venv && . .venv/bin/activate && pip install hotato && hotato start --demo
 ```
 
-Offline, it sweeps two failing demo calls and verifies one missed interruption on the spot:
+Offline, it sweeps two failing demo calls, verifies one missed interruption, and leaves a share-safe Failure Record to attach to a PR:
 
 ```
 [start] demo: swept 2 bundled calls, 5 candidate moments;
   wrote hotato-sweep.json, hotato-sweep.html,
-  hotato-no-single-threshold.svg,
-  contracts/demo-missed-interruption.hotato/contract.json
+  contracts/demo-missed-interruption.hotato/contract.json,
+  hotato-failure-record/failure-record.{json,md,html,svg}
 hotato start: swept the 2 bundled demo calls offline.
-  sweep dashboard: hotato-sweep.html
-  demo contract:   contracts/demo-missed-interruption.hotato
-  verified contract: FAIL as expected -- the demo call
-    missed the interruption
-  [ ... then the exact next commands: promote a candidate,
-    gate it in CI, re-check it ... ]
+  re-scored FAIL, by design: this call talked over the caller.
+
+Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
+
+  Share in a PR:      hotato-failure-record/failure-record.md
+  Verify the record:  uvx --from hotato==1.7.0 hotato record verify hotato-failure-record/failure-record.json
+
+Add hotato to your repo (durable: a CI gate + contracts/ + fixtures/)
+  hotato init starter --stack generic --out .
 ```
 
 `hotato-sweep.html` ranks the moments by how far the timing missed, each with a hear-the-bug playhead to screenshot into a PR.
@@ -5542,6 +5545,35 @@ carries a running score and fails when the agent gets slower to stop
 talking for an interrupting caller. The workflow runs offline with zero
 extra dependencies.
 
+## One command to the same record CI renders
+
+`hotato start --demo` runs the whole loop offline and leaves the canonical
+share-safe Failure Record under `hotato-failure-record/` --
+`failure-record.{json,md,html,svg}`, the same primitive this Action renders
+per non-passing unit (the `records` output below). The demo prints its
+evidence-specific headline, the Markdown and SVG share paths, and the
+one-command verifier:
+
+```
+Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
+
+  Share in a PR:      hotato-failure-record/failure-record.md
+  Share as an image:  hotato-failure-record/failure-record.svg
+  Verify the record:  uvx --from hotato==1.7.0 hotato record verify hotato-failure-record/failure-record.json
+```
+
+Preview it locally, then scaffold the durable gate into your own repository
+in one command:
+
+```bash
+hotato init starter --stack generic --out .
+# stack-tuned instead:  --stack vapi, retell, twilio, livekit, pipecat
+```
+
+That writes a CI workflow verifying `contracts/` and re-scoring `fixtures/`
+on every push and pull request (a no-op until your first one lands), plus a
+stack-tuned `hotato.yaml`, `contracts/`, and `fixtures/`.
+
 ## The root Action: run a committed suite from any repository
 
 The repository root ships a composite GitHub Action: a repository with no
@@ -7148,6 +7180,24 @@ carries the call id inside its name; that name shows only under
 # shows the source recording's basename on a candidate card
 hotato card hotato-sweep.json#1 --out card.svg --include-identifiers
 ```
+
+## The Failure Record: the canonical share-safe artifact
+
+A card is one moment's image. The **Failure Record** is the canonical
+lane-structured artifact for a failed, inconclusive, or errored result:
+one evidence-specific headline, the five separate lanes, content-addressed
+evidence digests, and a share-safe privacy profile, rendered as JSON,
+Markdown, HTML, and SVG together. It carries no audio, transcript, tool
+payload, state value, or absolute path, so it is safe to attach to a PR
+as-is.
+
+`hotato start --demo` emits one automatically under
+`hotato-failure-record/` --
+`failure-record.{json,md,html,svg}` -- alongside the sweep and the demo
+contract, and prints the Markdown/SVG share paths plus the one-command
+verifier. Render one from any result yourself with `hotato record render`;
+the shipped GitHub Action renders one per non-passing unit
+([`docs/CI.md`](CI.md)).
 
 ## Output and exit codes
 

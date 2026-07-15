@@ -27,20 +27,23 @@ pipx install hotato && hotato start --demo
 # or: python -m venv .venv && . .venv/bin/activate && pip install hotato && hotato start --demo
 ```
 
-Offline, it sweeps two failing demo calls and verifies one missed interruption on the spot:
+Offline, it sweeps two failing demo calls, verifies one missed interruption, and leaves a share-safe Failure Record to attach to a PR:
 
 ```
 [start] demo: swept 2 bundled calls, 5 candidate moments;
   wrote hotato-sweep.json, hotato-sweep.html,
-  hotato-no-single-threshold.svg,
-  contracts/demo-missed-interruption.hotato/contract.json
+  contracts/demo-missed-interruption.hotato/contract.json,
+  hotato-failure-record/failure-record.{json,md,html,svg}
 hotato start: swept the 2 bundled demo calls offline.
-  sweep dashboard: hotato-sweep.html
-  demo contract:   contracts/demo-missed-interruption.hotato
-  verified contract: FAIL as expected -- the demo call
-    missed the interruption
-  [ ... then the exact next commands: promote a candidate,
-    gate it in CI, re-check it ... ]
+  re-scored FAIL, by design: this call talked over the caller.
+
+Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
+
+  Share in a PR:      hotato-failure-record/failure-record.md
+  Verify the record:  uvx --from hotato==1.7.0 hotato record verify hotato-failure-record/failure-record.json
+
+Add hotato to your repo (durable: a CI gate + contracts/ + fixtures/)
+  hotato init starter --stack generic --out .
 ```
 
 `hotato-sweep.html` ranks the moments by how far the timing missed, each with a hear-the-bug playhead to screenshot into a PR.

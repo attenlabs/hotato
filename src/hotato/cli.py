@@ -7711,6 +7711,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("init starter") + "\n\n"
             "Examples:\n"
+            "  hotato init starter --stack generic --out .\n"
             "  hotato init starter --stack vapi    --out .\n"
             "  hotato init starter --stack livekit --out ./my-agent-repo\n"
             "  hotato init starter --stack pipecat --out . --force\n\n"
