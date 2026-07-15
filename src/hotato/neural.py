@@ -61,6 +61,7 @@ measured in this repo (see METHODOLOGY.md, "Optional neural cross-check
 
 from __future__ import annotations
 
+import hashlib
 from typing import Callable, List
 
 from ._engine.vad import BackendUnavailable
@@ -395,6 +396,43 @@ NEURAL_BACKEND = "neural"
 NEURAL_MODEL = "silero-vad"
 
 
+# Content digests IDENTIFYING this neural scorer's implementation + weights.
+# A neural-backed result's provenance names the exact source (``neural.py``) and
+# ONNX weights (``data/silero_vad.onnx``) that produced its ``active`` track, so
+# a swapped ``silero_vad.onnx`` or an edited ``neural.py`` -- which leave the
+# energy reference's ``wheel_hash`` (only __init__/core/_engine) byte-identical
+# -- change the RECORDED scorer identity here instead of passing off silently as
+# the same scorer. Computed lazily (only when a neural track was produced, at
+# which point both files were already loaded), network-free, and cached across a
+# process because the bytes never change within a run.
+_SOURCE_SHA256 = None
+_WEIGHTS_SHA256 = None
+
+
+def _source_sha256() -> str:
+    """SHA-256 of this module's source bytes (the neural scorer implementation)."""
+    global _SOURCE_SHA256
+    if _SOURCE_SHA256 is None:
+        from importlib import resources
+
+        _SOURCE_SHA256 = hashlib.sha256(
+            resources.files("hotato").joinpath("neural.py").read_bytes()
+        ).hexdigest()
+    return _SOURCE_SHA256
+
+
+def _weights_sha256() -> str:
+    """SHA-256 of the bundled Silero VAD ONNX weights (the neural scorer model)."""
+    global _WEIGHTS_SHA256
+    if _WEIGHTS_SHA256 is None:
+        from importlib import resources
+
+        _WEIGHTS_SHA256 = hashlib.sha256(
+            resources.files("hotato").joinpath("data", "silero_vad.onnx").read_bytes()
+        ).hexdigest()
+    return _WEIGHTS_SHA256
+
+
 def neural_backend_provenance() -> dict:
     """Provenance descriptor naming the neural VAD backend (a fresh dict per call).
 
@@ -402,12 +440,20 @@ def neural_backend_provenance() -> dict:
     the energy reference (the default) attaches nothing, so its bytes are
     unchanged. ``reference: False`` states plainly that this is the non-reference
     cross-check, not the number-of-record backend.
+
+    ``source_sha256`` / ``weights_sha256`` bind the scorer's IDENTITY (this
+    module's source bytes + the bundled ONNX weights) into the provenance, so a
+    neural-produced verdict names the exact implementation and weights behind it;
+    a tampered ``neural.py`` or a swapped ``silero_vad.onnx`` yields a different
+    digest here rather than an indistinguishable one.
     """
     return {
         "backend": NEURAL_BACKEND,
         "model": NEURAL_MODEL,
         "runtime": "onnxruntime-cpu",
         "reference": False,
+        "source_sha256": _source_sha256(),
+        "weights_sha256": _weights_sha256(),
     }
 
 

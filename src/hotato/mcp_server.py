@@ -473,6 +473,7 @@ def _run_tool(
     report_path: Optional[str] = None,
     transcribe: bool = False,
     transcribe_no_cache: bool = False,
+    channel_map_confirmed: bool = False,
 ) -> dict:
     """The single MCP tool. Returns the success envelope, or the SAME structured
     error object the CLI emits (schema/error.v1.json) for a bad input, so the
@@ -523,6 +524,7 @@ def _run_tool(
             max_talk_over_sec=max_talk_over_sec,
             max_time_to_yield_sec=max_time_to_yield_sec,
             report_path=report_path,
+            channel_map_confirmed=channel_map_confirmed,
         )
         if transcribe:
             env = _attach_transcript(
@@ -567,12 +569,27 @@ def _run_tool_impl(
     max_talk_over_sec: Optional[float] = None,
     max_time_to_yield_sec: Optional[float] = None,
     report_path: Optional[str] = None,
+    channel_map_confirmed: bool = False,
 ) -> dict:
     """Score and return the JSON envelope (no error handling; see ``_run_tool``).
 
     With ``report_path`` set it also writes the self-contained HTML report
     there and adds ``report_path`` (absolute) to the envelope. Scoring is
     deterministic, so the envelope core is byte-identical either way.
+
+    The direct (no ``report_path``) stereo score enables the SAME K6 channel gate
+    the ``hotato run`` command uses (``gate_verdict_eligibility=True``): a genuine
+    cross-channel LEAKAGE (the correlation-based signal -- one channel a delayed
+    copy of the other) refuses the verdict as not-scorable, surfaced to the caller
+    by ``_run_tool`` as the shared ``not_scorable`` structured error (process exit
+    2), because the yield/hold cannot be trusted. A suspected channel SWAP does
+    NOT refuse (it is unreliable from timing -- addressee detection, not
+    speaker-ID): the recording still scores and its event carries a non-fatal
+    ``channel_mapping_caveat``. ``channel_map_confirmed`` is the MCP parity of
+    ``--confirm-channels``: an explicit caller confirmation (or verified provider
+    metadata) that the mapping is correct, which SUPPRESSES the swap caveat (a
+    genuine leak still refuses). A clean, eligible recording injects no refusal or
+    caveat, so its envelope stays byte-identical to before this gate.
     """
     if report_path:
         from . import report as _report
@@ -604,6 +621,12 @@ def _run_tool_impl(
         agent=agent,
         caller_channel=caller_channel,
         agent_channel=agent_channel,
+        channel_map_confirmed=channel_map_confirmed,
+        # Close the swap/crosstalk hole on the MCP surface too: the MCP `run` tool
+        # is a load-bearing verdict surface, so it applies the same channel-mapping
+        # verdict-eligibility gate the CLI `hotato run` command does. Raw-measurement
+        # is preserved for the report/suite paths that gate themselves.
+        gate_verdict_eligibility=True,
         onset_sec=onset_sec,
         expect=expect,
         stack=stack,
@@ -1157,6 +1180,7 @@ def build_server():
         report_path: Optional[str] = None,
         transcribe: bool = False,
         transcribe_no_cache: bool = False,
+        channel_map_confirmed: bool = False,
     ) -> dict:
         return _guarded(
             _run_tool,
@@ -1174,6 +1198,7 @@ def build_server():
             report_path=report_path,
             transcribe=transcribe,
             transcribe_no_cache=transcribe_no_cache,
+            channel_map_confirmed=channel_map_confirmed,
         )
 
     @server.tool(

@@ -240,6 +240,37 @@ VERDICT_LEAKAGE_DB = {
     VERDICT_MODE_CONTRACT: -46.0,
 }
 
+# --- waveform corroboration for the VERDICT-level COHERENCE bar --------------
+# The whole-clip echo COHERENCE (echo_signal) is a cosine of the two per-frame
+# RMS ENVELOPES, so it reads high for ANY two channels whose active windows
+# overlap -- including two INDEPENDENT distinct speakers in genuine simultaneous
+# speech (a real barge-in), whose envelopes align even though neither channel is
+# a copy of the other. That is NOT cross-channel leakage. A genuine leak is one
+# source physically present on both channels: one channel carries a delayed,
+# attenuated COPY of the OTHER's actual WAVEFORM, so their raw sample waveforms
+# CORRELATE. Independent speakers do not: different voices/content decorrelate at
+# the sample level even when their envelopes overlap. So the envelope-coherence
+# trigger is corroborated with the sample-level cross-correlation of the raw
+# waveforms (``_waveform_copy_corr``): the VERDICT-level coherence bar fires only
+# when the waveforms ALSO correlate, which fires on real leakage/echo and NOT on
+# distinct-speaker overlap. A genuinely leaky recording that the coherence bar
+# would miss anyway is still caught by the copy-ratio leakage path
+# (``leakage_alters_mask`` / ``leakage_crosses_gate`` / ``leakage_db``), which is
+# UNCHANGED -- this only removes the false REFUSAL of a legitimate barge-in.
+#
+# Calibrated with a wide margin: a genuine delayed copy scores ~1.0 here, while
+# every measured distinct-speaker overlap (pure tones or broadband voices) stays
+# below ~0.05, so the exact bar is not sensitive.
+WAVEFORM_LEAKAGE_MIN_CORR = 0.5
+# Pure-Python fallback (used only when numpy is absent) bounds: the numpy path
+# scans the full lag range via FFT; the fallback correlates a bounded span,
+# anchored at the first both-active region, over a tight lag window around the
+# envelope's best lag (which localizes the true delay to within +/- half a hop).
+# Both paths separate a copy (~1.0) from independent speech (~0) by a wide
+# margin; only the exact value differs, never the copy-vs-independent verdict.
+_WF_LAG_PAD_HOPS = 1
+_WF_MAX_SPAN_SEC = 0.75
+
 # The reason a verdict-ineligible consumer emits in place of a real
 # did_yield/seconds_to_yield/talk_over_sec/verdict. Stable wording: consumers
 # (contract.py, core.py) rely on this exact string.
@@ -248,24 +279,187 @@ VERDICT_INELIGIBLE_REASON = (
     "or supply provider metadata"
 )
 
+# The reason the `run` / MCP run gate emits when it refuses a verdict for
+# genuine CROSS-CHANNEL LEAKAGE (the principled, correlation-based signal: one
+# channel carries a delayed COPY of the other, so the raw waveforms correlate).
+# Distinct from VERDICT_INELIGIBLE_REASON: a leak is a physical audio defect, so
+# the fix is the audio path, NOT confirming the channel mapping. Genuine leakage
+# refuses the verdict (fail-closed, exit 2) on `run` and the MCP run tool.
+CROSSTALK_VERDICT_REASON = (
+    "cross-channel leakage detected: one channel carries a delayed copy of the "
+    "other (the raw waveforms correlate), so the yield/hold verdict cannot be "
+    "trusted; fix the audio path (echo cancellation / channel separation) "
+    "before scoring"
+)
 
-def crosstalk_verdict_suspected(coherence: float, leakage: dict, *, mode: str) -> bool:
+# The non-fatal channel-mapping CAVEAT the possible-swap heuristic attaches.
+# hotato does ADDRESSEE detection, NOT speaker-ID, so a channel SWAP cannot be
+# reliably told from timing alone: a caller-dominant recording is an ordinary
+# caller-led yield far more often than a swapped mapping. So a suspected swap
+# does NOT refuse a verdict on `run` / the MCP run tool -- the recording STILL
+# SCORES, and this structured caveat rides along (a machine reader gets it too)
+# so the operator can confirm the mapping. --confirm-channels suppresses it.
+CHANNEL_MAPPING_CAVEAT_REASON = (
+    "channel mapping unconfirmed: caller-dominant timing could indicate a "
+    "swapped caller/agent mapping"
+)
+CHANNEL_MAPPING_CAVEAT_HINT = (
+    "pass --confirm-channels if the mapping is correct, or use a contract for a "
+    "gated verdict"
+)
+
+
+def channel_mapping_caveat_block(swap_reason: str) -> dict:
+    """The non-fatal channel-mapping caveat a suspected swap attaches to a
+    still-scoring run: a stable structured dict (``reason`` / ``detail`` /
+    ``hint``), so both the CLI text note and a machine reader carry the same
+    advisory. ``detail`` is the swap heuristic's own per-role talk-time wording."""
+    return {
+        "reason": CHANNEL_MAPPING_CAVEAT_REASON,
+        "detail": swap_reason,
+        "hint": CHANNEL_MAPPING_CAVEAT_HINT,
+    }
+
+
+def crosstalk_verdict_suspected(coherence: float, leakage: dict, *, mode: str,
+                                waveform_corr: Optional[float] = None) -> bool:
     """Is cross-channel crosstalk/leakage severe enough, at ``mode``'s VERDICT
     bar, to refuse a yield/hold verdict? ``coherence`` is the whole-clip echo
     cosine (mode-independent number); ``leakage`` is `_leakage_estimate`'s
     return dict. The dB-free, honest checks (the leak alters the receiver's
     activity mask, or crosses its VAD gate for a sustained run) are ALWAYS
     additive regardless of mode -- only the numeric coherence/leak-ratio bars
-    vary by mode. For ``mode="scan"`` this is IDENTICAL to the existing
+    vary by mode.
+
+    ``waveform_corr`` (optional; the max normalized cross-correlation MAGNITUDE
+    of the two RAW waveforms from ``_waveform_copy_corr``) CORROBORATES the
+    envelope-coherence trigger, which alone reads high for ANY overlapping
+    activity -- including two INDEPENDENT distinct speakers in genuine
+    simultaneous speech (a real barge-in), which is not leakage. A genuine leak
+    is one channel carrying a delayed COPY of the other's waveform, so the
+    waveforms correlate; distinct speakers do not. When ``waveform_corr`` is
+    supplied, the coherence trigger fires only if the waveforms ALSO correlate
+    (>= ``WAVEFORM_LEAKAGE_MIN_CORR``), so a legitimate barge-in no longer refuses
+    a verdict while genuine echo still does. The copy-ratio leakage paths
+    (``leakage_alters_mask`` / ``leakage_crosses_gate`` / ``leakage_db``) are
+    UNCHANGED -- a genuinely leaky recording the coherence bar would miss is still
+    refused by them. When ``waveform_corr`` is None (no measurement supplied) the
+    behavior is UNCHANGED: the coherence bar alone fires. For ``mode="scan"`` with
+    no ``waveform_corr`` this is IDENTICAL to the existing
     ``crosstalk_risk.suspected`` (echo_suspected OR leakage_suspected)."""
     if mode not in VERDICT_MODES:
         raise ValueError(f"mode must be one of {VERDICT_MODES!r}; got {mode!r}.")
     if coherence >= VERDICT_COHERENCE_THRESHOLD[mode]:
-        return True
+        # Distinct-speaker overlap has high envelope coherence but near-zero
+        # waveform correlation, so it does NOT clear this corroboration; a real
+        # delayed copy (leakage/echo) does. No measurement -> unchanged behavior.
+        if waveform_corr is None or waveform_corr >= WAVEFORM_LEAKAGE_MIN_CORR:
+            return True
     if leakage.get("leakage_alters_mask") or leakage.get("leakage_crosses_gate"):
         return True
     db = leakage.get("leakage_db")
     return db is not None and db >= VERDICT_LEAKAGE_DB[mode]
+
+
+def _waveform_copy_corr(caller, agent, sample_rate: int, env_lag_sec: float,
+                        hop_sec: float, caller_active: List[bool],
+                        agent_active: List[bool],
+                        max_lag_sec: float = LEAKAGE_MAX_LAG_SEC) -> float:
+    """Max normalized cross-correlation MAGNITUDE of the two RAW waveforms
+    (``caller[i]`` against ``agent[i - lag]`` over lags 0..``max_lag``): ~1.0 when
+    one channel carries an actual delayed COPY of the other's waveform (genuine
+    cross-channel leakage/echo), ~0 for independent sources (two distinct
+    speakers whose active windows merely overlap). This is the sample-level
+    corroboration the whole-clip RMS-ENVELOPE coherence lacks -- the envelope
+    cosine reads high for any overlapping activity, copy or not.
+
+    Deterministic and network-free. numpy-accelerated (full-range FFT
+    cross-correlation) when numpy is importable; otherwise a bounded pure-Python
+    fallback that correlates a capped span, anchored at the first both-active
+    region, over a tight lag window around ``env_lag_sec`` (the envelope's best
+    lag localizes the true delay to within ~half a hop). Both paths separate a
+    copy (~1.0) from independent speech (~0) by a wide margin."""
+    from ._engine.audio import _np
+
+    n = min(len(caller), len(agent))
+    if n == 0:
+        return 0.0
+    max_lag = min(int(round(max_lag_sec * sample_rate)), n - 1)
+    if max_lag < 0:
+        return 0.0
+    if _np is not None:
+        c = _np.asarray(caller[:n], dtype=float)
+        a = _np.asarray(agent[:n], dtype=float)
+        nc = float(_np.sqrt(_np.dot(c, c)))
+        na = float(_np.sqrt(_np.dot(a, a)))
+        if nc <= 0.0 or na <= 0.0:
+            return 0.0
+        size = 1
+        while size < 2 * n:
+            size *= 2
+        # corr[k] = sum_i c[i] * a[i - k] (caller lagging agent by k); zero-pad to
+        # >= 2n so the negative-index wrap lands in the zero pad (no contamination).
+        corr = _np.fft.irfft(_np.fft.rfft(c, size) * _np.conj(_np.fft.rfft(a, size)),
+                             size)
+        return float(_np.abs(corr[:max_lag + 1]).max() / (nc * na))
+    return _waveform_copy_corr_py(
+        caller, agent, n, sample_rate, max_lag, env_lag_sec, hop_sec,
+        caller_active, agent_active,
+    )
+
+
+def _waveform_copy_corr_py(caller, agent, n: int, sample_rate: int, max_lag: int,
+                           env_lag_sec: float, hop_sec: float,
+                           caller_active: List[bool],
+                           agent_active: List[bool]) -> float:
+    """stdlib fallback for ``_waveform_copy_corr`` (no numpy): a bounded, windowed
+    sample-level cross-correlation. Correlates at most ``_WF_MAX_SPAN_SEC`` of
+    audio from the first both-active frame (a copy relationship holds throughout
+    its source's activity, so a bounded slice is representative and the cost is
+    independent of recording length) over lags within +/- ``_WF_LAG_PAD_HOPS``
+    hops of the envelope's best lag."""
+    from operator import mul
+
+    hop_samp = max(1, int(round(hop_sec * sample_rate)))
+    nf = min(len(caller_active), len(agent_active))
+    f0 = next((f for f in range(nf)
+               if caller_active[f] and agent_active[f]), None)
+    if f0 is None:
+        return 0.0
+    center = int(round((env_lag_sec or 0.0) * sample_rate))
+    pad = hop_samp * _WF_LAG_PAD_HOPS
+    lo = max(0, center - pad)
+    hi = min(max_lag, center + pad)
+    if hi < lo:
+        return 0.0
+    start = f0 * hop_samp
+    end = min(n, start + int(_WF_MAX_SPAN_SEC * sample_rate))
+    c = list(caller[start:end])
+    m = len(c)
+    if m == 0:
+        return 0.0
+    nc_sq = math.fsum(x * x for x in c)
+    if nc_sq <= 0.0:
+        return 0.0
+    nc = math.sqrt(nc_sq)
+    # agent context spanning [start - hi, end): a_ctx[t] == agent[start - hi + t]
+    # (left-zero-padded when start < hi), so caller[start + i] (== c[i]) pairs with
+    # agent[start + i - lag] == a_ctx[hi - lag + i].
+    left = start - hi
+    a_ctx = list(agent[max(0, left):end])
+    if left < 0:
+        a_ctx = [0.0] * (-left) + a_ctx
+    best = 0.0
+    for lag in range(lo, hi + 1):
+        base = hi - lag
+        seg = a_ctx[base:base + m]
+        na_sq = math.fsum(x * x for x in seg)
+        if na_sq <= 0.0:
+            continue
+        r = abs(math.fsum(map(mul, c, seg))) / (nc * math.sqrt(na_sq))
+        if r > best:
+            best = r
+    return best
 
 
 def _peak_and_clip(samples, clip_lin: float) -> Tuple[float, float]:
@@ -762,8 +956,23 @@ def trust_report(
     # independent of the caution/recommendation wording above, which stays on the
     # existing scan-level bars. For mode="scan" this is identical to
     # crosstalk_out["suspected"]; mode="contract" can trip where scan would not.
+    #
+    # The envelope coherence alone reads high for ANY overlapping activity,
+    # including two INDEPENDENT distinct speakers in a genuine barge-in, which is
+    # not leakage. Only when the coherence reaches this mode's bar do we pay for
+    # the sample-level waveform corroboration that tells a real delayed COPY
+    # (leakage/echo -> waveforms correlate) apart from distinct-speaker overlap
+    # (independent waveforms), so the verdict refuses ONLY on real leakage. Below
+    # the bar the coherence path cannot fire anyway, so we skip the work and the
+    # report stays byte-identical for a clean call.
+    waveform_corr = None
+    if crosstalk["coherence"] >= VERDICT_COHERENCE_THRESHOLD[mode]:
+        waveform_corr = _waveform_copy_corr(
+            caller_samples, agent_samples, signal.sample_rate,
+            crosstalk["lag_sec"], hop, caller_active, agent_active,
+        )
     crosstalk_verdict_hit = crosstalk_verdict_suspected(
-        crosstalk["coherence"], leakage, mode=mode
+        crosstalk["coherence"], leakage, mode=mode, waveform_corr=waveform_corr,
     )
 
     # Scorability: the three things a real score needs.
@@ -899,6 +1108,24 @@ def trust_report(
         verdict_eligible = True
         verdict_ineligible_reason = None
 
+    # The two K6 signals, exposed SEPARATELY so a verdict consumer can apply the
+    # right policy to each (``verdict_eligible`` above conflates them for the
+    # contract/CI gate, which refuses on either). The `run` / MCP run gate keeps
+    # them apart: a genuine cross-channel LEAK refuses the verdict, but a suspected
+    # SWAP (unreliable from timing -- addressee detection, not speaker-ID) does not,
+    # it only cautions.
+    #  * ``crosstalk_verdict_refused``: the principled, correlation-based leakage
+    #    signal at this mode's bar (independent of channel-map confirmation -- a
+    #    physical leak is not fixed by confirming the mapping).
+    #  * ``channel_mapping_caveat``: the NON-FATAL swap caveat (a structured dict
+    #    or None), present only when the recording is candidate-eligible, a swap is
+    #    suspected, and the mapping was not confirmed.
+    channel_mapping_caveat = (
+        channel_mapping_caveat_block(channels["swap_reason"])
+        if (candidate_eligible and swap and not channel_map_confirmed)
+        else None
+    )
+
     return _finalize(
         base,
         channels=channels,
@@ -913,6 +1140,8 @@ def trust_report(
         verdict_ineligible_reason=verdict_ineligible_reason,
         mode=mode,
         channel_map_confirmed=channel_map_confirmed,
+        crosstalk_verdict_refused=crosstalk_verdict_hit,
+        channel_mapping_caveat=channel_mapping_caveat,
     )
 
 
@@ -928,7 +1157,9 @@ def _clip_block(peak: float, clipped_fraction: float) -> dict:
 def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
               scorable: bool, reason, next_step, caution=None,
               verdict_eligible: bool = True, verdict_ineligible_reason=None,
-              mode: str = VERDICT_MODE_SCAN, channel_map_confirmed: bool = False) -> dict:
+              mode: str = VERDICT_MODE_SCAN, channel_map_confirmed: bool = False,
+              crosstalk_verdict_refused: bool = False,
+              channel_mapping_caveat=None) -> dict:
     """Attach the channel/crosstalk/scorability blocks and the recommendation,
     and set the process exit code (0 scorable, 2 not).
 
@@ -958,6 +1189,10 @@ def _finalize(base: dict, *, channels, crosstalk, scorability, warnings,
     base["candidate_eligible"] = scorable
     base["verdict_eligible"] = verdict_eligible
     base["verdict_ineligible_reason"] = verdict_ineligible_reason
+    # K6 (additive, separated signals -- see trust_report): the correlation-based
+    # leakage refusal, and the non-fatal channel-mapping (swap) caveat.
+    base["crosstalk_verdict_refused"] = bool(crosstalk_verdict_refused)
+    base["channel_mapping_caveat"] = channel_mapping_caveat
     base["verdict_mode"] = mode
     base["channel_map_confirmed"] = bool(channel_map_confirmed)
     if scorable:
@@ -1032,6 +1267,10 @@ def _diarize_trust(base: dict, signal, *, diarizer: str, egress_opt_in: bool,
     base["candidate_eligible"] = base["scorable"]
     base["verdict_eligible"] = base["scorable"]
     base["verdict_ineligible_reason"] = None
+    # The diarized-mono path has no caller/agent channel-swap concept and does not
+    # compute cross-channel leakage, so both K6 signals are inert here.
+    base["crosstalk_verdict_refused"] = False
+    base["channel_mapping_caveat"] = None
     base["verdict_mode"] = mode
     base["channel_map_confirmed"] = bool(channel_map_confirmed)
     return base
