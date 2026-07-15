@@ -289,10 +289,13 @@ def test_refuse_ambiguous_channel_mapping(tmp_path):
 
 
 def test_refuse_redaction_sentinel_remains(tmp_path):
-    # a FAIL row whose reason carries the sentinel flows into the record's
-    # observed text -> it appears in expected/failure-record.json.
+    # a FAIL row whose SHARE-SAFE public_reason still carries the sentinel flows
+    # into the record's observed text -> it appears in expected/failure-record.json
+    # (the raw `reason` is never projected, so the sentinel must be planted in
+    # the field the projection actually quotes).
     rows = [det_row("refund-issued", "tool_call", "FAIL", dimension="outcome",
-                    reason="expected refund.create; LEFTOVER_MARKER_XYZ present")]
+                    public_reason="No refund.create call satisfied the declared "
+                                  "conditions (LEFTOVER_MARKER_XYZ).")]
     src = _write_json(str(tmp_path / "result.json"), make_test_run(rows=rows))
     _assert_refused(
         tmp_path, "out",

@@ -157,9 +157,17 @@ HOSTILE = (
 
 
 def _hostile_record():
-    rows = [det_row("hostile-check", "tool_call", "FAIL", dimension="outcome",
-                    reason=HOSTILE)]
-    return FR.project(make_test_run(rows))
+    # The projection never renders raw reason, so hostile input can no longer
+    # reach the renderer THROUGH a source field. To exercise the renderer's own
+    # escaping wall (its job regardless of how a string got there), inject the
+    # hostile payload directly into the rendered headline + observed of a valid
+    # record, then re-address it. HOSTILE carries no absolute path, so the
+    # record still validates.
+    record = FR.project(make_test_run())
+    record["headline"] = HOSTILE
+    record["dimensions"]["outcome"]["assertions"][0]["observed"] = HOSTILE
+    record["record_id"] = FR.compute_record_id(record)
+    return record
 
 
 def test_hostile_strings_are_escaped_everywhere():

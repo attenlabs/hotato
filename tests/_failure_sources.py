@@ -124,6 +124,7 @@ def make_suite_run(tests):
 
 
 def make_suite_test(test_id, *, exit_code, dim_counts=None, dim_reason=None,
+                    dim_public_reason=None, dim_failure_kind=None,
                     simulator_invalid=(), valid_runs=1,
                     rubric_summary=None, rubric_gated=False):
     return {
@@ -135,6 +136,8 @@ def make_suite_test(test_id, *, exit_code, dim_counts=None, dim_reason=None,
         "dimensions": {},
         "dim_counts": dim_counts or {},
         "dim_reason": dim_reason or {},
+        "dim_public_reason": dim_public_reason or {},
+        "dim_failure_kind": dim_failure_kind or {},
         "ungrouped": None,
         "success": {"required": [], "conditions": {},
                     "passed": exit_code == 0, "rubric_gated": rubric_gated},
@@ -171,12 +174,19 @@ def make_contract_verify(results):
     }
 
 
-def make_contract_result(contract_id, *, passed, not_scorable_reason=None):
+def make_contract_result(contract_id, *, passed, not_scorable_reason=None,
+                         expect=None, did_yield=None, seconds_to_yield=0.42,
+                         talk_over_sec=None):
+    if did_yield is None:
+        did_yield = passed
     return {
         "id": contract_id,
+        "expect": expect,
         "passed": passed,
         "not_scorable_reason": not_scorable_reason,
         "verdict_eligible": not_scorable_reason is None,
-        "measurement": {"did_yield": passed, "seconds_to_yield": 0.42,
+        "measurement": {"did_yield": did_yield,
+                        "seconds_to_yield": seconds_to_yield,
+                        "talk_over_sec": talk_over_sec,
                         "scorable": not_scorable_reason is None},
     }

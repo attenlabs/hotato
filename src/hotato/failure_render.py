@@ -60,10 +60,12 @@ def _clip(value: Any, limit: int) -> str:
 
 
 def _primary_assertion(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """The assertion the headline is built from: the first deterministic FAIL,
-    else ERROR, else INCONCLUSIVE, in lane order. ``None`` for a purely
-    advisory-gated record (which has no deterministic failure to show)."""
-    for wanted in ("FAIL", "ERROR", "INCONCLUSIVE"):
+    """The assertion the headline is built from, selected by the SAME severity
+    precedence as :func:`hotato.failure_record._headline` -- deterministic
+    ERROR, then FAIL, then INCONCLUSIVE (matching the gate), scanning lanes in
+    the fixed order. ``None`` for a purely advisory-gated record (which has no
+    deterministic failure to show)."""
+    for wanted in ("ERROR", "FAIL", "INCONCLUSIVE"):
         for lane in LANES:
             for assertion in record["dimensions"][lane]["assertions"]:
                 if assertion["authority"] == "deterministic" \

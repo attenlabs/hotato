@@ -74,7 +74,7 @@
             ],
             "expected": "The re-scored timing meets the contract's policy pass_conditions.",
             "missing_evidence": [],
-            "observed": "The contract's re-scored timing no longer meets its policy pass_conditions.",
+            "observed": "Agent yielded after 0.25 s although the contract required it to hold.",
             "rule_id": "contract.timing-policy",
             "rule_version": "1",
             "source_result_digest": "sha256:79831a4bd3532e13172ced975ba340a3b5c81beea57fd0acd6b9743a1603645b",
@@ -139,7 +139,7 @@
       "policy": "all-deterministic-assertions-pass",
       "status": "FAIL"
     },
-    "headline": "fd-02-backchannel-yielded-timing failed: The contract's re-scored timing no longer meets its policy pass_conditions.",
+    "headline": "Conversation failed: Agent yielded after 0.25 s although the contract required it to hold.",
     "kind": "hotato.failure-record.v1",
     "origin": {
       "kind": "captured",
@@ -196,7 +196,7 @@
       ],
       "source_result_digest": "sha256:79831a4bd3532e13172ced975ba340a3b5c81beea57fd0acd6b9743a1603645b"
     },
-    "record_id": "sha256:5f770124478c481630bc48b54c0d256c6597c3984ec6ed2923dbc0a7d1d6f33b",
+    "record_id": "sha256:6c5e0e6de73004d8683c0987812d849c46fa9f9f8f204eb4da71e600b636e3a0",
     "reproduction": {
       "argv": [
         "hotato",
@@ -243,8 +243,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-02-backchannel-yielded --out record",
-      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:5f770124478c481630bc48b54c0d256c6597c3984ec6ed2923dbc0a7d1d6f33b\n"
+      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:6c5e0e6de73004d8683c0987812d849c46fa9f9f8f204eb4da71e600b636e3a0\n"
     }
   ],
-  "content_digest": "sha256:2947b274647305aec6a5aa97e53ee75e28786c65bb6aba6927fb53bf67a9fe13"
+  "content_digest": "sha256:6138ffcbf5abcc71f6cd87eb5ee6e3d17275d697460cfedbc5d8effef7eb792f"
 }

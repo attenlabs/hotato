@@ -40,7 +40,7 @@
           ],
           "expected": "The declared tool_call conditions hold against the supplied evidence.",
           "missing_evidence": [],
-          "observed": "expected a refund.create tool call; none was found in the trace",
+          "observed": "No tool call satisfied the declared call conditions.",
           "rule_id": "assert.tool_call",
           "rule_version": "1",
           "source_result_digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14",
@@ -106,7 +106,7 @@
           "missing_evidence": [
             "timing"
           ],
-          "observed": "no timing context was provided for a latency field",
+          "observed": "Required input for the latency assertion was absent.",
           "rule_id": "assert.latency",
           "rule_version": "1",
           "source_result_digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14",
@@ -167,7 +167,7 @@
     "policy": "all_deterministic_assertions_pass",
     "status": "FAIL"
   },
-  "headline": "refund-issued failed: expected a refund.create tool call; none was found in the trace",
+  "headline": "Outcome failed: No tool call satisfied the declared call conditions.",
   "kind": "hotato.failure-record.v1",
   "origin": {
     "kind": "captured",
@@ -232,7 +232,7 @@
     ],
     "source_result_digest": "sha256:22c3d236c877e6cf11640fbfdeb6fa563b914896e82964b8c1284f2416193c14"
   },
-  "record_id": "sha256:4fba280a24712a25e863b1bd5f5857801aafd5e0b03bebfa40f1966c120d8c6e",
+  "record_id": "sha256:a53c49db05029463aba6406a926d991c4566576661077d3e9e922dd5e2609b98",
   "reproduction": {
     "argv": [
       "hotato",

@@ -63,7 +63,11 @@ def test_fail_test_run_projects_a_valid_record():
     assert record["gate"]["status"] == "FAIL"
     assert record["dimensions"]["outcome"]["status"] == "FAIL"
     assert record["dimensions"]["policy"]["status"] == "PASS"
-    assert record["headline"].startswith("refund-issued failed: ")
+    # The headline names the LANE that owns the gate (capitalized), not the
+    # assertion id, and quotes the share-safe observed fact.
+    assert record["headline"] == (
+        "Outcome failed: No tool call satisfied the declared call conditions."
+    )
     checks = FR.validate_record(record)
     assert "five separate dimensions" in checks
     assert "authority boundary" in checks
@@ -110,7 +114,10 @@ def test_advisory_only_failure_keeps_gate_pass_and_gates_record():
     assert record["gate"]["status"] == "PASS"
     assert record["advisory"] == {"status": "FAIL", "gate_enabled": True}
     assert record["status"] == "FAIL"
-    assert record["headline"].startswith("advisory-gate failed:")
+    assert record["headline"] == (
+        "Model advisory failed with its gate enabled; every deterministic "
+        "lane passed."
+    )
     FR.validate_record(record)
     _schema_validate(record)
 
@@ -310,21 +317,174 @@ def test_sentinel_secret_never_reaches_any_output():
         assert SENTINEL not in content, f"sentinel leaked into {name}"
 
 
-def test_absolute_paths_are_scrubbed_out_of_summaries():
+# --------------------------------------------------------------------------
+# evidence-specific public headlines (Workstream A)
+# --------------------------------------------------------------------------
+
+def test_headline_uses_lane_and_public_observation_not_assertion_id():
+    record = FR.project(make_test_run())
+    # the LANE that owns the gate is capitalized and named; the assertion id
+    # never appears in the headline.
+    assert record["headline"].startswith("Outcome failed: ")
+    assert "refund-issued" not in record["headline"]
+    primary = record["dimensions"]["outcome"]["assertions"][0]
+    assert record["headline"] == f"Outcome failed: {primary['observed']}"
+
+
+def test_headline_severity_matches_gate_precedence():
+    # With both an ERROR and a FAIL lane the headline names the ERROR, matching
+    # the deterministic gate's ERROR > FAIL > INCONCLUSIVE precedence -- never
+    # simply the first FAIL in lane order.
+    rows = [
+        det_row("refund-issued", "tool_call", "FAIL", dimension="outcome"),
+        det_row("latency-check", "latency", "ERROR", dimension="conversation"),
+    ]
+    record = FR.project(make_test_run(rows))
+    assert record["gate"]["status"] == "ERROR"
+    assert record["headline"].startswith("Conversation error: ")
+    FR.validate_record(record)
+
+
+def test_contract_yield_failure_headline_carries_measured_talk_over():
+    env = make_contract_verify([
+        make_contract_result("greeting-yield", passed=False, expect="yield",
+                             did_yield=False, talk_over_sec=0.25),
+    ])
+    record = FR.project(env)
+    observed = record["dimensions"]["conversation"]["assertions"][0]["observed"]
+    assert observed == "Agent did not yield; measured talk-over was 0.25 s."
+    assert record["headline"] == (
+        "Conversation failed: Agent did not yield; measured talk-over was "
+        "0.25 s."
+    )
+    FR.validate_record(record)
+    _schema_validate(record)
+
+
+def test_contract_hold_violation_headline_is_numeric():
+    env = make_contract_verify([
+        make_contract_result("greeting-hold", passed=False, expect="hold",
+                             did_yield=True, seconds_to_yield=1.5),
+    ])
+    record = FR.project(env)
+    observed = record["dimensions"]["conversation"]["assertions"][0]["observed"]
+    assert observed == (
+        "Agent yielded after 1.5 s although the contract required it to hold."
+    )
+    FR.validate_record(record)
+
+
+def test_contract_missing_numeric_field_never_prints_none():
+    # An expected-yield failure with no talk-over measurement states only the
+    # available fact and never renders the literal "None".
+    env = make_contract_verify([
+        make_contract_result("greeting-yield", passed=False, expect="yield",
+                             did_yield=False, talk_over_sec=None),
+    ])
+    record = FR.project(env)
+    observed = record["dimensions"]["conversation"]["assertions"][0]["observed"]
+    assert observed == "Agent did not yield."
+    assert "None" not in json.dumps(record)
+
+
+def test_legacy_source_without_public_reason_uses_conservative_fallback():
+    # A legacy assert.v1 row (no public_reason) never renders its raw reason; it
+    # falls back to a conservative, share-safe, kind-specific sentence.
+    rows = [det_row("refund-issued", "tool_call", "FAIL", dimension="outcome",
+                    reason="expected refund.create; got nothing (LEAK-CANARY)")]
+    record = FR.project(make_test_run(rows))
+    observed = record["dimensions"]["outcome"]["assertions"][0]["observed"]
+    assert observed == "No tool call satisfied the declared call conditions."
+    assert "LEAK-CANARY" not in json.dumps(record)
+
+
+def test_row_public_reason_is_quoted_and_raw_reason_is_not():
+    rows = [det_row(
+        "refund-issued", "tool_call", "FAIL", dimension="outcome",
+        reason="PRIVATE raw reason text",
+        public_reason="No refund.create call satisfied the declared call "
+                      "conditions.")]
+    record = FR.project(make_test_run(rows))
+    observed = record["dimensions"]["outcome"]["assertions"][0]["observed"]
+    assert observed == (
+        "No refund.create call satisfied the declared call conditions.")
+    assert "PRIVATE raw reason" not in json.dumps(record)
+
+
+def test_suite_projection_uses_dim_failure_kind_not_parsed_reason():
+    # dim_failure_kind (structured) drives the outcome-authority rule, and
+    # dim_public_reason is quoted -- the projection never parses "kind: reason"
+    # out of the private dim_reason.
+    from tests._failure_sources import make_suite_run, make_suite_test
+    suite = make_suite_run([
+        make_suite_test(
+            "refund-claimed", exit_code=1,
+            dim_counts={"outcome": {"pass": 0, "fail": 1, "inconclusive": 0}},
+            dim_public_reason={"outcome": "No refund.create call satisfied "
+                               "the declared call conditions."},
+            dim_failure_kind={"outcome": "tool_call"},
+        ),
+    ])
+    record = FR.project(suite)
+    observed = record["dimensions"]["outcome"]["assertions"][0]["observed"]
+    assert observed == (
+        "No refund.create call satisfied the declared call conditions.")
+    assert record["headline"] == (
+        "Outcome failed: No refund.create call satisfied the declared call "
+        "conditions."
+    )
+    FR.validate_record(record)
+    _schema_validate(record)
+
+
+def test_suite_legacy_fallback_names_the_digest_pinned_source():
+    # A legacy suite lane with counts but no public reason states the count and
+    # points at the digest-pinned private source -- never the reason text.
+    from tests._failure_sources import make_suite_run, make_suite_test
+    suite = make_suite_run([
+        make_suite_test(
+            "slow-turn", exit_code=1,
+            dim_counts={"conversation": {"pass": 0, "fail": 2,
+                                         "inconclusive": 0}},
+            dim_reason={"conversation": "latency: SECRET raw reason 842ms"},
+        ),
+    ])
+    record = FR.project(suite)
+    observed = record["dimensions"]["conversation"]["assertions"][0]["observed"]
+    assert observed == ("2 conversation assertion(s) failed; inspect the "
+                        "digest-pinned private source for details.")
+    assert "SECRET" not in json.dumps(record)
+
+
+def test_raw_reason_never_enters_share_safe_record():
+    secret = "REASON-ONLY-PAYLOAD-7c1"
+    rows = [det_row("refund-issued", "tool_call", "FAIL", dimension="outcome",
+                    reason=f"expected refund.create; {secret}")]
+    record = FR.project(make_test_run(rows))
+    assert secret not in json.dumps(record)
+    for name, content in FRR.render_all(record).items():
+        assert secret not in content, name
+
+
+def test_absolute_paths_in_reason_never_reach_the_record():
+    # The share-safe projection quotes the row's structured public sentence,
+    # never the raw evaluator reason -- so a POSIX path embedded in the reason
+    # (an exception message) can never reach an observed field.
     rows = [det_row("state-check", "state", "FAIL", dimension="outcome",
                     reason="state adapter query for /home/user/secret/db.json "
                            "failed: boom")]
     record = FR.project(make_test_run(rows))
     observed = record["dimensions"]["outcome"]["assertions"][0]["observed"]
     assert "/home/user" not in observed
-    assert "[path]" in observed
+    assert "secret" not in observed and "boom" not in observed
+    assert observed == "The declared post-call state was not satisfied."
     FR.validate_record(record)
 
 
-def test_windows_and_unc_absolute_paths_are_scrubbed_out_of_summaries():
-    # A Windows drive path, a UNC path, and a mixed-separator path -- all
-    # EMBEDDED inside a sentence, none at the start -- must be scrubbed just
-    # like a POSIX absolute path, and the projected record must still validate.
+def test_windows_and_unc_absolute_paths_in_reason_never_reach_the_record():
+    # A Windows drive path, a UNC path, and a mixed-separator path embedded in
+    # the raw reason are likewise never rendered: the observed field is the
+    # structured public sentence, and the projected record still validates.
     rows = [det_row(
         "state-check", "state", "FAIL", dimension="outcome",
         reason=(r"state adapter query for C:\Users\alice\secret\db.json and "
@@ -335,7 +495,6 @@ def test_windows_and_unc_absolute_paths_are_scrubbed_out_of_summaries():
     assert "alice" not in observed
     assert "fileserver" not in observed
     assert "creds.json" not in observed
-    assert "[path]" in observed
     FR.validate_record(record)
 
 
