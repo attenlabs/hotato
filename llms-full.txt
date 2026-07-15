@@ -3440,7 +3440,7 @@ per-dimension (grouped view; never blended):
   conversation  1 pass / 0 fail / 0 inconclusive
   speech        1 pass / 0 fail / 0 inconclusive
   reliability   0 pass / 0 fail / 0 inconclusive
-reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; the lane has zero variance, so pass^k == pass@1 -- reported honestly, not fabricated variance
+reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; pass^k == pass@1 because the deterministic replay is byte-identical (zero run-to-run variance)
 rubric lane: 1 assertion(s) INCONCLUSIVE (quarantined, Phase 3 -- no model ran)
 deterministic: 4 pass, 0 fail, 0 inconclusive
 judge: 0 pass, 0 fail (no judge/rubric kind is built in this release)
@@ -8283,7 +8283,8 @@ Every gate to clear before a release ships, top to bottom: green means proceed.
 
 ## Package
 
-- [ ] Build the release artifacts with `python3 scripts/build_release.py` -- the REQUIRED build step: a release build comes from the tagged tree, via this script. It exports `git archive HEAD` into a fresh temporary directory (so only committed files can enter the artifacts -- generated corpus renders, `examples/reference-agent/.out/`, and other working-tree leftovers cannot), forces `umask 022` for mode-stable bytes, builds with `SOURCE_DATE_EPOCH` from the release commit, and writes the sdist, wheel, and their sha256s to `./dist`. `tests/test_release_supply_chain.py` holds the same tag-faithfulness invariant in CI.
+- [ ] **Tag the release commit and push the tag** (`git tag -a vX.Y.Z -m 'hotato X.Y.Z' && git push origin vX.Y.Z`) -- do this FIRST: the build step below is tag-locked and builds from the tag's committed tree, refusing (exit 2) if the tag does not yet exist.
+- [ ] Build the release artifacts with `python3 scripts/build_release.py` -- the REQUIRED build step: it checks out the release tag and exports that tag's committed tree into a fresh temporary directory (so only files committed at the tag can enter the artifacts -- generated corpus renders, `examples/reference-agent/.out/`, and other working-tree leftovers cannot), forces `umask 022` for mode-stable bytes, builds with `SOURCE_DATE_EPOCH` from the tagged commit, and writes the sdist, wheel, and their sha256s to `./dist`. It refuses a drifted HEAD by default; `--ref <tag>` selects a specific tag and `--allow-drift` builds from HEAD (never publish an `--allow-drift` build). `tests/test_release_supply_chain.py` holds the same tag-faithfulness invariant in CI.
 - [ ] Install the built wheel in a fresh venv and run `hotato run --suite barge-in`. CI does this on every version tag in the `release.yml` `sanity` job.
 - [ ] Generate and validate the SBOM(s), then attach them to the GitHub release: `python3 scripts/gen_sbom.py` writes `dist/hotato.sbom.cdx.json` -- a minimal CycloneDX bill of materials for the core package and every declared dependency, generated offline from `pyproject.toml`. For a per-profile breakdown: `python3 scripts/gen_sbom.py --list-profiles` lists `core` plus each declared extra, and `python3 scripts/gen_sbom.py --profile <name>` writes `dist/hotato.sbom.<name>.cdx.json` (core alone, or core plus that one extra). Validate each with `python3 scripts/gen_sbom.py --check <file>`, then upload `dist/*.cdx.json` alongside the sdist/wheel. CI does all of this automatically: `release.yml` uploads them in the `hotato-release-dist` artifact, `publish-pypi-oidc.yml` in the `hotato-sbom` artifact.
 - [ ] Publish to PyPI via **Trusted Publishing (OIDC)**, the default path (see below): dispatch `publish-pypi-oidc.yml` with `version` = the release's `pyproject.toml` version and `confirm` = `PUBLISH`. That workflow builds reproducibly (a second, pinned-backend build has its `sha256sum` compared against the first -- a mismatch fails the run), generates and validates the SBOMs, and uploads the built artifacts; a separate gated `publish` job downloads those exact bytes, attests build provenance over them, and uploads to PyPI with a short-lived OIDC token minted fresh each run.
@@ -8291,7 +8292,7 @@ Every gate to clear before a release ships, top to bottom: green means proceed.
 - [ ] Verify the published SBOM(s): re-run `python3 scripts/gen_sbom.py --check dist/hotato.sbom.cdx.json` (and each `dist/hotato.sbom.<profile>.cdx.json`) on the files attached to the release, and confirm each SBOM's `metadata.component.version` matches the release version.
 - [ ] Verify `uvx hotato demo` works from the published package (fresh machine or cleared uv cache): it renders and opens the failing demo report.
 - [ ] Verify `uvx hotato doctor` (self-test path) works from the published package.
-- [ ] Tag the release commit and push the tag; GitHub release notes point at the CHANGELOG entry.
+- [ ] Publish the GitHub release notes for the tag `vX.Y.Z` (created above), pointing at the CHANGELOG entry.
 
 ### Publishing path: PyPI Trusted Publishing (OIDC) -- DEFAULT
 
@@ -8343,7 +8344,7 @@ timestamps no rebuild can match:
 
 ```bash
 python3 -m pip install "pip==26.1.2" "build==1.2.2.post1" "setuptools==83.0.0" "wheel==0.46.2" "twine==6.2.0"
-python3 scripts/build_release.py  # git-archive export of HEAD; umask 022; SOURCE_DATE_EPOCH from the release commit
+python3 scripts/build_release.py  # git-archive export of the release TAG (tag-locked); umask 022; SOURCE_DATE_EPOCH from the tagged commit
 python3 -m twine check --strict dist/*.tar.gz dist/*.whl
 python3 -m twine upload dist/*.tar.gz dist/*.whl    # token scoped to the `hotato` project
 ```

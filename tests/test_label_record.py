@@ -265,7 +265,8 @@ def test_fixture_create_mints_label_record_when_a_key_is_configured(tmp_path, mo
     out = str(tmp_path / "out")
     result = _fixture.create_fixture(
         stereo=src, fixture_id="fx-labeled-001", onset_sec=2.40,
-        expect="yield", out_dir=out, reviewer_principal="qa-alice")
+        expect="yield", out_dir=out, reviewer_principal="qa-alice",
+        human_review_attested=True)
 
     assert result["scenario"]["label_record"]["signer"]["algo"] == "hmac"
     assert result["scenario"]["label_record"]["reviewer_principal"] == "qa-alice"
