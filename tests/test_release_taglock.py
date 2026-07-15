@@ -21,9 +21,7 @@ run everywhere -- the fix refuses before importing `build`.
 from __future__ import annotations
 
 import importlib.util
-import os
 import subprocess
-import sys
 import tarfile
 from pathlib import Path
 

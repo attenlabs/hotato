@@ -2,6 +2,14 @@
 
 <img src=".github/assets/hotato-banner.svg" alt="hotato" width="340" style="max-width:100%;height:auto;">
 
+<p>
+<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/v/hotato?style=flat-square&color=e2470f&label=pypi" alt="PyPI version"></a>
+<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=6f5d44" alt="Python versions"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6f5d44?style=flat-square" alt="License: MIT"></a>
+<a href="docs/MCP.md"><img src="https://img.shields.io/badge/MCP-ready-e2470f?style=flat-square" alt="MCP ready"></a>
+<img src="https://img.shields.io/badge/offline-by%20default-0f7a5f?style=flat-square" alt="Offline by default">
+</p>
+
 </div>
 
 **hotato** is self-hosted conversation QA for voice agents: give it both channels of a recorded call, it measures the timing between the two voices, and locks every catch into a CI contract. The name is hot potato, hold the turn too long and you drop the call. MIT, offline, no account.

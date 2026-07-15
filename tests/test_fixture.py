@@ -29,8 +29,6 @@ import json
 import os
 from importlib import resources
 
-import pytest
-
 from hotato import cli
 from hotato import contract as _contract
 from hotato import fixture as _fixture

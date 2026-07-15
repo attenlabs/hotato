@@ -18,9 +18,9 @@ import hashlib
 from importlib import resources
 
 from hotato import neural
-from hotato.core import _vad_backend_provenance
 from hotato._engine.score import ScoreConfig
 from hotato._engine.vad import VADParams
+from hotato.core import _vad_backend_provenance
 
 
 def _expected(rel_parts):

@@ -28,7 +28,6 @@ from hotato.fleet import canary as _canary
 from hotato.fleet.api import FleetAPI
 from tests import _trial_audio as ta
 
-
 # --- shared fixtures --------------------------------------------------------
 
 def _seeded_candidate(tmp_path, monkeypatch, *, stack="vapi"):
