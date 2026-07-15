@@ -21,11 +21,13 @@ never embeds raw customer audio by default (privacy reversal, plan §4/§14).
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
-import shutil
+import stat
 import tempfile
 import time
+import uuid
 from typing import Optional
 
 # Shared canonical-JSON producer (finding #2). ``manifest`` imports no fleet
@@ -35,7 +37,6 @@ from typing import Optional
 # separators) is byte-identical to the inline dump it replaces, so every stored
 # blob's content-addressed digest is unchanged.
 from .. import manifest as _manifest
-from ..errors import open_regular as _open_regular
 
 SCHEMA_VERSION = "1"
 
@@ -52,6 +53,20 @@ _STALE_TMP_AGE_SECONDS = 3600
 # must be refused BEFORE it can traverse the store. There is never a blob at a
 # non-canonical address, so refusing is loss-free.
 _HEX64_CHARS = frozenset("0123456789abcdef")
+
+# openat-style flags for the ONE containment primitive shared by every read and
+# write below. A digest is joined into a fan-out path (``blobs/<ab>/<digest>``);
+# a symlink planted at any segment (classically ``blobs/<ab> -> /outside``) must
+# never be followed, or a write lands outside the store while a read of the same
+# digest refuses it (internally inconsistent, unsafe under a writable/shared
+# root). Resolving every I/O relative to a trusted ``blobs`` directory descriptor
+# with O_NOFOLLOW on each segment makes a planted symlink fail closed (ELOOP)
+# instead of redirecting the operation. O_NONBLOCK lets the source-file open of a
+# FIFO/named pipe return instead of blocking, so ``fstat`` can reject it (it is a
+# no-op for the regular-file reads that follow).
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 
 
 def _canonical_digest(digest):
@@ -113,12 +128,71 @@ class ArtifactStore:
                 "blob path for %s resolves outside the content store" % digest)
         return path
 
+    # --- containment primitive (ONE openat-style guard for reads AND writes) --
+    def _open_dir_fd(self) -> int:
+        """Trusted directory descriptor for the blob root, opened no-follow.
+
+        Every read and write below resolves the fan-out relative to THIS
+        descriptor with no-follow opens, so a symlink anywhere in the fan-out
+        cannot redirect an I/O outside the store. O_NOFOLLOW here also refuses a
+        ``blobs`` root that has itself been swapped for a symlink."""
+        return os.open(self.blobs, os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW)
+
+    def _open_fanout_dir(self, root_fd: int, two: str, *, create: bool) -> int:
+        """No-follow open of the two-hex fan-out subdir relative to ``root_fd``.
+
+        A directory symlink planted at ``blobs/<two>`` -- the write-escape defect
+        -- is refused here by O_NOFOLLOW|O_DIRECTORY (ELOOP/ENOTDIR) rather than
+        followed out of the store, so reads and writes fail closed instead of
+        touching an out-of-store path. With ``create`` the subdir is created
+        first (idempotently) relative to the same trusted descriptor."""
+        if create:
+            try:
+                os.mkdir(two, 0o755, dir_fd=root_fd)
+            except FileExistsError:
+                pass
+        return os.open(two, os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW,
+                       dir_fd=root_fd)
+
+    @staticmethod
+    def _leaf_is_regular(dir_fd: int, name: str) -> bool:
+        """Whether ``name`` under ``dir_fd`` is a REGULAR file, checked without
+        following a symlink (a planted leaf symlink reads as absent)."""
+        try:
+            st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        except OSError:
+            return False
+        return stat.S_ISREG(st.st_mode)
+
+    def _blob_present(self, digest: str) -> bool:
+        """Contained existence check: a REGULAR blob file at the fan-out leaf,
+        resolved through no-follow directory descriptors so a symlinked fan-out
+        (or leaf) reads as absent rather than escaping the store."""
+        root_fd = self._open_dir_fd()
+        try:
+            try:
+                fanout_fd = self._open_fanout_dir(root_fd, digest[:2],
+                                                  create=False)
+            except OSError:
+                return False
+            try:
+                return self._leaf_is_regular(fanout_fd, digest)
+            finally:
+                os.close(fanout_fd)
+        finally:
+            os.close(root_fd)
+
     def has(self, digest: str) -> bool:
-        return os.path.isfile(self._resolved_blob_path(digest))
+        return self._blob_present(_canonical_digest(digest))
 
     # --- writes ---------------------------------------------------------
     def _write_via_tmp(self, dest: str, writer) -> None:
         """Publish ``dest`` atomically via a PRIVATE, unique tmp file.
+
+        Lower-level path-based helper for direct-write tests; the public writers
+        (``put_bytes`` / ``put_file``) go through ``_publish_stream``, which
+        resolves the fan-out no-follow so a symlinked fan-out cannot redirect the
+        write out of the store.
 
         ``writer(tmp_path)`` must populate ``tmp_path`` with the final bytes.
         Every call gets its own ``tempfile.mkstemp`` path (never a shared
@@ -152,13 +226,7 @@ class ArtifactStore:
                   workspace_id: Optional[str] = None,
                   parents: Optional[list] = None,
                   meta: Optional[dict] = None) -> str:
-        digest = self._digest_bytes(data)
-        dest = self._blob_path(digest)
-        if not os.path.isfile(dest):
-            def _write(tmp_path: str) -> None:
-                with open(tmp_path, "wb") as fh:
-                    fh.write(data)
-            self._write_via_tmp(dest, _write)
+        digest = self._publish_stream(io.BytesIO(data))
         self._record_lineage(digest, kind=kind, workspace_id=workspace_id,
                              parents=parents or [], meta=meta or {})
         return digest
@@ -167,21 +235,98 @@ class ArtifactStore:
                  workspace_id: Optional[str] = None,
                  parents: Optional[list] = None,
                  meta: Optional[dict] = None) -> str:
-        """Stream a file into the store without a second in-memory copy."""
-        h = hashlib.sha256()
-        with _open_regular(path) as fh:
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                h.update(chunk)
-        digest = h.hexdigest()
-        dest = self._blob_path(digest)
-        if not os.path.isfile(dest):
-            def _copy(tmp_path: str) -> None:
-                shutil.copyfile(path, tmp_path)
-            self._write_via_tmp(dest, _copy)
-        m = dict(meta or {}); m.setdefault("source_name", os.path.basename(path))
+        """Stream a file into the store in a single pass -- hashing and storing
+        the SAME bytes -- without reopening the source path or making a second
+        in-memory copy."""
+        source_name = os.path.basename(path)
+        fd = self._open_source_regular(path)
+        with os.fdopen(fd, "rb", closefd=True) as src:
+            digest = self._publish_stream(src)
+        m = dict(meta or {}); m.setdefault("source_name", source_name)
         self._record_lineage(digest, kind=kind, workspace_id=workspace_id,
                              parents=parents or [], meta=m)
         return digest
+
+    def _open_source_regular(self, path) -> int:
+        """Open ``path`` as ONE validated regular-file descriptor.
+
+        O_NOFOLLOW refuses a symlink at the final path component; O_NONBLOCK
+        makes the open of a FIFO/named pipe return immediately (a blocking open
+        would hang the process) so ``fstat`` can reject it, and is a no-op for
+        the regular-file reads that follow. Validation is on the OPEN descriptor
+        (``fstat``), not a pre-open path ``stat`` that a later open could race,
+        so the bytes hashed and stored come from exactly this inode -- there is
+        no second lookup of ``path`` to substitute (the put_file TOCTOU)."""
+        fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK)
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            os.close(fd)
+            raise
+        if not stat.S_ISREG(st.st_mode):
+            os.close(fd)
+            raise ValueError(
+                "%r is not a regular file (found a named pipe/FIFO, device, "
+                "directory, or symlink); hotato stores a plain file only." %
+                (path,))
+        return fd
+
+    def _publish_stream(self, src) -> str:
+        """Stream ``src`` once into a private temp blob WHILE hashing it, derive
+        the content address from that same stream, fsync, then atomically publish
+        it into the contained fan-out.
+
+        Single pass: the digest that names the destination is computed from the
+        exact bytes written to disk, so the returned digest always equals the
+        stored content's digest -- there is no hash-one-stream / copy-another gap
+        (closes the put_file publish-under-the-wrong-digest defect). Every
+        directory and file open is no-follow and relative to a trusted ``blobs``
+        descriptor (the same containment primitive the reads use), so a symlinked
+        fan-out cannot redirect the write out of the store; a planted fan-out
+        symlink makes the publish fail closed (ELOOP) after cleaning up its
+        private temp, rather than writing outside. The staging temp lives in the
+        blob root (the fan-out subdir is unknown until the stream is hashed) and
+        is renamed across trusted descriptors into ``blobs/<ab>/`` -- an atomic
+        rename within one filesystem. Duplicate content is idempotent: an
+        already-present leaf keeps the existing blob and drops the temp."""
+        root_fd = self._open_dir_fd()
+        try:
+            tmp_name = ".ingest-%d-%s.tmp" % (os.getpid(), uuid.uuid4().hex)
+            tfd = os.open(tmp_name,
+                          os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_NOFOLLOW,
+                          0o644, dir_fd=root_fd)
+            renamed = False
+            try:
+                h = hashlib.sha256()
+                with os.fdopen(tfd, "wb", closefd=True) as out:
+                    for chunk in iter(lambda: src.read(1 << 20), b""):
+                        h.update(chunk)
+                        out.write(chunk)
+                    out.flush()
+                    os.fsync(out.fileno())
+                digest = h.hexdigest()
+                fanout_fd = self._open_fanout_dir(root_fd, digest[:2],
+                                                  create=True)
+                try:
+                    if not self._leaf_is_regular(fanout_fd, digest):
+                        os.rename(tmp_name, digest,
+                                  src_dir_fd=root_fd, dst_dir_fd=fanout_fd)
+                        renamed = True
+                        try:
+                            os.fsync(fanout_fd)
+                        except OSError:
+                            pass
+                finally:
+                    os.close(fanout_fd)
+                return digest
+            finally:
+                if not renamed:
+                    try:
+                        os.unlink(tmp_name, dir_fd=root_fd)
+                    except OSError:
+                        pass
+        finally:
+            os.close(root_fd)
 
     def put_json(self, obj, **kw) -> str:
         data = (_manifest.canonical_json(obj) + "\n").encode("utf-8")
@@ -192,11 +337,24 @@ class ArtifactStore:
     # no workspace_id parameter here -- cross-workspace isolation is a property
     # of the registry/reference layer that hands out digests, not of this CAS.
     def get_bytes(self, digest: str) -> bytes:
-        # open-ok: content-addressed blob path validated (canonical digest +
-        # realpath-containment) by _resolved_blob_path; blobs are regular files
-        # this store wrote and a non-canonical/escaping digest is refused here
-        with open(self._resolved_blob_path(digest), "rb") as fh:
-            return fh.read()
+        # Read through the SAME no-follow containment primitive the writes use:
+        # canonical digest, then a no-follow open of the regular leaf inside a
+        # no-follow fan-out descriptor. A planted symlink at the fan-out or the
+        # leaf is refused (ELOOP) rather than followed out of the content store,
+        # and a missing blob raises FileNotFoundError exactly as a plain open did.
+        _canonical_digest(digest)
+        root_fd = self._open_dir_fd()
+        try:
+            fanout_fd = self._open_fanout_dir(root_fd, digest[:2], create=False)
+            try:
+                # open-ok: no-follow leaf open inside the validated fan-out fd
+                fd = os.open(digest, os.O_RDONLY | _O_NOFOLLOW, dir_fd=fanout_fd)
+            finally:
+                os.close(fanout_fd)
+            with os.fdopen(fd, "rb", closefd=True) as fh:
+                return fh.read()
+        finally:
+            os.close(root_fd)
 
     def get_json(self, digest: str):
         return json.loads(self.get_bytes(digest).decode("utf-8"))
@@ -290,6 +448,20 @@ class ArtifactStore:
         now = time.time()
         for entry in os.scandir(self.blobs):
             if not entry.is_dir(follow_symlinks=False):
+                # A crash mid-``_publish_stream`` can strand a staging temp in
+                # the blob root itself (the fan-out subdir is not known until the
+                # stream has been hashed), so sweep root-level ``*.tmp`` orphans
+                # too -- same age gate, so an in-flight writer is never raced.
+                if entry.name.endswith(".tmp"):
+                    try:
+                        age = now - entry.stat(follow_symlinks=False).st_mtime
+                    except OSError:
+                        continue
+                    if age > max_age_seconds:
+                        try:
+                            os.unlink(entry.path)
+                        except OSError:
+                            pass
                 continue
             try:
                 sub = list(os.scandir(entry.path))

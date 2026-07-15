@@ -7,6 +7,7 @@ and are intentionally not duplicated here.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import urllib.error
@@ -272,3 +273,201 @@ def test_serve_evidence_requires_live_registry_root_not_cas_lineage(tmp_path):
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
+
+
+# --- CAS write-path integrity ------------------------------------------------
+# P0.4 (single-stream publish -- put_file must content-address the bytes it
+# actually stores, never a first stream's digest over a second stream's bytes)
+# and P0.5 (write containment -- put_bytes/put_file must not escape a symlinked
+# fan-out even though the existing test above only checks path_for()).
+
+
+def _content_hashing_to_prefix(prefix: str, tag: bytes = b"hotato-cas") -> bytes:
+    """Smallest deterministic byte string (over ``tag``) whose sha256 hexdigest
+    starts with ``prefix``, for planting content into a chosen fan-out bucket.
+    ``tag`` varies the search so two distinct bodies can share one prefix."""
+    i = 0
+    while i < (1 << 22):
+        body = b"%s-%d" % (tag, i)
+        if hashlib.sha256(body).hexdigest().startswith(prefix):
+            return body
+        i += 1
+    raise AssertionError("no content found for prefix %r" % (prefix,))
+
+
+def _plant_fanout_symlink(store_root, outside, two: str = "ab") -> None:
+    fanout = store_root / "blobs" / two
+    try:
+        fanout.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable on this platform")
+
+
+def test_put_file_digest_matches_stored_bytes_under_source_substitution(
+        tmp_path, monkeypatch):
+    """P0.4 path-substitution: the OLD put_file() hashed one descriptor, closed
+    it, then REOPENED the path via shutil.copyfile -- so a source swapped in that
+    gap was published under the FIRST stream's digest (returned digest !=
+    stored-content digest, verify() false). The fixed single-stream put_file()
+    has no such gap. We fire the swap at the exact seam the old code used
+    (shutil.copyfile); the fixed code never calls it and reads the source once,
+    so whatever digest is returned always addresses the bytes actually stored."""
+    import hotato.fleet.store as store_mod
+
+    store = ArtifactStore(str(tmp_path / "store"))
+    src = tmp_path / "capture.bin"
+    original = b"ORIGINAL-CAPTURE-" * 4096
+    replacement = b"SWAPPED-EVIDENCE-" * 4096
+    src.write_bytes(original)
+
+    real_copyfile = getattr(getattr(store_mod, "shutil", None), "copyfile", None)
+    if real_copyfile is not None:  # exercises the old hash/copy gap only
+        def _swap_then_copy(s, d, *a, **k):
+            src.write_bytes(replacement)
+            return real_copyfile(s, d, *a, **k)
+        monkeypatch.setattr(store_mod.shutil, "copyfile", _swap_then_copy)
+
+    digest = store.put_file(str(src))
+    # Whatever digest was returned, the stored bytes MUST hash to it.
+    assert store.verify(digest)
+    assert hashlib.sha256(store.get_bytes(digest)).hexdigest() == digest
+
+
+def test_put_file_opens_the_source_exactly_once(tmp_path, monkeypatch):
+    """P0.4 no-reopen: the fixed put_file() opens the source path exactly once
+    (a single validated descriptor) and streams it -- it never reopens the path.
+    The old code opened it twice (hash pass + shutil.copyfile), the TOCTOU this
+    closes."""
+    import hotato.fleet.store as store_mod
+
+    store = ArtifactStore(str(tmp_path / "store"))
+    src = tmp_path / "capture.bin"
+    src.write_bytes(b"z" * (3 << 20))
+    src_str = str(src)
+
+    real_open = os.open
+    source_opens = []
+
+    def counting_open(path, *args, **kwargs):
+        if path == src_str and "dir_fd" not in kwargs:
+            source_opens.append(path)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(store_mod.os, "open", counting_open)
+    digest = store.put_file(src_str)
+    monkeypatch.undo()
+
+    assert source_opens == [src_str]  # opened once, never reopened
+    assert store.verify(digest)
+
+
+def test_put_file_refuses_symlink_source(tmp_path):
+    """P0.4: a symlinked source is refused (O_NOFOLLOW + fstat) rather than
+    silently dereferenced and stored under a name the caller cannot re-derive."""
+    store = ArtifactStore(str(tmp_path / "store"))
+    real = tmp_path / "real.bin"
+    real.write_bytes(b"payload")
+    link = tmp_path / "link.bin"
+    try:
+        os.symlink(str(real), str(link))
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this platform")
+    with pytest.raises((ValueError, OSError)):
+        store.put_file(str(link))
+
+
+def test_put_file_concurrent_writers_agree_on_digest(tmp_path):
+    """P0.4 concurrent-writer regression: several threads store the SAME source
+    concurrently. Each gets its own private staging temp, the publish is
+    idempotent, and every writer returns the one true content digest with no
+    error and a blob that verifies."""
+    store = ArtifactStore(str(tmp_path / "store"))
+    data = os.urandom(1 << 20)
+    src = tmp_path / "capture.bin"
+    src.write_bytes(data)
+    expected = hashlib.sha256(data).hexdigest()
+
+    results = []
+    errors = []
+
+    def run():
+        try:
+            results.append(store.put_file(str(src)))
+        except Exception as exc:  # pragma: no cover - failure path under test
+            errors.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert set(results) == {expected}
+    assert store.verify(expected)
+
+
+def test_put_bytes_refuses_symlinked_fanout_escape(tmp_path):
+    """P0.5, put_bytes() arm: content whose digest lands in a symlinked fan-out
+    bucket must NOT be written through the symlink to an out-of-store target. The
+    old writer used unchecked _blob_path()+makedirs and produced
+    ``outside/<digest>``; the fixed writer resolves the fan-out no-follow and
+    fails closed."""
+    store_root = tmp_path / "store"
+    store = ArtifactStore(str(store_root))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    _plant_fanout_symlink(store_root, outside, "ab")
+    content = _content_hashing_to_prefix("ab")
+    before = set(os.listdir(outside))
+
+    with pytest.raises((OSError, ValueError)):
+        store.put_bytes(content)
+    assert set(os.listdir(outside)) == before  # nothing written outside
+
+
+def test_put_file_refuses_symlinked_fanout_escape(tmp_path):
+    """P0.5, put_file() arm of the same fan-out escape."""
+    store_root = tmp_path / "store"
+    store = ArtifactStore(str(store_root))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    _plant_fanout_symlink(store_root, outside, "ab")
+    content = _content_hashing_to_prefix("ab")
+    src = tmp_path / "capture.bin"
+    src.write_bytes(content)
+    before = set(os.listdir(outside))
+
+    with pytest.raises((OSError, ValueError)):
+        store.put_file(str(src))
+    assert set(os.listdir(outside)) == before
+
+
+def test_fanout_replaced_by_symlink_between_writes_never_escapes(tmp_path):
+    """P0.5 fan-out replacement race: a fan-out dir created legitimately by one
+    write is then swapped for a symlink to an out-of-store dir before the next
+    write to the SAME bucket. Because every write re-resolves the fan-out
+    no-follow, the second write fails closed instead of escaping."""
+    import shutil as _shutil
+
+    store_root = tmp_path / "store"
+    store = ArtifactStore(str(store_root))
+    first = _content_hashing_to_prefix("ab", tag=b"first")
+    digest1 = store.put_bytes(first)
+    assert store.verify(digest1)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    fanout = store_root / "blobs" / "ab"
+    _shutil.rmtree(fanout)
+    try:
+        fanout.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable on this platform")
+
+    second = _content_hashing_to_prefix("ab", tag=b"second")
+    assert second != first
+    before = set(os.listdir(outside))
+    with pytest.raises((OSError, ValueError)):
+        store.put_bytes(second)
+    assert set(os.listdir(outside)) == before
