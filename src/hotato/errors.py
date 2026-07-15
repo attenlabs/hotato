@@ -268,6 +268,17 @@ def is_safe_bare_token(s: str) -> bool:
     return bool(SAFE_BARE_TOKEN_RE.match(s)) and s.lower() not in YAML_RESERVED_BARE
 
 
+def format_public_number(value) -> str:
+    """Locale-independent, bounded numeric formatting for share-safe public
+    sentences (``.6g``). ONE definition -- the assertion engine's
+    ``public_reason`` and the Failure Record's contract-observed sentence both
+    call it -- so a platform's float formatting can never change a rendered
+    headline (e.g. ``0.25`` is ``"0.25"`` everywhere, never ``"0.250000001"``).
+    ``.6g`` also caps precision, which incidentally erases float round-trip
+    artifacts (``0.1 + 0.2`` renders ``"0.3"``)."""
+    return format(float(value), ".6g")
+
+
 class ChannelRangeError(ValueError):
     """A caller/agent channel index that is out of range for a recording. A
     ``ValueError`` subclass so every existing ``except ValueError`` and the

@@ -63,6 +63,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .errors import (
+    format_public_number as _fmt_public_number,
+)
+from .errors import (
     is_safe_bare_token as _is_safe_bare_token,
 )
 from .errors import (
@@ -2196,6 +2199,232 @@ def _eval_rubric_stub(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     return result
 
 
+# =========================================================================
+# public_reason: a SHARE-SAFE, one-line restatement of a non-passing result,
+# built ONLY from allowlisted STRUCTURED fields (assertion kind/id, rule/tool/
+# resource ids, policy rule id+type, detector names, counts, numeric timing,
+# span ids). It NEVER reads transcript text, a regex body, a tool argument or
+# result, a state value/filter, a DTMF digit, a credential, exception text, an
+# absolute path, or the raw evaluator `reason` -- so a Failure Record can quote
+# it verbatim without a privacy scrub. Every id it interpolates first passes
+# `is_safe_bare_token` (the same bare-token wall the emitters use); an unsafe
+# id is dropped in favor of the kind's generic template. This is the source of
+# the share-safe headline; the projection layer consumes THIS, never `reason`.
+# =========================================================================
+
+_PUBLIC_MAX = 240
+
+
+def _fmt_num(value: Any) -> str:
+    """The shared, locale-independent, bounded numeric renderer (`.6g`)."""
+    return _fmt_public_number(value)
+
+
+def _safe_id(value: Any) -> Optional[str]:
+    """`value` if it is a string that passes the bare-token safe-id wall, else
+    `None` (caller falls back to a generic, id-free template)."""
+    return value if isinstance(value, str) and _is_safe_bare_token(value) else None
+
+
+def _pub_int(value: Any) -> Optional[int]:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+# Which evidence noun an INCONCLUSIVE result of each kind was missing. The
+# template is fixed vocabulary (transcript|trace|timing|state-adapter|input),
+# so it can never carry a payload value.
+def _inconclusive_noun(a: Dict[str, Any]) -> str:
+    kind = a.get("kind")
+    if kind in ("phrase", "pii", "policy"):
+        return "transcript"
+    if kind in ("state", "state_change"):
+        return "state-adapter"
+    if kind == "latency":
+        return "timing" if "field" in a else "trace"
+    if kind == "count":
+        return "transcript" if "phrase" in a else "trace"
+    if kind == "timing_contract":
+        return "timing"
+    if kind in ("tool_call", "tool_result", "tool_error", "handoff", "dtmf",
+                "termination", "sequence", "entity_accuracy"):
+        return "trace"
+    return "input"
+
+
+def _pub_phrase(a, r):
+    return ("A forbidden phrase was present in the declared turn."
+            if a.get("absent")
+            else "A required phrase was missing from the declared turn.")
+
+
+def _pub_pii(a, r):
+    hits = r.get("hits") or []
+    n = len(hits)
+    detectors = sorted({h.get("detector") for h in hits} & set(DETECTOR_NAMES))
+    if detectors:
+        return f"{n} PII detection(s) were found ({', '.join(detectors)})."
+    return f"{n} PII detection(s) were found."
+
+
+def _pub_policy(a, r):
+    missing, banned = [], []
+    for m in r.get("matched_rules") or []:
+        rid = _safe_id(m.get("rule"))
+        if rid is None:
+            continue
+        if m.get("type") == "required_disclosure_missing":
+            missing.append(rid)
+        elif m.get("type") == "banned":
+            banned.append(rid)
+    parts = []
+    if missing:
+        parts.append(f"Required disclosure {', '.join(missing)} was missing.")
+    if banned:
+        parts.append(f"Banned policy rule {', '.join(banned)} matched.")
+    return " ".join(parts) or "A declared policy rule was not satisfied."
+
+
+def _pub_tool_call(a, r):
+    name = _safe_id(a.get("name"))
+    if name:
+        return f"No {name} call satisfied the declared call conditions."
+    return "No tool call satisfied the declared call conditions."
+
+
+def _pub_tool_result(a, r):
+    name = _safe_id(a.get("name"))
+    if name:
+        return f"{name} produced no result satisfying the declared conditions."
+    return "A declared tool-result condition was not satisfied."
+
+
+def _pub_tool_error(a, r):
+    name = _safe_id(a.get("name"))
+    if a.get("absent"):
+        return (f"{name} emitted a matching error although policy required none."
+                if name else
+                "A tool emitted a matching error although policy required none.")
+    return (f"{name} emitted no matching error span."
+            if name else "No matching tool-error span was found.")
+
+
+def _pub_state(a, r):
+    res = _safe_id(a.get("resource"))
+    if res:
+        return f"{res} post-call state did not satisfy the declared fields."
+    return "The declared post-call state was not satisfied."
+
+
+def _pub_state_change(a, r):
+    res = _safe_id(a.get("resource"))
+    field = _safe_id(a.get("field"))
+    if res and field:
+        return f"{res}.{field} did not reach the declared post-call state."
+    return "A declared post-call state change did not occur."
+
+
+def _pub_handoff(a, r):
+    if a.get("absent"):
+        return "A handoff occurred although policy required none."
+    to = _safe_id(a.get("to"))
+    return f"No handoff to {to} occurred." if to else "No handoff occurred."
+
+
+def _pub_dtmf(a, r):
+    return "The declared DTMF condition failed."
+
+
+def _pub_termination(a, r):
+    return "The declared termination condition failed."
+
+
+def _pub_latency(a, r):
+    if "field" in a:
+        field = _safe_id(a.get("field"))
+        measured = r.get("measured")
+        limit = a.get("max")
+        if field and _is_number(measured) and _is_number(limit):
+            return f"{field} measured {_fmt_num(measured)}; the limit was {_fmt_num(limit)}."
+        return "A declared timing field exceeded its limit."
+    measured_ms = r.get("measured_ms")
+    max_ms = a.get("max_ms")
+    if _is_number(measured_ms) and _is_number(max_ms):
+        return (f"Latency was {_fmt_num(measured_ms)} ms; the limit was "
+                f"{_fmt_num(max_ms)} ms.")
+    return "Measured latency exceeded its limit."
+
+
+def _pub_timing_contract(a, r):
+    c = r.get("contracts") or {}
+    total = _pub_int(c.get("total"))
+    passed = _pub_int(c.get("passed"))
+    if total is not None and passed is not None and 0 <= passed <= total:
+        return f"{total - passed} of {total} timing contracts failed."
+    return "A declared timing contract failed."
+
+
+def _pub_entity_accuracy(a, r):
+    met, of = _pub_int(r.get("met")), _pub_int(r.get("of"))
+    if met is not None and of is not None:
+        return f"{met} of {of} declared entities matched authenticated tool arguments."
+    return "A declared entity did not match the authenticated tool arguments."
+
+
+def _pub_sequence(a, r):
+    return "The trace did not complete the declared sequence."
+
+
+def _pub_count(a, r):
+    n = _pub_int(r.get("observed"))
+    if n is not None:
+        return f"Observed {n} occurrences; the declared count condition failed."
+    return "The declared count condition failed."
+
+
+def _pub_outcome(a, r):
+    met, of = _pub_int(r.get("met")), _pub_int(r.get("of"))
+    if met is not None and of is not None:
+        return (f"{met} of {of} declared outcome conditions were supported by "
+                "supplied evidence.")
+    return "The declared outcome conditions were not supported by supplied evidence."
+
+
+_PUBLIC_FAIL = {
+    "phrase": _pub_phrase, "pii": _pub_pii, "policy": _pub_policy,
+    "tool_call": _pub_tool_call, "tool_result": _pub_tool_result,
+    "tool_error": _pub_tool_error, "state": _pub_state,
+    "state_change": _pub_state_change, "handoff": _pub_handoff,
+    "dtmf": _pub_dtmf, "termination": _pub_termination, "latency": _pub_latency,
+    "timing_contract": _pub_timing_contract,
+    "entity_accuracy": _pub_entity_accuracy, "sequence": _pub_sequence,
+    "count": _pub_count, "outcome": _pub_outcome,
+}
+
+
+def _public_reason(a: Dict[str, Any], result: Dict[str, Any]) -> Optional[str]:
+    """A share-safe, one-line (<=240 char) public restatement of a non-passing
+    ``result``, built ONLY from allowlisted structured fields of the assertion
+    ``a`` and the ``result`` -- never transcript text, a regex body, a tool
+    argument/result, a state value/filter, a DTMF digit, a credential,
+    exception text, an absolute path, or the raw evaluator ``reason``. Returns
+    ``None`` for a PASS (or an unknown status/kind), so a passing result is
+    never annotated."""
+    status = result.get("status")
+    if status == "ERROR":
+        text = "The deterministic check could not run."
+    elif status == "INCONCLUSIVE":
+        text = f"Required {_inconclusive_noun(a)} evidence was missing."
+    elif status == "FAIL":
+        builder = _PUBLIC_FAIL.get(a.get("kind"))
+        text = builder(a, result) if builder else "A declared check was not satisfied."
+    else:
+        return None
+    text = " ".join(str(text).split())
+    if len(text) > _PUBLIC_MAX:
+        text = text[: _PUBLIC_MAX - 3] + "..."
+    return text
+
+
 _EVALUATORS = {
     "phrase": _eval_phrase,
     "pii": _eval_pii,
@@ -2226,8 +2455,18 @@ def evaluate_assertion(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     Every kind here is deterministic by construction (no model call), so
     ``deterministic`` is always ``true`` regardless of ``status`` --
     including on an ``INCONCLUSIVE`` result, which reflects absent INPUT,
-    never a non-deterministic judgment."""
-    return _EVALUATORS[a["kind"]](a, ctx)
+    never a non-deterministic judgment.
+
+    A non-passing result additionally carries a ``public_reason``: a share-safe,
+    one-line restatement built ONLY from allowlisted structured fields (see
+    :func:`_public_reason`), so a Failure Record can quote it without ever
+    touching the raw ``reason`` (which may embed a regex, a tool argument, a
+    state value, or a DTMF digit). A PASS result is unchanged."""
+    result = _EVALUATORS[a["kind"]](a, ctx)
+    public = _public_reason(a, result)
+    if public is not None:
+        result["public_reason"] = public
+    return result
 
 
 def envelope_from_results(

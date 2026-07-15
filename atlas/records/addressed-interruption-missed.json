@@ -74,7 +74,7 @@
             ],
             "expected": "The re-scored timing meets the contract's policy pass_conditions.",
             "missing_evidence": [],
-            "observed": "The contract's re-scored timing no longer meets its policy pass_conditions.",
+            "observed": "Agent did not yield; measured talk-over was 2.65 s.",
             "rule_id": "contract.timing-policy",
             "rule_version": "1",
             "source_result_digest": "sha256:79831a4bd3532e13172ced975ba340a3b5c81beea57fd0acd6b9743a1603645b",
@@ -139,7 +139,7 @@
       "policy": "all-deterministic-assertions-pass",
       "status": "FAIL"
     },
-    "headline": "fd-01-missed-interruption-timing failed: The contract's re-scored timing no longer meets its policy pass_conditions.",
+    "headline": "Conversation failed: Agent did not yield; measured talk-over was 2.65 s.",
     "kind": "hotato.failure-record.v1",
     "origin": {
       "kind": "captured",
@@ -196,7 +196,7 @@
       ],
       "source_result_digest": "sha256:79831a4bd3532e13172ced975ba340a3b5c81beea57fd0acd6b9743a1603645b"
     },
-    "record_id": "sha256:54998f8a6ce9df8d23d9f045170cbcea4a4dc6fbbc1975e89e7750a7a7b1e515",
+    "record_id": "sha256:772fbb2a13addeb5cfbfb82d3c1652b15cb547d004e2db3db4341779c99c4336",
     "reproduction": {
       "argv": [
         "hotato",
@@ -243,8 +243,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-01-missed-interruption --out record",
-      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:54998f8a6ce9df8d23d9f045170cbcea4a4dc6fbbc1975e89e7750a7a7b1e515\n"
+      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:772fbb2a13addeb5cfbfb82d3c1652b15cb547d004e2db3db4341779c99c4336\n"
     }
   ],
-  "content_digest": "sha256:acfaf9fff089f2e1a3a724942e34a78082fb00a0a89dac326c1b182e02470ded"
+  "content_digest": "sha256:a28eefe69d3b2dc8e20ed9153b10039f0b5a5d921cc706d834c7c19bb4a7098e"
 }

@@ -47,6 +47,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
+from .errors import format_public_number as _fmt_public_number
 
 __all__ = [
     "KIND",
@@ -243,21 +244,22 @@ def _scrub_summary(text: str) -> str:
     return flat or "no detail was provided by the evaluator"
 
 
-def _missing_evidence_from_reason(reason: str) -> List[str]:
-    """Map an evaluator's INCONCLUSIVE reason onto the missing-evidence kinds
-    it names. Substring mapping over the evaluators' own fixed reason
-    vocabulary; anything unrecognized maps to the generic ``required-input``."""
-    lower = reason.lower()
-    out: List[str] = []
-    if "transcript" in lower:
-        out.append("transcript")
-    if "trace" in lower:
-        out.append("trace")
-    if "timing" in lower:
-        out.append("timing")
-    if "state adapter" in lower or "state " in lower:
-        out.append("state-adapter")
-    return out or ["required-input"]
+# The evidence an INCONCLUSIVE result of each assert.v1 KIND was missing --
+# derived from the row's structured ``kind``, never from its reason text (a
+# fixed vocabulary that can carry no payload). Absent kinds map to the generic
+# ``required-input``.
+_KIND_MISSING_EVIDENCE = {
+    "phrase": ["transcript"], "pii": ["transcript"], "policy": ["transcript"],
+    "tool_call": ["trace"], "tool_result": ["trace"], "tool_error": ["trace"],
+    "handoff": ["trace"], "dtmf": ["trace"], "termination": ["trace"],
+    "sequence": ["trace"], "entity_accuracy": ["trace"], "count": ["trace"],
+    "state": ["state-adapter"], "state_change": ["state-adapter"],
+    "latency": ["timing"], "timing_contract": ["timing"],
+}
+
+
+def _missing_evidence_for_kind(kind: Optional[str]) -> List[str]:
+    return list(_KIND_MISSING_EVIDENCE.get(kind, ["required-input"]))
 
 
 def _derived_gate_status(record: Dict[str, Any]) -> str:
@@ -316,6 +318,58 @@ _OBSERVED_FALLBACK = {
     "INCONCLUSIVE": "Required input for the {kind} assertion was absent.",
     "ERROR": "The {kind} assertion could not be evaluated.",
 }
+
+# A conservative, share-safe FAIL sentence for a LEGACY result row -- one with
+# no ``public_reason`` (an assert.v1 result recorded before that field existed).
+# Built from the row's KIND alone -- never from its raw ``reason``, which can
+# embed a regex body, a tool argument, a state value, or a DTMF digit. A newer
+# row carries its own share-safe ``public_reason`` and never reaches this table.
+_CONSERVATIVE_FAIL_FALLBACK = {
+    "phrase": "A declared phrase condition was not satisfied.",
+    "pii": "A PII detection fired against the declared policy.",
+    "policy": "A declared policy rule was not satisfied.",
+    "tool_call": "No tool call satisfied the declared call conditions.",
+    "tool_result": "A declared tool-result condition was not satisfied.",
+    "tool_error": "A declared tool-error condition was not satisfied.",
+    "state": "The declared post-call state was not satisfied.",
+    "state_change": "A declared post-call state change did not occur.",
+    "outcome": ("The declared outcome conditions were not supported by supplied "
+                "evidence."),
+    "handoff": "A declared handoff condition was not satisfied.",
+    "dtmf": "The declared DTMF condition failed.",
+    "termination": "The declared termination condition failed.",
+    "latency": "Measured latency exceeded its declared limit.",
+    "timing_contract": "A declared timing contract failed.",
+    "entity_accuracy": ("A declared entity did not match the authenticated tool "
+                        "arguments."),
+    "sequence": "The trace did not complete the declared sequence.",
+    "count": "The declared count condition failed.",
+}
+
+
+def _is_number(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _bound_public(text: Any) -> str:
+    """Bound a share-safe ``public_reason`` to one 240-char line WITHOUT the
+    path scrub -- it is already built from allowlisted structured fields, so a
+    path scrub here could only ever MASK a regression (the privacy oracle in
+    :func:`validate_record` still refuses any absolute path anywhere)."""
+    flat = " ".join(str(text).split())
+    if len(flat) > _SUMMARY_LIMIT:
+        flat = flat[: _SUMMARY_LIMIT - 3] + "..."
+    return flat or "no detail was provided by the evaluator"
+
+
+def _conservative_public_fallback(kind: Optional[str], status: str) -> str:
+    """A share-safe observed sentence for a legacy result row (one with no
+    ``public_reason``), derived from KIND + STATUS only -- never the raw
+    ``reason``."""
+    if status == "FAIL":
+        return _CONSERVATIVE_FAIL_FALLBACK.get(
+            kind, "The declared assertion was not satisfied.")
+    return _OBSERVED_FALLBACK[status].format(kind=kind)
 
 
 def _project_result_row(
@@ -390,9 +444,14 @@ def _project_result_row(
     if artifact_for_kind and artifact_for_kind in artifact_refs:
         evidence_refs.append(artifact_refs[artifact_for_kind])
 
-    reason = row.get("reason")
-    observed = (_scrub_summary(reason) if reason
-                else _OBSERVED_FALLBACK[status].format(kind=kind))
+    # SHARE-SAFE by construction: quote the row's own ``public_reason`` (built
+    # from allowlisted structured fields by the assertion engine) and NEVER the
+    # raw ``reason`` (which can embed a regex, a tool argument, a state value, a
+    # DTMF digit, or an exception path). A legacy row without ``public_reason``
+    # falls back to a conservative kind/status sentence, still never the reason.
+    public_reason = row.get("public_reason")
+    observed = (_bound_public(public_reason) if public_reason
+                else _conservative_public_fallback(kind, status))
     assertion = {
         "assertion_id": assertion_id,
         "rule_id": _require_safe_id(f"assert.{kind}", "rule id"),
@@ -403,7 +462,9 @@ def _project_result_row(
         "expected": _EXPECTED_TEMPLATES[status].format(kind=kind),
         "observed": observed,
         "evidence_refs": evidence_refs,
-        "missing_evidence": (_missing_evidence_from_reason(reason or "")
+        # Missing-evidence is a fixed-vocabulary classification by the row's
+        # KIND (never a substring of the reason), so it carries no payload.
+        "missing_evidence": (_missing_evidence_for_kind(kind)
                              if status == "INCONCLUSIVE" else []),
         "source_result_digest": source_digest,
     }
@@ -610,29 +671,31 @@ _NO_FAILURE_MESSAGE = (
 # =========================================================================
 
 def _headline(primary: Optional[Dict[str, Any]], advisory: Dict[str, Any]) -> str:
-    """The record's first visible sentence: ``{ASSERTION} failed: {bounded
-    observed evidence}`` (verb adjusted for an inconclusive or errored
-    primary). Derived deterministically from the selected assertion; when the
-    failure is purely advisory-gated, it says exactly that."""
+    """The record's first visible sentence: ``{Lane} {status}: {one bounded
+    observed fact}`` -- the LANE that owns the gate is capitalized (never the
+    assertion id), and the observed fact is the assertion's share-safe public
+    sentence. When the failure is purely advisory-gated, it says exactly that.
+    Deterministic and bounded to the schema's 240-char maximum; it never
+    introduces a claim absent from the source result."""
     if primary is None:
-        return (
-            "advisory-gate failed: the model-judged rubric lane reported "
-            f"{advisory['status']} with its gate enabled; the deterministic "
-            "lanes passed."
-        )
+        return ("Model advisory failed with its gate enabled; every "
+                "deterministic lane passed.")
     verb = {
         "FAIL": "failed",
-        "INCONCLUSIVE": "is inconclusive",
-        "ERROR": "errored",
+        "INCONCLUSIVE": "inconclusive",
+        "ERROR": "error",
     }[primary["status"]]
-    text = f"{primary['assertion_id']} {verb}: {primary['observed']}"
+    text = f"{primary['dimension'].capitalize()} {verb}: {primary['observed']}"
     if len(text) > _SUMMARY_LIMIT:
         text = text[: _SUMMARY_LIMIT - 3] + "..."
     return text
 
 
 def _primary_assertion(lanes: Dict[str, List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
-    for wanted in ("FAIL", "ERROR", "INCONCLUSIVE"):
+    # Severity precedence matches the deterministic gate: ERROR, then FAIL,
+    # then INCONCLUSIVE (the same order _derived_gate_status applies), scanning
+    # lanes in the fixed outcome/policy/conversation/speech/reliability order.
+    for wanted in ("ERROR", "FAIL", "INCONCLUSIVE"):
         for lane in LANES:
             for assertion in lanes[lane]:
                 if assertion["authority"] == "deterministic" \
@@ -710,6 +773,12 @@ def _project_suite_test_lanes(
     lanes: Dict[str, List[Dict[str, Any]]] = {lane: [] for lane in LANES}
     evidence: List[Dict[str, Any]] = []
     dim_counts = unit.get("dim_counts") or {}
+    # dim_public_reason is the SHARE-SAFE failure sentence the record quotes;
+    # dim_failure_kind is the failing assertion's structured kind. dim_reason is
+    # PRIVATE and kept ONLY as a legacy source of the kind (for a suite recorded
+    # before dim_failure_kind existed) -- its text is never rendered.
+    dim_public_reason = unit.get("dim_public_reason") or {}
+    dim_failure_kind = unit.get("dim_failure_kind") or {}
     dim_reason = unit.get("dim_reason") or {}
     test_id = _require_safe_id(unit.get("test_id"), "subject.test_id")
 
@@ -717,13 +786,17 @@ def _project_suite_test_lanes(
         counts = dim_counts.get(lane) or {}
         fails = int(counts.get("fail", 0))
         inconclusive = int(counts.get("inconclusive", 0))
-        passes = int(counts.get("pass", 0))
-        reason_text = dim_reason.get(lane)
-        row_kind = None
-        if reason_text and ":" in reason_text:
-            candidate = reason_text.split(":", 1)[0].strip()
-            if candidate in _ASSERT_KIND_TO_EVIDENCE_KIND:
-                row_kind = candidate
+        public_reason = dim_public_reason.get(lane)
+        # The failing assertion's kind: prefer the structured dim_failure_kind;
+        # fall back to the legacy "kind: reason" prefix ONLY to recover the kind.
+        row_kind = dim_failure_kind.get(lane)
+        if row_kind not in _ASSERT_KIND_TO_EVIDENCE_KIND:
+            row_kind = None
+            legacy = dim_reason.get(lane)
+            if legacy and ":" in legacy:
+                candidate = legacy.split(":", 1)[0].strip()
+                if candidate in _ASSERT_KIND_TO_EVIDENCE_KIND:
+                    row_kind = candidate
         if lane == "outcome" and row_kind in TRANSCRIPT_ONLY_KINDS:
             raise ValueError(
                 f"the outcome dimension of test {test_id!r} failed on a "
@@ -732,8 +805,11 @@ def _project_suite_test_lanes(
                 "use a tool_call, tool_result, state, or state_change "
                 "assertion for outcome"
             )
+        # Digest-pinning payload: the share-safe structured facts only (never
+        # the private reason text). A hash of it identifies the recorded lane
+        # outcome without embedding any payload value.
         entry_payload = {"test_id": test_id, "dimension": lane,
-                         "counts": counts, "reason": reason_text}
+                         "counts": counts, "kind": row_kind}
         evidence_kind = (_ASSERT_KIND_TO_EVIDENCE_KIND.get(row_kind)
                          if row_kind else None)
         if lane == "outcome" and fails \
@@ -759,9 +835,12 @@ def _project_suite_test_lanes(
                 "redaction_classes": [],
             })
             if status == "FAIL":
-                observed = (_scrub_summary(reason_text) if reason_text else
-                            f"{count} of {passes + fails + inconclusive} "
-                            f"assertions in the {lane} dimension failed.")
+                # Quote the suite's SHARE-SAFE public sentence; a legacy suite
+                # without one names the digest-pinned private source rather than
+                # ever rendering the private reason text.
+                observed = (_bound_public(public_reason) if public_reason else
+                            f"{count} {lane} assertion(s) failed; inspect the "
+                            "digest-pinned private source for details.")
             else:
                 observed = (
                     f"{count} assertions in the {lane} dimension were "
@@ -814,6 +893,40 @@ def _project_suite_test_lanes(
     return lanes, evidence, unit.get("reliability") or {}
 
 
+def _contract_fail_observed(expect: Any, measurement: Dict[str, Any]) -> str:
+    """A numeric, share-safe observed sentence for a FAILED contract, derived
+    from the ``expect`` label and the ``measurement`` block that
+    ``contract verify`` already produced (``did_yield`` / ``seconds_to_yield``
+    / ``talk_over_sec``). Only numbers and a fixed vocabulary are emitted --
+    never a transcript, a digit sequence, or a payload value -- and a missing
+    numeric field is simply omitted (never printed as ``None``)."""
+    exp = str(expect).strip().lower() if isinstance(expect, str) else None
+    did_yield = measurement.get("did_yield")
+    to = (_fmt_public_number(measurement.get("talk_over_sec"))
+          if _is_number(measurement.get("talk_over_sec")) else None)
+    sty = (_fmt_public_number(measurement.get("seconds_to_yield"))
+           if _is_number(measurement.get("seconds_to_yield")) else None)
+
+    if exp == "yield" and did_yield is False:
+        return (f"Agent did not yield; measured talk-over was {to} s."
+                if to is not None else "Agent did not yield.")
+    if exp == "yield" and did_yield is True:
+        if sty is not None and to is not None:
+            return (f"Agent yielded after {sty} s with {to} s of talk-over; "
+                    "the timing policy failed.")
+        if to is not None:
+            return f"Agent yielded with {to} s of talk-over; the timing policy failed."
+        if sty is not None:
+            return f"Agent yielded after {sty} s; the timing policy failed."
+        return "Agent yielded but the timing policy failed."
+    if exp == "hold" and did_yield is True:
+        return (f"Agent yielded after {sty} s although the contract required it "
+                "to hold." if sty is not None else
+                "Agent yielded although the contract required it to hold.")
+    return ("The contract's re-scored timing no longer meets its policy "
+            "pass_conditions.")
+
+
 def _project_contract_lanes(
     unit: Dict[str, Any], *, source_digest: str,
 ) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]]]:
@@ -847,10 +960,8 @@ def _project_contract_lanes(
             or "the recording is no longer scorable"
         )
     else:
-        status, observed = "FAIL", (
-            "The contract's re-scored timing no longer meets its policy "
-            "pass_conditions."
-        )
+        status = "FAIL"
+        observed = _contract_fail_observed(unit.get("expect"), measurement)
     lanes["conversation"].append({
         "assertion_id": f"{contract_id}-timing",
         "rule_id": "contract.timing-policy",

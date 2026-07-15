@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
 <title id="title">FAIL · refund-claimed-not-issued</title>
-<desc id="desc">refund-issued failed: expected a refund.create tool call; none was found in the trace</desc>
+<desc id="desc">Outcome failed: No tool call satisfied the declared call conditions.</desc>
 <rect width="1200" height="630" fill="#1b1714"/>
 <text x="56" y="55" fill="#b7ab97" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18">HOTATO · FAILURE RECORD</text>
 <text x="56" y="112" fill="#e0664f" font-family="ui-sans-serif,system-ui,sans-serif" font-size="44" font-weight="700">FAIL · refund-claimed-not-issued</text>
-<text x="56" y="166" fill="#f1e8d7" font-family="ui-sans-serif,system-ui,sans-serif" font-size="23">refund-issued failed: expected a refund.create tool call; none was found in the trace</text>
+<text x="56" y="166" fill="#f1e8d7" font-family="ui-sans-serif,system-ui,sans-serif" font-size="23">Outcome failed: No tool call satisfied the declared call conditions.</text>
 <text x="56" y="205" fill="#b7ab97" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16">FIVE DIMENSIONS · EACH WITH ITS OWN STATUS · NEVER BLENDED</text>
 <g transform="translate(56 230)"><rect width="208" height="104" rx="12" fill="#241f1a" stroke="#493d31"/><text x="16" y="32" fill="#b7ab97" font-size="17">Outcome</text><text x="16" y="70" fill="#e0664f" font-size="22" font-weight="700">FAIL</text></g><g transform="translate(286 230)"><rect width="208" height="104" rx="12" fill="#241f1a" stroke="#493d31"/><text x="16" y="32" fill="#b7ab97" font-size="17">Policy</text><text x="16" y="70" fill="#74c98a" font-size="22" font-weight="700">PASS</text></g><g transform="translate(516 230)"><rect width="208" height="104" rx="12" fill="#241f1a" stroke="#493d31"/><text x="16" y="32" fill="#b7ab97" font-size="17">Conversation</text><text x="16" y="70" fill="#74c98a" font-size="22" font-weight="700">PASS</text></g><g transform="translate(746 230)"><rect width="208" height="104" rx="12" fill="#241f1a" stroke="#493d31"/><text x="16" y="32" fill="#b7ab97" font-size="17">Speech</text><text x="16" y="70" fill="#b7ab97" font-size="22" font-weight="700">INCONCLUSIVE</text></g><g transform="translate(976 230)"><rect width="208" height="104" rx="12" fill="#241f1a" stroke="#493d31"/><text x="16" y="32" fill="#b7ab97" font-size="17">Reliability</text><text x="16" y="70" fill="#b7ab97" font-size="22" font-weight="700">NOT_RUN</text></g>
 <text x="56" y="390" fill="#b7ab97" font-family="ui-sans-serif,system-ui,sans-serif" font-size="17">PRIMARY EVIDENCE</text>
-<text x="56" y="426" fill="#f1e8d7" font-family="ui-sans-serif,system-ui,sans-serif" font-size="22">expected a refund.create tool call; none was found in the trace</text>
+<text x="56" y="426" fill="#f1e8d7" font-family="ui-sans-serif,system-ui,sans-serif" font-size="22">No tool call satisfied the declared call conditions.</text>
 <text x="56" y="477" fill="#b7ab97" font-family="ui-sans-serif,system-ui,sans-serif" font-size="17">REPRODUCE</text>
 <text x="56" y="510" fill="#f1e8d7" font-family="ui-monospace,SFMono-Regular,monospace" font-size="17">hotato record render source-result.json --out record</text>
 <line x1="56" y1="548" x2="1144" y2="548" stroke="#493d31"/>
-<text x="56" y="583" fill="#b7ab97" font-family="ui-monospace,SFMono-Regular,monospace" font-size="14">sha256:4fba280a24712a25e863b1bd5f5857801aafd5e0b03bebfa40f1966c120d8c6e</text>
+<text x="56" y="583" fill="#b7ab97" font-family="ui-monospace,SFMono-Regular,monospace" font-size="14">sha256:a53c49db05029463aba6406a926d991c4566576661077d3e9e922dd5e2609b98</text>
 <text x="56" y="608" fill="#b7ab97" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14">deterministic gate: FAIL · advisory: UNAVAILABLE · origin: captured</text>
 </svg>

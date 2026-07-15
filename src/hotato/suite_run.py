@@ -197,6 +197,13 @@ def _run_scenario_test(
     # honest all-invalid outcome, never a fabricated pass.
     first_valid = next((r for r in summary["runs"] if r["valid"]), None)
     dim_reason: Dict[str, str] = {}
+    # A SHARE-SAFE public failure sentence + the failing assertion's KIND, per
+    # dimension. dim_public_reason is what a Failure Record quotes (never the
+    # private dim_reason); dim_failure_kind lets the projection enforce the
+    # outcome-evidence authority rule without parsing "kind: reason" out of
+    # dim_reason. Both additive; consumers ignore unknown fields.
+    dim_public_reason: Dict[str, str] = {}
+    dim_failure_kind: Dict[str, str] = {}
     if first_valid is not None:
         rep = _representative_eval(
             test_doc, scenario_doc, first_valid["seed"], agent_id=agent_id,
@@ -205,13 +212,20 @@ def _run_scenario_test(
         success = rep["success"]
         rubric = rep.get("rubric")
         ungrouped = rep.get("ungrouped")
-        # The first FAILing assertion's reason per dimension -> a real, observable
-        # failure signature for the workspace's failure-cluster view.
+        # The first FAILing assertion per dimension -> a real, observable failure
+        # signature for the workspace's failure-cluster view (dim_reason, PRIVATE)
+        # plus its share-safe public restatement (dim_public_reason) and kind.
         for r in rep["assertions"]["results"]:
             if r.get("status") == "FAIL":
                 d = r.get("dimension")
-                if d and d not in dim_reason and r.get("reason"):
+                if not d:
+                    continue
+                if d not in dim_failure_kind:
+                    dim_failure_kind[d] = r.get("kind", "assertion")
+                if d not in dim_reason and r.get("reason"):
                     dim_reason[d] = f"{r.get('kind', 'assertion')}: {r['reason']}"
+                if d not in dim_public_reason and r.get("public_reason"):
+                    dim_public_reason[d] = r["public_reason"]
     else:
         breakdown = {d: {"pass": 0, "fail": 0, "inconclusive": 0} for d in _DIMS}
         success = {"required": list((test_doc.get("success") or {}).get("required") or []),
@@ -235,6 +249,8 @@ def _run_scenario_test(
         "dimensions": _dim_rollup(breakdown),
         "dim_counts": {d: breakdown.get(d) for d in _DIMS},
         "dim_reason": dim_reason,
+        "dim_public_reason": dim_public_reason,
+        "dim_failure_kind": dim_failure_kind,
         "ungrouped": ungrouped,
         "success": success,
         "rubric_summary": (rubric or {}).get("summary") if rubric else None,

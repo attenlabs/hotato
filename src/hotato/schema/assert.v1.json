@@ -75,6 +75,11 @@
           "description": "OPTIONAL, additive. The report DIMENSION this result is grouped under in the per-dimension scorecard, copied verbatim from the assertion's `dimension` TAG. A grouping key only -- never a weight and never part of any blended or overall number (the scorecard shows each dimension's own pass/fail/inconclusive counts, never a merged score). Absent on an untagged assertion's result and on envelopes built before this field existed; a consumer must not require it. The Reliability dimension carries pass@1 / pass@k / pass^k when real repetition data is supplied to the report (a run_matrix aggregate or a reliability() dict); with none it renders the honest empty-state ('not measured: no repeated runs in this report'), never a fabricated value."
         },
         "reason": { "type": "string" },
+        "public_reason": {
+          "type": "string",
+          "maxLength": 240,
+          "description": "OPTIONAL, additive. A SHARE-SAFE, single-line (<=240 char) restatement of a FAIL/INCONCLUSIVE/ERROR result, built ONLY from allowlisted STRUCTURED fields (assertion kind/id, rule/tool/resource ids, policy rule id+type, detector names, counts, span ids, numeric timing measurements) -- NEVER transcript text, a regex body, tool arguments/results, state values/filters, DTMF digits, credentials, exception text, an absolute path, or the raw evaluator `reason`. Emitted only for a non-passing result; absent on PASS and on envelopes built before this field existed, so a consumer must not require it. A share-safe Failure Record projection consumes THIS field (not `reason`) as the human failure sentence."
+        },
         "met": { "type": "integer", "minimum": 0, "description": "outcome kind only: sub-predicates satisfied." },
         "of": { "type": "integer", "minimum": 0, "description": "outcome kind only: total sub-predicates evaluated." },
         "span_ids": {
