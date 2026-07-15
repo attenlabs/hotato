@@ -318,6 +318,35 @@ def test_high_leakage_is_not_verdict_eligible(tmp_path):
     assert r["verdict_ineligible_reason"] == trust_mod.VERDICT_INELIGIBLE_REASON
 
 
+def test_confirmed_channel_mapping_does_not_clear_crosstalk_verdict(tmp_path):
+    # R-05: --confirm-channels answers ONLY "are the roles reversed?" -- it must
+    # never clear a crosstalk/leakage verdict refusal. A recording whose channels
+    # are correctly mapped but still bleed into each other misattributes one
+    # party's audio to the other, so the timing verdict stays untrustworthy. On
+    # pre-fix code the `elif channel_map_confirmed` branch flipped this back to
+    # eligible; this asserts confirmation cannot launder echo bleed into a trusted
+    # verdict.
+    p = _bleed_stereo(tmp_path / "bleed.wav", gain=0.03)
+    r = trust_report(p, channel_map_confirmed=True)
+    assert r["scorable"] is True
+    assert r["channel_map_confirmed"] is True
+    assert r["verdict_eligible"] is False
+    assert r["verdict_ineligible_reason"] == trust_mod.VERDICT_INELIGIBLE_REASON
+
+
+def test_confirmed_channel_mapping_does_not_clear_crosstalk_verdict_contract(tmp_path):
+    # R-05, attestation path: the stricter contract mode (what `contract
+    # create`/`contract verify` re-derive verdict_eligible under before signing a
+    # PASS) must likewise refuse a confirmed-but-bleeding recording. Locks that
+    # --confirm-channels cannot produce a signed trusted verdict over crosstalk.
+    p = _bleed_stereo(tmp_path / "bleed.wav", gain=0.03)
+    r = trust_report(p, channel_map_confirmed=True,
+                     mode=trust_mod.VERDICT_MODE_CONTRACT)
+    assert r["scorable"] is True
+    assert r["verdict_eligible"] is False
+    assert r["verdict_ineligible_reason"] == trust_mod.VERDICT_INELIGIBLE_REASON
+
+
 # --- clipping: warned, scorability unchanged --------------------------------
 
 def test_clipping_is_warned_without_blocking_scan(tmp_path):
