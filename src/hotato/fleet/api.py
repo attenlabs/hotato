@@ -26,6 +26,7 @@ from .. import recompute as _recompute
 from .. import scan as _scan
 from .. import trust as _trust
 from .. import verify as _verify
+from ..errors import open_regular as _open_regular
 from . import privacy as _privacy
 from .jobs import JobQueue
 from .registry import DEFAULT_HOME, Registry
@@ -409,7 +410,7 @@ class FleetAPI:
         contract_json_path = _os.path.join(bundle_dir, "contract.json")
         if _os.path.isdir(bundle_dir) and _os.path.exists(contract_json_path):
             try:
-                with open(contract_json_path, encoding="utf-8") as _fh:
+                with _open_regular(contract_json_path, "r", encoding="utf-8") as _fh:
                     cjson = json.load(_fh)
             except (OSError, ValueError):
                 cjson = {}
