@@ -22,7 +22,7 @@ import hashlib
 import hmac
 import json
 import os
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 from typing import Optional
 
 from . import __version__
@@ -122,6 +122,38 @@ def score_config_hash(cfg: Optional[ScoreConfig] = None) -> tuple:
     return d, _sha256_str(canonical_json(d))
 
 
+def config_from_dict(d: Optional[dict]) -> ScoreConfig:
+    """Rebuild a :class:`ScoreConfig` (with nested :class:`VADParams`) from the
+    dict a manifest PINS in ``scorer.config`` (produced by :func:`_config_to_dict`).
+
+    The exact inverse of ``_config_to_dict``: it lets :func:`recompute_trial`
+    re-score under the config the manifest attests to, instead of a fresh
+    default. Additive-compatible and defensive: keys the current dataclasses do
+    not define are IGNORED and keys the dict omits keep their dataclass default,
+    so an older or partial manifest still rebuilds to a valid config (and a
+    round-trip of a default config reproduces a default ScoreConfig, so callers
+    that never pinned a custom config see no behaviour change)."""
+    d = d or {}
+    _vad_names = {f.name for f in fields(VADParams)}
+
+    def _vad(v):
+        if not isinstance(v, dict):
+            return None
+        return VADParams(**{k: v[k] for k in v if k in _vad_names})
+
+    _cfg_names = {f.name for f in fields(ScoreConfig)}
+    kwargs = {k: d[k] for k in d
+              if k in _cfg_names and k not in ("caller_vad", "agent_vad")}
+    cfg = ScoreConfig(**kwargs)
+    caller_vad = _vad(d.get("caller_vad"))
+    if caller_vad is not None:
+        cfg.caller_vad = caller_vad
+    agent_vad = _vad(d.get("agent_vad"))
+    if agent_vad is not None:
+        cfg.agent_vad = agent_vad
+    return cfg
+
+
 def normalize_policy(policy: Optional[dict]) -> dict:
     """Canonical pass-condition policy applied to BOTH sides of a trial.
 
@@ -213,7 +245,16 @@ def build_manifest(
         # inferred from expected_yield's mere presence (that field is written
         # into every event unconditionally, human-authored or not -- the K5
         # bug this replaces).
-        if label_record is not None:
+        if label_record is not None and stimulus_pcm is None:
+            # A label-record was supplied but this event has NO decoded-audio
+            # identity to bind it to (no audio_provenance / caller side / pcm).
+            # A signed record cannot be trusted as "human"/"human-shared" for a
+            # fixture it was never bound to -- exactly the K5 signature-reuse a
+            # missing provenance would otherwise let through. Mirror the refusal
+            # verify_label_record_local returns for a None binding hash, so this
+            # never reaches a positive authority regardless of trust resolution.
+            label_authority = "invalid"
+        elif label_record is not None:
             verification = _labelrecord.verify_label_record_local(
                 label_record, event_pcm_sha256=stimulus_pcm)
             if verification.get("ok") and verification.get("authority") in (
@@ -384,7 +425,8 @@ def coverage(manifest: dict, env: dict) -> dict:
 
 
 __all__ = [
-    "SCHEMA_VERSION", "canonical_json", "score_config_hash", "normalize_policy",
+    "SCHEMA_VERSION", "canonical_json", "score_config_hash", "config_from_dict",
+    "normalize_policy",
     "policy_hash", "fixture_key", "wheel_hash", "build_manifest",
     "compute_manifest_hash", "verify_manifest_hash", "sign_manifest",
     "verify_manifest_signature", "fixture_index", "coverage",

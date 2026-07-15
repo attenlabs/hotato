@@ -202,6 +202,56 @@ def test_tampered_label_record_refuses_not_downgrades(tmp_path):
         ev._cap_for("label_authority", "none")
 
 
+# --- R-02: the audio binding is MANDATORY, never signature-only -------------
+
+def test_verify_refuses_without_binding_hash():
+    """A validly signed record with NO event audio hash to check against is a
+    clean REFUSAL, never a signature-only "human-shared". Skipping the binding
+    check on a None hash (the pre-fix behaviour) let a genuine record be lifted
+    from the recording it was made about onto an unrelated (or audio-less)
+    fixture -- the K5 signature-reuse forgery. Pre-fix: ok True / human-shared."""
+    record = lr.mint_label_record(
+        reviewer_principal="alice", event_audio_pcm_sha256="a" * 64,
+        decision="yield", hmac_key=b"k")
+    res = lr.verify_label_record(record, pubkey_or_key=b"k", event_pcm_sha256=None)
+    assert res["ok"] is False and res["authority"] is None
+    assert "bound" in res["reason"].lower()
+
+
+def test_unbound_label_record_is_invalid_not_human(monkeypatch):
+    """An event carrying a genuinely signed record but NO audio_provenance (so
+    there is no decoded-audio identity to bind the record to) must resolve to
+    label_authority 'invalid' (TIER_NONE), not a trusted 'human-shared'
+    (TIER_PAIRED). Pre-fix: build_manifest reported 'human-shared'."""
+    monkeypatch.setenv("HOTATO_ATTEST_KEY", "the-shared-attest-key")
+    record = lr.mint_label_record(
+        reviewer_principal="alice", event_audio_pcm_sha256="a" * 64,
+        decision="yield", hmac_key=b"the-shared-attest-key")
+    event = {"event_id": "e1", "scenario_id": "s1", "expected_yield": True,
+             "expected_yield_explicit": True, "label_record": record}
+    # no audio_provenance -> no stimulus PCM to bind the record to
+    assert m._stimulus_pcm(event) is None
+    man = m.build_manifest({"events": [event]}, trial_id="t", nonce="n", min_n=1)
+    fx = man["fixtures"][0]
+    assert fx["stimulus_pcm_sha256"] is None
+    assert fx["label_authority"] == "invalid"
+    assert ev._cap_for("label_authority", fx["label_authority"]) == ev.TIER_NONE
+
+
+def test_bound_label_record_still_human_shared_no_false_refusal(tmp_path, monkeypatch):
+    """Guard against over-refusal: an HONEST event that DOES carry
+    audio_provenance and a record bound to its own stimulus PCM still earns
+    'human-shared' after the fix. The binding requirement refuses only the
+    unbound case, never a legitimately bound one."""
+    monkeypatch.setenv("HOTATO_ATTEST_KEY", "the-shared-attest-key")
+    env = _battery(tmp_path, expected=True)
+    event = env["events"][0]
+    assert m._stimulus_pcm(event) is not None
+    _labels.sign_event_human_shared(event, key=b"the-shared-attest-key")
+    man = m.build_manifest(env, trial_id="t", nonce="n", min_n=1)
+    assert man["fixtures"][0]["label_authority"] == "human-shared"
+
+
 # --- `hotato fixture create` mints and embeds a label-record ----------------
 
 def test_fixture_create_mints_label_record_when_a_key_is_configured(tmp_path, monkeypatch):

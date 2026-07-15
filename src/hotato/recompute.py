@@ -227,7 +227,26 @@ def recompute_trial(
       evidence                       : the evidence classification block
       refusal                        : {kind, reason} or None (hard-gate failure)
     """
-    cfg = cfg or ScoreConfig()
+    # Score under the config the manifest PINNED, not a fresh default. The
+    # manifest fixes ScoreConfig+VADParams in scorer.config / scorer.config_hash
+    # precisely so a recompute re-derives verdicts under the SAME config it
+    # attests to; recomputing under a hard-coded default ScoreConfig() would
+    # silently score a manifest that pinned e.g. a tighter yield_hangover_sec or
+    # an alternate VAD backend under the wrong config, yet still label the result
+    # 'recomputed'. When no cfg is supplied, reconstruct the pinned one. When a
+    # caller DOES supply an explicit cfg, its hash must match the manifest's
+    # pinned config_hash; a mismatch means the audio is being rescored under a
+    # different config than the manifest attests to (surfaced below, never
+    # silently 'recomputed').
+    _scorer = man.get("scorer") or {}
+    _pinned_cfg_hash = _scorer.get("config_hash")
+    config_divergence = False
+    if cfg is None:
+        cfg = _manifest.config_from_dict(_scorer.get("config"))
+    elif _pinned_cfg_hash:
+        _, _supplied_cfg_hash = _manifest.score_config_hash(cfg)
+        if _supplied_cfg_hash != _pinned_cfg_hash:
+            config_divergence = True
     policy = _manifest.normalize_policy(man.get("policy"))
     fidx = _manifest.fixture_index(man)
     before_base = _resolve_base(before_arg)
@@ -309,6 +328,15 @@ def recompute_trial(
             and _pinned_scorer and _pinned_scorer != "unverified"
             and _pinned_scorer != _manifest.wheel_hash()):
         vector["score_integrity"] = "scorer_changed"
+    # Config pin (K1, config half): the recompute above ran under `cfg`. When a
+    # caller supplied its own cfg whose hash differs from the manifest's pinned
+    # scorer.config_hash, the audio was rescored under a DIFFERENT scoring config
+    # than the manifest attests to (different VAD thresholds / hangover / backend
+    # can flip a verdict on the same audio), so it is not a clean 'recomputed'.
+    # Downgrade-only, mirroring the scorer_changed pin above; the hard gate below
+    # makes it a definite refusal so the divergence is never treated as evidence.
+    if vector["score_integrity"] == "recomputed" and config_divergence:
+        vector["score_integrity"] = "config_changed"
     # audio identity across the pair (decoded off disk, not stored)
     if pcm_mismatch_any:
         vector["audio_identity"] = "mismatch"
@@ -460,7 +488,13 @@ def recompute_trial(
 
     # --- hard gates (refusals that override any average improvement) --------
     refusal = None
-    if score_mismatch:
+    if config_divergence:
+        refusal = {"kind": "config_mismatch",
+                   "reason": "the scorer config used to recompute does not match the config "
+                             "pinned in the trial manifest (scorer.config_hash); the audio "
+                             "was rescored under a different config than the manifest attests "
+                             "to, so the recompute cannot be certified under the pinned config."}
+    elif score_mismatch:
         refusal = {"kind": "score_mismatch",
                    "reason": "a stored verdict disagrees with the score recomputed from audio; "
                              "the envelope was not produced by scoring this audio."}
