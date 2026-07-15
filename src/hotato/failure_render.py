@@ -37,14 +37,16 @@ __all__ = [
 INDEX_KIND = "hotato.failure-record-index.v1"
 INDEX_VERSION = "1.0"
 
-# The same warm-charcoal family the report/suite renderers use.
-_BG = "#1b1714"
-_SURFACE = "#241f1a"
-_BORDER = "#493d31"
-_TEXT = "#f1e8d7"
-_MUTED = "#b7ab97"
-_PASS = "#74c98a"
-_FAIL = "#e0664f"
+# The ember design-system dark tokens. Status colors are kept OFF the ember
+# accent hue (#ff5a1f): FAIL is a distinct alarm red, never a red-orange, so a
+# failing lane can never be mistaken for the brand accent.
+_BG = "#16110d"
+_SURFACE = "#1f1712"
+_BORDER = "rgba(246,239,228,0.12)"
+_TEXT = "#f6efe4"
+_MUTED = "#b9a892"
+_PASS = "#3ecf8e"
+_FAIL = "#ff5c5c"
 
 _STATUS_COLOR = {
     "PASS": _PASS, "FAIL": _FAIL, "ERROR": _FAIL,
@@ -275,7 +277,7 @@ def render_html(record: Dict[str, Any]) -> str:
 <title>{_esc(record['status'])} · {_esc(record['subject']['test_id'])} · hotato failure record</title>
 <style>
 * {{ box-sizing:border-box; }}
-body {{ margin:0; background:{_BG}; color:{_TEXT}; font-family:ui-sans-serif,system-ui,sans-serif; }}
+body {{ margin:0; background:{_BG}; color:{_TEXT}; font-family:"Hanken Grotesk",ui-sans-serif,system-ui,sans-serif; }}
 main {{ max-width:960px; margin:0 auto; padding:32px 20px 48px; }}
 h1 {{ font-size:1.5rem; line-height:1.35; }} h1,h2 {{ font-weight:650; }}
 .eyebrow,.meta {{ color:{_MUTED}; font-size:0.9rem; }}
@@ -283,8 +285,8 @@ h1 {{ font-size:1.5rem; line-height:1.35; }} h1,h2 {{ font-weight:650; }}
 table {{ width:100%; border-collapse:collapse; margin:18px 0; }}
 th,td {{ padding:10px 12px; text-align:left; border-bottom:1px solid {_BORDER}; vertical-align:top; overflow-wrap:anywhere; }}
 th {{ width:18%; }}
-.status {{ font-family:ui-monospace,SFMono-Regular,monospace; font-weight:700; }}
-code,pre {{ font-family:ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere; }}
+.status {{ font-family:"Spline Sans Mono",ui-monospace,SFMono-Regular,monospace; font-weight:700; }}
+code,pre {{ font-family:"Spline Sans Mono",ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere; }}
 pre {{ white-space:pre-wrap; background:{_SURFACE}; border:1px solid {_BORDER}; border-radius:10px; padding:12px; }}
 </style>
 </head>
@@ -338,8 +340,8 @@ def render_svg(record: Dict[str, Any]) -> str:
         observed = ("the deterministic lanes passed; the enabled model "
                     f"advisory gate reported {record['advisory']['status']}")
     status_color = _STATUS_COLOR.get(record["status"], _FAIL)
-    font = "ui-sans-serif,system-ui,sans-serif"
-    mono = "ui-monospace,SFMono-Regular,monospace"
+    font = "'Spline Sans Mono',ui-monospace,SFMono-Regular,monospace"
+    mono = "'Spline Sans Mono',ui-monospace,SFMono-Regular,monospace"
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
 <title id="title">{_svg_esc(record['status'], 14)} · {_svg_esc(record['subject']['test_id'], 60)}</title>
 <desc id="desc">{_svg_esc(record['headline'], 200)}</desc>

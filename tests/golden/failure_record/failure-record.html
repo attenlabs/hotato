@@ -7,24 +7,24 @@
 <title>FAIL · refund-claimed-not-issued · hotato failure record</title>
 <style>
 * { box-sizing:border-box; }
-body { margin:0; background:#1b1714; color:#f1e8d7; font-family:ui-sans-serif,system-ui,sans-serif; }
+body { margin:0; background:#16110d; color:#f6efe4; font-family:"Hanken Grotesk",ui-sans-serif,system-ui,sans-serif; }
 main { max-width:960px; margin:0 auto; padding:32px 20px 48px; }
 h1 { font-size:1.5rem; line-height:1.35; } h1,h2 { font-weight:650; }
-.eyebrow,.meta { color:#b7ab97; font-size:0.9rem; }
-.panel { background:#241f1a; border:1px solid #493d31; border-radius:14px; padding:18px; margin:18px 0; }
+.eyebrow,.meta { color:#b9a892; font-size:0.9rem; }
+.panel { background:#1f1712; border:1px solid rgba(246,239,228,0.12); border-radius:14px; padding:18px; margin:18px 0; }
 table { width:100%; border-collapse:collapse; margin:18px 0; }
-th,td { padding:10px 12px; text-align:left; border-bottom:1px solid #493d31; vertical-align:top; overflow-wrap:anywhere; }
+th,td { padding:10px 12px; text-align:left; border-bottom:1px solid rgba(246,239,228,0.12); vertical-align:top; overflow-wrap:anywhere; }
 th { width:18%; }
-.status { font-family:ui-monospace,SFMono-Regular,monospace; font-weight:700; }
-code,pre { font-family:ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere; }
-pre { white-space:pre-wrap; background:#241f1a; border:1px solid #493d31; border-radius:10px; padding:12px; }
+.status { font-family:"Spline Sans Mono",ui-monospace,SFMono-Regular,monospace; font-weight:700; }
+code,pre { font-family:"Spline Sans Mono",ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere; }
+pre { white-space:pre-wrap; background:#1f1712; border:1px solid rgba(246,239,228,0.12); border-radius:10px; padding:12px; }
 </style>
 </head>
 <body>
 <main>
-<div class="eyebrow">hotato failure record · <span class="status" style="color:#e0664f">FAIL</span> · refund-claimed-not-issued</div>
+<div class="eyebrow">hotato failure record · <span class="status" style="color:#ff5c5c">FAIL</span> · refund-claimed-not-issued</div>
 <h1>Outcome failed: No tool call satisfied the declared call conditions.</h1>
-<table aria-label="Five evaluation dimensions"><thead><tr><th>Dimension</th><th>Status</th><th>Observed</th></tr></thead><tbody><tr><th>Outcome</th><td><span class="status" style="color:#e0664f">FAIL</span></td><td>No tool call satisfied the declared call conditions.</td></tr><tr><th>Policy</th><td><span class="status" style="color:#74c98a">PASS</span></td><td>The policy assertion passed against the supplied evidence.</td></tr><tr><th>Conversation</th><td><span class="status" style="color:#74c98a">PASS</span></td><td>The latency assertion passed against the supplied evidence.</td></tr><tr><th>Speech</th><td><span class="status" style="color:#b7ab97">INCONCLUSIVE</span></td><td>Required input for the latency assertion was absent.</td></tr><tr><th>Reliability</th><td><span class="status" style="color:#b7ab97">NOT_RUN</span></td><td>No assertion ran in this dimension.</td></tr></tbody></table>
+<table aria-label="Five evaluation dimensions"><thead><tr><th>Dimension</th><th>Status</th><th>Observed</th></tr></thead><tbody><tr><th>Outcome</th><td><span class="status" style="color:#ff5c5c">FAIL</span></td><td>No tool call satisfied the declared call conditions.</td></tr><tr><th>Policy</th><td><span class="status" style="color:#3ecf8e">PASS</span></td><td>The policy assertion passed against the supplied evidence.</td></tr><tr><th>Conversation</th><td><span class="status" style="color:#3ecf8e">PASS</span></td><td>The latency assertion passed against the supplied evidence.</td></tr><tr><th>Speech</th><td><span class="status" style="color:#b9a892">INCONCLUSIVE</span></td><td>Required input for the latency assertion was absent.</td></tr><tr><th>Reliability</th><td><span class="status" style="color:#b9a892">NOT_RUN</span></td><td>No assertion ran in this dimension.</td></tr></tbody></table>
 <div class="panel"><h2>Gate authority</h2>
 <p>Deterministic gate: <strong>FAIL</strong> · policy <code>all_deterministic_assertions_pass</code></p>
 <p>Model advisory: <strong>UNAVAILABLE</strong> · gate not enabled</p></div>
