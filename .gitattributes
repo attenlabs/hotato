@@ -22,3 +22,16 @@ tests/data/failure-record-reference/** text eol=lf
 
 # The rendered Failure Record goldens are byte-compared in tests; pin them too.
 tests/golden/failure_record/** text eol=lf
+
+# --- GitHub Linguist: language-statistics accuracy ---------------------------
+# hotato is a Python + TypeScript SDK. A few large HTML files are committed for
+# convenience but are rendered build output (sample/demo failure reports) or
+# presentation assets (social-preview cards), not source code. Exclude them so
+# the repository language bar reflects the actual codebase instead of reading as
+# an HTML project.
+corpus/**/*.html        linguist-generated=true
+docs/assets/*.html      linguist-generated=true
+tests/golden/**/*.html  linguist-generated=true
+*sample-report.html     linguist-generated=true
+*-report.html           linguist-generated=true
+.github/*.html          linguist-documentation=true
