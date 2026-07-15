@@ -4,7 +4,7 @@ FILE: README.md
 
 <div align="center">
 
-<img src=".github/assets/hotato-banner.svg" alt="hotato" width="440" style="max-width:100%;height:auto;">
+<img src=".github/assets/hotato-banner.svg" alt="hotato" width="520" style="max-width:100%;height:auto;">
 
 <h1>hotato</h1>
 
@@ -312,6 +312,10 @@ The highest-value PR is one labeled dual-channel call: the corpus compounds, eve
 - **Evidence**: [`docs/VALIDATION.md`](docs/VALIDATION.md) &middot; [`docs/TRUST-MATRIX.md`](docs/TRUST-MATRIX.md) &middot; [`docs/GALLERY.md`](docs/GALLERY.md) &middot; [`docs/EVIDENCE-PACK.md`](docs/EVIDENCE-PACK.md) &middot; [`docs/COMPARE.md`](docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](AGENTS.md) &middot; [`llms.txt`](llms.txt) &middot; [`llms-full.txt`](llms-full.txt) &middot; [`docs/MCP.md`](docs/MCP.md) &middot; [`SECURITY.md`](SECURITY.md)
 - **Contributing** (a labeled call fixture): [`docs/SUBMITTING.md`](docs/SUBMITTING.md)
+
+<p align="center">
+  <img src=".github/assets/hotato-lockup.svg" alt="hotato" width="210" style="max-width:100%;height:auto;">
+</p>
 
 Why "hotato": good turn-taking is a game of hot potato. Hold the turn a beat too long and you have already lost it. Speak, then pass the turn the moment the caller wants it. MIT licensed ([`LICENSE`](LICENSE)); the open core stays open.
 

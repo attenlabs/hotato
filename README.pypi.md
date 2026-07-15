@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/assets/hotato-banner.svg" alt="hotato" width="440" style="max-width:100%;height:auto;">
+<img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/assets/hotato-banner.svg" alt="hotato" width="520" style="max-width:100%;height:auto;">
 
 <h1>hotato</h1>
 
@@ -308,6 +308,10 @@ The highest-value PR is one labeled dual-channel call: the corpus compounds, eve
 - **Evidence**: [`docs/VALIDATION.md`](https://github.com/attenlabs/hotato/blob/main/docs/VALIDATION.md) &middot; [`docs/TRUST-MATRIX.md`](https://github.com/attenlabs/hotato/blob/main/docs/TRUST-MATRIX.md) &middot; [`docs/GALLERY.md`](https://github.com/attenlabs/hotato/blob/main/docs/GALLERY.md) &middot; [`docs/EVIDENCE-PACK.md`](https://github.com/attenlabs/hotato/blob/main/docs/EVIDENCE-PACK.md) &middot; [`docs/COMPARE.md`](https://github.com/attenlabs/hotato/blob/main/docs/COMPARE.md)
 - **For coding agents**: [`AGENTS.md`](https://github.com/attenlabs/hotato/blob/main/AGENTS.md) &middot; [`llms.txt`](https://raw.githubusercontent.com/attenlabs/hotato/main/llms.txt) &middot; [`llms-full.txt`](https://raw.githubusercontent.com/attenlabs/hotato/main/llms-full.txt) &middot; [`docs/MCP.md`](https://github.com/attenlabs/hotato/blob/main/docs/MCP.md) &middot; [`SECURITY.md`](https://github.com/attenlabs/hotato/blob/main/SECURITY.md)
 - **Contributing** (a labeled call fixture): [`docs/SUBMITTING.md`](https://github.com/attenlabs/hotato/blob/main/docs/SUBMITTING.md)
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/assets/hotato-lockup.svg" alt="hotato" width="210" style="max-width:100%;height:auto;">
+</p>
 
 Why "hotato": good turn-taking is a game of hot potato. Hold the turn a beat too long and you have already lost it. Speak, then pass the turn the moment the caller wants it. MIT licensed ([`LICENSE`](https://github.com/attenlabs/hotato/blob/main/LICENSE)); the open core stays open.
 
