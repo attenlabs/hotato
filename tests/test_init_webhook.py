@@ -12,8 +12,9 @@ AST scan of the generated ``app.py``:
 
 Plus the runtime behaviour of every stack's worker (vapi, retell, twilio),
 driven end-to-end with FastAPI's TestClient and a faked ``hotato ingest``
-subprocess, each signing its own scheme (Vapi shared secret, Retell HMAC-SHA256
-over the raw body, Twilio HMAC-SHA1 over url + sorted params): a bad secret is
+subprocess, each signing its own scheme (Vapi shared secret, Retell's
+``v=<timestamp>,d=<digest>`` header = HMAC-SHA256 over raw body + timestamp
+inside a 5-minute window, Twilio HMAC-SHA1 over url + sorted params): a bad secret is
 rejected 401 before anything runs, a non-terminal event is ignored 200, and a
 call-ended event invokes ONLY ``hotato ingest --stack STACK``.
 """
@@ -24,6 +25,7 @@ import hashlib
 import hmac
 import importlib.util
 import json
+import time
 import types
 from urllib.parse import parse_qs, urlencode
 
@@ -294,6 +296,15 @@ def _twilio_signature(body: bytes) -> str:
     return base64.b64encode(digest).decode("ascii")
 
 
+def _retell_signature(body: bytes, secret: str = _SECRET, timestamp: int | None = None) -> str:
+    # Retell's documented ``X-Retell-Signature`` = ``v=<unix_ts>,d=<hex_digest>``
+    # where the digest is HMAC-SHA256(api_key, raw_body + timestamp), accepted
+    # only inside a 5-minute freshness window.
+    ts = str(int(time.time()) if timestamp is None else timestamp)
+    digest = hmac.new(secret.encode("utf-8"), body + ts.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"v={ts},d={digest}"
+
+
 def _runtime_case(stack):
     if stack == "vapi":
         env = {"VAPI_WEBHOOK_SECRET": _SECRET}
@@ -315,14 +326,13 @@ def _runtime_case(stack):
             {"event": "call_started", "call": {"call_id": "abc"}}
         ).encode("utf-8")
 
-        def sign(body):
-            return hmac.new(_SECRET.encode("utf-8"), body, hashlib.sha256).hexdigest()
-
         return (
             env,
-            (target, {"x-retell-signature": sign(target), "content-type": ct}),
-            (nontarget, {"x-retell-signature": sign(nontarget), "content-type": ct}),
-            (target, {"x-retell-signature": "deadbeef", "content-type": ct}),
+            (target, {"x-retell-signature": _retell_signature(target), "content-type": ct}),
+            (nontarget, {"x-retell-signature": _retell_signature(nontarget), "content-type": ct}),
+            # A valid-format header signed with the WRONG key: 401, no processing.
+            (target, {"x-retell-signature": _retell_signature(target, secret="WRONG"),
+                      "content-type": ct}),
         )
     if stack == "twilio":
         env = {"TWILIO_AUTH_TOKEN": _SECRET, "TWILIO_WEBHOOK_URL": _TWILIO_URL}
@@ -416,3 +426,104 @@ def test_runtime_call_ended_invokes_ingest_only(tmp_path, monkeypatch, stack):
     for bad in FORBIDDEN_SUBCOMMANDS:
         assert bad not in argv
     assert "--expect" not in argv
+
+
+# --- Retell vendor-format signature: adversarial regression ----------------
+#
+# Retell's documented header is ``v=<unix_ts>,d=<hex_digest>`` with the digest
+# taken over ``raw_body + timestamp`` and a 5-minute freshness window. The old
+# scaffold expected a BARE hex HMAC of the raw body only, so a genuine Retell
+# delivery was rejected 401 while a bare-hex forgery in hotato's own scheme was
+# accepted. These cases pin the vendor contract: a fresh valid ``v=,d=`` is
+# accepted, and every malformed / mutated / stale / future / duplicate / bare
+# variant is rejected before ingest runs.
+
+_RETELL_TARGET = json.dumps(
+    {"event": "call_ended", "call": {"call_id": "abc"}}
+).encode("utf-8")
+
+
+def _post_retell(tmp_path, monkeypatch, header_value, body=_RETELL_TARGET):
+    TestClient = pytest.importorskip("fastapi.testclient").TestClient
+    assert _scaffold(tmp_path, "retell") == 0
+    calls = []
+    mod = _load_app(tmp_path, monkeypatch, calls, {"RETELL_API_KEY": _SECRET})
+    client = TestClient(mod.app, raise_server_exceptions=False)
+    headers = {"content-type": "application/json"}
+    if header_value is not None:
+        headers["x-retell-signature"] = header_value
+    resp = client.post("/webhook", content=body, headers=headers)
+    return resp, calls
+
+
+def test_retell_accepts_fresh_vendor_signature(tmp_path, monkeypatch):
+    # A genuine documented-format delivery must verify and be processed.
+    # (Fails on the old bare-hex scaffold, which 401s the vendor header.)
+    pytest.importorskip("fastapi")
+    resp, calls = _post_retell(tmp_path, monkeypatch, _retell_signature(_RETELL_TARGET))
+    assert resp.status_code == 200
+    assert len(calls) == 1
+
+
+def test_retell_rejects_hotato_bare_hex_scheme(tmp_path, monkeypatch):
+    # hotato's old incompatible scheme -- a bare hex HMAC of the raw body with
+    # no ``v=/d=`` envelope -- must NOT verify. (Passes 200 on the old code.)
+    pytest.importorskip("fastapi")
+    bare = hmac.new(_SECRET.encode("utf-8"), _RETELL_TARGET, hashlib.sha256).hexdigest()
+    resp, calls = _post_retell(tmp_path, monkeypatch, bare)
+    assert resp.status_code == 401
+    assert calls == [], "a bare-hex forgery must never reach ingest"
+
+
+def _retell_bad_headers():
+    now = int(time.time())
+
+    def digest(ts, secret=_SECRET, body=_RETELL_TARGET):
+        return hmac.new(secret.encode("utf-8"), body + str(ts).encode("utf-8"),
+                        hashlib.sha256).hexdigest()
+
+    good = digest(now)
+    flipped = ("0" if good[-1] != "0" else "1")
+    return {
+        # right timestamp, wrong (mutated) digest
+        "mutated": f"v={now},d={good[:-1] + flipped}",
+        # no key=value envelope at all (bare hex forgery already covered)
+        "malformed": f"{now}:{good}",
+        # valid digest but the delivery is older than the 5-minute window
+        "expired": f"v={now - 600},d={digest(now - 600)}",
+        # valid digest but dated in the future beyond clock skew
+        "future": f"v={now + 3600},d={digest(now + 3600)}",
+        # duplicate ``v`` field
+        "duplicate": f"v={now},v={now}",
+        # missing the digest field
+        "missing_digest": f"v={now}",
+        # unknown extra key instead of ``d``
+        "unknown_key": f"v={now},x={good}",
+        # non-hex digest value
+        "non_hex": f"v={now},d=zzzznothex",
+        # non-numeric timestamp
+        "bad_timestamp": f"v=notanumber,d={digest(now)}",
+        # non-ASCII "digit" timestamp: str.isdigit() accepts superscripts but
+        # int() rejects them -- must reject 401, never surface an uncaught 500.
+        "unicode_digit": f"v=²³⁴¹⁰,d={digest(now)}",
+        # three fields -> not the strict two-field form
+        "extra_field": f"v={now},d={good},extra=1",
+        # empty header
+        "empty": "",
+    }
+
+
+@pytest.mark.parametrize("variant", sorted(_retell_bad_headers()))
+def test_retell_rejects_bad_vendor_signatures(tmp_path, monkeypatch, variant):
+    pytest.importorskip("fastapi")
+    header = _retell_bad_headers()[variant]
+    resp, calls = _post_retell(tmp_path, monkeypatch, header)
+    assert resp.status_code == 401, f"variant {variant!r} was not rejected"
+    assert calls == [], f"variant {variant!r} reached ingest"
+
+
+def test_retell_missing_header_rejected(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    resp, calls = _post_retell(tmp_path, monkeypatch, None)
+    assert resp.status_code == 401
+    assert calls == []
