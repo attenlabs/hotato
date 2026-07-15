@@ -6445,9 +6445,8 @@ def build_parser() -> argparse.ArgumentParser:
             "for faithfulness to its scenario -- a bad rendering is reported as "
             "SIMULATOR_INVALID, NEVER scored as an agent PASS/FAIL. --repetitions "
             "expands the variation matrix and reports Reliability (pass@1 / "
-            "pass@k / pass^k); for this deterministic caller pass^k == pass@1, "
-            "reported honestly, not fabricated variance. There is NO "
-            "overall_score anywhere."
+            "pass@k / pass^k); pass^k == pass@1 for this deterministic caller "
+            "(zero variance by construction). No overall_score anywhere."
         ),
         epilog=(
             _exit_codes_epilog("simulate") + "\n\n"

@@ -118,7 +118,7 @@ per-dimension (grouped view; never blended):
   conversation  1 pass / 0 fail / 0 inconclusive
   speech        1 pass / 0 fail / 0 inconclusive
   reliability   0 pass / 0 fail / 0 inconclusive
-reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; the lane has zero variance, so pass^k == pass@1 -- reported honestly, not fabricated variance
+reliability over 1 repeated run(s) of the deterministic lane on the same supplied real recording; pass^k == pass@1 because the deterministic replay is byte-identical (zero run-to-run variance)
 rubric lane: 1 assertion(s) INCONCLUSIVE (quarantined, Phase 3 -- no model ran)
 deterministic: 4 pass, 0 fail, 0 inconclusive
 judge: 0 pass, 0 fail (no judge/rubric kind is built in this release)

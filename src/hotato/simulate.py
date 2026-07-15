@@ -25,12 +25,12 @@ The five honesty invariants are kept STRUCTURAL, not documented-and-hoped:
 * No ``overall_score`` / blended number anywhere. Reliability
   (:func:`reliability`) reports pass@1 / pass@k / pass^k as its OWN dimension;
   for the scripted deterministic caller pass^k == pass@1 (a replay is
-  byte-identical, so every run has the same outcome) -- that is CORRECT and
-  honest, not fabricated variance.
+  byte-identical, so every run has the same outcome) -- expected: deterministic
+  replay produces zero variance.
 * Per-run seeds are derived by :func:`expand` from ``sha256(scenario_id +
   variation-tuple)`` -- no ``Math.random``, no time-based seed. The seeded PRNG
   reuses :mod:`hotato.synth`'s LCG, the same deterministic generator that stamps
-  synthetic provenance without ever raising real confidence.
+  synthetic provenance without ever raising the confidence tier.
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ def _write_owned(path: str, text: str) -> None:
 #
 #   explicit caller value  >  $SOURCE_DATE_EPOCH  >  fixed default (epoch 0)
 #
-# A caller who genuinely wants the mint wall-clock (e.g. a one-off `hotato
+# A caller who wants the mint wall-clock (e.g. a one-off `hotato
 # simulate ... --out`) passes it explicitly; run_matrix's own default stays
 # reproducible so the "simulate hundreds -> byte-identical" contract holds for
 # the WRITTEN artifacts, not just the summary.
@@ -743,17 +743,18 @@ def reliability(run_results: List[Any]) -> Dict[str, Any]:
     * ``pass_caret_k`` -- 1.0 if ALL k runs passed, else 0.0.
 
     For the scripted DETERMINISTIC caller every run has the same outcome (a
-    seeded replay is byte-identical), so ``pass_caret_k == pass_at_1`` -- that is
-    CORRECT and honest, not fabricated variance. pass^k earns its keep with the
-    LLM caller / live agent (later slices). This is Reliability's OWN dimension;
-    it is never blended into any other number, and there is no overall_score."""
+    seeded replay is byte-identical), so ``pass_caret_k == pass_at_1`` --
+    expected: deterministic replay produces zero variance. pass^k earns its
+    keep with the LLM caller / live agent (later slices). This is
+    Reliability's OWN dimension; it is never blended into any other number,
+    and there is no overall_score."""
     results = list(run_results)
     n = len(results)
     passes = sum(1 for r in results if _is_pass(r))
     note = (
         "pass^k over k=n runs; for the scripted deterministic caller a seeded "
-        "replay is byte-identical, so pass^k == pass@1 -- reported honestly, "
-        "not fabricated variance"
+        "replay is byte-identical, so pass^k == pass@1 because the "
+        "deterministic replay produces zero run-to-run variance"
     )
     if n == 0:
         return {"pass_at_1": 0.0, "pass_at_k": 0.0, "pass_caret_k": 0.0,

@@ -307,6 +307,49 @@ def test_unqualified_patterns_are_excluded_from_the_failures_machine_index(tmp_p
     assert "/failures/patterns/" not in sitemap
 
 
+def test_unevidenced_implementation_detail_page_is_noindex_and_excluded_from_discovery(tmp_path):
+    # utterance-addressee-gate-generic.json ships with verified_against: [] --
+    # it documents a capability contract, not an observed case. Its detail
+    # page must carry a robots noindex meta AND be excluded from
+    # sitemap.xml/llms.txt/llms-full.txt, mirroring the same convention
+    # already applied to pattern pages (indexed=qualifies) and integration
+    # pages (indexed=bool(stack_records)). Before the fix this page rendered
+    # with no noindex meta and was hardcoded indexed=True.
+    build_atlas = _load_build_atlas()
+    out = tmp_path / "site"
+    build_atlas.build(str(out))
+    html = (out / "implementations" / "utterance-addressee-gate" / "generic" /
+            "index.html").read_text(encoding="utf-8")
+    assert 'name="robots" content="noindex"' in html
+
+    path_fragment = "/implementations/utterance-addressee-gate/generic/"
+    sitemap = (out / "sitemap.xml").read_text(encoding="utf-8")
+    llms_txt = (out / "llms.txt").read_text(encoding="utf-8")
+    llms_full = (out / "llms-full.txt").read_text(encoding="utf-8")
+    assert path_fragment not in sitemap
+    assert path_fragment not in llms_txt
+    assert path_fragment not in llms_full
+
+
+def test_evidenced_implementation_detail_page_stays_indexed(tmp_path):
+    # turn-intent-discriminator-generic.json DOES carry verified_against
+    # records, so its detail page must remain indexed (no noindex meta) and
+    # present in sitemap.xml/llms.txt -- the fix must not regress the earned
+    # case.
+    build_atlas = _load_build_atlas()
+    out = tmp_path / "site"
+    build_atlas.build(str(out))
+    html = (out / "implementations" / "turn-intent-discriminator" / "generic" /
+            "index.html").read_text(encoding="utf-8")
+    assert 'name="robots" content="noindex"' not in html
+
+    path_fragment = "/implementations/turn-intent-discriminator/generic/"
+    sitemap = (out / "sitemap.xml").read_text(encoding="utf-8")
+    llms_txt = (out / "llms.txt").read_text(encoding="utf-8")
+    assert path_fragment in sitemap
+    assert path_fragment in llms_txt
+
+
 def test_an_implementation_evidenced_claim_must_be_earned():
     build_atlas = _load_build_atlas()
     records, _, implementations = _all_sources()
