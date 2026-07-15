@@ -16,7 +16,7 @@
     --ground:#16110d; --surface:#1e1712; --card:#1c1510;
     --ink:#f5efe4; --ink-2:#e4d6bb; --muted:#a9977c; --faint:#9d8a6b;
     --ember:#ff5a1f; --ember-bright:#ff7a3c;
-    --pass:#4fc4a8; --crimson:#e0483a;
+    --pass:#3ecf8e; --crimson:#ff5c5c;
     --line:rgba(236,220,187,.12); --line-2:rgba(236,220,187,.07);
     --display:"Bricolage","Helvetica Neue",system-ui,sans-serif;
     --sans:"Hanken","Helvetica Neue",system-ui,sans-serif;
@@ -56,13 +56,13 @@
     margin-top:40px;width:100%;max-width:1030px}
   .cell{background:var(--card);border:1px solid var(--line);border-radius:13px;
     padding:18px 12px 16px;display:flex;flex-direction:column;align-items:center;gap:12px}
-  .cell.fail{border-color:rgba(224,72,58,.55);background:rgba(224,72,58,.07);
-    box-shadow:0 0 34px -10px rgba(224,72,58,.4)}
+  .cell.fail{border-color:rgba(255,92,92,.55);background:rgba(255,92,92,.07);
+    box-shadow:0 0 34px -10px rgba(255,92,92,.4)}
   .cell .dim{font-family:var(--display);font-weight:600;font-size:20px;color:var(--ink)}
   .cell .v{font-family:var(--mono);font-weight:700;font-size:15px;letter-spacing:.12em;
     padding:5px 13px;border-radius:8px}
-  .v.pass{color:var(--pass);background:rgba(79,196,168,.15)}
-  .v.fail{color:var(--crimson);background:rgba(224,72,58,.18)}
+  .v.pass{color:var(--pass);background:rgba(62,207,142,.15)}
+  .v.fail{color:var(--crimson);background:rgba(255,92,92,.18)}
 
   .foot{margin-top:38px;display:flex;align-items:center;gap:18px;
     font-family:var(--mono);font-size:17px;color:var(--muted)}
