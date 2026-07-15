@@ -385,3 +385,123 @@ def test_gate_action_mode_runs_zero_egress_via_pythonpath(tmp_path):
     assert "PYTHONPATH, zero-egress" in summary, summary
     # the pip install path must not have run for the action mode
     assert "pip install" not in (proc.stdout + proc.stderr)
+
+
+# ---------------------------------------------------------------------------
+# P0.2: the Action must never follow a planted result / summary symlink
+# (a consumer PR commits an output leaf as a symlink so the pinned Action
+# truncates an accessible target and still exits 0)
+# ---------------------------------------------------------------------------
+
+def _load_gate():
+    spec = importlib.util.spec_from_file_location(
+        "action_gate", os.path.join(ACTION_DIR, "gate.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# every fixed output path the Action publishes below the output directory
+_OUTPUT_LEAVES = [
+    "suite-run.json", "test-run.json", "contract-verify.json",
+    "summary.md", "contracts-junit.xml", "artifact", "records",
+]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="planting the result symlink this refusal is exercised against needs "
+           "the SeCreateSymbolicLink privilege on Windows (absent by default); "
+           "the no-follow refusal is POSIX-exercised here",
+)
+@pytest.mark.parametrize("leaf", _OUTPUT_LEAVES)
+def test_gate_refuses_planted_output_symlink(tmp_path, leaf):
+    """Plant a symlink at every fixed output path (suite-run.json, test-run.json,
+    contract-verify.json, summary.md, JUnit, artifact, records) and drive the
+    Action end to end through the consumer fixture. The Action must refuse the
+    run (exit 2, status error), never truncate the link target, and never exit 0
+    through the link. On the vulnerable code the suite result and summary leaves
+    were truncated and the run exited 0."""
+    ws = _workspace(tmp_path)
+    victim = ws / "KEEP_ME.txt"
+    victim.write_bytes(b"KEEP_ME\n")
+    planted = ws / ".hotato" / "results"
+    planted.mkdir(parents=True)
+    (planted / leaf).symlink_to(victim)
+
+    proc, outputs, _ = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/pass.suite.json",
+        "agent": "consumer-agent",
+    })
+
+    # never a green exit through a planted link
+    assert proc.returncode == 2, (proc.stdout, proc.stderr)
+    assert outputs.get("status") == "error"
+    assert outputs.get("exit-code") == "2"
+    # the link target is byte-for-byte intact (never opened for writing)
+    assert victim.read_bytes() == b"KEEP_ME\n", (
+        f"the Action truncated the victim through the planted {leaf!r} symlink"
+    )
+    # the planted symlink was not replaced by a fresh regular file either
+    assert (planted / leaf).is_symlink()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink test")
+def test_gate_test_mode_result_symlink_not_followed(tmp_path):
+    """The test-mode result leaf (test-run.json) is the file run_hotato writes
+    directly in a test run; prove it is protected in its own matching mode."""
+    ws = _workspace(tmp_path)
+    victim = ws / "victim.txt"
+    victim.write_bytes(b"do-not-clobber\n")
+    results = ws / ".hotato" / "results"
+    results.mkdir(parents=True)
+    (results / "test-run.json").symlink_to(victim)
+
+    proc, _outputs, _ = _run_gate(tmp_path, ws, {
+        "test": "qa/test/two-lane.conversation-test.yaml",
+        "agent": "consumer-agent",
+        "transcript": "qa/test/refund.transcript.json",
+    })
+    assert proc.returncode == 2, (proc.stdout, proc.stderr)
+    assert victim.read_bytes() == b"do-not-clobber\n"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink test")
+def test_gate_open_new_refuses_symlink_leaf(tmp_path):
+    """Unit-level proof of the leaf primitive: _open_new opens with
+    O_CREAT|O_EXCL|O_NOFOLLOW|O_WRONLY, so it refuses a pre-existing symlink
+    (never truncating its target) yet creates a fresh, private (no group/other
+    access) file for a new name."""
+    gate = _load_gate()
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    victim = tmp_path / "victim.txt"
+    victim.write_bytes(b"intact\n")
+    (outdir / "suite-run.json").symlink_to(victim)
+
+    dir_fd = os.open(str(outdir), os.O_RDONLY)
+    try:
+        with pytest.raises(gate.InputError):
+            gate._open_new("suite-run.json", dir_fd=dir_fd)
+        assert victim.read_bytes() == b"intact\n"
+        with gate._open_new("summary.md", dir_fd=dir_fd) as fh:
+            fh.write("ok")
+    finally:
+        os.close(dir_fd)
+    assert (outdir / "summary.md").read_text() == "ok"
+    assert (os.stat(outdir / "summary.md").st_mode & 0o077) == 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink test")
+def test_gate_refuses_preexisting_output_dir(tmp_path):
+    """The output directory must be created privately by the Action; a committed
+    output tree (which could hide planted leaves) is refused outright."""
+    ws = _workspace(tmp_path)
+    (ws / ".hotato" / "results").mkdir(parents=True)
+    proc, outputs, _ = _run_gate(tmp_path, ws, {
+        "suite": "qa/suite/pass.suite.json",
+        "agent": "consumer-agent",
+    })
+    assert proc.returncode == 2, (proc.stdout, proc.stderr)
+    assert outputs.get("status") == "error"
