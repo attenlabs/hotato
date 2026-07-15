@@ -44,15 +44,17 @@ EXPECTED_FILES = {
 # --- no fabricated stack claims ---------------------------------------------
 
 def test_starter_stacks_match_the_real_adapter_set():
-    """Every stack init starter offers is a REAL shipped connector (see
+    """Every VENDOR stack init starter offers is a REAL shipped connector (see
     docs/ADAPTER-STATUS.md): capture.STACKS is the ground truth for what
     hotato can actually pull or capture. This is not a coincidence -- it is
     asserted in initcmd.py itself and re-checked here so a future edit to
     either set trips a test instead of silently drifting into a fabricated
-    claim."""
+    claim. The one addition is the stack-agnostic `generic` kit (bring your
+    own two-channel WAV), which is deliberately NOT a vendor connector."""
     from hotato import capture
 
-    assert set(initcmd.STARTER_STACKS) == set(capture.STACKS)
+    assert set(initcmd.STARTER_STACKS) == set(capture.STACKS) | {"generic"}
+    assert set(initcmd._STARTER_GENERIC).isdisjoint(capture.STACKS)
     assert set(initcmd._STARTER_AUTO_PULL) <= set(capture.DUAL_PULL_STACKS)
     for stack in initcmd._STARTER_CAPTURE_ONLY:
         assert stack not in capture.DUAL_PULL_STACKS

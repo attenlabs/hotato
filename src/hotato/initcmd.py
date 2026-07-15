@@ -263,7 +263,12 @@ def render_text(result: dict) -> str:
 # such branch is reachable in this release (asserted below and in tests).
 # =============================================================================
 
-STARTER_STACKS = ("vapi", "retell", "twilio", "livekit", "pipecat")
+# `generic` first: the stack-agnostic default the guided first run points at
+# (`hotato init starter --stack generic --out .`). It needs no vendor
+# connector -- you point hotato at a two-channel WAV your own pipeline already
+# records -- so it is the one starter stack that is deliberately NOT in
+# capture.STACKS. The vendor stacks follow as the stack-tuned alternatives.
+STARTER_STACKS = ("generic", "vapi", "retell", "twilio", "livekit", "pipecat")
 
 # Auto-pull: `hotato connect <stack>` + `hotato sweep --stack <stack>` fetch
 # the recording for you (see capture.DUAL_PULL_STACKS / docs/CONNECT.md).
@@ -271,10 +276,17 @@ _STARTER_AUTO_PULL = ("vapi", "retell", "twilio")
 # Capture-in-your-infra: no vendor recording endpoint; `hotato setup --stack
 # <stack>` prints the two-track scaffold instead (docs/ADAPTER-STATUS.md).
 _STARTER_CAPTURE_ONLY = ("livekit", "pipecat")
+# Stack-agnostic: no vendor connector at all. You bring a two-channel WAV your
+# own deployment already writes; re-scaffold with a vendor stack for tuned
+# config and one-command recording pulls.
+_STARTER_GENERIC = ("generic",)
 
-assert set(STARTER_STACKS) == set(_STARTER_AUTO_PULL) | set(_STARTER_CAPTURE_ONLY)
+assert set(STARTER_STACKS) == (
+    set(_STARTER_AUTO_PULL) | set(_STARTER_CAPTURE_ONLY) | set(_STARTER_GENERIC)
+)
 
 _STARTER_TITLES = {
+    "generic": "any voice stack",
     "vapi": "Vapi",
     "retell": "Retell",
     "twilio": "Twilio",
@@ -283,9 +295,10 @@ _STARTER_TITLES = {
 }
 
 # Credential env vars per stack -- the SAME names `hotato connect` / the
-# webhook scaffold's _ENV_VARS use. Empty for the two capture-only stacks:
-# hotato needs no credentials for them at all.
+# webhook scaffold's _ENV_VARS use. Empty for the capture-only and generic
+# stacks: hotato needs no credentials for them at all.
 _STARTER_ENV_VARS = {
+    "generic": (),
     "vapi": ("VAPI_API_KEY",),
     "retell": ("RETELL_API_KEY",),
     "twilio": ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"),
@@ -323,6 +336,21 @@ def _starter_hotato_yaml(stack: str) -> str:
             "recording:\n"
             "  access: auto-pull   # hotato fetches the recording itself via "
             "the vendor API\n"
+            "  channels: dual\n"
+        )
+    elif stack in _STARTER_GENERIC:
+        credentials = (
+            "credentials:\n"
+            "  env: []\n"
+            "  # The generic starter needs no vendor credentials: point hotato\n"
+            "  # at a two-channel WAV your own pipeline already records (caller\n"
+            "  # on one channel, agent on the other). Re-scaffold with --stack\n"
+            "  # vapi|retell|twilio|livekit|pipecat for stack-tuned config.\n"
+        )
+        recording = (
+            "recording:\n"
+            "  access: capture-in-your-infra   # score a two-channel WAV you "
+            "already have\n"
             "  channels: dual\n"
         )
     else:
@@ -473,6 +501,17 @@ def _starter_workflow_yaml(stack: str) -> str:
             "        with:",
             "          name: hotato-weekly-sweep",
             "          path: hotato-sweep.json",
+        ]
+    elif stack in _STARTER_GENERIC:
+        lines += [
+            "",
+            "  # The generic kit assumes no vendor recording API to sweep: "
+            "point the",
+            "  # gate at a two-channel WAV your own pipeline records, or "
+            "re-scaffold",
+            "  # with --stack vapi|retell|twilio to enable a weekly "
+            "candidate-discovery",
+            "  # sweep of recent calls.",
         ]
     else:
         lines += [
@@ -661,6 +700,26 @@ def _starter_hotato_md(stack: str) -> str:
             "--out contracts\n"
         )
         capture_note = ""
+    elif stack in _STARTER_GENERIC:
+        first_call = (
+            "    # point hotato at a two-channel WAV your pipeline already "
+            "records\n"
+            "    # (caller on one channel, agent on the other):\n"
+            "    hotato contract create --stereo call.wav --onset 42.18 "
+            "--expect yield --id refund-cutoff-001 --out contracts\n"
+        )
+        capture_note = (
+            "\n"
+            "## Tuning this kit to your stack\n"
+            "\n"
+            "This generic kit scores any two-channel recording. For "
+            "stack-tuned\n"
+            "config and one-command recording pulls, re-scaffold with a "
+            "specific\n"
+            "stack, for example `hotato init starter --stack vapi --out "
+            "./hotato-vapi`\n"
+            "(vapi, retell, twilio, livekit, or pipecat).\n"
+        )
     else:
         first_call = (
             f"    hotato setup --stack {stack}\n"
@@ -795,6 +854,31 @@ def scaffold_starter(stack: str, out_dir: str, *, force: bool = False) -> dict:
 
     files = sorted(_as_posix(os.path.relpath(p, out_dir)) for p in dests.values())
     auto_pull = stack in _STARTER_AUTO_PULL
+    cd = f"cd {shlex.quote(out_dir)}" if out_dir != "." else None
+    if auto_pull:
+        next_steps = [
+            cd,
+            f"hotato connect {stack} --api-key YOUR_API_KEY",
+            f"hotato sweep --stack {stack} --out hotato-sweep.html",
+            "hotato contract create --from-candidate "
+            "hotato-sweep.json#1 --expect yield --id refund-cutoff-001 "
+            "--out contracts",
+        ]
+    elif stack in _STARTER_GENERIC:
+        next_steps = [
+            cd,
+            "hotato contract create --stereo call.wav --onset 42.18 "
+            "--expect yield --id refund-cutoff-001 --out contracts",
+            "hotato contract verify contracts --junit hotato.xml",
+        ]
+    else:
+        next_steps = [
+            cd,
+            f"hotato setup --stack {stack}",
+            f"hotato inspect --stack {stack} --config agent.py",
+            "hotato contract create --stereo call.wav --onset 42.18 "
+            "--expect yield --id refund-cutoff-001 --out contracts",
+        ]
     return {
         "tool": _errors.TOOL,
         "kind": "init-starter",
@@ -803,22 +887,7 @@ def scaffold_starter(stack: str, out_dir: str, *, force: bool = False) -> dict:
         "files": files,
         "auto_pull": auto_pull,
         "credential_env": list(_STARTER_ENV_VARS[stack]),
-        "next": (
-            [
-                f"cd {shlex.quote(out_dir)}" if out_dir != "." else None,
-                f"hotato connect {stack} --api-key YOUR_API_KEY",
-                f"hotato sweep --stack {stack} --out hotato-sweep.html",
-                "hotato contract create --from-candidate "
-                "hotato-sweep.json#1 --expect yield --id refund-cutoff-001 "
-                "--out contracts",
-            ] if auto_pull else [
-                f"cd {shlex.quote(out_dir)}" if out_dir != "." else None,
-                f"hotato setup --stack {stack}",
-                f"hotato inspect --stack {stack} --config agent.py",
-                "hotato contract create --stereo call.wav --onset 42.18 "
-                "--expect yield --id refund-cutoff-001 --out contracts",
-            ]
-        ),
+        "next": next_steps,
     }
 
 

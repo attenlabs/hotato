@@ -5,6 +5,35 @@ carries a running score and fails when the agent gets slower to stop
 talking for an interrupting caller. The workflow runs offline with zero
 extra dependencies.
 
+## One command to the same record CI renders
+
+`hotato start --demo` runs the whole loop offline and leaves the canonical
+share-safe Failure Record under `hotato-failure-record/` --
+`failure-record.{json,md,html,svg}`, the same primitive this Action renders
+per non-passing unit (the `records` output below). The demo prints its
+evidence-specific headline, the Markdown and SVG share paths, and the
+one-command verifier:
+
+```
+Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
+
+  Share in a PR:      hotato-failure-record/failure-record.md
+  Share as an image:  hotato-failure-record/failure-record.svg
+  Verify the record:  uvx --from hotato==1.7.0 hotato record verify hotato-failure-record/failure-record.json
+```
+
+Preview it locally, then scaffold the durable gate into your own repository
+in one command:
+
+```bash
+hotato init starter --stack generic --out .
+# stack-tuned instead:  --stack vapi, retell, twilio, livekit, pipecat
+```
+
+That writes a CI workflow verifying `contracts/` and re-scoring `fixtures/`
+on every push and pull request (a no-op until your first one lands), plus a
+stack-tuned `hotato.yaml`, `contracts/`, and `fixtures/`.
+
 ## The root Action: run a committed suite from any repository
 
 The repository root ships a composite GitHub Action: a repository with no

@@ -95,6 +95,24 @@ carries the call id inside its name; that name shows only under
 hotato card hotato-sweep.json#1 --out card.svg --include-identifiers
 ```
 
+## The Failure Record: the canonical share-safe artifact
+
+A card is one moment's image. The **Failure Record** is the canonical
+lane-structured artifact for a failed, inconclusive, or errored result:
+one evidence-specific headline, the five separate lanes, content-addressed
+evidence digests, and a share-safe privacy profile, rendered as JSON,
+Markdown, HTML, and SVG together. It carries no audio, transcript, tool
+payload, state value, or absolute path, so it is safe to attach to a PR
+as-is.
+
+`hotato start --demo` emits one automatically under
+`hotato-failure-record/` --
+`failure-record.{json,md,html,svg}` -- alongside the sweep and the demo
+contract, and prints the Markdown/SVG share paths plus the one-command
+verifier. Render one from any result yourself with `hotato record render`;
+the shipped GitHub Action renders one per non-passing unit
+([`docs/CI.md`](CI.md)).
+
 ## Output and exit codes
 
 Without `--out`, the SVG goes to stdout, so you can pipe it. With `--out`

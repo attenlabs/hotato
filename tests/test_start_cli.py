@@ -222,6 +222,131 @@ def test_start_demo_contract_is_idempotent(tmp_path):
             / "contract.json").is_file()
 
 
+# --- the share-safe Failure Record (Slice C) -------------------------------
+
+_RECORD_FILES = ("failure-record.json", "failure-record.md",
+                 "failure-record.html", "failure-record.svg")
+
+
+def _record_dir(tmp_path):
+    return tmp_path / "hotato-failure-record"
+
+
+def test_start_demo_writes_the_four_failure_record_files_and_they_validate(tmp_path):
+    from hotato import failure_record as FR
+
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    rec_dir = _record_dir(tmp_path)
+    for name in _RECORD_FILES:
+        assert (rec_dir / name).is_file(), f"{name} missing"
+    # the JSON record validates against the oracle + shipped schema
+    record = json.loads((rec_dir / "failure-record.json").read_text())
+    checks = FR.validate_record(record)  # raises ValueError on any violation
+    assert "content address" in checks
+    assert "share-safe privacy profile" in checks
+    assert record["kind"] == "hotato.failure-record.v1"
+    # five separate lanes, no blended aggregate score anywhere
+    assert set(record["dimensions"]) == {
+        "outcome", "policy", "conversation", "speech", "reliability"}
+    assert "overall_score" not in record and "aggregate_score" not in record
+
+
+def test_start_demo_written_list_includes_the_record_files(tmp_path, capsys):
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path),
+                     "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    for name in _RECORD_FILES:
+        assert f"hotato-failure-record/{name}" in payload["written"]
+
+
+def test_start_demo_json_failure_record_block_is_complete(tmp_path, capsys):
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path),
+                     "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    fr = payload["failure_record"]
+    assert fr["dir"] == "hotato-failure-record"
+    assert fr["privacy_profile"] == "share-safe-v1"
+    assert fr["record_id"].startswith("sha256:")
+    assert isinstance(fr["headline"], str) and fr["headline"]
+    assert fr["files"] == list(_RECORD_FILES)
+    # the metadata's record_id + headline are the record file's own, not a copy
+    record = json.loads(
+        (_record_dir(tmp_path) / "failure-record.json").read_text())
+    assert fr["record_id"] == record["record_id"]
+    assert fr["headline"] == record["headline"]
+
+
+def test_start_demo_text_output_has_exact_headline_share_paths_and_verify_cmd(
+        tmp_path, capsys):
+    from hotato import __version__
+
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    # the exact evidence-specific headline the record itself carries
+    record = json.loads(
+        (_record_dir(tmp_path) / "failure-record.json").read_text())
+    assert record["headline"] in out
+    # the Markdown + SVG share paths
+    assert "hotato-failure-record/failure-record.md" in out
+    assert "hotato-failure-record/failure-record.svg" in out
+    # the one-command public verifier, version-pinned to this build
+    assert (f"uvx --from hotato=={__version__} hotato record verify "
+            "hotato-failure-record/failure-record.json") in out
+
+
+def test_start_demo_share_dir_contains_only_the_record_files(tmp_path):
+    """PRIVACY: the share directory is safe to attach as-is -- it holds ONLY
+    the four record files. No source verify envelope, audio, transcript, trace,
+    or state payload is ever copied into it."""
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    entries = sorted(p.name for p in _record_dir(tmp_path).iterdir())
+    assert entries == sorted(_RECORD_FILES)
+    # nothing that even looks like copied media / source lives beside them
+    for p in _record_dir(tmp_path).rglob("*"):
+        assert p.suffix not in (".wav", ".jsonl"), p
+        assert p.name not in ("source-result.json", "contract.json",
+                              "transcript.json"), p
+
+
+def test_start_demo_record_second_run_is_byte_identical_and_exit_0(tmp_path):
+    """Deterministic: no wall-clock, no per-run path digest. Two runs into the
+    same --dir leave byte-identical record files and both exit 0."""
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    first = {name: (_record_dir(tmp_path) / name).read_bytes()
+             for name in _RECORD_FILES}
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    for name in _RECORD_FILES:
+        assert (_record_dir(tmp_path) / name).read_bytes() == first[name], name
+
+
+def test_start_demo_primary_next_step_scaffolds_the_durable_starter_path(
+        tmp_path, capsys):
+    """The demo's PRIMARY next step is the durable starter path; running it for
+    real scaffolds a whole-repo kit (CI gate + contracts/ + fixtures/)."""
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path / "demo"),
+                     "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["next_commands"][0] == "hotato init starter --stack generic --out ."
+    # not decorative: the printed command actually scaffolds the durable kit
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    assert cli.main(["init", "starter", "--stack", "generic",
+                     "--out", str(repo)]) == 0
+    assert (repo / "HOTATO.md").is_file()
+    assert (repo / ".github" / "workflows" / "hotato-contracts.yml").is_file()
+    assert (repo / "contracts").is_dir() and (repo / "fixtures").is_dir()
+
+
+def test_start_demo_text_output_documents_stack_specific_alternatives(
+        tmp_path, capsys):
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "hotato init starter --stack generic --out ." in out
+    # the stack-tuned alternatives stay documented beside the primary
+    for stack in ("vapi", "retell", "twilio", "livekit", "pipecat"):
+        assert stack in out
+
+
 # --- usage / stubbed modes ------------------------------------------------
 
 def test_start_requires_a_mode(capsys):
