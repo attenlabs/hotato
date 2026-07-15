@@ -877,16 +877,21 @@ def trust_report(
     # K6: verdict eligibility is a NARROWER, separate gate from candidate
     # eligibility. A suspected swap or verdict-level crosstalk/leakage refuses a
     # verdict even though the input stays candidate-eligible (advisory scan
-    # candidates + audio are still surfaced). An explicit human channel-map
-    # confirmation (or the caller's own authenticated provider metadata) flips
-    # it back on; it never overrides the not-scorable gate.
-    verdict_conflict = swap or crosstalk_verdict_hit
+    # candidates + audio are still surfaced). It never overrides the not-scorable
+    # gate.
+    #
+    # An explicit human channel-map confirmation (or the caller's own
+    # authenticated provider metadata) resolves ONLY the channel-SWAP conflict --
+    # confirming the mapping is correct answers exactly the "are the roles
+    # reversed?" question and nothing else. It does NOT clear a crosstalk/leakage
+    # verdict hit: a recording whose channels are correctly mapped but still bleed
+    # into each other can misattribute one party's audio to the other, so a
+    # downstream timing verdict stays untrustworthy and must remain refused.
+    swap_conflict = swap and not channel_map_confirmed
+    verdict_conflict = swap_conflict or crosstalk_verdict_hit
     if not candidate_eligible:
         verdict_eligible = False
         verdict_ineligible_reason = None  # not_scorable_reason already explains
-    elif channel_map_confirmed:
-        verdict_eligible = True
-        verdict_ineligible_reason = None
     elif verdict_conflict:
         verdict_eligible = False
         verdict_ineligible_reason = VERDICT_INELIGIBLE_REASON
