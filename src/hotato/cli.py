@@ -1843,6 +1843,8 @@ def _cmd_fixture_create(args) -> int:
         force=args.force,
         caller_channel=args.caller_channel,
         agent_channel=args.agent_channel,
+        reviewer_principal=args.reviewer,
+        human_review_attested=args.i_attest_human_review,
     )
     if args.format == "json":
         print(_errors.safe_json_dumps(_fixture.result_json(result), indent=2))
@@ -2510,6 +2512,8 @@ def _cmd_contract_create(args) -> int:
         agent_channel=args.agent_channel,
         include_identifiers=args.include_identifiers,
         confirm_channels=args.confirm_channels,
+        reviewer_principal=args.reviewer,
+        human_review_attested=args.i_attest_human_review,
     )
     if args.format == "json":
         print(_errors.safe_json_dumps(_contract.create_result_json(result), indent=2))
@@ -5145,6 +5149,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="overwrite an existing fixture with the same id")
     fc.add_argument("--caller-channel", type=int, default=0)
     fc.add_argument("--agent-channel", type=int, default=1)
+    fc.add_argument("--reviewer", default=None, metavar="NAME",
+                    help="the accountable human who reviewed this recording and "
+                         "chose --expect; bound into the signed label-record. "
+                         "A signed 'human'/'human-shared' authority is minted "
+                         "only when this is given AND a human-review "
+                         "confirmation holds (an interactive terminal, or "
+                         "--i-attest-human-review); otherwise the label "
+                         "degrades honestly to 'asserted'")
+    fc.add_argument("--i-attest-human-review", action="store_true",
+                    help="attest that a human actually reviewed this audio "
+                         "(required to mint a signed label-record from a "
+                         "non-interactive/CI invocation; a reviewer NAME alone "
+                         "is only a claim, not proof a human looked)")
     _add_format_arg(fc, choices=("text", "json"))
     fc.set_defaults(func=_cmd_fixture_create)
 
@@ -5564,6 +5581,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="show the source recording's basename / candidate "
                          "ref in the bundle and the card instead of "
                          "redacting them (default: redacted)")
+    cc.add_argument("--reviewer", default=None, metavar="NAME",
+                    help="the accountable human who reviewed this recording and "
+                         "chose --expect; bound into the signed label-record "
+                         "and the contract's identity.reviewer. A signed "
+                         "'human'/'human-shared' authority is minted only when "
+                         "this is given AND a human-review confirmation holds "
+                         "(an interactive terminal, or --i-attest-human-review); "
+                         "otherwise the label degrades honestly to 'asserted'")
+    cc.add_argument("--i-attest-human-review", action="store_true",
+                    help="attest that a human actually reviewed this audio "
+                         "(required to mint a signed label-record from a "
+                         "non-interactive/CI invocation; a reviewer NAME alone "
+                         "is only a claim, not proof a human looked)")
     _add_format_arg(cc, choices=("text", "json"))
     cc.set_defaults(func=_cmd_contract_create)
 

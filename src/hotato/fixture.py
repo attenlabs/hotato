@@ -31,6 +31,7 @@ import json
 import os
 import re
 import shlex
+import sys
 import tempfile
 from typing import Optional
 
@@ -112,27 +113,70 @@ def _parse_tags(tags: Optional[str]) -> list:
 
 
 def _default_reviewer_principal() -> str:
-    """The reviewer identity a label-record cites when the caller does not
-    supply one: whoever this machine's shell says ran the command."""
+    """The reviewer identity to DISPLAY (``identity.reviewer`` on a contract)
+    when the caller does not name one: whoever this machine's shell says ran
+    the command. This is a name string for provenance ONLY -- it is NEVER used
+    to satisfy the signing decision (see :func:`_mint_fixture_label_record`),
+    so an env-derived identity can never stand in as a signed human authority."""
     return (os.environ.get("HOTATO_REVIEWER")
             or os.environ.get("USER")
             or os.environ.get("USERNAME")
             or "unknown-reviewer")
 
 
+def _stdin_is_tty() -> bool:
+    """True only when a human is at an interactive terminal on stdin, i.e. NOT
+    a scripted/CI pipe. Defensive against a stdin that has been closed or
+    replaced with a non-file object (returns False, the safe answer)."""
+    try:
+        return bool(sys.stdin.isatty())
+    except Exception:
+        return False
+
+
 def _mint_fixture_label_record(*, audio_path: str, want_yield: bool,
                                reviewer_principal: Optional[str],
+                               human_review_attested: bool = False,
                                rationale: Optional[str] = None) -> Optional[dict]:
-    """Mint a label-record for the fixture's audio (the human running this
-    workflow chose --expect, i.e. the decision), if SOME signing key is
-    configured. Returns ``None`` (never raises) when no key is configured at
-    all: the fixture still gets created, its label just stays an "asserted"
-    (operator-only) expectation rather than a signed "human"/"human-shared"
-    one -- never a crash on a machine that has not set up signing yet."""
+    """Mint a signed label-record binding an ACCOUNTABLE human reviewer to this
+    exact audio and the ``--expect`` decision.
+
+    R-09 two gates must BOTH hold before a signed record is minted:
+
+    1. an EXPLICIT, non-empty ``reviewer_principal`` -- the named human who
+       reviewed this recording. The machine's shell identity
+       (``HOTATO_REVIEWER``/``USER``/``USERNAME`` via
+       :func:`_default_reviewer_principal`) is NEVER auto-filled into the
+       signing path, so no env-derived name can stand in for a human.
+    2. a human-review CONFIRMATION -- an interactive terminal on stdin
+       (:func:`_stdin_is_tty`) OR an explicit ``human_review_attested``
+       (``--i-attest-human-review``). A reviewer NAME alone is only a claim; it
+       does not prove a human actually LISTENED to the audio. This is the "a
+       human looked" vs "a script passed ``--expect``" distinction R-09 exists
+       to enforce: a scripted, non-interactive ``hotato fixture create`` /
+       ``fixture promote`` / ``contract create`` that merely threads a
+       ``--reviewer`` name can therefore never launder a machine-chosen
+       ``--expect`` as ``human`` / ``human-shared`` authority, even when a
+       signing key happens to sit on the box.
+
+    Returns ``None`` (never raises) when either gate fails, or when no signing
+    key is configured at all: the fixture is still created, its label just
+    stays an honest "asserted" (operator-only) expectation rather than a
+    signed "human"/"human-shared" one."""
+    principal = (reviewer_principal or "").strip()
+    if not principal:
+        # No accountable reviewer named -> no human authority. Honest degrade
+        # to "asserted"; never signed off env vars or a bare $USER.
+        return None
+    if not (human_review_attested or _stdin_is_tty()):
+        # A name was supplied but nothing attests a human actually reviewed the
+        # audio (no TTY, no --i-attest-human-review). Degrade honestly to
+        # "asserted" rather than sign a machine-chosen label as human.
+        return None
     event_pcm_sha256 = _stream_pcm_sha256(audio_path)
     try:
         return _labelrecord.mint_label_record(
-            reviewer_principal=reviewer_principal or _default_reviewer_principal(),
+            reviewer_principal=principal,
             event_audio_pcm_sha256=event_pcm_sha256,
             decision="yield" if want_yield else "hold",
             rationale=rationale,
@@ -178,6 +222,7 @@ def create_fixture(
     created_by: str = CREATED_BY,
     provenance_extra: Optional[dict] = None,
     reviewer_principal: Optional[str] = None,
+    human_review_attested: bool = False,
     rationale: Optional[str] = None,
 ) -> dict:
     """Create one regression fixture and validate it. Returns a result dict:
@@ -304,14 +349,17 @@ def create_fixture(
               [caller_samples[start_idx:end_idx],
                agent_samples[start_idx:end_idx]])
 
-    # A human ran this workflow and chose --expect: mint a signed label-record
-    # bound to the EXACT decoded audio just written, if some signing key is
-    # configured (Ed25519 via sign.py, else the shared HMAC key). Absent a key,
-    # this stays None -- the fixture is still created, just with an honest
-    # "asserted" (not falsely "human") label authority downstream.
+    # An ACCOUNTABLE human named via reviewer_principal reviewed this recording
+    # and chose --expect: mint a signed label-record bound to the EXACT decoded
+    # audio just written, if a signing key is configured (Ed25519 via sign.py,
+    # else the shared HMAC key). Absent an explicit reviewer, absent a
+    # human-review confirmation (TTY / --i-attest-human-review), OR absent a
+    # key (R-09), this stays None -- the fixture is still created, just with an
+    # honest "asserted" (not falsely "human") label authority downstream.
     label_record = _mint_fixture_label_record(
         audio_path=audio_path, want_yield=want_yield,
-        reviewer_principal=reviewer_principal, rationale=rationale)
+        reviewer_principal=reviewer_principal,
+        human_review_attested=human_review_attested, rationale=rationale)
     if label_record is not None:
         scenario["label_record"] = label_record
         os.makedirs(labels_dir, exist_ok=True)
@@ -556,6 +604,7 @@ def promote_candidate(
     caller_channel: int = 0,
     agent_channel: int = 1,
     reviewer_principal: Optional[str] = None,
+    human_review_attested: bool = False,
 ) -> dict:
     """Promote one sweep/analyze candidate into a permanent regression
     fixture. Resolves the ref to its candidate (source recording, onset,
@@ -592,6 +641,7 @@ def promote_candidate(
         agent_channel=agent_channel,
         created_by=PROMOTED_BY,
         reviewer_principal=reviewer_principal,
+        human_review_attested=human_review_attested,
         provenance_extra={
             "candidate_ref": ref,
             "candidate_kind": cand.get("kind"),
