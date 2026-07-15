@@ -58,6 +58,8 @@ __all__ = [
     "canonical_identity_bytes",
     "compute_record_id",
     "digest_bytes",
+    "failure_selectors",
+    "load_record",
     "project",
     "select_source",
     "validate_record",
@@ -664,6 +666,90 @@ _NO_FAILURE_MESSAGE = (
     "for a FAIL, INCONCLUSIVE, or ERROR result; a passing result is never "
     "relabeled."
 )
+
+
+# =========================================================================
+# record-set selection (render every failing unit)
+# =========================================================================
+
+def _unit_projects_to_failure(doc: Dict[str, Any], selector: Optional[str]) -> bool:
+    """True iff the selected unit projects to a FAIL / INCONCLUSIVE / ERROR
+    Failure Record. Reuses :func:`project`'s exact :class:`NoFailureError`
+    boundary, so a record SET can never disagree with a single render about
+    what counts as a failure: a unit whose checks all pass is omitted (never
+    fabricated into a failure), while an unprojectable field still raises so a
+    malformed failing unit is refused rather than silently skipped."""
+    try:
+        project(doc, selector=selector)
+    except NoFailureError:
+        return False
+    return True
+
+
+def failure_selectors(doc: Dict[str, Any]) -> List[Optional[str]]:
+    """Every selector, in SOURCE ORDER, whose unit projects to a Failure
+    Record (a FAIL / INCONCLUSIVE / ERROR result). A passing unit is omitted;
+    an all-pass source yields the empty list -- a passing result is never
+    fabricated into a failure.
+
+    Returns ``None`` for a single-unit ``hotato.test-run`` source, each
+    non-passing test's ``test_id`` for a ``hotato.suite-run`` source, and each
+    non-passing contract's ``id`` for a ``contract-verify`` source. A duplicate
+    test/contract id anywhere in the source is REFUSED (before any render):
+    ``SOURCE#id`` must resolve to exactly one unit, so an ambiguous id cannot
+    pin a record."""
+    kind = doc.get("kind")
+    if kind == "hotato.test-run":
+        candidates: List[Tuple[Optional[str], Optional[str]]] = [
+            (None, doc.get("test_id")),
+        ]
+    elif kind == "hotato.suite-run":
+        candidates = [(t.get("test_id"), t.get("test_id"))
+                      for t in (doc.get("tests") or [])]
+    elif kind == "contract-verify":
+        candidates = [(r.get("id"), r.get("id"))
+                      for r in (doc.get("results") or [])]
+    else:
+        raise ValueError(
+            f"unsupported source kind {kind!r}: a Failure Record set projects "
+            "a hotato.test-run result, a hotato.suite-run result, or a "
+            "contract-verify envelope (each from --format json)"
+        )
+
+    counts: Dict[str, int] = {}
+    for _sel, ident in candidates:
+        if ident is None:
+            continue
+        counts[str(ident)] = counts.get(str(ident), 0) + 1
+    duplicates = sorted(i for i, n in counts.items() if n > 1)
+    if duplicates:
+        raise SelectorError(
+            "cannot render a record set: the source contains duplicate unit "
+            f"id(s) {', '.join(duplicates)}; each test/contract id must be "
+            "unique so a SOURCE#id selector resolves to exactly one record"
+        )
+
+    selectors: List[Optional[str]] = []
+    for sel, _ident in candidates:
+        if _unit_projects_to_failure(doc, sel):
+            selectors.append(sel)
+    return selectors
+
+
+def load_record(path: str) -> Dict[str, Any]:
+    """Load a Failure Record JSON from a regular file, using the repository's
+    FIFO-safe regular-file loader and shared JSON loader. Returns the raw dict;
+    VALIDATION is the caller's job (``hotato record verify`` runs
+    :func:`validate_record` over the loaded dict)."""
+    from .errors import load_json_file
+    doc = load_json_file(path, label=f"failure record {path!r}")
+    if not isinstance(doc, dict):
+        raise ValueError(
+            f"failure record {path!r} is not a JSON object; expected a "
+            "hotato.failure-record.v1 document (a record rendered by "
+            "hotato record render)"
+        )
+    return doc
 
 
 # =========================================================================

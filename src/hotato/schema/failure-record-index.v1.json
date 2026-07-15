@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schema/failure-record-index.v1.json",
+  "title": "hotato failure record index, schema failure-record-index.v1",
+  "description": "A closed, byte-deterministic index over the set of share-safe Failure Records rendered from ONE source result (a hotato test-run, suite-run, or contract-verify document). It records only structure: the source kind + digest, how many non-passing units the source contained (total_failures), how many were rendered, whether the set was truncated by a record limit, and one entry per rendered record pointing at its content-addressed child directory. There is no wall-clock field and no aggregate or blended score -- an index groups records, it never scores them. Every entry cross-checks its own failure-record.json (record_id, status, headline, and the sha256- directory name).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "version",
+    "source",
+    "total_failures",
+    "rendered",
+    "truncated",
+    "records"
+  ],
+  "properties": {
+    "kind": { "const": "hotato.failure-record-index.v1" },
+    "version": { "const": "1.0" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "digest"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "total_failures": { "type": "integer", "minimum": 0 },
+    "rendered": { "type": "integer", "minimum": 0 },
+    "truncated": { "type": "boolean" },
+    "records": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id", "status", "test_id", "headline", "directory"],
+      "properties": {
+        "record_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "status": { "enum": ["FAIL", "INCONCLUSIVE", "ERROR"] },
+        "test_id": { "type": "string", "minLength": 1 },
+        "headline": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "directory": { "type": "string", "pattern": "^sha256-[0-9a-f]{64}$" }
+      }
+    }
+  }
+}
