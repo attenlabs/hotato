@@ -26,6 +26,7 @@ opted in with ``gate-advisory: true`` (hotato's own ``--gate-judge``).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -162,6 +163,17 @@ def validate_inputs() -> Dict[str, Any]:
         )
     cfg["gate_advisory"] = gate_advisory
     cfg["render_records"] = _bool_input("HOTATO_ACTION_RENDER_RECORDS")
+
+    record_limit = _env("HOTATO_ACTION_RECORD_LIMIT") or "100"
+    try:
+        limit = int(record_limit)
+    except ValueError:
+        raise InputError("input 'record-limit' must be an integer between 1"
+                         f" and 500, got {record_limit!r}")
+    if not 1 <= limit <= 500:
+        raise InputError("input 'record-limit' must be between 1 and 500,"
+                         f" got {limit}")
+    cfg["record_limit"] = limit
 
     for name, env_name in (("transcript", "HOTATO_ACTION_TRANSCRIPT"),
                            ("trace", "HOTATO_ACTION_TRACE"),
@@ -349,29 +361,260 @@ def run_hotato(cfg: Dict[str, Any]) -> Tuple[int, str]:
     return proc.returncode, result_path
 
 
-def render_records(cfg: Dict[str, Any], result_path: str) -> Tuple[str, str]:
-    """Optionally render Failure Records through ``hotato record render``.
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+_RECORD_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_RECORD_DIR_RE = re.compile(r"^sha256-[0-9a-f]{64}$")
 
-    The renderer ships separately; when the installed hotato has no ``record``
-    subcommand (or it fails for any reason) the Action carries on without it.
-    Returns (records_dir_or_empty, note)."""
+
+def _empty_record_set(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """The neutral record-set result: no directory, no index, empty counts, no
+    entries. Every gate path that produces no trustworthy record set returns
+    this shape (only ``note``/``warning`` differ), so the outputs are uniformly
+    empty and never claim records that were not written and validated."""
+    return {
+        "records_dir": "", "index_path": "", "count": "", "total": "",
+        "entries": [], "truncated": False, "limit": cfg.get("record_limit", 100),
+        "note": "", "warning": "",
+    }
+
+
+def _classify_unsupported(stderr: str) -> bool:
+    """True when a non-zero ``record render`` means the INSTALLED hotato simply
+    lacks ``record render --all`` (an exact older PyPI pin), rather than a
+    genuine renderer error. Detected from argparse's own refusal text: an
+    unknown ``record``/``render`` subcommand, or ``--all``/``--limit`` reported
+    as unrecognized. Anything else is a real error and is surfaced as a
+    warning."""
+    s = stderr or ""
+    if "invalid choice: 'record'" in s or "invalid choice: 'render'" in s:
+        return True
+    if "unrecognized arguments" in s and ("--all" in s or "--limit" in s):
+        return True
+    return False
+
+
+def _source_digest_hex(workspace: str, result_path: str) -> Optional[str]:
+    """sha256 (lowercase hex) of the machine-result bytes on disk -- the SAME
+    bytes ``hotato record render`` hashes for the index's ``source.digest``, so
+    the digest-scoped directory name matches the index the subprocess writes."""
+    try:
+        with open(os.path.join(workspace, result_path), "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    return hashlib.sha256(data).hexdigest()
+
+
+def _validate_index(index: Any, source_hex: str) -> Optional[str]:
+    """Structurally validate the record-set ``index.json`` WITHOUT trusting it:
+    the closed kind/version, the source digest matching the machine result we
+    hashed, integer counts, a boolean truncation flag, and a ``rendered`` count
+    that matches the number of entries. Returns a reason string on the first
+    violation, or ``None`` when the index is internally consistent."""
+    if not isinstance(index, dict):
+        return "index is not a JSON object"
+    if index.get("kind") != "hotato.failure-record-index.v1":
+        return f"unexpected index kind {index.get('kind')!r}"
+    if index.get("version") != "1.0":
+        return f"unexpected index version {index.get('version')!r}"
+    source = index.get("source")
+    if not isinstance(source, dict) or source.get("digest") != f"sha256:{source_hex}":
+        return "index source digest does not match the machine result"
+    total = index.get("total_failures")
+    rendered = index.get("rendered")
+    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+        return "index total_failures is not a non-negative integer"
+    if not isinstance(rendered, int) or isinstance(rendered, bool) or rendered < 0:
+        return "index rendered is not a non-negative integer"
+    if not isinstance(index.get("truncated"), bool):
+        return "index truncated is not a boolean"
+    records = index.get("records")
+    if not isinstance(records, list) or len(records) != rendered:
+        return "index rendered count does not match its records array"
+    if rendered > total:
+        return "index rendered count exceeds total_failures"
+    return None
+
+
+def _read_record_set(cfg: Dict[str, Any], digest_scoped: str,
+                     source_hex: str) -> Dict[str, Any]:
+    """Read and VALIDATE the record set the renderer wrote into the private
+    output tree, then build compact per-record summaries for the job summary.
+
+    Nothing from ``index.json`` is trusted without a check: the index is
+    structurally validated, every entry's content-addressed directory name is
+    pattern-checked and resolved with ``realpath`` so it must land BENEATH the
+    record-set root (no traversal, no symlink escape), and every listed
+    ``failure-record.json`` is cross-checked to carry the same record id,
+    status, headline, and test id the index advertised. If ANY check fails the
+    whole set is treated as absent (empty outputs) and a warning is surfaced --
+    records are never reported as present unless the index and every listed
+    record validate."""
+    result = _empty_record_set(cfg)
+    workspace = cfg["workspace"]
+    root_abs = os.path.realpath(os.path.join(workspace, digest_scoped))
+    index_abs = os.path.join(root_abs, "index.json")
+    try:
+        with open(index_abs, "r", encoding="utf-8") as fh:
+            index = json.load(fh)
+    except (OSError, ValueError) as exc:
+        result["warning"] = ("Failure Record index was not readable"
+                             f" ({exc}); the gate result is unaffected")
+        result["note"] = result["warning"]
+        return result
+
+    problem = _validate_index(index, source_hex)
+    if problem is not None:
+        result["warning"] = (f"Failure Record index failed validation"
+                             f" ({problem}); the gate result is unaffected")
+        result["note"] = result["warning"]
+        return result
+
+    total = int(index["total_failures"])
+    rendered = int(index["rendered"])
+    entries: List[Dict[str, str]] = []
+    for entry in index["records"]:
+        problem = _validate_entry(entry, workspace, root_abs)
+        if problem is not None:
+            result["warning"] = (f"Failure Record entry failed validation"
+                                 f" ({problem}); the gate result is unaffected")
+            result["note"] = result["warning"]
+            return result
+        entries.append({
+            "test_id": entry["test_id"],
+            "headline": entry["headline"],
+            "path": os.path.join(digest_scoped, entry["directory"],
+                                 "failure-record.md"),
+        })
+
+    if total == 0:
+        # An all-pass source writes a zero-record index (never a fabricated
+        # failure). There is nothing to upload, so the record outputs stay
+        # empty; the count is reported honestly and the summary says so.
+        result["count"] = "0"
+        result["total"] = "0"
+        result["note"] = "0 non-passing units"
+        return result
+
+    result["records_dir"] = digest_scoped
+    result["index_path"] = os.path.join(digest_scoped, "index.json")
+    result["count"] = str(rendered)
+    result["total"] = str(total)
+    result["truncated"] = bool(index["truncated"])
+    result["entries"] = entries
+    return result
+
+
+def _validate_entry(entry: Any, workspace: str, root_abs: str) -> Optional[str]:
+    """Validate ONE index entry and its child ``failure-record.json``: the
+    id/directory patterns, containment of the child under the record-set root
+    (realpath, so a symlink or ``..`` escape is refused), and a cross-check of
+    record id, status, headline, and test id against the child file. Returns a
+    reason string on the first violation, else ``None``."""
+    if not isinstance(entry, dict):
+        return "entry is not an object"
+    record_id = entry.get("record_id")
+    directory = entry.get("directory")
+    for key in ("status", "test_id", "headline"):
+        if not isinstance(entry.get(key), str) or not entry.get(key):
+            return f"entry {key} is missing"
+    if not isinstance(record_id, str) or not _RECORD_ID_RE.match(record_id):
+        return "entry record_id is malformed"
+    if not isinstance(directory, str) or not _RECORD_DIR_RE.match(directory):
+        return "entry directory is malformed"
+    if directory != "sha256-" + record_id.split(":", 1)[1]:
+        return "entry directory does not match its record_id"
+    # Containment: the child directory and record file must resolve BENEATH the
+    # record-set root; realpath collapses any symlink or traversal first.
+    child_dir = os.path.realpath(os.path.join(root_abs, directory))
+    if child_dir != os.path.join(root_abs, directory):
+        return "entry directory escaped the record-set root"
+    if not (child_dir == root_abs or child_dir.startswith(root_abs + os.sep)):
+        return "entry directory is outside the record-set root"
+    record_abs = os.path.join(child_dir, "failure-record.json")
+    if os.path.realpath(record_abs) != record_abs:
+        return "failure-record.json escaped the record-set root"
+    try:
+        with open(record_abs, "r", encoding="utf-8") as fh:
+            child = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return f"failure-record.json unreadable ({exc})"
+    if not isinstance(child, dict):
+        return "failure-record.json is not an object"
+    subject = child.get("subject")
+    child_test = subject.get("test_id") if isinstance(subject, dict) else None
+    if (child.get("record_id") != record_id
+            or child.get("status") != entry["status"]
+            or child.get("headline") != entry["headline"]
+            or child_test != entry["test_id"]):
+        return "failure-record.json does not match its index entry"
+    return None
+
+
+def render_records(cfg: Dict[str, Any], result_path: str) -> Dict[str, Any]:
+    """Render one share-safe Failure Record per non-passing unit through
+    ``hotato record render --all`` into a source-digest-scoped directory under
+    the consumer's configured output root, then read and validate the result.
+
+    The records land under ``<output>/records/sha256-<source hex>/``, inside the
+    private output directory ``run_hotato`` created fresh (mode 0700, refused if
+    it already exists) and holds a no-follow descriptor to; the record files are
+    therefore covered by the SAME no-follow/exclusive containment guarantee as
+    the result file and ``summary.md``. This function itself never opens a
+    record path for WRITING -- the renderer subprocess does, exclusively inside
+    that private tree -- and it reads the index and child records only after a
+    realpath containment check under the record-set root.
+
+    The gate exit is owned by hotato's evaluation. A presentation failure here
+    NEVER changes it: on a renderer error the record outputs stay empty and a
+    warning is surfaced; the caller preserves the exit code untouched. Returns a
+    record-set dict (see ``_empty_record_set``)."""
     if not cfg.get("render_records"):
-        return "", ("not requested (set render-records: true once your"
-                    " hotato version ships hotato record render)")
-    records_dir = os.path.join(cfg["output"], "records")
+        result = _empty_record_set(cfg)
+        result["note"] = ("not requested (render-records: false; local Failure"
+                          " Record artifacts are disabled)")
+        return result
+
+    workspace = cfg["workspace"]
+    limit = cfg.get("record_limit", 100)
+    source_hex = _source_digest_hex(workspace, result_path)
+    if source_hex is None or not _SHA256_HEX.match(source_hex):
+        result = _empty_record_set(cfg)
+        result["warning"] = ("could not hash the machine result to render"
+                             " Failure Records; the gate result is unaffected")
+        result["note"] = result["warning"]
+        return result
+
+    digest_scoped = os.path.join(cfg["output"], "records",
+                                 "sha256-" + source_hex)
     try:
         proc = _run(
             [sys.executable, "-m", "hotato", "record", "render", result_path,
-             "--out", records_dir],
-            cwd=cfg["workspace"], capture_output=True, text=True, timeout=300,
+             "--all", "--limit", str(limit), "--out", digest_scoped],
+            cwd=workspace, capture_output=True, text=True, timeout=300,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return "", "renderer unavailable; the gate result is unaffected"
-    full = os.path.join(cfg["workspace"], records_dir)
-    if proc.returncode == 0 and os.path.isdir(full) and os.listdir(full):
-        return records_dir, ""
-    return "", ("hotato record render is not available in this hotato"
-                " version; the gate result is unaffected")
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result = _empty_record_set(cfg)
+        result["warning"] = (f"Failure Record renderer did not run ({exc});"
+                             " the gate result is unaffected")
+        result["note"] = result["warning"]
+        return result
+
+    if proc.returncode != 0:
+        result = _empty_record_set(cfg)
+        if _classify_unsupported(proc.stderr):
+            result["note"] = ("installed version does not support record sets"
+                              " (hotato record render --all); the gate result"
+                              " is unaffected")
+            return result
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        detail = detail[-1].strip() if detail else f"exit {proc.returncode}"
+        result["warning"] = (f"Failure Record rendering failed: {detail}; the"
+                             " gate result is unaffected")
+        result["note"] = result["warning"]
+        return result
+
+    return _read_record_set(cfg, digest_scoped, source_hex)
 
 
 def write_outputs(values: Dict[str, str]) -> None:
@@ -393,6 +636,12 @@ def write_summary(markdown: str) -> None:
             fh.write(markdown + "\n")
 
 
+def _emit_warning(message: str) -> None:
+    """Surface a GitHub Actions ``::warning::`` annotation. It is a presentation
+    signal only -- it never changes the gate exit code."""
+    print("::warning::" + " ".join(str(message).split()))
+
+
 def main() -> int:
     meta: Dict[str, Any] = {
         "action_ref": _env("GITHUB_ACTION_REF") or _env("GITHUB_ACTION_PATH")
@@ -400,6 +649,7 @@ def main() -> int:
     }
     outputs: Dict[str, str] = {
         "output": "", "suite-result": "", "summary": "", "records": "",
+        "records-index": "", "records-count": "", "records-total": "",
         "exit-code": "2", "status": "error", "hotato-version": "unknown",
     }
     exit_code: Optional[int] = None
@@ -407,6 +657,7 @@ def main() -> int:
     error: Optional[str] = None
     summary_path = ""
     cfg: Optional[Dict[str, Any]] = None
+    record_warning = ""
 
     try:
         cfg = validate_inputs()
@@ -431,10 +682,23 @@ def main() -> int:
             # the gate is owned by evidence, not by the process code alone.
             exit_code = 2
             error += " (exit raised to 2: no readable machine result)"
-        records, records_note = render_records(cfg, result_path)
-        outputs["records"] = records
-        meta["records"] = records
-        meta["records_note"] = records_note
+        # Failure Records are rendered ONLY from a machine result that loaded
+        # cleanly (a malformed/missing result gets no record attempt). A
+        # rendering failure never touches exit_code below.
+        if error is None and isinstance(doc, dict):
+            rec = render_records(cfg, result_path)
+        else:
+            rec = _empty_record_set(cfg)
+            rec["note"] = ("no record attempt: the machine result was missing"
+                           " or malformed")
+        outputs["records"] = rec["records_dir"]
+        outputs["records-index"] = rec["index_path"]
+        outputs["records-count"] = rec["count"]
+        outputs["records-total"] = rec["total"]
+        meta["records"] = rec["records_dir"]
+        meta["records_note"] = rec["note"]
+        meta["record_set"] = rec
+        record_warning = rec.get("warning") or ""
         summary_path = os.path.join(cfg["output"], "summary.md")
         meta["summary_path"] = summary_path
     except InputError as exc:
@@ -465,6 +729,9 @@ def main() -> int:
             os.close(dir_fd)
         except OSError:
             pass
+    if record_warning:
+        # A renderer error is visible but inert: it never changed `gate`.
+        _emit_warning(record_warning)
     write_summary(markdown)
     write_outputs(outputs)
     print(markdown)

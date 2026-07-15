@@ -1,0 +1,39 @@
+{
+  "agent": "consumer-agent",
+  "assertions": {
+    "deterministic": [
+      {
+        "count": {
+          "min": 1
+        },
+        "dimension": "conversation",
+        "id": "caller-turns",
+        "kind": "count",
+        "phrase": "\\S",
+        "role": "caller"
+      },
+      {
+        "dimension": "policy",
+        "id": "escalation-handoff",
+        "kind": "handoff",
+        "to": "human_supervisor"
+      }
+    ]
+  },
+  "id": "dup-escalation",
+  "kind": "hotato.conversation-test",
+  "repetitions": 1,
+  "scenario": "../scenarios/escalate-not-handed-off.scenario.json",
+  "success": {
+    "report_dimensions": [
+      "outcome",
+      "policy",
+      "conversation",
+      "speech"
+    ],
+    "required": [
+      "all_deterministic_assertions_pass"
+    ]
+  },
+  "version": 1
+}
