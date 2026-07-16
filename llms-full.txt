@@ -16,18 +16,22 @@ FILE: README.md
 
 </div>
 
-**hotato** is self-hosted conversation QA for voice agents: give it both channels of a recorded call, it measures the timing between the two voices, and locks every catch into a CI contract. The name is hot potato, hold the turn too long and you drop the call. MIT, offline, no account.
+**hotato** is self-hosted conversation QA for voice agents: give it both channels of a recorded call, it measures the timing between the two voices, and locks every catch into a CI contract. MIT, offline, no account.
 
 <p align="center">
   <img src="docs/assets/hotato-demo.gif" alt="hotato demo: uvx hotato demo --fail types out and scores two recorded calls, both fail on timing, exit 1." width="720" style="max-width:100%;height:auto;">
 </p>
 
-## Install
+## Get started
+
+**Point your coding agent at it.** Paste this repo at Claude Code, Cursor, or any coding agent and ask it to try hotato on your voice agent. It reads [`AGENTS.md`](AGENTS.md) and drives the whole loop: run the demo, wire a CI gate, and re-check the numbers itself.
+
+Or run it yourself:
 
 ```bash
-uvx hotato demo --fail                 # zero-install, runs the bundled battery
+uvx hotato demo --fail                 # catch a failure in 10 seconds, no account
 pipx install hotato                    # keep it in a project
-uvx --from "hotato[mcp]" hotato-mcp    # drive it from a coding agent over MCP, local stdio
+uvx --from "hotato[mcp]" hotato-mcp    # drive it over MCP, local stdio
 ```
 
 ## Five dimensions
