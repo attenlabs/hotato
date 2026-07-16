@@ -7,8 +7,11 @@ reversible, and needs no account or key. Prefer the CLI's own contract
 
 ## What it is
 
-hotato is self-hosted conversation QA for voice agents. Give it both channels of
-a recorded call (caller on one channel, agent on the other) and it measures the
+hotato turns a failed voice call into a deterministic regression test that lives
+in your repo and reproduces forever: self-hosted conversation QA that measures
+the timing between the two voices of a recorded call and locks each catch into a
+content-addressed CI contract with a stable pass/fail exit. Give it both channels
+of a recorded call (caller on one channel, agent on the other) and it measures the
 timing between the two voices: did the agent stop talking when the caller took
 the floor (a yield), how many seconds that took, and how many seconds both were
 talking at once (talk-over). It runs on the machine that invokes it and never

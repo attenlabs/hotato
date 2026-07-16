@@ -622,6 +622,38 @@ def run_investigate_label(
     return result
 
 
+def _contracts_dir(result: dict) -> str:
+    """The directory the contract bundle was written into (the parent of the
+    ``<id>.hotato`` bundle), which is what ``hotato contract verify`` scans.
+    Falls back to :data:`DEFAULT_OUT_DIR` when ``dir`` is absent."""
+    return os.path.dirname(result.get("dir") or "") or DEFAULT_OUT_DIR
+
+
+def _next_ladder(result: dict) -> list:
+    """The guided path from a just-created contract to the two artifacts a repo
+    keeps: a CI gate that fails on a timing regression, and a share-safe Failure
+    Record. The analog of the demo golden path's own next-steps ladder
+    (``start._next_commands_text``), bound to THIS contract's real directory.
+
+    Shown only when the contract is CI-ready (scorable and verdict-eligible): a
+    not-scorable or verdict-withheld contract keeps only
+    ``render_create_text``'s fix-the-input guidance, so we never point a dev at
+    a CI gate that ``contract verify`` would refuse.
+    """
+    c = result.get("contract") or {}
+    m = c.get("measurement") or {}
+    if not m.get("scorable") or not m.get("verdict_eligible", True):
+        return []
+    q = shlex.quote(_contracts_dir(result) + "/")
+    return [
+        "keep it in your repo (all offline, no account, no network):",
+        (f"  gate CI on it      hotato contract verify {q} --junit hotato.xml "
+         "--format json > contracts-verify.json"),
+        ("  share the failure  hotato record render contracts-verify.json "
+         "--out records/"),
+    ]
+
+
 def render_label_text(result: dict) -> str:
     from . import contract as _contract
 
@@ -633,6 +665,10 @@ def render_label_text(result: dict) -> str:
     if origin:
         lines.extend(_render_capture_origin_lines(origin))
     lines.append(_contract.render_create_text(result))
+    ladder = _next_ladder(result)
+    if ladder:
+        lines.append("")
+        lines.extend(ladder)
     return "\n".join(lines)
 
 
@@ -644,4 +680,13 @@ def label_result_json(result: dict) -> dict:
     out["candidate_ref"] = result["candidate_ref"]
     out["auto_id"] = result["auto_id"]
     out["capture_origin"] = result.get("capture_origin")
+    if _next_ladder(result):
+        # structured, not the rendered indentation: the two commands that turn
+        # this contract into a CI gate + a share-safe Failure Record
+        contracts_dir = _contracts_dir(result)
+        out["next_commands"] = [
+            (f"hotato contract verify {contracts_dir}/ --junit hotato.xml "
+             "--format json > contracts-verify.json"),
+            "hotato record render contracts-verify.json --out records/",
+        ]
     return out

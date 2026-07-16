@@ -306,6 +306,40 @@ def test_investigate_label_render_and_json(call_wav, tmp_path):
     assert payload["auto_id"] is True
 
 
+def test_investigate_label_prints_ci_and_record_ladder(call_wav, tmp_path):
+    state = str(tmp_path / "state.json")
+    result, _ = _investigate.run_investigate(call_wav, state_path=state)
+    ref = result["next"][0]["ref"]
+    label_result = _investigate.run_investigate_label(
+        ref, expect="yield", out_dir=str(tmp_path / "contracts"),
+    )
+    text = _investigate.render_label_text(label_result)
+    # the immediate next step (unchanged) is still present ...
+    assert "hotato contract verify" in text
+    # ... plus the two commands that reach the named destination: the CI gate
+    # and the share-safe Failure Record, bound to this contract's real dir
+    assert "hotato record render contracts-verify.json" in text
+    assert "--junit hotato.xml" in text
+    assert str(tmp_path / "contracts") in text
+
+    payload = _investigate.label_result_json(label_result)
+    cmds = payload.get("next_commands", [])
+    assert any("record render" in c for c in cmds)
+    assert any("contract verify" in c for c in cmds)
+
+
+def test_investigate_label_ladder_hidden_when_not_ci_ready():
+    # a not-scorable contract must not point at a CI gate that would refuse
+    assert _investigate._next_ladder(
+        {"contract": {"measurement": {"scorable": False}}}
+    ) == []
+    # a verdict-withheld contract is likewise not CI-ready
+    assert _investigate._next_ladder(
+        {"contract": {"measurement": {"scorable": True,
+                                      "verdict_eligible": False}}}
+    ) == []
+
+
 # --- K5: --reviewer -> a real signed label-record carried on the contract --
 
 def test_investigate_label_reviewer_mints_a_real_label_record(

@@ -12,7 +12,7 @@
 
 </div>
 
-**hotato** is self-hosted conversation QA for voice agents: give it both channels of a recorded call, it measures the timing between the two voices, and locks every catch into a CI contract. MIT, offline, no account.
+**hotato** turns a failed voice call into a deterministic regression test that lives in your Git and reproduces forever. Give it both channels of a recording and it measures the timing between the two voices, the talk-over and slow yields a transcript cannot see, then locks each catch into a content-addressed CI contract that returns the same verdict, exit 0 or 1, on any machine. Self-hosted conversation QA for voice agents: MIT, offline, no account.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo.gif" alt="hotato demo: uvx hotato demo --fail types out and scores two recorded calls, both fail on timing, exit 1." width="720" style="max-width:100%;height:auto;">

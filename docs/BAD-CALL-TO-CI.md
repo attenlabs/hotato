@@ -3,6 +3,20 @@
 Turn one bad call into a permanent, offline regression test. Five steps,
 audio included, all local.
 
+## Start from your own provider call
+
+Have a call id instead of a WAV? Pull, review, and label it in two commands,
+then the same CI gate below applies:
+
+```bash
+hotato investigate --stack vapi --call-id <id>
+hotato investigate label .hotato/investigate-state.json#<n> --expect yield --reviewer you
+```
+
+`investigate` prints a ranked candidate for each timing moment with the exact
+label command; `investigate label` writes a signed contract to `contracts/` and
+prints how to gate CI on it and render a share-safe Failure Record.
+
 ## The label comes from you
 
 Yield means the agent should stop for the caller. Hold means it should keep
