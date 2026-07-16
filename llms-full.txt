@@ -16,7 +16,7 @@ FILE: README.md
 
 </div>
 
-**hotato** is self-hosted conversation QA for voice agents: give it both channels of a recorded call, it measures the timing between the two voices, and locks every catch into a CI contract. MIT, offline, no account.
+**hotato** turns a failed voice call into a deterministic regression test that lives in your Git and reproduces forever. Give it both channels of a recording and it measures the timing between the two voices, the talk-over and slow yields a transcript cannot see, then locks each catch into a content-addressed CI contract that returns the same verdict, exit 0 or 1, on any machine. Self-hosted conversation QA for voice agents: MIT, offline, no account.
 
 <p align="center">
   <img src="docs/assets/hotato-demo.gif" alt="hotato demo: uvx hotato demo --fail types out and scores two recorded calls, both fail on timing, exit 1." width="720" style="max-width:100%;height:auto;">
@@ -588,6 +588,20 @@ FILE: docs/BAD-CALL-TO-CI.md
 
 Turn one bad call into a permanent, offline regression test. Five steps,
 audio included, all local.
+
+## Start from your own provider call
+
+Have a call id instead of a WAV? Pull, review, and label it in two commands,
+then the same CI gate below applies:
+
+```bash
+hotato investigate --stack vapi --call-id <id>
+hotato investigate label .hotato/investigate-state.json#<n> --expect yield --reviewer you
+```
+
+`investigate` prints a ranked candidate for each timing moment with the exact
+label command; `investigate label` writes a signed contract to `contracts/` and
+prints how to gate CI on it and render a share-safe Failure Record.
 
 ## The label comes from you
 
