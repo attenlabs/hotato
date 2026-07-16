@@ -132,11 +132,11 @@ Credential-less; runs on the machine that invokes it.
 
 ```mermaid
 flowchart LR
-  A["📞 Two-channel<br/>recording"] --> B["⏱️ Measure the timing<br/>between the two voices"]
-  B --> C["🔒 Content-addressed<br/>contract"]
+  A["Two-channel<br/>recording"] --> B["Measure the timing<br/>between the two voices"]
+  B --> C["Content-addressed<br/>contract"]
   C --> D{"CI verdict"}
   D -->|exit 0| E["pass"]
-  D -->|exit 1| F["fail, reproduces<br/>byte-for-byte"]
+  D -->|exit 1| F["fail"]
   classDef ember fill:#c23c07,stroke:#8f2b04,color:#ffffff;
   classDef teal fill:#2a5f52,stroke:#1c4034,color:#ffffff;
   class F ember;
