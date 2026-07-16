@@ -35,6 +35,7 @@ Give it a two-channel recording and it measures the timing between the two voice
 
 ## Key properties
 
+- 📐 Conversation QA for voice agents: scores five dimensions (outcome, policy, conversation, speech, reliability) into one pass/fail verdict.
 - ⏱️ Scores talk-over, ignored interruptions, and floor-yield latency, measured from two channels.
 - 🔒 Each catch is a content-addressed contract that reproduces byte-for-byte across machines and releases.
 - 🪶 Stdlib-only core: zero required dependencies, ~10 MiB installed, no network calls.
