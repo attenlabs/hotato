@@ -444,7 +444,10 @@ def _manifest_child_digests(store, digest: str) -> "set[str]":
     except OSError:
         return set()
     try:
-        man = store.get_json(digest)
+        # Verified read: a manifest whose bytes no longer hash to its digest
+        # (poisoned/bit-rot) declares no children rather than being trusted to
+        # enumerate the reachable evidence set.
+        man = store.get_json(digest, verify=True)
     except Exception:
         return set()
     if not isinstance(man, dict):
@@ -542,7 +545,9 @@ def build_conversation_inspector(reg: Registry, ws: str, conversation_id: str,
     digest = conv.get("artifact_digest")
     if digest and store is not None and _looks_like_digest(digest) and store.has(digest):
         try:
-            manifest = store.get_json(digest)
+            # Verified read at the render boundary: a poisoned manifest blob is
+            # treated as unresolved evidence, never rendered as authentic.
+            manifest = store.get_json(digest, verify=True)
         except Exception:
             manifest = None
         if isinstance(manifest, dict):
@@ -553,7 +558,7 @@ def build_conversation_inspector(reg: Registry, ws: str, conversation_id: str,
                 if not (_looks_like_digest(csha) and store.has(csha)):
                     continue
                 try:
-                    raw = store.get_bytes(csha)
+                    raw = store.get_bytes(csha, verify=True)
                 except Exception:
                     continue
                 if name == "transcript":

@@ -13,7 +13,7 @@ import pytest
 
 from hotato.fleet.jobs import JobQueue
 from hotato.fleet.registry import Registry
-from hotato.fleet.store import ArtifactStore
+from hotato.fleet.store import ArtifactStore, BlobIntegrityError
 
 
 def _queue(home):
@@ -109,6 +109,41 @@ def test_store_partial_write_never_yields_torn_blob(tmp_path):
     assert st.verify(digest)                      # content addressing holds
     # writing identical content again is idempotent and still verifies
     assert st.put_bytes(data) == digest and st.verify(digest)
+
+
+def test_verified_read_refuses_out_of_band_poisoned_blob(tmp_path):
+    """CAS trust boundary: a blob poisoned out-of-band (its on-disk bytes no
+    longer hash to the digest that names it) must fail CLOSED on a verified read.
+
+    Reproduces the audit exploit: plant mismatched bytes at the on-disk CAS path
+    of an honest blob, then read it back. ``get_bytes(digest, verify=True)``
+    re-hashes and raises ``BlobIntegrityError`` instead of returning the poison;
+    ``verify()`` reports False. Before the fix the ONLY integrity check was the
+    opt-in ``verify()`` and every serving read used raw ``get_bytes``, so the
+    poison was served verbatim as authentic evidence."""
+    st = ArtifactStore(str(tmp_path))
+    honest = b'{"evidence": "authentic", "verdict": "improved"}'
+    digest = st.put_bytes(honest, kind="conversation", workspace_id="ws1")
+    assert st.verify(digest)                       # honest blob is sound
+
+    # Poison the on-disk leaf out-of-band (bit-rot / filesystem tamper): overwrite
+    # the content-addressed file with DIFFERENT bytes of the same length.
+    poison = b'{"evidence": "FORGED!!", "verdict": "improved"}!'
+    assert len(poison) == len(honest)
+    leaf = st._blob_path(digest)
+    with open(leaf, "wb") as fh:
+        fh.write(poison)
+
+    # The address still resolves and the file is present, but the bytes lie.
+    assert st.has(digest) is True
+    assert st.verify(digest) is False              # designated integrity check
+    # Raw read (internal hot path) still returns whatever is on disk...
+    assert st.get_bytes(digest) == poison
+    # ...but the VERIFIED read every trust/serving boundary uses fails closed.
+    with pytest.raises(BlobIntegrityError):
+        st.get_bytes(digest, verify=True)
+    with pytest.raises(BlobIntegrityError):
+        st.get_json(digest, verify=True)
 
 
 def test_concurrent_duplicate_writes_never_share_tmp_path(tmp_path):

@@ -421,7 +421,10 @@ class FleetAPI:
                     f"({existing_ref!r}); pass a fresh --contract-id to mint a new "
                     "contract for this candidate.")
         else:
-            data = self.store.get_bytes(rec["artifact_digest"])
+            # Verified read: the contract binds this exact audio; a blob that no
+            # longer hashes to its digest (poisoned/bit-rot) must abort the mint,
+            # never be sealed into a signed contract as authentic evidence.
+            data = self.store.get_bytes(rec["artifact_digest"], verify=True)
             tf = _tf.NamedTemporaryFile(suffix=".wav", delete=False)
             try:
                 tf.write(data); tf.flush(); tf.close()
@@ -524,7 +527,10 @@ class FleetAPI:
         is pinned at RUN time from ``battery_env`` (lower assurance: the universe is
         only fixed once the results already exist)."""
         if manifest_ref is not None:
-            man = self.store.get_json(manifest_ref)
+            # Verified read: the pinned universe governs the whole trial; a
+            # tampered manifest blob must abort rather than silently redefine the
+            # committed fixture set.
+            man = self.store.get_json(manifest_ref, verify=True)
             if not man or man.get("trial_id") != trial_id:
                 raise ValueError(
                     f"manifest {manifest_ref!r} does not exist or is not the "
@@ -1099,7 +1105,9 @@ class FleetAPI:
             raise ValueError(f"recording {recording_id!r} has no stored audio to redact")
         import os as _os
         import tempfile as _tf
-        data = self.store.get_bytes(dig)
+        # Verified read: redaction derives a new clip from THIS evidence; a
+        # poisoned source blob must abort rather than seed a derived recording.
+        data = self.store.get_bytes(dig, verify=True)
         src = _tf.NamedTemporaryFile(suffix=".wav", delete=False)
         out = _tf.NamedTemporaryFile(suffix=".wav", delete=False)
         src.write(data); src.flush(); src.close(); out.close()

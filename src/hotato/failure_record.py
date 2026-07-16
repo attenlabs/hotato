@@ -1403,12 +1403,13 @@ def validate_record(record: Dict[str, Any], *, root: Optional[str] = None) -> Li
                 raise ValueError("unsafe required-artifact path")
             if root is not None:
                 source = os.path.join(root, rel)
-                if os.path.isfile(source):
-                    from .errors import open_regular
-                    with open_regular(source, "rb") as fh:
-                        if digest_bytes(fh.read()) != artifact["digest"]:
-                            raise ValueError(
-                                f"required-artifact digest mismatch: {rel}")
+                if not os.path.isfile(source):
+                    raise ValueError(f"required-artifact file missing: {rel}")
+                from .errors import open_regular
+                with open_regular(source, "rb") as fh:
+                    if digest_bytes(fh.read()) != artifact["digest"]:
+                        raise ValueError(
+                            f"required-artifact digest mismatch: {rel}")
     checks.append("reproduction contract")
 
     privacy = record["privacy"]
