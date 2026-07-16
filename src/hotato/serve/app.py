@@ -408,7 +408,19 @@ class _Handler(BaseHTTPRequestHandler):
                 "digest": digest, "bytes": size,
                 "hint": "large/binary evidence is not streamed through the viewer"}), \
                 "application/json; charset=utf-8", {}
-        data = store.get_bytes(digest)
+        # Verified read at the serving boundary: re-hash the stored bytes and
+        # refuse (500) if they do not match the requested digest. ``has()`` above
+        # only proves a file EXISTS at the address; a blob poisoned out-of-band
+        # (or bit-rotted) must never be streamed to a viewer as authentic
+        # evidence. Fail closed rather than serve mismatched bytes.
+        from ..fleet.store import BlobIntegrityError
+        try:
+            data = store.get_bytes(digest, verify=True)
+        except BlobIntegrityError:
+            return 500, _json_bytes({
+                "error": "artifact failed integrity verification",
+                "digest": digest}), \
+                "application/json; charset=utf-8", {}
         return 200, data, "text/plain; charset=utf-8", {
             "Content-Disposition": "inline; filename=\"%s.txt\"" % digest[:16]}
 

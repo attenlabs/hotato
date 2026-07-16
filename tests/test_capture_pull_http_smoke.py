@@ -221,3 +221,134 @@ def test_capture_twilio_pull_400_with_allow_mono_falls_back_to_mono(tmp_path):
     # the documented fallback re-requested RequestedChannels=1 and scored the mono
     assert any("RequestedChannels=1" in r["path"] for r in recorder.requests)
     assert read_wav(out).num_channels == 1
+
+
+# --- audit regression: a rejected (wrong-channel) download must NOT be kept ---
+# A provider that serves a mono/1-channel WAV at a multi-channel URL used to have
+# its rejected audio downloaded to dest and LEFT there on disk (the channel check
+# raised AFTER the file had already been published). The fix validates the temp
+# download before publishing, so a rejected download never lands at dest.
+
+def _wav_files(d):
+    """Every published .wav under ``d`` (excludes the .hotato-dl-*.part temps)."""
+    return [p for p in d.rglob("*.wav")]
+
+
+def test_capture_retell_channel_reject_leaves_no_file_at_dest(tmp_path):
+    recorder = fakes.Recorder()
+    # a REAL, readable 1-channel WAV served at the multi-channel URL: it parses
+    # fine but has the wrong channel count, so it must be rejected AND deleted.
+    mono = fakes.stereo_wav_bytes(tmp_path, channels=1, name="mono.wav")
+    out = tmp_path / "out" / "retell__c1.wav"
+    out.parent.mkdir()
+    server, base = fakes.start(_retell_handler(recorder, mono, field="scrubbed"))
+    try:
+        with pytest.raises(ValueError, match="channel"):
+            cap.capture_retell(call_id="c1", api_key="k", base_url=base,
+                               out_path=str(out))
+    finally:
+        server.shutdown()
+    # fail-closed: the rejected download is not at dest and nothing (not even a
+    # leftover .part temp) is left behind in the output directory.
+    assert not out.exists()
+    assert _wav_files(out.parent) == []
+    assert list(out.parent.glob(".hotato-dl-*")) == []
+
+
+def test_capture_vapi_channel_reject_leaves_no_file_at_dest(tmp_path):
+    recorder = fakes.Recorder()
+    mono = fakes.stereo_wav_bytes(tmp_path, channels=1, name="mono.wav")
+    out = tmp_path / "out" / "vapi.wav"
+    out.parent.mkdir()
+    server, base = fakes.start(_vapi_handler(recorder, mono))
+    try:
+        with pytest.raises(ValueError, match="channel"):
+            cap.capture_vapi(call_id="v1", api_key="k", base_url=base,
+                             out_path=str(out))
+    finally:
+        server.shutdown()
+    assert not out.exists()
+    assert _wav_files(out.parent) == []
+    assert list(out.parent.glob(".hotato-dl-*")) == []
+
+
+def test_capture_twilio_channel_reject_leaves_no_file_at_dest(tmp_path):
+    recorder = fakes.Recorder()
+    # 200 OK but a 1-channel body for RequestedChannels=2 -> reject + delete.
+    mono = fakes.stereo_wav_bytes(tmp_path, channels=1, name="mono.wav")
+    out = tmp_path / "out" / "twilio.wav"
+    out.parent.mkdir()
+    server, base = fakes.start(_twilio_handler(recorder, mono))
+    try:
+        with pytest.raises(ValueError, match="channel"):
+            cap.capture_twilio(recording_sid="RE1", account_sid="AC1",
+                               auth_token="t", base_url=base, out_path=str(out))
+    finally:
+        server.shutdown()
+    assert not out.exists()
+    assert _wav_files(out.parent) == []
+    assert list(out.parent.glob(".hotato-dl-*")) == []
+
+
+def test_capture_channel_reject_never_overwrites_a_preexisting_user_file(tmp_path):
+    # validate-before-publish must also protect a pre-existing file at --out: a
+    # rejected download must not clobber the user's good file there.
+    recorder = fakes.Recorder()
+    good = fakes.stereo_wav_bytes(tmp_path, channels=2, name="good.wav")
+    mono = fakes.stereo_wav_bytes(tmp_path, channels=1, name="mono.wav")
+    out = tmp_path / "out" / "retell__c1.wav"
+    out.parent.mkdir()
+    out.write_bytes(good)  # a valid 2-channel file already sits at dest
+    server, base = fakes.start(_retell_handler(recorder, mono, field="scrubbed"))
+    try:
+        with pytest.raises(ValueError, match="channel"):
+            cap.capture_retell(call_id="c1", api_key="k", base_url=base,
+                               out_path=str(out))
+    finally:
+        server.shutdown()
+    # the pre-existing good file is untouched (still 2-channel, same bytes)
+    assert out.read_bytes() == good
+    assert read_wav(str(out)).num_channels == 2
+
+
+def test_pull_channel_reject_reports_skipped_and_leaves_out_dir_clean(tmp_path,
+                                                                      monkeypatch):
+    # End-to-end through pull(): a call whose download is channel-rejected must be
+    # recorded in `skipped` (not `pulled`) and leave NO .wav in out_dir. Also
+    # exercises pull()'s backstop unlink against an adapter that (unlike the real
+    # ones) leaves a rejected file at dest before raising.
+    out_dir = tmp_path / "pulled"
+
+    def leaky_reject_fetch(stack, ident, creds, out_path=None, *, allow_mono=False):
+        # Simulate the OLD broken behavior at the adapter boundary: write the
+        # rejected audio to dest, THEN raise the channel-count rejection.
+        with open(out_path, "wb") as fh:
+            fh.write(fakes.stereo_wav_bytes(tmp_path, channels=1, name="m.wav"))
+        raise ValueError("downloaded WAV has 1 channel(s), expected 2")
+
+    monkeypatch.setattr(cap, "fetch_one", leaky_reject_fetch)
+    res = cap.pull("retell", {"api_key": "k"}, out_dir=str(out_dir), ids=["c1"])
+
+    assert res["pulled"] == []
+    assert [s["id"] for s in res["skipped"]] == ["c1"]
+    # the backstop removed the rejected file the (simulated) adapter left behind
+    assert list(out_dir.glob("*.wav")) == []
+
+
+def test_pull_backstop_never_deletes_a_preexisting_user_file(tmp_path, monkeypatch):
+    # If dest already held a user file, a later failed pull for that id must NOT
+    # delete it -- the backstop only removes files THIS pull wrote.
+    out_dir = tmp_path / "pulled"
+    out_dir.mkdir()
+    dest = out_dir / "retell__c1.wav"
+    good = fakes.stereo_wav_bytes(tmp_path, channels=2, name="good.wav")
+    dest.write_bytes(good)
+
+    def failing_fetch(stack, ident, creds, out_path=None, *, allow_mono=False):
+        raise ValueError("transient failure, dest untouched")
+
+    monkeypatch.setattr(cap, "fetch_one", failing_fetch)
+    res = cap.pull("retell", {"api_key": "k"}, out_dir=str(out_dir), ids=["c1"])
+
+    assert [s["id"] for s in res["skipped"]] == ["c1"]
+    assert dest.exists() and dest.read_bytes() == good

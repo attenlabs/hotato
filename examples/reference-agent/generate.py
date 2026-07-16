@@ -137,7 +137,7 @@ def _jobs():
         sequence=[("lookup_order",), ("issue_refund",)],
         speech_latency=("issue_refund", 1500),
     ))
-    # DEFECT: the agent claims a refund but never calls issue_refund (outcome FAILs).
+    # DEFECT: issue_refund is never called and refund_status stays "none" (outcome FAILs).
     jobs.append(dict(
         id="refund-claimed-not-issued",
         goal=("get_refund", "order A-3090"),
@@ -148,7 +148,7 @@ def _jobs():
         state={"orders": [{"order_id": "A-3090", "refund_status": "none"}]},
         outcome_tool=("issue_refund", {"status": "refunded"}),   # asserted but never called -> FAIL
         state_check=("orders", {"order_id": "A-3090"}, {"refund_status": "refunded"}),  # -> FAIL
-        defect="the mock agent said the refund was done but never called issue_refund",
+        defect="the caller requests a refund; issue_refund is never called and refund_status stays 'none'",
     ))
 
     # ---- identity verification -----------------------------------------

@@ -581,6 +581,35 @@ def test_evidence_bad_digest_is_400(live):
     assert code == 400
 
 
+def test_evidence_endpoint_refuses_out_of_band_poisoned_blob(live):
+    """Trust boundary: the /evidence endpoint must NOT serve a poisoned blob as
+    authentic evidence. Plant mismatched bytes at the on-disk CAS path of the
+    rooted conversation manifest, then request it: the endpoint re-hashes and
+    fails CLOSED (500), and the poison bytes never reach the client.
+
+    Before the fix the endpoint served ``get_bytes`` with NO verify, so the
+    forged bytes were returned verbatim with a 200."""
+    _c, body, _h = _req(live.base, "/conversation/conv-a1?format=json", token=live.token)
+    digest = json.loads(body)["artifact_digest"]
+    assert digest
+
+    # honest fetch is a 200
+    code, honest, _h = _req(live.base, "/evidence/" + digest, token=live.token)
+    assert code == 200
+
+    # poison the on-disk leaf out-of-band, keeping the same digest-named path
+    store = ArtifactStore(os.path.join(live.home, "artifacts"))
+    leaf = store._blob_path(digest)
+    poison = b'{"artifact":"FORGED","conversation":"conv-a1"}'
+    with open(leaf, "wb") as fh:
+        fh.write(poison)
+
+    code, body2, _h = _req(live.base, "/evidence/" + digest, token=live.token)
+    assert code == 500                 # fail closed, not 200
+    assert b"FORGED" not in body2.encode() and poison.decode() not in body2
+    assert honest.encode() != poison   # sanity: we actually changed the bytes
+
+
 def _serve_workspace(home, workspace):
     """Start a real loopback server for `workspace` over `home`'s SHARED,
     content-addressed store. Returns (base_url, token, stop). Used to prove that

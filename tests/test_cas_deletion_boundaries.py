@@ -443,6 +443,72 @@ def test_put_file_refuses_symlinked_fanout_escape(tmp_path):
     assert set(os.listdir(outside)) == before
 
 
+def test_remove_fanout_swapped_to_symlink_between_check_and_unlink_never_escapes(
+        tmp_path, monkeypatch):
+    """P0 CAS-delete TOCTOU: the OLD ``remove()`` did a check-time
+    ``os.path.realpath`` containment check and then, at USE time, called
+    ``os.remove(path)`` over a SEPARATE, un-resolved path lookup. ``os.remove``
+    follows intermediate DIRECTORY symlinks, so swapping the fan-out dir for a
+    symlink to an out-of-store directory AFTER the realpath check but BEFORE the
+    unlink made the delete escape the store and destroy an out-of-store victim.
+
+    We fire the swap at the exact unlink/remove seam. The fixed ``remove()``
+    resolves the fan-out through a no-follow directory descriptor and unlinks
+    ``os.unlink(digest, dir_fd=fanout_fd)`` relative to that trusted fd, so the
+    swap has no effect and the out-of-store victim survives. Reverting to the old
+    ``realpath``-then-``os.remove(path)`` implementation makes this fail (the
+    victim is deleted)."""
+    import hotato.fleet.store as store_mod
+
+    store_root = tmp_path / "store"
+    store = ArtifactStore(str(store_root))
+    # A legitimately stored blob whose digest lands in the ``ab`` fan-out bucket.
+    content = _content_hashing_to_prefix("ab")
+    digest = store.put_bytes(content)
+    assert store.verify(digest)
+
+    fanout_real = store_root / "blobs" / "ab"
+    fanout_aside = store_root / "blobs" / "ab__real"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    # The out-of-store victim shares the digest's BASENAME, so an escaped
+    # ``os.remove(blobs/ab/<digest>)`` that follows a swapped fan-out symlink
+    # resolves to ``outside/<digest>`` and deletes it.
+    victim = outside / digest
+    victim.write_bytes(b"OUT-OF-STORE-VICTIM")
+
+    swapped: list = []
+
+    def _swap_fanout_to_symlink():
+        if swapped:
+            return
+        swapped.append(True)
+        os.rename(str(fanout_real), str(fanout_aside))
+        try:
+            fanout_real.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("directory symlinks unavailable on this platform")
+
+    def _make_seam(real_fn):
+        def wrapper(*args, **kwargs):
+            _swap_fanout_to_symlink()
+            return real_fn(*args, **kwargs)
+        return wrapper
+
+    # Cover both the old seam (os.remove over a plain path) and the fixed seam
+    # (os.unlink relative to a dir fd); whichever the implementation reaches,
+    # the fan-out is swapped to a symlink the instant before it runs.
+    monkeypatch.setattr(store_mod.os, "remove", _make_seam(os.remove))
+    monkeypatch.setattr(store_mod.os, "unlink", _make_seam(os.unlink))
+
+    store.remove(digest)
+    monkeypatch.undo()
+
+    assert swapped == [True]  # the swap seam was actually exercised
+    assert victim.exists()  # fixed remove() unlinks relative to a trusted fd
+    assert victim.read_bytes() == b"OUT-OF-STORE-VICTIM"
+
+
 def test_fanout_replaced_by_symlink_between_writes_never_escapes(tmp_path):
     """P0.5 fan-out replacement race: a fan-out dir created legitimately by one
     write is then swapped for a symlink to an out-of-store dir before the next

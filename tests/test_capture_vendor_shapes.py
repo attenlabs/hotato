@@ -325,6 +325,62 @@ def test_vapi_non_dict_stereo_falls_through_to_legacy(tmp_path, monkeypatch):
     assert any("legacy-call.wav" in u for u in _urls(seen))
 
 
+def test_vapi_corrupt_non_audio_download_rejected_and_deleted(tmp_path, monkeypatch):
+    """Adversarial regression: the vendor stereo URL serves NON-audio bytes (an
+    HTML error page, a truncated body, an auth wall) instead of a WAV.
+
+    ``capture_vapi`` must FAIL CLOSED at the capture boundary with a clean,
+    source-attributed error -- exactly like retell/twilio -- and must NOT leave
+    the bogus download on disk to masquerade as a valid capture.
+
+    Old (broken) behaviour: the weak check ``if ch is not None and ch != 2``
+    rejected only a wrong channel count; the ``ch is None`` (unreadable) case
+    passed silently and the corrupt path was returned as a "valid" recording.
+    This test returns/leaves the file on the old code (no raise) and so fails,
+    and passes on the ``_require_two_channels`` fix.
+    """
+    bogus = b"<!doctype html><html><body>403 Forbidden: not your recording</body></html>"
+    call = {"artifact": {"recording": {"stereoUrl": "https://media.test/stereo.wav"}}}
+    dest = tmp_path / "out.wav"
+    _install_urlopen(
+        monkeypatch, {"/call/": json.dumps(call).encode(), "stereo.wav": bogus}
+    )
+    with pytest.raises(ValueError) as exc:
+        cap.capture_vapi(call_id="v1", api_key="k", out_path=str(dest))
+    msg = str(exc.value)
+    assert "not a readable PCM WAV" in msg
+    assert "Vapi" in msg  # source-attributed, like the retell/twilio errors
+    # the rejected download is deleted, never left where it could be re-scored
+    assert not dest.exists()
+
+
+def test_vapi_corrupt_download_cli_exit_2(tmp_path, monkeypatch):
+    """The flagship `hotato capture --stack vapi` surfaces the corrupt-download
+    refusal as a clean exit 2, never a traceback and never a bogus verdict."""
+    bogus = b"not a wav at all"
+    call = {"artifact": {"recording": {"stereoUrl": "https://media.test/stereo.wav"}}}
+    _install_urlopen(
+        monkeypatch, {"/call/": json.dumps(call).encode(), "stereo.wav": bogus}
+    )
+    rc = cli.main(["capture", "--stack", "vapi", "--call-id", "v1",
+                   "--api-key", "k", "--out", str(tmp_path / "out.wav")])
+    assert rc == 2
+
+
+def test_vapi_download_wrong_channel_count_rejected_and_deleted(tmp_path, monkeypatch):
+    """A readable-but-mono (1-channel) vapi download is refused and deleted too,
+    matching retell/twilio's wrong-channel rejection."""
+    one_channel = _silent_wav_bytes(tmp_path, 1, "one.wav")
+    call = {"artifact": {"recording": {"stereoUrl": "https://media.test/stereo.wav"}}}
+    dest = tmp_path / "out.wav"
+    _install_urlopen(
+        monkeypatch, {"/call/": json.dumps(call).encode(), "stereo.wav": one_channel}
+    )
+    with pytest.raises(ValueError, match="expected 2"):
+        cap.capture_vapi(call_id="v1", api_key="k", out_path=str(dest))
+    assert not dest.exists()
+
+
 def test_vapi_no_stereo_anywhere_is_clean_error(tmp_path, monkeypatch):
     call = {
         "artifact": {

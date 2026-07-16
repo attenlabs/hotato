@@ -74,8 +74,9 @@ There is no blended or overall score anywhere.
 Four jobs carry genuine agent bugs, so the suite reports real failures — the raw
 material for the failure-cluster view and the production-to-regression flow:
 
-- `refund-claimed-not-issued` — the agent says the refund is done but never calls
-  `issue_refund` → **outcome** FAIL (`tool_result` + `state`).
+- `refund-claimed-not-issued` — the caller asks for a refund; the agent never calls
+  `issue_refund` and the order's `refund_status` stays `none` → **outcome** FAIL
+  (`tool_result` + `state`).
 - `identity-skipped-before-lookup` — records looked up before identity is verified
   → **policy** FAIL (`sequence`).
 - `escalate-not-handed-off` — a manager was requested but no handoff occurred →

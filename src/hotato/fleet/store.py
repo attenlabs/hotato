@@ -40,6 +40,17 @@ from .. import manifest as _manifest
 
 SCHEMA_VERSION = "1"
 
+
+class BlobIntegrityError(Exception):
+    """A stored blob's bytes do not hash to their content address.
+
+    Raised by a VERIFIED read (``get_bytes(digest, verify=True)``) when the
+    bytes on disk no longer match the digest that names them -- i.e. the blob
+    was corrupted (bit-rot) or tampered with out-of-band (a filesystem write
+    that bypassed the ingest path, which always binds digest to content). Every
+    trust/serving boundary reads verified and lets this fail CLOSED (refuse the
+    read) rather than serving poisoned bytes as authentic evidence."""
+
 # How old an orphaned "*.tmp" write must be before the startup sweep will
 # remove it. Age-gated (not "any .tmp we see") so we never race a slower
 # writer's still-in-flight tmp file that just happens to be open when a
@@ -336,12 +347,23 @@ class ArtifactStore:
     # Reads are by digest only: a digest is a capability. There is deliberately
     # no workspace_id parameter here -- cross-workspace isolation is a property
     # of the registry/reference layer that hands out digests, not of this CAS.
-    def get_bytes(self, digest: str) -> bytes:
+    def get_bytes(self, digest: str, *, verify: bool = False) -> bytes:
         # Read through the SAME no-follow containment primitive the writes use:
         # canonical digest, then a no-follow open of the regular leaf inside a
         # no-follow fan-out descriptor. A planted symlink at the fan-out or the
         # leaf is refused (ELOOP) rather than followed out of the content store,
         # and a missing blob raises FileNotFoundError exactly as a plain open did.
+        #
+        # ``verify=True`` re-hashes the bytes actually read and raises
+        # ``BlobIntegrityError`` if they do not match ``digest``. A validated
+        # digest FORMAT alone does not prove the bytes at that address are the
+        # bytes that hash to it -- an out-of-band write or bit-rot can leave a
+        # digest-named file whose content no longer matches. Every read that
+        # crosses a TRUST/serving boundary (evidence HTTP endpoint, fleet
+        # contract/redaction reads, conversation-inspector rendering) passes
+        # verify=True so poisoned bytes fail CLOSED instead of being served as
+        # authentic. Raw ``get_bytes()`` stays for internal HOT paths where
+        # ``verify()`` is called separately (rubric/transcribe caches).
         _canonical_digest(digest)
         root_fd = self._open_dir_fd()
         try:
@@ -352,12 +374,18 @@ class ArtifactStore:
             finally:
                 os.close(fanout_fd)
             with os.fdopen(fd, "rb", closefd=True) as fh:
-                return fh.read()
+                data = fh.read()
         finally:
             os.close(root_fd)
+        if verify and self._digest_bytes(data) != digest:
+            raise BlobIntegrityError(
+                "stored blob for %s does not match its content address "
+                "(corruption or out-of-band tampering); refusing to serve it "
+                "as authentic evidence" % digest)
+        return data
 
-    def get_json(self, digest: str):
-        return json.loads(self.get_bytes(digest).decode("utf-8"))
+    def get_json(self, digest: str, *, verify: bool = False):
+        return json.loads(self.get_bytes(digest, verify=verify).decode("utf-8"))
 
     def verify(self, digest: str) -> bool:
         """Re-hash the stored blob; content addressing must hold."""
@@ -373,24 +401,49 @@ class ArtifactStore:
         """Unlink the shared content-addressed blob for ``digest``. Returns True
         if a blob was removed, False if none was present (or the unlink failed).
 
-        LOW-LEVEL GC primitive: it validates the digest and realpath-containment
-        (so a non-canonical digest, or a path that escapes the store via a
-        planted symlink, is refused rather than deleting an out-of-store file)
-        but it does NOT check references -- the CALLER must first confirm no live
+        LOW-LEVEL GC primitive: it validates the digest and resolves the unlink
+        through the SAME no-follow containment primitive every read and write
+        uses -- a no-follow ``blobs`` root descriptor, a no-follow fan-out
+        descriptor, then ``os.unlink(digest, dir_fd=fanout_fd)``. Each segment is
+        opened with O_NOFOLLOW|O_DIRECTORY and the final unlink is a directory-fd
+        relative operation, so a symlink planted at ANY segment (root, fan-out, or
+        leaf) -- including one SWAPPED IN after a check but before the unlink --
+        fails closed (ELOOP/ENOTDIR/FileNotFoundError) instead of following the
+        symlink and deleting a file OUTSIDE the store. This closes the
+        check-then-use gap of the old ``realpath``-check-then-``os.remove(path)``
+        path, whose intermediate directory symlinks ``os.remove`` still followed.
+
+        It does NOT check references -- the CALLER must first confirm no live
         reference survives anywhere (see ``referencing_workspaces`` /
         ``Registry.referencing_workspaces``). Because the store is a SHARED,
         content-addressed pool, unlinking a still-referenced blob would destroy
         another workspace's evidence; that check is the caller's contract.
         ``lineage.jsonl`` is left intact -- provenance survives the bytes and is
         never treated as an authorization record."""
-        path = self._resolved_blob_path(digest)
+        _canonical_digest(digest)
         try:
-            os.remove(path)
-            return True
+            root_fd = self._open_dir_fd()
         except OSError:
-            # FileNotFoundError -> nothing to remove; any other OSError leaves
-            # the blob present. Either way it was not removed: report honestly.
             return False
+        try:
+            try:
+                fanout_fd = self._open_fanout_dir(root_fd, digest[:2],
+                                                  create=False)
+            except OSError:
+                # No fan-out subdir (nothing to remove) or a planted symlink at
+                # the fan-out refused no-follow: fail closed either way.
+                return False
+            try:
+                os.unlink(digest, dir_fd=fanout_fd)
+                return True
+            except OSError:
+                # FileNotFoundError -> nothing to remove; any other OSError
+                # leaves the blob present. Either way it was not removed.
+                return False
+            finally:
+                os.close(fanout_fd)
+        finally:
+            os.close(root_fd)
 
     # --- reference queries (durable authority = the Registry) -----------
     def referencing_workspaces(self, digest: str) -> "set[str]":
@@ -507,4 +560,4 @@ class ArtifactStore:
         return out
 
 
-__all__ = ["ArtifactStore", "SCHEMA_VERSION"]
+__all__ = ["ArtifactStore", "BlobIntegrityError", "SCHEMA_VERSION"]

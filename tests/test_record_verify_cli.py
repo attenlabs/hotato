@@ -172,6 +172,35 @@ def test_evidence_root_detects_a_missing_file(tmp_path, capsys):
     assert "evidence file missing" in capsys.readouterr().err
 
 
+def test_evidence_root_detects_a_missing_required_artifact(tmp_path, capsys):
+    # Regression: --evidence-root claims to verify against the private source
+    # tree. The reproduction required_artifacts (source-result / test-definition)
+    # ARE that private source. Deleting them while keeping every evidence
+    # locator must be refused -- their existence is enforced symmetrically with
+    # evidence files, not silently accepted when absent.
+    kit = tmp_path / "kit"
+    shutil.copytree(REFERENCE_DIR, kit)
+    (kit / "evidence" / "source-result.json").unlink()
+    (kit / "evidence" / "test-definition.json").unlink()
+    # every EVIDENCE locator file is still present, proving the refusal is about
+    # the required artifact and not an evidence file.
+    code = cli.main(["record", "verify", str(kit / "failure-record.json"),
+                     "--evidence-root", str(kit)])
+    assert code == 2
+    assert "required-artifact file missing" in capsys.readouterr().err
+
+
+def test_evidence_root_detects_a_changed_required_artifact(tmp_path, capsys):
+    kit = tmp_path / "kit"
+    shutil.copytree(REFERENCE_DIR, kit)
+    tampered = kit / "evidence" / "source-result.json"
+    tampered.write_text(tampered.read_text("utf-8") + "\n", encoding="utf-8")
+    code = cli.main(["record", "verify", str(kit / "failure-record.json"),
+                     "--evidence-root", str(kit)])
+    assert code == 2
+    assert "required-artifact digest mismatch" in capsys.readouterr().err
+
+
 def test_default_verify_succeeds_when_private_evidence_absent(tmp_path):
     # No --evidence-root: structure-only verification does not require the
     # private evidence files to sit next to the shared record.

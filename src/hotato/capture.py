@@ -37,7 +37,7 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from . import errors as _errors
 from ._engine.audio import write_wav  # noqa: F401  (used by the pipecat scaffold)
@@ -762,7 +762,13 @@ def _validate_download_url(url: str) -> str:
     return url
 
 
-def _download(url: str, dest: str, headers: Optional[dict] = None, timeout: int = 120) -> str:
+def _download(
+    url: str,
+    dest: str,
+    headers: Optional[dict] = None,
+    timeout: int = 120,
+    validate: Optional[Callable[[str], None]] = None,
+) -> str:
     _validate_download_url(url)
     data = _http_get(
         url,
@@ -777,11 +783,19 @@ def _download(url: str, dest: str, headers: Optional[dict] = None, timeout: int 
     # permission race / kill mid-write) would clobber a previously-good file at
     # --out with a truncated mix. Writing to a sibling temp and renaming means
     # dest is only ever the old bytes or the complete new bytes -- never partial.
+    #
+    # Validate-before-publish: ``validate`` (e.g. the 2-channel check) runs on
+    # the TEMP file BEFORE os.replace. A rejected download therefore never lands
+    # at dest and never overwrites a pre-existing user file there -- the temp is
+    # unlinked and the rejection propagates, so unvalidated/unscoreable audio is
+    # deleted, not kept (audit: rejected provider audio must fail closed).
     d = os.path.dirname(os.path.abspath(dest)) or "."
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".hotato-dl-", suffix=".part")
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
+        if validate is not None:
+            validate(tmp)
         os.replace(tmp, dest)
     except BaseException:
         try:
@@ -859,14 +873,18 @@ _MONO_WHY = (
 
 def _wav_channels(path: str) -> Optional[int]:
     """Channel count of a PCM WAV, or None if the file is not readable as WAV."""
+    import struct
     import wave
 
     try:
         with _wav_read(path) as wf:
             return wf.getnchannels()
-    except (wave.Error, EOFError, OSError, RuntimeError):
+    except (wave.Error, EOFError, OSError, RuntimeError, struct.error):
         # RuntimeError: stdlib ``wave`` raises it for a well-formed RIFF/WAVE
         # header with a malformed/oversized inner sub-chunk; treat as unreadable.
+        # struct.error: a truncated/garbage header can fault inside ``wave``'s own
+        # ``struct.unpack`` before it raises wave.Error; that is still "unreadable",
+        # not a traceback the adapter should leak.
         return None
 
 
@@ -956,13 +974,17 @@ def capture_vapi(
         )
     url = _require_url_str(url, "Vapi stereo recording URL (artifact.recording.stereoUrl)")
     dest = _out_wav(out_path, "hotato-vapi-")
-    _download(url, dest, timeout=max(timeout, 120))
-    ch = _wav_channels(dest)
-    if ch is not None and ch != 2:
-        raise ValueError(
-            f"Vapi stereo recording download has {ch} channel(s), expected 2. "
-            f"Scoring needs a 2-channel file: {_MONO_WHY}."
-        )
+
+    def _validate_vapi(tmp: str) -> None:
+        # Validate on the temp download BEFORE it is published to dest, so a
+        # rejected file is deleted and never lands at --out. Fail closed at the
+        # capture boundary exactly like retell/twilio: reject the
+        # unreadable/corrupt/non-audio (ch is None) case too, not just ch != 2 --
+        # the old check let a non-WAV download (e.g. an HTML error body served at
+        # the stereo URL) pass silently and returned it as a "valid" recording.
+        _require_two_channels(tmp, "Vapi (artifact.recording.stereoUrl)")
+
+    _download(url, dest, timeout=max(timeout, 120), validate=_validate_vapi)
     return dest
 
 
@@ -1008,8 +1030,14 @@ def capture_retell(
     if url:
         url = _require_url_str(url, "Retell recording_multi_channel_url")
         dest = _out_wav(out_path, "hotato-retell-")
-        _download(url, dest, timeout=max(timeout, 120))
-        _require_two_channels(dest, "Retell (multi-channel recording)")
+        # Validate 2 channels on the temp download BEFORE publishing to dest: a
+        # mono/mislabelled multi-channel URL is rejected and deleted, never kept.
+        _download(
+            url, dest, timeout=max(timeout, 120),
+            validate=lambda tmp: _require_two_channels(
+                tmp, "Retell (multi-channel recording)"
+            ),
+        )
         return dest
     mono_url = call.get("recording_url")
     if mono_url:
@@ -1081,9 +1109,14 @@ def capture_twilio(
     )
     dest = _out_wav(out_path, "hotato-twilio-")
     try:
+        # Validate 2 channels on the temp download BEFORE publishing to dest, so
+        # a 200-OK-but-mono media response is rejected and deleted, never kept.
         _download(
             media_base + "?RequestedChannels=2", dest, headers=auth,
             timeout=max(timeout, 120),
+            validate=lambda tmp: _require_two_channels(
+                tmp, "Twilio (RequestedChannels=2 media)"
+            ),
         )
     except _HTTPStatusError as exc:
         if exc.code != 400:
@@ -1109,7 +1142,8 @@ def capture_twilio(
             media_base + "?RequestedChannels=1", dest, headers=auth,
             timeout=max(timeout, 120),
         )
-    _require_two_channels(dest, "Twilio (RequestedChannels=2 media)")
+    # The 2-channel download was already validated on its temp file inside
+    # _download (validate-before-publish); dest holds a verified 2-channel WAV.
     return dest
 
 
@@ -2131,12 +2165,25 @@ def pull(stack, creds, *, out_dir, ids=None, since=None, limit=50,
     for it in items:
         ident = it["id"]
         dest = os.path.join(out_dir, f"{stack}__{_safe_id(ident)}.wav")
+        # Remember whether dest already existed so the failure backstop below
+        # only ever removes a file THIS pull wrote -- never a pre-existing user
+        # file that happens to share the deterministic name.
+        preexisting = os.path.exists(dest)
         try:
             path = fetch_one(stack, ident, creds, dest, allow_mono=allow_mono)
             pulled.append({"id": ident, "path": path})
             if log:
                 log(f"[{stack}] pulled {ident} -> {path}")
         except Exception as exc:
+            # Backstop for validate-before-publish (the adapters delete rejected
+            # downloads before they reach dest): if a skipped call nonetheless
+            # left a file at dest that was NOT there before, remove it so a
+            # skipped/unscorable call never leaves unvalidated audio in out_dir.
+            if not preexisting and os.path.exists(dest):
+                try:
+                    os.unlink(dest)
+                except OSError:
+                    pass
             # pull()'s contract is "one bad call never aborts the pull": a single
             # unscorable/failed call is skipped honestly and the batch continues.
             # ValueError/_HTTPStatusError/OSError are the expected failures, but
