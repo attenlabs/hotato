@@ -199,12 +199,15 @@ def _suite_file_digests(entry: dict) -> List[Tuple[str, str]]:
         for item in sorted(scen_root.iterdir(), key=lambda p: p.name):
             if not item.name.endswith(".json") or item.name == "manifest.json":
                 continue
+            # open-ok: bundled importlib resource (installed package data, not a user path)
             data = item.read_bytes()
             pairs.append((f"scenarios/{item.name}", hashlib.sha256(data).hexdigest()))
             sid = json.loads(data.decode("utf-8"))["id"]
             wav = audio_root.joinpath(sid + AUDIO_SUFFIX)
+            # open-ok: bundled importlib resource (installed package data, not a user path)
+            wav_bytes = wav.read_bytes()
             pairs.append(
-                (f"audio/{sid}{AUDIO_SUFFIX}", hashlib.sha256(wav.read_bytes()).hexdigest())
+                (f"audio/{sid}{AUDIO_SUFFIX}", hashlib.sha256(wav_bytes).hexdigest())
             )
     else:
         scen_dir, audio_dir = entry["scenarios_dir"], entry["audio_dir"]
