@@ -306,7 +306,7 @@ def test_investigate_label_render_and_json(call_wav, tmp_path):
     assert payload["auto_id"] is True
 
 
-def test_investigate_label_prints_ci_and_record_ladder(call_wav, tmp_path):
+def test_investigate_label_prints_the_pr_create_next_step(call_wav, tmp_path):
     state = str(tmp_path / "state.json")
     result, _ = _investigate.run_investigate(call_wav, state_path=state)
     ref = result["next"][0]["ref"]
@@ -314,18 +314,20 @@ def test_investigate_label_prints_ci_and_record_ladder(call_wav, tmp_path):
         ref, expect="yield", out_dir=str(tmp_path / "contracts"),
     )
     text = _investigate.render_label_text(label_result)
-    # the immediate next step (unchanged) is still present ...
+    # contract create's own immediate next step is still present ...
     assert "hotato contract verify" in text
-    # ... plus the two commands that reach the named destination: the CI gate
-    # and the share-safe Failure Record, bound to this contract's real dir
-    assert "hotato record render contracts-verify.json" in text
-    assert "--junit hotato.xml" in text
-    assert str(tmp_path / "contracts") in text
+    # ... and the ONE follow-up step is the pr create command bound to THIS
+    # bundle, which pr create accepts directly (it stages the bundle
+    # byte-identical under tests/hotato/contracts/ and opens the PR)
+    assert "hotato pr create --fixtures" in text
+    assert label_result["dir"] in text
+    assert "--repo OWNER/REPO" in text
 
     payload = _investigate.label_result_json(label_result)
     cmds = payload.get("next_commands", [])
-    assert any("record render" in c for c in cmds)
-    assert any("contract verify" in c for c in cmds)
+    assert len(cmds) == 1
+    assert cmds[0].startswith("hotato pr create --fixtures ")
+    assert label_result["id"] in cmds[0]
 
 
 def test_investigate_label_ladder_hidden_when_not_ci_ready():

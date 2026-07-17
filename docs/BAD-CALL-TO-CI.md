@@ -5,17 +5,32 @@ audio included, all local.
 
 ## Start from your own provider call
 
-Have a call id instead of a WAV? Pull, review, and label it in two commands,
-then the same CI gate below applies:
+Have a call id instead of a WAV? Pull, review, label, and open the pull
+request in three commands:
 
 ```bash
 hotato investigate --stack vapi --call-id <id>
 hotato investigate label .hotato/investigate-state.json#<n> --expect yield --reviewer you
+hotato pr create --fixtures contracts/<contract-id>.hotato --repo you/your-repo --title "Add hotato contract <contract-id>"
 ```
 
 `investigate` prints a ranked candidate for each timing moment with the exact
-label command; `investigate label` writes a signed contract to `contracts/` and
-prints how to gate CI on it and render a share-safe Failure Record.
+label command. `investigate label` writes a signed contract bundle to
+`contracts/<contract-id>.hotato/` and prints the exact `pr create` command
+for it. `pr create` accepts that bundle directly: it stages the bundle
+byte-identical under `tests/hotato/contracts/` and opens the pull request
+(dry run by default; `--yes` runs git and gh). CI then gates on
+`hotato contract verify tests/hotato/contracts/`, which exits non-zero when
+a contract regresses.
+
+Prefer a plain scenario + audio fixture over a contract bundle? The same
+labeled moment lands as one through the alternate sequence, and the
+`hotato run` CI gate below applies to it:
+
+```bash
+hotato fixture promote .hotato/investigate-state.json#<n> --expect yield --out tests/hotato
+hotato pr create --fixtures tests/hotato --repo you/your-repo --title "Add turn-taking regression fixtures"
+```
 
 ## The label comes from you
 

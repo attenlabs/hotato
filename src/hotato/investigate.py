@@ -622,18 +622,25 @@ def run_investigate_label(
     return result
 
 
-def _contracts_dir(result: dict) -> str:
-    """The directory the contract bundle was written into (the parent of the
-    ``<id>.hotato`` bundle), which is what ``hotato contract verify`` scans.
-    Falls back to :data:`DEFAULT_OUT_DIR` when ``dir`` is absent."""
-    return os.path.dirname(result.get("dir") or "") or DEFAULT_OUT_DIR
+def _pr_create_command(result: dict) -> str:
+    """The ONE next step for a CI-ready contract: the exact ``hotato pr
+    create`` invocation for THIS bundle. ``pr create`` accepts the bundle
+    directory directly, stages it byte-identical under
+    ``tests/hotato/contracts/``, and opens the pull request that gates CI on
+    it -- so the printed command runs as-is once OWNER/REPO is filled in."""
+    return (
+        f"hotato pr create --fixtures {shlex.quote(result['dir'])} "
+        "--repo OWNER/REPO --title "
+        + shlex.quote(f"Add hotato contract {result['id']}")
+    )
 
 
 def _next_ladder(result: dict) -> list:
-    """The guided path from a just-created contract to the two artifacts a repo
-    keeps: a CI gate that fails on a timing regression, and a share-safe Failure
-    Record. The analog of the demo golden path's own next-steps ladder
-    (``start._next_commands_text``), bound to THIS contract's real directory.
+    """The one next step from a just-created contract: the ``hotato pr
+    create`` command that lands this exact bundle in the repo's CI gate.
+    The analog of the demo golden path's own next-steps ladder
+    (``start._next_commands_text``), bound to THIS contract's real bundle
+    directory.
 
     Shown only when the contract is CI-ready (scorable and verdict-eligible): a
     not-scorable or verdict-withheld contract keeps only
@@ -644,13 +651,9 @@ def _next_ladder(result: dict) -> list:
     m = c.get("measurement") or {}
     if not m.get("scorable") or not m.get("verdict_eligible", True):
         return []
-    q = shlex.quote(_contracts_dir(result) + "/")
     return [
-        "keep it in your repo (all offline, no account, no network):",
-        (f"  gate CI on it      hotato contract verify {q} --junit hotato.xml "
-         "--format json > contracts-verify.json"),
-        ("  share the failure  hotato record render contracts-verify.json "
-         "--out records/"),
+        "open the pull request that adds it to your repo's CI gate:",
+        f"  {_pr_create_command(result)}",
     ]
 
 
@@ -681,12 +684,7 @@ def label_result_json(result: dict) -> dict:
     out["auto_id"] = result["auto_id"]
     out["capture_origin"] = result.get("capture_origin")
     if _next_ladder(result):
-        # structured, not the rendered indentation: the two commands that turn
-        # this contract into a CI gate + a share-safe Failure Record
-        contracts_dir = _contracts_dir(result)
-        out["next_commands"] = [
-            (f"hotato contract verify {contracts_dir}/ --junit hotato.xml "
-             "--format json > contracts-verify.json"),
-            "hotato record render contracts-verify.json --out records/",
-        ]
+        # structured, not the rendered indentation: the ONE next step, the
+        # pr create command that stages this exact bundle and opens the PR
+        out["next_commands"] = [_pr_create_command(result)]
     return out
