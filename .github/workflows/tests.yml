@@ -4,9 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+# One live run per ref: a superseded push cancels the previous in-flight run
+# instead of piling a queue of stale full matrices.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       matrix:
         # Docs (VALIDATION.md, COMPARE.md, CONTRACTS.md, SUITES.md, BENCHMARK.md)
@@ -20,6 +26,7 @@ jobs:
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
       - run: pip install -e ".[dev]"
       - run: python -m pytest -q
 
@@ -34,11 +41,13 @@ jobs:
   # ubuntu-latest, one python, mirroring the sdist-guard structure.
   ruff:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
+          cache: 'pip'
       - run: pip install ruff==0.13.0
       - run: ruff --version
       - run: ruff check src tests
@@ -53,11 +62,13 @@ jobs:
   # no models). Separate job, ubuntu-latest, one python.
   mcp:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
+          cache: 'pip'
       - run: pip install -e ".[dev,mcp]"
       - run: >-
           python -m pytest -q
@@ -77,14 +88,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # ubuntu/3.12 is covered by the pytest job's 3.12 leg (identical steps
+        # on the same runner image), so this matrix carries only the OTHER
+        # operating systems.
         include:
-          - os: ubuntu-latest
-            python-version: "3.12"
           - os: macos-latest
             python-version: "3.12"
           - os: windows-latest
             python-version: "3.12"
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     # Windows is MEASURED, not supported: the suite has known Windows failures
     # (cross-drive relpath, path-separator assumptions, POSIX-only calls).
     # The job runs so the failures stay visible and countable; it does not gate
@@ -95,6 +108,7 @@ jobs:
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
       - run: pip install -e ".[dev]"
       - run: python -m pytest -q
 
@@ -111,19 +125,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # ubuntu/3.12 is covered by the pytest job's 3.12 leg (identical steps
+        # on the same runner image), so this matrix carries only the OTHER
+        # operating systems.
         include:
-          - os: ubuntu-latest
-            python-version: "3.12"
           - os: macos-latest
             python-version: "3.12"
           - os: windows-latest
             python-version: "3.12"
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
       - run: pip install .
 
       # shell: python sidesteps bash-vs-powershell quoting differences across
@@ -166,6 +183,7 @@ jobs:
   determinism-compare:
     needs: determinism
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
@@ -210,11 +228,13 @@ jobs:
   # inside it. Kept as its own job, separate from `pytest` above, on purpose.
   sdist-guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
+          cache: 'pip'
 
       - name: Build the sdist
         run: |
@@ -251,6 +271,7 @@ jobs:
   # a published revision, and is tracked on the release checklist.
   action-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
