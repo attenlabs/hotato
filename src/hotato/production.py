@@ -240,6 +240,12 @@ def _read_regular_bytes_no_follow(path: str, *, max_bytes: int) -> bytes:
 
 
 def _fsync_directory(path: str) -> None:
+    # Directory-entry durability is a POSIX affordance: os.open of a DIRECTORY
+    # raises PermissionError on Windows (the CRT open cannot take a directory),
+    # and NTFS metadata durability is handled by the volume. Guard inside the
+    # helper so every call site is covered.
+    if os.name == "nt":
+        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
