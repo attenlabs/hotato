@@ -28,6 +28,7 @@ The input's kind decides the card; you do not pick.
 | a fix plan whose `decision` is `do_not_tune_single_threshold` | **threshold funnel** (the hero) |
 | a supported `hotato verify` before/after rollup that improved | **paired comparison** |
 | a `hotato contract create` contract (kind `voice-turn-taking-contract`) | **failure contract** |
+| a `hotato test run` result (kind `hotato.test-run`) whose tool/state evidence failed a declared outcome | **say-do failure** |
 
 `#N` is the same 1-based rank the sweep report and dashboard show, and the
 same ref `hotato fixture promote` takes -- a card and a fixture speak of
@@ -97,6 +98,31 @@ human labeled this contract; Hotato measured the timing."
 hotato card contracts/demo-missed-interruption.hotato/contract.json --out contract.svg
 ```
 
+### F. Say-do failure
+
+A `hotato test run` result (`--format json`, kind `hotato.test-run`) whose
+deterministic lane failed a tool/state evidence assertion (`tool_result`,
+`tool_call`, `tool_error`, `http_result`, `state`, `state_change`): the
+conversation claims an outcome the trace (Authority 1) or the post-call
+state (Authority 2) does not back. The card renders the claim vs the
+evidence -- the failing assertion's id and kind, its span refs when the
+evaluator recorded any, and its share-safe `public_reason` (built from
+allowlisted structured fields only, never transcript text, a tool payload,
+or a state value). The failing outcome-tagged evidence assertion leads;
+the footer reads "Tool and state evidence decide the outcome, never the
+agent's words." A test-run result with no failing tool/state evidence
+assertion is refused with exit 2.
+
+```bash
+hotato start --demo   # act two writes saydo/test-run.json
+hotato card saydo/test-run.json --out saydo-card.svg
+
+# or from any of your own runs:
+hotato test run refund.yaml --agent support-v3 --trace voice_trace.jsonl \
+    --transcript call.transcript.json --format json > test-run.json
+hotato card test-run.json --out saydo-card.svg
+```
+
 ## Redaction: identifiers stay hidden by default
 
 A card is a public image, so identifiers stay hidden by default: call id,
@@ -141,14 +167,15 @@ it is written there atomically.
 
 - **0**: the SVG card was rendered (to `--out`, or to stdout).
 - **2**: usage error, unreadable input, a bad candidate ref, or an input
-  not a fix plan / verify result / sweep candidate.
+  not a fix plan / verify result / contract / test-run result / sweep
+  candidate.
 
 ## Regenerating the committed cards
 
-Three commit-ready examples live under `docs/assets/cards/`
+Four commit-ready examples live under `docs/assets/cards/`
 (`no-single-threshold-card.svg`, `talk-over-card.svg`,
-`false-stop-card.svg`), rendered from the two bundled demo calls.
-Regenerate them with:
+`false-stop-card.svg`, `say-do-card.svg`), rendered from the bundled demo
+data. Regenerate them with:
 
 ```bash
 PYTHONPATH=src python3 scripts/render_card_assets.py

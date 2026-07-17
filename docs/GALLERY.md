@@ -5,7 +5,7 @@ reproducible with the command shown beside it.
 
 ## Cards: findings as PR images
 
-Three self-contained SVGs: offline, byte-stable from the same input, every
+Four self-contained SVGs: offline, byte-stable from the same input, every
 font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
 
 - ![threshold funnel](assets/cards/no-single-threshold-card.svg)
@@ -21,6 +21,10 @@ font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
   A measured false-stop moment: the agent went quiet with no caller nearby
   to explain it.
   Regenerate: `hotato card hotato-sweep.json#N --out card.svg`
+- ![say-do failure](assets/cards/say-do-card.svg)
+  A say-do failure: the conversation claims an outcome the trace and
+  post-call state do not back.
+  Regenerate: `hotato card saydo/test-run.json --out card.svg`
 
 ## The bundled demo, rendered
 

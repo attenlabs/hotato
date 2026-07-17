@@ -1,0 +1,27 @@
+{
+  "files": {
+    "state.json": {
+      "sha256": "c88700e19492b5ec8dd4036a32bc6480821799ae5e4d6bc2eb977ab59dd9d72f"
+    },
+    "test.json": {
+      "sha256": "6cda9fca697064d88a8c3e5bfdac6577c47616b7882b1b9368aa93d93ccd6225"
+    },
+    "trace.jsonl": {
+      "sha256": "dadcfc57bce31ac798a6bf7cb65aa8e85cf8c7b18a87d55144b1332b16245775"
+    },
+    "transcript.json": {
+      "sha256": "e15554c135f970b9a9ee6f3263ee7eb6374930777a8969556ba44d6947491736"
+    }
+  },
+  "id": "demo-refund-claimed-not-issued",
+  "kind": "hotato.demo-saydo",
+  "license": "MIT",
+  "mirrors": "examples/reference-agent scenarios/refund-claimed-not-issued.scenario.json (the reference suite's outcome defect)",
+  "provenance": {
+    "defect": "the agent claims the refund was sent; the trace carries no issue_refund tool_call span and orders.refund_status stays 'none'",
+    "note": "authored fixture text: no recording and no third-party speaker; supplied to the evaluator as fixture evidence, the same posture hotato test run gives any file input",
+    "source": "scripted demo conversation authored for act two of hotato start --demo"
+  },
+  "title": "Scripted say-do demo: the agent says the refund was sent; the trace and post-call state show it was not issued",
+  "version": 1
+}

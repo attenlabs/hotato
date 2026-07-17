@@ -8,6 +8,10 @@ Pinned here:
     font, image, stylesheet, script, or link) and is byte-identical across runs;
   * a source recording's identifiers (a call id inside a pulled recording name)
     are hidden by default and only shown under --include-identifiers;
+  * the say-do failure card renders from a real test-run result (the bundled
+    say-do demo conversation), quotes only the share-safe public reason
+    (never transcript text or a tool payload), is byte-deterministic, and
+    refuses a result with no failing tool/state evidence assertion;
   * a bad ref, a bare sweep result with no ref, and a non-card JSON all exit 2;
   * the committed docs/assets/cards SVGs match a fresh render.
 """
@@ -229,6 +233,126 @@ def test_card_from_verify_zero_improvement_refused(tmp_path):
     rc, svg = _card_cli(tmp_path, str(v))
     assert rc == 2
     assert svg is None
+
+
+# --- the say-do failure card (F): a hotato test-run result -----------------
+
+def _demo_saydo_result(tmp_path):
+    """The real test-run result act two of `hotato start --demo` evaluates
+    over the bundled scripted say-do conversation, written to disk."""
+    from hotato import start as _start
+
+    _start._run_saydo_check(str(tmp_path))
+    return tmp_path / "saydo" / "test-run.json"
+
+
+def test_card_from_saydo_test_run(tmp_path):
+    p = _demo_saydo_result(tmp_path)
+    rc, svg = _card_cli(tmp_path, str(p))
+    assert rc == 0
+    _assert_is_card_svg(svg)
+    assert "SAY-DO FAILURE" in svg  # the kind tag
+    assert "CLAIMED, NOT EVIDENCED" in svg
+    # the failing outcome-tagged evidence assertion leads: id, kind, and its
+    # share-safe public reason
+    assert "assertion: outcome-refund-tool (tool_result)" in svg
+    assert ("issue_refund produced no result satisfying the declared" in svg)
+    assert "no qualifying tool span in the trace" in svg
+    assert "outcome: 0 pass / 2 fail" in svg
+    assert "Tool and state evidence decide the outcome" in svg
+    # no accuracy number anywhere
+    assert "%" not in svg
+
+
+def test_card_saydo_never_quotes_the_conversation(tmp_path):
+    """Share-safe by construction: the card carries the public_reason built
+    from structured fields, never the transcript's words, a tool argument,
+    or a state value."""
+    p = _demo_saydo_result(tmp_path)
+    rc, svg = _card_cli(tmp_path, str(p))
+    assert rc == 0
+    for leaked in ("A-3090", "never arrived", "has been sent",
+                   "refund_status", "refunded"):
+        assert leaked not in svg, leaked
+
+
+def test_card_saydo_is_deterministic(tmp_path):
+    p = _demo_saydo_result(tmp_path)
+    assert _card.make_card(str(p)) == _card.make_card(str(p))
+
+
+def test_card_saydo_renders_span_refs_when_the_evaluator_recorded_them(
+        tmp_path):
+    """A failing evidence assertion that DID match spans (e.g. a tool_error
+    that fired) renders its span refs; ids are the evaluator's synthesized
+    s_N tokens, safe by construction."""
+    doc = {
+        "kind": "hotato.test-run", "version": 1, "test_id": "err-test",
+        "assertions": {"results": [{
+            "id": "tool-errored", "kind": "tool_error", "status": "FAIL",
+            "dimension": "outcome", "deterministic": True,
+            "span_ids": ["s_1", "s_4"],
+            "public_reason": ("lookup_order emitted a matching error "
+                              "although policy required none."),
+        }]},
+        "dimensions": {"outcome": {"pass": 0, "fail": 1,
+                                   "inconclusive": 0, "ids": ["tool-errored"]}},
+    }
+    p = tmp_path / "err.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    rc, svg = _card_cli(tmp_path, str(p))
+    assert rc == 0
+    assert "trace spans: s_1, s_4" in svg
+    assert "assertion: tool-errored (tool_error)" in svg
+    assert "outcome: 0 pass / 1 fail" in svg
+
+
+def test_card_saydo_without_failing_evidence_refused(tmp_path):
+    """A test-run whose tool/state evidence all passed has no say-do failure
+    to show; the card is refused (exit 2), never a hollow FAIL image."""
+    doc = json.loads(_demo_saydo_result(tmp_path).read_text())
+    for r in doc["assertions"]["results"]:
+        r["status"] = "PASS"
+        r.pop("public_reason", None)
+    p = tmp_path / "all-pass.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    rc, svg = _card_cli(tmp_path, str(p))
+    assert rc == 2
+    assert svg is None
+
+
+def test_card_saydo_words_only_failure_refused(tmp_path):
+    """A failing PHRASE assertion is words, not evidence: with every
+    tool/state assertion passing, there is no say-do failure card."""
+    doc = json.loads(_demo_saydo_result(tmp_path).read_text())
+    for r in doc["assertions"]["results"]:
+        r["status"] = "FAIL" if r["kind"] == "phrase" else "PASS"
+    p = tmp_path / "phrase-fail.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    assert cli.main(["card", str(p), "--out", str(tmp_path / "x.svg")]) == 2
+
+
+def test_card_saydo_malformed_result_refused(tmp_path):
+    """A test-run kind with no evaluated assertions envelope is malformed;
+    refused with exit 2, never a guessed render."""
+    for body in ({"kind": "hotato.test-run", "version": 1},
+                 {"kind": "hotato.test-run", "assertions": {}},
+                 {"kind": "hotato.test-run",
+                  "assertions": {"results": "nope"}}):
+        p = tmp_path / "malformed.json"
+        p.write_text(json.dumps(body), encoding="utf-8")
+        assert cli.main(["card", str(p),
+                         "--out", str(tmp_path / "x.svg")]) == 2
+
+
+def test_card_saydo_svg_has_no_external_links(tmp_path):
+    p = _demo_saydo_result(tmp_path)
+    _, svg = _card_cli(tmp_path, str(p))
+    for banned in ("xlink", "<image", "<script", "@import", "url(", "href",
+                   "src="):
+        assert banned not in svg, f"card SVG must not contain {banned!r}"
+    assert svg.count("http") == 1
+    assert 'xmlns="http://www.w3.org/2000/svg"' in svg
 
 
 # --- redaction ------------------------------------------------------------

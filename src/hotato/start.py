@@ -1,14 +1,27 @@
 """``hotato start --demo``: the guided, credential-less first run.
 
-One command, no account, no network. It sweeps the two bundled real demo calls
-(the same recordings ``hotato demo`` scores), writes the sweep result as JSON and
-as a self-contained HTML dashboard, renders the threshold-funnel card, creates
-and verifies one demo failure contract, and then prints the exact next
-commands -- promote a candidate into a permanent fixture, run those fixtures
-in CI, verify the demo contract, and render a card from any candidate.
+One command, no account, no network. Two acts:
 
-Everything is offline by construction: the demo pulls from packaged audio, the
-analyze/card/contract steps touch no network, and no credential is read.
+* **Act one (timing, first -- the wedge):** sweeps the two bundled real demo
+  calls (the same recordings ``hotato demo`` scores), writes the sweep result
+  as JSON and as a self-contained HTML dashboard, renders the threshold-funnel
+  card, creates and verifies one demo failure contract, and projects the
+  share-safe Failure Record.
+* **Act two (say-do):** runs one conversation check end to end over the
+  bundled scripted say-do conversation (``data/demo/saydo/``, mirroring the
+  reference agent's ``refund-claimed-not-issued`` job) through the SAME
+  evaluate path ``hotato test run`` uses. The agent's words claim the refund
+  was sent; the trace carries no ``issue_refund`` tool span and the post-call
+  state's ``refund_status`` stays ``"none"`` -- so the check FAILS, by design,
+  and the first stdout shows a timing catch AND a say-do catch.
+
+It then prints the exact next commands -- promote a candidate into a permanent
+fixture, run those fixtures in CI, verify the demo contract, replay the say-do
+check, and render a card from any candidate or from the say-do result.
+
+Everything is offline by construction: the demo pulls from packaged audio and
+packaged conversation files, the analyze/card/contract/test steps touch no
+network, and no credential is read.
 """
 
 from __future__ import annotations
@@ -40,6 +53,24 @@ _DEMO_RECORD_FILES = ("failure-record.json", "failure-record.md",
 # stack-tuned alternatives documented beside it.
 _DEMO_STARTER_PRIMARY = "hotato init starter --stack generic --out ."
 _DEMO_STARTER_STACKS = ("vapi", "retell", "twilio", "livekit", "pipecat")
+# --- act two: the bundled say-do conversation check -------------------------
+# The packaged scripted conversation (data/demo/saydo/) mirrors the reference
+# agent's refund-claimed-not-issued job: the words claim success, the tool and
+# state evidence fail. Each packaged file is verified against the sha256 its
+# manifest records before use (content-addressed like the rest of the demo
+# data), and the check runs through the REAL conversation-test machinery.
+_SAYDO_DIR = "saydo"
+_SAYDO_BUNDLE_FILES = ("test.json", "transcript.json", "trace.jsonl",
+                       "state.json")
+_SAYDO_RESULT = "test-run.json"
+_SAYDO_CARD = "saydo-card.svg"
+_SAYDO_AGENT = "demo-agent"
+# The claim-vs-evidence shape the second act narrates, verified against the
+# evaluated results before a word of it is printed: the transcript really
+# carries the claim (the phrase assertion PASSes) and the evidence really
+# fails (the tool_result and state assertions FAIL).
+_SAYDO_CLAIM_ID = "agent-said-refund-sent"
+_SAYDO_EVIDENCE_IDS = ("outcome-refund-tool", "outcome-refund-state")
 # The demo contract's moment is selected SEMANTICALLY, never by rank. The
 # packaged should-yield scenario (fd-01-missed-interruption.json) declares the
 # audio file, the caller onset, and the expectation; the selector below finds
@@ -63,6 +94,14 @@ class DemoCandidateNotFound(DemoSelectionError):
 
 class DemoCandidateAmbiguous(DemoSelectionError):
     """More than one sweep candidate matches the scenario's declared event."""
+
+
+class DemoSayDoError(RuntimeError):
+    """Internal contract: the packaged say-do conversation, its recorded
+    content hashes, and its conversation-test no longer agree -- or no longer
+    produce the claim-PASS / evidence-FAIL shape act two narrates. The first
+    run must fail loudly here rather than print a say-do catch the evaluated
+    evidence does not back."""
 
 
 def _demo_scenario() -> dict:
@@ -113,6 +152,139 @@ def _select_demo_candidate(sweep: dict, scenario: dict) -> int:
 def _demo_audio_dir() -> str:
     return str(resources.files("hotato").joinpath("data", "demo", "failing",
                                                    "audio"))
+
+
+# --- act two: the say-do check on the bundled scripted conversation ---------
+
+def _saydo_source_dir():
+    return resources.files("hotato").joinpath("data", "demo", "saydo")
+
+
+def _load_saydo_bundle() -> dict:
+    """Read the packaged say-do bundle and VERIFY each file's bytes against the
+    sha256 its packaged manifest records (content-addressed, like the rest of
+    the demo data), returning ``{name: bytes}``. A file whose bytes drift from
+    the manifest raises :class:`DemoSayDoError` -- the demo never evaluates
+    say-do evidence its manifest does not vouch for."""
+    import hashlib as _hashlib
+    import json as _json
+
+    src = _saydo_source_dir()
+    # open-ok: packaged bundled-resource path (importlib.resources), no
+    # user-supplied path can reach it.
+    manifest = _json.loads(
+        src.joinpath("manifest.json").read_text(encoding="utf-8"))
+    declared = manifest.get("files") or {}
+    out = {}
+    for name in _SAYDO_BUNDLE_FILES:
+        # open-ok: packaged bundled-resource path (importlib.resources).
+        blob = src.joinpath(name).read_bytes()
+        want = (declared.get(name) or {}).get("sha256")
+        got = _hashlib.sha256(blob).hexdigest()
+        if got != want:
+            raise DemoSayDoError(
+                f"internal contract: packaged say-do file {name!r} hashes to "
+                f"{got}, but the packaged manifest records {want!r}; the demo "
+                "refuses to evaluate say-do evidence its manifest does not "
+                "vouch for")
+        out[name] = blob
+    return out
+
+
+def _saydo_next_command() -> str:
+    """The one-line replay of act two against the copies in ``--dir``: the
+    public ``hotato test run`` gate over the same files, exit 1."""
+    return (f"hotato test run {_SAYDO_DIR}/test.json --agent {_SAYDO_AGENT} "
+            f"--transcript {_SAYDO_DIR}/transcript.json "
+            f"--trace {_SAYDO_DIR}/trace.jsonl --state {_SAYDO_DIR}/state.json")
+
+
+def _saydo_card_command() -> str:
+    return f"hotato card {_SAYDO_DIR}/{_SAYDO_RESULT} --out {_SAYDO_CARD}"
+
+
+def _run_saydo_check(out_dir: str) -> dict:
+    """Act two of the guided demo: ONE say-do conversation check, end to end,
+    on the bundled scripted conversation -- through the REAL conversation-test
+    machinery (the same ``evaluate_conversation_test`` path ``hotato test run``
+    drives), offline, no credential.
+
+    Copies the hash-verified bundle into ``<out_dir>/saydo/`` (so the printed
+    replay command runs against the exact files this run evaluated), builds
+    the assert Context from the copies (transcript + voice-trace spans + the
+    mock post-call state sandbox), evaluates the test, and writes the full
+    ``hotato.test-run.v1`` result as ``saydo/test-run.json`` (the input the
+    say-do card renders).
+
+    Like the Failure Record, this is an ESSENTIAL demo invariant: before a
+    word of the say-do story is printed, the evaluated results must hold the
+    claim-vs-evidence shape it narrates -- the claim assertion PASSes (the
+    transcript really carries the agent's claim) and every evidence assertion
+    FAILs (the trace and post-call state really contradict it) with the check
+    exiting 1. Anything else raises :class:`DemoSayDoError` instead of
+    shipping a narrated catch the evidence does not back."""
+    import json as _json
+
+    from . import assert_ as A
+    from . import conversation_test as CT
+    from . import test_run as TR
+    from .state_adapter import MockStateAdapter
+
+    bundle = _load_saydo_bundle()
+    saydo_dir = os.path.join(out_dir, _SAYDO_DIR)
+    os.makedirs(saydo_dir, exist_ok=True)
+    for name in _SAYDO_BUNDLE_FILES:
+        _write_text(os.path.join(saydo_dir, name),
+                    bundle[name].decode("utf-8"))
+
+    doc = CT.validate_conversation_test_doc(
+        _json.loads(bundle["test.json"].decode("utf-8")))
+    ctx = A.build_context(
+        transcript_path=os.path.join(saydo_dir, "transcript.json"),
+        trace_path=os.path.join(saydo_dir, "trace.jsonl"),
+        state_adapter=MockStateAdapter(
+            _json.loads(bundle["state.json"].decode("utf-8"))),
+    )
+    result = TR.evaluate_conversation_test(doc, ctx, agent_id=_SAYDO_AGENT)
+
+    by_id = {r.get("id"): r for r in result["assertions"]["results"]}
+    claim = by_id.get(_SAYDO_CLAIM_ID)
+    if not isinstance(claim, dict) or claim.get("status") != "PASS":
+        raise DemoSayDoError(
+            "internal contract: the packaged transcript no longer carries the "
+            f"agent's claim (assertion {_SAYDO_CLAIM_ID!r} did not PASS); the "
+            "demo must never narrate a claim the transcript does not hold")
+    evidence = []
+    for aid in _SAYDO_EVIDENCE_IDS:
+        r = by_id.get(aid)
+        if not isinstance(r, dict) or r.get("status") != "FAIL":
+            raise DemoSayDoError(
+                f"internal contract: packaged say-do evidence assertion "
+                f"{aid!r} did not FAIL; the demo must never present a say-do "
+                "catch its evaluated evidence does not back")
+        evidence.append({"id": r["id"], "kind": r["kind"],
+                         "status": r["status"],
+                         "public_reason": r.get("public_reason")})
+    if result["exit_code"] != 1:
+        raise DemoSayDoError(
+            "internal contract: the say-do check exited "
+            f"{result['exit_code']}, expected the by-design failing exit 1")
+
+    _write_text(os.path.join(saydo_dir, _SAYDO_RESULT),
+                _errors.safe_json_dumps(result, indent=2) + "\n")
+    return {
+        "dir": _SAYDO_DIR,
+        "test_id": result["test_id"],
+        "agent": _SAYDO_AGENT,
+        "exit_code": result["exit_code"],
+        "passed": result["success"]["passed"],
+        "verified_fail_as_expected": result["success"]["passed"] is False,
+        "claim_assertion": {"id": claim["id"], "kind": claim["kind"],
+                            "status": claim["status"]},
+        "evidence_assertions": evidence,
+        "files": [f"{_SAYDO_DIR}/{name}"
+                  for name in (*_SAYDO_BUNDLE_FILES, _SAYDO_RESULT)],
+    }
 
 
 def _write_text(path: str, text: str) -> None:
@@ -351,6 +523,8 @@ def _next_commands_text(card_written: bool, contract_written: bool,
         lines += [
             "  Run fixtures in CI  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio",
         ]
+    # Act two leaves a test-run result behind; the say-do card renders it.
+    lines += [f"  Say-do card         {_saydo_card_command()}"]
     return "\n".join(lines)
 
 
@@ -365,9 +539,10 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
               label: Optional[str] = None, onset_sec: Optional[float] = None,
               caller_channel: int = 0, agent_channel: int = 1, confirm_channels: bool = False) -> int:
     """``hotato start``. Two guided first-run modes: ``--demo`` (the bundled,
-    credential-less demo) and ``--stereo <call.wav>`` (your own dual-channel
-    recording). To score a live provider stack or a folder of recordings, use
-    ``hotato sweep`` / ``hotato analyze``."""
+    credential-less demo: the timing act first, then the say-do conversation
+    check) and ``--stereo <call.wav>`` (your own dual-channel recording). To
+    score a live provider stack or a folder of recordings, use ``hotato
+    sweep`` / ``hotato analyze``."""
     modes = [m for m, on in (("--demo", demo), ("--stereo", stereo)) if on]
     if not modes:
         raise ValueError(
@@ -432,15 +607,24 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
         record_info = _write_demo_failure_record(out_dir, contract_info["verify"])
     record_written = record_info is not None
 
+    # Act two: the say-do check on the bundled scripted conversation, through
+    # the real conversation-test machinery. ESSENTIAL like the record step: no
+    # try/except swallows it -- the first run either shows a say-do catch its
+    # evaluated evidence backs, or fails loudly (DemoSayDoError), never a
+    # silently dropped or faked second act.
+    saydo_info = _run_saydo_check(out_dir)
+
     written = ([_SWEEP_JSON, _SWEEP_HTML]
                + ([_FUNNEL_CARD] if card_written else [])
                + ([contract_info["bundle_rel"] + "/contract.json"]
                   if contract_written else [])
                + ([f"{_DEMO_RECORD_DIR}/{name}" for name in _DEMO_RECORD_FILES]
-                  if record_written else []))
+                  if record_written else [])
+               + saydo_info["files"])
     sys.stderr.write(
         f"[start] demo: swept 2 bundled calls, {aggregate['total_candidates']} "
-        f"candidate moments; wrote {', '.join(written)}\n")
+        f"candidate moments; ran 1 say-do conversation check; "
+        f"wrote {', '.join(written)}\n")
 
     if fmt == "json":
         # Same evidence-selected rank as the text path: the promote/card refs
@@ -484,6 +668,12 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
                 "privacy_profile": record_info["privacy_profile"],
                 "files": record_info["files"],
             }
+        payload["next_commands"].append(_saydo_next_command())
+        payload["next_commands"].append(_saydo_card_command())
+        payload["saydo"] = {k: saydo_info[k] for k in (
+            "dir", "test_id", "agent", "exit_code", "passed",
+            "verified_fail_as_expected", "claim_assertion",
+            "evidence_assertions", "files")}
         print(_errors.safe_json_dumps(payload, indent=2))
     else:
         print("hotato start: swept the 2 bundled demo calls offline.")
@@ -516,6 +706,31 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             print(f"  Share in a PR:      {md_path}")
             print(f"  Share as an image:  {svg_path}")
             print(f"  Verify the record:  {_demo_record_verify_command()}")
+        # Act two: the say-do check. Every line below is backed by the
+        # evaluated results (_run_saydo_check raised unless the claim PASSed
+        # and the tool + state evidence FAILed).
+        print("")
+        print("Act two: the say-do check, on the bundled scripted conversation")
+        print("(same rules: offline, no account, no credential).")
+        print(f"  conversation:    {_SAYDO_DIR}/ (transcript + tool trace + "
+              "post-call state + test)")
+        print(f"  test result:     {_SAYDO_DIR}/{_SAYDO_RESULT}")
+        print("  say-do check:    FAIL, by design: the agent said the refund "
+              "was sent;")
+        print("                   the trace shows no such tool call succeeded "
+              "(no")
+        print("                   issue_refund span), and the order's "
+              "post-call")
+        print("                   refund_status stayed \"none\".")
+        print("  Act one measured how the call sounded; this act checks what "
+              "the")
+        print("  agent did. Tool and state evidence decide the outcome, never "
+              "the")
+        print("  agent's words.")
+        print("  Setup finished, so start --demo still exits 0. See this gate "
+              "return")
+        print("  exit 1:")
+        print(f"      {_saydo_next_command()}")
         print(_next_commands_text(card_written, contract_written,
                                   candidate_rank))
     return 0
