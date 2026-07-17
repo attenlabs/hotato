@@ -101,11 +101,12 @@ jobs:
             python-version: "3.12"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    # Windows is MEASURED, not supported: the suite has known Windows failures
-    # (cross-drive relpath, path-separator assumptions, POSIX-only calls).
-    # The job runs so the failures stay visible and countable; it does not gate
-    # a release, and no Windows support is claimed anywhere in the docs.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    # Windows went fully green on 2026-07-17 (store dir_fd fallback + O_BINARY,
+    # newline-pinned hashed writers, '/' path convention; one capability-gated
+    # skip whose feature under test IS the dir_fd unlink). The job GATES now so
+    # a Windows regression is loud. The PyPI classifiers still name Linux and
+    # macOS only until a green streak earns the public claim
+    # (tests/test_python_support_policy.py holds that lockstep).
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
