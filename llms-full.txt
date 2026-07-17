@@ -32,7 +32,7 @@ FILE: README.md
 
 </div>
 
-Hotato is self-hosted regression testing for voice agents: give it a two-channel call recording, it scores the turn timing between caller and agent, and it returns the same exit `0` or `1` verdict in CI on every machine.
+Hotato is self-hosted regression testing for voice agents: give it a two-channel call recording, it scores the turn timing between caller and agent, and it returns the same exit `0` or `1` verdict in CI on every machine. It also verifies what the agent *said* against what the backend *did* from your traces, and locks every catch into a content-addressed failure record that reproduces byte-for-byte.
 
 *The transcript passed. The call failed.* Your transcript tests are green, and the call still went wrong: the agent talked over the caller, ran straight through the interruption, and took a beat too long to hand the floor back. None of it is in the words. **hotato** gives that failure a number, then locks each catch into a CI contract.
 
@@ -85,7 +85,7 @@ hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl
 hotato assert run --trace voice_trace.jsonl --transcript call.transcript.json --assertions assertions.yaml
 ```
 
-Details: [`docs/ASSERTIONS.md`](docs/ASSERTIONS.md) &#183; [`docs/TRACE.md`](docs/TRACE.md)
+Details: [`docs/ASSERTIONS.md`](docs/ASSERTIONS.md) &#183; [`docs/TRACE.md`](docs/TRACE.md) &#183; ground truth: [`examples/reference-agent`](examples/reference-agent), a 375-run offline suite (25 scenarios &#215; 5 caller behaviours &#215; 3 audio environments) whose say-do assertions surface four seeded agent defects, deterministically.
 
 **2. Your stack's recorded calls.** Connect once, then bulk-fetch recent recordings into a local folder. Vapi, Twilio, and Retell fetch a separated two-channel file (Retell by explicit `--call-id`; it has no verified list endpoint). Everything scores offline afterwards; the only network is the recording download.
 
@@ -131,6 +131,20 @@ Outcome, policy, conversation, speech, and reliability roll up into one pass/fai
 <tr>
 <td width="50%" valign="top">
 
+🧾 **Say-do verification**<br/>
+`tool_call` assertions read only the ingested trace's spans; `outcome` combines them with transcript phrases into one say-do check.
+
+</td>
+<td width="50%" valign="top">
+
+🗂️ **Committable evidence**<br/>
+Each catch saves as a contract bundle you commit, diff, and review with code.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
 🔌 **Importers**<br/>
 Ingest the call exports your stack already produces from Vapi, Retell, Twilio.
 
@@ -145,36 +159,22 @@ Drop the Action into a workflow; the step's exit code is hotato's verdict.
 <tr>
 <td width="50%" valign="top">
 
-🧾 **Say-do verification**<br/>
-`tool_call` assertions read only the ingested trace's spans; `outcome` combines them with transcript phrases into one say-do check.
-
-</td>
-<td width="50%" valign="top">
-
 🎭 **Scripted simulation**<br/>
 A deterministic scripted caller authors `origin=simulated` fixtures; a seeded replay is byte-identical.
 
 </td>
-</tr>
-<tr>
 <td width="50%" valign="top">
 
 🤖 **Agent surfaces**<br/>
 An agent drives hotato from [`AGENTS.md`](AGENTS.md) and `hotato describe --format json`.
 
 </td>
-<td width="50%" valign="top">
-
-🧩 **MCP-ready**<br/>
-Score calls, verify contracts, and read verdicts over local stdio from any MCP client.
-
-</td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-🗂️ **Committable evidence**<br/>
-Each catch saves as a contract bundle you commit, diff, and review with code.
+🧩 **MCP-ready**<br/>
+Score calls, verify contracts, and read verdicts over local stdio from any MCP client.
 
 </td>
 <td width="50%" valign="top">
@@ -837,6 +837,54 @@ up immediately against the frozen golden output). It is **not** production audio
 system, bring **10-15 of your own labelled calls** (two-channel where you can
 get it) and run them through the same `run` / `--dump-frames` path; see
 `CONTRIBUTING.md` and `docs/CORPUS-GOVERNANCE.md`.
+
+## Say-do verification methodology
+
+Everything above describes the audio timing scorer. Say-do verification is
+the other deterministic lane: it checks what the agent *said* (transcript)
+against what the backend *did* (recorded evidence), and it reads recorded
+artifacts, never audio energy.
+
+- **Authority 1 is the trace.** `tool_call`, `tool_result`, `tool_error`, and
+ `http_result` assertions read only the ingested `hotato.voice_trace.v1`
+ spans (`hotato trace ingest`, `docs/TRACE.md`). A span is the evidence a
+ tool ran or an HTTP exchange happened; an agent's own words claiming it
+ happened can never satisfy these kinds. `outcome` combines span
+ sub-predicates with transcript phrases into the say-do check itself: the
+ agent said "your refund is on its way" *and* the `issue_refund` span is in
+ the trace.
+- **Deterministic, no model.** Every `assert.v1` kind is a regex, checksum,
+ or span/dict lookup (`docs/ASSERTIONS.md`); every result carries
+ `deterministic: true`, and `run_assertions` is byte-stable across repeated
+ calls on identical input. The model-judged rubric lane is structurally
+ quarantined in its own count and never blends in.
+- **INCONCLUSIVE without evidence.** An assertion whose required input is
+ absent (no trace, no transcript) reports `INCONCLUSIVE`, never a guess, and
+ `inconclusive_policy: fail | refuse` turns that into a gate so missing
+ evidence fails loudly in CI.
+
+**Worked example: the reference-agent suite.**
+`examples/reference-agent` is the runnable ground truth for this lane: a
+375-run offline suite (25 scenarios, 5 caller behaviours, 3 audio
+environments) where each scenario's deterministic `agent_mock` renders
+`tool_call` spans (Authority 1) and a post-call state sandbox (Authority 2).
+Four scenarios carry seeded agent defects (a refund claimed but never
+issued, identity skipped before a lookup, an escalation never handed off, a
+declined payment handled wrong), and the suite surfaces each as an outcome
+or policy FAIL from trace and state evidence alone. Two seeded runs write
+byte-identical conversation artifacts, pinned by
+`tests/test_determinism_reference.py`.
+
+**Where the five dimensions stand.** The dimensions (outcome, policy,
+conversation, speech, reliability) are scored lanes: each Failure Record
+carries all five, each with its own status and never a blended score
+(`docs/CARDS.md`, `src/hotato/failure_record.py`). Timing (the conversation
+and speech lanes) is the dimension family with a frozen physics benchmark:
+measurement error against rendered and hand-labelled ground truth
+(`docs/BENCHMARK.md`). Say-do (the outcome and policy lanes) is the
+dimension family with deterministic trace evaluation, grounded by the
+reference-agent suite above. Reliability aggregates repeated runs as
+`pass@1` / `pass@k` / `pass^k` on its own axis.
 
 ## How to verify a score on your own recordings
 
@@ -3122,6 +3170,14 @@ print(env["exit_code"])   # 0 pass, 1 fail
 
 Python API: [`docs/API.md`](API.md) covers the scoring envelope this
 complements; the schema is `src/hotato/schema/assert.v1.json`.
+
+Runnable ground truth:
+[`examples/reference-agent`](../examples/reference-agent) exercises these
+kinds end to end: a 375-run offline suite (25 scenarios, 5 caller
+behaviours, 3 audio environments) whose `tool_result`, `state`, `sequence`,
+`handoff`, and `tool_error` assertions surface four seeded agent defects,
+deterministically. Method: the "Say-do verification methodology" section of
+[`METHODOLOGY.md`](../METHODOLOGY.md).
 
 ## The core deterministic kinds
 
@@ -7166,6 +7222,15 @@ and `benchmark-report/measurement-error.md`.
 
 The harness is a standalone measurement tool you run against fixtures; the
 `hotato` CLI scores a single call or the battery.
+
+**Scope.** This benchmark measures the timing signals: per-signal
+measurement error against rendered or hand-labelled ground truth, and the
+yield/hold decision. Say-do verification is scored on its own deterministic
+lane, evaluated against recorded trace spans; its methodology is the
+"Say-do verification methodology" section of
+[`METHODOLOGY.md`](../METHODOLOGY.md), with
+[`examples/reference-agent`](../examples/reference-agent) as the runnable
+worked example.
 
 ---
 

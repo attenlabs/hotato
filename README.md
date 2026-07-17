@@ -28,7 +28,7 @@
 
 </div>
 
-Hotato is self-hosted regression testing for voice agents: give it a two-channel call recording, it scores the turn timing between caller and agent, and it returns the same exit `0` or `1` verdict in CI on every machine.
+Hotato is self-hosted regression testing for voice agents: give it a two-channel call recording, it scores the turn timing between caller and agent, and it returns the same exit `0` or `1` verdict in CI on every machine. It also verifies what the agent *said* against what the backend *did* from your traces, and locks every catch into a content-addressed failure record that reproduces byte-for-byte.
 
 *The transcript passed. The call failed.* Your transcript tests are green, and the call still went wrong: the agent talked over the caller, ran straight through the interruption, and took a beat too long to hand the floor back. None of it is in the words. **hotato** gives that failure a number, then locks each catch into a CI contract.
 
@@ -81,7 +81,7 @@ hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl
 hotato assert run --trace voice_trace.jsonl --transcript call.transcript.json --assertions assertions.yaml
 ```
 
-Details: [`docs/ASSERTIONS.md`](docs/ASSERTIONS.md) &#183; [`docs/TRACE.md`](docs/TRACE.md)
+Details: [`docs/ASSERTIONS.md`](docs/ASSERTIONS.md) &#183; [`docs/TRACE.md`](docs/TRACE.md) &#183; ground truth: [`examples/reference-agent`](examples/reference-agent), a 375-run offline suite (25 scenarios &#215; 5 caller behaviours &#215; 3 audio environments) whose say-do assertions surface four seeded agent defects, deterministically.
 
 **2. Your stack's recorded calls.** Connect once, then bulk-fetch recent recordings into a local folder. Vapi, Twilio, and Retell fetch a separated two-channel file (Retell by explicit `--call-id`; it has no verified list endpoint). Everything scores offline afterwards; the only network is the recording download.
 
@@ -127,6 +127,20 @@ Outcome, policy, conversation, speech, and reliability roll up into one pass/fai
 <tr>
 <td width="50%" valign="top">
 
+🧾 **Say-do verification**<br/>
+`tool_call` assertions read only the ingested trace's spans; `outcome` combines them with transcript phrases into one say-do check.
+
+</td>
+<td width="50%" valign="top">
+
+🗂️ **Committable evidence**<br/>
+Each catch saves as a contract bundle you commit, diff, and review with code.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
 🔌 **Importers**<br/>
 Ingest the call exports your stack already produces from Vapi, Retell, Twilio.
 
@@ -141,36 +155,22 @@ Drop the Action into a workflow; the step's exit code is hotato's verdict.
 <tr>
 <td width="50%" valign="top">
 
-🧾 **Say-do verification**<br/>
-`tool_call` assertions read only the ingested trace's spans; `outcome` combines them with transcript phrases into one say-do check.
-
-</td>
-<td width="50%" valign="top">
-
 🎭 **Scripted simulation**<br/>
 A deterministic scripted caller authors `origin=simulated` fixtures; a seeded replay is byte-identical.
 
 </td>
-</tr>
-<tr>
 <td width="50%" valign="top">
 
 🤖 **Agent surfaces**<br/>
 An agent drives hotato from [`AGENTS.md`](AGENTS.md) and `hotato describe --format json`.
 
 </td>
-<td width="50%" valign="top">
-
-🧩 **MCP-ready**<br/>
-Score calls, verify contracts, and read verdicts over local stdio from any MCP client.
-
-</td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-🗂️ **Committable evidence**<br/>
-Each catch saves as a contract bundle you commit, diff, and review with code.
+🧩 **MCP-ready**<br/>
+Score calls, verify contracts, and read verdicts over local stdio from any MCP client.
 
 </td>
 <td width="50%" valign="top">

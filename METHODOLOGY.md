@@ -409,6 +409,54 @@ system, bring **10-15 of your own labelled calls** (two-channel where you can
 get it) and run them through the same `run` / `--dump-frames` path; see
 `CONTRIBUTING.md` and `docs/CORPUS-GOVERNANCE.md`.
 
+## Say-do verification methodology
+
+Everything above describes the audio timing scorer. Say-do verification is
+the other deterministic lane: it checks what the agent *said* (transcript)
+against what the backend *did* (recorded evidence), and it reads recorded
+artifacts, never audio energy.
+
+- **Authority 1 is the trace.** `tool_call`, `tool_result`, `tool_error`, and
+ `http_result` assertions read only the ingested `hotato.voice_trace.v1`
+ spans (`hotato trace ingest`, `docs/TRACE.md`). A span is the evidence a
+ tool ran or an HTTP exchange happened; an agent's own words claiming it
+ happened can never satisfy these kinds. `outcome` combines span
+ sub-predicates with transcript phrases into the say-do check itself: the
+ agent said "your refund is on its way" *and* the `issue_refund` span is in
+ the trace.
+- **Deterministic, no model.** Every `assert.v1` kind is a regex, checksum,
+ or span/dict lookup (`docs/ASSERTIONS.md`); every result carries
+ `deterministic: true`, and `run_assertions` is byte-stable across repeated
+ calls on identical input. The model-judged rubric lane is structurally
+ quarantined in its own count and never blends in.
+- **INCONCLUSIVE without evidence.** An assertion whose required input is
+ absent (no trace, no transcript) reports `INCONCLUSIVE`, never a guess, and
+ `inconclusive_policy: fail | refuse` turns that into a gate so missing
+ evidence fails loudly in CI.
+
+**Worked example: the reference-agent suite.**
+`examples/reference-agent` is the runnable ground truth for this lane: a
+375-run offline suite (25 scenarios, 5 caller behaviours, 3 audio
+environments) where each scenario's deterministic `agent_mock` renders
+`tool_call` spans (Authority 1) and a post-call state sandbox (Authority 2).
+Four scenarios carry seeded agent defects (a refund claimed but never
+issued, identity skipped before a lookup, an escalation never handed off, a
+declined payment handled wrong), and the suite surfaces each as an outcome
+or policy FAIL from trace and state evidence alone. Two seeded runs write
+byte-identical conversation artifacts, pinned by
+`tests/test_determinism_reference.py`.
+
+**Where the five dimensions stand.** The dimensions (outcome, policy,
+conversation, speech, reliability) are scored lanes: each Failure Record
+carries all five, each with its own status and never a blended score
+(`docs/CARDS.md`, `src/hotato/failure_record.py`). Timing (the conversation
+and speech lanes) is the dimension family with a frozen physics benchmark:
+measurement error against rendered and hand-labelled ground truth
+(`docs/BENCHMARK.md`). Say-do (the outcome and policy lanes) is the
+dimension family with deterministic trace evaluation, grounded by the
+reference-agent suite above. Reliability aggregates repeated runs as
+`pass@1` / `pass@k` / `pass^k` on its own axis.
+
 ## How to verify a score on your own recordings
 
 1. Run `--dump-frames out.json` on the recording. Read the per-channel
