@@ -74,6 +74,30 @@ def test_fail_test_run_projects_a_valid_record():
     _schema_validate(record)
 
 
+def test_http_result_fail_projects_http_exchange_outcome_evidence():
+    # http_result is trace-backed Authority-1 evidence, so its FAIL row lands
+    # in the outcome lane, catalogued under the http_exchange evidence kind
+    # (redacted request/response classes), and satisfies the outcome-evidence
+    # authority wall.
+    rows = [det_row(
+        "refund-posted", "http_result", "FAIL", dimension="outcome",
+        reason="an http_exchange span matched the method and URL but no "
+               "response satisfied the declared status and response fields",
+        public_reason="No POST exchange satisfied the declared route, "
+                      "status, and response conditions.",
+    )]
+    record = FR.project(make_test_run(rows))
+    assert record["status"] == "FAIL"
+    lane = record["dimensions"]["outcome"]
+    assert lane["assertions"][0]["rule_id"] == "assert.http_result"
+    evidence = {item["evidence_id"]: item for item in record["evidence"]}
+    ref = lane["assertions"][0]["evidence_refs"][0]
+    assert evidence[ref]["kind"] == "http_exchange"
+    assert evidence[ref]["redaction_classes"] == ["http-request", "http-response"]
+    FR.validate_record(record)
+    _schema_validate(record)
+
+
 def test_inconclusive_test_run_projects_inconclusive():
     rows = [det_row("disclosure-present", "policy", "INCONCLUSIVE",
                     dimension="policy",

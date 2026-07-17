@@ -117,6 +117,7 @@ SUPPORTED_DOC_VERSION = 1
 #   phrase/pii/policy/outcome     -- read the transcript / timing (as before)
 #   tool_call                     -- reads voice_trace.v1 tool spans (as before)
 #   tool_result / tool_error      -- Authority 1: read tool spans' result/error
+#   http_result                   -- Authority 1: read http_exchange spans
 #   state / state_change          -- Authority 2: query a post-call state adapter
 #   handoff / dtmf / termination  -- read the authenticated trace's spans
 #   latency / timing_contract     -- numeric timing (trace latency_ms / a .hotato
@@ -125,14 +126,16 @@ SUPPORTED_DOC_VERSION = 1
 #                                    supplied reference (NOT WER)
 #   sequence / count              -- ordered / counted spans (or phrases)
 #
-# HONESTY INVARIANT (structural): tool_result / tool_error / state /
-# state_change (Authorities 1 & 2, listed in :data:`_AUTHORITY_1_2_KINDS`) read
-# ONLY the authenticated trace spans / the state adapter -- never the
-# transcript. An agent's spoken claim ("I issued the refund") can therefore
-# never satisfy one of them; there is no model/LLM code path anywhere here.
+# HONESTY INVARIANT (structural): tool_result / tool_error / http_result /
+# state / state_change (Authorities 1 & 2, listed in
+# :data:`_AUTHORITY_1_2_KINDS`) read ONLY the authenticated trace spans / the
+# state adapter -- never the transcript. An agent's spoken claim ("I issued
+# the refund") can therefore never satisfy one of them; there is no model/LLM
+# code path anywhere here.
 KINDS = (
     "phrase", "pii", "policy", "tool_call", "outcome",
-    "tool_result", "tool_error", "state", "state_change", "handoff", "dtmf",
+    "tool_result", "tool_error", "http_result", "state", "state_change",
+    "handoff", "dtmf",
     "termination", "latency", "timing_contract", "entity_accuracy",
     "sequence", "count",
 )
@@ -166,7 +169,7 @@ RESULT_DIMENSIONS = ("outcome", "policy", "conversation", "speech", "reliability
 # trace spans / the state adapter only, never the transcript, and never a
 # model verdict. Named here so the invariant is testable by name.
 _AUTHORITY_1_2_KINDS = frozenset(
-    {"tool_result", "tool_error", "state", "state_change"}
+    {"tool_result", "tool_error", "http_result", "state", "state_change"}
 )
 
 # How an INCONCLUSIVE result (a statement about ABSENT required input, never a
@@ -916,6 +919,44 @@ def _validate_expanded_kind_fields(aid: str, kind: str, item: Dict[str, Any]) ->
                 ) from exc
         if "absent" in item and not isinstance(item["absent"], bool):
             raise ValueError(f"assertion {aid!r} ({kind}): 'absent' must be a boolean")
+
+    elif kind == "http_result":
+        method = item.get("method")
+        if not isinstance(method, str) or not method.strip():
+            raise ValueError(
+                f"assertion {aid!r} (http_result): 'method' is required and "
+                "must be a non-empty string"
+            )
+        url_matches = item.get("url_matches")
+        if not isinstance(url_matches, str) or not url_matches:
+            raise ValueError(
+                f"assertion {aid!r} (http_result): 'url_matches' is required "
+                "and must be a non-empty regex string"
+            )
+        try:
+            re.compile(url_matches)
+        except re.error as exc:
+            raise ValueError(
+                f"assertion {aid!r} (http_result): invalid regex "
+                f"{url_matches!r}: {exc}"
+            ) from exc
+        status = item.get("status")
+        statuses = status if isinstance(status, list) else [status]
+        if status is None or not statuses or not all(
+            isinstance(value, int) and not isinstance(value, bool)
+            and 100 <= value <= 599 for value in statuses
+        ):
+            raise ValueError(
+                f"assertion {aid!r} (http_result): 'status' must be an HTTP "
+                "status integer or a non-empty list of HTTP status integers"
+            )
+        if "response_subset" in item and not isinstance(
+            item["response_subset"], dict
+        ):
+            raise ValueError(
+                f"assertion {aid!r} (http_result): 'response_subset' must be "
+                "a mapping"
+            )
 
     elif kind == "state":
         if not isinstance(item.get("resource"), str) or not item["resource"]:
@@ -1783,6 +1824,59 @@ def _eval_tool_error(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     return result
 
 
+def _eval_http_result(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    # Reads only ``http_exchange`` spans already present in the ingested
+    # trace -- it never performs a request, so a rerun is deterministic and
+    # offline, and an agent's spoken claim about a request can never satisfy
+    # it (Authority 1, same wall as tool_result/tool_error).
+    result = _base_result(a)
+    if ctx.spans is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            "no trace was provided; http_result reads voice_trace.v1 "
+            "http_exchange spans (Authority 1), never the agent's spoken claim"
+        )
+        return result
+
+    want_method = a["method"].strip().upper()
+    url_rx = re.compile(a["url_matches"])
+    want_status = a["status"] if isinstance(a["status"], list) else [a["status"]]
+    want_response = a.get("response_subset") or {}
+    request_matches = 0
+    matched_ids: List[str] = []
+
+    for idx, s in _typed_spans(ctx, "http_exchange"):
+        method = _span_field(s, "method", "http.method", "request_method")
+        url = _span_field(s, "url", "http.url", "route", "target")
+        if not isinstance(method, str) or method.upper() != want_method:
+            continue
+        if not isinstance(url, str) or not url_rx.search(url):
+            continue
+        request_matches += 1
+        status = _span_field(s, "status_code", "http.status_code")
+        if status not in want_status:
+            continue
+        response = _span_field(s, "response", "response_body", "result")
+        if want_response and not (
+            isinstance(response, dict) and _is_subset(want_response, response)
+        ):
+            continue
+        matched_ids.append(_synthesize_span_id(idx))
+
+    if matched_ids:
+        result["status"] = "PASS"
+        result["span_ids"] = _sorted_span_ids(matched_ids)
+    else:
+        result["status"] = "FAIL"
+        result["reason"] = (
+            "no http_exchange span matched the declared method and URL"
+            if request_matches == 0 else
+            "an http_exchange span matched the method and URL but no response "
+            "satisfied the declared status and response fields"
+        )
+    return result
+
+
 def _record_state_evidence(ctx: Context, evidence: Dict[str, Any]) -> None:
     """Append the observed state evidence for a DETERMINATE state read to the
     context's write-only capture log, so the conversation artifact can bind it as
@@ -2288,8 +2382,8 @@ def _inconclusive_noun(a: Dict[str, Any]) -> str:
         return "transcript" if "phrase" in a else "trace"
     if kind == "timing_contract":
         return "timing"
-    if kind in ("tool_call", "tool_result", "tool_error", "handoff", "dtmf",
-                "termination", "sequence", "entity_accuracy"):
+    if kind in ("tool_call", "tool_result", "tool_error", "http_result",
+                "handoff", "dtmf", "termination", "sequence", "entity_accuracy"):
         return "trace"
     return "input"
 
@@ -2349,6 +2443,16 @@ def _pub_tool_error(a, r):
                 "A tool emitted a matching error although policy required none.")
     return (f"{name} emitted no matching error span."
             if name else "No matching tool-error span was found.")
+
+
+def _pub_http_result(a, r):
+    method = a.get("method")
+    safe_method = _safe_id(method.strip().upper()) if isinstance(method, str) else None
+    if safe_method:
+        return (f"No {safe_method} exchange satisfied the declared route, "
+                "status, and response conditions.")
+    return ("No HTTP exchange satisfied the declared route, status, and "
+            "response conditions.")
 
 
 def _pub_state(a, r):
@@ -2435,7 +2539,8 @@ def _pub_outcome(a, r):
 _PUBLIC_FAIL = {
     "phrase": _pub_phrase, "pii": _pub_pii, "policy": _pub_policy,
     "tool_call": _pub_tool_call, "tool_result": _pub_tool_result,
-    "tool_error": _pub_tool_error, "state": _pub_state,
+    "tool_error": _pub_tool_error, "http_result": _pub_http_result,
+    "state": _pub_state,
     "state_change": _pub_state_change, "handoff": _pub_handoff,
     "dtmf": _pub_dtmf, "termination": _pub_termination, "latency": _pub_latency,
     "timing_contract": _pub_timing_contract,
@@ -2476,6 +2581,7 @@ _EVALUATORS = {
     "outcome": _eval_outcome,
     "tool_result": _eval_tool_result,
     "tool_error": _eval_tool_error,
+    "http_result": _eval_http_result,
     "state": _eval_state,
     "state_change": _eval_state_change,
     "handoff": _eval_handoff,

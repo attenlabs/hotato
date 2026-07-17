@@ -9,6 +9,24 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **`http_result`: a deterministic HTTP-exchange assertion kind.** Reads
+  `http_exchange` spans already present in the ingested
+  `hotato.voice_trace.v1` trace (`method`, `url`, `status_code`, `response`)
+  and checks the declared method, URL regex, status set, and response subset.
+  Evaluation never performs a request; the kind shares the Authority-1 wall
+  with `tool_result`/`tool_error` (no transcript read, no model path),
+  reports INCONCLUSIVE when no trace was supplied, and projects into Failure
+  Records as `http_exchange` outcome evidence with redacted request/response
+  classes. The counterexample compiler refuses an `http_result` target (the
+  scripted simulator emits no exchange evidence). Docs: `docs/ASSERTIONS.md`.
+- **`hotato.errors.rename_no_replace`: atomic no-replace publish.** Publishes
+  a temp file or directory at its destination in one atomic step and refuses
+  an existing destination with `FileExistsError`. Capability-gated, never
+  platform-named: a libc no-replace rename syscall where the runtime exposes
+  one, else an `os.link` + `os.unlink` file publish or a mkdir-claim
+  directory publish (Windows included). `hotato regression prepare` promotes
+  its bundle through it, so a destination that appears between the up-front
+  existence check and the rename is refused, never clobbered.
 - **`hotato run --snr-gate-db`: opt-in low-SNR scorability gate.** Below a
   measurable per-channel SNR the energy VAD's dynamic-margin cap (threshold =
   peak minus `dyn_margin_db`) saturates, agent activity never ends, and a

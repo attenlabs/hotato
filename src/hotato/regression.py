@@ -65,6 +65,7 @@ from . import failure_record as _fr
 from . import failure_render as _frr
 from .errors import load_json_file as _load_json_file
 from .errors import open_regular as _open_regular
+from .errors import rename_no_replace as _rename_no_replace
 from .errors import safe_json_dumps as _safe_json_dumps
 
 __all__ = [
@@ -841,10 +842,20 @@ def prepare(
         shutil.rmtree(stage_dir, ignore_errors=True)
 
         # --- atomic promote -------------------------------------------------
-        if os.path.exists(out_dir):
-            _require(force, f"--out {out_dir!r} already exists; pass --force")
-            shutil.rmtree(out_dir)
-        os.replace(tmp_root, out_dir)
+        if force:
+            if os.path.exists(out_dir):
+                shutil.rmtree(out_dir)
+            os.replace(tmp_root, out_dir)
+        else:
+            # The up-front existence check cannot close the window between
+            # itself and the rename, so the no-force promote is a no-replace
+            # rename: the check and the move are one atomic step, and a
+            # destination that appears mid-prepare is refused, never
+            # clobbered.
+            try:
+                _rename_no_replace(tmp_root, out_dir)
+            except FileExistsError:
+                _require(False, f"--out {out_dir!r} already exists; pass --force")
     except BaseException:
         shutil.rmtree(tmp_root, ignore_errors=True)
         shutil.rmtree(stage_dir, ignore_errors=True)
