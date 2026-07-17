@@ -163,6 +163,10 @@ hotato = [
     "data/audio/*.wav",
     "data/demo/failing/scenarios/*.json",
     "data/demo/failing/audio/*.wav",
+    # Act two of `hotato start --demo`: the scripted say-do conversation
+    # (transcript + trace + state + test), content-hashed by its manifest.
+    "data/demo/saydo/*.json",
+    "data/demo/saydo/*.jsonl",
     "schema/*.json",
     "templates/webhook/*.tmpl",
     "templates/webhook/fragments/*.py",

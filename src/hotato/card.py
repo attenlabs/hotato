@@ -2,12 +2,13 @@
 redacted-by-default SVG (1200x630) with no external resources.
 
 One command turns a machine result -- a sweep/analyze candidate (FILE#N), a fix
-plan, or a verify rollup -- into a self-contained image you can drop into a PR,
-an issue, or a slide. The card is honest by construction: it names the measured
-timing moment and never a verdict about intent, and it carries no accuracy
+plan, a verify rollup, a failure contract, or a test-run result -- into a
+self-contained image you can drop into a PR, an issue, or a slide. The card is
+honest by construction: it names the measured timing moment (or the evidence a
+say-do check read) and never a verdict about intent, and it carries no accuracy
 number anywhere.
 
-Four card kinds, auto-detected from the input:
+Six card kinds, auto-detected from the input:
 
   A. talk-over candidate  -- an ``overlap_while_agent_talking`` /
      ``agent_start_during_caller`` moment (FILE#N)
@@ -16,6 +17,12 @@ Four card kinds, auto-detected from the input:
      ``do_not_tune_single_threshold`` (the hero card)
   D. paired comparison    -- a supported ``hotato verify`` before/after rollup
      that actually improved; never rendered as an unconditional "verified"
+  E. failure contract     -- a ``hotato contract create`` contract (kind
+     ``voice-turn-taking-contract``)
+  F. say-do failure       -- a ``hotato test run`` result (kind
+     ``hotato.test-run``) whose tool/state evidence failed a declared
+     outcome: the claim vs the evidence (assertion id, span refs, the
+     share-safe public reason)
 
 Every byte is a pure function of the input JSON: no timestamps, no version, no
 randomness, so the same input renders the same SVG forever. The SVG references
@@ -700,6 +707,155 @@ def _render_contract(contract: dict, *, include_identifiers: bool = False) -> st
     return _frame(body, title=a11y_title, desc=a11y_desc)
 
 
+# --- card F: a say-do outcome failure (hotato test run) --------------------
+#
+# A ``hotato test run`` result whose deterministic lane failed a tool/state
+# evidence assertion: the conversation claims an outcome, the trace (Authority
+# 1) or the post-call state (Authority 2) does not back it. The card renders
+# the CLAIM VS EVIDENCE shape -- the failing assertion's id and kind, its span
+# refs when the evaluator recorded any, and its share-safe ``public_reason``
+# (built by hotato.assert_ from allowlisted structured fields only, never
+# transcript text, a tool payload, or a state value) -- so the card stays
+# shareable with no scrub. The same deterministic-SVG invariants hold: no
+# timestamp, no accuracy number, inline color only, redacted by default.
+
+# The Authority-1/2 evidence kinds a say-do failure can rest on. Words-only
+# kinds (phrase/pii/...) never qualify: a say-do card is about evidence
+# contradicting the conversation, and evidence means tool spans or state.
+_SAYDO_EVIDENCE_KINDS = ("tool_result", "tool_call", "tool_error",
+                         "http_result", "state", "state_change")
+_SAYDO_TRACE_KINDS = ("tool_result", "tool_call", "tool_error", "http_result")
+
+
+def _render_saydo(result: dict, *, font_css: str = "") -> str:
+    from .errors import is_safe_bare_token as _is_safe
+
+    env = result.get("assertions")
+    results = env.get("results") if isinstance(env, dict) else None
+    if not isinstance(results, list):
+        raise ValueError(
+            "this test-run result carries no evaluated assertions envelope; "
+            "the say-do card renders a hotato test run result saved with "
+            "--format json (hotato start --demo writes one at "
+            "saydo/test-run.json)"
+        )
+    fails = [r for r in results
+             if isinstance(r, dict) and r.get("status") == "FAIL"
+             and r.get("kind") in _SAYDO_EVIDENCE_KINDS]
+    if not fails:
+        raise ValueError(
+            "this test-run result has no failing tool/state evidence "
+            "assertion (tool_result, tool_call, tool_error, http_result, "
+            "state, state_change); the say-do failure card renders a declared "
+            "outcome the trace or post-call state did not back. No card."
+        )
+    # Deterministic selection: the first failing outcome-tagged evidence
+    # assertion in result order, else the first failing evidence assertion.
+    # Reordering equal inputs is the only way to change which one leads.
+    prime = next((r for r in fails if r.get("dimension") == "outcome"),
+                 fails[0])
+
+    kind = prime["kind"]
+    aid_raw = prime.get("id")
+    aid = (aid_raw if isinstance(aid_raw, str) and _is_safe(aid_raw)
+           else "(redacted)")
+    public = prime.get("public_reason")
+    if not isinstance(public, str) or not public.strip():
+        # A hand-built result may omit it; the generic fallback is built from
+        # the closed kind vocabulary only, so it is share-safe by construction.
+        public = f"A declared {kind} evidence condition was not satisfied."
+    span_ids = [s for s in (prime.get("span_ids") or [])
+                if isinstance(s, str) and _is_safe(s)]
+    if span_ids:
+        evidence_line = f"trace spans: {', '.join(span_ids)}"
+    elif kind in _SAYDO_TRACE_KINDS:
+        evidence_line = "no qualifying tool span in the trace"
+    else:
+        evidence_line = "post-call state did not hold the declared outcome"
+
+    test_id_raw = result.get("test_id")
+    test_id = (test_id_raw if isinstance(test_id_raw, str)
+               and _is_safe(test_id_raw) else None)
+    outcome = (result.get("dimensions") or {}).get("outcome")
+    counts_text = None
+    if isinstance(outcome, dict):
+        p, f = outcome.get("pass"), outcome.get("fail")
+        if (isinstance(p, int) and not isinstance(p, bool)
+                and isinstance(f, int) and not isinstance(f, bool)):
+            counts_text = f"outcome: {p} pass / {f} fail"
+
+    body = [_kind_tag("SAY-DO FAILURE")]
+    body += _headline(["CLAIMED, NOT EVIDENCED"], top=176, size=50)
+    body.append(_text(_M, 244, "outcome evidence", size=15, fill=_C["muted"],
+                      weight="600", family=_MONO, spacing=2))
+    body.append(_text(_M, 344, "FAIL", size=96, fill=_C["crimson"],
+                      weight="800", family=_MONO))
+    body += _saydo_panel(evidence_line, f"assertion: {aid} ({kind})")
+    # The share-safe public reason, capped to two deterministic lines (the
+    # full sentence lives in the JSON result the card was rendered from).
+    public_lines = _wrap(public, 56)
+    if len(public_lines) > 2:
+        public_lines = [public_lines[0], public_lines[1] + " ..."]
+    for i, ln in enumerate(public_lines):
+        body.append(_text(_M, 474 + i * 32, ln, size=25, fill=_C["cream"],
+                          weight="500"))
+    if counts_text:
+        body.append(_pill(_W - _M, 458, counts_text, size=16,
+                          text_fill=_C["muted"], stroke=_C["muted"],
+                          anchor="end"))
+    if test_id:
+        body.append(_text(_W - _M, 520, f"test: {test_id}", size=18,
+                          fill=_C["muted"], weight="500", anchor="end",
+                          family=_MONO))
+    footer = ("Tool and state evidence decide the outcome, never the agent's "
+              "words.")
+    body.append(_footer(footer))
+    a11y_title = "Say-do failure: a claimed outcome the evidence did not back"
+    a11y_desc = (f"{public} Assertion {aid} ({kind}); {evidence_line}. "
+                 f"{footer}")
+    return _frame(body, title=a11y_title, desc=a11y_desc, font_css=font_css)
+
+
+def _saydo_panel(evidence_line: str, assertion_line: str) -> List[str]:
+    """The focal object of the say-do card: the claim box over the evidence
+    box. The claim box is dashed and unfilled (the same visibly-weaker
+    treatment the 'candidate, not verdict' chip uses -- words are never
+    evidence); the evidence box carries the crimson verdict line plus the
+    assertion ref that produced it."""
+    x0, x1 = _STRIP_X0, _STRIP_X1
+    w = x1 - x0
+    parts: List[str] = []
+    y_said, h_said = 232, 80
+    parts.append(
+        f'<rect x="{x0:g}" y="{y_said:g}" width="{w:g}" height="{h_said:g}" '
+        f'rx="12" fill="none" stroke="{_C["muted"]}" stroke-width="1.4" '
+        f'stroke-dasharray="6 5"/>')
+    parts.append(_text(x0 + 22, y_said + 28, "said", size=15,
+                       fill=_C["muted"], weight="600", family=_MONO,
+                       spacing=1.6))
+    parts.append(_text(x0 + 22, y_said + 60, "what the call says happened",
+                       size=21, fill=_C["cream"], weight="500"))
+    parts.append(_pill(x1 - 16, y_said + 24, "words, not evidence", size=14,
+                       text_fill=_C["muted"], stroke=_C["muted"], dashed=True,
+                       anchor="end"))
+    parts.append(_text(x0 + 22, 336, "checked against", size=14,
+                       fill=_C["muted"], weight="600", family=_MONO,
+                       spacing=1.6))
+    y_did, h_did = 350, 96
+    parts.append(
+        f'<rect x="{x0:g}" y="{y_did:g}" width="{w:g}" height="{h_did:g}" '
+        f'rx="12" fill="rgba(255,92,92,0.06)" stroke="{_C["crimson"]}" '
+        f'stroke-width="1.4"/>')
+    parts.append(_text(x0 + 22, y_did + 28, "did", size=15,
+                       fill=_C["muted"], weight="600", family=_MONO,
+                       spacing=1.6))
+    parts.append(_text(x0 + 22, y_did + 56, evidence_line, size=21,
+                       fill=_C["crimson"], weight="600"))
+    parts.append(_text(x0 + 22, y_did + 82, assertion_line, size=16,
+                       fill=_C["muted"], weight="500", family=_MONO))
+    return parts
+
+
 # --- dispatch -------------------------------------------------------------
 
 _ANALYZE_HINT = (
@@ -726,8 +882,9 @@ def render_plan_card(plan: dict, *, font_css: str = "") -> str:
 def make_card(input_arg: str, *, include_identifiers: bool = False,
               font_css: str = "") -> str:
     """Detect the input's kind and render the matching SVG card. Raises
-    ValueError on anything that is not a hotato candidate ref, fix plan, or
-    verify rollup (the CLI turns that into exit 2).
+    ValueError on anything that is not a hotato candidate ref, fix plan,
+    verify rollup, failure contract, or test-run result (the CLI turns that
+    into exit 2).
 
     ``font_css`` optionally embeds the brand faces for the built gallery assets;
     the runtime card leaves it empty and falls back to the system stack."""
@@ -761,11 +918,13 @@ def make_card(input_arg: str, *, include_identifiers: bool = False,
         return _render_verify(doc)
     if kind == "voice-turn-taking-contract":
         return _render_contract(doc, include_identifiers=include_identifiers)
+    if kind == "hotato.test-run":
+        return _render_saydo(doc, font_css=font_css)
     if kind == "analyze":
         raise ValueError(_ANALYZE_HINT.format(p=input_arg))
     raise ValueError(
         f"{input_arg!r} is not a card input (kind={kind!r}); pass a hotato fix "
         "plan (kind 'fix-plan'), a verify result (kind 'verify'), a failure "
-        "contract (kind 'voice-turn-taking-contract'), or a sweep/analyze "
-        "candidate ref (FILE#N)"
+        "contract (kind 'voice-turn-taking-contract'), a test-run result "
+        "(kind 'hotato.test-run'), or a sweep/analyze candidate ref (FILE#N)"
     )
