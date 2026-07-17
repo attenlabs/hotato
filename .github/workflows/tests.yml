@@ -174,7 +174,7 @@ jobs:
               f.write(d1 + "\n")
           print(f"{sys.platform} digest: {d1}")
 
-      - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: determinism-digest-${{ matrix.os }}
           path: digest.txt
@@ -327,7 +327,7 @@ jobs:
       # Artifact upload stays an explicit consumer step, exactly as the
       # documented consumer workflow does it.
       - if: always()
-        uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hotato-action-smoke
           path: .hotato

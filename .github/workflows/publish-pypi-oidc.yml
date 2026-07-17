@@ -184,13 +184,13 @@ jobs:
 
       # The exact artifacts that were hashed above; the publish job downloads
       # THESE bytes and attests + publishes them (never a rebuild).
-      - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pypi-dist
           path: dist/
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hotato-sbom
           path: sbom/*.cdx.json
