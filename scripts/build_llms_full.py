@@ -51,8 +51,8 @@ def _tracked_docs_md() -> list[str]:
     """docs/*.md that are actually part of the shipped repo, sorted.
 
     Inside a git checkout: `git ls-files`, NOT a raw filesystem glob. A
-    checkout can carry local-only files (gitignored internal artifacts, e.g.
-    docs/SAA-BEHAVIOR-CARD.md) that exist on one machine and not another;
+    checkout can carry local-only files (excluded internal artifacts) that
+    exist on one machine and not another;
     globbing the filesystem would bake a machine-specific file list into
     llms-full.txt and make the build non-reproducible across checkouts.
 
