@@ -10,6 +10,15 @@ import pytest
 
 from hotato.piper_tts import PiperCallerTTS, PiperTTSError
 
+# The whole file exercises the adapter against FAKE piper executables built as
+# shebang scripts, an execution mechanism only POSIX provides (Windows resolves
+# executables by extension and cannot exec a shebang file named 'piper').
+# piper_tts.py itself is platform-aware; only this test scaffolding is
+# inherently POSIX-bound.
+pytestmark = pytest.mark.skipif(
+    os.name != "posix", reason="fake piper executables are shebang scripts"
+)
+
 
 def _executable(path: Path, body: str) -> Path:
     path.write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
