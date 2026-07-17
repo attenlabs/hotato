@@ -163,7 +163,12 @@ Computed in `score_channels` (`score.py`):
  0; `None` if the agent never yielded within the search window.
 - **`talk_over_sec`**, count of frames from onset to the yield point (or to the
  end of the search window if it never yielded) where the caller and the agent
- were *both* active, times `hop_sec`.
+ were *both* active, times `hop_sec`. Both activity tracks are the hangover
+ smoothed tracks, so against a label placed at the raw end of speech energy
+ the measured end sits late by at most `hangover_sec` plus one hop and the
+ measured start sits early by at most one frame; the bias is deterministic
+ and one sided, and `hangover_sec = 0` removes the hangover term
+ (see docs/BENCHMARK.md, Quantization).
 
 ### Step 6, the two latency (endpointing) signals
 
