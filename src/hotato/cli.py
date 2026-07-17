@@ -580,7 +580,8 @@ _EXIT_CODES: dict = {
     "card": (
         (0, "the SVG card was rendered (written to --out, or to stdout)"),
         (2, "usage error, unreadable input, a bad candidate ref, or an input "
-            "that is not a fix plan / verify result / sweep candidate"),
+            "that is not a fix plan / verify result / contract / test-run "
+            "result / sweep candidate"),
     ),
     "start": (
         (0, "the guided first run completed (--demo, or --stereo on your own "
@@ -5104,23 +5105,29 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser(
         "start",
         help="guided, credential-less first run: sweep the bundled demo "
-             "calls, create+verify one demo failure contract, write the "
-             "result + dashboard + funnel card, and print the exact next "
-             "commands",
+             "calls, create+verify one demo failure contract, run one say-do "
+             "conversation check, write the result + dashboard + funnel "
+             "card, and print the exact next commands",
         description=(
-            "The zero-setup first run. `hotato start --demo` sweeps the two "
-            "bundled real demo calls (no account, no network, no "
-            "credentials), writes the sweep result (hotato-sweep.json), a "
-            "self-contained HTML dashboard (hotato-sweep.html), and the "
-            "threshold-funnel card (hotato-no-single-threshold.svg); creates "
-            "one demo failure contract (contracts/demo-missed-interruption."
-            "hotato) from a real missed-interruption candidate with --expect "
-            "yield and verifies it immediately (it genuinely fails -- this "
-            "is the loop: a real failure becomes a candidate, becomes a "
-            "portable contract, and contract verify catches it); then prints "
-            "the exact next commands: promote a candidate into a permanent "
-            "fixture, run those fixtures in CI, re-verify the demo contract, "
-            "and render a card. hotato start --stereo CALL.wav runs the "
+            "The zero-setup first run, in two acts. Act one (timing): `hotato "
+            "start --demo` sweeps the two bundled real demo calls (no "
+            "account, no network, no credentials), writes the sweep result "
+            "(hotato-sweep.json), a self-contained HTML dashboard "
+            "(hotato-sweep.html), and the threshold-funnel card "
+            "(hotato-no-single-threshold.svg); creates one demo failure "
+            "contract (contracts/demo-missed-interruption.hotato) from a "
+            "real missed-interruption candidate with --expect yield and "
+            "verifies it immediately (it genuinely fails -- this is the "
+            "loop: a real failure becomes a candidate, becomes a portable "
+            "contract, and contract verify catches it). Act two (say-do): "
+            "runs one conversation check over the bundled scripted "
+            "conversation (saydo/) through the same machinery hotato test "
+            "run drives -- the agent says the refund was sent, the trace "
+            "shows no such tool call succeeded, so the check fails by "
+            "design. Then it prints the exact next commands: promote a "
+            "candidate into a permanent fixture, run those fixtures in CI, "
+            "re-verify the demo contract, replay the say-do gate, and "
+            "render a card. hotato start --stereo CALL.wav runs the "
             "guided own-call flow (trust -> scan -> review -> human label "
             "-> contract + evidence-tier card). To score a live provider stack "
             "or a folder of recordings, use hotato sweep / hotato analyze."
@@ -5160,19 +5167,22 @@ def build_parser() -> argparse.ArgumentParser:
     cd = sub.add_parser(
         "card",
         help="render a shareable SVG card (1200x630, offline, no external "
-             "assets) from a sweep candidate (FILE#N), a fix plan, or a "
-             "verify result",
+             "assets) from a sweep candidate (FILE#N), a fix plan, a "
+             "verify result, a contract, or a test-run result",
         description=(
             "Turn a hotato result into a self-contained SVG card you can drop "
-            "into a PR or an issue. Five kinds are auto-detected: a "
+            "into a PR or an issue. Six kinds are auto-detected: a "
             "talk-over candidate and a false-stop candidate (from a "
             "sweep/analyze candidate ref FILE#N), the threshold-funnel fix "
-            "plan (the hero card), a supported verify rollup, and a "
-            "human-labeled timing contract. The SVG is "
+            "plan (the hero card), a supported verify rollup, a "
+            "human-labeled timing contract, and a say-do failure (a hotato "
+            "test run result whose tool/state evidence failed a declared "
+            "outcome). The SVG is "
             "DETERMINISTIC (a pure function of the input JSON: no timestamps, "
             "no version, no randomness) and references no font, image, "
             "stylesheet, or link; all color is inline. It names the MEASURED "
-            "timing moment and never a verdict about intent, and carries no "
+            "timing moment (or the evidence a say-do check read) and never a "
+            "verdict about intent, and carries no "
             "accuracy number. Redacted by default: a call id, a path (only a "
             "basename is ever shown), and a vendor recording name are hidden "
             "unless --include-identifiers."
@@ -5184,13 +5194,16 @@ def build_parser() -> argparse.ArgumentParser:
             "  hotato card hotato-sweep.json#1 --out talk-over.svg\n\n"
             "  hotato demo --format json > demo.json\n"
             "  hotato plan demo.json --out fix-plan.json\n"
-            "  hotato card fix-plan.json --out no-single-threshold.svg"
+            "  hotato card fix-plan.json --out no-single-threshold.svg\n\n"
+            "  hotato start --demo\n"
+            "  hotato card saydo/test-run.json --out saydo-card.svg"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     cd.add_argument("input", metavar="INPUT[#REF]",
-                    help="a fix-plan or verify JSON file, or a sweep/analyze "
-                         "candidate ref FILE#N (the #N rank the report shows)")
+                    help="a fix-plan, verify, contract, or test-run JSON "
+                         "file, or a sweep/analyze candidate ref FILE#N (the "
+                         "#N rank the report shows)")
     cd.add_argument("--out", default=None, metavar="FILE.svg",
                     help="write the SVG here (atomic); without it the SVG is "
                          "written to stdout")
