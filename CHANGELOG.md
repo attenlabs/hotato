@@ -8,6 +8,25 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **`hotato bench run` / `hotato bench verify`.** A versioned freeze of the
+  shipped scenario batteries (the packaged battery plus the four
+  `corpus/suites/` tiers), pinned by content hash. `bench run` scores one
+  battery end to end and writes a content-addressed result (per-suite pass
+  counts, per-signal ms-error distributions, confusion cells; no blended
+  score anywhere, code-enforced). `bench verify` re-executes the pinned
+  battery and hash-compares the canonical result bodies: exit 0 on a match,
+  1 when re-execution does not reproduce the stored result, 2 (refused) on
+  a malformed or tampered result, an unknown battery, or a local battery
+  whose content hash differs from the pinned one. Protocol:
+  `docs/BENCH-SPEC.md`.
+- **`spec/`: the contract wire format as an open spec.** The shipped
+  `contract.json` JSON Schema (`spec/contract.schema.json`, a byte-identical
+  copy of `src/hotato/schema/contract.v1.json`, kept in lockstep by test),
+  the stability promise (`spec/README.md`), and the exact canonical-bytes +
+  content-addressing rules as implemented, with file and function citations
+  (`spec/CANONICALIZATION.md`).
+
 ### Fixed
 - **Windows portability of the artifact store.** The store's openat-style
   containment primitive (trusted directory descriptors + `dir_fd`-relative
