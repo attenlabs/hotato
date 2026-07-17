@@ -5,6 +5,10 @@ include README.md LICENSE SECURITY.md CHANGELOG.md CONTRIBUTING.md METHODOLOGY.m
 include action.yml
 recursive-include docs *
 prune docs/assets
+# The open wire-format spec (spec/README.md, spec/contract.schema.json,
+# spec/CANONICALIZATION.md): tests/test_bench_cli.py pins the spec schema
+# byte-identical to the shipped one, so the sdist must carry both.
+recursive-include spec *
 recursive-include adapters *
 recursive-include scripts *
 recursive-include tests *

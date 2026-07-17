@@ -155,6 +155,25 @@ _EXIT_CODES: dict = {
         (2, "usage error (fewer than two result files) or unreadable "
             "input"),
     ),
+    "bench": (
+        (2, "no subcommand given (see hotato bench run/verify --help)"),
+    ),
+    "bench run": (
+        (0, "measured; the bench result was written (the bench measures, it "
+            "never gates)"),
+        (2, "usage error or unusable input (an unknown suite, a battery with "
+            "missing or unrendered audio, or an unwritable --out)"),
+    ),
+    "bench verify": (
+        (0, "re-executed the pinned suite; the recomputed result hash matches "
+            "the stored one byte for byte"),
+        (1, "the result file is internally consistent but re-execution does "
+            "not reproduce it (a different scorer version, config, or battery "
+            "render)"),
+        (2, "refused: a malformed or tampered result file, a suite that is "
+            "not runnable from here, or a local battery whose content hash "
+            "differs from the pinned one"),
+    ),
     "doctor": (
         (0, "every scorable event passed"),
         (1, "a scorable event failed"),
@@ -1387,6 +1406,28 @@ def _cmd_benchmark_compare(args) -> int:
     else:
         print(text)
     return 0
+
+
+def _cmd_bench_run(args) -> int:
+    from . import bench as _bench
+
+    result = _bench.run_bench(args.suite, suites_dir=args.suites_dir)
+    if args.out:
+        _atomic_write_json(args.out, result)
+        print(f"wrote bench result to {args.out}", file=sys.stderr)
+    else:
+        print(_errors.safe_json_dumps(result, indent=2))
+    print(_bench.render_run_summary(result), file=sys.stderr)
+    return 0
+
+
+def _cmd_bench_verify(args) -> int:
+    from . import bench as _bench
+
+    result = _bench.load_result(args.result)
+    verdict = _bench.verify_bench(result, suites_dir=args.suites_dir)
+    print(_bench.render_verify_text(verdict))
+    return 0 if verdict["verified"] else 1
 
 
 def _try_open(path: str, *, hint_file=None) -> None:
@@ -4852,6 +4893,86 @@ def build_parser() -> argparse.ArgumentParser:
                         "thresholds (default: exit 0; the benchmark measures, "
                         "it does not gate)")
     b.set_defaults(func=_cmd_benchmark)
+
+    # --- bench: the frozen suites, run + re-execution verify ---------------
+    bn = sub.add_parser(
+        "bench",
+        help="run a frozen scenario battery and verify a result by "
+             "re-execution + hash comparison",
+        description=(
+            "hotato bench: a versioned freeze of the shipped scenario "
+            "batteries, pinned by content hash. `bench run` scores one "
+            "battery end to end (pass counts, per-signal ms-error "
+            "distributions, confusion cells; no blended score) and writes a "
+            "content-addressed result. `bench verify` re-executes the pinned "
+            "battery and hash-compares, so a result is checked by re-running "
+            "it, never by trusting it. Protocol: BENCH-SPEC.md "
+            "(docs/BENCH-SPEC.md)."
+        ),
+        epilog=_exit_codes_epilog("bench"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bnsub = bn.add_subparsers(dest="bench_cmd", required=True,
+                              metavar="run|verify")
+    bnr = bnsub.add_parser(
+        "run",
+        help="score one frozen battery and write a content-addressed result",
+        description=(
+            "Run one frozen scenario battery through the shipped scorer "
+            "under the default config and emit the bench result: per-suite "
+            "pass counts, per-signal measurement-error distributions in "
+            "milliseconds, and the four did_yield confusion cells, plus the "
+            "suite's content hash (the freeze pin) and the result's own "
+            "canonical sha256 address. Offline; deterministic; no blended "
+            "score anywhere. `bundled` (the packaged 8-scenario battery) "
+            "always runs; the corpus/suites tiers (silver, silver-defects, "
+            "gold, gold-defects) run from a source checkout."
+        ),
+        epilog=(
+            _exit_codes_epilog("bench run") + "\n\n"
+            "Examples:\n"
+            "  hotato bench run --out bench-bundled.json\n"
+            "  hotato bench run --suite gold --out bench-gold.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bnr.add_argument("--suite", default="bundled",
+                     help="battery to run: bundled (packaged, the default), "
+                          "or a corpus/suites name (silver, silver-defects, "
+                          "gold, gold-defects) in a source checkout")
+    bnr.add_argument("--suites-dir", default=None, metavar="DIR",
+                     help="explicit corpus/suites tree (default: auto-detect "
+                          "next to the package, then under the current "
+                          "directory)")
+    bnr.add_argument("--out", default=None, metavar="FILE",
+                     help="write the bench result JSON here (default: stdout)")
+    bnr.set_defaults(func=_cmd_bench_run)
+    bnv = bnsub.add_parser(
+        "verify",
+        help="re-execute a bench result's pinned battery and hash-compare",
+        description=(
+            "Verify a bench result by re-execution: check the file's own "
+            "content_hash against its body, check the local battery against "
+            "the suite content hash the result pins, re-run the battery "
+            "through the same code path `bench run` uses, and compare the "
+            "recomputed result body to the stored one via their canonical "
+            "sha256 addresses. The verdict is a hash comparison of two "
+            "executions, never a judgment call."
+        ),
+        epilog=(
+            _exit_codes_epilog("bench verify") + "\n\n"
+            "Examples:\n"
+            "  hotato bench verify bench-bundled.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bnv.add_argument("result", metavar="RESULT.json",
+                     help="a bench result written by `hotato bench run --out`")
+    bnv.add_argument("--suites-dir", default=None, metavar="DIR",
+                     help="explicit corpus/suites tree (default: auto-detect "
+                          "next to the package, then under the current "
+                          "directory)")
+    bnv.set_defaults(func=_cmd_bench_verify)
 
     # --- doctor: the 5-minute path in one command --------------------------
     d = sub.add_parser(

@@ -1,0 +1,201 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/contract.v1.json",
+  "title": "hotato failure contract, schema hotato.contract.v1",
+  "description": "A portable, private, vendor-neutral turn-taking failure contract: one real call moment, a human label, measured timing, an input-health check, and a CI pass/fail policy. This is contract.json inside a <id>.hotato bundle directory (see docs/CONTRACTS.md for the full bundle layout). Additive-only: new keys may appear without a version bump; a consumer must ignore unknown fields. Hotato does not prove authorization, identity, compliance, or policy safety -- it proves timing behavior against this explicit contract.",
+  "type": "object",
+  "required": ["schema", "id", "created_at", "created_by", "kind", "label", "source", "event", "measurement", "trust", "policy", "replay", "bundle"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "hotato.contract.v1" },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "created_at": { "type": "string" },
+    "created_by": { "type": "string" },
+    "kind": { "const": "voice-turn-taking-contract" },
+    "label": {
+      "type": "object",
+      "required": ["expected_behavior", "label_source"],
+      "additionalProperties": true,
+      "properties": {
+        "expected_behavior": { "enum": ["yield", "hold"] },
+        "label_source": { "enum": ["human"], "description": "Hotato does not infer intent. A contract's expected_behavior is always a human label; this field names the label's source (currently always the person who ran contract create) and exists so the schema forever refuses a machine-inferred label." },
+        "rationale": { "type": ["string", "null"] }
+      }
+    },
+    "label_record": { "type": ["object", "null"], "description": "K5: the signed hotato.label-record.v1 a human reviewer minted for this exact event (see hotato.labelrecord), or null when no signing key is configured anywhere -- never fabricated. See label_authority for the honestly-derived trust tier." },
+    "label_authority": { "enum": ["human", "human-shared", "asserted", "invalid"], "description": "K5: human (verified Ed25519 label_record), human-shared (verified HMAC label_record), asserted (no label_record -- an explicit but unsigned expectation), or invalid (a label_record was minted but does not locally verify -- never silently downgraded to asserted)." },
+    "identity": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "reviewer": { "type": ["string", "null"], "description": "The human reviewer's name (--reviewer, or the HOTATO_REVIEWER/USER/USERNAME env fallback); bound into the attestation digest." }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["stack", "recording_type", "channels", "source_audio_sha256"],
+      "additionalProperties": true,
+      "properties": {
+        "stack": { "type": "string" },
+        "recording_type": { "enum": ["stereo", "caller+agent", "diarized-mono"] },
+        "channels": { "type": "integer", "minimum": 1 },
+        "source_audio_sha256": { "type": "string" },
+        "candidate_ref": { "type": ["string", "null"] },
+        "candidate_kind": { "type": ["string", "null"] }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["onset_sec", "clipped"],
+      "additionalProperties": true,
+      "properties": {
+        "onset_sec": { "type": ["number", "null"] },
+        "source_onset_sec": { "type": ["number", "null"] },
+        "pre_sec": { "type": ["number", "null"] },
+        "post_sec": { "type": ["number", "null"] },
+        "clipped": { "type": "boolean" }
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "required": ["scorable"],
+      "additionalProperties": true,
+      "properties": {
+        "scorable": { "type": "boolean" },
+        "not_scorable_reason": { "type": ["string", "null"] },
+        "did_yield": { "type": ["boolean", "null"] },
+        "seconds_to_yield": { "type": ["number", "null"] },
+        "talk_over_sec": { "type": ["number", "null"] },
+        "passed": { "type": ["boolean", "null"] },
+        "indicative_only": { "type": "boolean" },
+        "diarization": { "type": ["object", "null"] },
+        "verdict_eligible": { "type": "boolean", "description": "K6: narrower than scorable -- false (with verdict_ineligible_reason set) withholds did_yield/seconds_to_yield/talk_over_sec/passed (all null) even on scorable audio, when a channel swap or crosstalk/leakage is suspected and unconfirmed." },
+        "verdict_ineligible_reason": { "type": ["string", "null"] }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "required": ["status", "scorable"],
+      "additionalProperties": true,
+      "properties": {
+        "status": { "type": "string" },
+        "scorable": { "type": "boolean" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "possible_swap": { "type": ["boolean", "null"] },
+        "verdict_eligible": { "type": ["boolean", "null"] },
+        "verdict_ineligible_reason": { "type": ["string", "null"] },
+        "channel_mapping_confirmed": { "type": "boolean", "description": "K6: a human explicit confirmation (or the caller's own authenticated provider metadata) that the caller/agent channel mapping is correct despite a suspected swap; bound into the attestation digest, so contract verify re-derives eligibility and honors this SAME recorded confirmation." }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["pass_conditions"],
+      "additionalProperties": true,
+      "properties": {
+        "pass_conditions": {
+          "type": "object",
+          "required": ["yield"],
+          "additionalProperties": true,
+          "properties": {
+            "yield": { "type": "boolean" },
+            "max_talk_over_sec": { "type": ["number", "null"] },
+            "max_time_to_yield_sec": { "type": ["number", "null"] }
+          }
+        },
+        "opposite_risk_required": { "type": "boolean" }
+      }
+    },
+    "fix": { "type": ["object", "null"] },
+    "assertions": {
+      "type": ["object", "null"],
+      "description": "Optional deterministic assertions this contract carries (schema/assert.v1.json's INPUT shape -- the same {version, assertions} document `hotato assert` already reads from an assertions.yaml file). When present, `hotato contract verify` evaluates every assertion here through the SAME assert.v1 engine and reports the result as a separate `assertions` dimension per contract, alongside (never blended into) the timing pass/fail re-score. Absent or null on a contract that carries no assertions -- the common case today.",
+      "required": ["version", "assertions"],
+      "additionalProperties": true,
+      "properties": {
+        "version": { "const": 1 },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "kind"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string" },
+              "kind": {
+                "enum": ["phrase", "pii", "policy", "tool_call", "outcome"],
+                "description": "All five kinds are 100% deterministic (regex/checksum/span-lookup); see schema/assert.v1.json for the per-kind fields."
+              }
+            }
+          }
+        }
+      }
+    },
+    "replay": {
+      "type": "object",
+      "required": ["command", "ci_command"],
+      "additionalProperties": true,
+      "properties": {
+        "command": { "type": "string" },
+        "ci_command": { "type": "string" }
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "required": ["paths"],
+      "additionalProperties": true,
+      "properties": {
+        "paths": {
+          "type": "object",
+          "required": ["contract", "audio", "evidence", "traces_dir", "source", "policy", "reports", "provenance", "ci"],
+          "additionalProperties": true,
+          "properties": {
+            "contract": { "type": "string" },
+            "audio": { "type": "string" },
+            "evidence": {
+              "type": "object",
+              "required": ["frames", "timeline", "trust", "card"],
+              "additionalProperties": true,
+              "properties": {
+                "frames": { "type": "string" },
+                "timeline": { "type": "string" },
+                "trust": { "type": "string" },
+                "card": { "type": "string" }
+              }
+            },
+            "traces_dir": { "type": "string" },
+            "source": {
+              "type": "object",
+              "required": ["call_metadata", "stack_config_snapshot"],
+              "additionalProperties": true,
+              "properties": {
+                "call_metadata": { "type": "string" },
+                "stack_config_snapshot": { "type": "string" }
+              }
+            },
+            "policy": { "type": "string" },
+            "reports": {
+              "type": "object",
+              "required": ["initial", "after"],
+              "additionalProperties": true,
+              "properties": {
+                "initial": { "type": "string" },
+                "after": { "type": "string" }
+              }
+            },
+            "provenance": { "type": "string" },
+            "ci": {
+              "type": "object",
+              "required": ["github_action", "junit"],
+              "additionalProperties": true,
+              "properties": {
+                "github_action": { "type": "string" },
+                "junit": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
