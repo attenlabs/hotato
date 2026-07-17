@@ -320,8 +320,10 @@
   redacts identifiers unless --include-identifiers.
 - `hotato issue create ...` / `hotato pr create ...` -- turn a sweep result
   into a GitHub issue that asks a human to confirm or ignore each candidate, or
-  a directory of promoted fixtures into a GitHub pull request that adds them as
-  regression tests.
+  a directory of promoted fixtures OR a `.hotato` contract bundle from
+  `hotato investigate label` into a GitHub pull request that adds them as
+  regression tests (bundles are staged byte-identical under
+  tests/hotato/contracts/).
 - `hotato fleet init|agent|ingest|discover|review|label|status|experiment|
   canary|export|trend` -- the local, self-hosted Guardian control plane:
   register agents (no cap), ingest calls, discover candidate turn-taking

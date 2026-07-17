@@ -32,10 +32,16 @@
 
 ## Quickstart
 
-Zero setup, no account. This scores the two bundled demo calls and exits `1` on the one where the agent ran through the caller:
+Zero setup, no account. This scores the two bundled demo calls and catches the one where the agent ran through the caller:
 
 ```bash
 uvx hotato start --demo                # scores bundled recorded calls, no account
+```
+
+Replay the catch as the CI gate it is (exit `1`, by design):
+
+```bash
+hotato contract verify contracts/      # same evidence, same verdict, every machine
 ```
 
 Keep it in a project, or drive it over MCP on local stdio:

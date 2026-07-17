@@ -1575,12 +1575,43 @@ def _try_open(path: str, *, hint_file=None) -> None:
         try:
             import webbrowser
 
-            if webbrowser.open("file://" + abspath):
+            if webbrowser.open("file://" + _browser_readable_target(abspath)):
                 return
         except Exception:
             pass
     print(f"open it in your browser to see the per-event timelines: {abspath}",
           file=sys.stdout if hint_file is None else hint_file)
+
+
+def _browser_readable_target(abspath: str) -> str:
+    """Return a path the default browser can actually read.
+
+    A snap-confined default browser (Ubuntu ships Chromium and Firefox as
+    snaps) can read non-hidden files under $HOME but not files elsewhere --
+    notably the system temp dir, where ``file://`` opens to "file not found",
+    and ``webbrowser.open`` still reports success so no fallback fires. If
+    ``abspath`` is not somewhere such a browser can reach, stage a copy under a
+    non-hidden $HOME directory and return that; otherwise return it unchanged."""
+    if not sys.platform.startswith("linux"):
+        return abspath
+    home = os.path.realpath(os.path.expanduser("~"))
+    if not home or not os.path.isdir(home):
+        return abspath
+    real = os.path.realpath(abspath)
+    if real == home or real.startswith(home + os.sep):
+        first = os.path.relpath(real, home).split(os.sep)[0]
+        if not first.startswith("."):  # non-hidden path under $HOME: readable
+            return abspath
+    try:
+        import shutil
+
+        dest_dir = os.path.join(home, "hotato-open")
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, os.path.basename(abspath))
+        shutil.copyfile(abspath, dest)
+        return dest
+    except Exception:
+        return abspath
 
 
 def _cmd_doctor(args) -> int:
@@ -1590,7 +1621,9 @@ def _cmd_doctor(args) -> int:
     # bundled self-test; render the HTML report; open it best-effort. A pure
     # convenience wrapper over the existing scorer + report -- nothing new claimed.
     has_recording = bool(args.stereo or (args.caller and args.agent))
-    out = args.out or os.path.join(tempfile.gettempdir(), "hotato-report.html")
+    # cwd, not the system temp dir: a snap-confined default browser cannot read
+    # a file:// URL under /tmp, so a temp-dir report opens to "file not found".
+    out = args.out or "hotato-report.html"
 
     if has_recording:
         # A real recording gets its audio embedded: the report is the shareable
@@ -4102,21 +4135,33 @@ def _cmd_pr_create(args) -> int:
         raise ValueError(
             "--fixtures DIR is required: point it at the fixtures directory "
             "hotato fixture promote wrote (with scenarios/ and audio/), e.g. "
-            "--fixtures tests/hotato"
+            "--fixtures tests/hotato, or at the <id>.hotato contract bundle "
+            "hotato investigate label wrote (or a directory of them)"
         )
     if not args.title:
         raise ValueError(
             "--title is required: a short pull request title, e.g. --title "
             "'Add turn-taking regression fixtures'"
         )
-    # Filesystem read only (the scenarios off disk); the rendering below is a
-    # pure, offline function. A directory that is not a fixtures directory, or a
-    # scenario whose audio is missing, is refused with the honest reason.
-    fixtures = _pr.load_fixtures(args.fixtures)
-    env = _pr.build_pr(
-        fixtures, fixtures_dir=args.fixtures, repo=args.repo, title=args.title,
-        branch=args.branch, base=args.base,
-    )
+    # Filesystem read only (the scenarios or contract.json off disk); the
+    # rendering below is a pure, offline function. --fixtures accepts BOTH
+    # artifact shapes hotato produces -- a fixtures directory (scenarios/ +
+    # audio/) and a <id>.hotato contract bundle (or a directory of them) --
+    # detected by shape, never a flag. A directory that is neither, or a
+    # fixture whose audio is missing, is refused with the honest reason.
+    bundle_dirs = _pr.contract_bundle_dirs(args.fixtures)
+    if bundle_dirs:
+        contracts = _pr.load_contracts(bundle_dirs)
+        env = _pr.build_contract_pr(
+            contracts, contracts_src=args.fixtures, repo=args.repo,
+            title=args.title, branch=args.branch, base=args.base,
+        )
+    else:
+        fixtures = _pr.load_fixtures(args.fixtures)
+        env = _pr.build_pr(
+            fixtures, fixtures_dir=args.fixtures, repo=args.repo,
+            title=args.title, branch=args.branch, base=args.base,
+        )
 
     if not args.yes:
         # DEFAULT = dry run: print the rendered body and the exact commands,
@@ -4130,18 +4175,25 @@ def _cmd_pr_create(args) -> int:
             print(env["body"])
             print()
             print("Dry run: nothing was created. Re-run with --yes to cut the "
-                  "feature branch, commit the fixtures, push, and open the PR "
-                  "with these exact commands:")
+                  "feature branch, commit the changes, push, and open the PR "
+                  "with these exact steps:")
+            for disp in env.get("stage_copies_display") or []:
+                print(f"  {disp}")
             for disp in env["git_commands_display"]:
                 print(f"  {disp}")
             print(f"  {env['gh_command_display']}")
         return 0
 
-    # --yes + --repo: the one place this shells out. A missing git/gh binary
-    # raises FileNotFoundError -> the standard exit-2 structured error; a
-    # non-zero git or gh exit is surfaced as a clean usage error with the
-    # command's own message. The change lands on a NEW feature branch (never the
-    # default branch directly) and the push is never a force-push.
+    # --yes + --repo: the one place this touches the filesystem and shells
+    # out. A contract bundle is first copied byte-identical to its
+    # tests/hotato/contracts/ path (untracked files carry across the branch
+    # cut, so the copy lands on the new feature branch); the fixtures path has
+    # no copies. A missing git/gh binary raises FileNotFoundError -> the
+    # standard exit-2 structured error; a non-zero git or gh exit is surfaced
+    # as a clean usage error with the command's own message. The change lands
+    # on a NEW feature branch (never the default branch directly) and the push
+    # is never a force-push.
+    _pr.stage_bundle_copies(env.get("stage_copies") or [])
     outcome = _pr.create_via_git_gh(
         env["git_commands"], env["gh_command"], env["body"],
     )
@@ -4188,7 +4240,9 @@ def _cmd_demo(args) -> int:
     demo_root = resources.files("hotato").joinpath("data", "demo", "failing")
     scenarios_dir = str(demo_root.joinpath("scenarios"))
     audio_dir = str(demo_root.joinpath("audio"))
-    out = args.out or os.path.join(tempfile.gettempdir(), "hotato-demo-report.html")
+    # cwd, not the system temp dir (see _browser_readable_target): a confined
+    # snap browser cannot open a file:// URL under /tmp.
+    out = args.out or "hotato-demo-report.html"
 
     env = _report.write_report(
         out,
@@ -8133,10 +8187,11 @@ def build_parser() -> argparse.ArgumentParser:
     # --- pr: open a pull request that adds promoted fixtures ----------------
     prp = sub.add_parser(
         "pr",
-        help="open a pull request that adds promoted fixtures "
-             "(hotato pr create)",
+        help="open a pull request that adds promoted fixtures or contract "
+             "bundles (hotato pr create)",
         description=(
-            "Turn a directory of promoted fixtures into a GitHub pull request "
+            "Turn a directory of promoted fixtures, or a .hotato contract "
+            "bundle from hotato investigate label, into a GitHub pull request "
             "that adds them as regression tests (see hotato pr create --help)."
         ),
         epilog=_exit_codes_epilog("pr"),
@@ -8146,31 +8201,44 @@ def build_parser() -> argparse.ArgumentParser:
                                metavar="create")
     pc = prsub.add_parser(
         "create",
-        help="render a pull request that adds a hotato fixtures directory: a "
-             "line per fixture and the run command to score them (dry run by "
-             "default; --yes cuts a branch, commits, pushes, and opens the PR "
-             "via git and gh)",
+        help="render a pull request that adds a hotato fixtures directory or "
+             "a .hotato contract bundle: a line per artifact and the command "
+             "to score them (dry run by default; --yes cuts a branch, "
+             "commits, pushes, and opens the PR via git and gh)",
         description=(
-            "Render a GitHub pull request that adds a hotato fixtures "
-            "directory (the --out DIR that `hotato fixture promote` wrote, with "
-            "scenarios/ and audio/). The body lists each fixture (its id, the "
-            "yield/hold label a maintainer chose, the call it was promoted "
-            "from, and the onset) and carries the exact `hotato run` command "
-            "that scores every added fixture. These are MEASURED CANDIDATE "
-            "moments saved as tests, never verdicts and never intent. The "
-            "DEFAULT is a dry run: it prints the body and the exact git and "
-            "`gh pr create` commands and changes nothing. Only `--yes` with an "
-            "explicit `--repo` actually cuts the branch, commits the fixtures, "
-            "pushes, and opens the PR. Two invariants hold even under --yes: "
-            "the change lands on a NEW feature branch (never the default branch "
-            "directly) and the push is never a force-push. Offline rendering; "
-            "no audio and no network on the dry-run path."
+            "Render a GitHub pull request that adds hotato regression "
+            "artifacts. --fixtures accepts BOTH shapes hotato produces, "
+            "detected by shape: a fixtures directory (the --out DIR that "
+            "`hotato fixture promote` wrote, with scenarios/ and audio/), or "
+            "a <id>.hotato contract bundle that `hotato investigate label` / "
+            "`hotato contract create` wrote (or a directory of them). For "
+            "fixtures, the body lists each one (its id, the yield/hold label "
+            "a maintainer chose, the call it was promoted from, and the "
+            "onset) and carries the exact `hotato run` command that scores "
+            "them; these are MEASURED CANDIDATE moments saved as tests, "
+            "never verdicts and never intent. For contract bundles, the body "
+            "lists each contract (its id, expected behavior, measured "
+            "outcome, and replay command from its own contract.json) and "
+            "carries the exact `hotato contract verify` command; each bundle "
+            "is committed WHOLE under tests/hotato/contracts/, "
+            "byte-identical, since the bundle is content-addressed and "
+            "nothing inside it may be rewritten. The DEFAULT is a dry run: "
+            "it prints the body and the exact steps and changes nothing. "
+            "Only `--yes` with an explicit `--repo` actually cuts the "
+            "branch, commits, pushes, and opens the PR. Two invariants hold "
+            "even under --yes: the change lands on a NEW feature branch "
+            "(never the default branch directly) and the push is never a "
+            "force-push. Offline rendering; no audio and no network on the "
+            "dry-run path."
         ),
         epilog=(
             _exit_codes_epilog("pr create") + "\n\n"
             "Examples:\n"
             "  hotato pr create --fixtures tests/hotato --repo owner/repo "
             "--title 'Add turn-taking regression fixtures'\n"
+            "  hotato pr create --fixtures contracts/refund-42s-yield.hotato "
+            "--repo owner/repo --title 'Add hotato contract "
+            "refund-42s-yield'\n"
             "  hotato pr create --fixtures tests/hotato --repo owner/repo "
             "--title 'Add turn-taking regression fixtures' "
             "--branch hotato/turn-taking-fixtures --base main --yes\n\n"
@@ -8180,8 +8248,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     pc.add_argument("--fixtures", default=None, metavar="DIR",
-                    help="the hotato fixtures directory to add (scenarios/ and "
-                         "audio/), e.g. tests/hotato (required)")
+                    help="the artifacts to add: a hotato fixtures directory "
+                         "(scenarios/ and audio/), e.g. tests/hotato, or a "
+                         "<id>.hotato contract bundle (or a directory of "
+                         "them) (required)")
     pc.add_argument("--repo", default=None, metavar="OWNER/REPO",
                     help="the GitHub repository to open the pull request in "
                          "(required)")
