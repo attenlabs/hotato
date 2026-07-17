@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/assets/hotato-banner.svg" alt="hotato" width="520" style="max-width:100%;height:auto;">
+<img src="https://raw.githubusercontent.com/attenlabs/hotato/main/.github/assets/hotato-banner.svg" alt="hotato" width="442" style="max-width:100%;height:auto;">
 
 <p>
 <a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/v/hotato?style=flat-square&color=c23c07&label=pypi" alt="PyPI version"></a>
@@ -14,7 +14,7 @@
 <a href="https://github.com/attenlabs/hotato/attestations"><img src="https://img.shields.io/badge/build-provenance%20attested-2a5f52?style=flat-square" alt="Build provenance attested"></a>
 <img src="https://img.shields.io/badge/installed-~10%20MiB-6f5d44?style=flat-square" alt="Installed footprint ~10 MiB"></p>
 
-### The transcript passed. The call failed.
+### Regression testing for voice agents
 
 <p align="center">
 <a href="#quickstart"><b>Quickstart</b></a> &#183;
@@ -27,11 +27,9 @@
 
 </div>
 
-The transcript reads clean and passes. The call still failed. hotato is where that gap gets a test.
+Hotato is self-hosted regression testing for voice agents: give it a two-channel call recording, it scores the turn timing between caller and agent, and it returns the same exit `0` or `1` verdict in CI on every machine.
 
-Your transcript tests are green. The call still went wrong. The agent talked over the caller, ran straight through the interruption, and took a beat too long to hand the floor back, and none of it is in the words. **hotato** gives that failure a number.
-
-Give it a two-channel recording and it measures the timing between the two voices, then locks each catch into a CI contract.
+*The transcript passed. The call failed.* Your transcript tests are green, and the call still went wrong: the agent talked over the caller, ran straight through the interruption, and took a beat too long to hand the floor back. None of it is in the words. **hotato** gives that failure a number, then locks each catch into a CI contract.
 
 ## Key properties
 
@@ -131,9 +129,9 @@ Credential-less; runs on the machine that invokes it.
 ## How it works
 
 ```mermaid
-flowchart LR
-  A["Two-channel<br/>recording"] --> B["Measure the timing<br/>between the two voices"]
-  B --> C["Content-addressed<br/>contract"]
+flowchart TD
+  A["Two-channel recording"] --> B["Measure the timing<br/>between the two voices"]
+  B --> C["Content-addressed contract"]
   C --> D{"CI verdict"}
   D -->|exit 0| E["pass"]
   D -->|exit 1| F["fail"]
@@ -190,10 +188,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.8.0
+      - uses: attenlabs/hotato@v1.8.1
         with:
           contracts: contracts/          # the catches you committed
-          hotato-version: 1.8.0          # exact pin, never a range
+          hotato-version: 1.8.1          # exact pin, never a range
 ```
 
 The catch you committed once now guards every pull request and reproduces the same verdict on the reviewer's machine.
