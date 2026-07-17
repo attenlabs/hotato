@@ -216,3 +216,49 @@ def test_ci_md_adoption_example_pins_match_pyproject():
         "docs/CI.md adoption examples must name the current release "
         f"({pv}); reconcile these stale example pins: {stale}"
     )
+
+
+def test_readme_action_pin_is_an_existing_tag():
+    """P0 sentinel for the 1.9.0 drift: the README advertised
+    `attenlabs/hotato@v1.9.0` for days while the newest pushed tag was
+    v1.8.1, so every copy-paste of the CI block died at checkout. The pin
+    must be in lockstep with pyproject AND name a tag that exists -- checked
+    locally first, then against origin (shallow CI checkouts fetch no tags).
+    Environments with no git and no network skip rather than guess."""
+    import subprocess
+
+    import pytest
+
+    with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as fh:
+        readme = fh.read()
+    m = re.search(r"attenlabs/hotato@v(\d+\.\d+\.\d+)", readme)
+    assert m, "README.md lost its attenlabs/hotato@vX.Y.Z Action pin"
+    pinned = m.group(1)
+    assert pinned == _pyproject_version(), (
+        f"README.md pins attenlabs/hotato@v{pinned} but pyproject.toml says "
+        f"{_pyproject_version()}"
+    )
+    tag = "v" + pinned
+    try:
+        local = subprocess.run(
+            ["git", "tag", "-l", tag],
+            cwd=ROOT, capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pytest.skip("git unavailable; cannot check the pinned tag exists")
+    if local.returncode == 0 and tag in local.stdout.split():
+        return
+    try:
+        remote = subprocess.run(
+            ["git", "ls-remote", "--tags", "origin", "refs/tags/" + tag],
+            cwd=ROOT, capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pytest.skip("no local tag and origin unreachable; cannot verify pin")
+    if remote.returncode != 0:
+        pytest.skip("no local tag and no reachable origin; cannot verify pin")
+    assert remote.stdout.strip(), (
+        f"README.md pins attenlabs/hotato@{tag} but {tag} exists neither "
+        "locally nor on origin -- cut and push the tag before (or with) the "
+        "commit that advertises it"
+    )
