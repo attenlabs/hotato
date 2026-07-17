@@ -47,6 +47,43 @@ report to a temp path, and **exits 1** because both fail on timing. Exit 1 is th
 signal, not an error. `hotato demo` without `--fail` runs the same battery and
 exits 0.
 
+## Three ways in (friction order)
+
+Pick the onramp matching the data the project already has; every path feeds
+the same offline scoring and the same 0/1/2 exit contract.
+
+1. **Traces, no audio needed.** `tool_call` assertions read only the ingested
+   trace's `voice_trace.v1` spans; `outcome` assertions combine those spans
+   with transcript phrases: say-do verification that what the agent said
+   matches what the backend did, deterministic end to end.
+
+   ```bash
+   hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl
+   hotato assert init --from-trace voice_trace.jsonl   # starter assertions.yaml from the spans
+   hotato assert run --trace voice_trace.jsonl --transcript call.transcript.json --assertions assertions.yaml
+   ```
+
+2. **The stack's recorded calls.** After `hotato connect <stack>` (or the key
+   in the environment), bulk-fetch recent recordings into a local folder.
+   Vapi, Twilio, and Retell fetch a separated two-channel file; Retell has no
+   verified list endpoint, so pull it by explicit `--call-id`.
+
+   ```bash
+   hotato pull --stack vapi --limit 10
+   ```
+
+3. **Scripted fixtures.** A deterministic scripted caller renders a
+   `scenario.v1` into `origin=simulated` conversation artifacts; a seeded
+   replay is byte-identical, so regression fixtures need no production audio.
+
+   ```bash
+   hotato simulate --init demo.scenario.json && hotato simulate demo.scenario.json --out ./sim
+   ```
+
+After a first catch on a captured call, the second move is driving a call
+against the live agent on demand (the same pull -> score pipeline; it bills
+one outbound phone call per run): `docs/DRIVE-A-CALL.md`.
+
 ## Is it worth wiring in?
 
 - **Transcript and text tests do not see timing.** A clean transcript can come

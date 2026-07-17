@@ -18,6 +18,7 @@
 
 <p align="center">
 <a href="#quickstart"><b>Quickstart</b></a> &#183;
+<a href="#three-ways-in">Three ways in</a> &#183;
 <a href="#point-your-agent-at-it">Point an agent at it</a> &#183;
 <a href="#how-it-works">How it works</a> &#183;
 <a href="#five-dimensions-one-verdict">Five dimensions</a> &#183;
@@ -57,6 +58,47 @@ pipx install hotato                    # add it to your repo
 uvx --from "hotato[mcp]" hotato-mcp    # drive it over MCP, local stdio
 ```
 
+## Three ways in
+
+Ordered by friction. Start with the data you already have; every path feeds the same offline scoring and the same exit-code gate.
+
+**1. Traces you already log (no audio needed).** `tool_call` assertions read only the ingested trace's `voice_trace.v1` spans; `outcome` assertions combine those spans with transcript phrases: say-do verification that what the agent told the caller matches what the backend did, deterministic end to end.
+
+```yaml
+# assertions.yaml
+version: 1
+assertions:
+  - id: refund-was-issued
+    kind: tool_call
+    name: issue_refund
+  - id: said-and-did
+    kind: outcome
+    all_of: [{tool_called: issue_refund}, {phrase: "refund is on its way", role: agent}]
+```
+
+```bash
+hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl
+hotato assert run --trace voice_trace.jsonl --transcript call.transcript.json --assertions assertions.yaml
+```
+
+Details: [`docs/ASSERTIONS.md`](docs/ASSERTIONS.md) &#183; [`docs/TRACE.md`](docs/TRACE.md)
+
+**2. Your stack's recorded calls.** Connect once, then bulk-fetch recent recordings into a local folder. Vapi, Twilio, and Retell fetch a separated two-channel file (Retell by explicit `--call-id`; it has no verified list endpoint). Everything scores offline afterwards; the only network is the recording download.
+
+```bash
+hotato pull --stack vapi --limit 10
+```
+
+Details: [`docs/CONNECT.md`](docs/CONNECT.md). Once a pulled call shows a catch, the second move is driving one against your live agent: [`docs/DRIVE-A-CALL.md`](docs/DRIVE-A-CALL.md).
+
+**3. Scripted fixtures (no production audio).** A deterministic scripted caller renders a `scenario.v1` into conversation artifacts labelled `origin=simulated`; a seeded replay is byte-identical, so you author regression fixtures without production audio.
+
+```bash
+hotato simulate --init demo.scenario.json && hotato simulate demo.scenario.json --out ./sim
+```
+
+Details: [`docs/SIMULATE.md`](docs/SIMULATE.md)
+
 ## Point your agent at it
 
 Point Claude Code, Cursor, or any coding agent at this repo. It reads [`AGENTS.md`](AGENTS.md) and runs the loop itself: score the demo calls, ingest a recording, wire a CI gate, re-check the numbers. Every step is offline and needs no key.
@@ -93,6 +135,20 @@ Ingest the call exports your stack already produces from Vapi, Retell, Twilio.
 
 🧪 **CI gate**<br/>
 Drop the Action into a workflow; the step's exit code is hotato's verdict.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+🧾 **Say-do verification**<br/>
+`tool_call` assertions read only the ingested trace's spans; `outcome` combines them with transcript phrases into one say-do check.
+
+</td>
+<td width="50%" valign="top">
+
+🎭 **Scripted simulation**<br/>
+A deterministic scripted caller authors `origin=simulated` fixtures; a seeded replay is byte-identical.
 
 </td>
 </tr>
