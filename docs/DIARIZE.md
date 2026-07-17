@@ -21,6 +21,10 @@ labels per turn, handed to the scorer as boundaries. The audio stays mixed;
 the labels carry only channel timing, never a name, a voice-print match, or
 an identity.
 
+The companion opt-in extra is [`docs/TRANSCRIBE.md`](TRANSCRIBE.md): it
+attaches plain-text, timestamped words next to the score, computed strictly
+after scoring and never fed back into it.
+
 ## Quickstart
 
 ```bash

@@ -2,8 +2,7 @@
 
 Which stack Hotato pulls recordings from, which endpoint it calls, and how
 it separates caller/agent channels for each one -- every entry checked
-verbatim against the vendor's live documentation on the date shown
-(research: `hotato-launch/INTEGRATION-SPEC-2026-07-07.md`).
+verbatim against the vendor's live documentation on the date shown.
 
 Terms:
 
