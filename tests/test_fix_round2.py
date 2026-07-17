@@ -536,7 +536,13 @@ def test_mcp_report_path_default_sandbox_refuses_outside_tempdir(monkeypatch):
     import tempfile
     tmpdir = os.path.realpath(tempfile.gettempdir())
     cwd = os.path.realpath(os.getcwd())
-    if os.path.commonpath([cwd, tmpdir]) == tmpdir:
+    try:
+        under_tmp = os.path.commonpath([cwd, tmpdir]) == tmpdir
+    except ValueError:
+        # Different drives (Windows ntpath): the cwd cannot be under the OS
+        # temp dir, which is exactly the case the test needs -- proceed.
+        under_tmp = False
+    if under_tmp:
         pytest.skip("working directory is itself under the OS temp dir")
     # A path outside the OS temp dir (the repo working directory) must be refused
     # when no explicit HOTATO_MCP_REPORT_DIR is configured.
