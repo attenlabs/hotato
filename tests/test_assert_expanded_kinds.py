@@ -2,12 +2,14 @@
 
 Pins the honesty properties that are the whole point of the expanded kinds:
 
-* each new kind (tool_result, tool_error, state, state_change, handoff, dtmf,
-  termination, latency, timing_contract, entity_accuracy, sequence, count)
+* each new kind (tool_result, tool_error, http_result, state, state_change,
+  handoff, dtmf, termination, latency, timing_contract, entity_accuracy,
+  sequence, count)
   reports PASS / FAIL / INCONCLUSIVE deterministically, and reports
   INCONCLUSIVE -- never a guessed PASS/FAIL -- when its required input is
   absent;
-* the Authority 1 & 2 kinds (tool_result, tool_error, state, state_change)
+* the Authority 1 & 2 kinds (tool_result, tool_error, http_result, state,
+  state_change)
   read ONLY the authenticated trace spans / the state adapter, never the
   transcript, and have no model code path -- so an agent's spoken claim can
   never satisfy one (proven structurally below);
@@ -76,7 +78,8 @@ def _ev(a, ctx):
 
 def test_all_expanded_kinds_are_registered_and_evaluable():
     expanded = (
-        "tool_result", "tool_error", "state", "state_change", "handoff",
+        "tool_result", "tool_error", "http_result", "state", "state_change",
+        "handoff",
         "dtmf", "termination", "latency", "timing_contract", "entity_accuracy",
         "sequence", "count",
     )
@@ -172,6 +175,81 @@ def test_tool_error_inconclusive_without_a_trace():
 
 
 # =========================================================================
+# http_result -- Authority 1 (reads http_exchange spans, never performs a
+# request and never reads the agent's spoken claim)
+# =========================================================================
+
+def _http_span(idx, method, url, *, status_code=None, response=None):
+    s = _point(idx, "http_exchange", method=method, url=url)
+    if status_code is not None:
+        s["status_code"] = status_code
+    if response is not None:
+        s["response"] = response
+    return s
+
+
+def test_http_result_pass_when_exchange_matches():
+    a = {"id": "a", "kind": "http_result", "method": "post",
+         "url_matches": "/v1/refunds$", "status": 201,
+         "response_subset": {"status": "ok"}}
+    ctx = A.build_context(spans=[
+        _http_span(0, "POST", "https://api.example.test/v1/refunds",
+                   status_code=201, response={"status": "ok", "id": "R1"}),
+    ])
+    r = _ev(a, ctx)
+    assert r["status"] == "PASS"
+    assert r["deterministic"] is True
+    assert r["span_ids"] == ["s_0"]
+
+
+def test_http_result_accepts_a_status_list_and_attribute_level_fields():
+    # Payload at the attributes level (the shape an ingested OTel export
+    # flattens into) matches exactly like top-level fields.
+    a = {"id": "a", "kind": "http_result", "method": "GET",
+         "url_matches": "/orders/", "status": [200, 304]}
+    ctx = A.build_context(spans=[{
+        "type": "http_exchange", "time_sec": 0.0,
+        "attributes": {"http.method": "GET",
+                       "http.url": "https://api.example.test/orders/A1",
+                       "http.status_code": 304},
+    }])
+    assert _ev(a, ctx)["status"] == "PASS"
+
+
+def test_http_result_fail_when_route_matched_but_status_mismatches():
+    a = {"id": "a", "kind": "http_result", "method": "POST",
+         "url_matches": "/v1/refunds$", "status": 201}
+    ctx = A.build_context(spans=[
+        _http_span(0, "POST", "https://api.example.test/v1/refunds",
+                   status_code=500, response={"status": "error"}),
+    ])
+    r = _ev(a, ctx)
+    assert r["status"] == "FAIL"
+    assert "status" in r["reason"]
+
+
+def test_http_result_fail_when_no_exchange_matches_method_and_url():
+    a = {"id": "a", "kind": "http_result", "method": "DELETE",
+         "url_matches": "/v1/refunds$", "status": 204}
+    ctx = A.build_context(spans=[
+        _http_span(0, "POST", "https://api.example.test/v1/refunds",
+                   status_code=201),
+    ])
+    r = _ev(a, ctx)
+    assert r["status"] == "FAIL"
+    assert "method and URL" in r["reason"]
+
+
+def test_http_result_fail_on_empty_trace_but_inconclusive_without_one():
+    a = {"id": "a", "kind": "http_result", "method": "POST",
+         "url_matches": "/v1/refunds$", "status": 201}
+    # spans=[] is an ingested trace with zero spans -> a grounded FAIL;
+    # no trace at all is absent input -> INCONCLUSIVE, never a guess.
+    assert _ev(a, A.build_context(spans=[]))["status"] == "FAIL"
+    assert _ev(a, A.build_context())["status"] == "INCONCLUSIVE"
+
+
+# =========================================================================
 # state / state_change -- Authority 2 (post-call state adapter)
 # =========================================================================
 
@@ -258,6 +336,8 @@ _LYING_TRANSCRIPT = [
 @pytest.mark.parametrize("a", [
     {"id": "a", "kind": "tool_result", "name": "issue_refund"},
     {"id": "a", "kind": "tool_error", "name": "issue_refund", "absent": True},
+    {"id": "a", "kind": "http_result", "method": "POST",
+     "url_matches": "/refunds$", "status": 201},
     {"id": "a", "kind": "state", "resource": "orders", "expect": {"status": "refunded"}},
     {"id": "a", "kind": "state_change", "resource": "account", "field": "balance", "to": 0},
 ])
@@ -277,6 +357,7 @@ def test_authority_kinds_evaluators_never_read_the_transcript_source():
     fns = {
         "tool_result": A._eval_tool_result,
         "tool_error": A._eval_tool_error,
+        "http_result": A._eval_http_result,
         "state": A._eval_state,
         "state_change": A._eval_state_change,
     }
@@ -496,6 +577,22 @@ def test_envelope_with_rubric_keeps_judge_lane_zero():
     {"id": "a", "kind": "state", "resource": "o"},            # missing expect
     {"id": "a", "kind": "state", "expect": {"x": 1}},         # missing resource
     {"id": "a", "kind": "state_change", "resource": "o", "field": "f"},  # no from/to/changed
+    {"id": "a", "kind": "http_result",                        # missing method
+     "url_matches": "/x", "status": 200},
+    {"id": "a", "kind": "http_result", "method": "GET",       # missing url_matches
+     "status": 200},
+    {"id": "a", "kind": "http_result", "method": "GET",       # invalid regex
+     "url_matches": "(", "status": 200},
+    {"id": "a", "kind": "http_result", "method": "GET",       # missing status
+     "url_matches": "/x"},
+    {"id": "a", "kind": "http_result", "method": "GET",       # non-HTTP status
+     "url_matches": "/x", "status": 42},
+    {"id": "a", "kind": "http_result", "method": "GET",       # boolean status
+     "url_matches": "/x", "status": True},
+    {"id": "a", "kind": "http_result", "method": "GET",       # empty status list
+     "url_matches": "/x", "status": []},
+    {"id": "a", "kind": "http_result", "method": "GET",       # non-mapping subset
+     "url_matches": "/x", "status": 200, "response_subset": [1]},
     {"id": "a", "kind": "dtmf"},                              # missing digits
     {"id": "a", "kind": "latency", "tool": "t"},              # missing max_ms
     {"id": "a", "kind": "latency", "max_ms": 1},              # no source
@@ -529,6 +626,8 @@ def test_full_envelope_of_expanded_kinds_validates_against_schema():
             _point(1, "handoff", to="billing"),
             _point(2, "dtmf", digits="42"),
             _point(3, "call_ended", reason="completed"),
+            _http_span(4, "POST", "https://api.example.test/v1/refunds",
+                       status_code=201, response={"status": "ok"}),
         ],
         timing={"verdict": {"response_gap_sec": 0.5}},
         state_adapter=_adapter(),
@@ -548,6 +647,9 @@ def test_full_envelope_of_expanded_kinds_validates_against_schema():
         {"id": "k11", "kind": "sequence", "steps": [{"tool": "issue_refund"}, {"span_type": "handoff"}]},
         {"id": "k12", "kind": "count", "span_type": "tool_call", "count": 1},
         {"id": "k13", "kind": "judge_rubric", "rubric": "polite?"},
+        {"id": "k14", "kind": "http_result", "method": "POST",
+         "url_matches": "/v1/refunds$", "status": [200, 201],
+         "response_subset": {"status": "ok"}},
     ]}
     env = A.run_assertions(doc, ctx)
     jsonschema.validate(instance=env, schema=_schema())
