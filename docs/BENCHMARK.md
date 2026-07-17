@@ -18,6 +18,15 @@ and `benchmark-report/measurement-error.md`.
 The harness is a standalone measurement tool you run against fixtures; the
 `hotato` CLI scores a single call or the battery.
 
+**Scope.** This benchmark measures the timing signals: per-signal
+measurement error against rendered or hand-labelled ground truth, and the
+yield/hold decision. Say-do verification is scored on its own deterministic
+lane, evaluated against recorded trace spans; its methodology is the
+"Say-do verification methodology" section of
+[`METHODOLOGY.md`](../METHODOLOGY.md), with
+[`examples/reference-agent`](../examples/reference-agent) as the runnable
+worked example.
+
 ---
 
 ## What it measures
