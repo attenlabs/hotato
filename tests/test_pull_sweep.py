@@ -396,7 +396,94 @@ def test_cli_capture_mono_stack_scores_degraded_with_allow_mono(tmp_path, monkey
 
 
 # =========================================================================
-# 7. sweep end to end: a mocked pull feeds the real analyze
+# 7. pull --score: pull + offline standard scoring in one invocation
+# =========================================================================
+
+def _fake_pull_with(files):
+    """A ``cap.pull`` stand-in that writes the given (name, bytes) files into
+    out_dir and returns the standard pull result shape."""
+    def fake_pull(stack, creds, *, out_dir, ids=None, since=None, limit=50,
+                  allow_mono=False, log=None):
+        os.makedirs(out_dir, exist_ok=True)
+        pulled = []
+        for name, data in files:
+            p = os.path.join(out_dir, name)
+            with open(p, "wb") as fh:
+                fh.write(data)
+            pulled.append({"id": os.path.splitext(name)[0], "path": p})
+        return {"stack": stack, "out_dir": out_dir, "listed": len(pulled),
+                "pulled": pulled, "skipped": []}
+    return fake_pull
+
+
+def test_pull_score_all_pass_exits_0(tmp_path, monkeypatch, capsys):
+    # 01-hard-interruption yields within the default bounds -> PASS, exit 0.
+    monkeypatch.setattr(cap, "pull",
+                        _fake_pull_with([("vapi__a.wav", _bundled_stereo())]))
+    rc = cli.main(["pull", "--stack", "vapi", "--api-key", "k",
+                   "--out", str(tmp_path / "d"), "--score"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "scored 1 of 1" in out
+    assert "[PASS] vapi__a.wav" in out
+
+
+def test_pull_score_failing_set_exits_1_with_per_file_verdicts(
+        tmp_path, monkeypatch, capsys):
+    # 02-backchannel-mhm holds the floor; against the yield expectation it
+    # fails -> the aggregate exit code is 1 and both verdicts are reported.
+    fail_wav = (resources.files("hotato")
+                .joinpath("data", "audio", "02-backchannel-mhm.example.wav")
+                .read_bytes())
+    monkeypatch.setattr(cap, "pull", _fake_pull_with(
+        [("vapi__a.wav", _bundled_stereo()), ("vapi__b.wav", fail_wav)]))
+    rc = cli.main(["pull", "--stack", "vapi", "--api-key", "k",
+                   "--out", str(tmp_path / "d"), "--score", "--format", "json"])
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["score"]["expect"] == "yield"
+    assert payload["score"]["scored"] == 2
+    assert payload["score"]["exit_code"] == 1
+    rows = {r["id"]: r for r in payload["score"]["recordings"]}
+    assert rows["vapi__a"]["exit_code"] == 0
+    assert rows["vapi__b"]["exit_code"] == 1 and rows["vapi__b"]["failed"] == 1
+
+
+def test_pull_score_empty_set_refuses_exit_2(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cap, "pull", _fake_pull_with([]))
+    rc = cli.main(["pull", "--stack", "vapi", "--api-key", "k",
+                   "--out", str(tmp_path / "d"), "--score"])
+    assert rc == 2
+    assert "dual-channel" in capsys.readouterr().err
+
+
+def test_pull_score_mono_only_set_refuses_with_standard_error_envelope(
+        tmp_path, monkeypatch, capsys):
+    mono = _mono_bytes(tmp_path)
+    monkeypatch.setattr(cap, "pull", _fake_pull_with([("bland__m.wav", mono)]))
+    rc = cli.main(["pull", "--stack", "bland", "--allow-mono", "--api-key", "k",
+                   "--out", str(tmp_path / "d"), "--score", "--format", "json"])
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False and payload["exit_code"] == 2
+
+
+def test_pull_score_one_bad_file_is_a_skip_not_a_crash(
+        tmp_path, monkeypatch, capsys):
+    # A scoreable set with one unreadable member: the bad file is reported as
+    # a skip with its reason and the rest of the set still scores.
+    monkeypatch.setattr(cap, "pull", _fake_pull_with(
+        [("vapi__a.wav", _bundled_stereo()), ("vapi__bad.wav", b"not a wav")]))
+    rc = cli.main(["pull", "--stack", "vapi", "--api-key", "k",
+                   "--out", str(tmp_path / "d"), "--score"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[PASS] vapi__a.wav" in out
+    assert "[skip] vapi__bad.wav" in out
+
+
+# =========================================================================
+# 8. sweep end to end: a mocked pull feeds the real analyze
 # =========================================================================
 
 def test_sweep_end_to_end_mocked_pull_feeds_analyze(tmp_path, monkeypatch, capsys):

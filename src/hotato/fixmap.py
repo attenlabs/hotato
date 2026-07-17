@@ -19,6 +19,12 @@ Every failing event is labelled with exactly one ``fix_class``:
                           no product, vendor, or component you can adopt, and
                           carries no numbers or accuracy claims.
 
+A config fix is rendered only where the ingested stack exposes a user-facing
+knob for the failure class (see ``_DOCUMENTED_CELLS``). On a
+vendor-hosted stack, a class whose machinery the vendor owns renders NO fix at
+all: naming a dial the platform does not expose is advice nobody can act on.
+The failing event itself still reports; only the fix pointer is suppressed.
+
 The routing is deterministic and inspectable. Nothing here fabricates a metric.
 """
 
@@ -177,12 +183,58 @@ ENGAGEMENT_CONTROL_POINTER = {
 }
 
 
+# --- per-stack knob availability (vendor-owned cells) ---------------------
+#
+# `hotato pull` / `hotato capture` also ingest recordings from stacks whose
+# media path is vendor-hosted end to end. For those KNOWN stacks, the
+# researched per-platform knob grid (2026-07) is the ground truth for which
+# (stack, failure-class) cells carry a documented, user-facing knob:
+#
+# * retell documents the turn-taking scalars (responsiveness /
+#   interruption_sensitivity, per the fixplan knob table verified against
+#   docs.retellai.com) -> the timing classes and the words-to-interrupt
+#   family are tunable there.
+# * twilio documents interruptible / interruptSensitivity / speechTimeout
+#   -> the timing classes are tunable there.
+# * Neither exposes the input audio path: no user-facing echo/track-routing
+#   control and no input VAD noise-floor gate. Those cells are VENDOR-OWNED,
+#   so their config fixes are suppressed (classify_event returns None) rather
+#   than rendered as advice that names a knob the platform does not have.
+#
+# Stacks with a full catalogue above (livekit, pipecat, vapi) run in your
+# infra or document knobs for every class; unknown stacks keep the generic
+# knob-kind advice because nothing is known about their surface either way.
+_AMBIENT_INTENT = "ambient_noise_gate"
+
+_DOCUMENTED_CELLS = {
+    "retell": {"more_sensitive", "faster_yield", "less_talk_over",
+               "suppress_false_trigger"},
+    "twilio": {"more_sensitive", "faster_yield", "less_talk_over"},
+}
+
+
+def _has_user_knob(stack: Optional[str], intent: str) -> bool:
+    """Whether the (stack, failure-class) cell has a user-facing knob to name."""
+    cells = _DOCUMENTED_CELLS.get((stack or "generic").strip().lower())
+    if cells is None:
+        # A full-catalogue stack, or an unknown one: every intent (including
+        # the input noise gate) keeps its knob advice.
+        return True
+    return intent in cells
+
+
 def _stack_knobs(stack: Optional[str]) -> dict:
     key = (stack or "generic").strip().lower()
     return _KNOBS.get(key, _KNOBS["generic"])
 
 
-def _config_fix(stack: Optional[str], intent: str, title: str, detail: str) -> dict:
+def _config_fix(
+    stack: Optional[str], intent: str, title: str, detail: str
+) -> Optional[dict]:
+    if not _has_user_knob(stack, intent):
+        # Vendor-owned cell: no user-facing knob exists for this failure class
+        # on the ingested stack, so no config pointer is rendered.
+        return None
     knob = _stack_knobs(stack)[intent]
     return {
         "fix_class": "config",
@@ -208,12 +260,18 @@ def _engagement_fix(title: str, detail: str) -> dict:
     }
 
 
-def _ambient_noise_fix(stack: Optional[str], title: str, detail: str) -> dict:
+def _ambient_noise_fix(
+    stack: Optional[str], title: str, detail: str
+) -> Optional[dict]:
     """A CONFIG-class fix for a false-yield triggered by continuous NON-SPEECH
     ambient energy (cafe / TV / background) on the caller channel. This is a
     VAD / noise-floor sensitivity problem -- there is no caller utterance to
     discriminate -- so the fix is to RAISE the input energy gate, NOT the
-    engagement-control pointer and NOT a fabricated 'the caller said mhm' claim."""
+    engagement-control pointer and NOT a fabricated 'the caller said mhm' claim.
+    On a stack whose input gate is vendor-owned (no user-facing knob), the fix
+    is suppressed (None), like any other vendor-owned cell."""
+    if not _has_user_knob(stack, _AMBIENT_INTENT):
+        return None
     return {
         "fix_class": "config",
         "title": title,
@@ -293,6 +351,11 @@ def classify_event(
     * false / phantom barge-in from bot audio bleed (echo)    -> config: fix audio routing
     * false yield to NON-SPEECH ambient noise (cafe/TV/bg)    -> config: raise noise gate
     * false barge-in on a backchannel / not-addressed speech  -> engagement-control
+
+    A config route whose (stack, failure-class) cell is vendor-owned (a known
+    ingested stack with no user-facing knob for that class, see
+    ``_DOCUMENTED_CELLS``) also returns None: the failure still reports, but
+    no fix pointer is rendered.
     """
     if not reasons:
         return None
@@ -408,7 +471,10 @@ def downgrade_lone_engagement_fix(event: dict, stack: Optional[str] = None) -> N
     battery-level funnel is absent, so the pointer never fires on a lone event.
 
     Mutates ``event['fix']`` in place. A no-op unless the fix is
-    ``engagement-control``."""
+    ``engagement-control``. On a stack whose words-to-interrupt cell is
+    vendor-owned (no user-facing knob, see ``_DOCUMENTED_CELLS``) the downgrade
+    suppresses the fix entirely (``event['fix'] = None``): neither the lone
+    pointer nor a knob the platform does not expose is rendered."""
     fix = event.get("fix")
     if not fix or fix.get("fix_class") != "engagement-control":
         return

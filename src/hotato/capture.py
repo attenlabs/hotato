@@ -2282,16 +2282,75 @@ def _resolve_for_pull(stack, overrides):
     return stack, creds
 
 
+def _score_pulled(res: dict, *, stack: str) -> dict:
+    """Score every pulled dual-channel recording OFFLINE with the standard
+    scorer (``core.run_single``, the same scoring `hotato run --stereo` does,
+    expected behavior yield) and aggregate the run exit contract: exit 1 when
+    a scorable event failed anywhere in the set, else 0.
+
+    Refuses (ValueError -> the CLI's standard exit-2 error envelope) when the
+    set holds no dual-channel recording to score: nothing was pulled, or every
+    pulled recording is mono (--allow-mono stacks; separated scoring needs one
+    channel per party). One unscoreable file inside an otherwise scoreable set
+    is reported as a skip with its reason, mirroring the pull loop."""
+    rows = []
+    worst = 0
+    scored = 0
+    for item in res["pulled"]:
+        path = item["path"]
+        try:
+            env = run_single(stereo=path, stack=stack, expect="yield")
+        except (ValueError, OSError) as exc:
+            rows.append({"id": item["id"], "path": path, "scored": False,
+                         "reason": _errors.sanitize_urls_in_text(str(exc))})
+            continue
+        scored += 1
+        summary = env["summary"]
+        rows.append({
+            "id": item["id"], "path": path, "scored": True,
+            "events": summary.get("events", 0),
+            "passed": summary.get("passed", 0),
+            "failed": summary.get("failed", 0),
+            "not_scorable": summary.get("not_scorable", 0),
+            "exit_code": int(env["exit_code"]),
+        })
+        worst = max(worst, int(env["exit_code"]))
+    if not scored:
+        raise ValueError(
+            "--score needs at least one dual-channel recording in the pulled "
+            "set, and this pull produced none (nothing pulled, or mono-only "
+            "recordings). Pull a dual-channel stack (vapi, twilio, or retell "
+            "with --call-id) and re-run, or score one file directly: "
+            "hotato run --stereo <file>."
+        )
+    return {
+        "expect": "yield",
+        "recordings": rows,
+        "scored": scored,
+        "skipped": len(rows) - scored,
+        "exit_code": worst,
+    }
+
+
 def run_pull(stack=None, *, ids=None, since=None, limit=50, out=None,
-             allow_mono=False, api_key=None, account_sid=None, auth_token=None,
-             model_id=None, agent_id=None, base_url=None, fmt="text") -> int:
-    """`hotato pull`: bulk-fetch recent recordings into a local directory."""
+             allow_mono=False, score=False, api_key=None, account_sid=None,
+             auth_token=None, model_id=None, agent_id=None, base_url=None,
+             fmt="text") -> int:
+    """`hotato pull`: bulk-fetch recent recordings into a local directory.
+
+    With ``score=True`` (`--score`) the pulled dual-channel set is then scored
+    offline in the same invocation (see :func:`_score_pulled`), and the exit
+    code follows the run contract: 1 when a scorable event failed, 2 when the
+    set holds nothing scoreable."""
     overrides = _overrides_from(api_key, account_sid, auth_token, model_id,
                                 agent_id, base_url)
     stack, creds = _resolve_for_pull(stack, overrides)
     out_dir = out or f"hotato-pull-{stack}"
     res = pull(stack, creds, out_dir=out_dir, ids=ids, since=since, limit=limit,
                allow_mono=allow_mono, log=lambda m: sys.stderr.write(m + "\n"))
+    score_res = _score_pulled(res, stack=stack) if score else None
+    if score_res is not None:
+        res["score"] = score_res
     if fmt == "json":
         print(_errors.safe_json_dumps(res, indent=2))
     else:
@@ -2300,10 +2359,25 @@ def run_pull(stack=None, *, ids=None, since=None, limit=50, out=None,
               f"skipped {len(res['skipped'])}")
         for s in res["skipped"]:
             print(f"  [skip] {s['id']}: {s['reason']}")
+        if score_res is not None:
+            print(f"  scored {score_res['scored']} of {len(res['pulled'])} "
+                  "pulled recordings offline (expected behavior: yield)")
+            for r in score_res["recordings"]:
+                name = os.path.basename(r["path"])
+                if not r["scored"]:
+                    print(f"  [skip] {name}: {r['reason']}")
+                elif r["events"] and r["not_scorable"] == r["events"]:
+                    print(f"  [NOT SCORABLE] {name}")
+                else:
+                    mark = "FAIL" if r["exit_code"] else "PASS"
+                    line = f"  [{mark}] {name}: {r['passed']} passed, {r['failed']} failed"
+                    if r["not_scorable"]:
+                        line += f", {r['not_scorable']} not scorable"
+                    print(line)
         if res["pulled"]:
             print(f"  next: hotato analyze {res['out_dir']}  "
                   f"(or use `hotato sweep --stack {stack}` to pull + analyze in one)")
-    return 0
+    return score_res["exit_code"] if score_res is not None else 0
 
 
 def _atomic_write_text(path: str, text: str) -> None:
