@@ -11,12 +11,20 @@ gh), the two safety invariants (the change lands on a NEW feature branch, never
 the default branch directly; the push is never a force-push), the required
 --repo / --fixtures, the reused fixture schema, and candidate-moments language
 throughout.
+
+Also pinned: the second accepted --fixtures shape, a `<id>.hotato` contract
+bundle from `hotato investigate label` (or a directory of them), detected by
+shape. The bundle is staged WHOLE under tests/hotato/contracts/,
+byte-identical (it is content-addressed), and the refusal on a directory
+that is neither shape names both.
 """
 
 import json
 import os
+import shutil
 import stat
 import sys
+from importlib import resources
 
 import pytest
 
@@ -401,4 +409,140 @@ def test_fixtures_dir_that_is_not_a_fixtures_dir_is_refused(tmp_path, capsys):
         "--repo", "owner/repo", "--title", "T",
     ])
     assert rc == 2
-    assert "not a hotato fixtures directory" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    # The refusal names BOTH accepted shapes: the fixtures directory and the
+    # .hotato contract bundle.
+    assert "not a hotato fixtures directory" in err
+    assert "not a contract bundle" in err
+    assert ".hotato" in err
+
+
+# --- the second accepted shape: <id>.hotato contract bundles -----------------
+
+@pytest.fixture()
+def contract_bundle(tmp_path, monkeypatch):
+    """A real `<id>.hotato` contract bundle in `contracts/` under the test
+    cwd: label the top `hotato investigate` candidate from the bundled example
+    call -- exactly the artifact `investigate label` hands a user, with its
+    MANIFEST.sha256.json and attestation.json intact."""
+    from hotato import investigate as _investigate
+
+    monkeypatch.setenv("HOTATO_HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    src = resources.files("hotato").joinpath(
+        "data", "audio", "01-hard-interruption.example.wav")
+    with resources.as_file(src) as p:
+        shutil.copyfile(str(p), str(tmp_path / "call.wav"))
+    state = str(tmp_path / "state.json")
+    result, code = _investigate.run_investigate(
+        str(tmp_path / "call.wav"), state_path=state)
+    assert code == 0
+    ref = result["next"][0]["ref"]
+    label_result = _investigate.run_investigate_label(
+        ref, expect="yield", out_dir="contracts")
+    return tmp_path / label_result["dir"]
+
+
+def _bundle_files(bundle_dir):
+    out = {}
+    for root, _dirs, files in os.walk(bundle_dir):
+        for fn in files:
+            p = os.path.join(root, fn)
+            rel = os.path.relpath(p, bundle_dir)
+            with open(p, "rb") as fh:
+                out[rel] = fh.read()
+    return out
+
+
+def test_dry_run_on_a_directory_of_bundles_builds_the_contract_body(
+        contract_bundle, fake_scm, capsys):
+    cid = contract_bundle.name[: -len(".hotato")]
+    rc = cli.main([
+        "pr", "create", "--fixtures", "contracts", "--repo", "owner/repo",
+        "--title", "Add hotato contracts",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "## Contracts added (1)" in out
+    assert f"`{cid}`" in out
+    assert "expect yield" in out
+    # the PR body carries the contract.json replay command and the verify gate
+    assert "hotato run --stereo audio/event.wav --expect yield" in out
+    assert "hotato contract verify tests/hotato/contracts/" in out
+    # the plan stages the bundle WHOLE at its tests/hotato/contracts/ path
+    assert f"git add tests/hotato/contracts/{cid}.hotato" in out
+    assert f"copy contracts/{cid}.hotato -> tests/hotato/contracts/" in out
+    # dry run: nothing ran, nothing was copied
+    assert not fake_scm.exists(), "the dry run must not call git or gh"
+    assert not os.path.exists("tests"), "the dry run must not copy the bundle"
+
+
+def test_dry_run_on_a_single_bundle_path(contract_bundle, fake_scm, capsys):
+    rc = cli.main([
+        "pr", "create", "--fixtures", str(contract_bundle),
+        "--repo", "owner/repo", "--title", "Add one hotato contract",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "## Contracts added (1)" in out
+    assert f"`{contract_bundle.name[: -len('.hotato')]}`" in out
+    assert not fake_scm.exists()
+
+
+def test_json_dry_run_carries_the_contracts_list(contract_bundle, capsys):
+    rc = cli.main([
+        "pr", "create", "--fixtures", str(contract_bundle),
+        "--repo", "owner/repo", "--title", "Add one hotato contract",
+        "--format", "json",
+    ])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["kind"] == "pr"
+    assert payload["dry_run"] is True
+    assert len(payload["contracts"]) == 1
+    rec = payload["contracts"][0]
+    assert rec["expect"] == "yield"
+    assert rec["bundle_repo_path"].startswith("tests/hotato/contracts/")
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="fake_scm's git/gh shims are bash scripts with a POSIX shebang, "
+           "invoked by argv0 with no extension; Windows subprocess dispatch "
+           "cannot execute them the way a real git/gh would be found on PATH",
+)
+def test_yes_stages_the_bundle_byte_identical(contract_bundle, fake_scm,
+                                              capsys):
+    """--yes copies the bundle to tests/hotato/contracts/ and git-adds the
+    directory whole. Every file inside the staged copy is byte-identical to
+    the source bundle: the bundle is content-addressed, so a rewritten byte
+    would break its attestation digest, its bundled-audio sha256 binding,
+    and the sha256 manifest `contract pack` derives from it."""
+    before = _bundle_files(contract_bundle)
+    rc = cli.main([
+        "pr", "create", "--fixtures", str(contract_bundle),
+        "--repo", "owner/repo", "--title", "Add one hotato contract", "--yes",
+    ])
+    assert rc == 0
+    capsys.readouterr()
+    staged = os.path.join("tests", "hotato", "contracts", contract_bundle.name)
+    assert os.path.isdir(staged)
+    assert _bundle_files(staged) == before
+    for required in ("contract.json", "attestation.json"):
+        assert required in before
+    rec = fake_scm.read_text(encoding="utf-8")
+    assert f"GIT: add tests/hotato/contracts/{contract_bundle.name}" in rec
+    assert "GH: pr create --repo owner/repo" in rec
+    assert "## Contracts added" in rec
+
+
+def test_existing_staged_bundle_is_refused_never_overwritten(
+        contract_bundle, capsys):
+    dest = os.path.join("tests", "hotato", "contracts", contract_bundle.name)
+    os.makedirs(dest)
+    rc = cli.main([
+        "pr", "create", "--fixtures", str(contract_bundle),
+        "--repo", "owner/repo", "--title", "T",
+    ])
+    assert rc == 2
+    assert "already exists" in capsys.readouterr().err

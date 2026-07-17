@@ -618,10 +618,42 @@ def _http_version() -> str:
 
 # A mapped query must READ ONLY. The leading keyword (after comments/whitespace
 # and an optional opening paren) must be SELECT or a WITH ... SELECT CTE.
-_SELECT_LEAD_RE = re.compile(
-    r"^\s*(?:--[^\n]*\n|/\*.*?\*/|\s)*\(?\s*(SELECT|WITH)\b",
-    re.IGNORECASE | re.DOTALL,
-)
+#
+# Written as a linear scan, not one backtracking regex: the original pattern
+# matched whitespace with two overlapping constructs (a leading ``\s*`` and a
+# ``\s`` alternative inside a repeated group), a catastrophic-backtracking shape
+# that exceeded 5s on ~1KB of leading whitespace with no SELECT. This guard
+# re-runs on every SqlStateAdapter.query() call, so it must not be able to hang.
+_SELECT_LEAD_KEYWORD_RE = re.compile(r"(SELECT|WITH)\b", re.IGNORECASE)
+
+
+def _skip_sql_lead_ws_and_comments(sql: str, i: int = 0) -> int:
+    """Advance past any run of whitespace, ``--`` line comments, and ``/* */``
+    block comments starting at ``sql[i]``."""
+    n = len(sql)
+    while i < n:
+        if sql[i].isspace():
+            i += 1
+        elif sql.startswith("--", i):
+            nl = sql.find("\n", i)
+            i = n if nl == -1 else nl + 1
+        elif sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+        else:
+            break
+    return i
+
+
+def _matches_select_lead(sql: str) -> bool:
+    """True iff, after leading whitespace/comments and at most one optional
+    opening paren, ``sql`` begins with SELECT or WITH."""
+    i = _skip_sql_lead_ws_and_comments(sql)
+    if i < len(sql) and sql[i] == "(":
+        i += 1
+        while i < len(sql) and sql[i].isspace():
+            i += 1
+    return _SELECT_LEAD_KEYWORD_RE.match(sql, i) is not None
 
 
 def _strip_sql_string_literals(sql: str) -> str:
@@ -642,7 +674,7 @@ def _require_read_only_select(sql: str, resource: str) -> None:
     data-modifying keyword appearing as a standalone token."""
     if not isinstance(sql, str) or not sql.strip():
         raise ValueError(f"resource {resource!r}: 'query' must be a non-empty SQL string")
-    if not _SELECT_LEAD_RE.match(sql):
+    if not _matches_select_lead(sql):
         raise ValueError(
             f"SqlStateAdapter is read-only: the mapped query for {resource!r} "
             f"must begin with SELECT (or a WITH ... SELECT CTE); got "

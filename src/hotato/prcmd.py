@@ -1,14 +1,25 @@
 """``hotato pr create --fixtures DIR --repo OWNER/REPO --title T``: open a
-pull request that adds a directory of promoted regression fixtures.
+pull request that adds promoted regression fixtures or contract bundles.
 
-The input is a hotato fixtures directory -- the ``--out DIR`` that ``hotato
-fixture promote`` (or ``fixture create``) writes, with a ``scenarios/`` folder
-of scenario JSON and an ``audio/`` folder of two-channel example WAVs. The
-output is a plain markdown PR body: a title from the caller, a line per
-fixture (its id, the label a maintainer chose, the call it was promoted from,
-and the onset), and the exact ``hotato run`` command that scores every added
-fixture. These are MEASURED CANDIDATE moments saved as tests, never verdicts
-and never intent.
+``--fixtures`` accepts BOTH artifact shapes hotato produces, detected by
+shape, never a flag:
+
+  * a fixtures directory -- the ``--out DIR`` that ``hotato fixture promote``
+    (or ``fixture create``) writes, with a ``scenarios/`` folder of scenario
+    JSON and an ``audio/`` folder of two-channel example WAVs. The PR body is
+    a line per fixture (its id, the label a maintainer chose, the call it was
+    promoted from, and the onset) plus the exact ``hotato run`` command that
+    scores every added fixture. These are MEASURED CANDIDATE moments saved as
+    tests, never verdicts and never intent.
+  * a ``<id>.hotato`` contract bundle (what ``hotato investigate label`` /
+    ``hotato contract create`` write), or a directory of them. The PR body is
+    a line per contract (its id, the expected behavior, the measured outcome,
+    and the replay command from its own ``contract.json``) plus the exact
+    ``hotato contract verify`` command that re-scores every added bundle. The
+    bundle is content-addressed (the attestation digest and the bundled-audio
+    sha256 bindings in ``contract.json``), so it is staged WHOLE under
+    ``tests/hotato/contracts/`` byte-identical -- nothing inside a bundle is
+    ever rewritten.
 
 Two honesty boundaries are structural, not prose:
 
@@ -38,6 +49,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from typing import List, Optional, Sequence
 
@@ -45,12 +57,17 @@ from .errors import open_regular as _open_regular
 
 __all__ = [
     "load_fixtures",
+    "contract_bundle_dirs",
+    "load_contracts",
     "build_pr",
+    "build_contract_pr",
+    "stage_bundle_copies",
     "branch_for",
     "render_gh_command",
     "create_via_git_gh",
     "DEFAULT_BRANCH_PREFIX",
     "PROTECTED_BRANCHES",
+    "CONTRACTS_REPO_DIR",
 ]
 
 # The feature branch a PR lands on is namespaced under this prefix so it is
@@ -64,6 +81,12 @@ PROTECTED_BRANCHES = frozenset({"main", "master", "trunk", "develop", "HEAD"})
 
 _SCENARIOS_SUBDIR = "scenarios"
 _AUDIO_SUBDIR = "audio"
+
+# The repo path a contract bundle is committed under: the same tests/hotato/
+# home promoted fixtures use, one namespace deeper so scenario JSON and
+# bundle directories never collide. `hotato contract verify
+# tests/hotato/contracts/` is the CI gate over everything committed here.
+CONTRACTS_REPO_DIR = "tests/hotato/contracts"
 
 
 def _repo_path(path: str) -> str:
@@ -112,8 +135,11 @@ def load_fixtures(fixtures_dir: str) -> List[dict]:
     if not os.path.isdir(scenarios_dir):
         raise ValueError(
             f"{fixtures_dir!r} is not a hotato fixtures directory (no "
-            f"{_SCENARIOS_SUBDIR}/ subfolder); point --fixtures at the --out "
-            "DIR that hotato fixture promote wrote, e.g. tests/hotato"
+            f"{_SCENARIOS_SUBDIR}/ subfolder) and not a contract bundle (no "
+            "contract.json, and no <id>.hotato bundle directly inside); "
+            "point --fixtures at the --out DIR that hotato fixture promote "
+            "wrote, e.g. tests/hotato, or at the <id>.hotato bundle that "
+            "hotato investigate label wrote (or a directory of them)"
         )
     records: List[dict] = []
     for name in sorted(os.listdir(scenarios_dir)):
@@ -152,6 +178,83 @@ def load_fixtures(fixtures_dir: str) -> List[dict]:
             "scenario_path": _repo_path(scenario_path),
             "audio_path": _repo_path(audio_path),
         })
+    return records
+
+
+def contract_bundle_dirs(path: str) -> List[str]:
+    """Contract-bundle directories at ``path``: ``path`` itself when it IS a
+    ``<id>.hotato`` bundle (it has a ``contract.json``), else every immediate
+    bundle subdirectory, resolved by :func:`hotato.contract.discover_bundles`
+    -- the SAME resolver ``contract verify`` scans with, so what ``pr create``
+    stages and what CI later verifies can never disagree. ``[]`` when the
+    shape is neither, so the CLI falls through to :func:`load_fixtures` and
+    its refusal names both accepted shapes."""
+    if not os.path.isdir(path):
+        return []
+    from . import contract as _contract
+
+    return _contract.discover_bundles(path)
+
+
+def _verdict_text(measurement: dict) -> str:
+    """The contract's measured outcome at creation, in the SAME honest
+    vocabulary the contract itself records: PASS/FAIL when a verdict exists,
+    NOT SCORABLE or 'verdict withheld' when the contract refuses one."""
+    if not measurement.get("scorable"):
+        return "NOT SCORABLE"
+    if not measurement.get("verdict_eligible", True):
+        return "verdict withheld"
+    return "PASS" if measurement.get("passed") else "FAIL"
+
+
+def load_contracts(bundle_dirs: Sequence[str]) -> List[dict]:
+    """Read ``<id>.hotato`` contract bundles (what ``hotato investigate
+    label`` / ``hotato contract create`` write) into contract records in id
+    order.
+
+    Filesystem read only, mirroring :func:`load_fixtures`; the pure rendering
+    happens in :func:`build_contract_pr`. Each ``contract.json`` is loaded and
+    schema-checked by the SAME loader ``contract verify`` uses. The record
+    carries the bundle directory to stage WHOLE at
+    ``tests/hotato/contracts/<name>``: the bundle is content-addressed (the
+    attestation digest and the bundled-audio sha256 bindings), so it travels
+    byte-identical and nothing inside it is ever rewritten. A destination
+    that already exists and is not this bundle raises ValueError (exit 2),
+    never an overwrite."""
+    from . import contract as _contract
+
+    records: List[dict] = []
+    for bundle_dir in bundle_dirs:
+        contract = _contract._load_contract(bundle_dir)
+        cid = contract.get("id") or os.path.basename(
+            os.path.normpath(bundle_dir))
+        name = os.path.basename(os.path.normpath(bundle_dir))
+        if not name.endswith(_contract.BUNDLE_SUFFIX):
+            name = str(cid) + _contract.BUNDLE_SUFFIX
+        dest = os.path.join(CONTRACTS_REPO_DIR, name)
+        needs_copy = os.path.abspath(bundle_dir) != os.path.abspath(dest)
+        if needs_copy and os.path.exists(dest):
+            raise ValueError(
+                f"{_repo_path(dest)!r} already exists and is not the bundle "
+                f"at {bundle_dir!r}; remove it, or point --fixtures at it "
+                "directly"
+            )
+        measurement = contract.get("measurement") or {}
+        replay = contract.get("replay") or {}
+        records.append({
+            "id": cid,
+            "expect": (contract.get("label") or {}).get("expected_behavior"),
+            "reviewer": (contract.get("identity") or {}).get("reviewer"),
+            "stack": (contract.get("source") or {}).get("stack"),
+            "onset_sec": (contract.get("event") or {}).get("onset_sec"),
+            "verdict": _verdict_text(measurement),
+            "replay_command": replay.get("command"),
+            "ci_command": replay.get("ci_command"),
+            "bundle_src": bundle_dir,
+            "bundle_repo_path": _repo_path(dest),
+            "needs_copy": needs_copy,
+        })
+    records.sort(key=lambda r: str(r["id"]))
     return records
 
 
@@ -203,6 +306,26 @@ def _run_command(fixtures_dir: str) -> str:
             "--format text")
 
 
+def _validated_branch(branch: Optional[str], title: str,
+                      base: Optional[str]) -> str:
+    """The feature branch a PR lands on, defaulted from the title and refused
+    when it is a protected/default branch or equals ``base`` -- the change
+    always lands on a NEW branch, never the default branch directly."""
+    branch = branch or branch_for(title)
+    if branch in PROTECTED_BRANCHES:
+        raise ValueError(
+            f"--branch {branch!r} is a default/protected branch; open the "
+            "pull request from a feature branch (the change is committed "
+            "there, never onto the default branch directly)"
+        )
+    if base and branch == base:
+        raise ValueError(
+            f"--branch and --base are both {branch!r}; the feature branch must "
+            "differ from the base it merges into"
+        )
+    return branch
+
+
 def build_pr(
     fixtures: Sequence[dict],
     *,
@@ -230,18 +353,7 @@ def build_pr(
             "empty); there is nothing to open a pull request about"
         )
 
-    branch = branch or branch_for(title)
-    if branch in PROTECTED_BRANCHES:
-        raise ValueError(
-            f"--branch {branch!r} is a default/protected branch; open the "
-            "pull request from a feature branch (the change is committed "
-            "there, never onto the default branch directly)"
-        )
-    if base and branch == base:
-        raise ValueError(
-            f"--branch and --base are both {branch!r}; the feature branch must "
-            "differ from the base it merges into"
-        )
+    branch = _validated_branch(branch, title, base)
 
     file_paths: List[str] = []
     for fx in fixtures:
@@ -325,6 +437,166 @@ def build_pr(
         "gh_command": gh_command,
         "gh_command_display": " ".join(shlex.quote(a) for a in gh_command),
     }
+
+
+def _contract_line(rec: dict) -> str:
+    onset = rec.get("onset_sec")
+    onset_txt = f"{onset:.2f}s" if isinstance(onset, (int, float)) else "n/a"
+    line = (f"- `{rec['id']}` (expect {rec['expect']}): measured "
+            f"{rec['verdict']} at onset {onset_txt}")
+    if rec.get("replay_command"):
+        line += (f"; replay `{rec['replay_command']}` from "
+                 f"`{rec['bundle_repo_path']}/`")
+    return line
+
+
+def _verify_command() -> str:
+    return f"hotato contract verify {CONTRACTS_REPO_DIR}/ --junit hotato.xml"
+
+
+def build_contract_pr(
+    contracts: Sequence[dict],
+    *,
+    contracts_src: str,
+    repo: str,
+    title: str,
+    branch: Optional[str] = None,
+    base: Optional[str] = None,
+) -> dict:
+    """Render the pull request from loaded contract records. PURE and
+    OFFLINE, exactly like :func:`build_pr`: no network, no subprocess, no
+    filesystem read or write. Returns the same envelope shape with a
+    ``contracts`` list in place of ``fixtures``, plus the ``stage_copies``
+    plan the CLI executes (only under ``--yes``, via
+    :func:`stage_bundle_copies`) to place each bundle byte-identical under
+    ``tests/hotato/contracts/`` before ``git add`` stages it whole.
+
+    The same invariants as :func:`build_pr` hold: a NEW namespaced feature
+    branch (never a protected/default branch, never equal to ``base``), a
+    plain push that is never a force-push, and a refusal when there is
+    nothing to add."""
+    contracts = list(contracts)
+    if not contracts:
+        raise ValueError(
+            f"{contracts_src} has no contracts to add; there is nothing to "
+            "open a pull request about"
+        )
+
+    branch = _validated_branch(branch, title, base)
+
+    file_paths = [rec["bundle_repo_path"] for rec in contracts]
+    stage_copies = [
+        {"src": rec["bundle_src"], "dest": rec["bundle_repo_path"]}
+        for rec in contracts if rec.get("needs_copy")
+    ]
+
+    n = len(contracts)
+    noun = "contract" if n == 1 else "contracts"
+    commit_message = f"Add {n} hotato turn-taking failure {noun}"
+
+    run_cmd = _verify_command()
+    intro = [
+        f"This pull request adds {n} turn-taking failure {noun}: the signed, "
+        "content-addressed `<id>.hotato` bundle a maintainer created with "
+        "`hotato investigate label` (or `hotato contract create`).",
+        "",
+        "Each contract pins one measured timing moment with the label a "
+        "maintainer chose: `yield` means the agent should have stopped for "
+        "the caller, `hold` means it should have kept the floor through a "
+        "backchannel or noise. The bundle carries the clipped audio, the "
+        "frame-level evidence, the policy, and its own manifest and "
+        "attestation, and it is committed byte-identical, so "
+        "`hotato contract verify` re-scores the exact audio it shipped "
+        "with and refuses a bundle edited after creation. Hotato measures "
+        "whether the timing matched the label; it does not infer intent.",
+        "",
+        f"## Contracts added ({n})",
+        "",
+    ]
+    lines = [_contract_line(rec) for rec in contracts]
+    reproduce = [
+        "",
+        "## Verify them",
+        "",
+        "Re-score every added contract against its own policy (a contract "
+        "created from a bad call is allowed to measure FAIL; that is the "
+        "regression it pins):",
+        "",
+        "```",
+        run_cmd,
+        "```",
+    ]
+    footer = [
+        "",
+        "---",
+        "",
+        "Contract bundles created from measured timing moments in real "
+        "calls, saved as permanent, re-verifiable tests. Energy is not "
+        "intent and Hotato infers none. The audio was clipped and scored "
+        "offline; nothing left the machine it was labeled on.",
+    ]
+    body = "\n".join(intro + lines + reproduce + footer) + "\n"
+
+    git_commands = _git_commands(branch, file_paths, commit_message)
+    gh_command = render_gh_command(repo, title, branch, base)
+
+    return {
+        "tool": "hotato",
+        "kind": "pr",
+        "schema_version": "1",
+        "repo": repo,
+        "title": title,
+        "branch": branch,
+        "base": base,
+        "commit_message": commit_message,
+        "run_command": run_cmd,
+        "contracts": [
+            {
+                "id": rec["id"],
+                "expect": rec["expect"],
+                "verdict": rec["verdict"],
+                "stack": rec["stack"],
+                "onset_sec": rec["onset_sec"],
+                "replay_command": rec["replay_command"],
+                "bundle_src": rec["bundle_src"],
+                "bundle_repo_path": rec["bundle_repo_path"],
+            }
+            for rec in contracts
+        ],
+        "body": body,
+        "stage_copies": stage_copies,
+        "stage_copies_display": [
+            f"copy {cp['src']} -> {cp['dest']} (byte-identical)"
+            for cp in stage_copies
+        ],
+        "git_commands": git_commands,
+        "git_commands_display": [
+            " ".join(shlex.quote(a) for a in cmd) for cmd in git_commands
+        ],
+        "gh_command": gh_command,
+        "gh_command_display": " ".join(shlex.quote(a) for a in gh_command),
+    }
+
+
+def stage_bundle_copies(copies: Sequence[dict]) -> None:
+    """Copy each bundle directory to its repo path, whole and byte-identical
+    (``shutil.copytree``; file bytes are never rewritten, since the bundle is
+    content-addressed and any mutation would break its attestation digest
+    and audio-hash bindings). A filesystem side effect, so the CLI calls it only
+    under ``--yes`` -- the dry run prints the copy plan and changes nothing.
+    An existing destination is refused, never overwritten (the loader applies
+    the same check earlier, at read time)."""
+    for cp in copies:
+        dest = cp["dest"]
+        if os.path.exists(dest):
+            raise ValueError(
+                f"{dest!r} already exists; remove it, or point --fixtures at "
+                "it directly"
+            )
+        parent = os.path.dirname(dest)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        shutil.copytree(cp["src"], dest)
 
 
 def create_via_git_gh(
