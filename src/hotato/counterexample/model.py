@@ -164,6 +164,9 @@ def read_regular_bytes(path: str, *, max_bytes: int = MAX_INPUT_BYTES) -> bytes:
     flags |= getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
     flags |= getattr(os, "O_NONBLOCK", 0)
+    # O_BINARY (zero on POSIX) keeps the Windows CRT out of its default text
+    # mode, which would rewrite b"\r\n" and stop os.read at an 0x1A byte.
+    flags |= getattr(os, "O_BINARY", 0)
     try:
         fd = os.open(path, flags)
     except OSError as exc:

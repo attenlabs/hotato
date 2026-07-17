@@ -158,7 +158,9 @@ def _write(path: str, data: bytes, *, executable: bool = False) -> None:
     parent = os.path.dirname(path)
     os.makedirs(parent, mode=0o700, exist_ok=True)
     mode_private(parent)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    # O_BINARY (zero on POSIX) keeps the Windows CRT out of its default text
+    # mode, which would expand b"\n" to b"\r\n" under the capsule digests.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
     fd = os.open(path, flags, 0o700 if executable else 0o600)
     try:
         with os.fdopen(fd, "wb") as fh:

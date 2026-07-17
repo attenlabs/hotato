@@ -79,6 +79,25 @@ _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 
+# O_BINARY (zero on POSIX) keeps a Windows ``os.open`` descriptor out of the
+# CRT's default TEXT translation mode, which would rewrite b"\r\n" <-> b"\n"
+# and stop reading at an 0x1A byte -- either one silently breaks content
+# addressing. ``tempfile`` ORs the same flag into its own open flags for the
+# same reason.
+_O_BINARY = getattr(os, "O_BINARY", 0)
+
+# Whether the openat-style primitive above is usable at all: a directory opened
+# as a trusted descriptor plus dir_fd-relative opens/renames/unlinks. POSIX has
+# both; Windows has NEITHER -- ``os.open`` of a DIRECTORY raises
+# PermissionError (errno 13; the CRT open cannot take a directory) and every
+# ``dir_fd`` argument raises NotImplementedError (``os.supports_dir_fd`` is
+# empty there, per the os docs) -- so Windows takes the path-based branches
+# below. Their containment rests on ``_resolved_blob_path``'s realpath prefix
+# check: a planted symlink is RESOLVED before the comparison, so an escape
+# still fails closed (refused) rather than redirecting the I/O.
+_HAS_DIR_FD = {os.open, os.mkdir, os.stat, os.rename,
+               os.unlink} <= os.supports_dir_fd
+
 
 def _canonical_digest(digest):
     if not (isinstance(digest, str) and len(digest) == 64
@@ -179,6 +198,16 @@ class ArtifactStore:
         """Contained existence check: a REGULAR blob file at the fan-out leaf,
         resolved through no-follow directory descriptors so a symlinked fan-out
         (or leaf) reads as absent rather than escaping the store."""
+        if not _HAS_DIR_FD:
+            # Windows (no dir_fd): realpath containment instead of descriptors;
+            # lstat (not stat) keeps a symlink leaf reading as absent rather
+            # than followed, and a path that resolves outside the store reads
+            # as absent too (fail closed), mirroring the refused open above.
+            try:
+                st = os.lstat(self._resolved_blob_path(digest))
+            except (ValueError, OSError):
+                return False
+            return stat.S_ISREG(st.st_mode)
         root_fd = self._open_dir_fd()
         try:
             try:
@@ -267,8 +296,10 @@ class ArtifactStore:
         the regular-file reads that follow. Validation is on the OPEN descriptor
         (``fstat``), not a pre-open path ``stat`` that a later open could race,
         so the bytes hashed and stored come from exactly this inode -- there is
-        no second lookup of ``path`` to substitute (the put_file TOCTOU)."""
-        fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK)
+        no second lookup of ``path`` to substitute (the put_file TOCTOU).
+        O_BINARY (zero on POSIX) keeps the Windows CRT from text-translating
+        the bytes hashed and stored."""
+        fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK | _O_BINARY)
         try:
             st = os.fstat(fd)
         except OSError:
@@ -300,6 +331,8 @@ class ArtifactStore:
         is renamed across trusted descriptors into ``blobs/<ab>/`` -- an atomic
         rename within one filesystem. Duplicate content is idempotent: an
         already-present leaf keeps the existing blob and drops the temp."""
+        if not _HAS_DIR_FD:
+            return self._publish_stream_pathwise(src)
         root_fd = self._open_dir_fd()
         try:
             tmp_name = ".ingest-%d-%s.tmp" % (os.getpid(), uuid.uuid4().hex)
@@ -339,6 +372,48 @@ class ArtifactStore:
         finally:
             os.close(root_fd)
 
+    def _publish_stream_pathwise(self, src) -> str:
+        """Path-based publish for platforms without the openat primitive
+        (Windows -- see ``_HAS_DIR_FD``). The same single pass: hash WHILE
+        writing a private temp in the blob root, fsync, then publish under the
+        digest just computed, so the returned digest always equals the stored
+        content's digest here too; containment comes from
+        ``_resolved_blob_path``'s realpath prefix check on the destination.
+        ``os.replace`` is the documented cross-platform atomic-publish
+        primitive ("If dst exists and is a file, it will be replaced silently
+        if the user has permission" -- os docs), so concurrent writers of the
+        SAME digest keep the whichever-writer-wins-is-correct property of the
+        openat branch's rename. Duplicate content stays idempotent: a present
+        leaf keeps the existing blob and drops the temp."""
+        tmp = os.path.join(self.blobs,
+                           ".ingest-%d-%s.tmp" % (os.getpid(), uuid.uuid4().hex))
+        # O_BINARY: without it the Windows CRT would expand b"\n" to b"\r\n"
+        # UNDER the digest already computed from the untranslated chunks.
+        tfd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_BINARY,
+                      0o644)
+        published = False
+        try:
+            h = hashlib.sha256()
+            with os.fdopen(tfd, "wb", closefd=True) as out:
+                for chunk in iter(lambda: src.read(1 << 20), b""):
+                    h.update(chunk)
+                    out.write(chunk)
+                out.flush()
+                os.fsync(out.fileno())
+            digest = h.hexdigest()
+            dest = self._resolved_blob_path(digest)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            if not self._blob_present(digest):
+                os.replace(tmp, dest)
+                published = True
+            return digest
+        finally:
+            if not published:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+
     def put_json(self, obj, **kw) -> str:
         data = (_manifest.canonical_json(obj) + "\n").encode("utf-8")
         return self.put_bytes(data, **kw)
@@ -365,18 +440,31 @@ class ArtifactStore:
         # authentic. Raw ``get_bytes()`` stays for internal HOT paths where
         # ``verify()`` is called separately (rubric/transcribe caches).
         _canonical_digest(digest)
-        root_fd = self._open_dir_fd()
-        try:
-            fanout_fd = self._open_fanout_dir(root_fd, digest[:2], create=False)
-            try:
-                # open-ok: no-follow leaf open inside the validated fan-out fd
-                fd = os.open(digest, os.O_RDONLY | _O_NOFOLLOW, dir_fd=fanout_fd)
-            finally:
-                os.close(fanout_fd)
+        if not _HAS_DIR_FD:
+            # Windows (no dir_fd): ``_resolved_blob_path`` supplies the
+            # containment (realpath resolves a planted symlink BEFORE the
+            # prefix check and refuses an escape); O_BINARY keeps the CRT from
+            # translating the bytes read, so verify=True hashes the stored
+            # bytes. A missing blob raises FileNotFoundError exactly as below.
+            fd = os.open(self._resolved_blob_path(digest),
+                         os.O_RDONLY | _O_NOFOLLOW | _O_BINARY)
             with os.fdopen(fd, "rb", closefd=True) as fh:
                 data = fh.read()
-        finally:
-            os.close(root_fd)
+        else:
+            root_fd = self._open_dir_fd()
+            try:
+                fanout_fd = self._open_fanout_dir(root_fd, digest[:2],
+                                                  create=False)
+                try:
+                    # open-ok: no-follow leaf open inside the validated fan-out fd
+                    fd = os.open(digest, os.O_RDONLY | _O_NOFOLLOW,
+                                 dir_fd=fanout_fd)
+                finally:
+                    os.close(fanout_fd)
+                with os.fdopen(fd, "rb", closefd=True) as fh:
+                    data = fh.read()
+            finally:
+                os.close(root_fd)
         if verify and self._digest_bytes(data) != digest:
             raise BlobIntegrityError(
                 "stored blob for %s does not match its content address "
@@ -421,6 +509,20 @@ class ArtifactStore:
         ``lineage.jsonl`` is left intact -- provenance survives the bytes and is
         never treated as an authorization record."""
         _canonical_digest(digest)
+        if not _HAS_DIR_FD:
+            # Windows (no dir_fd): path-based unlink behind the same realpath
+            # containment the fallback reads use -- a resolved escape is
+            # refused (False, fail closed), and ``os.unlink`` of a symlink
+            # leaf removes the link itself, never its target.
+            try:
+                path = self._resolved_blob_path(digest)
+            except ValueError:
+                return False
+            try:
+                os.unlink(path)
+                return True
+            except OSError:
+                return False
         try:
             root_fd = self._open_dir_fd()
         except OSError:
