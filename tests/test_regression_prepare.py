@@ -207,6 +207,43 @@ def _assert_refused(tmp_path, out_name, fn, *, match):
     assert not os.path.exists(out), "a refusal must leave NO output at --out"
 
 
+def test_refuse_existing_out_dir_and_force_replaces(tmp_path):
+    src = _contract_source(tmp_path)
+    out = tmp_path / "occupied"
+    out.mkdir()
+    (out / "keep.txt").write_text("previously published", encoding="utf-8")
+    kw = dict(from_arg=src, rights_path=_rights(tmp_path),
+              redaction_path=_redaction(tmp_path), workspace=str(tmp_path))
+    with pytest.raises(ValueError, match="already exists; pass --force"):
+        regression.prepare(out_dir=str(out), **kw)
+    # the refusal never clobbers the occupied destination
+    assert (out / "keep.txt").read_text(encoding="utf-8") == "previously published"
+    res = regression.prepare(out_dir=str(out), force=True, **kw)
+    assert res["status"] == "FAIL"
+    assert not (out / "keep.txt").exists()
+    assert (out / "manifest.json").exists()
+
+
+def test_promote_refuses_a_destination_that_appears_mid_prepare(tmp_path, monkeypatch):
+    # The TOCTOU the no-replace promote closes: the up-front check sees a free
+    # destination, then a racing publisher takes the name before the rename.
+    src = _contract_source(tmp_path)
+    out = tmp_path / "raced"
+    real_mkdtemp = regression.tempfile.mkdtemp
+
+    def racing_mkdtemp(*args, **kwargs):
+        out.mkdir(exist_ok=True)  # the racer claims --out after the check
+        return real_mkdtemp(*args, **kwargs)
+
+    monkeypatch.setattr(regression.tempfile, "mkdtemp", racing_mkdtemp)
+    with pytest.raises(ValueError, match="already exists; pass --force"):
+        regression.prepare(
+            from_arg=src, rights_path=_rights(tmp_path),
+            redaction_path=_redaction(tmp_path), out_dir=str(out),
+            workspace=str(tmp_path))
+    assert os.listdir(out) == [], "the raced destination is refused, untouched"
+
+
 def test_refuse_missing_metadata(tmp_path):
     src = _contract_source(tmp_path)
     bad_rights = _rights(tmp_path)

@@ -246,6 +246,7 @@
             "trace_span",
             "tool_call",
             "tool_result",
+            "http_exchange",
             "state_snapshot",
             "state_change",
             "policy_match",

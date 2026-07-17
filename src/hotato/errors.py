@@ -181,6 +181,128 @@ def open_regular(path, mode: str = "rb", **kwargs):
     return open(path, mode, **kwargs)
 
 
+def _libc_rename_no_replace():
+    """A one-syscall no-replace rename from the running libc, or ``None``.
+
+    Probed by SYMBOL PRESENCE (``renameat2`` with RENAME_NOREPLACE, else
+    ``renamex_np`` with RENAME_EXCL), never by platform name -- the same
+    capability-gate discipline as the store's ``os.supports_dir_fd`` check. The
+    returned callable takes ``(source, destination)`` and returns ``True`` on
+    success or ``False`` when the KERNEL/FILESYSTEM under the symbol lacks the
+    no-replace flag (ENOSYS/EINVAL/EOPNOTSUPP -- an old kernel or an NFS mount),
+    so the caller falls back exactly as if the symbol were absent. An existing
+    destination raises ``FileExistsError``; anything else raises ``OSError``."""
+    import ctypes as _ctypes
+    import errno as _errno
+    import os as _os
+
+    try:
+        libc = _ctypes.CDLL(None, use_errno=True)
+    except (OSError, TypeError):
+        return None  # no dlopen(NULL) on this runtime (e.g. the Windows CRT)
+
+    def _finish(result, destination):
+        if result == 0:
+            return True
+        code = _ctypes.get_errno()
+        if code in (_errno.EEXIST, _errno.ENOTEMPTY):
+            raise FileExistsError(code, _os.strerror(code), destination)
+        flag_unsupported = {_errno.ENOSYS, _errno.EINVAL}
+        flag_unsupported.add(getattr(_errno, "EOPNOTSUPP", _errno.ENOSYS))
+        if code in flag_unsupported:
+            return False
+        raise OSError(code, _os.strerror(code), destination)
+
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is not None:
+        renameat2.argtypes = [_ctypes.c_int, _ctypes.c_char_p,
+                              _ctypes.c_int, _ctypes.c_char_p, _ctypes.c_uint]
+        renameat2.restype = _ctypes.c_int
+
+        def _syscall(source, destination):
+            at_fdcwd = -100      # AT_FDCWD: both paths resolve from the cwd
+            rename_noreplace = 1  # <linux/fs.h> RENAME_NOREPLACE
+            return _finish(
+                renameat2(at_fdcwd, _os.fsencode(source),
+                          at_fdcwd, _os.fsencode(destination),
+                          rename_noreplace),
+                destination,
+            )
+        return _syscall
+
+    renamex_np = getattr(libc, "renamex_np", None)
+    if renamex_np is not None:
+        renamex_np.argtypes = [_ctypes.c_char_p, _ctypes.c_char_p,
+                               _ctypes.c_uint]
+        renamex_np.restype = _ctypes.c_int
+
+        def _syscall(source, destination):
+            rename_excl = 0x00000004  # <stdio.h> RENAME_EXCL: no replace
+            return _finish(
+                renamex_np(_os.fsencode(source), _os.fsencode(destination),
+                           rename_excl),
+                destination,
+            )
+        return _syscall
+
+    return None  # a libc, but neither no-replace symbol
+
+
+def rename_no_replace(source, destination) -> None:
+    """Publish ``source`` at ``destination`` atomically, refusing -- never
+    replacing -- a destination that already exists.
+
+    The plain publish idiom (check ``destination`` exists, then ``os.replace``)
+    leaves a window between the check and the rename: a destination created
+    inside it is silently clobbered. Here the existence check and the rename
+    are ONE operation, so a racing creation surfaces as ``FileExistsError``
+    (leaving the source in place for the caller's cleanup) instead of being
+    overwritten. Works for regular files and directories; like every
+    tmp-then-``os.replace`` writer in this codebase, the source must live on
+    the destination's own filesystem.
+
+    Capability-gated, never platform-named:
+
+    1. a libc exposing a no-replace rename (:func:`_libc_rename_no_replace`)
+       does the whole publish as one syscall, files and directories alike;
+    2. a regular-file source falls back to ``os.link`` + ``os.unlink``:
+       hard-linking refuses an existing name atomically on every mainstream
+       filesystem (NTFS included), then the now-duplicate source name is
+       dropped (a crash between the two leaves only a harmless extra name);
+    3. a directory source falls back to CLAIMING the destination name with
+       ``os.mkdir`` -- atomic, an existing name raises ``FileExistsError``
+       here -- then renaming over the just-claimed empty directory. POSIX
+       ``os.rename`` replaces it in one step (only OUR claim, never
+       third-party data); a runtime whose ``os.rename`` refuses ANY existing
+       destination (the Windows CRT) lands in the retry below, where that
+       same native refusal keeps the no-replace guarantee if a racer takes
+       the name in between.
+    """
+    import errno as _errno
+    import os as _os
+
+    syscall = _libc_rename_no_replace()
+    if syscall is not None and syscall(source, destination):
+        return
+
+    if not _os.path.isdir(source):
+        _os.link(source, destination)
+        _os.unlink(source)
+        return
+
+    _os.mkdir(destination, 0o700)
+    try:
+        _os.rename(source, destination)
+    except OSError as exc:
+        # A rename that refuses the claim itself: drop the claim and rename
+        # again. Only a runtime with natively no-replace ``os.rename`` refuses
+        # an EMPTY directory destination, so the retry cannot clobber.
+        if exc.errno not in (_errno.EEXIST, _errno.ENOTEMPTY, _errno.EACCES):
+            raise
+        _os.rmdir(destination)
+        _os.rename(source, destination)
+
+
 def safe_json_dumps(obj, **kwargs) -> str:
     """``json.dumps`` that refuses to emit RFC-8259-invalid output.
 
