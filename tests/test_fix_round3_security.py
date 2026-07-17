@@ -17,6 +17,7 @@ working).
 from __future__ import annotations
 
 import http.server
+import os
 import socketserver
 import tempfile
 import threading
@@ -80,7 +81,8 @@ def test_credential_not_leaked_on_cross_host_redirect():
         handler.end_headers()
 
     origin = _Srv(redirect)
-    dest = tempfile.mktemp(suffix=".wav")
+    dest_fd, dest = tempfile.mkstemp(suffix=".wav")
+    os.close(dest_fd)
     try:
         cap._download(
             f"http://127.0.0.1:{origin.port}/rec.wav",
@@ -116,7 +118,8 @@ def test_credential_kept_on_same_host_redirect():
             h.wfile.write(b"data")
 
     srv = _Srv(handler)
-    dest = tempfile.mktemp(suffix=".wav")
+    dest_fd, dest = tempfile.mkstemp(suffix=".wav")
+    os.close(dest_fd)
     try:
         cap._download(
             f"http://127.0.0.1:{srv.port}/rec.wav",
