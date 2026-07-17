@@ -86,7 +86,10 @@ def test_bootstrap_renders_private_configs_without_secrets_in_manifest(tmp_path)
     ):
         path = runtime / name
         assert path.is_file()
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        if os.name == "posix":
+            # POSIX permission bits only: Windows stat reports a synthesized
+            # 0o666/0o444 mode derived from the read-only attribute.
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert "127.0.0.1:6379" in (runtime / "sip.yaml").read_text()
     assert "nat_1_to_1_ip" not in (runtime / "sip.yaml").read_text()
     assert "log_level: info" in (runtime / "sip.yaml").read_text()
@@ -194,7 +197,10 @@ def test_bootstrap_refuses_weak_secrets_and_symlink_env(tmp_path):
     target = tmp_path / "target"
     _env(target)
     link = tmp_path / "link"
-    link.symlink_to(target)
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation unavailable")
     with pytest.raises(ValueError, match="non-symlink"):
         module.render(link, tmp_path / "runtime-2")
     assert module.main(["--env", str(link), "--runtime", str(tmp_path / "runtime-3")]) == 2
@@ -224,23 +230,29 @@ def test_production_token_filename_is_consistent_across_runtime_layers():
     expected = "/run/secrets/hotato-production-token"
     compose = (DEPLOY / "compose.yaml").read_text(encoding="utf-8")
     assert expected in compose
-    assert str(_runner_module().SECRET_FILE) == expected
+    # The contract values are container (Linux) paths; str(Path) renders them
+    # with the host separator, so normalize back to "/" before comparing.
+    assert str(_runner_module().SECRET_FILE).replace(os.sep, "/") == expected
     installer = _installer_module()
     installed = {
-        str(destination)
+        str(destination).replace(os.sep, "/")
         for source, destination, _mode, _owner, _limit in installer.COPIES
         if source == "hotato-production-token"
     }
     assert installed == {"/out/hotato/hotato-production-token"}
 
 
-def test_bootstrap_refuses_fifo_and_check_open_swap(tmp_path, monkeypatch):
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs require POSIX")
+def test_bootstrap_refuses_fifo_env(tmp_path):
     module = _module()
     fifo = tmp_path / "fifo"
     os.mkfifo(fifo)
     with pytest.raises(ValueError, match="regular"):
         module.render(fifo, tmp_path / "runtime")
 
+
+def test_bootstrap_refuses_check_open_swap(tmp_path, monkeypatch):
+    module = _module()
     env = tmp_path / ".env"
     replacement = tmp_path / "replacement"
     _env(env)
@@ -254,7 +266,7 @@ def test_bootstrap_refuses_fifo_and_check_open_swap(tmp_path, monkeypatch):
 
     monkeypatch.setattr(module.os, "open", swapped)
     with pytest.raises(ValueError, match="changed"):
-        module.render(env, tmp_path / "runtime-2")
+        module.render(env, tmp_path / "runtime")
 
 
 def test_bootstrap_uses_external_discovery_without_conflicting_node_ip(tmp_path):
@@ -333,37 +345,52 @@ def test_runtime_installer_copies_atomically_and_refuses_symlink(tmp_path):
     module.DIRECTORIES = ()
     module.install(source)
     assert destination.read_bytes() == b"bounded-secret\n"
-    assert stat.S_IMODE(destination.stat().st_mode) == 0o400
+    if os.name == "posix":
+        # POSIX permission bits only: Windows has no fchmod, so no mode is
+        # applied there and stat reports a synthesized attribute-based mode.
+        assert stat.S_IMODE(destination.stat().st_mode) == 0o400
 
     destination.unlink()
     (source / "token").unlink()
     (source / "target").write_bytes(b"secret")
-    (source / "token").symlink_to(source / "target")
+    try:
+        (source / "token").symlink_to(source / "target")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation unavailable")
     with pytest.raises(ValueError, match="non-symlink"):
         module.install(source)
 
 
-def test_runtime_installer_refuses_fifo_and_check_open_swap(tmp_path, monkeypatch):
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs require POSIX")
+def test_runtime_installer_refuses_fifo(tmp_path):
     module = _installer_module()
     source = tmp_path / "source"
     destination_dir = tmp_path / "destination"
     source.mkdir()
     destination_dir.mkdir()
-    fifo = source / "token"
-    os.mkfifo(fifo)
+    os.mkfifo(source / "token")
     module.COPIES = (("token", destination_dir / "token", 0o400, None, 64),)
     module.DIRECTORIES = ()
     with pytest.raises(ValueError, match="regular"):
         module.install(source)
 
-    fifo.unlink()
-    fifo.write_bytes(b"first")
+
+def test_runtime_installer_refuses_check_open_swap(tmp_path, monkeypatch):
+    module = _installer_module()
+    source = tmp_path / "source"
+    destination_dir = tmp_path / "destination"
+    source.mkdir()
+    destination_dir.mkdir()
+    token = source / "token"
+    token.write_bytes(b"first")
     replacement = source / "replacement"
     replacement.write_bytes(b"second")
+    module.COPIES = (("token", destination_dir / "token", 0o400, None, 64),)
+    module.DIRECTORIES = ()
     original_open = module.os.open
 
     def swapped(path, flags, *args):
-        if Path(path) == fifo:
+        if Path(path) == token:
             return original_open(replacement, flags, *args)
         return original_open(path, flags, *args)
 
@@ -372,6 +399,10 @@ def test_runtime_installer_refuses_fifo_and_check_open_swap(tmp_path, monkeypatc
         module.install(source)
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="directory descriptors and POSIX modes; os.open cannot open a directory on Windows",
+)
 def test_runtime_installer_prepares_otel_wal_without_following_symlinks(
     tmp_path, monkeypatch
 ):

@@ -264,12 +264,41 @@ def _utc_rfc3339_from_nanos(value: Any) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%S") + ".%09dZ" % remainder
 
 
+# Fractional seconds, anchored to an hh:mm:ss field so nothing else in the
+# string can match.
+_RFC3339_FRACTION = re.compile(r"(\d{2}:\d{2}:\d{2})\.(\d+)")
+
+
+def _six_digit_fraction(match: "re.Match[str]") -> str:
+    # Exactly six digits: truncated beyond microseconds (the 3.11+
+    # ``fromisoformat`` semantics) and zero-padded below.  Length never
+    # affects 3.11+ acceptance, so 3.11+ behavior is unchanged.
+    return match.group(1) + "." + match.group(2)[:6].ljust(6, "0")
+
+
+def _parse_rfc3339(value: str) -> _datetime.datetime:
+    """Parse an RFC3339 timestamp identically on every supported interpreter.
+
+    ``datetime.fromisoformat`` on Python 3.11+ accepts fractional seconds of
+    any length (truncating beyond microseconds), but Python 3.9/3.10 demand
+    exactly three or six digits -- and OTLP emitters produce nanosecond
+    fractions such as ``1970-01-01T00:00:01.000000000Z``.  Normalize the two
+    strict-RFC3339 shapes older interpreters cannot read -- a trailing ``Z``
+    and a fractional-seconds run that is not exactly six digits -- then
+    delegate, so 3.9/3.10 accept exactly the RFC3339 strings 3.11+ accepts
+    and every other candidate string is judged by ``fromisoformat`` unchanged.
+    """
+
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    normalized = _RFC3339_FRACTION.sub(_six_digit_fraction, normalized, count=1)
+    return _datetime.datetime.fromisoformat(normalized)
+
+
 def _validate_timestamp(value: Any) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError("time must be a non-empty RFC3339 timestamp")
-    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
     try:
-        parsed = _datetime.datetime.fromisoformat(normalized)
+        parsed = _parse_rfc3339(value)
     except ValueError:
         raise ValueError("time must be an RFC3339 timestamp")
     if parsed.tzinfo is None:

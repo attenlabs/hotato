@@ -67,6 +67,9 @@ def test_policy_validation_and_bounded_file_loader(tmp_path):
     with pytest.raises(ValueError, match="interval_seconds"):
         validate_policy(_policy(interval_seconds=0))
 
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs require POSIX")
+def test_policy_loader_refuses_fifo(tmp_path):
     fifo = tmp_path / "maintenance-fifo"
     os.mkfifo(fifo)
     with pytest.raises(ValueError, match="regular"):

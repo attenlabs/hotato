@@ -78,19 +78,28 @@ def _atomic_install(path: Path, data: bytes, mode: int, owner: tuple[int, int] |
         raise ValueError(f"{path.parent} must be a mounted directory")
     descriptor, temporary = tempfile.mkstemp(prefix=".hotato-install-", dir=path.parent)
     try:
-        os.fchmod(descriptor, mode)
-        if owner is not None:
+        # os.fchmod/os.fchown do not exist on Windows (POSIX permission bits
+        # and numeric ownership are not Windows concepts); the installer's
+        # production target is the Linux compose runtime.
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, mode)
+        if owner is not None and hasattr(os, "fchown"):
             os.fchown(descriptor, *owner)
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        if os.name != "nt":
+            # Directory-entry durability via a directory descriptor is POSIX:
+            # on Windows os.open cannot open a directory at all (the CRT
+            # _wopen it uses fails with EACCES), so skip the fsync there --
+            # matching the os.name != "nt" convention in hotato.production.
+            directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     except BaseException:
         try:
             os.unlink(temporary)
@@ -119,8 +128,11 @@ def _prepare_directory(
             or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino)
         ):
             raise ValueError(f"{path} changed before it was opened")
-        os.fchmod(descriptor, mode)
-        if owner is not None:
+        # os.fchmod/os.fchown do not exist on Windows; this whole function is
+        # descriptor-based POSIX directory preparation (see _atomic_install).
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, mode)
+        if owner is not None and hasattr(os, "fchown"):
             os.fchown(descriptor, *owner)
         os.fsync(descriptor)
     finally:
