@@ -8,6 +8,15 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Fixed
+- **Windows portability of the artifact store.** The store's openat-style
+  containment primitive (trusted directory descriptors + `dir_fd`-relative
+  operations) has no Windows equivalent; platforms without `dir_fd` support
+  now take path-based branches whose containment rests on a realpath prefix
+  check, failing closed on escapes. Raw `os.open` byte I/O gains `O_BINARY`
+  (zero on POSIX) so the Windows CRT's text translation cannot rewrite bytes
+  under content addressing. POSIX behavior is unchanged.
+
 ## [1.8.1] - 2026-07-16
 
 ### Fixed
