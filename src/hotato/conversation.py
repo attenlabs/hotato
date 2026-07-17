@@ -1,26 +1,33 @@
 """``hotato.conversation.v1``: build + verify the Conversation Artifact manifest.
 
 A Conversation Artifact (Phase-1 design D) is a directory that binds ALL
-evidence for one conversation -- audio, transcript, trace, timing, assertions --
-by sha256, so the manifest is a tamper-evident index of its children. This
-module builds that manifest and verifies it:
+evidence for one conversation -- audio, transcript, trace, timing, assertions,
+state -- by sha256, so the manifest is a tamper-evident index of its children.
+This module builds that manifest and verifies it:
 
 * :func:`build_manifest` hashes each supplied child file with the SAME
   content-addressing sha256 the fleet store uses
   (:meth:`hotato.fleet.store.ArtifactStore._digest_bytes`), so a digest bound
   here resolves against the store, and records ``{sha256, path, bytes}`` per
   child under the closed artifact set (audio/transcript/trace/timing/
-  assertions). ``created_at`` is REQUIRED and caller-supplied -- never
+  assertions/state). ``created_at`` is REQUIRED and caller-supplied -- never
   ``Date.now()`` on this deterministic path.
 
 * :func:`verify` re-hashes every referenced child and REFUSES on any mismatch
   or missing file (the evidence-kernel refuse-not-downgrade posture: a tampered
-  child is refused, never silently accepted). It returns a verdict dict whose
+  child is refused, never silently accepted). It ALSO refuses when the bound
+  ``assertions`` child records a determinate (non-INCONCLUSIVE) ``state`` /
+  ``state_change`` result -- a verdict that read Authority 2 (the post-call
+  system of record) -- but no ``state`` evidence child is bound to re-prove it:
+  a state-driven verdict without bound, re-hashable state evidence is un-provable
+  and is refused, never silently accepted. It returns a verdict dict whose
   ``ok`` is ``False`` and ``refused`` is ``True`` on any discrepancy -- it does
   not quietly return the manifest as if intact.
 
-HONESTY INVARIANT (invariant 5): ``origin.kind`` ('real'|'simulated') is
-REQUIRED so synthetic is never conflated with real, and a 'simulated' origin
+HONESTY INVARIANT (invariant 5): ``origin.kind`` ('real'|'simulated'|'fixture')
+is REQUIRED so synthetic-or-unauthenticated is never conflated with a genuine
+authenticated capture. 'real' is an authenticated live/driven capture; 'fixture'
+is file-supplied stored evidence (never asserted as 'real'); a 'simulated' origin
 MUST carry its simulator block. No ``overall_score`` anywhere. A structurally
 malformed manifest raises ``ValueError`` (the usage-error / exit-2 path); a
 digest MISMATCH is a verify-time refusal, not a validation error.
@@ -65,9 +72,20 @@ VERSION = 1
 MANIFEST_NAME = "conversation.json"
 
 # The CLOSED set of evidence children a manifest may bind, each optional.
-ARTIFACT_NAMES = ("audio", "transcript", "trace", "timing", "assertions")
-# The REQUIRED synthetic/real axis (invariant 5).
-ORIGIN_KINDS = ("real", "simulated")
+# ``state`` binds the post-call STATE evidence (Authority 2): the query
+# descriptor + the observed projection a ``state`` / ``state_change`` assertion
+# read, so a state-driven verdict is re-provable exactly as trace/transcript are.
+ARTIFACT_NAMES = ("audio", "transcript", "trace", "timing", "assertions", "state")
+# The REQUIRED provenance axis (invariant 5). "real" is an AUTHENTICATED genuine
+# capture -- a live/driven agent call whose origin is established by the capture
+# path (hotato.drive._real_origin / the `hotato investigate` capture-origin
+# authentication). "simulated" is a synthetic simulator run (which MUST carry its
+# simulator block). "fixture" is file-supplied STORED evidence whose live
+# provenance is NOT authenticated -- e.g. `hotato test run` reading its evidence
+# from --transcript/--trace/--state/--audio paths. A stored fixture is NEVER
+# labeled "real": synthetic-or-unauthenticated is never conflated with a genuine
+# authenticated capture (that is the whole point of the axis).
+ORIGIN_KINDS = ("real", "simulated", "fixture")
 
 
 def sha256_file(path: str) -> str:
@@ -230,6 +248,130 @@ def load_manifest(path: str) -> Dict[str, Any]:
 # Verify (re-hash children, REFUSE on mismatch)
 # =========================================================================
 
+# The determinate (non-INCONCLUSIVE) statuses a state assertion can carry. An
+# INCONCLUSIVE state result read NO authority (no adapter / adapter error), so
+# it produced no state evidence and MUST NOT require a bound ``state`` child.
+_STATE_KINDS = ("state", "state_change")
+_DETERMINATE = ("PASS", "FAIL")
+
+
+def _bound_state_evidence_ids(
+    artifacts: Dict[str, Any], root: str
+) -> Optional[set]:
+    """Return the set of assertion ids covered by the bound ``state`` evidence
+    child, or ``None`` if it cannot be read/parsed (a fail-closed signal). Each
+    entry in ``state-evidence.json`` carries the ``id`` of the state assertion
+    whose observed Authority-2 projection it captures."""
+    ref = artifacts.get("state")
+    if not isinstance(ref, dict):
+        return set()
+    rel = ref.get("path")
+    if not rel:
+        return None
+    child = os.path.join(root, rel)
+    if not os.path.isfile(child):
+        return None
+    try:
+        with _open_regular(child, "rb") as fh:
+            env = json.loads(fh.read().decode("utf-8"))
+    except Exception:
+        return None
+    entries = env.get("entries") if isinstance(env, dict) else None
+    if not isinstance(entries, list):
+        return None
+    return {
+        str(e.get("id"))
+        for e in entries
+        if isinstance(e, dict) and e.get("id") is not None
+    }
+
+
+def _state_evidence_refusals(
+    artifacts: Dict[str, Any], root: str
+) -> List[Dict[str, Any]]:
+    """Cross-check the bound ``assertions`` child for state authority: a
+    determinate ``state`` / ``state_change`` result drove the verdict off
+    Authority 2 (the post-call system of record), so the state evidence that
+    produced it MUST be bound as the ``state`` child to be re-provable. Returns a
+    (possibly empty) list of refusal records; a non-empty list is a verify-time
+    REFUSAL -- a state-driven verdict without bound state evidence is un-provable
+    and is refused, never silently accepted.
+
+    Fail-closed: a bound ``assertions`` child that cannot be read/parsed to run
+    this cross-check is itself a refusal (we will not certify a verdict whose
+    state authority we cannot inspect). A bundle with no bound ``assertions``
+    child (e.g. a simulator bundle that binds only transcript+trace) has no state
+    result to cross-check and returns no refusal."""
+    ref = artifacts.get("assertions")
+    if not isinstance(ref, dict):
+        return []
+    rel = ref.get("path")
+    if not rel:
+        return []  # already a missing-child refusal in the main loop
+    child = os.path.join(root, rel)
+    if not os.path.isfile(child):
+        return []  # already a missing-child refusal in the main loop
+    try:
+        with _open_regular(child, "rb") as fh:
+            env = json.loads(fh.read().decode("utf-8"))
+        results = env.get("results") if isinstance(env, dict) else None
+    except Exception:
+        return [{
+            "artifact": "state",
+            "reason": (
+                "the bound 'assertions' child could not be read to cross-check "
+                "state authority; a verdict whose state evidence cannot be "
+                "inspected is refused"
+            ),
+        }]
+    if not isinstance(results, list):
+        return []
+    determinate_ids = sorted(
+        str(r.get("id"))
+        for r in results
+        if isinstance(r, dict)
+        and r.get("kind") in _STATE_KINDS
+        and r.get("status") in _DETERMINATE
+    )
+    if not determinate_ids:
+        return []
+    if "state" not in artifacts:
+        return [{
+            "artifact": "state",
+            "reason": (
+                "a determinate state/state_change result drove the verdict "
+                f"(assertion(s) {determinate_ids}) but no 'state' evidence child "
+                "is bound; the state fixture/projection that produced the result "
+                "is un-provable -- refused"
+            ),
+        }]
+    # A 'state' child IS bound. The main verify loop re-hashes it, but a valid
+    # digest only proves the child is unmodified, not that it is the RIGHT
+    # evidence: an unrelated, correctly-hashed state-evidence child could be
+    # swapped in. Require the bound evidence to COVER every determinate state
+    # verdict id, else the evidence that produced the verdict is un-provable.
+    covered = _bound_state_evidence_ids(artifacts, root)
+    if covered is None:
+        return [{
+            "artifact": "state",
+            "reason": (
+                "the bound 'state' evidence child could not be read to "
+                "cross-check coverage of the state verdict(s); refused"
+            ),
+        }]
+    missing = [i for i in determinate_ids if i not in covered]
+    if missing:
+        return [{
+            "artifact": "state",
+            "reason": (
+                "the bound 'state' evidence does not cover the determinate "
+                f"state/state_change verdict(s) {missing}; the evidence that "
+                "produced the verdict is un-provable (swappable) -- refused"
+            ),
+        }]
+    return []
+
+
 def verify(dir_or_manifest: Any, base_dir: Optional[str] = None) -> Dict[str, Any]:
     """Re-hash every child referenced by a conversation manifest and REFUSE on
     any digest mismatch or missing file.
@@ -245,12 +387,15 @@ def verify(dir_or_manifest: Any, base_dir: Optional[str] = None) -> Dict[str, An
 
         {"ok": bool, "refused": bool, "conversation_id": str,
          "verified": [names...], "mismatches": [...], "missing": [...],
-         "reason": str}
+         "unbound": [...], "reason": str}
 
     A single mismatch or missing child makes ``ok`` ``False`` and ``refused``
     ``True`` -- the evidence-kernel posture: refuse, never silently accept a
-    tampered artifact. A structurally malformed manifest raises ``ValueError``
-    (that is a usage error, distinct from a digest refusal)."""
+    tampered artifact. ``unbound`` carries state-authority refusals: a
+    determinate ``state`` / ``state_change`` result in the bound ``assertions``
+    child with no ``state`` evidence child to re-prove it (a state-driven verdict
+    that cannot be re-hashed). A structurally malformed manifest raises
+    ``ValueError`` (that is a usage error, distinct from a digest refusal)."""
     if isinstance(dir_or_manifest, dict):
         manifest = validate_conversation_doc(dir_or_manifest)
         root = base_dir if base_dir is not None else "."
@@ -292,16 +437,21 @@ def verify(dir_or_manifest: Any, base_dir: Optional[str] = None) -> Dict[str, An
         else:
             verified.append(name)
 
-    refused = bool(mismatches or missing)
+    unbound = _state_evidence_refusals(manifest.get("artifacts") or {}, root)
+
+    refused = bool(mismatches or missing or unbound)
     if refused:
         parts = []
         if mismatches:
             parts.append(f"{len(mismatches)} digest mismatch(es)")
         if missing:
             parts.append(f"{len(missing)} missing child(ren)")
+        if unbound:
+            parts.append(f"{len(unbound)} unbound state-authority verdict(s)")
         reason = (
-            "REFUSED: " + ", ".join(parts) + " -- a tampered or absent artifact "
-            "is refused, never silently accepted"
+            "REFUSED: " + ", ".join(parts) + " -- a tampered or absent artifact, "
+            "or a state-driven verdict with no bound state evidence, is refused, "
+            "never silently accepted"
         )
     else:
         reason = f"all {len(verified)} bound artifact(s) re-hashed to their recorded digest"
@@ -313,5 +463,6 @@ def verify(dir_or_manifest: Any, base_dir: Optional[str] = None) -> Dict[str, An
         "verified": verified,
         "mismatches": mismatches,
         "missing": missing,
+        "unbound": unbound,
         "reason": reason,
     }

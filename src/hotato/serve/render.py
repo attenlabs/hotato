@@ -925,9 +925,10 @@ _RECORD_LANES = ("outcome", "policy", "conversation", "speech", "reliability")
 
 
 def _record_origin_cls(origin: Optional[str]) -> str:
-    """A record's origin is ``captured`` or ``simulated`` (never ``real`` -- that
-    axis belongs to conversations). Simulated keeps the machine-track colour; a
-    captured or unspecified origin stays muted."""
+    """A record's origin is ``captured``, ``fixture``, or ``simulated`` (never
+    ``real`` -- that axis belongs to conversations). Simulated keeps the
+    machine-track colour; a captured, fixture, or unspecified origin stays
+    muted."""
     return "simulated" if origin == "simulated" else "muted"
 
 

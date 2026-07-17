@@ -314,15 +314,25 @@ def evaluate_conversation_test(
 # =========================================================================
 
 def _origin_from_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """``origin`` for the conversation artifact: REAL by default (Phase 1
-    evaluates a supplied real recording), SIMULATED only when the test file
-    carries an explicit ``simulator`` block. Synthetic is never conflated with
-    real (invariant 5): a simulated origin must declare its model/scenario/seed,
-    which :func:`hotato.conversation.build_manifest` enforces."""
+    """``origin`` for the conversation artifact produced by ``hotato test run``.
+
+    FAIL-CLOSED provenance (invariant 5): ``hotato test run`` ALWAYS reads its
+    evidence from supplied file paths (--transcript/--trace/--state/--audio); it
+    never authenticates a live capture. So a plain file-based run is ``FIXTURE``
+    -- file-supplied stored evidence -- NOT ``real``. ``real`` is reserved for a
+    path that actually authenticates a genuine live/driven capture
+    (:func:`hotato.drive._real_origin` / the `hotato investigate` capture-origin
+    authentication), which must supply its own ``origin=`` to
+    :func:`hotato.conversation.assemble_conversation_artifact`. ``SIMULATED`` is
+    used only when the test file carries an explicit ``simulator`` block, and a
+    simulated origin must declare its model/scenario/seed
+    (:func:`hotato.conversation.build_manifest` enforces this). A stored fixture
+    is never asserted as ``real``: an unauthenticated file is byte-supplied
+    evidence, never proof of a genuine live call."""
     sim = doc.get("simulator")
     if isinstance(sim, dict) and sim:
         return {"kind": "simulated", "simulator": sim}
-    return {"kind": "real"}
+    return {"kind": "fixture"}
 
 
 def _write_json(path: str, obj: Any) -> None:
@@ -345,6 +355,7 @@ def assemble_conversation_artifact(
     trace_path: Optional[str] = None,
     timing: Any = None,
     scenario_digest: Optional[str] = None,
+    state_evidence: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Copy/write the supplied evidence into ``out_dir`` and bind it by sha256
     into a ``hotato.conversation.v1`` manifest (written as
@@ -355,7 +366,17 @@ def assemble_conversation_artifact(
     audio copied under ``audio/``, the transcript/trace copied verbatim, and the
     scored ``timing`` + the evaluated ``assertions`` envelope written as JSON.
     ``created_at`` is caller-supplied (never ``Date.now()`` on this
-    deterministic path). Only the children actually supplied are bound."""
+    deterministic path). Only the children actually supplied are bound.
+
+    ``state_evidence`` is the capture log a ``state`` / ``state_change``
+    assertion run appends to (:attr:`hotato.assert_.Context.state_evidence`): the
+    query descriptor + observed Authority-2 projection behind each determinate
+    state read. When non-empty it is written as ``state-evidence.json`` and bound
+    as the ``state`` child, so a state-driven verdict is re-provable and cannot be
+    swapped without a digest refusal. A ``state`` / ``state_change`` result that
+    drove the verdict but produced no bound evidence is refused by
+    :func:`hotato.conversation.verify` -- the state authority is closed the same
+    way trace/transcript already are."""
     os.makedirs(out_dir, exist_ok=True)
     artifact_files: Dict[str, str] = {}
 
@@ -382,6 +403,21 @@ def assemble_conversation_artifact(
     assertions_dst = os.path.join(out_dir, "assertions.json")
     _write_json(assertions_dst, assertions_env)
     artifact_files["assertions"] = assertions_dst
+
+    # Bind the post-call STATE evidence (Authority 2) that drove any determinate
+    # state / state_change result, so the exact fixture/projection behind the
+    # verdict is hashed and re-provable -- not un-bound and swappable. Deduped by
+    # assertion id (a repeated deterministic replay records once), stable order.
+    if state_evidence:
+        by_id: Dict[Any, Dict[str, Any]] = {}
+        for ev in state_evidence:
+            by_id[ev.get("id")] = ev
+        entries = [by_id[k] for k in sorted(by_id, key=lambda x: str(x))]
+        state_dst = os.path.join(out_dir, "state-evidence.json")
+        _write_json(state_dst, {
+            "kind": "hotato.state-evidence", "version": 1, "entries": entries,
+        })
+        artifact_files["state"] = state_dst
 
     manifest = CV.build_manifest(
         conversation_id=conversation_id,

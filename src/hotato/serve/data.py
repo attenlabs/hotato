@@ -59,7 +59,7 @@ DIMENSIONS = ("outcome", "policy", "conversation", "speech", "reliability")
 # The three honest verdicts (invariant 3: INCONCLUSIVE is a real state).
 STATUSES = ("PASS", "FAIL", "INCONCLUSIVE")
 # The permanently-separate synthetic/real axis (invariant 5).
-ORIGINS = ("real", "simulated")
+ORIGINS = ("real", "simulated", "fixture")
 
 # A very large read bound: one team, one node -> pull the whole workspace for an
 # aggregate rather than silently truncating at the CLI default of 50.

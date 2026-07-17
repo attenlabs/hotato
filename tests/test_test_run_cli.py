@@ -323,7 +323,9 @@ def test_repetitions_report_per_run_with_real_reliability(tmp_path, capsys):
     # deferral, never a fabricated number.
     rel = result["reliability"]
     assert rel["runs"] == 3
-    assert rel["origin"] == "real"
+    # File-supplied stored evidence is provenance FIXTURE, never "real" (a plain
+    # `test run` never authenticates a live capture -- invariant 5, fail-closed).
+    assert rel["origin"] == "fixture"
     agg = rel["aggregate"]
     assert agg["n"] == 3 and agg["k"] == 3 and agg["passes"] == 3
     assert agg["pass_at_1"] == 1.0
@@ -339,11 +341,17 @@ def test_repetitions_report_per_run_with_real_reliability(tmp_path, capsys):
     assert code == 0
 
 
-# --- origin: real by default, simulated only with a simulator block ----------
+# --- origin: FIXTURE for file-supplied evidence (never "real"), simulated only
+# --- with a simulator block ---------------------------------------------------
 
-def test_origin_is_real_by_default(tmp_path):
+def test_origin_is_fixture_for_file_supplied_evidence(tmp_path):
+    # A plain `test run` reads its evidence from files (--transcript/--trace/
+    # --state/--audio) and never authenticates a live capture, so the bound
+    # conversation manifest is provenance FIXTURE -- byte-DISTINGUISHABLE from a
+    # genuinely-captured live call (which would be origin.kind "real"). Asserting
+    # "real" for a stored file would launder its provenance (the P0-2 defect).
     tf = _write_test(
-        tmp_path, name="real-origin",
+        tmp_path, name="fixture-origin",
         deterministic=[{"id": "refunded", "kind": "tool_call",
                         "name": "issue_refund"}],
     )
@@ -351,7 +359,45 @@ def test_origin_is_real_by_default(tmp_path):
     _run(["test", "run", tf, "--agent", "a", "--trace", _demo_trace(),
           "--out", str(out)])
     manifest = json.loads((out / "conversation.json").read_text(encoding="utf-8"))
-    assert manifest["origin"]["kind"] == "real"
+    assert manifest["origin"]["kind"] == "fixture"
+    assert manifest["origin"]["kind"] != "real"
+
+
+def test_stored_fixture_run_is_byte_distinguishable_from_real_capture(
+        tmp_path, capsys):
+    # The exact P0-2 repro: `test run` over stored --transcript/--trace fixture
+    # files, with NO simulator block. The bound conversation manifest -- in the
+    # JSON result AND on disk -- and the reliability block must both be
+    # provenance FIXTURE, byte-DISTINGUISHABLE from a genuinely-captured live
+    # call (origin.kind "real"). "real" stays a VALID, accepted kind (reserved
+    # for an authenticated capture that supplies its own origin=), so the fix
+    # narrows what may CLAIM "real"; it does not delete the kind.
+    tf = _write_test(
+        tmp_path, name="fixture-repro",
+        deterministic=[{"id": "refunded", "kind": "tool_call",
+                        "name": "issue_refund", "dimension": "outcome"}],
+    )
+    out = tmp_path / "ca"
+    _run(["test", "run", tf, "--agent", "support-v3",
+          "--transcript", _demo_transcript(), "--trace", _demo_trace(),
+          "--out", str(out), "--format", "json"])
+    result = json.loads(capsys.readouterr().out)
+    assert result["reliability"]["origin"] == "fixture"
+    assert result["conversation"]["origin"] == {"kind": "fixture"}
+
+    disk = json.loads((out / "conversation.json").read_text(encoding="utf-8"))
+    assert disk["origin"] == {"kind": "fixture"}
+    assert disk["origin"]["kind"] != "real"
+
+    # "real" remains a valid origin kind -- the authenticated capture path (e.g.
+    # hotato.drive) supplies it explicitly and it still builds/validates.
+    assert "real" in CV.ORIGIN_KINDS
+    real_manifest = CV.build_manifest(
+        conversation_id="c1", agent_id="a",
+        origin={"kind": "real", "provider": "vapi", "provider_call_id": "x"},
+        created_at="2026-07-16T00:00:00Z",
+    )
+    assert real_manifest["origin"]["kind"] == "real"
 
 
 def test_origin_is_simulated_with_a_simulator_block(tmp_path):
