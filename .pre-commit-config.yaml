@@ -1,0 +1,10 @@
+# Local mirror of the CI lint gate (tests.yml `ruff` job): `ruff check` against
+# the [tool.ruff] config in pyproject.toml. Format is deliberately not hooked;
+# the tree predates ruff-format (see the ruff job comment in tests.yml).
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.0
+    hooks:
+      - id: ruff
+        args: [check, --force-exclude]
+        pass_filenames: true

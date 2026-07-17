@@ -9,6 +9,9 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+# Least privilege: every job only reads the checkout.
+permissions:
+  contents: read
 jobs:
   pytest:
     runs-on: ubuntu-latest
