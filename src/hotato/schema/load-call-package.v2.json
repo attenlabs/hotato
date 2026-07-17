@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/load-call-package.v2.json",
+  "title": "Hotato workload-bound load-call evidence package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "stage", "index", "provider", "call_id_sha256", "workload_plan_sha256", "call_spec_sha256", "lifecycle_status", "evidence", "evidence_complete", "artifacts", "package_id"],
+  "properties": {
+    "schema": {"const": "hotato.load-call-package.v2"},
+    "stage": {"type": "string", "minLength": 1},
+    "index": {"type": "integer", "minimum": 0},
+    "provider": {"enum": ["local", "twilio", "vapi", "retell"]},
+    "call_id_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "workload_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "call_spec_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "lifecycle_status": {"type": ["string", "null"]},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_lifecycle", "delivered_audio", "tool_trace", "backend_state"],
+      "properties": {
+        "call_lifecycle": {"enum": ["PRESENT", "MISSING", "UNSUPPORTED", "UNOBSERVABLE"]},
+        "delivered_audio": {"enum": ["PRESENT", "MISSING", "UNSUPPORTED", "UNOBSERVABLE"]},
+        "tool_trace": {"enum": ["PRESENT", "MISSING", "UNSUPPORTED", "UNOBSERVABLE"]},
+        "backend_state": {"enum": ["PRESENT", "MISSING", "UNSUPPORTED", "UNOBSERVABLE"]}
+      }
+    },
+    "evidence_complete": {"type": "boolean"},
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+      "propertyNames": {"enum": ["create-receipt.json", "terminal-receipt.json", "provider-export.json"]}
+    },
+    "package_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

@@ -36,6 +36,7 @@ redirects to strip the token from the address bar (see [Auth](#auth)).
 | `--host` | `127.0.0.1` | bind address (see [Binding](#binding-127001-by-default)) |
 | `--port` | `8321` | listen port |
 | `--registry` | `~/.hotato/fleet` | registry home directory |
+| `--production-db` | none | read session manifests and alerts from this separate Hotato production SQLite database in `/health` (mode=ro; see below) |
 | `--token` | none | supply the bearer token yourself |
 | `--token-file` | none | read the bearer token from a file (first line) |
 
@@ -54,6 +55,31 @@ agents and scripts can drive the workspace without scraping HTML.
 | **Conversation inspector** | `/conversation/<id>` | One conversation: evidence manifest, transcript, trace spans, per-dimension evaluations with rationale and citations (deterministic checks and model-judged/advisory results in **separate lanes**), reviewer decisions. Every digest links to the raw evidence (`/evidence/<digest>`); redacted transcript segments and trace spans render `[redacted]`, in both HTML and JSON. |
 | **Failure clusters** | `/clusters` | Failed evaluations and assertions grouped by **observable signature** (dimension + assertion kind + reason-class), with counts and drill-through into the inspector -- it groups what was observed; the cause stays yours to determine. |
 | **Production health** | `/health` | Ingest counts, evaluated coverage, and per-dimension failure rate over time, **separated for real and simulated** conversations. Sparse days/dimensions read *not enough history* rather than a misleading point. No single combined quality score -- each dimension keeps its own number. |
+
+### Optional production-evidence bridge
+
+The fleet registry and the production event store have different storage
+authorities. Pointing the workspace at both is explicit:
+
+```bash
+hotato serve --workspace default \
+  --production-db .hotato/production.sqlite3
+```
+
+`/health` then adds a separate **Production evidence plane** section with
+bounded session manifests, current alerts, event-source identifiers, every
+evidence lane's availability and authority, and the required lanes still
+missing. The JSON mirror exposes the same projection under
+`production_evidence`.
+
+The bridge opens the selected database with SQLite `mode=ro` for each
+request. It never constructs the writer-side `ProductionStore`, never selects
+the event `payload_json` column, and never imports a production row into the
+fleet registry. Production counts therefore stay outside `ingested_total`,
+the real/simulated buckets, and release trends. The production schema does not
+carry a fleet workspace id, so the UI states `workspace_scope =
+not_encoded_by_production_schema` instead of silently assigning those sessions
+to the workspace being served.
 
 ## Auth
 

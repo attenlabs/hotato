@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/caller-plan.v1.json",
+  "title": "Hotato bounded caller program",
+  "description": "A caller-side program. It produces participant actions and evidence; it contains no outcome or verdict authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "mode"],
+  "properties": {
+    "schema": {"const": "hotato.caller-plan.v1"},
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "mode": {"enum": ["scripted", "hybrid", "generative", "frozen_replay"]},
+    "start": {"$ref": "#/definitions/id"},
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {"$ref": "#/definitions/node"}
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_steps": {"type": "integer", "minimum": 1},
+        "max_turns": {"type": "integer", "minimum": 1},
+        "max_duration_ms": {"type": "integer", "minimum": 1},
+        "max_visits_per_node": {"type": "integer", "minimum": 1},
+        "max_events": {"type": "integer", "minimum": 1},
+        "max_event_chars": {"type": "integer", "minimum": 1},
+        "max_model_calls": {"type": "integer", "minimum": 1},
+        "max_model_input_chars": {"type": "integer", "minimum": 1},
+        "max_model_output_chars": {"type": "integer", "minimum": 1},
+        "max_text_chars": {"type": "integer", "minimum": 1},
+        "max_audio_bytes": {"type": "integer", "minimum": 1},
+        "max_tokens": {"type": "integer", "minimum": 1},
+        "max_cost_microusd": {"type": "integer", "minimum": 0},
+        "max_wait_ms": {"type": "integer", "minimum": 1}
+      }
+    },
+    "initial_state": {"type": "object"},
+    "frozen_package": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "metadata": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "frozen_replay"}}},
+      "then": {
+        "required": ["frozen_package"],
+        "not": {"anyOf": [{"required": ["nodes"]}, {"required": ["start"]}, {"required": ["initial_state"]}]}
+      },
+      "else": {"required": ["start", "nodes"]}
+    }
+  ],
+  "definitions": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "capabilityState": {"enum": ["SUPPORTED", "UNSUPPORTED", "UNOBSERVABLE"]},
+    "trigger": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "all": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/trigger"}},
+        "any": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/trigger"}},
+        "not": {"$ref": "#/definitions/trigger"},
+        "event": {"enum": ["transcript", "tool_result", "state_snapshot", "dtmf", "lifecycle", "transfer", "hold", "timing", "timeout", "custom"]},
+        "text_regex": {"type": "string", "minLength": 1, "maxLength": 512},
+        "tool": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "digits": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "equals": {},
+        "metric": {"type": "string", "minLength": 1},
+        "gte": {"type": "number"},
+        "lte": {"type": "number"},
+        "actor_state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "equals"],
+          "properties": {"key": {"type": "string", "minLength": 1}, "equals": {}}
+        }
+      }
+    },
+    "base": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"type": "string"}, "next": {"$ref": "#/definitions/id"}}
+    },
+    "node": {
+      "oneOf": [
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "text"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "say"}, "next": {"$ref": "#/definitions/id"}, "text": {"type": "string", "minLength": 1, "maxLength": 100000}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "prompt"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "generate"}, "next": {"$ref": "#/definitions/id"}, "prompt": {"type": "string", "minLength": 1, "maxLength": 100000}, "allowed_actions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["say", "dtmf", "silence", "hangup"]}}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "listen"}, "next": {"$ref": "#/definitions/id"}, "timeout_ms": {"type": "integer", "minimum": 0, "maximum": 300000}, "max_events": {"type": "integer", "minimum": 1, "maximum": 1000}, "until": {"$ref": "#/definitions/trigger"}, "on_timeout": {"$ref": "#/definitions/id"}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "duration_ms"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"enum": ["wait", "silence"]}, "next": {"$ref": "#/definitions/id"}, "duration_ms": {"type": "integer", "minimum": 0, "maximum": 300000}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "digits"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "dtmf"}, "next": {"$ref": "#/definitions/id"}, "digits": {"type": "string", "pattern": "^[0-9A-Da-d*#]{1,64}$"}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "profile"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "impairment"}, "next": {"$ref": "#/definitions/id"}, "profile": {"type": "object", "minProperties": 1}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "when"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "expect"}, "next": {"$ref": "#/definitions/id"}, "when": {"$ref": "#/definitions/trigger"}, "on_miss": {"$ref": "#/definitions/id"}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "key", "value"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "set_state"}, "next": {"$ref": "#/definitions/id"}, "key": {"type": "string", "minLength": 1}, "value": {}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "cases"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "branch"}, "next": {"$ref": "#/definitions/id"}, "default": {"$ref": "#/definitions/id"}, "cases": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object", "additionalProperties": false, "required": ["when", "next"], "properties": {"when": {"$ref": "#/definitions/trigger"}, "next": {"$ref": "#/definitions/id"}}}}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type", "target", "max_iterations"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "repeat_bounded"}, "next": {"$ref": "#/definitions/id"}, "target": {"$ref": "#/definitions/id"}, "max_iterations": {"type": "integer", "minimum": 1, "maximum": 10000}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "transfer_expect"}, "next": {"$ref": "#/definitions/id"}, "timeout_ms": {"type": "integer", "minimum": 0, "maximum": 300000}, "max_events": {"type": "integer", "minimum": 1, "maximum": 1000}, "on_miss": {"$ref": "#/definitions/id"}}}]},
+        {"allOf": [{"$ref": "#/definitions/base"}, {"type": "object", "additionalProperties": false, "required": ["id", "type"], "properties": {"id": {"$ref": "#/definitions/id"}, "type": {"const": "hangup"}, "reason": {"type": "string", "minLength": 1, "maxLength": 1000}}}]}
+      ]
+    }
+  }
+}

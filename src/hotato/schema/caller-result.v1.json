@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/caller-result.v1.json",
+  "title": "Hotato caller run result",
+  "description": "A participant-action record with content-addressed model, text, and PCM artifacts. It is not an agent verdict.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "plan_id", "mode", "created_at", "status", "exit_code", "capabilities", "actions", "events", "model_calls", "actor_state", "authority", "result_id"],
+  "properties": {
+    "schema": {"const": "hotato.caller-result.v1"},
+    "plan_id": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["scripted", "hybrid", "generative", "frozen_replay"]},
+    "created_at": {"type": "string", "minLength": 1},
+    "status": {"enum": ["COMPLETED", "HUNG_UP", "BLOCKED", "ERROR"]},
+    "exit_code": {"enum": [0, 1]},
+    "capabilities": {"type": "object", "additionalProperties": {"enum": ["SUPPORTED", "UNSUPPORTED", "UNOBSERVABLE"]}},
+    "actions": {"type": "array", "items": {"type": "object"}},
+    "events": {"type": "array", "items": {"type": "object"}},
+    "model_calls": {"type": "array", "items": {"type": "object"}},
+    "actor_state": {"type": "object"},
+    "session_boundary": {
+      "type": "object",
+      "description": "Sidecar command receipts when exposed. Acceptance by a sidecar is not target-delivery proof."
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caller_model", "actor_state", "outcome", "verdict"],
+      "properties": {
+        "caller_model": {"const": "proposal_only"},
+        "actor_state": {"const": "scenario_input"},
+        "outcome": {"const": "not_evaluated"},
+        "verdict": {"const": "not_produced"}
+      }
+    },
+    "result_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

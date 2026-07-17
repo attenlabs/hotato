@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/load-result.v2.json",
+  "title": "Hotato evidence-preserving load result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plan_id", "workload_plan_sha256", "call_spec_sha256", "workload_models", "automatic_create_retries", "provider_completion_is_quality_pass", "metrics", "stages", "recovery", "safety", "slos", "status", "exit_code", "artifacts", "result_id"],
+  "properties": {
+    "schema": {"const": "hotato.load-result.v2"},
+    "plan_id": {"type": "string", "minLength": 1},
+    "workload_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "call_spec_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "provider_completion_is_quality_pass": {"const": false},
+    "automatic_create_retries": {"const": 0},
+    "workload_models": {"type": "array", "uniqueItems": true, "items": {"enum": ["closed", "open"]}},
+    "status": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]},
+    "exit_code": {"enum": [0, 1, 2]},
+    "metrics": {"type": "object"},
+    "stages": {"type": "array"},
+    "recovery": {"type": "object"},
+    "safety": {"type": "object"},
+    "slos": {"type": "array"},
+    "artifacts": {"type": "object"},
+    "result_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

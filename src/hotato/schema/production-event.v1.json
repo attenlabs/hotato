@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schema/production-event.v1.json",
+  "title": "Hotato production event, version 1",
+  "description": "A bounded CloudEvents-shaped production observation. Authentication proves the request source; the required authority object separately states whether the event may support an execution claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["specversion", "id", "source", "type", "subject", "time", "data", "authority"],
+  "properties": {
+    "specversion": {"const": "1.0"},
+    "id": {"$ref": "#/$defs/id"},
+    "source": {"$ref": "#/$defs/id"},
+    "subject": {"$ref": "#/$defs/id"},
+    "type": {
+      "enum": [
+        "session.started", "session.ended", "participant.joined", "participant.left",
+        "transcript.segment", "media.asset.available", "transport.sample",
+        "turn.started", "turn.ended", "model.operation", "tool.requested",
+        "tool.result", "state.snapshot", "capture.completed",
+        "evaluation.completed", "incident.created"
+      ]
+    },
+    "time": {"type": "string", "format": "date-time"},
+    "sequence": {"type": "integer", "minimum": 0},
+    "traceparent": {"type": "string", "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"},
+    "datacontenttype": {"type": "string"},
+    "dataschema": {"type": "string"},
+    "data": {
+      "type": "object",
+      "properties": {
+        "availability": {"enum": ["available", "unavailable", "unsupported"]}
+      },
+      "additionalProperties": true
+    },
+    "authority": {"$ref": "#/$defs/authority"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "eligible_for_execution_claim"],
+      "properties": {
+        "kind": {"enum": ["measured", "signed_attestation", "provider_export", "adapter_reported", "submitted"]},
+        "eligible_for_execution_claim": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"enum": ["measured", "signed_attestation"]}}},
+          "then": {"properties": {"eligible_for_execution_claim": {"const": true}}},
+          "else": {"properties": {"eligible_for_execution_claim": {"const": false}}}
+        }
+      ]
+    }
+  }
+}

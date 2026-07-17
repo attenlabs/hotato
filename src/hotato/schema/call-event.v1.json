@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/call-event.v1.json",
+  "title": "Hotato normalized call event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "run_id", "call_id", "leg_id", "sequence", "source", "kind", "observed_monotonic_ns", "source_timestamp", "trace_id", "payload", "raw_sha256", "trust", "previous_event_hash", "event_hash"],
+  "properties": {
+    "schema": {"const": "hotato.call-event.v1"},
+    "event_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "call_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "leg_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "sequence": {"type": "integer", "minimum": 0},
+    "source": {"type": "string", "minLength": 1, "maxLength": 256},
+    "kind": {"type": "string", "minLength": 1, "maxLength": 256},
+    "observed_monotonic_ns": {"type": "integer", "minimum": 0},
+    "source_timestamp": {"type": ["string", "null"], "maxLength": 512},
+    "trace_id": {"type": ["string", "null"], "maxLength": 512},
+    "payload": {"type": "object"},
+    "raw_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "trust": {"enum": ["measured", "provider_reported", "sidecar_reported", "derived", "model_reported", "operator_attested", "unverified"]},
+    "previous_event_hash": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "event_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}
