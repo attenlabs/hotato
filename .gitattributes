@@ -23,6 +23,11 @@ tests/data/failure-record-reference/** text eol=lf
 # The rendered Failure Record goldens are byte-compared in tests; pin them too.
 tests/golden/failure_record/** text eol=lf
 
+# The demo say-do bundle is sha256-manifested and hash-verified on every load
+# (src/hotato/start.py); a CRLF checkout changes every digest and the demo
+# refuses its own untampered bundle. Same byte-oracle rule as the kit above.
+src/hotato/data/demo/saydo/** text eol=lf
+
 # --- GitHub Linguist: language-statistics accuracy ---------------------------
 # hotato is a Python + TypeScript SDK. A few large HTML files are committed for
 # convenience but are rendered build output (sample/demo failure reports) or
