@@ -1,0 +1,30 @@
+# Static analysis (CodeQL, python). Scans on main pushes that touch Python,
+# every PR, and a weekly sweep. Read-only except the security-events write
+# the upload step requires.
+name: codeql
+on:
+  push:
+    branches: [main]
+    paths: ["**/*.py"]
+  pull_request:
+    paths: ["**/*.py"]
+  schedule:
+    - cron: "17 6 * * 1"
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: github/codeql-action/init@df559355d593797519d70b90fc8edd5db049e7a2 # v3.30.6
+        with:
+          languages: python
+      - uses: github/codeql-action/analyze@df559355d593797519d70b90fc8edd5db049e7a2 # v3.30.6

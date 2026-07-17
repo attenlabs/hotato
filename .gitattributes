@@ -35,3 +35,11 @@ tests/golden/**/*.html  linguist-generated=true
 *sample-report.html     linguist-generated=true
 *-report.html           linguist-generated=true
 .github/*.html          linguist-documentation=true
+
+# Language statistics: rendered report HTML, banner/social-card sources, and
+# the generated llms-full.txt are build artifacts, not source. Marking them
+# linguist-generated keeps the repository's language identity (Python) honest
+# on GitHub and for automated scanners.
+*.html linguist-generated=true
+llms-full.txt linguist-generated=true
+README.pypi.md linguist-generated=true
