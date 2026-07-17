@@ -1575,12 +1575,43 @@ def _try_open(path: str, *, hint_file=None) -> None:
         try:
             import webbrowser
 
-            if webbrowser.open("file://" + abspath):
+            if webbrowser.open("file://" + _browser_readable_target(abspath)):
                 return
         except Exception:
             pass
     print(f"open it in your browser to see the per-event timelines: {abspath}",
           file=sys.stdout if hint_file is None else hint_file)
+
+
+def _browser_readable_target(abspath: str) -> str:
+    """Return a path the default browser can actually read.
+
+    A snap-confined default browser (Ubuntu ships Chromium and Firefox as
+    snaps) can read non-hidden files under $HOME but not files elsewhere --
+    notably the system temp dir, where ``file://`` opens to "file not found",
+    and ``webbrowser.open`` still reports success so no fallback fires. If
+    ``abspath`` is not somewhere such a browser can reach, stage a copy under a
+    non-hidden $HOME directory and return that; otherwise return it unchanged."""
+    if not sys.platform.startswith("linux"):
+        return abspath
+    home = os.path.realpath(os.path.expanduser("~"))
+    if not home or not os.path.isdir(home):
+        return abspath
+    real = os.path.realpath(abspath)
+    if real == home or real.startswith(home + os.sep):
+        first = os.path.relpath(real, home).split(os.sep)[0]
+        if not first.startswith("."):  # non-hidden path under $HOME: readable
+            return abspath
+    try:
+        import shutil
+
+        dest_dir = os.path.join(home, "hotato-open")
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, os.path.basename(abspath))
+        shutil.copyfile(abspath, dest)
+        return dest
+    except Exception:
+        return abspath
 
 
 def _cmd_doctor(args) -> int:
@@ -1590,7 +1621,9 @@ def _cmd_doctor(args) -> int:
     # bundled self-test; render the HTML report; open it best-effort. A pure
     # convenience wrapper over the existing scorer + report -- nothing new claimed.
     has_recording = bool(args.stereo or (args.caller and args.agent))
-    out = args.out or os.path.join(tempfile.gettempdir(), "hotato-report.html")
+    # cwd, not the system temp dir: a snap-confined default browser cannot read
+    # a file:// URL under /tmp, so a temp-dir report opens to "file not found".
+    out = args.out or "hotato-report.html"
 
     if has_recording:
         # A real recording gets its audio embedded: the report is the shareable
@@ -4207,7 +4240,9 @@ def _cmd_demo(args) -> int:
     demo_root = resources.files("hotato").joinpath("data", "demo", "failing")
     scenarios_dir = str(demo_root.joinpath("scenarios"))
     audio_dir = str(demo_root.joinpath("audio"))
-    out = args.out or os.path.join(tempfile.gettempdir(), "hotato-demo-report.html")
+    # cwd, not the system temp dir (see _browser_readable_target): a confined
+    # snap browser cannot open a file:// URL under /tmp.
+    out = args.out or "hotato-demo-report.html"
 
     env = _report.write_report(
         out,

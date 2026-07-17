@@ -28,6 +28,16 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   -> `pr create`), with the `fixture promote` sequence kept as the
   alternate.
 
+### Fixed
+- **Auto-opened reports now open on Ubuntu.** `hotato doctor` and `hotato
+  demo` wrote their HTML report into the system temp dir and opened
+  `file:///tmp/...`; the default browser on Ubuntu is a snap that cannot read
+  `/tmp`, so the report opened to "file not found" (and `webbrowser.open`
+  reported success, so no fallback printed the path). The reports now default
+  into the working directory, and the open helper stages any
+  browser-unreachable path under a non-hidden `$HOME` directory before
+  opening.
+
 ## [1.9.0] - 2026-07-17
 
 ### Added
