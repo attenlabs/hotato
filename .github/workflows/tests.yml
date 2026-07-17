@@ -331,4 +331,7 @@ jobs:
         with:
           name: hotato-action-smoke
           path: .hotato
+          # upload-artifact excludes hidden paths by default since v4.4; the
+          # smoke artifact directory is dot-prefixed on purpose.
+          include-hidden-files: true
           if-no-files-found: error
