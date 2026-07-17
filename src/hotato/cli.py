@@ -5126,10 +5126,11 @@ def build_parser() -> argparse.ArgumentParser:
              "verify result",
         description=(
             "Turn a hotato result into a self-contained SVG card you can drop "
-            "into a PR, an issue, or a slide. Four kinds are auto-detected: a "
+            "into a PR or an issue. Five kinds are auto-detected: a "
             "talk-over candidate and a false-stop candidate (from a "
             "sweep/analyze candidate ref FILE#N), the threshold-funnel fix "
-            "plan (the hero card), and a supported verify rollup. The SVG is "
+            "plan (the hero card), a supported verify rollup, and a "
+            "human-labeled timing contract. The SVG is "
             "DETERMINISTIC (a pure function of the input JSON: no timestamps, "
             "no version, no randomness) and references no font, image, "
             "stylesheet, or link; all color is inline. It names the MEASURED "

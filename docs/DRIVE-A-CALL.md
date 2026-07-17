@@ -5,6 +5,17 @@ call: it dials a live voice agent, waits for it to finish, and feeds the
 recording into the same pull -> score pipeline. The agent's side is live
 and unscripted, so it scores unchanged.
 
+## The second move, after a first catch on captured calls
+
+You have seen a catch on a recorded call -- a pulled recording
+([`docs/CONNECT.md`](CONNECT.md)), a sweep candidate, or a trace
+assertion. Drive-a-call is the next move: instead of waiting for
+production traffic to reproduce the moment, place a call against your
+live agent on demand and score the recording the same way. It reaches the
+provider's API and bills one outbound phone call per run, so the
+captured-call paths stay the cheap default and this is the deliberate
+follow-up.
+
 ## The caller side runs from a script
 
 The agent's half is unscripted. The CALLER's half runs from a script, and

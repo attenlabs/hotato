@@ -77,7 +77,7 @@ The exact next commands, ready to copy:
    hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio
    ```
 
-3. **Render a shareable card** from any candidate:
+3. **Render a PR card** from any candidate:
 
    ```bash
    hotato card hotato-sweep.json#1 --out candidate.svg

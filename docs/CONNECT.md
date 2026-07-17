@@ -102,3 +102,9 @@ fixture create`: a timestamp and a number, not a verdict on intent.
 See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full map: which
 stacks auto-pull dual-channel, which are mono-only, which capture in your
 own infra, and which endpoint each uses.
+
+## After the first catch
+
+You have seen a catch on a recorded call. The second move is driving one
+against your live agent on demand, fed into this same pull -> score
+pipeline: [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md).
