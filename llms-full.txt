@@ -190,15 +190,11 @@ Credential-less; runs on the machine that invokes it.
 
 ```mermaid
 flowchart TD
-  A["Two-channel recording"] --> B["Measure the timing<br/>between the two voices"]
-  B --> C["Content-addressed contract"]
-  C --> D{"CI verdict"}
-  D -->|exit 0| E["pass"]
-  D -->|exit 1| F["fail"]
-  classDef ember fill:#c23c07,stroke:#8f2b04,color:#ffffff;
-  classDef teal fill:#2a5f52,stroke:#1c4034,color:#ffffff;
-  class F ember;
-  class E teal;
+  A[Two-channel recording] --> B[Measure the timing between the two voices]
+  B --> C[Content-addressed contract]
+  C --> D{CI verdict}
+  D -->|exit 0| E[pass]
+  D -->|exit 1| F[fail]
 ```
 
 A catch becomes a contract addressed by its own content, so the exact failure that shipped once reproduces on any machine that runs the suite. Same input, same verdict, every time.
