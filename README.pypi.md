@@ -28,28 +28,15 @@
 
 </div>
 
-Hotato is self-hosted regression testing for voice agents: give it a two-channel call recording, it scores the turn timing between caller and agent, and it returns the same exit `0` or `1` verdict in CI on every machine. It also verifies what the agent *said* against what the backend *did* from your traces, and locks every catch into a content-addressed failure record that reproduces byte-for-byte.
-
-*The transcript passed. The call failed.* Your transcript tests are green, and the call still went wrong: the agent talked over the caller, ran straight through the interruption, and took a beat too long to hand the floor back. None of it is in the words. **hotato** gives that failure a number, then locks each catch into a CI contract.
-
-## Key properties
-
-- 📐 Conversation QA for voice agents: scores five dimensions (outcome, policy, conversation, speech, reliability) into one pass/fail verdict.
-- ⏱️ Scores talk-over, ignored interruptions, and floor-yield latency, measured from two channels.
-- 🔒 Each catch is a content-addressed contract that reproduces byte-for-byte across machines and releases.
-- 🪶 Stdlib-only core: zero required dependencies, ~10 MiB installed, no network calls.
-- 🤖 Reads [`AGENTS.md`](https://github.com/attenlabs/hotato/blob/main/AGENTS.md); a coding agent runs the whole loop.
-- 🌐 MIT-licensed, self-hosted, off the production audio path.
+*The transcript passed. The call failed.* Your transcript tests are green, and the call still went wrong: the agent talked over the caller, ran through the interruption, and took a beat too long to hand the floor back. None of it is in the words. Hotato is self-hosted conversation QA for voice agents: give it a two-channel call recording and it scores the turn timing between caller and agent, verifies what the agent *said* against what the backend *did* from your traces, and rolls outcome, policy, conversation, speech, and reliability into one pass/fail verdict. Every catch locks into a content-addressed failure record that returns the same exit `0` or `1` in CI on every machine.
 
 ## Quickstart
 
-Zero setup. Scores the bundled demo calls and prints each caught moment, credential-less.
+Zero setup, no account. This scores the two bundled demo calls and exits `1` on the one where the agent ran through the caller:
 
 ```bash
 uvx hotato start --demo                # scores bundled recorded calls, no account
 ```
-
-That sweeps the two bundled demo calls, scores the timing between the voices, and exits `1` on the one where the agent ran through the caller.
 
 Keep it in a project, or drive it over MCP on local stdio:
 
@@ -60,7 +47,7 @@ uvx --from "hotato[mcp]" hotato-mcp    # drive it over MCP, local stdio
 
 ## Three ways in
 
-Ordered by friction. Start with the data you already have; every path feeds the same offline scoring and the same exit-code gate.
+Ordered by friction. Start with the data you already have; every path feeds the same offline scoring and exit-code gate.
 
 **1. Traces you already log (no audio needed).** `tool_call` assertions read only the ingested trace's `voice_trace.v1` spans; `outcome` assertions combine those spans with transcript phrases: say-do verification that what the agent told the caller matches what the backend did, deterministic end to end.
 
@@ -89,7 +76,7 @@ Details: [`docs/ASSERTIONS.md`](https://github.com/attenlabs/hotato/blob/main/do
 hotato pull --stack vapi --limit 10
 ```
 
-Details: [`docs/CONNECT.md`](https://github.com/attenlabs/hotato/blob/main/docs/CONNECT.md). Once a pulled call shows a catch, the second move is driving one against your live agent: [`docs/DRIVE-A-CALL.md`](https://github.com/attenlabs/hotato/blob/main/docs/DRIVE-A-CALL.md).
+Details: [`docs/CONNECT.md`](https://github.com/attenlabs/hotato/blob/main/docs/CONNECT.md). Once a pulled call shows a catch, the next move is driving one against your live agent: [`docs/DRIVE-A-CALL.md`](https://github.com/attenlabs/hotato/blob/main/docs/DRIVE-A-CALL.md).
 
 **3. Scripted fixtures (no production audio).** A deterministic scripted caller renders a `scenario.v1` into conversation artifacts labelled `origin=simulated`; a seeded replay is byte-identical, so you author regression fixtures without production audio.
 
@@ -111,89 +98,29 @@ Point Claude Code, Cursor, or any coding agent at this repo. It reads [`AGENTS.m
 
 <table>
 <tr>
-<td width="50%" valign="top">
-
-⏱️ **Timing measurement**<br/>
-Talk-over, ignored interruptions, and floor-yield latency, measured from the two channels.
-
-</td>
-<td width="50%" valign="top">
-
-🎯 **Five scored dimensions**<br/>
-Outcome, policy, conversation, speech, and reliability roll up into one pass/fail verdict.
-
-</td>
+<td width="50%" valign="top">⏱️ <b>Timing measurement</b><br/>Talk-over, ignored interruptions, and floor-yield latency, measured from the two channels.</td>
+<td width="50%" valign="top">🎯 <b>Five scored dimensions</b><br/>Each dimension scores on its own, then rolls up into one pass/fail verdict.</td>
 </tr>
 <tr>
-<td width="50%" valign="top">
-
-🧾 **Say-do verification**<br/>
-`tool_call` assertions read only the ingested trace's spans; `outcome` combines them with transcript phrases into one say-do check.
-
-</td>
-<td width="50%" valign="top">
-
-🗂️ **Committable evidence**<br/>
-Each catch saves as a contract bundle you commit, diff, and review with code.
-
-</td>
+<td width="50%" valign="top">🧾 <b>Say-do verification</b><br/><code>tool_call</code> assertions read only the ingested trace's spans; <code>outcome</code> combines them with transcript phrases into one say-do check.</td>
+<td width="50%" valign="top">🗂️ <b>Committable evidence</b><br/>Each catch saves as a contract bundle you commit, diff, and review with code.</td>
 </tr>
 <tr>
-<td width="50%" valign="top">
-
-🔌 **Importers**<br/>
-Ingest the call exports your stack already produces from Vapi, Retell, Twilio.
-
-</td>
-<td width="50%" valign="top">
-
-🧪 **CI gate**<br/>
-Drop the Action into a workflow; the step's exit code is hotato's verdict.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-🎭 **Scripted simulation**<br/>
-A deterministic scripted caller authors `origin=simulated` fixtures; a seeded replay is byte-identical.
-
-</td>
-<td width="50%" valign="top">
-
-🤖 **Agent surfaces**<br/>
-An agent drives hotato from [`AGENTS.md`](https://github.com/attenlabs/hotato/blob/main/AGENTS.md) and `hotato describe --format json`.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-🧩 **MCP-ready**<br/>
-Score calls, verify contracts, and read verdicts over local stdio from any MCP client.
-
-</td>
-<td width="50%" valign="top">
-
-🛰️ **Self-hosted**<br/>
-Credential-less; runs on the machine that invokes it.
-
-</td>
+<td width="50%" valign="top">🤖 <b>Agent surfaces</b><br/>An agent drives hotato from <a href="https://github.com/attenlabs/hotato/blob/main/AGENTS.md"><code>AGENTS.md</code></a> and <code>hotato describe --format json</code>.</td>
+<td width="50%" valign="top">🛰️ <b>Self-hosted</b><br/>Credential-less; runs on the machine that invokes it.</td>
 </tr>
 </table>
 
 ## How it works
 
-```mermaid
-flowchart TD
-  A[Two-channel recording] --> B[Measure the timing between the two voices]
-  B --> C[Content-addressed contract]
-  C --> D{CI verdict}
-  D -->|exit 0| E[pass]
-  D -->|exit 1| F[fail]
+```text
+two-channel recording
+  ->  measure turn timing + verify say-do from the trace
+  ->  content-addressed contract
+  ->  CI verdict: exit 0 pass / exit 1 fail
 ```
 
-A catch becomes a contract addressed by its own content, so the exact failure that shipped once reproduces on any machine that runs the suite. Same input, same verdict, every time.
+A catch becomes a contract addressed by its own content, so the exact failure that shipped once reproduces on any machine that runs the suite. Same input, same verdict, every time. Boring on purpose.
 
 ## Five dimensions, one verdict
 
@@ -205,13 +132,11 @@ A catch becomes a contract addressed by its own content, so the exact failure th
 | 🗣️ **Speech** | Response latency and turn timing. |
 | 📈 **Reliability** | `pass@1` / `pass@k` / `pass^k` with a Wilson interval. |
 
-> **Two channels, one party each.** A mono or bad export is marked **NOT SCORABLE**, so a verdict measures timing, not intent.
-
 ## See a scored call
 
 <p align="center">
 <img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-cast.gif" alt="hotato demo: scoring a recorded call and showing the report" width="820"><br/>
-<sub>Scoring a real recorded call: the exact command and hotato's real scorecard.</sub>
+<sub>Scoring a recorded call: the exact command and hotato's scorecard.</sub>
 </p>
 
 ## Specifications
@@ -227,7 +152,7 @@ A catch becomes a contract addressed by its own content, so the exact failure th
 
 ## Wire it into CI
 
-The step's exit code **is** hotato's exit code: `0` pass, `1` fail, `2` refuse. Drop the Action into a workflow and the build goes red on a regression:
+The step's exit code **is** hotato's verdict. Drop the Action into a workflow and the build goes red on a regression:
 
 ```yaml
 # .github/workflows/voice-qa.yml
@@ -246,12 +171,10 @@ jobs:
           hotato-version: 1.9.0          # exact pin, never a range
 ```
 
-The catch you committed once now guards every pull request and reproduces the same verdict on the reviewer's machine.
+The catch you committed once now guards every pull request.
 
 <details>
 <summary><b>Exit-code contract (gate on this, do not parse stdout)</b></summary>
-
-<br>
 
 | Exit | Meaning |
 | :-: | :-- |
@@ -265,18 +188,12 @@ Copy-paste workflow with commit-SHA pin: [`docs/CI.md`](https://github.com/atten
 
 ## Drive it over MCP
 
-```bash
-uvx --from "hotato[mcp]" hotato-mcp     # local stdio, no key
-```
-
-Point Claude Code, Cursor, or any MCP client at it to score calls, verify contracts, and read verdicts over the protocol. It exposes the `voice_eval_run` scorer plus read/verify/propose tools. Setup: [`docs/MCP.md`](https://github.com/attenlabs/hotato/blob/main/docs/MCP.md).
+The MCP server from Quickstart lets Claude Code, Cursor, or any MCP client score calls, verify contracts, and read verdicts over local stdio. It exposes the `voice_eval_run` scorer plus read/verify/propose tools. Setup: [`docs/MCP.md`](https://github.com/attenlabs/hotato/blob/main/docs/MCP.md).
 
 ## Verify the measurement yourself
 
 <details>
 <summary><b>Re-run the measurement benchmark</b></summary>
-
-<br>
 
 ```bash
 # re-run the measurement-error benchmark on the recorded AMI clips
@@ -290,8 +207,6 @@ On 13 recorded AMI Meeting Corpus clips, the median error between measured calle
 
 <details>
 <summary><b>Two channels, one party each</b></summary>
-
-<br>
 
 Timing between two voices is measurable only when they arrive on separate channels. A mono or mixed export can't be split back apart, so hotato marks it **NOT SCORABLE** and refuses. Check scorability first:
 
