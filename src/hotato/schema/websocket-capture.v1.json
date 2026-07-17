@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/websocket-capture.v1.json",
+  "title": "Hotato local WebSocket capture evidence",
+  "description": "Bound metadata for one scripted WebSocket call. Timing is Hotato receive-clock based only when eligible. Receipts and target identity are adapter-reported and unauthenticated.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema", "protocol", "created_at", "origin", "session_nonce", "call_id",
+    "scenario", "audio", "timing", "input_receipt", "target_identity", "frames",
+    "limits", "capabilities"
+  ],
+  "properties": {
+    "schema": { "const": "hotato.websocket-capture.v1" },
+    "protocol": { "const": "hotato.websocket-audio.v1" },
+    "created_at": { "type": "string", "minLength": 1 },
+    "origin": { "const": "simulated" },
+    "session_nonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "call_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "scenario": {
+      "type": "object",
+      "required": ["id", "sha256", "seed"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "seed": { "type": "integer" }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "required": [
+        "sample_rate_hz", "sample_format", "artifact_channels", "input_samples",
+        "artifact_samples", "caller_pcm_sha256", "agent_pcm_sha256"
+      ],
+      "properties": {
+        "sample_rate_hz": { "type": "integer", "minimum": 1 },
+        "sample_format": { "const": "pcm_s16le" },
+        "artifact_channels": { "const": { "0": "caller", "1": "agent" } },
+        "input_samples": { "type": "integer", "minimum": 1 },
+        "artifact_samples": { "type": "integer", "minimum": 1 },
+        "caller_pcm_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "agent_pcm_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "required": ["eligible", "basis", "adapter_offsets", "ineligible_reason", "frames"],
+      "properties": {
+        "eligible": { "type": "boolean" },
+        "basis": {
+          "enum": ["hotato-monotonic-websocket-receive", "unpaced-receive-order-only"]
+        },
+        "adapter_offsets": { "const": "reported-metadata-only" },
+        "ineligible_reason": { "type": ["string", "null"] },
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "sequence", "bytes", "adapter_reported_start_sample",
+              "adapter_reported_end_sample", "hotato_receive_offset_ns",
+              "artifact_start_sample", "artifact_end_sample"
+            ],
+            "properties": {
+              "sequence": { "type": "integer", "minimum": 0 },
+              "bytes": { "type": "integer", "minimum": 2 },
+              "adapter_reported_start_sample": { "type": "integer", "minimum": 0 },
+              "adapter_reported_end_sample": { "type": "integer", "minimum": 1 },
+              "hotato_receive_offset_ns": { "type": "integer", "minimum": 0 },
+              "artifact_start_sample": { "type": "integer", "minimum": 0 },
+              "artifact_end_sample": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "input_receipt": {
+      "type": "object",
+      "required": [
+        "boundary", "trust", "authenticated", "receipt", "receipt_sha256",
+        "client_computed_input_sha256", "digest_match", "limitation"
+      ],
+      "properties": {
+        "boundary": { "const": "instrumented-agent-websocket-adapter" },
+        "trust": { "const": "adapter-reported-unverified" },
+        "authenticated": { "const": false },
+        "receipt": { "$ref": "#/definitions/receipt" },
+        "receipt_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "client_computed_input_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "digest_match": { "const": true },
+        "limitation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "target_identity": {
+      "type": "object",
+      "required": ["declared_agent_id", "adapter_reported", "trust", "authenticated"],
+      "properties": {
+        "declared_agent_id": { "type": "string", "minLength": 1 },
+        "adapter_reported": { "$ref": "#/definitions/targetIdentity" },
+        "trust": { "const": "adapter-reported-unverified" },
+        "authenticated": { "const": false }
+      }
+    },
+    "frames": {
+      "type": "object",
+      "required": ["input", "output", "evidence_events"],
+      "properties": {
+        "input": { "type": "integer", "minimum": 1 },
+        "output": { "type": "integer", "minimum": 0 },
+        "evidence_events": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "limits": { "type": "object" },
+    "capabilities": { "type": "object" }
+  },
+  "definitions": {
+    "targetIdentity": {
+      "type": "object",
+      "required": ["agent_id", "git_sha", "config_hash"],
+      "properties": {
+        "agent_id": { "type": ["string", "null"] },
+        "git_sha": { "type": ["string", "null"] },
+        "config_hash": { "type": ["string", "null"] }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "required": [
+        "schema", "protocol", "session_nonce", "call_id", "scenario_digest",
+        "input", "target_identity"
+      ],
+      "properties": {
+        "schema": { "const": "hotato.adapter-receipt.v1" },
+        "protocol": { "const": "hotato.websocket-audio.v1" },
+        "session_nonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "call_id": { "type": "string", "minLength": 1 },
+        "scenario_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "input": {
+          "type": "object",
+          "required": ["sample_count", "sha256"],
+          "properties": {
+            "sample_count": { "type": "integer", "minimum": 1 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "target_identity": { "$ref": "#/definitions/targetIdentity" }
+      }
+    }
+  }
+}

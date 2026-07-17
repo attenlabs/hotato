@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/load-evidence.v1.json",
+  "title": "Hotato call-bound load evidence export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "provider", "call_id_sha256", "lanes"],
+  "properties": {
+    "schema": {"const": "hotato.load-evidence.v1"},
+    "provider": {"enum": ["local", "twilio", "vapi", "retell"]},
+    "call_id_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lanes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delivered_audio", "tool_trace", "backend_state"],
+      "properties": {
+        "delivered_audio": {"$ref": "#/definitions/lane"},
+        "tool_trace": {"$ref": "#/definitions/lane"},
+        "backend_state": {"$ref": "#/definitions/lane"}
+      }
+    }
+  },
+  "definitions": {
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "authority", "sha256", "eligible_for_execution_claim"],
+      "properties": {
+        "state": {"enum": ["PRESENT", "MISSING", "UNSUPPORTED", "UNOBSERVABLE"]},
+        "authority": {"enum": ["measured", "signed_attestation", "target_reported", "provider_reported", "sidecar_reported", "unverified"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "eligible_for_execution_claim": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "PRESENT"}}},
+          "then": {"properties": {"sha256": {"type": "string"}}},
+          "else": {"properties": {"sha256": {"type": "null"}, "eligible_for_execution_claim": {"const": false}}}
+        }
+      ]
+    }
+  }
+}

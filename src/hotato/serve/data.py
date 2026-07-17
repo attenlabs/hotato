@@ -784,7 +784,9 @@ def _health_series_for(reg: Registry, ws: str, convs: List[dict]) -> dict:
     return series
 
 
-def build_production_health(reg: Registry, ws: str) -> dict:
+def build_production_health(
+    reg: Registry, ws: str, *, production_evidence: Optional[dict] = None
+) -> dict:
     """Ingest counts, evaluated coverage, and per-dimension failure rates over
     time -- computed SEPARATELY for real and simulated conversations (invariant
     5: never merged), with trend.py's empty-day + not-enough-history honesty and
@@ -814,7 +816,7 @@ def build_production_health(reg: Registry, ws: str) -> dict:
     days_present = sorted({_utc_day(c.get("created_at")) for c in convs
                            if c.get("created_at") is not None})
 
-    return {
+    model = {
         "view": "production_health",
         "workspace": ws,
         "ingested_total": len(convs),
@@ -823,6 +825,13 @@ def build_production_health(reg: Registry, ws: str) -> dict:
         "days_of_history": len(days_present),
         "enough_history": len(days_present) >= 2,
     }
+    # This is deliberately additive and remains outside every fleet aggregate.
+    # The production schema has no workspace id, and the bridge opens a separate
+    # DB read-only; assigning these sessions to ``ws`` or adding them to
+    # ``ingested_total`` would silently conflate two storage authorities.
+    if production_evidence is not None:
+        model["production_evidence"] = production_evidence
+    return model
 
 
 # =========================================================================

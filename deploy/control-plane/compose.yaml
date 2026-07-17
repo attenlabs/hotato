@@ -1,0 +1,126 @@
+name: hotato-control-plane
+
+services:
+  hotato-config-init:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: hotato-control-plane:local
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["python3", "/run/hotato/install-runtime.py"]
+    command: []
+    volumes:
+      - ./runtime:/source:ro
+      - ./install-runtime.py:/run/hotato/install-runtime.py:ro
+      - valkey-runtime:/out/valkey
+      - livekit-runtime:/out/livekit
+      - sip-runtime:/out/sip
+      - otel-runtime:/out/otel
+      - otel-wal:/out/otel-wal
+      - hotato-runtime:/out/hotato
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE"]
+
+  valkey:
+    image: ${VALKEY_IMAGE:?set VALKEY_IMAGE in .env}
+    restart: unless-stopped
+    command: ["valkey-server", "/run/hotato/valkey.conf"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - valkey-data:/data
+      - valkey-runtime:/run/hotato:ro
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(REDISCLI_AUTH=\"$$(cat /run/hotato/valkey-password)\" valkey-cli ping)\" = PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      hotato-config-init:
+        condition: service_completed_successfully
+
+  livekit:
+    image: ${LIVEKIT_SERVER_IMAGE:?set LIVEKIT_SERVER_IMAGE in .env}
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config", "/run/hotato/livekit.yaml"]
+    volumes:
+      - livekit-runtime:/run/hotato:ro
+    depends_on:
+      valkey:
+        condition: service_healthy
+      hotato-config-init:
+        condition: service_completed_successfully
+    security_opt: ["no-new-privileges:true"]
+
+  livekit-sip:
+    image: ${LIVEKIT_SIP_IMAGE:?set LIVEKIT_SIP_IMAGE in .env}
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      SIP_CONFIG_FILE: /run/hotato/sip.yaml
+    volumes:
+      - sip-runtime:/run/hotato:ro
+    depends_on:
+      valkey:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+      hotato-config-init:
+        condition: service_completed_successfully
+    security_opt: ["no-new-privileges:true"]
+
+  hotato-production:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: hotato-control-plane:local
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["hotato"]
+    command: ["production", "serve", "--db", "/data/production.sqlite", "--host", "127.0.0.1", "--port", "8432", "--token-file", "/run/secrets/hotato-production-token", "--maintenance-policy", "/run/secrets/hotato-production-maintenance.json"]
+    volumes:
+      - hotato-production-data:/data
+      - hotato-runtime:/run/secrets:ro
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    depends_on:
+      hotato-config-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8432/healthz', timeout=2).read()"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+
+  otel-collector:
+    image: ${OTEL_COLLECTOR_IMAGE:?set OTEL_COLLECTOR_IMAGE in .env}
+    restart: unless-stopped
+    network_mode: host
+    user: "10001:10001"
+    read_only: true
+    stop_grace_period: 30s
+    command: ["--config", "/run/hotato/otelcol.yaml"]
+    volumes:
+      - otel-runtime:/run/hotato:ro
+      - otel-wal:/var/lib/otelcol
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    depends_on:
+      hotato-config-init:
+        condition: service_completed_successfully
+      hotato-production:
+        condition: service_healthy
+
+volumes:
+  valkey-data:
+  hotato-production-data:
+  valkey-runtime:
+  livekit-runtime:
+  sip-runtime:
+  otel-runtime:
+  otel-wal:
+  hotato-runtime:

@@ -45,6 +45,7 @@ from typing import Any, Dict, Optional
 
 from . import capture as _cap
 from . import scenario as _scn
+from . import telephony as _tel
 
 __all__ = [
     "render_twiml",
@@ -61,11 +62,15 @@ __all__ = [
 _LEAD_IN_SEC = 0.5   # a short lead-in before the first caller turn
 _GAP_SEC = 0.5       # silence between consecutive caller turns
 
-# Twilio Call.status values that mean the call is over (Twilio REST voice docs).
-# Only "completed" yields a recording to score; the rest are honest dead-ends.
-TWILIO_TERMINAL_STATES = ("completed", "busy", "failed", "no-answer", "canceled")
-# Vapi Call.status values that mean the call has finished (Vapi call lifecycle).
-VAPI_TERMINAL_STATES = ("ended",)
+# Compatibility exports sourced from the one canonical signalling contract in
+# ``hotato.telephony``.  Drive owns scripted call + capture composition; it does
+# not maintain a second set of provider endpoints or lifecycle mappings.
+TWILIO_TERMINAL_STATES = _tel.provider_lifecycle_contract(
+    "twilio"
+).terminal_provider_statuses
+VAPI_TERMINAL_STATES = _tel.provider_lifecycle_contract(
+    "vapi"
+).terminal_provider_statuses
 
 
 # =========================================================================
@@ -240,6 +245,9 @@ def place_call_twilio(
     twiml = render_twiml(scenario, voice=voice, language=language)
     auth = _basic_auth(sid, token)
     root = f"{base_url.rstrip('/')}/2010-04-01/Accounts/{sid}"
+    create_url = _tel.provider_lifecycle_url(
+        "twilio", "create", base_url=base_url, account_sid=sid,
+    )
 
     form = {
         "To": to_number,
@@ -250,31 +258,35 @@ def place_call_twilio(
         "RecordingTrack": "both",
     }
     created = _cap._require_json_object(
-        _cap._http_post_form(f"{root}/Calls.json", form, headers=auth, timeout=timeout),
+        _cap._http_post_form(create_url, form, headers=auth, timeout=timeout),
         "Twilio create-call response",
     )
-    call_sid = created.get("sid")
-    if not call_sid:
-        raise ValueError(
-            "Twilio create-call response carried no call 'sid'; cannot track the "
-            "call to completion"
-        )
+    try:
+        call_sid = _tel.provider_call_id("twilio", created)
+    except _tel.TelephonyError as exc:
+        raise ValueError(str(exc) + "; cannot track the call to completion") from exc
+    call_url = _tel.provider_lifecycle_url(
+        "twilio", "get", base_url=base_url, account_sid=sid,
+        call_id=call_sid,
+    )
 
     def _fetch_call():
         return _cap._require_json_object(
-            _cap._http_get_json(f"{root}/Calls/{call_sid}.json", headers=auth,
+            _cap._http_get_json(call_url, headers=auth,
                                 timeout=timeout),
             f"Twilio call {call_sid!r}",
         )
 
     call = _poll(
         _fetch_call,
-        lambda c: c.get("status") in TWILIO_TERMINAL_STATES,
+        lambda c: _tel.provider_status_is_terminal(
+            "twilio", _tel.provider_status(c)
+        ),
         poll_interval=poll_interval, max_wait=max_wait,
         what=f"Twilio call {call_sid} to finish",
     )
-    status = call.get("status")
-    if status != "completed":
+    status = _tel.provider_status(call)
+    if not _tel.provider_status_is_success("twilio", status):
         raise ValueError(
             f"Twilio call {call_sid} ended with status {status!r}, not "
             "'completed'; there is no recording to score. (busy/failed/no-answer/"
@@ -305,12 +317,20 @@ def place_call_twilio(
         recording_sid=recording_sid, account_sid=sid, auth_token=token,
         out_path=out_path, base_url=base_url, timeout=timeout, allow_mono=allow_mono,
     )
+    lifecycle_receipt = _tel.build_lifecycle_receipt(
+        "twilio",
+        call_sid,
+        call,
+        operation="get",
+        observed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
     return {
         "recording": recording,
         "provider": "twilio",
         "provider_call_id": call_sid,
         "recording_sid": recording_sid,
         "status": status,
+        "lifecycle_receipt": lifecycle_receipt,
         "origin": _real_origin(
             "twilio", call_sid, "scripted-twiml", recording_sid=recording_sid,
             direction="inbound-to-agent",
@@ -374,48 +394,67 @@ def place_call_vapi(
     the ``run_scenario`` layer."""
     assistant_id = _assistant_id(scenario_or_assistant)
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
-    root = base_url.rstrip("/")
+    create_url = _tel.provider_lifecycle_url(
+        "vapi", "create", base_url=base_url,
+    )
 
     created = _cap._require_json_object(
         _cap._http_post_json(
-            f"{root}/call",
+            create_url,
             {"assistantId": assistant_id, "phoneNumberId": phone_number_id,
              "customer": {"number": customer_number}},
             headers=headers, timeout=timeout,
         ),
         "Vapi create-call response",
     )
-    call_id = created.get("id")
-    if not call_id:
-        raise ValueError(
-            "Vapi create-call response carried no call 'id'; cannot track the "
-            "call to completion"
-        )
+    try:
+        call_id = _tel.provider_call_id("vapi", created)
+    except _tel.TelephonyError as exc:
+        raise ValueError(str(exc) + "; cannot track the call to completion") from exc
+    call_url = _tel.provider_lifecycle_url(
+        "vapi", "get", base_url=base_url, call_id=call_id,
+    )
 
     def _fetch_call():
         return _cap._require_json_object(
-            _cap._http_get_json(f"{root}/call/{call_id}", headers=headers,
+            _cap._http_get_json(call_url, headers=headers,
                                 timeout=timeout),
             f"Vapi call {call_id!r}",
         )
 
     call = _poll(
         _fetch_call,
-        lambda c: c.get("status") in VAPI_TERMINAL_STATES,
+        lambda c: _tel.provider_status_is_terminal(
+            "vapi", _tel.provider_status(c)
+        ),
         poll_interval=poll_interval, max_wait=max_wait,
         what=f"Vapi call {call_id} to end",
     )
+    status = _tel.provider_status(call)
+    if not _tel.provider_status_is_success("vapi", status):
+        raise ValueError(
+            f"Vapi call {call_id} ended with status {status!r}, not a "
+            "successful lifecycle completion; there is no recording to score"
+        )
     # Reuse the verified capture path: it re-reads the call and downloads the
     # stereo artifact through the validated (scheme/SSRF/atomic) download.
     recording = _cap.capture_vapi(
         call_id=call_id, api_key=api_key, out_path=out_path, base_url=base_url,
         timeout=max(timeout, 60),
     )
+    lifecycle_receipt = _tel.build_lifecycle_receipt(
+        "vapi",
+        call_id,
+        call,
+        operation="get",
+        observed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
     return {
         "recording": recording,
         "provider": "vapi",
         "provider_call_id": call_id,
-        "status": call.get("status"),
+        "status": status,
+        "lifecycle_receipt": lifecycle_receipt,
         "origin": _real_origin(
             "vapi", call_id, "assistant-originated",
             direction="outbound-from-assistant", assistant_id=assistant_id,

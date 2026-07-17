@@ -933,9 +933,15 @@ def capture_vapi(
     Live-verification is on your side: recording must be enabled and the call must
     have ENDED for the stereo artifact to exist.
     """
+    # ``telephony`` owns the provider lifecycle URL contract. Capture owns only
+    # the provider response -> validated local recording transition.
+    from .telephony import provider_lifecycle_url
+
     call = _require_json_object(
         _http_get_json(
-            f"{base_url.rstrip('/')}/call/{call_id}",
+            provider_lifecycle_url(
+                "vapi", "get", base_url=base_url, call_id=call_id,
+            ),
             headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
             timeout=timeout,
         ),
@@ -1016,9 +1022,13 @@ def capture_retell(
     ``recording_url`` is rejected unless ``allow_mono=True``: a mono mix cannot
     attribute talk-over to caller vs agent.
     """
+    from .telephony import provider_lifecycle_url
+
     call = _require_json_object(
         _http_get_json(
-            f"{base_url.rstrip('/')}/v2/get-call/{call_id}",
+            provider_lifecycle_url(
+                "retell", "get", base_url=base_url, call_id=call_id,
+            ),
             headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
             timeout=timeout,
         ),

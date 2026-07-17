@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/caller-load-result.v1.json",
+  "title": "Hotato caller-program load result",
+  "description": "Separate scheduling, caller termination, package integrity, and delivered-evidence lanes. No blended quality score.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plan_id", "created_at", "workload_plan_sha256", "semantics", "execution_boundary", "metrics", "stages", "slos", "safety", "artifacts", "status", "exit_code", "result_id"],
+  "properties": {
+    "schema": {"const": "hotato.caller-load-result.v1"},
+    "plan_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "minLength": 1},
+    "workload_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "semantics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["caller_completion_is_agent_quality_pass", "delivery_evidence_is_caller_completion", "actual_cost_microusd_scope", "blended_score"],
+      "properties": {
+        "caller_completion_is_agent_quality_pass": {"const": false},
+        "delivery_evidence_is_caller_completion": {"const": false},
+        "actual_cost_microusd_scope": {"const": "caller_model_reported_only"},
+        "blended_score": {"type": "null"}
+      }
+    },
+    "execution_boundary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["transport", "network", "plan_declared_endpoint_sha256", "runtime_configured_endpoint_sha256", "external_provider_cost_state", "external_provider_cost_microusd"],
+      "properties": {
+        "transport": {"enum": ["websocket_sidecar", "operator_supplied_session_factory"]},
+        "network": {"enum": ["remote", "local_declared"]},
+        "plan_declared_endpoint_sha256": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "runtime_configured_endpoint_sha256": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "external_provider_cost_state": {"const": "UNOBSERVABLE"},
+        "external_provider_cost_microusd": {"type": "null"}
+      }
+    },
+    "metrics": {"type": "object"},
+    "stages": {"type": "array"},
+    "slos": {"type": "array"},
+    "safety": {"type": "object"},
+    "artifacts": {"type": "object"},
+    "status": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]},
+    "exit_code": {"enum": [0, 1, 2]},
+    "result_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

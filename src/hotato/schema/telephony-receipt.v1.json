@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/telephony-receipt.v1.json",
+  "title": "Hotato telephony lifecycle receipt",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "operation", "provider", "call_id_sha256", "observed_at", "authority", "receipt_id"],
+  "properties": {
+    "schema": {"const": "hotato.telephony-receipt.v1"},
+    "operation": {"enum": ["create", "get", "wait", "cancel"]},
+    "provider": {"enum": ["twilio", "vapi", "retell", "local"]},
+    "call_id_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "observed_at": {"type": "string", "minLength": 1, "maxLength": 64},
+    "authority": {"enum": ["provider_reported", "local_measured"]},
+    "receipt_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

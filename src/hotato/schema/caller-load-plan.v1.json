@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/caller-load-plan.v1.json",
+  "title": "Hotato caller-program load plan",
+  "description": "A credential-free, bounded workload contract for executing one caller plan under closed concurrency or open arrival rate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "caller_plan", "stages", "safety", "slos", "metadata"],
+  "properties": {
+    "schema": {"const": "hotato.caller-load-plan.v1"},
+    "id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "caller_plan": {"type": "object"},
+    "metadata": {"type": "object"},
+    "stages": {
+      "type": "array", "minItems": 1, "maxItems": 100,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "model", "concurrency", "calls"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+              "model": {"const": "closed"},
+              "concurrency": {"type": "integer", "minimum": 1, "maximum": 1000},
+              "calls": {"type": "integer", "minimum": 1, "maximum": 100000}
+            }
+          },
+          {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "model", "arrival_rate_per_second", "duration_seconds", "max_in_flight", "calls"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+              "model": {"const": "open"},
+              "arrival_rate_per_second": {"type": "number", "minimum": 0.001, "maximum": 100000},
+              "duration_seconds": {"type": "number", "minimum": 0.001, "maximum": 604800},
+              "max_in_flight": {"type": "integer", "minimum": 1, "maximum": 1000},
+              "calls": {"type": "integer", "minimum": 1, "maximum": 100000, "readOnly": true}
+            }
+          }
+        ]
+      }
+    },
+    "safety": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_calls", "max_concurrency", "max_call_duration_ms", "max_start_delay_ms", "max_cost_per_call_microusd", "max_cost_microusd", "stop_file", "remote_execution"],
+      "properties": {
+        "max_calls": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "max_concurrency": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "max_call_duration_ms": {"type": "integer", "minimum": 1, "maximum": 86400000},
+        "max_start_delay_ms": {"type": "integer", "minimum": 0, "maximum": 3600000},
+        "max_cost_per_call_microusd": {"type": "integer", "minimum": 0, "maximum": 1000000000000},
+        "max_cost_microusd": {"type": "integer", "minimum": 0, "maximum": 1000000000000000},
+        "stop_file": {"type": ["string", "null"], "minLength": 1, "maxLength": 4096},
+        "remote_execution": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["endpoint", "max_calls", "external_cost_state", "acknowledgement"],
+              "properties": {
+                "endpoint": {"type": "string", "pattern": "^wss://", "maxLength": 4096},
+                "max_calls": {"type": "integer", "minimum": 1, "maximum": 100000},
+                "external_cost_state": {"const": "UNOBSERVABLE"},
+                "acknowledgement": {"const": "I_ACCEPT_REMOTE_CALL_SIDE_EFFECTS_AND_UNOBSERVABLE_EXTERNAL_COST"}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "slos": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "max_dropped_start_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_completion_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "max_blocked_error_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_child_verification_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_evidence_complete_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "max_p95_scheduling_delay_ms": {"type": "number", "minimum": 0, "maximum": 86400000},
+        "max_p95_duration_ms": {"type": "number", "minimum": 0, "maximum": 86400000}
+      }
+    }
+  }
+}

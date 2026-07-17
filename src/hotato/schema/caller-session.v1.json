@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/caller-session.v1.json",
+  "title": "Hotato caller sidecar control envelope",
+  "type": "object",
+  "required": ["schema", "type"],
+  "properties": {
+    "schema": {"const": "hotato.caller-session.v1"},
+    "type": {"enum": ["hello", "ready", "command", "command_result", "event"]},
+    "nonce": {"type": "string", "minLength": 1, "maxLength": 256},
+    "sequence": {"type": "integer", "minimum": 1},
+    "command": {"enum": ["send_text", "send_audio", "send_dtmf", "wait", "silence", "impairment", "hangup"]},
+    "payload": {"type": "object"},
+    "status": {"enum": ["completed", "unsupported", "error"]},
+    "receipt": {"type": "object"},
+    "event": {"type": "object"},
+    "capabilities": {"type": "object"},
+    "adapter": {"type": "object"},
+    "client": {"type": "string"},
+    "operations": {"type": "array", "items": {"type": "string"}}
+  }
+}
