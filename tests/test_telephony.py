@@ -252,7 +252,8 @@ def test_export_is_exclusive_and_cleanup_requires_matching_handle(tmp_path):
         client.cleanup(other, path)
 
 
-def test_cleanup_refuses_fifo_and_check_open_swap(tmp_path, monkeypatch):
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs require POSIX")
+def test_cleanup_refuses_fifo(tmp_path):
     client = TelephonyClient(clock=lambda: 1_700_000_000)
     handle = client.cancel(client.create(_local_spec()))
     fifo = tmp_path / "fifo"
@@ -260,6 +261,10 @@ def test_cleanup_refuses_fifo_and_check_open_swap(tmp_path, monkeypatch):
     with pytest.raises(TelephonyError, match="regular"):
         client.cleanup(handle, str(fifo))
 
+
+def test_cleanup_refuses_check_open_swap(tmp_path, monkeypatch):
+    client = TelephonyClient(clock=lambda: 1_700_000_000)
+    handle = client.cancel(client.create(_local_spec()))
     path = client.export(handle, str(tmp_path / "exports"))
     replacement = tmp_path / "replacement.json"
     replacement.write_text("{}", encoding="utf-8")

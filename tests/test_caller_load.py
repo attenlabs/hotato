@@ -187,6 +187,44 @@ def websocket_delivery_session(context):
     )
 
 
+# Worker factories cross a multiprocessing.Process boundary.  Windows has no
+# fork, so the spawn start method pickles them by module-qualified reference
+# (multiprocessing "Programming guidelines"): every factory and session class
+# a child receives must live at module level, never nested in a test body.
+class NoDigestSession(Session):
+    def evidence(self):
+        return {"delivery_evidence": {"state": "PRESENT"}}
+
+
+def no_digest_session(_context):
+    return NoDigestSession()
+
+
+class MisleadingDigestSession(Session):
+    def evidence(self):
+        return {
+            "delivery_evidence": {
+                "state": "PRESENT",
+                "configured_impairment_sha256": "sha256:" + "3" * 64,
+            },
+            "adapter_sha256": "sha256:" + "4" * 64,
+        }
+
+
+def misleading_digest_session(_context):
+    return MisleadingDigestSession()
+
+
+class MalformedEventSession(EventDeliverySession):
+    def send_audio(self, pcm_s16le, sample_rate_hz, metadata):
+        super().send_audio(pcm_s16le, sample_rate_hz, metadata)
+        self.pending[0].pop("workload_child_id")
+
+
+def malformed_event_session(context):
+    return MalformedEventSession(context)
+
+
 class Model:
     def propose(self, request):
         return {
@@ -418,16 +456,9 @@ def test_model_and_tts_factories_run_per_isolated_child(tmp_path):
 
 
 def test_declared_present_evidence_without_content_identity_counts_missing(tmp_path):
-    class NoDigestSession(Session):
-        def evidence(self):
-            return {"delivery_evidence": {"state": "PRESENT"}}
-
-    def factory(context):
-        return NoDigestSession()
-
     run = _run_caller_load(
         _plan([{"id": "one", "model": "closed", "concurrency": 1, "calls": 1}]),
-        str(tmp_path / "no-digest"), factory,
+        str(tmp_path / "no-digest"), no_digest_session,
     )
     assert run.result["metrics"]["delivery_evidence"]["present"] == 0
     assert run.result["metrics"]["delivery_evidence"]["missing"] == 1
@@ -435,20 +466,10 @@ def test_declared_present_evidence_without_content_identity_counts_missing(tmp_p
 
 
 def test_unrelated_digest_cannot_substitute_for_target_delivery_receipt(tmp_path):
-    class MisleadingDigestSession(Session):
-        def evidence(self):
-            return {
-                "delivery_evidence": {
-                    "state": "PRESENT",
-                    "configured_impairment_sha256": "sha256:" + "3" * 64,
-                },
-                "adapter_sha256": "sha256:" + "4" * 64,
-            }
-
     run = _run_caller_load(
         _plan([{"id": "one", "model": "closed", "concurrency": 1, "calls": 1}]),
         str(tmp_path / "unrelated-digest"),
-        lambda _context: MisleadingDigestSession(),
+        misleading_digest_session,
     )
     assert run.result["metrics"]["delivery_evidence"]["present"] == 0
     assert run.result["metrics"]["delivery_evidence"]["missing"] == 1
@@ -491,15 +512,10 @@ def test_builtin_websocket_preserves_interleaved_delivery_event_for_load(tmp_pat
 
 
 def test_malformed_delivery_event_remains_missing(tmp_path):
-    class MalformedEventSession(EventDeliverySession):
-        def send_audio(self, pcm_s16le, sample_rate_hz, metadata):
-            super().send_audio(pcm_s16le, sample_rate_hz, metadata)
-            self.pending[0].pop("workload_child_id")
-
     run = _run_caller_load(
         _plan([{"id": "one", "model": "closed", "concurrency": 1, "calls": 1}]),
         str(tmp_path / "malformed-event"),
-        lambda context: MalformedEventSession(context),
+        malformed_event_session,
         tts_factory=tts_factory,
     )
     assert run.result["metrics"]["delivery_evidence"]["missing"] == 1

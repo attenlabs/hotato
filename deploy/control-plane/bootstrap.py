@@ -86,7 +86,10 @@ def _atomic_private(path: Path, data: bytes) -> None:
         raise ValueError("runtime directory cannot be a symlink")
     descriptor, temporary = tempfile.mkstemp(prefix=".hotato-config-", dir=str(path.parent))
     try:
-        os.fchmod(descriptor, 0o600)
+        # os.fchmod does not exist on Windows (POSIX permission bits are not a
+        # Windows concept); mkstemp already creates the file 0o600 on POSIX.
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(data)
             handle.flush()

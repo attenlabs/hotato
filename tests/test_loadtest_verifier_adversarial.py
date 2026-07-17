@@ -13,6 +13,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from hotato import loadtest
 from hotato.telephony import TelephonyClient
 
@@ -184,6 +186,7 @@ def test_verify_binds_result_to_normalized_plan_and_fault_schedule(tmp_path):
     assert "plan_id:binding" in verification["mismatches"]
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs require POSIX")
 def test_verify_refuses_fifo_summary_without_blocking(tmp_path):
     output, _ = _run(tmp_path)
     summary = output / "summary.json"
