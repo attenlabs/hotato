@@ -3145,16 +3145,46 @@ never the matched text.
 
 ### The whole `kind` vocabulary
 
-The full `assert.v1` `kind` vocabulary is **17 deterministic kinds**, all
+The full `assert.v1` `kind` vocabulary is **18 deterministic kinds**, all
 `deterministic: true`, all model-free. Beyond the five core kinds:
 `tool_result` and `tool_error` (a tool's returned value or raised error, from
-the trace), `state` and `state_change` (a state adapter's snapshot or
+the trace), `http_result` (a recorded HTTP exchange span's method, URL,
+status, and response subset, from the trace), `state` and `state_change` (a
+state adapter's snapshot or
 transition -- see [STATE-ADAPTERS.md](STATE-ADAPTERS.md)), `handoff`, `dtmf`,
 `termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`, and
 `count`. Two more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
 model-judged rubric lane ([RUBRIC.md](RUBRIC.md)); inside a raw `assert.v1`
 document they resolve to a deterministic `INCONCLUSIVE`, so no model runs here
 and the guarantee holds.
+
+### `http_result`: a recorded HTTP exchange, checked from the trace
+
+`http_result` reads `http_exchange` spans from the ingested
+`hotato.voice_trace.v1` trace -- a recorded request/response report carrying
+`method`, `url`, `status_code`, and `response`. Evaluation is a pure span
+lookup: hotato never performs the request, so a rerun is deterministic and
+offline, and it shares the Authority-1 wall with `tool_result` /
+`tool_error` -- an agent's spoken claim about a request can never satisfy it.
+
+```yaml
+version: 1
+assertions:
+  - id: refund-posted
+    kind: http_result
+    method: POST                      # matched case-insensitively
+    url_matches: "/v1/refunds$"       # a regex searched against the span's url
+    status: 201                       # one status, or a list: [200, 201]
+    response_subset: {status: ok}     # optional: fields the response must carry
+```
+
+The span's `method` and `url` select the exchange; `status` and
+`response_subset` then judge it. `PASS` carries the grounding `span_ids`;
+`FAIL` distinguishes "no exchange matched the method and URL" from "the
+exchange matched but its status/response did not"; a context with no trace at
+all reports `INCONCLUSIVE`, never a guess. A malformed assertion (missing
+`method`, an invalid `url_matches` regex, a `status` outside 100-599) is a
+usage error caught up front, before any assertion runs.
 
 ## Context: transcript, trace, timing
 
@@ -3169,7 +3199,8 @@ from hotato's existing primitives:
 - **trace**: `hotato trace ingest --otel FILE --out voice_trace.jsonl`
   ([`docs/TRACE.md`](TRACE.md), [`docs/OTEL.md`](OTEL.md)) produces the
   `hotato.voice_trace.v1` spans `tool_call` reads (`name`, `arguments`, and --
-  when the source trace carries them -- `result`/`error`).
+  when the source trace carries them -- `result`/`error`) and `http_result`
+  reads (`method`, `url`, `status_code`, `response`).
 - **timing**: a scoring run's own envelope (`hotato run --format json`,
   [`docs/API.md`](API.md)) passed straight through as read-only context for
   `outcome`'s `field_present` sub-predicate. Nothing here recomputes it.
@@ -5364,6 +5395,8 @@ The compiler fails closed when:
 - required evidence is missing and the target is inconclusive;
 - a `timing_contract` depends on an external bundle;
 - a DTMF assertion requests trace evidence the scripted simulator cannot emit;
+- an `http_result` assertion requests captured exchange evidence the scripted
+  simulator cannot emit;
 - an outcome predicate reads an external timing field;
 - a latency assertion reads an external timing field or a span type other than
   a scripted `tool_call`;

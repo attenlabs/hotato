@@ -292,6 +292,10 @@ def test_model_judge_target_is_refused(tmp_path):
     "assertion,message",
     [
         ({"id": "target", "kind": "timing_contract", "bundle": "external.hotato"}, "external bundle"),
+        ({
+            "id": "target", "kind": "http_result", "method": "POST",
+            "url_matches": "/refunds$", "status": 201,
+        }, "captured exchange evidence"),
         ({"id": "target", "kind": "latency", "field": "verdict.response_gap_sec", "max": 0.2}, "external timing field"),
         ({"id": "target", "kind": "policy", "pack_path": "external-pack.json"}, "external to the capsule"),
     ],

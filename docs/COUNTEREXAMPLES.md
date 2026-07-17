@@ -488,6 +488,8 @@ The compiler fails closed when:
 - required evidence is missing and the target is inconclusive;
 - a `timing_contract` depends on an external bundle;
 - a DTMF assertion requests trace evidence the scripted simulator cannot emit;
+- an `http_result` assertion requests captured exchange evidence the scripted
+  simulator cannot emit;
 - an outcome predicate reads an external timing field;
 - a latency assertion reads an external timing field or a span type other than
   a scripted `tool_call`;

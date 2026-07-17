@@ -82,7 +82,7 @@ TRACE_REL_PATH = _contract._REL["traces_dir"] + "/voice_trace.jsonl"
 CANONICAL_SPAN_TYPES = (
     "caller_audio_active", "agent_audio_active", "tts_cancel_requested",
     "tts_audio_stopped", "asr_partial", "tool_call", "llm_first_token",
-    "handoff",
+    "handoff", "http_exchange",
 )
 
 _NOT_PROVED_TRACE = (

@@ -89,10 +89,11 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/+~-]*$")
 TRANSCRIPT_ONLY_KINDS = frozenset({"phrase", "pii", "policy", "entity_accuracy"})
 
 # Evidence-reference kinds that CAN support an outcome claim (tool spans,
-# state snapshots/changes, the authenticated trace, machine timing).
+# HTTP exchanges, state snapshots/changes, the authenticated trace, machine
+# timing).
 OUTCOME_EVIDENCE_KINDS = frozenset({
-    "tool_call", "tool_result", "state_snapshot", "state_change",
-    "trace_span", "timing_measurement",
+    "tool_call", "tool_result", "http_exchange", "state_snapshot",
+    "state_change", "trace_span", "timing_measurement",
 })
 
 # assert.v1 result kind -> the evidence-reference kind its supporting evidence
@@ -101,6 +102,7 @@ _ASSERT_KIND_TO_EVIDENCE_KIND = {
     "tool_call": "tool_call",
     "tool_result": "tool_result",
     "tool_error": "tool_result",
+    "http_result": "http_exchange",
     "state": "state_snapshot",
     "state_change": "state_change",
     "outcome": "trace_span",
@@ -123,6 +125,7 @@ _ASSERT_KIND_TO_EVIDENCE_KIND = {
 # an explicit tag: nothing is silently promoted into them.
 _KIND_DEFAULT_DIMENSION = {
     "tool_call": "outcome", "tool_result": "outcome", "tool_error": "outcome",
+    "http_result": "outcome",
     "state": "outcome", "state_change": "outcome", "outcome": "outcome",
     "phrase": "policy", "pii": "policy", "policy": "policy",
     "entity_accuracy": "policy",
@@ -253,6 +256,7 @@ def _scrub_summary(text: str) -> str:
 _KIND_MISSING_EVIDENCE = {
     "phrase": ["transcript"], "pii": ["transcript"], "policy": ["transcript"],
     "tool_call": ["trace"], "tool_result": ["trace"], "tool_error": ["trace"],
+    "http_result": ["trace"],
     "handoff": ["trace"], "dtmf": ["trace"], "termination": ["trace"],
     "sequence": ["trace"], "entity_accuracy": ["trace"], "count": ["trace"],
     "state": ["state-adapter"], "state_change": ["state-adapter"],
@@ -333,6 +337,7 @@ _CONSERVATIVE_FAIL_FALLBACK = {
     "tool_call": "No tool call satisfied the declared call conditions.",
     "tool_result": "A declared tool-result condition was not satisfied.",
     "tool_error": "A declared tool-error condition was not satisfied.",
+    "http_result": "A declared HTTP-result condition was not satisfied.",
     "state": "The declared post-call state was not satisfied.",
     "state_change": "A declared post-call state change did not occur.",
     "outcome": ("The declared outcome conditions were not supported by supplied "
@@ -422,6 +427,7 @@ def _project_result_row(
     redaction_classes = {
         "tool_call": ["tool-arguments"],
         "tool_result": ["tool-arguments", "tool-result"],
+        "http_exchange": ["http-request", "http-response"],
         "state_snapshot": ["state-values"],
         "state_change": ["state-values"],
         "transcript_span": ["transcript-span"],
@@ -440,6 +446,7 @@ def _project_result_row(
     evidence_refs = [evidence_id]
     artifact_for_kind = {
         "trace_span": "trace", "tool_call": "trace", "tool_result": "trace",
+        "http_exchange": "trace",
         "transcript_span": "transcript", "policy_match": "transcript",
         "timing_measurement": "timing",
     }.get(evidence_kind)
