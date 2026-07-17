@@ -466,7 +466,11 @@ def reproject_record_id(record: Dict[str, Any]) -> Tuple[Optional[str], Optional
     try:
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, verify_name)
-            with open(src, "w", encoding="utf-8") as fh:
+            # newline="": the projection hashes this file's BYTES. Text mode's
+            # default newline=None would rewrite "\n" to os.linesep ("\r\n" on
+            # Windows, per the io docs), silently changing the source digest
+            # under the record_id being reproduced.
+            with open(src, "w", encoding="utf-8", newline="") as fh:
                 fh.write(verbatim)
             projected = FR.project(doc, selector=selector, source_path=src)
     except Exception as exc:  # projection is allowed to fail loudly -> a reason
@@ -602,7 +606,12 @@ def _run_hotato(display_cmd: str, cwd: str, env: Dict[str, str]) -> Tuple[str, s
     argv = [sys.executable, "-m", "hotato", *toks[1:]]
     proc = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True)
     if redirect is not None:
-        with open(os.path.join(cwd, redirect), "w", encoding="utf-8") as fh:
+        # newline="": the next displayed command hashes this file's BYTES to
+        # mint the record_id. Text mode's default newline=None would rewrite
+        # "\n" to os.linesep ("\r\n" on Windows, per the io docs) and the
+        # clean-room id would drift from the published one.
+        with open(os.path.join(cwd, redirect), "w", encoding="utf-8",
+                  newline="") as fh:
             fh.write(proc.stdout)
     return proc.stdout, proc.stderr, proc.returncode
 

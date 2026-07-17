@@ -133,7 +133,11 @@ def _dump_trace_jsonl(vt: Dict[str, Any]) -> str:
 def _write_owned(path: str, text: str) -> None:
     # open-ok: path is inside the --out directory this run created/owns (the same
     # posture hotato.test_run._write_json documents for the artifact children).
-    with open(path, "w", encoding="utf-8") as fh:
+    # newline="": the manifest binds this file's sha256 to render's content_hash
+    # (computed over the canonical "\n" string); text mode's default
+    # newline=None would rewrite "\n" to os.linesep ("\r\n" on Windows, per the
+    # io docs) and break that byte identity.
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
 
 
