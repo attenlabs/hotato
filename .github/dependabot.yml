@@ -1,0 +1,10 @@
+# Keeps the SHA-pinned GitHub Actions current: dependabot proposes the new
+# full-SHA pin plus version comment, matching the repo's pinning policy
+# (docs/RELEASE-CHECKLIST.md). Python has zero runtime dependencies, so the
+# pip ecosystem is not configured.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

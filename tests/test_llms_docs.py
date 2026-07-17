@@ -254,9 +254,17 @@ def test_release_workflow_registry_publish_job_is_hard_gated():
     m = re.search(r"(?ms)^  publish-mcp-registry:\n(.*?)(?=^  \S|\Z)", text)
     assert m, "publish-mcp-registry job not found"
     publish_block = m.group(1)
-    assert re.search(r"^\s*if:\s*false\b", publish_block, re.MULTILINE), (
-        "publish-mcp-registry job must be hardcoded if: false until an "
-        "operator explicitly lifts the gate"
+    # Gate (since 2026-07-16): the job fires ONLY on a manual dispatch that
+    # sets confirm_registry_publish=true. On a tag push the `inputs` context
+    # is empty, so the condition is false and the job never runs there. The
+    # original one-way first publish happened under a hardcoded `if: false`;
+    # this test now holds the dispatch-input invariant instead.
+    assert re.search(
+        r"^\s*if:\s*\$\{\{\s*inputs\.confirm_registry_publish\s*==\s*true\s*\}\}",
+        publish_block, re.MULTILINE,
+    ), (
+        "publish-mcp-registry must be gated on the confirm_registry_publish "
+        "dispatch input (and therefore inert on tag pushes)"
     )
     assert "mcp-publisher" in publish_block
 
