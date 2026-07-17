@@ -209,6 +209,17 @@ def _mkparents(path: str) -> None:
         os.makedirs(d, exist_ok=True)
 
 
+def _display_path(path: str) -> str:
+    """Result-reporting form of a bundle path: "/" separators on every OS.
+
+    A no-op on POSIX (``os.sep`` IS "/"), so reported results are unchanged
+    there. On Windows it keeps the create/verify results -- and therefore a
+    stored ``--format json`` CLI transcript -- byte-identical to POSIX ones,
+    which is what the atlas clean-room reproduction compares against. Windows
+    file APIs accept "/" wherever a caller reuses the value as a path."""
+    return path.replace(os.sep, "/")
+
+
 def _write_text(path: str, text: str) -> None:
     _mkparents(path)
     with open(path, "w", encoding="utf-8") as fh:
@@ -393,7 +404,7 @@ def create_contract(
              for k, v in _REL.items()}
     return {
         "id": contract_id,
-        "dir": bundle_dir,
+        "dir": _display_path(bundle_dir),
         "contract": contract,
         "paths": paths,
         "next": f"hotato contract verify {shlex.quote(out_dir)}",
@@ -1447,7 +1458,7 @@ def _verify_one(bundle_dir: str, *, transcript_path: Optional[str] = None) -> di
         # so a fail->pass audio swap can never report an authenticated pass.
         return {
             "id": contract.get("id") or os.path.basename(bundle_dir),
-            "dir": bundle_dir,
+            "dir": _display_path(bundle_dir),
             "expect": expect,
             "passed": False,
             "scorable": scorable,
@@ -1463,7 +1474,7 @@ def _verify_one(bundle_dir: str, *, transcript_path: Optional[str] = None) -> di
         }
     return {
         "id": contract.get("id") or os.path.basename(bundle_dir),
-        "dir": bundle_dir,
+        "dir": _display_path(bundle_dir),
         "expect": expect,
         "passed": passed,
         "scorable": scorable,

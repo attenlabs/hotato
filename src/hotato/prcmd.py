@@ -66,6 +66,14 @@ _SCENARIOS_SUBDIR = "scenarios"
 _AUDIO_SUBDIR = "audio"
 
 
+def _repo_path(path: str) -> str:
+    """PR-facing form of a fixture path: "/" separators on every OS. A no-op
+    on POSIX (``os.sep`` IS "/"); on Windows it keeps the rendered body, the
+    ``git add`` plan, and the reproduce command in the separator git and
+    GitHub use, and git on Windows accepts "/" pathspecs as-is."""
+    return path.replace(os.sep, "/")
+
+
 def _slug(text: str) -> str:
     """A lowercase hyphen slug for a branch name: letters and digits kept,
     every other run collapsed to a single hyphen, ends trimmed."""
@@ -141,8 +149,8 @@ def load_fixtures(fixtures_dir: str) -> List[dict]:
             "candidate_ref": provenance.get("candidate_ref"),
             "candidate_kind": provenance.get("candidate_kind"),
             "created_by": provenance.get("created_by"),
-            "scenario_path": scenario_path,
-            "audio_path": audio_path,
+            "scenario_path": _repo_path(scenario_path),
+            "audio_path": _repo_path(audio_path),
         })
     return records
 
@@ -189,8 +197,8 @@ def _fixture_line(fx: dict) -> str:
 
 
 def _run_command(fixtures_dir: str) -> str:
-    scenarios = os.path.join(fixtures_dir, _SCENARIOS_SUBDIR)
-    audio = os.path.join(fixtures_dir, _AUDIO_SUBDIR)
+    scenarios = _repo_path(os.path.join(fixtures_dir, _SCENARIOS_SUBDIR))
+    audio = _repo_path(os.path.join(fixtures_dir, _AUDIO_SUBDIR))
     return (f"hotato run --scenarios {scenarios} --audio {audio} "
             "--format text")
 
