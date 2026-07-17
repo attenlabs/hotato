@@ -63,6 +63,11 @@ the same offline scoring and the same 0/1/2 exit contract.
    hotato assert run --trace voice_trace.jsonl --transcript call.transcript.json --assertions assertions.yaml
    ```
 
+   Runnable ground truth: `examples/reference-agent` runs a 375-run offline
+   suite (25 scenarios x 5 caller behaviours x 3 audio environments) whose
+   deterministic say-do assertions surface four seeded agent defects;
+   `make reference` inside that directory runs the whole loop.
+
 2. **The stack's recorded calls.** After `hotato connect <stack>` (or the key
    in the environment), bulk-fetch recent recordings into a local folder.
    Vapi, Twilio, and Retell fetch a separated two-channel file; Retell has no
