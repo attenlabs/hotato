@@ -3,7 +3,7 @@
 Every image and worked example Hotato ships, in one place, each one
 reproducible with the command shown beside it.
 
-## Cards: shareable findings
+## Cards: findings as PR images
 
 Three self-contained SVGs: offline, byte-stable from the same input, every
 font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).

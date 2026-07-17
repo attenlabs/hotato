@@ -2,7 +2,7 @@
 
 A failure contract packages ONE call moment into a portable, private
 bundle: audio, frame-level timing evidence, an input-health report, a
-shareable card, a CI pass/fail policy, and the commands to replay and
+PR card, a CI pass/fail policy, and the commands to replay and
 re-verify it. It is the CI object -- `hotato contract verify` re-scores
 a directory of contracts and exits non-zero when one regresses.
 
@@ -51,7 +51,7 @@ refund-cutoff-001.hotato/
     frames.jsonl                     # per-frame timing evidence behind every measurement
     timeline.html                    # the to-scale caller/agent timeline, self-contained
     trust.json                       # the input-health (trust doctor) report
-    card.svg                         # a shareable 1200x630 SVG card (redacted by default)
+    card.svg                         # a self-contained 1200x630 SVG card (redacted by default)
   traces/                            # empty until `hotato trace attach` (see docs/TRACE.md)
   source/
     call_metadata.json               # redacted-by-default: stack, category, expect
@@ -266,7 +266,7 @@ coincides with the change, distinct from a controlled experiment. See
 - Input-health (trust doctor): [`docs/TRUST.md`](TRUST.md) ·
   [`docs/TRUST-MATRIX.md`](TRUST-MATRIX.md)
 - Diarized-mono scoring: [`docs/DIARIZE.md`](DIARIZE.md)
-- Shareable cards: [`docs/CARDS.md`](CARDS.md)
+- PR cards (one measured moment as an image): [`docs/CARDS.md`](CARDS.md)
 - Attaching a voice trace (observability bridge): [`docs/TRACE.md`](TRACE.md) ·
   [`docs/OTEL.md`](OTEL.md)
 - Audio-handling rules (what raw audio may contain, redaction limits,
