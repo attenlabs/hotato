@@ -101,6 +101,18 @@ even counted. This sub-frame-phase rounding is deterministic -- the same
 one-hop collapse the section above already pins down (hangover zero ->
 every signal within one hop of ground truth).
 
+Against a label placed at the raw end of speech energy, the measured end of
+an overlap or yield sits late by at most `hangover_sec` plus one hop
+(0.16 s at defaults) and the measured start sits early by at most one frame
+(0.02 s at defaults). The bias is deterministic and one sided. Setting
+`caller_vad.hangover_sec` and `agent_vad.hangover_sec` to 0 removes the
+hangover term and leaves frame quantization; on recorded speech a zero
+hangover can fragment one utterance at intra word dips, which lowers
+measured overlap. Measured case: a two channel recording of two human
+speakers with a hand labeled 0.420 s overlap at the raw speech edges
+measures `talk_over_sec = 0.590` at defaults and `0.420` at hangover zero,
+the bound holding exactly (end +0.155 s, start -0.005 s).
+
 The consequence for a `--max-time-to-yield` (or any) policy bound: a
 physically identical yield event, shifted by a few milliseconds of
 sub-frame phase with nothing else changed, can cross an exact bound purely
