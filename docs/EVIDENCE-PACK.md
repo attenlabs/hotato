@@ -31,7 +31,7 @@ first when deciding how much to trust any single piece below.
 - **Case studies** -- recorded-audio write-ups, each with a repro command
   and a scope section on exactly what that run proved.
   [`case-studies/`](case-studies/README.md)
-- **Shareable cards** -- self-contained SVGs of a candidate, a
+- **PR cards** -- self-contained SVGs of a candidate, a
   threshold-funnel finding, or a verify result. [CARDS.md](CARDS.md) ·
   [`assets/cards/`](assets/cards/)
 - **Launch-bar status** -- the checklist scoring where each launch item

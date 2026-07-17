@@ -1,8 +1,12 @@
-# Cards: a shareable image from any hotato result
+# Cards: one measured moment, rendered for the pull request
 
 `hotato card` turns a machine result into a self-contained SVG for a pull
-request, an issue, or a slide. The card names the measured timing moment:
-a reproducible measurement, not a verdict about intent.
+request or an issue. The card names the measured timing moment: a
+reproducible measurement, not a verdict about intent, with no accuracy
+number and no blended score anywhere on it. The PR-native artifact the
+shipped Action lands automatically is the
+[Failure Record](#the-failure-record-the-artifact-that-lands-in-the-pull-request)
+below; a card is the single-moment image you attach yourself.
 
 ```bash
 hotato card INPUT[#REF] --out card.svg
@@ -10,10 +14,10 @@ hotato card INPUT[#REF] --out card.svg
 
 Everything runs locally. The SVG is a pure function of the input JSON alone
 (the same input renders the same bytes forever), with every color inlined
-and no font, image, stylesheet, script, or link to fetch. Drop it anywhere:
-no CDN or asset host required.
+and no font, image, stylesheet, script, or link to fetch. It renders
+wherever the PR renders; no CDN or asset host required.
 
-## The four cards, auto-detected
+## The cards, auto-detected
 
 The input's kind decides the card; you do not pick.
 
@@ -23,6 +27,7 @@ The input's kind decides the card; you do not pick.
 | a `sweep`/`analyze` candidate ref, `FILE#N`, that is a false-stop moment | **false-stop candidate** |
 | a fix plan whose `decision` is `do_not_tune_single_threshold` | **threshold funnel** (the hero) |
 | a supported `hotato verify` before/after rollup that improved | **paired comparison** |
+| a `hotato contract create` contract (kind `voice-turn-taking-contract`) | **failure contract** |
 
 `#N` is the same 1-based rank the sweep report and dashboard show, and the
 same ref `hotato fixture promote` takes -- a card and a fixture speak of
@@ -65,7 +70,7 @@ hotato card fix-plan.json --out no-single-threshold.svg
 ```
 
 Only a `do_not_tune_single_threshold` plan renders this card; any other
-plan is a clean exit-2 usage error (not one of the four kinds).
+plan is a clean exit-2 usage error (not one of the card kinds).
 
 ### D. Paired comparison
 
@@ -82,7 +87,17 @@ regressed hold fixture) is refused with exit 2.
 hotato card verify.json --out comparison.svg
 ```
 
-## Redaction: safe to share by default
+### E. Failure contract
+
+A committed contract's card: the expected behavior (`yield` or `hold`), the
+measured seconds, and PASSED / FAILED / NOT SCORABLE. The footer reads "A
+human labeled this contract; Hotato measured the timing."
+
+```bash
+hotato card contracts/demo-missed-interruption.hotato/contract.json --out contract.svg
+```
+
+## Redaction: identifiers stay hidden by default
 
 A card is a public image, so identifiers stay hidden by default: call id,
 filesystem path (only a basename is ever shown), and vendor recording name
@@ -95,23 +110,29 @@ carries the call id inside its name; that name shows only under
 hotato card hotato-sweep.json#1 --out card.svg --include-identifiers
 ```
 
-## The Failure Record: the canonical share-safe artifact
+## The Failure Record: the artifact that lands in the pull request
 
-A card is one moment's image. The **Failure Record** is the canonical
-lane-structured artifact for a failed, inconclusive, or errored result:
-one evidence-specific headline, the five separate lanes, content-addressed
-evidence digests, and a share-safe privacy profile, rendered as JSON,
-Markdown, HTML, and SVG together. It carries no audio, transcript, tool
-payload, state value, or absolute path, so it is safe to attach to a PR
-as-is.
+A card is one moment's image you attach yourself. The **Failure Record**
+is the PR-native trust artifact: the shipped GitHub Action renders one per
+non-passing unit ([`docs/CI.md`](CI.md)), so it arrives in the pull
+request with the run that produced it. Each record is a lane-structured
+projection of one failed, inconclusive, or errored result:
+
+- one evidence-specific headline;
+- the five lanes (outcome, policy, conversation, speech, reliability),
+  each with its own status and never a blended or overall score;
+- the reproduce command (`reproduction.argv`, rendered in the Markdown,
+  HTML, and SVG forms) plus the pinned one-command verifier
+  (`hotato record verify failure-record.json`);
+- content-addressed evidence digests and a privacy profile: no audio,
+  transcript body, tool payload, state value, or absolute path, so it
+  attaches to a PR as-is.
 
 `hotato start --demo` emits one automatically under
 `hotato-failure-record/` --
 `failure-record.{json,md,html,svg}` -- alongside the sweep and the demo
-contract, and prints the Markdown/SVG share paths plus the one-command
-verifier. Render one from any result yourself with `hotato record render`;
-the shipped GitHub Action renders one per non-passing unit
-([`docs/CI.md`](CI.md)).
+contract, and prints the record paths plus the one-command verifier.
+Render one from any result yourself with `hotato record render`.
 
 ## Output and exit codes
 
