@@ -240,10 +240,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.8.1
+      - uses: attenlabs/hotato@v1.9.0
         with:
           contracts: contracts/          # the catches you committed
-          hotato-version: 1.8.1          # exact pin, never a range
+          hotato-version: 1.9.0          # exact pin, never a range
 ```
 
 The catch you committed once now guards every pull request and reproduces the same verdict on the reviewer's machine.

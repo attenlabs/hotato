@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hotato.dev/schema/production-regression-candidate.v1.json",
+  "title": "Hotato portable production regression candidate, version 1",
+  "description": "A content-addressed export of redacted production evidence. Candidate status never implies a CI assertion or verdict; an operator must author assertions before promotion to a gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "source_session", "artifacts", "privacy", "promotion", "candidate_id"],
+  "properties": {
+    "schema": {"const": "hotato.production-regression-candidate.v1"},
+    "candidate_id": {"$ref": "#/$defs/digest"},
+    "source_session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "manifest"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["COMPLETE", "DEGRADED"]},
+        "manifest": {"type": "object"}
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "bytes", "sha256", "media_type"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "bytes": {"type": "integer", "minimum": 0},
+          "sha256": {"$ref": "#/$defs/digest"},
+          "media_type": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payloads", "review_required_before_sharing"],
+      "properties": {
+        "payloads": {"enum": ["redacted", "unredacted", "mixed"]},
+        "review_required_before_sharing": {"const": true}
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {"const": "CANDIDATE"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

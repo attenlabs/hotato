@@ -164,7 +164,7 @@
     "provenance": {
       "hotato": {
         "name": "hotato",
-        "version": "1.8.1"
+        "version": "1.9.0"
       },
       "inputs": [
         {
@@ -196,7 +196,7 @@
       ],
       "source_result_digest": "sha256:7a691d5993389b47f2b43b7afbe7316bbb0d662e703fa0f8a82e39b93b052c08"
     },
-    "record_id": "sha256:f8e92f85551f275086914c2738b1afc0c4e25f9fcc8c996bb8cceca4697fd65d",
+    "record_id": "sha256:897c3dd26f4b2a3eb2e2b9ffaf6cec8836b41f594a36e73d3ff417214ef4868b",
     "reproduction": {
       "argv": [
         "hotato",
@@ -222,7 +222,7 @@
     "version": "1.0"
   },
   "reproduction_metadata": {
-    "hotato_version": "1.8.1",
+    "hotato_version": "1.9.0",
     "reviewer_principal": "hotato-examples",
     "working_directory": ".",
     "bundle": {
@@ -240,7 +240,7 @@
     "verify_output": "verify.json",
     "selector": "fd-02-backchannel-yielded",
     "record_out": "record",
-    "expected_record_id": "sha256:f8e92f85551f275086914c2738b1afc0c4e25f9fcc8c996bb8cceca4697fd65d"
+    "expected_record_id": "sha256:897c3dd26f4b2a3eb2e2b9ffaf6cec8836b41f594a36e73d3ff417214ef4868b"
   },
   "supersedes": {
     "record_id": "sha256:6c5e0e6de73004d8683c0987812d849c46fa9f9f8f204eb4da71e600b636e3a0",
@@ -268,8 +268,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-02-backchannel-yielded --out record",
-      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:f8e92f85551f275086914c2738b1afc0c4e25f9fcc8c996bb8cceca4697fd65d\n"
+      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:897c3dd26f4b2a3eb2e2b9ffaf6cec8836b41f594a36e73d3ff417214ef4868b\n"
     }
   ],
-  "content_digest": "sha256:7d635e26e2af51972e21721ec0e55f7658b1698a8b29720a3abb12d0195c9b6f"
+  "content_digest": "sha256:78d75cbd33b79a69dcc4bf021a833222ad92d5fe8d4cc45fb8c1e30ceace0e7c"
 }

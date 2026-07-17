@@ -244,10 +244,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.8.1
+      - uses: attenlabs/hotato@v1.9.0
         with:
           contracts: contracts/          # the catches you committed
-          hotato-version: 1.8.1          # exact pin, never a range
+          hotato-version: 1.9.0          # exact pin, never a range
 ```
 
 The catch you committed once now guards every pull request and reproduces the same verdict on the reviewer's machine.
@@ -4227,6 +4227,7 @@ redirects to strip the token from the address bar (see [Auth](#auth)).
 | `--host` | `127.0.0.1` | bind address (see [Binding](#binding-127001-by-default)) |
 | `--port` | `8321` | listen port |
 | `--registry` | `~/.hotato/fleet` | registry home directory |
+| `--production-db` | none | read session manifests and alerts from this separate Hotato production SQLite database in `/health` (mode=ro; see below) |
 | `--token` | none | supply the bearer token yourself |
 | `--token-file` | none | read the bearer token from a file (first line) |
 
@@ -4245,6 +4246,31 @@ agents and scripts can drive the workspace without scraping HTML.
 | **Conversation inspector** | `/conversation/<id>` | One conversation: evidence manifest, transcript, trace spans, per-dimension evaluations with rationale and citations (deterministic checks and model-judged/advisory results in **separate lanes**), reviewer decisions. Every digest links to the raw evidence (`/evidence/<digest>`); redacted transcript segments and trace spans render `[redacted]`, in both HTML and JSON. |
 | **Failure clusters** | `/clusters` | Failed evaluations and assertions grouped by **observable signature** (dimension + assertion kind + reason-class), with counts and drill-through into the inspector -- it groups what was observed; the cause stays yours to determine. |
 | **Production health** | `/health` | Ingest counts, evaluated coverage, and per-dimension failure rate over time, **separated for real and simulated** conversations. Sparse days/dimensions read *not enough history* rather than a misleading point. No single combined quality score -- each dimension keeps its own number. |
+
+### Optional production-evidence bridge
+
+The fleet registry and the production event store have different storage
+authorities. Pointing the workspace at both is explicit:
+
+```bash
+hotato serve --workspace default \
+  --production-db .hotato/production.sqlite3
+```
+
+`/health` then adds a separate **Production evidence plane** section with
+bounded session manifests, current alerts, event-source identifiers, every
+evidence lane's availability and authority, and the required lanes still
+missing. The JSON mirror exposes the same projection under
+`production_evidence`.
+
+The bridge opens the selected database with SQLite `mode=ro` for each
+request. It never constructs the writer-side `ProductionStore`, never selects
+the event `payload_json` column, and never imports a production row into the
+fleet registry. Production counts therefore stay outside `ingested_total`,
+the real/simulated buckets, and release trends. The production schema does not
+carry a fleet workspace id, so the UI states `workspace_scope =
+not_encoded_by_production_schema` instead of silently assigning those sessions
+to the workspace being served.
 
 ## Auth
 
@@ -5744,7 +5770,7 @@ Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
-  Verify the record:  uvx --from hotato==1.8.1 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.9.0 hotato record verify hotato-failure-record/failure-record.json
 ```
 
 Preview it locally, then scaffold the durable gate into your own repository
@@ -5768,11 +5794,11 @@ offline -- it runs the pinned Action revision itself off PYTHONPATH (no
 pip, no package index), installs no model, no ASR, no Node tool, calls no
 external judge, and reads no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.8.1), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.9.0), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.8.1
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.9.0
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -5794,7 +5820,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.8.1
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.9.0
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -5832,7 +5858,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.8.1` | `pip install --no-deps hotato==1.8.1` |
+| an exact version, e.g. `1.9.0` | `pip install --no-deps hotato==1.9.0` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
@@ -7497,6 +7523,365 @@ schema and a validator). Synthetic fixtures keep their synthetic label.
 
 
 ================================================================================
+FILE: docs/CALLER-LOAD.md
+================================================================================
+
+# Caller-program load runner
+
+`hotato.caller_load` executes the same bounded caller program many times without
+discarding the evidence from any started invocation. It is the load plane for
+Hotato's caller engine, rather than a shortcut that treats an HTTP response or
+a completed call as a quality pass.
+
+The runner supports two workload models:
+
+- **closed concurrency** keeps up to `concurrency` caller invocations active
+  until an exact call count has been attempted;
+- **open arrival** schedules starts against a monotonic arrival clock. When the
+  target rate exceeds `max_in_flight`, the scheduled start is recorded as
+  `DROPPED`. The scheduler does not wait and silently shift that call later.
+
+Every started invocation runs in its own operating-system process and writes a
+normal `hotato.caller-package.v1` package. The aggregate package binds each
+child to the workload-plan hash, stage ID, stage model, and invocation index.
+This lets an offline verifier detect a child copied from another stage or run.
+
+## Minimal plan
+
+```json
+{
+  "schema": "hotato.caller-load-plan.v1",
+  "id": "refund-release-candidate",
+  "caller_plan": {
+    "schema": "hotato.caller-plan.v1",
+    "id": "refund-caller",
+    "mode": "scripted",
+    "start": "ask",
+    "nodes": [
+      {"id": "ask", "type": "say", "text": "Please refund order 42.", "next": "done"},
+      {"id": "done", "type": "hangup", "reason": "scenario_complete"}
+    ],
+    "limits": {"max_duration_ms": 30000, "max_cost_microusd": 0}
+  },
+  "stages": [
+    {"id": "warm", "model": "closed", "concurrency": 4, "calls": 20},
+    {
+      "id": "arrival-spike",
+      "model": "open",
+      "arrival_rate_per_second": 10,
+      "duration_seconds": 30,
+      "max_in_flight": 50
+    }
+  ],
+  "safety": {
+    "max_calls": 320,
+    "max_concurrency": 50,
+    "max_call_duration_ms": 30000,
+    "max_start_delay_ms": 250,
+    "max_cost_per_call_microusd": 0,
+    "max_cost_microusd": 0,
+    "stop_file": "./STOP-HOTATO-CALLER-LOAD"
+  },
+  "slos": {
+    "max_dropped_start_rate": 0.01,
+    "min_completion_rate": 0.99,
+    "max_blocked_error_rate": 0.01,
+    "min_child_verification_rate": 1.0,
+    "min_evidence_complete_rate": 0.99,
+    "max_p95_scheduling_delay_ms": 100
+  }
+}
+```
+
+Open stages gain a normalized, read-only `calls` field equal to the number of
+scheduled arrival slots. The stored `workload-plan.json` contains that
+normalized value.
+
+## Adapter boundary
+
+The runner does not put credentials in the workload plan. Supply credentials
+through a factory closure or a secret manager. Every API call declares its
+session-factory transport scope; Hotato cannot infer what arbitrary Python
+factory code opens.
+
+```python
+from hotato import caller_load
+from my_project.sessions import new_session
+
+plan = caller_load.load_plan("caller-load.json")
+
+def session_factory(run_context):
+    # run_context is safe to attach to transport receipts and traces.
+    # It contains child_id, workload_plan_sha256, stage_id, stage_model,
+    # invocation_index, and expected_session_boundary. Fetch credentials
+    # outside the plan.
+    return new_session(
+        target_url="ws://127.0.0.1:9000/voice",
+        token_from_secret_manager=True,
+        evidence_labels=run_context,
+    )
+
+run = caller_load.run_caller_load(
+    plan,
+    "./hotato-caller-load-run",
+    session_factory,
+    execution_scope="local",
+)
+raise SystemExit(run.exit_code)
+```
+
+`model_factory(context)` and `tts_factory(context)` use the same contract and
+are optional. A `generative` caller plan requires `model_factory`. Each factory
+runs inside the child process. On platforms whose multiprocessing runtime uses
+`spawn`, factories must be pickleable module-level callables.
+
+Session and model credentials can still leak if an adapter deliberately writes
+them into its `evidence()` output. Adapter authors must return receipts and
+content hashes, never bearer tokens, authorization headers, or signed URLs.
+
+## Safety contract
+
+Validation happens before a child process starts:
+
+- scheduled calls cannot exceed `safety.max_calls`;
+- stage concurrency cannot exceed `safety.max_concurrency`;
+- the supervisor terminates a worker after `max_call_duration_ms` and writes a
+  separate verified `ERROR` child package for that invocation;
+- caller-plan duration and model-cost ceilings are narrowed to the workload
+  ceilings for each child;
+- `scheduled_calls × max_cost_per_call_microusd` must fit inside
+  `max_cost_microusd` before execution;
+- the stop file prevents every subsequent scheduled start. Those rows are
+  `STOPPED`, not silently omitted, and the aggregate status is `INCONCLUSIVE`.
+
+The cost bound depends on model adapters reporting usage correctly to the
+caller engine. A provider with unknown or unbounded spend must not be assigned
+a zero cost ceiling. On timeout, the worker attempts `session.hangup()` and an
+optional `session.close()` before the supervisor escalates from termination to
+a process kill. Carrier/provider billing and teardown remain external evidence;
+an adapter that ignores teardown cannot be made cost-bounded by a local process
+limit alone.
+
+## Coordinated-omission evidence
+
+Each scheduled row records:
+
+- its fixed `scheduled_offset_ms`;
+- observed `scheduling_delay_ms`;
+- `STARTED`, `DROPPED`, or `STOPPED` disposition;
+- `MAX_IN_FLIGHT` or `START_DELAY` for a dropped open-arrival start.
+
+Open-arrival capacity pressure is therefore visible as dropped work. The
+scheduler does not convert a 10 calls/second workload into a slower closed loop
+whose latency distribution looks healthier.
+
+## Separate result lanes
+
+The aggregate and every stage report these values independently:
+
+1. `scheduled`, `started`, `dropped_starts`, and `stopped_before_start`;
+2. caller status counts: `completed`, `hung_up`, `blocked`, and `error`;
+3. caller child-package `verified` and `unverified` counts;
+4. delivered-evidence states: `present`, `missing`, `unsupported`, and
+   `unobservable`;
+5. remote session-endpoint bindings: `matched`, `missing`, `mismatch`, and
+   `not_required`;
+6. scheduling-delay and invocation-duration distributions;
+7. reported model cost in micro-USD.
+
+`COMPLETED` and `HUNG_UP` mean the caller program reached a terminal state.
+They do not mean the target agent produced the right outcome. `PRESENT`
+delivery evidence means the session explicitly reported target-bound evidence;
+it is also not an outcome verdict. The schema fixes both statements and fixes
+`blended_score` to `null`.
+
+## Offline verification
+
+```python
+from hotato.caller_load import verify_caller_load
+
+verification = verify_caller_load("./hotato-caller-load-run")
+assert verification["ok"], verification["mismatches"]
+```
+
+Verification performs no network, model, TTS, session, or provider call. It:
+
+- uses bounded no-follow reads and refuses FIFOs and symlinks;
+- verifies the full aggregate file manifest and exact package layout;
+- verifies every started child with `caller.verify_package`;
+- rebuilds the expected child caller plan and checks its workload/stage/index
+  identity;
+- recomputes child status, exit code, evidence state, and reported cost from the
+  child package;
+- recomputes aggregate and per-stage metrics, every SLO, aggregate status, and
+  exit code;
+- rejects rehashed status/exit forgeries, child swaps, and extra files.
+
+Exit codes are `0` for `PASS`, `1` for `FAIL`, and `2` for `INCONCLUSIVE`.
+Only declared SLOs gate `PASS`/`FAIL`; the runner never invents a blended score
+or an undeclared quality threshold.
+
+`delivery_evidence=PRESENT` has a narrow contract. Credit can come from either
+an exact `session_boundary.delivery_evidence` receipt or an exact
+`hotato.delivered-audio.v1` custom child event. Both forms require an authority
+of `target_boundary`, `target_participant_reported`, or `carrier_boundary`, the
+workload and child IDs from the supplied run context, and both
+`submitted_sha256` and `delivered_sha256`. The submitted digest must match PCM
+emitted by that child; every emitted PCM digest must be covered. The event form
+is documented in `CALLER-SIDECAR-PROTOCOL.md`. A malformed claim, generic
+digest, configured impairment hash, SDK submission receipt, partial receipt
+set, or summary state cannot earn delivery credit. Those cases remain
+`MISSING` or `UNOBSERVABLE`. This is reporting-boundary evidence, not a packet
+trace or proof about a later uninstrumented hop.
+
+Remote sidecar load is default-deny. `--allow-remote` is accepted only when
+the normalized workload plan contains an exact credential-free `wss://`
+endpoint, a remote call ceiling covering the schedule, the fixed
+`I_ACCEPT_REMOTE_CALL_SIDE_EFFECTS_AND_UNOBSERVABLE_EXTERNAL_COST`
+acknowledgement, and `external_cost_state=UNOBSERVABLE`. Queries and embedded
+credentials are refused. The result separates the plan-declared endpoint
+digest from the runtime-configured endpoint digest. Every started child also
+must return the same `connected_endpoint_sha256` from its successfully
+constructed session boundary. `metrics.session_endpoint_binding` exposes
+matched, missing, and mismatched children. Any missing or mismatch makes the
+aggregate `INCONCLUSIVE` with exit code 2, even when quality SLOs pass; the
+offline verifier recomputes that state from each child. The result records
+external provider cost as `null`/`UNOBSERVABLE`; `actual_cost_microusd` and its
+bound cover caller-model-reported cost only. A remote provider bill never
+silently appears as zero.
+
+## Package layout
+
+```text
+hotato-caller-load-run/
+├── workload-plan.json
+├── observations.jsonl
+├── result.json
+├── package-manifest.json
+└── children/
+    └── <child-id>/
+        ├── caller-plan.json
+        ├── caller-result.json
+        ├── package-manifest.json
+        └── artifacts/...
+```
+
+The aggregate manifest hashes every byte-bearing file, including each child
+manifest. Child packages retain the caller engine's model, TTS, text, PCM,
+event, session-boundary, and authority evidence.
+
+## Scope boundary
+
+This module exercises caller programs against a supplied session adapter. It
+does not provision SIP trunks, carrier capacity, media relays, speech models,
+or production alerting. Those components remain independently observable so a
+provider lifecycle response cannot substitute for target-delivered media or a
+target outcome.
+
+
+================================================================================
+FILE: docs/CALLER-SIDECAR-PROTOCOL.md
+================================================================================
+
+# Caller sidecar protocol
+
+`WebSocketCallerSession` is the concrete boundary between Hotato's bounded
+caller program and a Pipecat, LiveKit, SIP, or provider adapter. The WebSocket
+subprotocol is `hotato.caller.v1`. Loopback is the default; remote egress is an
+explicit option and requires `wss://`.
+
+The client sends a `hotato.caller-session.v1` hello with a random nonce and the
+complete operation list. The sidecar returns a nonce-bound `ready` message,
+adapter name/version, and one of `SUPPORTED`, `UNSUPPORTED`, or `UNOBSERVABLE`
+for every operation. An omitted capability refuses the session.
+
+Commands are canonical JSON envelopes with a contiguous sequence. PCM16LE is
+announced by a `send_audio` command containing byte count and SHA-256, followed
+by one binary message: the four bytes `HTC1`, a big-endian 32-bit command
+sequence, and the exact PCM bytes.
+
+Every command is synchronous at the protocol boundary. After accepting the
+complete command (including the binary frame for `send_audio`), the sidecar
+must return the matching sequence and command:
+
+```json
+{
+  "schema": "hotato.caller-session.v1",
+  "type": "command_result",
+  "sequence": 4,
+  "command": "send_audio",
+  "status": "completed",
+  "receipt": {
+    "accepted_bytes": 6400,
+    "accepted_sha256": "sha256:..."
+  }
+}
+```
+
+Status is `completed`, `unsupported`, or `error`. An absent, mismatched, or
+failed result stops the caller program. Events that arrive while a command is
+pending are retained in order for the next `receive` node; any still queued at
+the terminal node are drained into `caller-result.json.events`. A command result
+establishes that the sidecar accepted the operation. It does not establish
+that a carrier or target agent received the media; that stronger claim needs a
+target-boundary event carrying the delivered stream hash.
+
+For caller-load delivery credit, the target or carrier boundary emits this
+exact custom event (the caller engine adds `sequence` and `event_sha256`):
+
+```json
+{
+  "schema": "hotato.caller-session.v1",
+  "type": "event",
+  "event": {
+    "kind": "custom",
+    "custom_type": "hotato.delivered-audio.v1",
+    "authority": "target_boundary",
+    "submitted_sha256": "sha256:<64 lowercase hex>",
+    "delivered_sha256": "sha256:<64 lowercase hex>",
+    "workload_child_id": "<run_context.child_id>",
+    "workload_plan_sha256": "<run_context.workload_plan_sha256>"
+  }
+}
+```
+
+`authority` is exactly `target_boundary`, `target_participant_reported`, or
+`carrier_boundary`. The submitted digest must identify PCM emitted by that
+child. Every emitted PCM digest needs a valid receipt before the aggregate
+reports delivery evidence `PRESENT`. Unknown fields, malformed identities,
+replayed child/workload bindings, or partial coverage remain `MISSING`.
+`delivered_sha256` identifies bytes observed by the reporting boundary; it is
+not a packet trace or evidence about an uninstrumented downstream hop.
+
+Incoming data is a JSON event envelope:
+
+```json
+{
+  "schema": "hotato.caller-session.v1",
+  "type": "event",
+  "event": {"kind": "transcript", "text": "How can I help?"}
+}
+```
+
+The caller engine accepts bounded transcript, tool-result, state-snapshot,
+DTMF, lifecycle, transfer, hold, timing, timeout, and custom events. Sidecar
+events are adapter evidence. A configured impairment receives delivery credit
+only when the target boundary emits evidence for the bytes it received.
+
+Handshake headers may carry credentials, but values are resolved inside the
+worker and never serialized into multiprocessing factories, control messages,
+or caller packages. Plaintext `ws://` is accepted only for loopback targets.
+The strict WebSocket client refuses
+redirects, extensions, remote addresses unless opted in, oversized messages,
+invalid framing, and malformed JSON.
+
+After the nonce-bound ready exchange, the session records
+`connected_endpoint_sha256`, computed from the normalized credential-free
+WebSocket URL. This binds remote load children to the configured endpoint. It
+does not prove media delivery.
+
+
+================================================================================
 FILE: docs/CARDS.md
 ================================================================================
 
@@ -8535,6 +8920,1191 @@ consented fixtures, 1 before/after, 1 public PR) is in
 This page is the visual survey. For what counts as evidence and how it's
 ranked, see [EVIDENCE-PACK.md](EVIDENCE-PACK.md) and
 [evidence/README.md](evidence/README.md).
+
+
+================================================================================
+FILE: docs/GENERATIVE-CALLER.md
+================================================================================
+
+# Bounded generative caller
+
+`hotato.caller` runs caller-side conversation programs against a media or
+signaling session supplied by an adapter. It supports scripts, state-reactive
+graphs, allow-listed model proposals, and model-free frozen replay. The output
+is a content-addressed evidence package.
+
+The caller has participant authority only. It cannot determine whether the
+agent completed a task, mutate backend state, write tool results, or produce a
+test verdict. Feed the captured call, tool trace, and state evidence into the
+separate Hotato exercise/evaluation path after the caller finishes.
+
+## Execution modes
+
+| Mode | Model use | Intended use |
+|---|---:|---|
+| `scripted` | forbidden | fixed regression inputs |
+| `hybrid` | only at `generate` nodes | deterministic flow with bounded caller variation |
+| `generative` | required | state-reactive caller programs with validated proposals |
+| `frozen_replay` | forbidden | replay the text/PCM and signaling actions bound by a prior package |
+
+Frozen replay repeats caller outputs. It does not claim to reproduce the
+agent, carrier, network, or timing scheduler. When a source action contains
+PCM, replay sends those PCM16LE bytes and refuses a transport without
+`send_audio`. When the source action contains text only, the text is replayed;
+any downstream speech synthesis remains outside the evidence boundary.
+
+## Plan
+
+Plans use `hotato.caller-plan.v1`. Every loop and resource has a hard bound.
+This example listens for a refund request, observes a successful tool event,
+then allows a model to propose only caller speech.
+
+```json
+{
+  "schema": "hotato.caller-plan.v1",
+  "id": "refund-follow-up",
+  "mode": "hybrid",
+  "start": "greeting",
+  "initial_state": {"journey": "refund"},
+  "limits": {
+    "max_steps": 40,
+    "max_turns": 8,
+    "max_duration_ms": 120000,
+    "max_model_calls": 2,
+    "max_tokens": 2000,
+    "max_cost_microusd": 0
+  },
+  "nodes": [
+    {
+      "id": "greeting",
+      "type": "say",
+      "text": "I need help with a refund.",
+      "next": "agent-reply"
+    },
+    {
+      "id": "agent-reply",
+      "type": "listen",
+      "timeout_ms": 10000,
+      "max_events": 8,
+      "until": {"event": "tool_result", "tool": "refund", "status": "success"},
+      "next": "follow-up",
+      "on_timeout": "leave"
+    },
+    {
+      "id": "follow-up",
+      "type": "generate",
+      "prompt": "Ask for the refund confirmation identifier in one sentence.",
+      "allowed_actions": ["say"],
+      "next": "leave"
+    },
+    {"id": "leave", "type": "hangup", "reason": "scenario_complete"}
+  ]
+}
+```
+
+The code API is intentionally adapter-injected:
+
+```python
+from hotato.caller import load_plan, run_caller
+
+result = run_caller(
+    load_plan("refund.caller.json"),
+    session=my_session,
+    output_dir="artifacts/refund-caller",
+    model=my_caller_model,
+    tts=my_tts,
+)
+assert result.verification["ok"]
+```
+
+## Graph nodes
+
+| Node | Effect |
+|---|---|
+| `say` | sends fixed participant text, or bound PCM when a TTS adapter is present |
+| `generate` | asks a model for one allow-listed action and validates its exact shape |
+| `listen` | consumes bounded session events until a trigger matches or times out |
+| `wait` | advances the adapter's caller schedule |
+| `dtmf` | sends declared DTMF digits |
+| `silence` | emits a declared silence interval through the adapter |
+| `impairment` | asks the adapter to apply a named/configured media profile |
+| `expect` | branches on already observed events or caller working state |
+| `set_state` | updates caller working state; outcome/verdict roots are forbidden |
+| `branch` | takes the first matching trigger, with an optional default |
+| `repeat_bounded` | visits a target at most `max_iterations` times |
+| `transfer_expect` | requires observable evidence of a completed transfer |
+| `hangup` | ends the caller leg with a recorded reason |
+
+Every run also enforces `max_steps`, `max_visits_per_node`, `max_events`,
+`max_event_chars`,
+`max_wait_ms`, model request/response character limits, text and PCM limits,
+token limits, and a micro-USD spend ceiling. The default spend ceiling is zero.
+A hosted model adapter must report integer usage and an operator must raise the
+ceiling explicitly. Missing usage is a blocked run.
+
+## Triggers
+
+Triggers are deterministic predicates over normalized session events. They can
+be combined with `all`, `any`, and `not`.
+
+```json
+{
+  "any": [
+    {"event": "transcript", "text_regex": "refund"},
+    {"event": "transcript", "text_regex": "chargeback"}
+  ]
+}
+```
+
+```json
+{"event": "tool_result", "tool": "refund", "status": "success"}
+```
+
+```json
+{"event": "state_snapshot", "path": "subscription.status", "equals": "cancelled"}
+```
+
+```json
+{"event": "timing", "metric": "agent_latency_ms", "gte": 800}
+```
+
+The normalized event kinds are `transcript`, `tool_result`, `state_snapshot`,
+`dtmf`, `lifecycle`, `transfer`, `hold`, `timing`, `timeout`, and `custom`.
+An adapter may put fields at the top level or under `data`. Each accepted event
+receives a canonical SHA-256 identity in the result.
+
+`text_regex` uses a 512-character safe subset: literals, escaped characters,
+`.`, character classes, boundary `^`/`$`, and bounded flat repeats. Groups,
+alternation, lookaround, backreferences, nested repetition, more than one
+unbounded repeat, unanchored unbounded repeats, and repeat sets exceeding the
+fixed path budget are refused when the plan is loaded. Regex searches inspect
+at most 1,024 characters; a
+larger candidate text ends the caller run with the stable
+`REGEX_SEARCH_TEXT_LIMIT` `ERROR`. Use `any` for alternatives, as above.
+
+## Session contract
+
+The engine does not implement SIP, RTP, WebRTC, telephony, STT, or TTS. A
+`CallerSession` owns those operations:
+
+```python
+class CallerSession:
+    def capabilities(self): ...
+    def send_text(self, text, metadata): ...
+    def send_audio(self, pcm_s16le, sample_rate_hz, metadata): ...
+    def receive(self, timeout_ms): ...
+    def send_dtmf(self, digits): ...
+    def wait(self, duration_ms): ...
+    def silence(self, duration_ms): ...
+    def set_impairment(self, profile): ...
+    def hangup(self, reason): ...
+```
+
+Capabilities use exactly three states:
+
+- `SUPPORTED`: the requested operation can be executed and observed at this
+  boundary.
+- `UNSUPPORTED`: the adapter declares that it cannot perform the operation.
+- `UNOBSERVABLE`: the operation may occur, but the adapter cannot supply the
+  evidence required by the node.
+
+Missing capabilities are treated as `UNSUPPORTED`. A transfer expectation with
+`UNOBSERVABLE` evidence produces `CAPABILITY_UNOBSERVABLE`; it is never recoded
+as a failed transfer.
+
+Concrete adapters should run on top of maintained media substrates. Examples
+include a Pipecat transport for streaming caller audio, a LiveKit room/SIP
+sidecar for WebRTC or SIP legs, and a SIPp process for fixed high-rate SIP
+fixtures. The caller engine controls the program and evidence contract while
+those projects own their protocols.
+
+Two optional concrete adapters cover common local paths without changing that
+separation: `LiveKitCallerSession` joins a LiveKit room through the Python RTC
+SDK, and `PiperCallerTTS` invokes a local Piper model with bounded,
+digest-bound provenance. See [Direct LiveKit caller session](LIVEKIT-CALLER-SESSION.md)
+and [Local Piper caller speech](PIPER-CALLER-TTS.md). Neither adapter claims
+PSTN delivery, carrier behavior, or speech quality from successful local
+execution.
+
+## Model contract and authority boundary
+
+A `CallerModel.propose(request)` response has six required fields:
+
+```json
+{
+  "proposal": {"action": "say", "text": "What is the confirmation number?"},
+  "raw": "provider response or parsed response text",
+  "provider": "local-provider-name",
+  "model": "model-identifier",
+  "parameters": {"temperature": 0, "seed": 7},
+  "usage": {"input_tokens": 120, "output_tokens": 12, "cost_microusd": 0}
+}
+```
+
+The only model-proposable actions are `say`, `dtmf`, `silence`, and `hangup`.
+Each `generate` node narrows that set with `allowed_actions`. The proposal must
+contain the exact fields for its action. Extra fields are refused. `set_state`,
+tool results, backend state, assertions, outcomes, and verdicts cannot be model
+proposals.
+
+The model request and response are saved separately and bound by SHA-256. The
+run records provider, model identifier, parameters, usage, and proposal. This
+is provenance, not a claim that hosted inference is repeatable.
+
+### Local Ollama adapter
+
+`OllamaCallerModel` is the built-in zero-dependency model adapter. It accepts
+loopback HTTP endpoints only, refuses redirects, requests one JSON object, and
+requires Ollama's input/output token counts.
+
+```python
+from hotato.caller import OllamaCallerModel
+
+model = OllamaCallerModel(
+    "your-local-caller-model",
+    endpoint="http://127.0.0.1:11434",
+    temperature=0,
+    seed=7,
+)
+```
+
+The adapter records a zero API charge because the daemon is local. Hardware,
+energy, and operator costs are not represented by `cost_microusd`. A hosted
+model remains an injected `CallerModel` implementation and must report its
+metered charge.
+
+## TTS contract
+
+`CallerTTS.synthesize(text)` returns:
+
+```python
+{
+    "pcm_s16le": pcm_bytes,
+    "sample_rate_hz": 16000,
+    "provider": "local-tts",
+    "model": "model-id",
+    "voice": "voice-id",
+    "settings": {"speed": 1.0},
+}
+```
+
+All fields are required. The run writes the exact PCM16LE bytes and the UTF-8
+source text as separate artifacts and records both hashes. No text-only
+fallback occurs when a TTS adapter is configured and `send_audio` is absent.
+
+## Evidence package
+
+Each output directory contains:
+
+```text
+caller-plan.json
+caller-result.json
+package-manifest.json
+artifacts/
+  text/             # exact UTF-8 participant utterances
+  audio/            # exact PCM16LE submitted at the caller session boundary
+  model-request/    # canonical request per model call
+  model/            # canonical response/provenance per model call
+```
+
+`package-manifest.json` binds the exact file set, byte sizes, and SHA-256
+digests. `verify_package()` rejects missing, changed, symlinked, path-escaping,
+and unlisted files. Frozen replay verifies the complete source package before
+performing any session action.
+
+`caller-result.json` keeps these lanes separate:
+
+- `actions`: participant outputs and signaling requests;
+- `events`: normalized observations supplied by the session adapter;
+- `model_calls`: model request/response provenance and usage;
+- `actor_state`: scenario-owned working memory;
+- `authority`: fixed declarations that outcome is unevaluated and no verdict
+  was produced.
+
+`COMPLETED` and `HUNG_UP` exit zero. Capability gaps, invalid model/TTS output,
+and resource limits return a verifiable `BLOCKED` package. Adapter exceptions
+return a verifiable `ERROR` package. Neither state is converted into an agent
+quality verdict.
+
+## Frozen replay
+
+```json
+{
+  "schema": "hotato.caller-plan.v1",
+  "id": "refund-follow-up-replay",
+  "mode": "frozen_replay",
+  "frozen_package": "artifacts/refund-caller"
+}
+```
+
+No model or TTS adapter is called. The replay result names the verified source
+package ID. Tampering with source text, PCM, model material, plan, or result
+blocks replay before a session operation occurs.
+
+## Remaining acceptance work for a concrete transport
+
+This engine does not establish that a particular adapter delivers configured
+audio or signaling to a target. Before publishing transport claims, execute a
+common fixture through the adapter and retain target-boundary captures for PCM,
+DTMF, hold, transfer, disconnect, and impairment behavior. Report unsupported
+and unobservable operations as such. Do not infer carrier behavior from a
+successful local method call.
+
+
+================================================================================
+FILE: docs/LIVEKIT-CALLER-SESSION.md
+================================================================================
+
+# Direct LiveKit caller session
+
+`hotato.livekit_session.LiveKitCallerSession` is an optional transport for the
+bounded scripted, hybrid, generative, and frozen-replay caller engine. It joins
+a LiveKit room as a participant, publishes PCM16LE through one audio track,
+receives the target participant's audio and transcription events, and submits
+SIP DTMF through the official Python RTC SDK.
+
+This adapter removes the custom WebSocket sidecar requirement for a LiveKit
+agent. It does not implement SIP, a carrier, STT, TTS, packet impairment, or a
+telephony transfer service. A PSTN test still needs LiveKit SIP and a configured
+trunk. LiveKit documents `publish_dtmf` as publishing a SIP DTMF message; a
+successful SDK call is not evidence that a downstream carrier honored it.
+
+Official transport references:
+
+- [LiveKit Python SDK](https://github.com/livekit/python-sdks)
+- [Python RTC API](https://docs.livekit.io/reference/python/livekit/rtc/index.html)
+- [AudioSource queue and playout contract](https://docs.livekit.io/reference/python/livekit/rtc/audio_source.html)
+- [AudioStream bounded-capacity option](https://docs.livekit.io/reference/python/livekit/rtc/audio_stream.html)
+
+## Install and run
+
+```bash
+pip install 'hotato[livekit]'
+```
+
+Mint a short-lived room token with only the permissions needed by the caller
+participant. Keep token generation outside the test plan and result package.
+
+The CLI can join the room directly and synthesize caller turns with a local
+Piper model. The token enters through an environment variable or regular file,
+never a command-line value:
+
+```bash
+export LIVEKIT_CALLER_TOKEN="$(mint-short-lived-room-token)"
+
+hotato caller run scenarios/refund-barge-in.json \
+  --livekit-url wss://livekit.example.test \
+  --livekit-target-identity agent-under-test \
+  --livekit-token-env LIVEKIT_CALLER_TOKEN \
+  --livekit-evidence-topic hotato.evidence.v1 \
+  --piper-model models/en_US-lessac-medium.onnx \
+  --piper-config models/en_US-lessac-medium.onnx.json \
+  --allow-remote \
+  --out artifacts/refund-barge-in
+```
+
+`--livekit-token-file` is the file-backed alternative. `--target-ws` remains
+the mutually exclusive sidecar transport. The CLI derives the LiveKit audio
+rate from `audio.sample_rate` in the Piper config; an explicit
+`--livekit-sample-rate` must match it.
+
+```python
+import os
+
+from hotato.caller import load_plan, run_caller
+from hotato.livekit_session import LiveKitCallerSession
+
+# Your TTS adapter must return Hotato's documented PCM + provenance mapping.
+from my_test_adapters import LocalTTS
+
+session = LiveKitCallerSession(
+    os.environ["LIVEKIT_URL"],
+    os.environ["LIVEKIT_CALLER_TOKEN"],
+    target_identity="agent-under-test",
+    allow_remote=True,                  # explicit network-egress decision
+    sample_rate_hz=48_000,              # TTS output must match exactly
+    evidence_topic="hotato.evidence.v1",
+)
+
+try:
+    run = run_caller(
+        load_plan("scenarios/refund-barge-in.json"),
+        session,
+        "artifacts/refund-barge-in",
+        tts=LocalTTS(sample_rate_hz=48_000),
+    )
+    print(run.result["status"], session.media_summary())
+finally:
+    session.close()
+```
+
+`send_text` is `UNSUPPORTED`: a LiveKit data message is not spoken caller
+audio. Supply a TTS adapter so caller `say` and model-generated `say` actions
+produce PCM. Sample-rate conversion is also explicit; the transport refuses a
+TTS result whose sample rate differs from the configured `AudioSource`.
+
+## Evidence semantics
+
+The adapter records each layer without promoting one into another:
+
+| Event | What it establishes | Authority |
+|---|---|---|
+| `audio_submitted` | `AudioSource.capture_frame` accepted every frame and `wait_for_playout` completed | local LiveKit SDK |
+| `received_audio_frame` | decoded PCM reached the Hotato caller participant | local LiveKit receiver |
+| `delivered_audio_receipt` | a cooperating target participant reported the bytes at its named boundary | target participant reported |
+| `dtmf_submitted` | the local participant's `publish_dtmf` calls completed | local LiveKit SDK |
+| native transcription | LiveKit emitted a transcription event for the target identity | LiveKit room event |
+
+Every received audio frame includes its SHA-256 and a rolling SHA-256 over the
+ordered PCM stream. `media_summary()` returns only digests and counters. Raw PCM
+remains in the caller engine's content-addressed package when the scenario and
+TTS lane write it there.
+
+`evidence()` binds that digest-only media summary and the five evidence
+capability states into `caller-result.json.session_boundary`. It contains no
+room token, endpoint query, raw audio, transcript text, or target payload.
+
+`sdk_playout_complete` does not establish target, SIP, PSTN, or carrier
+delivery. `evidence_capabilities()["outgoing_audio_delivery"]` remains
+`UNOBSERVABLE` until a valid, session-bound target receipt arrives.
+
+## Optional target evidence channel
+
+Set `evidence_topic` only when the target participant implements this strict
+envelope on reliable LiveKit data messages:
+
+```json
+{
+  "schema": "hotato.livekit-evidence.v1",
+  "session_id": "<session id from the control message>",
+  "sequence": 1,
+  "kind": "audio_receipt",
+  "payload": {
+    "submission_sequence": 1,
+    "submitted_sha256": "sha256:<announced caller PCM digest>",
+    "delivered_sha256": "sha256:<PCM digest measured at the target boundary>",
+    "delivered_bytes": 19200,
+    "sample_rate_hz": 48000,
+    "channels": 1,
+    "boundary": "agent-input-after-decode"
+  }
+}
+```
+
+The default control topic is `hotato.control.v1`. The adapter sends
+`session_started` and `audio_submission` messages only to `target_identity`.
+The target copies the session id and announced submission digest into its
+receipt, then supplies its separately measured delivered digest. Receipt
+sequence must be contiguous. Duplicate, reordered, wrong-session, malformed,
+oversized, and wrong-submission receipts become
+`target_evidence_rejected` events; their payload is represented by a digest,
+not copied into the result.
+
+The same evidence envelope accepts `transcript`, `tool_result`,
+`state_snapshot`, `transfer`, `hold`, `timing`, and `custom`. These remain
+`target_participant_reported`. They can supply evidence to Hotato's later
+deterministic assertions; this transport never produces a pass/fail verdict.
+
+## Resource and failure behavior
+
+- Remote egress is refused unless `allow_remote=True`; loopback remains the
+  default.
+- The URL refuses embedded credentials, query strings, and fragments.
+- Before publishing the caller track, the driver applies LiveKit track
+  subscription permissions that allow only `target_identity`. Control and
+  evidence data messages are also addressed only to that identity.
+- The short-lived token is passed to the SDK during connection and never copied
+  into the facade, control messages, event queue, `repr`, or media summary. The
+  SDK necessarily retains connection credentials while its room is connected.
+- PCM per send, PCM per session, per-send duration, event count, remote track
+  count, control message size, frame duration, connection time, operation time,
+  and close time are bounded.
+- Caller media operations are serialized. A concurrent audio/DTMF call is
+  refused instead of interleaving frames from two scenario actions.
+- The SDK's remote `AudioStream` uses a nonzero capacity. The SDK's behavior at
+  that internal capacity boundary remains transport behavior to measure. The
+  separate Hotato event queue is bounded and its overflow fails the run instead
+  of silently dropping evidence.
+- Driver errors expose the operation and exception type without copying SDK
+  messages that may contain endpoint details.
+- The adapter has no hidden retry. Load scheduling and retry policy belong to
+  the load controller, where attempts remain observable.
+
+## Acceptance gate before a transport claim
+
+The unit suite validates protocol mapping against a fake SDK. Publish a LiveKit
+transport result only after an environment-specific run captures:
+
+1. pinned LiveKit server, SIP server, Python SDK, agent, STT, TTS, and carrier
+   versions;
+2. the caller package and rolling received-stream digest;
+3. a target-boundary receipt, if target delivery is claimed;
+4. SIP participant state and carrier evidence for PSTN claims;
+5. network capture and egress destinations;
+6. disconnect, reconnect, event-overflow, token-expiry, and media-timeout cases.
+
+Until that acceptance run exists, describe this as an implemented optional
+LiveKit caller transport with fake-SDK contract tests, not as a measured
+carrier-grade path.
+
+
+================================================================================
+FILE: docs/LOAD-AND-RECOVERY.md
+================================================================================
+
+# Load and recovery with portable evidence
+
+Hotato schedules calls in either a closed concurrency model or an open arrival
+model. It preserves one verifiable child package per started call. Provider
+completion, delivered-media evidence, tool/state evidence, scheduling loss,
+and recovery remain separate measurements.
+
+```json
+{
+  "schema": "hotato.load-plan.v2",
+  "id": "refund-release",
+  "call": {
+    "schema": "hotato.telephony-call.v1",
+    "id": "base",
+    "provider": "vapi",
+    "to": "+15551234567",
+    "agent_id": "agent-id",
+    "phone_number_id": "phone-id"
+  },
+  "stages": [
+    {"name": "warm", "phase": "warmup", "model": "closed", "concurrency": 2, "calls": 10},
+    {"name": "spike", "phase": "spike", "model": "open", "arrival_rate_per_second": 4, "duration_seconds": 30, "max_in_flight": 40},
+    {"name": "recover", "phase": "recovery", "model": "closed", "concurrency": 4, "calls": 20}
+  ],
+  "safety": {
+    "max_calls": 150,
+    "estimated_cost_per_call_usd": 0.05,
+    "max_estimated_cost_usd": 7.50,
+    "allowed_destinations": ["+1555"],
+    "stop_file": ".hotato/STOP"
+  },
+  "slos": {
+    "max_dropped_start_rate": 0.01,
+    "max_p95_scheduling_delay_seconds": 0.25,
+    "min_lifecycle_completion_rate": 0.99,
+    "min_evidence_complete_rate": 0.99
+  }
+}
+```
+
+An open stage does not queue work when its generator is saturated. It records a
+`generator_saturated` dropped start so coordinated omission remains visible.
+Closed stages keep a fixed number of calls in flight and start a replacement
+only after one finishes.
+
+The safety block is evaluated before a provider call. Twilio, Vapi, and Retell
+workloads require a v2 plan with a positive per-call estimate, a positive total
+budget, and a non-empty destination allowlist. Omitting any one refuses the
+workload before the first provider request. Destination prefixes, a hard call
+ceiling, and an operator stop file bound execution. Hotato performs zero
+automatic create retries because the provider-neutral interface has no shared
+idempotency guarantee.
+
+Each `calls/*/manifest.json` binds redacted lifecycle receipts and any evidence
+export to the provider, provider-namespaced call pseudonym, normalized call
+digest, and normalized workload digest. The four evidence states are
+`PRESENT`, `MISSING`, `UNSUPPORTED`, and `UNOBSERVABLE`. `PRESENT` requires a
+content digest and an explicit authority for every lane; a bare string cannot
+satisfy an evidence SLO. `min_evidence_complete_rate` is stricter than artifact
+presence: all three non-lifecycle lanes must be `PRESENT` and carry either
+`measured` or `signed_attestation` authority, with
+`eligible_for_execution_claim=true`. Provider-, sidecar-, target-, and
+unverified reports remain portable evidence but cannot satisfy that execution
+evidence SLO. A provider-reported completed call can satisfy lifecycle
+completion while evidence completeness remains zero.
+
+`hotato load telephony verify DIR` hashes every child and recomputes per-stage and aggregate
+metrics, recovery windows, SLO rows, the HTML report, overall status, and exit
+code from `observations.jsonl` plus the bound, non-secret
+`verification-plan.json`. It rejects missing/duplicate observations, swapped
+child references, extra artifacts, invalid evidence states, and a summary that
+has merely been rehashed after its verdict changed. No network or model is
+required.
+
+The package hashes establish internal identity and consistency. They do not
+authenticate who produced a directory: a party able to replace every artifact
+can construct a different, internally consistent package. Preserve the package
+in an access-controlled artifact store or attach an external organization
+signature before using publisher identity as a trust decision.
+
+Fault schedules require a call controller that exposes the named injection.
+Unsupported injection produces an explicit call error; it is never simulated
+silently. Recovery is measured from the end of the declared fault window to the
+first later successful lifecycle observation and stays separate from quality.
+
+
+================================================================================
+FILE: docs/PIPER-CALLER-TTS.md
+================================================================================
+
+# Local Piper caller speech
+
+`hotato.piper_tts.PiperCallerTTS` turns caller `say` actions into mono PCM16LE
+with a local Piper executable. It is an optional adapter around the Piper CLI,
+not a bundled speech model and not an audio-quality claim.
+
+## CLI
+
+Supply both the ONNX model and its matching config:
+
+```bash
+hotato caller run scenarios/appointment.json \
+  --target-ws ws://127.0.0.1:8765/caller \
+  --piper-model models/en_US-lessac-medium.onnx \
+  --piper-config models/en_US-lessac-medium.onnx.json \
+  --out artifacts/appointment
+```
+
+The same flags provide spoken input for the direct LiveKit caller session. The
+config must declare `audio.sample_rate`. Hotato publishes that rate without an
+implicit resample; an incompatible transport rate is refused.
+
+Useful bounds are explicit:
+
+```text
+--piper-command PATH             default: piper
+--piper-timeout SEC              default: 60
+--piper-max-output-bytes BYTES   default: 33554432
+--piper-voice LABEL              default: default
+```
+
+The voice label is descriptive provenance. It does not select a Piper speaker;
+use a single-speaker model or configure speaker selection in a separately
+reviewed adapter before claiming multi-speaker coverage.
+
+## Execution boundary
+
+For each CLI run, the adapter:
+
+1. refuses model/config symlinks, FIFOs, devices, oversized files, and files
+   changed while they are staged;
+2. copies the exact model and config bytes once into a mode-`0600` private
+   temporary directory;
+3. invokes the resolved Piper executable with an argument vector and
+   `shell=False`;
+4. supplies a minimal environment instead of forwarding operator secrets;
+5. bounds input text, PCM stdout, diagnostic stderr, execution time, staged
+   model/config bytes, and executable bytes;
+6. accepts only non-empty, even-length `--output_raw` bytes; and
+7. deletes the private staging directory when the caller run closes.
+
+No diagnostic text enters the package. Successful synthesis records the staged
+model/config SHA-256 values, the resolved executable SHA-256 observed before
+and after execution, sample rate, mono PCM16LE encoding, diagnostic byte count,
+and diagnostic digest. Model/config paths, the private temporary path,
+environment values, and Piper stderr contents are excluded.
+
+The resulting PCM is content-addressed again by the caller engine before it is
+submitted to the transport. Piper success establishes local synthesis only.
+`sdk_playout_complete`, target delivery, SIP delivery, and carrier delivery are
+separate evidence boundaries.
+
+## Acceptance gate
+
+The hermetic suite exercises argument-vector invocation, bounded output,
+timeout, symlink refusal, private-environment behavior, PCM structure, cleanup,
+and provenance. Before publishing a voice-quality or performance result, pin
+the Piper release, executable digest, model license and digest, config digest,
+hardware, input corpus, and the metric and adjudication method used.
+
+
+================================================================================
+FILE: docs/PRODUCTION-MONITORING.md
+================================================================================
+
+# Production monitoring: durable evidence into a regression candidate
+
+Hotato's production plane accepts bounded call events, preserves ambiguity, and
+turns a finalized session into an offline-verifiable regression candidate. It
+is a single-process, self-hosted evidence assembler backed by SQLite WAL. Put a
+durable OpenTelemetry Collector or message queue in front when a deployment
+needs ingress buffering across process restarts. The included
+[`deploy/control-plane`](../deploy/control-plane/README.md) bundle does this
+with Collector Contrib and a local persistent queue. That queue survives a
+process restart; it does not replicate data across hosts.
+
+The implementation lives in `hotato.production`. It has no runtime dependency
+beyond Python's standard library.
+
+The gateway accepts OTLP/HTTP JSON traces at the standard `/v1/traces` path
+and at `/v1/otlp/traces`. Protobuf input is refused rather than guessed.
+Authentication is required on this boundary. The deployed Collector accepts
+standard OTLP/gRPC and OTLP/HTTP protobuf or JSON on loopback, converts trace
+batches to JSON, and authenticates the private hop to this gateway.
+After its database transaction commits, `/v1/traces` returns the standard empty
+`ExportTraceServiceResponse` JSON object (`{}`). The Hotato-specific
+`/v1/otlp/traces` compatibility path returns the richer per-event receipt.
+
+## The write contract
+
+The gateway follows this order for every request:
+
+1. bound `Content-Length` before reading;
+2. authenticate the exact body bytes with bearer token or HMAC;
+3. parse and validate the event;
+4. enter an SQLite `BEGIN IMMEDIATE` transaction;
+5. persist the event, session update, and audit-chain entry;
+6. commit with `PRAGMA synchronous=FULL`;
+7. return a receipt containing `"durability": "committed"`.
+
+A storage error returns `503`. A validated event never receives a success ACK
+before its transaction commits. The HTTP server admits a bounded number of
+workers and returns `503` with `Retry-After: 1` when capacity is full. There is
+no hidden in-memory queue.
+
+## Start the gateway
+
+For an operated service, declare the maintenance loop as data instead of
+depending on an operator to remember three separate commands:
+
+```json
+{
+  "schema": "hotato.production-maintenance.v1",
+  "interval_seconds": 30,
+  "quiescence_seconds": 30,
+  "required_lanes": [
+    "participant_audio",
+    "transcript",
+    "model_trace",
+    "tool_calls",
+    "backend_state"
+  ],
+  "alert_rules": [
+    {"id": "degraded-session", "condition": "degraded"},
+    {"id": "event-conflict", "condition": "conflict"},
+    {"id": "missing-audio", "condition": "missing_audio"}
+  ],
+  "retention_seconds": 2592000
+}
+```
+
+Run one inspectable cycle:
+
+```bash
+hotato production maintain maintenance.json \
+  --db .hotato/production.sqlite3 --format json
+```
+
+Or run the authenticated gateway and maintenance loop together while keeping
+the bearer value out of argv and the container environment:
+
+```bash
+hotato production serve \
+  --db .hotato/production.sqlite3 \
+  --token-file /run/secrets/hotato_production_token \
+  --maintenance-policy maintenance.json
+```
+
+Each cycle finalizes eligible sessions first, evaluates persisted alert state
+second, and enforces retention last. A cycle failure is retained in supervisor
+status and retried at the next interval; it never receives a success ACK from
+the ingest gateway because ingest durability is a separate transaction. The
+supervisor does not create assertions, score calls, export regression
+candidates, or send notifications.
+
+The lower-level Python gateway remains available:
+
+```python
+from hotato.production import ProductionGateway, ProductionStore
+
+store = ProductionStore(".hotato/production.sqlite")
+gateway = ProductionGateway(
+    store,
+    token="replace-with-at-least-16-characters",
+    hmac_secret="replace-with-at-least-32-characters",
+    host="127.0.0.1",
+    port=8099,
+    max_workers=16,
+)
+
+try:
+    gateway.thread.join()
+finally:
+    gateway.close()
+    store.close()
+```
+
+Binding to a non-loopback address exposes an authenticated HTTP service. Place
+TLS termination in front of it and rotate credentials through the surrounding
+secret manager.
+
+## Event envelope
+
+Every event conforms to
+[`production-event.v1.json`](../src/hotato/schema/production-event.v1.json).
+The envelope is CloudEvents-shaped and adds required execution authority:
+
+```json
+{
+  "specversion": "1.0",
+  "id": "tool-result-00017",
+  "source": "livekit-sidecar",
+  "type": "tool.result",
+  "subject": "call-01J2Q1N4WQ",
+  "time": "2026-07-17T12:00:00.123Z",
+  "sequence": 17,
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "data": {
+    "availability": "available",
+    "tool": "cancel_subscription",
+    "result": {"status": "failed"}
+  },
+  "authority": {
+    "kind": "adapter_reported",
+    "eligible_for_execution_claim": false
+  }
+}
+```
+
+Supported event types are enumerated in the schema. Unknown types and unknown
+top-level fields are refused. Each event is capped at 8 MiB.
+
+### Availability and authority remain separate
+
+Evidence availability is one of:
+
+- `available`: the event carries or references evidence;
+- `unavailable`: the producer expected the evidence and could not obtain it;
+- `unsupported`: the producer cannot provide that evidence lane;
+- `missing`: no event has yet described the lane.
+
+Authority is one of:
+
+- `measured`;
+- `signed_attestation`;
+- `provider_export`;
+- `adapter_reported`;
+- `submitted`.
+
+Only `measured` and `signed_attestation` may set
+`eligible_for_execution_claim: true`. Request authentication establishes who
+submitted the envelope. It never upgrades an adapter or provider export into an
+independent execution measurement.
+
+The session manifest reports five independent evidence lanes:
+
+- participant audio;
+- transcript;
+- model trace;
+- tool calls;
+- backend state.
+
+No lane substitutes for another. The manifest has no blended score.
+
+## Authentication
+
+### Bearer
+
+```bash
+curl -sS http://127.0.0.1:8099/v1/events \
+  -H 'Authorization: Bearer replace-with-at-least-16-characters' \
+  -H 'Content-Type: application/json' \
+  --data-binary @event.json
+```
+
+### HMAC
+
+HMAC signs the exact bytes sent in the request:
+
+```text
+hex(HMAC-SHA256(secret, decimal_unix_timestamp + "." + raw_body))
+```
+
+Send the result as `X-Hotato-Signature: v1=<hex>` and the timestamp as
+`X-Hotato-Timestamp`. The default acceptance window is 300 seconds. Event
+identity deduplication makes an accepted replay idempotent.
+
+```python
+import hashlib, hmac, json, time, urllib.request
+
+secret = b"replace-with-at-least-32-characters"
+raw = json.dumps(event, separators=(",", ":")).encode()
+timestamp = str(int(time.time()))
+signature = hmac.new(secret, timestamp.encode() + b"." + raw, hashlib.sha256).hexdigest()
+request = urllib.request.Request(
+    "http://127.0.0.1:8099/v1/events",
+    data=raw,
+    headers={
+        "Content-Type": "application/json",
+        "X-Hotato-Timestamp": timestamp,
+        "X-Hotato-Signature": "v1=" + signature,
+    },
+)
+urllib.request.urlopen(request).read()
+```
+
+## Duplicate, conflict, and ordering behavior
+
+Event identity is `(source, id)`.
+
+| Arrival | Stored result | Session effect |
+|---|---|---|
+| unseen identity | `stored` | event count and evidence update |
+| same identity, same canonical bytes | `duplicate` | duplicate counter increments |
+| same identity, different canonical bytes | HTTP `409` | original event remains; conflict is recorded; session becomes `DEGRADED` |
+| sequence lower than or equal to the source cursor | `out_of_order` | event remains stored; out-of-order counter increments |
+| no sequence | `stored` | unsequenced counter increments; finalization is `DEGRADED` |
+
+Sequence cursors are scoped to `(subject, source)`, so independent producers may
+each begin at sequence zero. Arrival order remains in the event export. Hotato
+does not discard or silently reorder late observations.
+
+An event arriving after session finalization remains stored and changes the
+manifest to `DEGRADED` with `late_event_after_finalization`. The previously
+exported candidate remains content-addressed and unchanged.
+
+## Finalization
+
+`session.ended` moves a session to `QUIESCENT`. Call `finalize()` after the
+declared quiescence period:
+
+```python
+manifests = store.finalize(quiescence_seconds=30)
+```
+
+By default, a session becomes `COMPLETE` only when exactly one
+`session.started` and one `session.ended` event were observed, all five evidence
+lanes are available, no identity conflict occurred, and no out-of-order event
+was observed. Every event must also carry a sequence from its source. Lifecycle
+and unsequenced counts remain explicit in the manifest. A fixed
+workflow that does not produce every evidence lane can declare its required
+subset at finalization:
+
+```python
+manifests = store.finalize(
+    quiescence_seconds=30,
+    required_lanes=("participant_audio", "transcript", "backend_state"),
+)
+```
+
+The selected list is persisted in `required_evidence_lanes`; it cannot disappear
+from the exported manifest. Every other finalized session is `DEGRADED`; the
+manifest identifies each unavailable or missing lane and the finalization
+reason.
+
+Finalization measures evidence completeness. It does not decide whether the
+agent passed a product assertion.
+
+## OpenTelemetry trace bridge
+
+`POST /v1/traces` and `POST /v1/otlp/traces` accept bounded OTLP/HTTP JSON with
+the standard `resourceSpans -> scopeSpans -> spans` shape. Use
+`X-Hotato-Source` to name the sidecar. The former returns `{}` for OTLP client
+compatibility after commit; the latter returns Hotato's normalized result and
+durability fields. Each span must carry one of these attributes:
+
+- `hotato.session_id`;
+- `session.id`;
+- `conversation.id`;
+- `call.id`.
+
+Optional attributes:
+
+- `hotato.event_type`: one supported production event type;
+- `hotato.sequence`: integer ordering within that source;
+- `hotato.evidence.availability`: `available`, `unavailable`, or `unsupported`.
+
+The bridge preserves trace ID, span ID, parent span ID, resource attributes,
+scope, status, and nanosecond timestamps. It assigns `adapter_reported`
+authority. A caller may use `normalize_otlp_json()` directly and select a
+different authority, subject to the same structural validation.
+
+The OTLP endpoint validates the complete span set before opening its transaction
+and commits the normalized batch atomically. Identity conflicts are returned as
+per-event results while preserving the original event bytes.
+
+### Included Collector boundary
+
+The control-plane deployment renders these local-only inputs:
+
+```text
+OTLP/gRPC          127.0.0.1:4317
+OTLP/HTTP   http://127.0.0.1:4318
+```
+
+The Collector uses the stable `otlp_http` exporter name, JSON encoding, and no
+compression for its private hop to `127.0.0.1:8432/v1/traces`. The Hotato bearer
+credential exists only in the OTel-specific mode-`0400` config volume. It is
+absent from the Collector environment, process arguments, and bootstrap
+manifest.
+
+Exporter requests are staged in an fsyncing `file_storage` queue before
+delivery. The fixed queue has a capacity of 10,000 requests and retries an
+enqueued request without an elapsed-time cutoff. This is bounded, single-host
+buffering:
+
+- queue units are exporter requests, not spans, calls, or bytes;
+- the storage volume has no application-level byte quota;
+- storage compacts at startup and after its allocated database exceeds 100 MiB
+  and later drains below 10 MiB; compaction itself needs temporary disk
+  headroom;
+- when the queue is full, the disk is full, or storage returns an I/O error,
+  enqueue can fail and telemetry can be dropped;
+- Collector acceptance is not a Hotato SQLite commit receipt;
+- deleting or losing the host volume loses any request that has not drained.
+
+The Collector exposes its own metrics only on
+`http://127.0.0.1:8888/metrics`. Monitor
+`otelcol_exporter_queue_size`, `otelcol_exporter_queue_capacity`,
+`otelcol_exporter_enqueue_failed_spans`,
+`otelcol_exporter_send_failed_spans`, receiver-refused spans, process restarts,
+and disk space. Treat any nonzero enqueue-failure delta as an evidence-loss
+incident. Run restart, gateway-outage, queue-capacity, and disk-exhaustion drills
+against the exact pinned image digest before qualifying a deployment.
+
+The rendered settings follow the pinned Collector `v0.153.0` contracts for the
+[OTLP HTTP exporter](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.153.0/exporter/otlphttpexporter/README.md),
+[exporter helper persistent queue](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.153.0/exporter/exporterhelper/README.md),
+and Contrib
+[file storage extension](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.153.0/extension/storage/filestorage/README.md).
+
+This endpoint is a trace normalizer. The included Collector pipeline also wires
+traces only; application metrics and logs require a separately declared
+pipeline and backend. The Prometheus endpoint above contains the Collector's
+own operational metrics, not application telemetry.
+
+## Alerts
+
+The local alert engine persists each transition and an audit-chain entry:
+
+```python
+changes = store.evaluate_alerts([
+    {"id": "evidence-complete", "condition": "incomplete_evidence"},
+    {"id": "event-conflict", "condition": "conflict"},
+])
+```
+
+Supported conditions:
+
+- `degraded`;
+- `missing_audio`;
+- `missing_tool_evidence`;
+- `incomplete_evidence`;
+- `conflict`;
+- `out_of_order`;
+- `unsequenced`.
+
+Transitions use `FIRING` and `RESOLVED`. A resolved alert that fires again gets
+a new generation and opened timestamp. Stable alert states produce no duplicate
+transition.
+
+## Prometheus
+
+`GET /metrics` requires bearer authentication. Event, duplicate, conflict, and
+ordering-anomaly counters carry no labels. Session `status` and alert `state`
+use fixed enumerations. Session IDs, rule IDs, providers, phone numbers, and
+trace IDs never become labels, preventing unbounded series cardinality.
+Counters live in a dedicated SQLite table and remain monotonic when retention
+deletes event/session rows.
+
+## Promote a production failure
+
+Finalize the session, then export it:
+
+```python
+result = store.export_regression_candidate(
+    "call-01J2Q1N4WQ",
+    "fixtures/candidates/call-01J2Q1N4WQ",
+)
+```
+
+The exporter writes to an owned staging directory, fsyncs the files, verifies
+all declared byte counts and SHA-256 digests, and atomically renames the
+directory into place. It refuses to overwrite an existing path.
+
+The output contains:
+
+```text
+call-01J2Q1N4WQ/
+├── candidate.json
+└── events.jsonl
+```
+
+`candidate.json` conforms to
+[`production-regression-candidate.v1.json`](../src/hotato/schema/production-regression-candidate.v1.json).
+Its status is `CANDIDATE`: production evidence alone does not invent an expected
+outcome or become a CI gate. A reviewer authors the assertion and chooses which
+evidence may enter a shareable fixture.
+
+Verify on a clean, offline machine:
+
+```python
+from hotato.production import verify_regression_candidate
+
+result = verify_regression_candidate("fixtures/candidates/call-01J2Q1N4WQ")
+assert result["valid"]
+```
+
+Payload persistence is default-deny at ingest. Each event type has a narrow
+allowlist for structural values such as evidence availability, validated
+content digests, timing counters, and bounded status enums. Every other scalar,
+object, or array is replaced as a whole by `redacted: true`, its canonical
+`byte_count`, and no value-derived digest. Omitting the digest prevents an
+offline dictionary attack against low-entropy redacted values. An allowlisted
+field with the wrong value type is reduced to the same descriptor. This
+preserves portable monitoring structure without assuming an unfamiliar field
+is safe.
+Field names and the event envelope remain visible, so identifiers still need
+review before a candidate is shared. A caller can explicitly use
+`store.ingest(event, redact_payloads=False)` inside its own boundary; the
+session manifest and candidate then declare `payload_storage`/`payloads` as
+`unredacted` or `mixed` instead of claiming redaction. Review remains required
+before sharing because envelope identifiers and allowlisted structural metadata
+may still be organization-specific.
+
+## Audit and retention
+
+Verify the append-only audit hash chain:
+
+```python
+assert store.verify_audit_chain()["valid"]
+```
+
+Audit targets are deterministic SHA-256 digests from their first write, so the
+raw provider identifier does not remain in the audit row after retention.
+These digests are integrity identifiers, not an anonymity guarantee: a
+low-entropy identifier can be guessed offline. Chain verification returns the
+first invalid sequence if a row changes and compares the computed head/count
+with a local metadata checkpoint to detect tail truncation. An administrator
+who can rewrite the entire database can rewrite both the chain and its local
+checkpoint; export the returned head digest to an external append-only system
+when that threat is in scope.
+
+Delete one session:
+
+```python
+receipt = store.delete_session("call-01J2Q1N4WQ")
+```
+
+Apply a local retention window to finalized sessions:
+
+```python
+receipts = store.enforce_retention(retention_seconds=30 * 24 * 60 * 60)
+```
+
+Deletion removes events, conflicts, sequence cursors, session state, alerts, and
+their transitions. A pseudonymous deletion receipt and the pseudonymous audit
+chain remain. The receipt records the pre-deletion manifest digest and deleted
+event count. Database backups and upstream collectors need their own retention
+policy; this process cannot delete copies outside its store.
+
+## Operational boundary
+
+The included implementation has hermetic tests for authentication, exact-byte
+HMAC verification, commit visibility from a second connection, duplicate and
+conflict behavior, source-scoped ordering, evidence authority, finalization,
+late events, alert generations, bounded-label metrics, OTLP correlation,
+candidate tamper detection, audit tamper detection, and retention receipts.
+
+Those tests establish the local contract. They do not establish a public
+throughput, recovery-time, multi-region, or availability number. Measure those
+properties in the intended deployment with a frozen load schedule and publish
+the environment and raw results before making an operational claim.
 
 
 ================================================================================
@@ -10099,13 +11669,278 @@ for the full per-command network table.
 
 
 ================================================================================
+FILE: docs/TRANSPORT-RUNTIME.md
+================================================================================
+
+# Transport runtime
+
+Hotato separates three facts that voice-test systems often collapse:
+
+1. a provider accepted or completed a call lifecycle operation;
+2. a media/signalling runtime delivered bytes or events at an agent boundary;
+3. the resulting conversation satisfied outcome, policy, timing, and reliability assertions.
+
+The first fact comes from `TelephonyClient`. The second comes from a
+`ConversationSession` implementation. The third comes from Hotato's evidence and scoring
+lanes. A lifecycle status never substitutes for delivered-media evidence or task outcome.
+
+## Runtime contracts
+
+`hotato.call_runtime.CallController` is the lifecycle boundary:
+
+```text
+capabilities(provider)
+create(spec) -> handle
+get(provider, call_id) -> handle
+wait(handle) -> terminal handle
+cancel(handle) -> handle
+export(handle, output_dir) -> redacted receipt path
+cleanup(handle, export_path) -> local deletion receipt
+```
+
+`hotato.call_runtime.ConversationSession` is the duplex media/signalling boundary:
+
+```text
+capabilities()
+connect()
+events()
+send_audio(pcm_s16le, sample_rate_hz, channels)
+send_dtmf(digits)
+hold(enabled)
+transfer(destination, warm=False)
+hangup()
+close()
+```
+
+These are Python protocols. A provider SDK, local WebSocket harness, or separately operated
+sidecar can implement them without being imported into Hotato's zero-dependency core.
+
+Every capability has one explicit state:
+
+| State | Meaning |
+|---|---|
+| `SUPPORTED` | The selected implementation executes the operation and returns the evidence its contract requires. |
+| `UNSUPPORTED` | The selected implementation cannot execute the operation. |
+| `UNOBSERVABLE` | The operation may occur elsewhere, but this boundary cannot return the evidence required to credit it. |
+
+Unknown support does not become a failed quality verdict. `require_capability()` refuses both
+`UNSUPPORTED` and `UNOBSERVABLE` before an operation starts.
+
+## Normalized call events
+
+Every media/signalling implementation emits `hotato.call-event.v1` records. Records form an
+append-only SHA-256 chain per `(run_id, call_id)`:
+
+```json
+{
+  "schema": "hotato.call-event.v1",
+  "event_id": "agent-audio-0001",
+  "run_id": "run-2026-07-17-001",
+  "call_id": "call-01",
+  "leg_id": "agent",
+  "sequence": 0,
+  "source": "livekit-sidecar",
+  "kind": "audio.delivered",
+  "observed_monotonic_ns": 321000000,
+  "source_timestamp": "2026-07-17T12:00:00.321Z",
+  "trace_id": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "payload": {"sample_rate_hz": 16000, "channels": 1, "bytes": 640},
+  "raw_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "trust": "measured",
+  "previous_event_hash": null,
+  "event_hash": "sha256:<canonical-event-body-hash>"
+}
+```
+
+`normalize_call_event()` rejects unknown fields, non-canonical JSON values, oversized events,
+invalid digests, sequence gaps, clock reversal, run/call changes, and a mismatched claimed hash.
+`AppendOnlyCallLog` rejects duplicate event IDs and verifies the entire chain.
+
+`raw_sha256` hashes the bytes observed at the stated boundary. It does not claim those bytes
+were heard by a participant. `trust` identifies the authority:
+
+- `measured` for bytes or state measured at the boundary;
+- `provider_reported` for provider lifecycle/API statements;
+- `sidecar_reported` for an external runtime's report;
+- `derived` for a deterministic transform over retained inputs;
+- `model_reported` for a model output;
+- `operator_attested` for an operator statement;
+- `unverified` when no stronger authority is available.
+
+## Lifecycle controller matrix
+
+`hotato.telephony.TelephonyClient` controls provider lifecycle APIs. It does not transport media.
+
+| Operation | local | Twilio | Vapi | Retell |
+|---|---:|---:|---:|---:|
+| create | supported | supported | supported | supported |
+| status endpoint | unsupported | supported | supported | supported |
+| wait for terminal status | supported | supported | supported | supported |
+| cancel | supported | supported | unsupported | unsupported |
+| redacted Hotato receipt export | supported | supported | supported | supported |
+| delete matching local export | supported | supported | supported | supported |
+| delete provider history | unsupported | unsupported | unsupported | unsupported |
+| media / DTMF / hold / transfer | unobservable | unobservable | unobservable | unobservable |
+
+Credentials come only from environment variables:
+
+| Provider | Variables |
+|---|---|
+| Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` |
+| Vapi | `VAPI_API_KEY` |
+| Retell | `RETELL_API_KEY` |
+
+Receipts retain request field names and body byte counts. The provider response
+uses a fixed lifecycle allowlist; every omitted response is bound only by its
+canonical byte count and SHA-256. Free-form reason strings, identifiers,
+telephone numbers, transcripts, recording URLs, messages, metadata,
+authorization fields, keys, tokens, secrets, and passwords are never copied
+from a provider response. Portable receipts and exports retain a provider-
+domain-separated call-ID digest instead of the provider call ID. Export uses exclusive
+file creation. Cleanup deletes only an export whose provider, call-ID digest,
+and lifecycle receipt ID match the supplied in-memory handle. It never deletes
+provider history.
+
+## Media and signalling sidecars
+
+Hotato composes established transport runtimes instead of implementing RTP, SIP, codec
+negotiation, NAT traversal, or WebRTC congestion control.
+
+### LiveKit SIP
+
+`livekit_sip_contract(endpoint)` declares the evidence boundary for a LiveKit Server + LiveKit
+SIP deployment. DTMF, hold, and transfer begin as `UNOBSERVABLE`; a session adapter promotes each
+operation to `SUPPORTED` only when it returns the corresponding room/participant/SIP events and
+delivered-audio digest. The expected evidence set is:
+
+- room and participant events;
+- SIP lifecycle/status events;
+- delivered PCM or encoded-stream digest at the agent input boundary;
+- per-leg event timestamps and trace correlation.
+
+### Pipecat
+
+`pipecat_media_contract(endpoint)` declares a streaming media boundary. The generic contract
+requires pipeline events and a delivered-audio digest. DTMF, hold, and transfer are unsupported
+until a concrete transport adapter defines and evidences them.
+
+### SIPp
+
+`SippSubprocessAdapter` executes a caller-supplied SIPp XML scenario for SIP-path and load probes.
+SIPp owns SIP/RTP behavior. Hotato applies a static scenario policy, fixes the
+subprocess argv and environment, and records receipts. The adapter does not
+provide an operating-system sandbox.
+
+```python
+from hotato.call_runtime import SippSubprocessAdapter
+
+receipt = SippSubprocessAdapter().run(
+    {
+        "target": "127.0.0.1:5060",
+        "scenario_path": "fixtures/inbound.xml",
+        "calls": 20,
+        "rate_per_second": 2,
+        "timeout_seconds": 180,
+    },
+    "artifacts/sipp-run-01",
+)
+```
+
+The adapter:
+
+- uses an argv array with `shell=False`;
+- accepts no free-form extra arguments;
+- validates the target and binds a regular, non-symlink XML file to its opened inode;
+- parses XML with DTDs, entity declarations, external entities, and processing
+  instructions disabled;
+- defaults to a safe scenario profile that rejects every `<exec>` action,
+  scenario file attribute, unsafe path attribute, and SIPp `[file ...]` host-file keyword;
+- rejects `<setdest>` in the safe profile so scenario XML cannot bypass the
+  resolved target and remote-IP policy;
+- bounds calls, rate, scenario bytes, timeout, stdout, and stderr;
+- supplies only `PATH`, `HOME`, and locale variables to the child;
+- writes data artifacts with exclusive creation and mode `0600`, and stages
+  the executable copy as mode `0700`;
+- hashes the target instead of writing it into the receipt;
+- reports process exit as `PASS` or `FAIL` without converting it into conversation quality.
+
+Non-loopback SIP is default-deny. A remote spec must set `allow_remote=true`,
+list the resolved destination IP in `remote_ip_allowlist`, cap the run with
+`max_remote_calls`, and supply
+`I_ACCEPT_REMOTE_SIP_SIDE_EFFECTS_AND_UNOBSERVABLE_EXTERNAL_COST`. The adapter
+resolves once, passes the selected allowlisted IP to SIPp, and binds that
+destination into the receipt. External SIP/carrier cost remains `null` and
+`UNOBSERVABLE`. The built-in subprocess path stages and hashes the SIPp
+executable; injected test runners report executable identity as unobservable.
+
+The remote acknowledgement authorizes network side effects only. It does not
+authorize scenario-level host commands, host-file reads, or destination
+redirection.
+
+### Trusted SIPp scenarios
+
+SIPp XML is executable input. Its `<exec command="...">` action invokes a host
+shell, while media actions and scenario keywords can read host files. Those
+features are denied by default. A deployment that has reviewed the scenario
+and accepts running it without an OS sandbox can opt into the unrestricted
+scenario profile with a separate fixed acknowledgement:
+
+```python
+from hotato.call_runtime import SIPP_TRUSTED_SCENARIO_ACKNOWLEDGEMENT
+
+receipt = SippSubprocessAdapter().run(
+    {
+        "target": "127.0.0.1:5060",
+        "scenario_path": "fixtures/reviewed-media.xml",
+        "trusted_scenario_acknowledgement": SIPP_TRUSTED_SCENARIO_ACKNOWLEDGEMENT,
+    },
+    "artifacts/sipp-reviewed-01",
+)
+```
+
+The fixed phrase is
+`I_ACCEPT_SIPP_SCENARIO_HOST_COMMAND_AND_FILE_ACCESS_WITHOUT_OS_SANDBOX`.
+Trusted mode still refuses DTDs, entity declarations, external entities,
+processing instructions, malformed XML, excessive nesting, and excessive
+element count. Destination redirection remains denied in every profile so the
+scenario cannot bypass the resolved and allowlisted target. The receipt records
+`trusted_host_access`, `operator_attested`, and
+`os_process_sandbox: ABSENT`; it does not claim that
+the scenario was confined. Run trusted scenarios only in an independently
+isolated container or virtual machine with the minimum filesystem and network
+access required.
+
+RTP playback, DTMF, hold, and transfer encoded inside XML remain `UNOBSERVABLE` until target-side
+events establish delivery. Warm transfer is unsupported by the generic SIPp adapter because it
+does not orchestrate a verified second live leg.
+
+## Minimum acceptance evidence
+
+Promote a session operation from `UNOBSERVABLE` to `SUPPORTED` only after a hermetic adapter test
+and a live-path fixture produce all applicable artifacts:
+
+- normalized hash-chained events with no sequence gaps;
+- target-boundary audio digest and channel/sample format;
+- provider or SIP lifecycle events;
+- DTMF digit plus sender/receiver evidence;
+- hold start/end plus media behavior during hold;
+- transfer initiation, destination-leg connection, source-leg disposition, and warm/cold mode;
+- bounded stdout, stderr, network destination inventory, and process exit;
+- teardown evidence for every created room, call, process, and local artifact.
+
+Keep live-path results scoped to the provider version, region, codec, adapter commit, and fixture
+that produced them. No controller capability or provider documentation establishes a universal
+carrier-path result.
+
+
+================================================================================
 FILE: docs/TRUST-GALLERY.md
 ================================================================================
 
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.8.1, offline. The rows
+Every block below is verbatim CLI output from hotato 1.9.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean and echo cases use the bundled examples

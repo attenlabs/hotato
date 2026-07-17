@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/load-call-package.v1.json",
+  "title": "Hotato load-call evidence package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "stage", "index", "lifecycle_status", "evidence", "evidence_complete", "artifacts", "package_id"],
+  "properties": {
+    "schema": {"const": "hotato.load-call-package.v1"},
+    "stage": {"type": "string", "minLength": 1},
+    "index": {"type": "integer", "minimum": 0},
+    "call_id_sha256": {"type": ["string", "null"]},
+    "lifecycle_status": {"type": ["string", "null"]},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": {"enum": ["PRESENT", "MISSING", "UNSUPPORTED", "UNOBSERVABLE"]}
+    },
+    "evidence_complete": {"type": "boolean"},
+    "artifacts": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}},
+    "package_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

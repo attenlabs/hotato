@@ -90,7 +90,7 @@ class ServeContext:
 
     def __init__(self, *, home: str, workspace: str, store_root: str, token: str,
                  state_dir: str, audit: AuditLog, sessions: SessionStore,
-                 bind_host: str) -> None:
+                 bind_host: str, production_db: Optional[str] = None) -> None:
         self.home = home
         self.workspace = workspace
         self.store_root = store_root
@@ -99,6 +99,7 @@ class ServeContext:
         self.audit = audit
         self.sessions = sessions
         self.bind_host = bind_host
+        self.production_db = production_db
 
     def open_registry(self) -> Registry:
         """A fresh registry connection for this request's thread. Read-only in
@@ -114,6 +115,20 @@ class ServeContext:
         if not os.path.isdir(os.path.join(self.store_root, "blobs")):
             return None
         return ArtifactStore(self.store_root)
+
+    def read_production_evidence(self):
+        """Read the optional, separate production DB through its mode=ro adapter.
+
+        No production row is imported into the fleet registry.  Opening the
+        writer ``ProductionStore`` here would violate the server's read-only
+        contract because that constructor creates/migrates schema; the bridge
+        uses a fresh SQLite read-only connection for each request instead.
+        """
+        if self.production_db is None:
+            return None
+        from .production_bridge import read_production_snapshot
+
+        return read_production_snapshot(self.production_db)
 
     def authenticate(self, headers, query) -> Tuple[bool, str, Optional[str], str]:
         """Authenticate a request. Returns ``(ok, who, set_cookie, via)`` where
@@ -309,7 +324,11 @@ class _Handler(BaseHTTPRequestHandler):
                 title, active = "Failure clusters", "/clusters"
                 html = _render.render_failure_clusters(model)
             else:  # health
-                model = _data.build_production_health(reg, ws)
+                model = _data.build_production_health(
+                    reg,
+                    ws,
+                    production_evidence=ctx.read_production_evidence(),
+                )
                 title, active = "Production health", "/health"
                 html = _render.render_production_health(model)
         finally:
@@ -502,7 +521,8 @@ def build_server(context: ServeContext, host: str, port: int) -> _WorkspaceServe
 
 def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
               registry: Optional[str] = None, token: Optional[str] = None,
-              token_file: Optional[str] = None, open_browser: bool = True) -> int:
+              token_file: Optional[str] = None, open_browser: bool = True,
+              production_db: Optional[str] = None) -> int:
     """Start the workspace server and serve until interrupted. Returns 0 on a
     clean shutdown. Raises ``ValueError``/``OSError`` (HANDLED -> exit 2) on a bad
     registry, an unusable token, or an unavailable port.
@@ -516,6 +536,15 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
     # Validate the registry opens (schema-version gate); read-only thereafter.
     Registry(home=home).close()
 
+    resolved_production_db = None
+    if production_db is not None:
+        # Validate before binding or printing a success banner.  The snapshot is
+        # discarded; requests reopen mode=ro so the page reflects current state.
+        from .production_bridge import read_production_snapshot
+
+        snapshot = read_production_snapshot(production_db)
+        resolved_production_db = snapshot["source"]["path"]
+
     state_dir = os.path.join(home, "serve", _safe_dirname(workspace))
     os.makedirs(state_dir, mode=0o700, exist_ok=True)
 
@@ -524,7 +553,7 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
     ctx = ServeContext(
         home=home, workspace=workspace, store_root=_data.store_root_for(home),
         token=tok, state_dir=state_dir, audit=audit, sessions=SessionStore(),
-        bind_host=host,
+        bind_host=host, production_db=resolved_production_db,
     )
     server = build_server(ctx, host, port)
 
@@ -600,6 +629,9 @@ def _print_banner(ctx, host, port, *, source, generated, state_dir, url,
     print(bar, file=out)
     print("  listening: %s" % base, file=out)
     print("  registry:  %s" % ctx.home, file=out)
+    if ctx.production_db:
+        print("  production evidence: %s   (separate SQLite source, mode=ro; "
+              "not imported into fleet)" % ctx.production_db, file=out)
     if host not in _LOOPBACK:
         print("  WARNING:   bound to %s (not loopback). This workspace is "
               "reachable from your network. Token auth still applies; stop the "
