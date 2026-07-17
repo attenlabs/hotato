@@ -443,6 +443,14 @@ def test_put_file_refuses_symlinked_fanout_escape(tmp_path):
     assert set(os.listdir(outside)) == before
 
 
+@pytest.mark.skipif(
+    not ({os.open, os.mkdir, os.stat, os.rename, os.unlink}
+         <= os.supports_dir_fd),
+    reason="the defense under test is the openat-style unlink (os.unlink with "
+           "dir_fd relative to a no-follow directory descriptor); without "
+           "dir_fd support (Windows) the path-based remove() cannot hold a "
+           "trusted descriptor across the check-to-unlink window",
+)
 def test_remove_fanout_swapped_to_symlink_between_check_and_unlink_never_escapes(
         tmp_path, monkeypatch):
     """P0 CAS-delete TOCTOU: the OLD ``remove()`` did a check-time
