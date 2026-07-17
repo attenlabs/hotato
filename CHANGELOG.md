@@ -6,6 +6,44 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Added
+- **`pr create` accepts contract bundles.** `--fixtures` now takes a
+  `<id>.hotato` contract bundle from `hotato investigate label` /
+  `hotato contract create` (or a directory of them) as well as a fixtures
+  directory, detected by shape, never a flag. The PR body is built from each
+  bundle's own `contract.json` (id, expected behavior, measured outcome,
+  replay command) and the bundle is staged WHOLE under
+  `tests/hotato/contracts/`, byte-identical (the bundle is
+  content-addressed; nothing inside it is rewritten), with
+  `hotato contract verify tests/hotato/contracts/` as the CI gate. The
+  refusal on a directory that is neither shape names both accepted shapes.
+
+### Changed
+- **`investigate label` prints one next step that completes.** The follow-up
+  guidance after a CI-ready contract is the exact `hotato pr create` command
+  for the bundle it just wrote, and `docs/BAD-CALL-TO-CI.md`'s provider-call
+  path now runs end-to-end as written (`investigate` -> `investigate label`
+  -> `pr create`), with the `fixture promote` sequence kept as the
+  alternate.
+
+### Fixed
+- **The read-only SQL guard cannot be hung.** `SqlStateAdapter`'s
+  read-only check matched leading whitespace with a catastrophic-backtracking
+  regex (over 5s on ~1KB of leading whitespace); it is now a linear scan that
+  accepts exactly the same queries (verified across 27 equivalence cases) and
+  stays O(n) into the millions of characters. Also swapped two insecure
+  `tempfile.mktemp` calls in the test suite for `mkstemp`.
+- **Auto-opened reports now open on Ubuntu.** `hotato doctor` and `hotato
+  demo` wrote their HTML report into the system temp dir and opened
+  `file:///tmp/...`; the default browser on Ubuntu is a snap that cannot read
+  `/tmp`, so the report opened to "file not found" (and `webbrowser.open`
+  reported success, so no fallback printed the path). The reports now default
+  into the working directory, and the open helper stages any
+  browser-unreachable path under a non-hidden `$HOME` directory before
+  opening.
+
 ## [1.9.0] - 2026-07-17
 
 ### Added
