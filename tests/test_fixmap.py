@@ -16,6 +16,7 @@ from hotato.core import run_single, run_suite
 from hotato.fixmap import (
     ENGAGEMENT_CONTROL_POINTER,
     classify_event,
+    downgrade_lone_engagement_fix,
     systemic_pointer,
 )
 
@@ -247,3 +248,90 @@ def test_funnel_still_fires_on_real_backchannel_false_barge():
          "verdict": {"passed": False, "did_yield": True}},
     ]
     assert systemic_pointer(events) is not None
+
+
+# --- vendor-owned cells: no user-facing knob -> the pointer is suppressed ---
+#
+# On the vendor-hosted ingested stacks (retell, twilio), the researched knob
+# grid documents turn-taking knobs for the timing classes but no user-facing
+# audio-routing / input noise-gate control. A failure class the vendor owns
+# must render NO fix at all -- naming a knob the platform does not expose is
+# advice nobody can act on. The failing event itself still reports.
+
+def test_vendor_owned_echo_cell_renders_no_pointer():
+    fix = classify_event(
+        expected_yield=False, did_yield=True,
+        reasons=["expected the agent to keep the floor but it yielded"],
+        stack="retell", echo_suspected=True,
+    )
+    assert fix is None
+
+
+def test_vendor_owned_ambient_cell_renders_no_pointer():
+    fix = classify_event(
+        expected_yield=False, did_yield=True, reasons=["yielded"],
+        stack="twilio", non_speech=True,
+    )
+    assert fix is None
+
+
+def test_vendor_owned_downgrade_suppresses_the_lone_fix_entirely():
+    """A lone backchannel false-stop on twilio: the engagement pointer is
+    downgraded as usual, and because the words-to-interrupt cell is
+    vendor-owned there, the downgrade suppresses the fix instead of naming a
+    knob the platform does not expose."""
+    event = {"fix": classify_event(
+        expected_yield=False, did_yield=True,
+        reasons=["expected the agent to keep the floor but it yielded"],
+        stack="twilio",
+    )}
+    assert event["fix"]["fix_class"] == "engagement-control"
+    downgrade_lone_engagement_fix(event, "twilio")
+    assert event["fix"] is None
+
+
+def test_documented_cells_still_render_a_pointer():
+    # missed interruption on retell: documented (interruption sensitivity).
+    fix = classify_event(
+        expected_yield=True, did_yield=False,
+        reasons=["expected the agent to yield but it kept talking"],
+        stack="retell",
+    )
+    assert fix["fix_class"] == "config" and fix["knob"] is not None
+    # slow yield on twilio: documented (interrupt sensitivity / timeout).
+    fix = classify_event(
+        expected_yield=True, did_yield=True,
+        reasons=["yielded in 2.0s, slower than the bound"], stack="twilio",
+    )
+    assert fix["fix_class"] == "config" and fix["knob"] is not None
+    # lone-downgrade on retell: words-to-interrupt is documented there.
+    event = {"fix": classify_event(
+        expected_yield=False, did_yield=True, reasons=["yielded"],
+        stack="retell",
+    )}
+    downgrade_lone_engagement_fix(event, "retell")
+    assert event["fix"]["fix_class"] == "config"
+    assert event["fix"]["knob"] is not None
+
+
+def test_unknown_stack_keeps_knob_advice_for_every_class():
+    """The gate applies only where the stack is known; an unknown/absent stack
+    keeps the generic knob-kind advice on every class."""
+    for extra in ({"echo_suspected": True}, {"non_speech": True}):
+        fix = classify_event(
+            expected_yield=False, did_yield=True, reasons=["yielded"],
+            stack=None, **extra,
+        )
+        assert fix["fix_class"] == "config" and fix["knob"] is not None
+
+
+def test_backchannel_on_a_vendor_hosted_stack_still_routes_to_engagement_control():
+    """The engagement-control pointer names a problem class, not a knob, so the
+    vendor-owned gate never touches it."""
+    fix = classify_event(
+        expected_yield=False, did_yield=True,
+        reasons=["expected the agent to keep the floor but it yielded"],
+        stack="retell", scenario_id="02-backchannel-mhm",
+    )
+    assert fix["fix_class"] == "engagement-control"
+    assert fix["pointer"] is ENGAGEMENT_CONTROL_POINTER

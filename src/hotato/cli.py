@@ -115,9 +115,12 @@ _EXIT_CODES: dict = {
     ),
     "pull": (
         (0, "listed and fetched recent recordings; per-call fetch failures are "
-            "reported as skips, never a crash"),
-        (2, "usage error, missing credentials, --allow-mono required, or a stack "
-            "with no list endpoint and no explicit ids"),
+            "reported as skips, never a crash; with --score, every scorable "
+            "event in the pulled set also passed"),
+        (1, "with --score, a scorable event in the pulled set failed"),
+        (2, "usage error, missing credentials, --allow-mono required, a stack "
+            "with no list endpoint and no explicit ids, or --score on a pulled "
+            "set with no dual-channel recording to score"),
     ),
     "sweep": (
         (0, "pulled recent recordings then analyzed them (candidate moments "
@@ -1064,6 +1067,7 @@ def _cmd_pull(args) -> int:
         limit=args.limit,
         out=args.out,
         allow_mono=args.allow_mono,
+        score=args.score,
         api_key=args.api_key,
         account_sid=args.account_sid,
         auth_token=args.auth_token,
@@ -4538,13 +4542,15 @@ def build_parser() -> argparse.ArgumentParser:
             "reported as a clean skip with its reason and the pull continues -- "
             "one bad call never crashes the run. Retell has no verified list "
             "endpoint, so pull it from explicit --call-id values. Everything scores "
-            "OFFLINE later; the only network here is the direct recording download."
+            "OFFLINE, later or in the same invocation with --score; the only "
+            "network here is the direct recording download."
         ),
         epilog=(
             _exit_codes_epilog("pull") + "\n\n"
             "Examples:\n"
             "  hotato pull --stack vapi --since 7d --limit 50\n"
             "  hotato pull\n"
+            "  hotato pull --stack vapi --since 7d --score\n"
             "  hotato pull --stack retell --call-id c1 --call-id c2\n"
             "  hotato pull --stack bland --allow-mono --limit 20\n"
             "\n"
@@ -4567,6 +4573,12 @@ def build_parser() -> argparse.ArgumentParser:
     pu.add_argument("--allow-mono", action="store_true",
                     help="allow pulling mono/mixed stacks (degraded; separated "
                          "talk-over cannot be attributed on mono)")
+    pu.add_argument("--score", action="store_true",
+                    help="after the pull, score each pulled dual-channel "
+                         "recording offline with the standard scorer (expected "
+                         "behavior: yield, the agent stops for the caller) and "
+                         "exit 1 when a scorable event failed; a pulled set "
+                         "with no dual-channel recording is refused (exit 2)")
     _add_cred_args(pu)
     pu.add_argument("--out", default=None, metavar="DIR",
                     help="download directory (default hotato-pull-<stack>)")
