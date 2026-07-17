@@ -22,7 +22,14 @@ from . import capture as _capture
 from . import errors as _errors
 from ._engine.score import ScoreConfig
 from ._engine.vad import VADParams
-from .core import SUITE_ID, dump_frames_for_input, process_exit_code, run_single, run_suite
+from .core import (
+    SNR_GATE_DEFAULT_DB,
+    SUITE_ID,
+    dump_frames_for_input,
+    process_exit_code,
+    run_single,
+    run_suite,
+)
 from .errors import open_regular as _open_regular
 
 
@@ -924,6 +931,11 @@ def _cmd_run(args) -> int:
             "--transcribe works on a single recording; drop --suite (and/or "
             "--scenarios/--audio) and pass --stereo (or --mono --diarize)"
         )
+    if suite_mode and getattr(args, "snr_gate_db", None) is not None:
+        raise ValueError(
+            "--snr-gate-db works on a single recording; drop --suite (and/or "
+            "--scenarios/--audio) and pass --stereo, or --caller and --agent"
+        )
     if args.dump_frames:
         if suite_mode:
             raise ValueError(
@@ -995,6 +1007,7 @@ def _cmd_run(args) -> int:
             # instead of passing). Raw-measurement callers that gate themselves
             # (e.g. contract re-scoring) keep the default-off engine behavior.
             gate_verdict_eligibility=True,
+            snr_gate_db=getattr(args, "snr_gate_db", None),
             onset_sec=args.onset,
             expect=args.expect,
             stack=args.stack,
@@ -4401,6 +4414,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "--stereo verdict. (Genuine cross-channel leakage still "
                         "refuses the verdict as not-scorable, exit 2 -- confirming "
                         "the mapping does not fix echo bleed.)")
+    r.add_argument("--snr-gate-db", type=float, nargs="?",
+                   const=SNR_GATE_DEFAULT_DB, default=None, metavar="DB",
+                   help="refuse to score (not-scorable, exit 2) when either channel's "
+                        "estimated stationary noise floor sits within the energy VAD's "
+                        "dynamic margin of its speech (estimated SNR below DB; bare flag = "
+                        f"{SNR_GATE_DEFAULT_DB:.1f}, which equals dyn_margin_db, the point where "
+                        "the yield verdict is no longer trustworthy); off by default, and a "
+                        "gated run carries the per-channel snr_estimate block on the event")
     r.add_argument("--format", default="text", choices=["json", "text"],
                    help="output format (default text; use json for the machine envelope)")
     r.add_argument("--dump-frames", default=None, metavar="PATH",
