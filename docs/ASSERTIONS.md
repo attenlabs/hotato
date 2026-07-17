@@ -20,6 +20,14 @@ print(env["exit_code"])   # 0 pass, 1 fail
 Python API: [`docs/API.md`](API.md) covers the scoring envelope this
 complements; the schema is `src/hotato/schema/assert.v1.json`.
 
+Runnable ground truth:
+[`examples/reference-agent`](../examples/reference-agent) exercises these
+kinds end to end: a 375-run offline suite (25 scenarios, 5 caller
+behaviours, 3 audio environments) whose `tool_result`, `state`, `sequence`,
+`handoff`, and `tool_error` assertions surface four seeded agent defects,
+deterministically. Method: the "Say-do verification methodology" section of
+[`METHODOLOGY.md`](../METHODOLOGY.md).
+
 ## The core deterministic kinds
 
 Every kind is deterministic, so every result carries `deterministic: true`,
