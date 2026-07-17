@@ -86,3 +86,12 @@ sdk/typescript/dist/
 # local dev venv used to run the CLI under the SDK test suite
 # (python3 -m venv .v && .v/bin/pip install -e .)
 .v/
+
+# `hotato start --demo` output, when run from the repo root (matches the
+# literal names in src/hotato/start.py: _SWEEP_JSON/_SWEEP_HTML/_FUNNEL_CARD/
+# _CONTRACTS_DIR/_DEMO_RECORD_DIR)
+hotato-sweep.json
+hotato-sweep.html
+hotato-no-single-threshold.svg
+hotato-failure-record/
+/contracts/
