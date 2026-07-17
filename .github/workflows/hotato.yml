@@ -23,6 +23,10 @@ on:
   pull_request:
 
 # github-script needs write to post the sticky comment; everything else is read.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -30,6 +34,7 @@ permissions:
 jobs:
   turn-taking:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout PR head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -39,6 +44,7 @@ jobs:
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.11"
+          cache: 'pip'
 
       - name: Install hotato
         run: python -m pip install .
