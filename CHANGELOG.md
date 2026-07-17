@@ -9,6 +9,20 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **`hotato run --snr-gate-db`: opt-in low-SNR scorability gate.** Below a
+  measurable per-channel SNR the energy VAD's dynamic-margin cap (threshold =
+  peak minus `dyn_margin_db`) saturates, agent activity never ends, and a
+  correct yield scores as a false 3.0 s talk-over. Measured on the reference
+  fixture: uniform noise flips the verdict between 19 and 18 dB per-channel
+  SNR, babble between 21 and 20 dB; the hardest shipped pass tier (gold noise
+  family) bottoms out at a 23.8 dB noise floor. The gate estimates each
+  channel's stationary SNR deterministically and refuses to score
+  (not-scorable, reason `low-snr`, the standard exit-2 contract) when either
+  estimate falls below the floor; bare `--snr-gate-db` uses 22.0, which
+  equals `dyn_margin_db`, the geometric constant of the cliff. Off by
+  default, and the default output is byte-identical with the gate off.
+  Curve and mechanism: `docs/BENCHMARK.md` ("Noise floor and the verdict
+  cliff").
 - **`hotato bench run` / `hotato bench verify`.** A versioned freeze of the
   shipped scenario batteries (the packaged battery plus the four
   `corpus/suites/` tiers), pinned by content hash. `bench run` scores one

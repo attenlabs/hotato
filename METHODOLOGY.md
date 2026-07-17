@@ -123,6 +123,11 @@ For each channel independently (`energy_vad`, `vad.py`):
  `cap = max(dBFS) - dyn_margin_db`; if `cap` is above the absolute gate, lower
  the threshold to `min(threshold, cap)`. This cannot rescue a genuinely silent
  channel, because the guard only fires when loud content exists above the gate.
+ The cap is also the scorer's noise ceiling: once a channel's noise floor
+ climbs to within `dyn_margin_db` of its loudest frame the verdict flips
+ rather than degrades; `docs/BENCHMARK.md` ("Noise floor and the verdict
+ cliff") gives the measured flip points and the opt-in `--snr-gate-db`
+ scorability gate.
 4. A frame is **raw-active** when its dBFS ≥ the threshold.
 5. **Hangover:** after any raw-active frame, keep the channel active for
  `round(hangover_sec / hop_sec)` more frames, 15 frames (150 ms) at the

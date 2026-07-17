@@ -27,6 +27,8 @@ import wave
 from typing import Optional
 
 from . import _engine
+from ._engine.audio import frame_rms as _frame_rms
+from ._engine.audio import to_dbfs as _to_dbfs
 from ._engine.score import (
     ScoreConfig,
     evaluate,
@@ -34,6 +36,8 @@ from ._engine.score import (
     score_channels,
     score_stereo,
 )
+from ._engine.vad import VADParams as _VADParams
+from ._engine.vad import _percentile as _vad_percentile
 from .errors import ChannelRangeError
 from .errors import open_regular as _open_regular
 from .errors import require_regular_file as _require_regular_file
@@ -261,6 +265,86 @@ def _not_scorable_reason(*, result, expected_yield: bool, onset_provided: bool):
             "the caller/agent channel mapping, or the expectation."
         )
     return None
+
+
+# --- low-SNR scorability gate (opt-in, default off) -------------------------
+#
+# Measured basis: on the bundled yielding call (01-hard-interruption) the
+# barge-in verdict flips from a correct yield to a false 3.0 s talk-over once
+# a channel's per-frame noise level climbs to within VADParams.dyn_margin_db
+# (22 dB) of that channel's loudest frame. The dynamic-margin cap in
+# _engine/vad.py (threshold = min(threshold, max_db - dyn_margin_db)) then
+# sits at or below the noise floor, every frame reads active, and an agent
+# stop is not observable, so the verdict is wrong rather than merely
+# imprecise. The estimate below is pure frame arithmetic on the same RMS
+# track the VAD uses: deterministic, stdlib-only, no model. The same input
+# always produces the same number.
+
+# Default scoring floor for the opt-in gate. 22.0 equals
+# VADParams.dyn_margin_db: the geometric constant of the verdict cliff (the
+# dynamic-margin cap saturates when the noise floor comes within dyn_margin_db
+# of the loudest frame), not a tuned number. Measured on the bundled yielding
+# call with seeded uniform noise on both channels: every flipped verdict
+# (injection SNR <= 18 dB) estimates at or below 21.9 dB and is refused; every
+# correct verdict (>= 19 dB) estimates at or above 22.9 dB and still scores.
+# The quietest scoring suite-tier channel (the gold noise family, rendered)
+# estimates 27.3 dB, and every bundled example WAV estimates 48 dB or higher,
+# so the shipped fixtures all clear the floor.
+SNR_GATE_DEFAULT_DB = 22.0
+
+
+def estimate_channel_snr_db(
+    samples,
+    sample_rate: int,
+    cfg: Optional[ScoreConfig] = None,
+    params=None,
+) -> float:
+    """Deterministic per-channel SNR estimate in dB.
+
+    Noise floor = the ``noise_percentile`` frame dBFS (the identical estimator
+    the energy VAD uses, ``_engine/vad.py``). Speech level = the 95th
+    percentile of frames at least ``rel_db`` above that floor (the frames the
+    relative threshold would call speech), so a sparse channel (one short
+    backchannel in an otherwise quiet clip) is measured by its speech, not by
+    its silence. Returns ``speech_level - noise_floor``, or 0.0 when no frame
+    rises ``rel_db`` above the floor (no separable speech-band content).
+
+    Known boundary, measured: this is a stationary-noise estimate. Strongly
+    non-stationary noise (for example competing babble) can flip a verdict
+    while still estimating a few dB above the stationary cliff; the SNR-verdict
+    curve in ``docs/BENCHMARK.md`` documents that band.
+    """
+    if cfg is None:
+        cfg = ScoreConfig()
+    if params is None:
+        params = _VADParams()
+    rms, _hop = _frame_rms(samples, sample_rate, cfg.frame_ms, cfg.hop_ms)
+    db = sorted(_to_dbfs(rms))
+    if not db:
+        return 0.0
+    floor = _vad_percentile(db, params.noise_percentile)
+    above = [d for d in db if d >= floor + params.rel_db]
+    if not above:
+        return 0.0
+    return _vad_percentile(above, 0.95) - floor
+
+
+def _low_snr_reason(caller_est: float, agent_est: float, gate_db: float) -> Optional[str]:
+    """The low-snr not-scorable reason, or None when both channels clear the
+    scoring floor. Wording is user-facing: plain statements, no claim beyond
+    what was measured."""
+    worst = min(caller_est, agent_est)
+    if worst >= gate_db:
+        return None
+    side = "caller" if caller_est <= agent_est else "agent"
+    return (
+        f"low-snr: the {side} channel's estimated SNR is {worst:.1f} dB, below "
+        f"the {gate_db:.1f} dB scoring floor. At this level the noise floor sits "
+        "inside the energy VAD's dynamic margin, a stop on this channel is not "
+        "observable, and a yield or hold verdict would be unreliable. This is an "
+        "input problem, not an agent verdict. Improve the capture chain or "
+        "reduce the background noise, then re-score."
+    )
 
 
 def _vad_backend_provenance(cfg) -> Optional[dict]:
@@ -1109,6 +1193,7 @@ def run_single(
     agent_channel: int = 1,
     channel_map_confirmed: bool = False,
     gate_verdict_eligibility: bool = False,
+    snr_gate_db: Optional[float] = None,
     onset_sec: Optional[float] = None,
     expect: str = "yield",
     stack: Optional[str] = None,
@@ -1180,12 +1265,34 @@ def run_single(
     caveat (a genuine leak still refuses -- confirming the mapping does not fix
     echo bleed). With the gate off (the default) the envelope is byte-identical to
     before this gate existed.
+
+    ``snr_gate_db`` (opt-in, default None = off) is the low-SNR scorability
+    gate: each channel's SNR is estimated deterministically
+    (``estimate_channel_snr_db``) and, when either estimate falls below this
+    floor, the event is NOT SCORABLE with a ``low-snr`` reason (fail-closed,
+    process exit 2) instead of silently mis-scored -- measured on the bundled
+    yielding call, a noise floor within ``dyn_margin_db`` of the speech peaks
+    flips a correct yield into a false 3.0 s talk-over. Existing not-scorable
+    reasons take precedence. ``SNR_GATE_DEFAULT_DB`` (22.0 = ``dyn_margin_db``,
+    the geometric constant of that cliff) is the suggested value. With the
+    gate off (the default) the envelope is byte-identical to before this gate
+    existed.
     """
     if cfg is None:
         cfg = ScoreConfig()
     _check_onset(onset_sec)
 
     if mono or diarize:
+        if snr_gate_db is not None:
+            # The gate certifies SEPARATED caller/agent channels; the
+            # diarized-mono path reconstructs both tracks from one microphone,
+            # where a per-channel stationary noise floor is the same floor
+            # twice. Refuse cleanly (exit 2) instead of attaching an estimate
+            # the input cannot support.
+            raise ValueError(
+                "--snr-gate-db applies to separated channels; pass --stereo, "
+                "or --caller and --agent (not --mono/--diarize)."
+            )
         env = _run_diarized_mono(
             mono=mono,
             diarize=diarize,
@@ -1216,6 +1323,10 @@ def run_single(
     #    along a still-scoring event. None unless a swap is suspected + unconfirmed.
     verdict_ineligible_reason = None
     channel_mapping_caveat = None
+    # Low-SNR gate: per-channel estimates, computed only when the gate is
+    # requested so a default run never reads a single extra frame.
+    snr_caller_est = None
+    snr_agent_est = None
     if stereo:
         signal = _read_wav(stereo)
         if signal.num_channels < 2:
@@ -1237,6 +1348,13 @@ def run_single(
         resume = _resume_block(signal.get(agent_channel), signal.sample_rate, result, cfg)
         source = os.path.basename(stereo)
         audio_provenance = _audio_provenance(("stereo", stereo))
+        if snr_gate_db is not None:
+            snr_caller_est = estimate_channel_snr_db(
+                signal.get(caller_channel), signal.sample_rate, cfg, cfg.caller_vad
+            )
+            snr_agent_est = estimate_channel_snr_db(
+                signal.get(agent_channel), signal.sample_rate, cfg, cfg.agent_vad
+            )
         # K6: when the verdict-eligibility gate is enabled (the `hotato run`
         # COMMAND enables it; a raw-measurement caller such as `contract`, which
         # applies its OWN stricter contract-mode gate on top, leaves it off), read
@@ -1287,8 +1405,30 @@ def run_single(
         resume = _resume_block(a.get(0)[:n], c.sample_rate, result, cfg)
         source = f"{os.path.basename(caller)}+{os.path.basename(agent)}"
         audio_provenance = _audio_provenance(("caller", caller), ("agent", agent))
+        if snr_gate_db is not None:
+            snr_caller_est = estimate_channel_snr_db(
+                c.get(0)[:n], c.sample_rate, cfg, cfg.caller_vad
+            )
+            snr_agent_est = estimate_channel_snr_db(
+                a.get(0)[:n], a.sample_rate, cfg, cfg.agent_vad
+            )
     else:
         raise ValueError("provide --stereo FILE, or both --caller FILE and --agent FILE")
+
+    # Low-SNR gate: refuse (not-scorable, fail-closed) instead of mis-scoring
+    # when either channel's estimated SNR is below the floor. Runs through the
+    # SAME not-scorable machinery as the K6 leakage refusal, and existing
+    # malformed-input reasons still take precedence inside _event_from_result.
+    # Never reached when snr_gate_db is None (the default).
+    if (
+        snr_gate_db is not None
+        and verdict_ineligible_reason is None
+        and snr_caller_est is not None
+        and snr_agent_est is not None
+    ):
+        verdict_ineligible_reason = _low_snr_reason(
+            snr_caller_est, snr_agent_est, snr_gate_db
+        )
 
     want_yield = str(expect).strip().lower() not in ("hold", "no", "false", "hold-floor")
     expected = {"yield": want_yield}
@@ -1313,6 +1453,19 @@ def run_single(
         verdict_ineligible_reason=verdict_ineligible_reason,
         channel_mapping_caveat=channel_mapping_caveat,
     )
+    # Additive SNR-estimate block, present ONLY when the gate ran, so a
+    # default run's event stays byte-identical to before the gate existed.
+    if snr_gate_db is not None and snr_caller_est is not None:
+        event["snr_estimate"] = {
+            "gate_db": round(float(snr_gate_db), 3),
+            "caller_snr_db": round(snr_caller_est, 3),
+            "agent_snr_db": round(snr_agent_est, 3),
+            "estimator": (
+                "per-channel frame dBFS (frame_ms/hop_ms from config): "
+                "noise floor = noise_percentile frame; speech level = p95 of "
+                "frames at least rel_db above the floor; snr = speech - floor"
+            ),
+        }
     env = _envelope(mode="single", stack=stack, events=[event])
     if transcribe:
         if not stereo:

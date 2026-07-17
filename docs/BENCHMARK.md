@@ -131,6 +131,36 @@ value you need to hold.
 
 ---
 
+## Noise floor and the verdict cliff
+
+Below a measurable per-channel SNR the verdict flips rather than degrades.
+The mechanism is one line of the energy VAD: the speech threshold is capped
+at the channel's loudest frame minus `dyn_margin_db` (22 dB), so once the
+noise floor climbs inside that margin every frame reads active, agent
+activity never ends, and a correct yield scores as a false 3.0 s talk-over.
+
+Measured on the reference fixture (`01-hard-interruption`, seeded noise
+added to both channels): with uniform noise the yield verdict flips between
+19 and 18 dB per-channel SNR; with babble-shaped noise, between 21 and
+20 dB. The hardest shipped pass tier (the gold noise family) bottoms out at
+a 23.8 dB noise floor, about 5 dB above the cliff.
+
+The opt-in scorability gate covers the band below: `hotato run
+--snr-gate-db` (bare flag = 22.0, which equals `dyn_margin_db`, the
+geometric constant of the cliff, not a tuned number) estimates each
+channel's stationary SNR deterministically and refuses to score
+(not-scorable, exit 2, reason `low-snr`) when either estimate falls below
+the floor, instead of emitting the false talk-over. A gated run carries the
+per-channel `snr_estimate` block on the event.
+
+The estimate certifies a stationary noise floor. Strongly non-stationary
+noise (babble) can flip a verdict while estimating above the floor: the
+babble flip sits 2 dB above the uniform flip on the curve above. Read a
+gated pass as "the stationary floor clears the margin", and treat heavy
+competing speech as its own capture problem.
+
+---
+
 ## Reproducing it
 
 ```bash
