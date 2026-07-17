@@ -190,27 +190,35 @@ def test_busy_database_raises_clean_oserror_not_a_raw_sqlite_traceback(tmp_path,
     monkeypatch.setenv("HOTATO_FLEET_DB_TIMEOUT_SEC", "1")
 
     started = threading.Event()
+    release = threading.Event()
 
     def holder():
         con = sqlite3.connect(db_path, timeout=30)
         con.execute("BEGIN IMMEDIATE")
         started.set()
-        time.sleep(3.0)  # longer than the 1s window configured above
+        # Hold until the test releases us, not for a fixed sleep: on a slow
+        # runner (macOS CI) the waiter's setup below can outlast any fixed
+        # window, the lock is gone before the contending write happens, and
+        # the test flakes with DID NOT RAISE. Event-held, the lock provably
+        # spans the write; the 30s ceiling only bounds a crashed test.
+        release.wait(timeout=30)
         con.execute("COMMIT")
         con.close()
 
     t = threading.Thread(target=holder)
     t.start()
     assert started.wait(timeout=5)
-    time.sleep(0.3)
 
     waiter = Registry(home=home)  # no write needed here; succeeds even under 1s
-    with pytest.raises(OSError) as exc_info:
-        waiter.ensure_workspace("ws1")  # a real write; must hit the held lock
+    try:
+        with pytest.raises(OSError) as exc_info:
+            waiter.ensure_workspace("ws1")  # a real write; must hit the held lock
+    finally:
+        release.set()
+        t.join()
     assert not isinstance(exc_info.value, sqlite3.OperationalError)
     assert "busy" in str(exc_info.value).lower()
     assert "retry" in str(exc_info.value).lower()
-    t.join()
 
 
 # --- #11: schema-version enforcement ---------------------------------------
