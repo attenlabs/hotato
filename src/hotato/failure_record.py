@@ -1074,6 +1074,31 @@ def _project_contract_lanes(
     return lanes, evidence
 
 
+# The authenticated-capture provenance tokens that map to the failure-record
+# "captured" kind: a genuine live/driven "real" call, or an origin already
+# labeled "captured". Everything else (a "fixture"/stored run, or absent/unknown
+# provenance) FAILS CLOSED to "fixture" -- never silently "captured".
+_AUTHENTIC_CAPTURE = frozenset({"real", "captured"})
+
+
+def _record_origin_kind(provenance: Optional[str]) -> str:
+    """Carry a source result's TRUE provenance into the failure-record origin
+    vocabulary (schema failure-record.v1.json: captured|simulated|imported|
+    fixture), FAIL-CLOSED.
+
+    A simulator run is ``simulated``. An AUTHENTICATED genuine capture -- a
+    live/driven ``real`` call, or a ``captured`` origin -- is ``captured``.
+    File-supplied STORED evidence (the conversation axis's ``fixture``), and ANY
+    unknown/absent provenance, is ``fixture``. A stored fixture is NEVER silently
+    laundered into ``captured`` (which reads as a genuine live capture): that
+    conflation is exactly the provenance defect this maps away."""
+    if provenance == "simulated":
+        return "simulated"
+    if provenance in _AUTHENTIC_CAPTURE:
+        return "captured"
+    return "fixture"
+
+
 def project(
     doc: Dict[str, Any],
     *,
@@ -1118,9 +1143,10 @@ def project(
         if unit.get("agent"):
             subject["agent_id"] = _require_safe_id(unit["agent"],
                                                    "subject.agent_id")
-        origin_kind = ("simulated"
-                       if (unit.get("reliability") or {}).get("origin") == "simulated"
-                       else "captured")
+        # Propagate the test-run's true reliability origin, fail-closed: a stored
+        # "fixture" run stays "fixture", never laundered into "captured".
+        origin_kind = _record_origin_kind(
+            (unit.get("reliability") or {}).get("origin"))
         required = list((unit.get("success") or {}).get("required") or [])
         exit_code = int(unit.get("exit_code", 0))
         source_schema = "hotato.test-run"
@@ -1143,8 +1169,9 @@ def project(
         if suite.get("release_id"):
             subject["release_id"] = _require_safe_id(suite["release_id"],
                                                      "subject.release_id")
-        origin_kind = ("simulated" if unit.get("origin") == "simulated"
-                       else "captured")
+        # Propagate the suite test's true origin, fail-closed (a static/no-scenario
+        # test is "fixture", never silently "captured").
+        origin_kind = _record_origin_kind(unit.get("origin"))
         required = list((unit.get("success") or {}).get("required") or [])
         exit_code = int(unit.get("exit_code", 0))
         source_schema = "hotato.suite-run"
@@ -1154,6 +1181,10 @@ def project(
         rubric_env = None
         subject = {"test_id": _require_safe_id(unit.get("id"),
                                                "subject.test_id")}
+        # contract-verify provenance is governed by its own capture-origin path
+        # (the K6 trust gate / `hotato investigate` authentication) and is bound
+        # into the published, content-addressed atlas record corpus; it is left
+        # as-is here (out of scope for the test-run/suite fixture fix).
         origin_kind = "captured"
         required = []
         exit_code = int(doc.get("exit_code", 0))

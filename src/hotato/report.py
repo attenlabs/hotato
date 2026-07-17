@@ -1181,6 +1181,10 @@ def _reliability_origin_line(origin: Optional[str], runs: Any) -> str:
     if origin == "real":
         return (f"Over {n} repeated run(s) of the supplied recording "
                 "(origin=real).")
+    if origin == "fixture":
+        return (f"Over {n} repeated run(s) of the supplied stored fixture "
+                "(origin=fixture) -- file-supplied evidence, not an "
+                "authenticated live capture.")
     return f"Over {n} repeated run(s)."
 
 
@@ -2326,7 +2330,7 @@ table.cvtab td{text-align:left;color:%(mono)s;padding:3px 18px 3px 0;
 
 ConversationLike = Any  # a hotato.conversation.v1 manifest dict; never imported
 
-_ORIGIN_KINDS = ("real", "simulated")  # mirrors hotato.conversation.ORIGIN_KINDS
+_ORIGIN_KINDS = ("real", "simulated", "fixture")  # mirrors hotato.conversation.ORIGIN_KINDS
 
 
 def _normalize_conversation(conversation: ConversationLike) -> dict:

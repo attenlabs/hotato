@@ -324,8 +324,10 @@ def test_test_run_repetitions_threads_real_reliability_into_report(tmp_path):
     assert '<span class="scname">Reliability</span>' in page
     assert "pass^k (all k passed)" in page
     assert "95% Wilson CI (on pass@1)" in page
-    # over a REAL supplied recording -> origin=real (never a simulated label)
-    assert "origin=real" in page
+    # supplied recording files are a stored fixture -> origin=fixture, and it is
+    # never laundered as a genuine live capture (real) or a simulated label
+    assert "origin=fixture" in page
+    assert "origin=real" not in page
     assert "origin=simulated" not in page
     # neither the empty-state nor the retired Phase-2 wording
     assert "not measured: no repeated runs" not in page

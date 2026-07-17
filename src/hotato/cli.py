@@ -3027,6 +3027,7 @@ def _cmd_test_run(args) -> int:
             transcript_path=args.transcript,
             trace_path=args.trace,
             timing=timing,
+            state_evidence=ctx.state_evidence,
         )
         result["conversation"] = manifest
 
@@ -3372,6 +3373,8 @@ def _render_conversation_verify_text(v: dict) -> str:
     for m in v["missing"]:
         loc = f" ({m['path']})" if m.get("path") else ""
         lines.append(f"  MISSING  {m['artifact']}{loc}: {m.get('reason', '')}")
+    for u in v.get("unbound", []):
+        lines.append(f"  UNBOUND  {u['artifact']}: {u.get('reason', '')}")
     lines.append(f"  {v['reason']}")
     return "\n".join(lines) + "\n"
 

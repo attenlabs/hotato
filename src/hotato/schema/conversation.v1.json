@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://hotato.dev/schema/conversation.v1.json",
   "title": "hotato conversation artifact manifest, schema conversation.v1",
-  "description": "The canonical Conversation Artifact manifest (Phase-1 design D): binds every piece of evidence for one conversation by sha256, so `hotato.conversation.verify` re-hashes the referenced children and REFUSES on any digest mismatch (the evidence-kernel refuse-not-downgrade posture; a tampered child is refused, never silently accepted). HONESTY INVARIANTS: origin.kind ('real'|'simulated') is REQUIRED so synthetic is never conflated with real (invariant 5), and a simulated origin MUST carry its simulator block; no overall_score anywhere; created_at is supplied by the caller, never Date.now() on a deterministic path.",
+  "description": "The canonical Conversation Artifact manifest (Phase-1 design D): binds every piece of evidence for one conversation by sha256, so `hotato.conversation.verify` re-hashes the referenced children and REFUSES on any digest mismatch (the evidence-kernel refuse-not-downgrade posture; a tampered child is refused, never silently accepted). HONESTY INVARIANTS: origin.kind ('real'|'simulated'|'fixture') is REQUIRED so synthetic-or-unauthenticated is never conflated with a genuine authenticated capture (invariant 5) -- 'real' is an authenticated live/driven capture, 'fixture' is file-supplied stored evidence, and a simulated origin MUST carry its simulator block; no overall_score anywhere; created_at is supplied by the caller, never Date.now() on a deterministic path.",
   "type": "object",
   "required": ["kind", "version", "conversation_id", "agent_id", "origin", "created_at", "artifacts"],
   "additionalProperties": true,
@@ -17,9 +17,9 @@
       "type": "object",
       "required": ["kind"],
       "additionalProperties": true,
-      "description": "The synthetic/real axis (invariant 5). `kind` is REQUIRED. A 'simulated' origin MUST carry a simulator block (enforced by the if/then below and by validate_conversation_doc).",
+      "description": "The provenance axis (invariant 5). `kind` is REQUIRED. 'real' is an AUTHENTICATED genuine capture (a live/driven call); 'simulated' is a synthetic simulator run that MUST carry a simulator block (enforced by the if/then below and by validate_conversation_doc); 'fixture' is file-supplied stored evidence whose live provenance is NOT authenticated (e.g. `hotato test run` over --transcript/--trace/--state/--audio files). A stored fixture is never labeled 'real'.",
       "properties": {
-        "kind": { "enum": ["real", "simulated"] },
+        "kind": { "enum": ["real", "simulated", "fixture"] },
         "provider": { "type": ["string", "null"] },
         "provider_call_id": { "type": ["string", "null"] },
         "simulator": {
@@ -49,13 +49,14 @@
     "artifacts": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Evidence children bound by digest. Each entry is optional; the closed set is audio/transcript/trace/timing/assertions.",
+      "description": "Evidence children bound by digest. Each entry is optional; the closed set is audio/transcript/trace/timing/assertions/state. `state` binds the post-call STATE evidence (Authority 2) -- the query descriptor + the observed projection behind a determinate state/state_change verdict; `verify` REFUSES a bundle whose assertions record a determinate state result but bind no state child (a state-driven verdict must be re-provable, never swappable).",
       "properties": {
         "audio": { "$ref": "#/definitions/artifact_ref" },
         "transcript": { "$ref": "#/definitions/artifact_ref" },
         "trace": { "$ref": "#/definitions/artifact_ref" },
         "timing": { "$ref": "#/definitions/artifact_ref" },
-        "assertions": { "$ref": "#/definitions/artifact_ref" }
+        "assertions": { "$ref": "#/definitions/artifact_ref" },
+        "state": { "$ref": "#/definitions/artifact_ref" }
       }
     }
   },

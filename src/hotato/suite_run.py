@@ -293,7 +293,11 @@ def _run_static_test(
         "runs": [],
         "exit_code": rep["exit_code"],
         "status": _status_from_exit(rep["exit_code"]),
-        "origin": "real",
+        # A static (no-scenario) test scores file-supplied / empty-context
+        # evidence -- never an authenticated live capture -- so its provenance is
+        # FIXTURE, never "real" (invariant 5: unauthenticated is never conflated
+        # with a genuine capture; mirrors hotato.test_run._origin_from_doc).
+        "origin": "fixture",
     }
 
 

@@ -206,3 +206,29 @@ def test_the_sentinel_scenarios_actually_exercise_public_reason():
     for name in structured:
         rows = _SCENARIOS[name]()["rows"]
         assert any(r.get("public_reason") for r in rows), name
+
+
+# =========================================================================
+# P0-2 (provenance) regression: a STORED-FIXTURE run must never be laundered
+# into a "captured" (genuine-live) failure record. Only an authenticated
+# live/driven "real" run maps to "captured"; a simulator run stays "simulated".
+# =========================================================================
+
+def test_stored_fixture_origin_is_not_laundered_into_captured():
+    # A test-run over file-supplied evidence carries reliability.origin
+    # "fixture"; its failure record MUST report origin.kind "fixture", never
+    # "captured" (which reads as a genuinely-captured live call). Before the
+    # fix, anything-not-"simulated" defaulted to "captured", laundering a stored
+    # fixture into a genuine capture.
+    fixture_rec = FR.project(make_test_run(origin="fixture"))
+    assert fixture_rec["origin"]["kind"] == "fixture"
+    assert fixture_rec["origin"]["kind"] != "captured"
+
+    # An authenticated genuine capture ("real") is the only thing that maps to
+    # the failure-record "captured" kind.
+    real_rec = FR.project(make_test_run(origin="real"))
+    assert real_rec["origin"]["kind"] == "captured"
+
+    # A simulator run stays "simulated".
+    sim_rec = FR.project(make_test_run(origin="simulated"))
+    assert sim_rec["origin"]["kind"] == "simulated"

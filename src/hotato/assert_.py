@@ -60,6 +60,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from dataclasses import field as _dc_field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .errors import (
@@ -227,6 +228,14 @@ class Context:
     spans: Optional[List[Dict[str, Any]]] = None
     timing: Any = None
     state_adapter: Any = None
+    # A capture log the state kinds append to as a side effect of evaluation:
+    # each determinate (PASS/FAIL) ``state`` / ``state_change`` read records the
+    # query descriptor + the observed projection here, so the conversation
+    # artifact can BIND that exact state evidence as a hashed child and later
+    # re-prove which Authority-2 record produced the verdict. An INCONCLUSIVE
+    # state read (no adapter / adapter error) queried no authority and appends
+    # NOTHING. Not read by any evaluator; write-only provenance.
+    state_evidence: List[Dict[str, Any]] = _dc_field(default_factory=list)
 
 
 def _norm_turn(t: Dict[str, Any]) -> Dict[str, Any]:
@@ -1774,6 +1783,24 @@ def _eval_tool_error(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     return result
 
 
+def _record_state_evidence(ctx: Context, evidence: Dict[str, Any]) -> None:
+    """Append the observed state evidence for a DETERMINATE state read to the
+    context's write-only capture log, so the conversation artifact can bind it as
+    a hashed, re-provable child. Deduped by assertion ``id`` (last write wins) so
+    a repeated deterministic replay -- byte-identical by construction -- records
+    the evidence once, not once per repetition. A ctx without the log (a
+    duck-typed context) is a silent no-op; never raise from the provenance path."""
+    log = getattr(ctx, "state_evidence", None)
+    if log is None:
+        return
+    ident = evidence.get("id")
+    for i, existing in enumerate(log):
+        if existing.get("id") == ident:
+            log[i] = evidence
+            return
+    log.append(evidence)
+
+
 def _eval_state(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     result = _base_result(a)
     if ctx.state_adapter is None:
@@ -1792,6 +1819,14 @@ def _eval_state(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
         result["status"] = "INCONCLUSIVE"
         result["reason"] = f"state adapter query for {resource!r} failed: {exc}"
         return result
+    # The adapter WAS queried and returned a determinate answer (a record, or a
+    # grounded absence). Capture the query descriptor + the observed projection
+    # so the conversation artifact binds the exact Authority-2 evidence that
+    # produced this verdict (re-provable, not swappable).
+    _record_state_evidence(ctx, {
+        "id": a["id"], "kind": "state", "resource": resource,
+        "filters": dict(filters), "expect": dict(expect), "observed": rec,
+    })
     if rec is None:
         # The adapter IS queryable (input present); the record genuinely does
         # not exist -> a grounded FAIL, not a guess. (Contrast a MISSING
@@ -1842,6 +1877,14 @@ def _eval_state_change(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
             f"cannot measure a delta on {resource!r}: {missing} snapshot(s) absent"
         )
         return result
+    # Both snapshots present -> a determinate delta. Capture the before/after
+    # projections so the conversation artifact binds the exact Authority-2
+    # evidence that produced this verdict.
+    _record_state_evidence(ctx, {
+        "id": a["id"], "kind": "state_change", "resource": resource,
+        "filters": dict(filters), "field": field,
+        "before": before, "after": after,
+    })
     bval, _bf = _get_path(before, field)
     aval, _af = _get_path(after, field)
     failures: List[str] = []
