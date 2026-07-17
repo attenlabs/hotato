@@ -131,10 +131,22 @@ def test_clean_tag_at_head_is_accepted_by_resolver(tmp_path):
 # (2) STALE-DIST clearing + tag-faithful build -- needs the build toolchain
 # ---------------------------------------------------------------------------
 def _have_build_toolchain() -> bool:
-    return (
-        importlib.util.find_spec("build") is not None
-        and importlib.util.find_spec("setuptools") is not None
-    )
+    # A stray ``build/`` directory in the working tree (setuptools output, or
+    # the extracted-sdist guard's own tree) registers as an implicit namespace
+    # package, so a bare ``find_spec("build") is not None`` is fooled into
+    # thinking the real ``build`` tool is importable -- then a subprocess
+    # ``python -m build`` still fails with "No module named build". A namespace
+    # directory has ``spec.origin is None``; a real installed module never does.
+    # Require a real module so these build-exercising tests skip cleanly when
+    # the toolchain is genuinely absent (the documented intent).
+    for _name in ("build", "setuptools"):
+        try:
+            _spec = importlib.util.find_spec(_name)
+        except (ImportError, ValueError):
+            return False
+        if _spec is None or _spec.origin is None:
+            return False
+    return True
 
 
 @pytest.mark.skipif(not _have_build_toolchain(),

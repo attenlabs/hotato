@@ -8,6 +8,31 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-16
+
+### Fixed
+- **State-verdict evidence binding.** A `state` outcome verdict now binds to
+  the specific evidence IDs it was judged on, and `verify` REFUSES (exit 2)
+  when a bound evidence ID is missing from the record or does not cover the
+  asserted state -- a verdict can no longer ride on evidence that was never
+  about it.
+- **File-based runs record `origin: fixture`.** Runs scored from local files
+  are recorded as `fixture`, never `real`; the serve views accept and label
+  the `fixture` origin and keep the three origins (`real` / `simulated` /
+  `fixture`) unmerged everywhere, so provenance survives from ingest to
+  dashboard.
+- **Release taglock toolchain detection.** The build-exercising release tests
+  now require a real importable `build` module (`spec.origin is not None`)
+  instead of being fooled by a stray `build/` namespace directory -- fixes the
+  `sdist-guard` CI job, which failed on `python -m build` inside the extracted
+  sdist tree.
+
+### Changed
+- **README lead: "Regression testing for voice agents."** The category line
+  now leads every surface (README, PyPI, GitHub About); the wedge line sits
+  second. How-it-works flowchart is top-down so GitHub's mermaid controls
+  no longer overlap the verdict boxes; banner sized to 442 px.
+
 ## [1.8.0] - 2026-07-15
 
 ### Added
