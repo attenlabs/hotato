@@ -4426,10 +4426,13 @@ FILE: docs/START.md
 
 # Start here: the guided first run
 
-`hotato start --demo` runs the whole hotato loop on one bundled call: it
-sweeps the two demo recordings (the same calls `hotato demo` scores),
-builds and verifies one failure contract from them, writes every artifact
-you need to see the flow, and prints the exact next commands.
+`hotato start --demo` runs the whole hotato loop on bundled data, in two
+acts. Act one (timing): it sweeps the two demo recordings (the same calls
+`hotato demo` scores) and builds and verifies one failure contract from
+them. Act two (say-do): it runs one conversation check over a bundled
+scripted conversation -- the agent says the refund was sent; the trace and
+the post-call state show it was not issued. It writes every artifact you
+need to see both flows and prints the exact next commands.
 
 ```bash
 hotato start --demo
@@ -4445,9 +4448,11 @@ Into the current directory (or `--dir DIR`):
 | `hotato-sweep.html` | Self-contained dashboard (embedded audio, no external assets), opens in any browser. |
 | `hotato-no-single-threshold.svg` | Threshold-funnel card: the demo battery misses an interruption **and** false-stops on a backchannel, so no single dial fixes both. See `docs/CARDS.md`. |
 | `contracts/demo-missed-interruption.hotato/` | One failure contract, built from the sweep's missed-interruption candidate with `--expect yield`, verified on the spot. See `docs/CONTRACTS.md`. |
+| `saydo/` | Act two's conversation: `transcript.json`, `trace.jsonl`, `state.json`, `test.json`, and the evaluated `test-run.json`. See below. |
 
-Everything runs offline: demo, analyze, card, and contract steps all run
-on packaged audio and local files alone.
+Everything runs offline: demo, analyze, card, contract, and say-do steps
+all run on packaged audio, packaged conversation files, and local files
+alone.
 
 ## The demo failure contract
 
@@ -4485,6 +4490,49 @@ Run it yourself:
 hotato contract verify contracts/
 ```
 
+## Act two: the say-do check
+
+Timing is act one -- how the call sounded. Act two checks what the agent
+did. The demo bundles one scripted say-do conversation (`saydo/`,
+mirroring the reference agent's `refund-claimed-not-issued` job in
+`examples/reference-agent`): the caller asks for a refund, the agent looks
+the order up, and then says the refund was sent -- while the trace carries
+no `issue_refund` tool span and the post-call state's `refund_status`
+stays `"none"`. Every packaged file is verified against the sha256 its
+manifest records before use.
+
+`start --demo` evaluates that conversation through the same machinery
+`hotato test run` drives -- a `phrase` assertion holds the agent's claim
+(it passes), and the `tool_result` + `state` assertions read the trace
+(Authority 1) and the post-call state (Authority 2) -- so it prints:
+
+```
+say-do check:    FAIL, by design: the agent said the refund was sent;
+                 the trace shows no such tool call succeeded (no
+                 issue_refund span), and the order's post-call
+                 refund_status stayed "none".
+```
+
+Tool and state evidence decide the outcome, never the agent's words. The
+evaluated result lands at `saydo/test-run.json`; render it as the say-do
+card (`docs/CARDS.md`) with:
+
+```bash
+hotato card saydo/test-run.json --out saydo-card.svg
+```
+
+Replay the check as the CI gate it is (exit `1`, by design):
+
+```bash
+hotato test run saydo/test.json --agent demo-agent \
+    --transcript saydo/transcript.json --trace saydo/trace.jsonl \
+    --state saydo/state.json
+```
+
+The whole conversation-QA loop behind it -- suites, scenarios, the 375-run
+reference agent -- lives in [`docs/CONVERSATION-TEST.md`](CONVERSATION-TEST.md)
+and [`docs/SUITE-RUN.md`](SUITE-RUN.md).
+
 ## What it prints
 
 The exact next commands, ready to copy:
@@ -4516,6 +4564,16 @@ The exact next commands, ready to copy:
    hotato contract verify contracts/
    ```
 
+5. **Replay the say-do gate** (exit `1`, by design) and **render the
+   say-do card**:
+
+   ```bash
+   hotato test run saydo/test.json --agent demo-agent \
+       --transcript saydo/transcript.json --trace saydo/trace.jsonl \
+       --state saydo/state.json
+   hotato card saydo/test-run.json --out saydo-card.svg
+   ```
+
 ## Other modes
 
 `--stack`, `--folder`, and `--stereo` each hand you the shipped command
@@ -4530,14 +4588,18 @@ for the job:
 ## Output and exit codes
 
 `--format json` emits a machine object (the files written, the next
-commands, and a `contract` block with the demo contract's id, expect,
-scorable, passed, and `verified_fail_as_expected`) for an agent to drive.
+commands, a `contract` block with the demo contract's id, expect,
+scorable, passed, and `verified_fail_as_expected`, and a `saydo` block
+with the say-do check's test id, exit code, claim assertion, and evidence
+assertions with their share-safe public reasons) for an agent to drive.
 
 - **0**: the guided first run completed -- including when `--stack`,
   `--folder`, or `--stereo` printed the shipped command to use instead.
-  This holds even though the demo contract itself FAILS its policy:
-  `start --demo` finishing is separate from the demo contract passing,
-  which `hotato contract verify contracts/` reports (exit `1`, by design).
+  This holds even though the demo contract FAILS its policy and the
+  say-do check FAILS its test: `start --demo` finishing is separate from
+  those gates passing, which `hotato contract verify contracts/` and
+  `hotato test run saydo/test.json ...` each report (exit `1`, by
+  design).
 - **2**: usage error -- no mode given, or `--dir` is not a directory.
 
 
@@ -7468,6 +7530,7 @@ The input's kind decides the card; you do not pick.
 | a fix plan whose `decision` is `do_not_tune_single_threshold` | **threshold funnel** (the hero) |
 | a supported `hotato verify` before/after rollup that improved | **paired comparison** |
 | a `hotato contract create` contract (kind `voice-turn-taking-contract`) | **failure contract** |
+| a `hotato test run` result (kind `hotato.test-run`) whose tool/state evidence failed a declared outcome | **say-do failure** |
 
 `#N` is the same 1-based rank the sweep report and dashboard show, and the
 same ref `hotato fixture promote` takes -- a card and a fixture speak of
@@ -7537,6 +7600,31 @@ human labeled this contract; Hotato measured the timing."
 hotato card contracts/demo-missed-interruption.hotato/contract.json --out contract.svg
 ```
 
+### F. Say-do failure
+
+A `hotato test run` result (`--format json`, kind `hotato.test-run`) whose
+deterministic lane failed a tool/state evidence assertion (`tool_result`,
+`tool_call`, `tool_error`, `http_result`, `state`, `state_change`): the
+conversation claims an outcome the trace (Authority 1) or the post-call
+state (Authority 2) does not back. The card renders the claim vs the
+evidence -- the failing assertion's id and kind, its span refs when the
+evaluator recorded any, and its share-safe `public_reason` (built from
+allowlisted structured fields only, never transcript text, a tool payload,
+or a state value). The failing outcome-tagged evidence assertion leads;
+the footer reads "Tool and state evidence decide the outcome, never the
+agent's words." A test-run result with no failing tool/state evidence
+assertion is refused with exit 2.
+
+```bash
+hotato start --demo   # act two writes saydo/test-run.json
+hotato card saydo/test-run.json --out saydo-card.svg
+
+# or from any of your own runs:
+hotato test run refund.yaml --agent support-v3 --trace voice_trace.jsonl \
+    --transcript call.transcript.json --format json > test-run.json
+hotato card test-run.json --out saydo-card.svg
+```
+
 ## Redaction: identifiers stay hidden by default
 
 A card is a public image, so identifiers stay hidden by default: call id,
@@ -7581,14 +7669,15 @@ it is written there atomically.
 
 - **0**: the SVG card was rendered (to `--out`, or to stdout).
 - **2**: usage error, unreadable input, a bad candidate ref, or an input
-  not a fix plan / verify result / sweep candidate.
+  not a fix plan / verify result / contract / test-run result / sweep
+  candidate.
 
 ## Regenerating the committed cards
 
-Three commit-ready examples live under `docs/assets/cards/`
+Four commit-ready examples live under `docs/assets/cards/`
 (`no-single-threshold-card.svg`, `talk-over-card.svg`,
-`false-stop-card.svg`), rendered from the two bundled demo calls.
-Regenerate them with:
+`false-stop-card.svg`, `say-do-card.svg`), rendered from the bundled demo
+data. Regenerate them with:
 
 ```bash
 PYTHONPATH=src python3 scripts/render_card_assets.py
@@ -8380,7 +8469,7 @@ reproducible with the command shown beside it.
 
 ## Cards: findings as PR images
 
-Three self-contained SVGs: offline, byte-stable from the same input, every
+Four self-contained SVGs: offline, byte-stable from the same input, every
 font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
 
 - ![threshold funnel](assets/cards/no-single-threshold-card.svg)
@@ -8396,6 +8485,10 @@ font, image, and script inlined. Full spec: [CARDS.md](CARDS.md).
   A measured false-stop moment: the agent went quiet with no caller nearby
   to explain it.
   Regenerate: `hotato card hotato-sweep.json#N --out card.svg`
+- ![say-do failure](assets/cards/say-do-card.svg)
+  A say-do failure: the conversation claims an outcome the trace and
+  post-call state do not back.
+  Regenerate: `hotato card saydo/test-run.json --out card.svg`
 
 ## The bundled demo, rendered
 

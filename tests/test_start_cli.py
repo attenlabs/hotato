@@ -6,6 +6,11 @@ Pinned here:
     (hotato-sweep.html), the threshold-funnel card
     (hotato-no-single-threshold.svg), and one demo failure contract
     (contracts/demo-missed-interruption.hotato/) into --dir;
+  * act two: the say-do check runs on the bundled scripted conversation
+    (saydo/) through the real conversation-test machinery, FAILS by design
+    (claim assertion PASS, tool + state evidence FAIL, exit 1 inside the
+    result), writes byte-deterministic files, and its printed replay/card
+    commands work for real -- while start --demo itself still exits 0;
   * the demo contract is created from the sweep candidate matching the packaged
     scenario's declared missed interruption (selected by evidence, never rank)
     with --expect yield, and verified
@@ -357,6 +362,167 @@ def test_start_demo_text_output_documents_stack_specific_alternatives(
     # the stack-tuned alternatives stay documented beside the primary
     for stack in ("vapi", "retell", "twilio", "livekit", "pipecat"):
         assert stack in out
+
+
+# --- act two: the say-do check (the bundled scripted conversation) ---------
+
+_SAYDO_FILES = ("test.json", "transcript.json", "trace.jsonl", "state.json",
+                "test-run.json")
+
+
+def _saydo_dir(tmp_path):
+    return tmp_path / "saydo"
+
+
+def test_start_demo_runs_the_say_do_check_and_writes_the_bundle(tmp_path):
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    for name in _SAYDO_FILES:
+        assert (_saydo_dir(tmp_path) / name).is_file(), f"saydo/{name} missing"
+    result = json.loads((_saydo_dir(tmp_path) / "test-run.json").read_text())
+    assert result["kind"] == "hotato.test-run"
+    assert result["test_id"] == "demo-refund-claimed-not-issued"
+    # the check genuinely FAILS by design: the claim assertion passes, the
+    # tool and state evidence assertions fail, and the run exits 1.
+    assert result["exit_code"] == 1
+    assert result["success"]["passed"] is False
+    by_id = {r["id"]: r for r in result["assertions"]["results"]}
+    assert by_id["agent-said-refund-sent"]["status"] == "PASS"
+    assert by_id["outcome-refund-tool"]["status"] == "FAIL"
+    assert by_id["outcome-refund-state"]["status"] == "FAIL"
+    # the failing evidence carries the share-safe public restatement
+    assert by_id["outcome-refund-tool"]["public_reason"]
+    assert by_id["outcome-refund-state"]["public_reason"]
+
+
+def test_start_demo_prints_the_say_do_catch_after_the_timing_act(
+        tmp_path, capsys):
+    rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # both catches on the first stdout: the timing act first (the wedge),
+    # then the say-do act.
+    assert "talked over the caller" in out
+    assert "the agent said the refund was sent" in out
+    assert "issue_refund" in out
+    assert 'refund_status stayed "none"' in out
+    assert out.index("talked over the caller") < out.index(
+        "the agent said the refund was sent")
+    # the exact replay command, ready to copy
+    assert ("hotato test run saydo/test.json --agent demo-agent "
+            "--transcript saydo/transcript.json --trace saydo/trace.jsonl "
+            "--state saydo/state.json") in out
+    assert "hotato card saydo/test-run.json --out saydo-card.svg" in out
+
+
+def test_start_demo_json_saydo_block_is_complete(tmp_path, capsys):
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path),
+                     "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    saydo = payload["saydo"]
+    assert saydo["dir"] == "saydo"
+    assert saydo["test_id"] == "demo-refund-claimed-not-issued"
+    assert saydo["agent"] == "demo-agent"
+    assert saydo["exit_code"] == 1
+    assert saydo["passed"] is False
+    assert saydo["verified_fail_as_expected"] is True
+    assert saydo["claim_assertion"]["status"] == "PASS"
+    assert {e["id"] for e in saydo["evidence_assertions"]} == {
+        "outcome-refund-tool", "outcome-refund-state"}
+    assert all(e["status"] == "FAIL" and e["public_reason"]
+               for e in saydo["evidence_assertions"])
+    for name in _SAYDO_FILES:
+        assert f"saydo/{name}" in payload["written"]
+    assert any(c.startswith("hotato test run saydo/test.json")
+               for c in payload["next_commands"])
+    assert ("hotato card saydo/test-run.json --out saydo-card.svg"
+            in payload["next_commands"])
+
+
+def test_start_demo_saydo_replay_command_fails_like_ci(tmp_path, capsys):
+    """The printed say-do next command is not decorative: running it for real
+    against the written bundle re-evaluates the SAME failure and exits 1."""
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    capsys.readouterr()
+    d = _saydo_dir(tmp_path)
+    rc = cli.main(["test", "run", str(d / "test.json"),
+                   "--agent", "demo-agent",
+                   "--transcript", str(d / "transcript.json"),
+                   "--trace", str(d / "trace.jsonl"),
+                   "--state", str(d / "state.json"), "--format", "json"])
+    assert rc == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["success"]["passed"] is False
+    # the replay evaluates the same claim-vs-evidence shape
+    by_id = {r["id"]: r for r in result["assertions"]["results"]}
+    assert by_id["agent-said-refund-sent"]["status"] == "PASS"
+    assert by_id["outcome-refund-tool"]["status"] == "FAIL"
+
+
+def test_start_demo_saydo_card_command_renders(tmp_path, capsys):
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    capsys.readouterr()
+    out = tmp_path / "saydo-card.svg"
+    rc = cli.main(["card", str(_saydo_dir(tmp_path) / "test-run.json"),
+                   "--out", str(out)])
+    assert rc == 0
+    assert "SAY-DO FAILURE" in out.read_text(encoding="utf-8")
+
+
+def test_start_demo_saydo_second_run_is_byte_identical(tmp_path):
+    """Deterministic: no wall-clock and no per-run path anywhere in the
+    bundle or the evaluated result. Two runs into the same --dir leave
+    byte-identical saydo files."""
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    first = {name: (_saydo_dir(tmp_path) / name).read_bytes()
+             for name in _SAYDO_FILES}
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    for name in _SAYDO_FILES:
+        assert (_saydo_dir(tmp_path) / name).read_bytes() == first[name], name
+
+
+def test_start_demo_saydo_bundle_matches_the_packaged_manifest_hashes(
+        tmp_path):
+    """The copies in --dir are the hash-verified packaged bytes: each file's
+    sha256 equals the one the packaged manifest records (content-addressed,
+    like the rest of the demo data)."""
+    import hashlib
+    from importlib import resources as _res
+
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    manifest = json.loads(
+        _res.files("hotato").joinpath("data", "demo", "saydo",
+                                      "manifest.json")
+        .read_text(encoding="utf-8"))
+    for name, meta in manifest["files"].items():
+        got = hashlib.sha256(
+            (_saydo_dir(tmp_path) / name).read_bytes()).hexdigest()
+        assert got == meta["sha256"], name
+
+
+def test_start_demo_saydo_refuses_a_drifted_bundle(tmp_path, monkeypatch):
+    """A packaged say-do file whose bytes drift from the manifest's recorded
+    sha256 fails the run loudly (DemoSayDoError), never a quietly evaluated
+    unvouched bundle."""
+    from hotato import start as S
+
+    # Tamper below the hash check: patch the byte source, so the check
+    # itself must catch the drifted read.
+    src = S._saydo_source_dir()
+
+    class _Tampered:
+        def joinpath(self, name):
+            class _P:
+                def read_text(self, encoding=None):
+                    return src.joinpath(name).read_text(encoding=encoding)
+
+                def read_bytes(self):
+                    blob = src.joinpath(name).read_bytes()
+                    return blob + b" " if name == "state.json" else blob
+            return _P()
+
+    monkeypatch.setattr(S, "_saydo_source_dir", lambda: _Tampered())
+    with pytest.raises(S.DemoSayDoError):
+        cli.main(["start", "--demo", "--dir", str(tmp_path)])
 
 
 # --- usage / stubbed modes ------------------------------------------------

@@ -9,6 +9,9 @@ Deterministic and fully offline. Renders:
 - ``talk-over-card.svg`` and ``false-stop-card.svg`` -- the two candidate cards,
   from a sweep of the two bundled real demo calls (``hotato sweep --demo``): the
   top talk-over (overlap) candidate and the top false-stop candidate.
+- ``say-do-card.svg`` -- the say-do failure card, from the test-run result the
+  bundled scripted say-do conversation produces (the same check act two of
+  ``hotato start --demo`` runs and writes as ``saydo/test-run.json``).
 
 Each SVG is a pure function of the bundled inputs, so re-running this script on
 an unchanged tree reproduces the committed bytes exactly. Run:
@@ -77,10 +80,12 @@ def _rank_of_first(candidates, kinds) -> int:
 
 
 def build_cards() -> dict:
-    """Render the three illustrative cards (funnel, talk-over, false-stop) from
-    the bundled demo battery, with the brand faces embedded. Returns
+    """Render the four illustrative cards (funnel, talk-over, false-stop,
+    say-do) from the bundled demo data, with the brand faces embedded. Returns
     ``{filename: svg}``. The guard test in tests/test_card_cli.py calls this so
     the committed assets stay in lockstep with the generator."""
+    from hotato import start as _start
+
     font_css = card_font_css()
 
     root = resources.files("hotato").joinpath("data", "demo", "failing")
@@ -97,6 +102,11 @@ def build_cards() -> dict:
             json.dump(aggregate, fh)
         n_tov = _rank_of_first(cands, _TALK_OVER)
         n_fs = _rank_of_first(cands, _FALSE_STOP)
+        # The say-do test-run result: the exact check act two of `hotato
+        # start --demo` runs on the bundled scripted conversation.
+        _start._run_saydo_check(tmp)
+        saydo_json = os.path.join(tmp, _start._SAYDO_DIR,
+                                  _start._SAYDO_RESULT)
         return {
             "no-single-threshold-card.svg":
                 _card.render_plan_card(plan, font_css=font_css),
@@ -104,6 +114,8 @@ def build_cards() -> dict:
                 _card.make_card(f"{sweep_json}#{n_tov}", font_css=font_css),
             "false-stop-card.svg":
                 _card.make_card(f"{sweep_json}#{n_fs}", font_css=font_css),
+            "say-do-card.svg":
+                _card.make_card(saydo_json, font_css=font_css),
         }
 
 

@@ -1,0 +1,4 @@
+{"_meta": true, "call_id": null, "created_by": "hotato demo say-do bundle (scripted conversation)", "deployment": {"agent_id": null, "config_hash": null, "git_sha": null, "stack": "demo"}, "schema": "hotato.voice_trace.v1", "source": {"format": "scripted-demo", "span_count": 3}}
+{"end_sec": 2.68, "start_sec": 0.6, "type": "caller_audio_active"}
+{"arguments": {"order_id": "A-3090"}, "end_sec": 6.2, "latency_ms": 300, "name": "lookup_order", "result": {"found": true}, "start_sec": 5.9, "type": "tool_call"}
+{"end_sec": 8.72, "start_sec": 6.16, "type": "caller_audio_active"}

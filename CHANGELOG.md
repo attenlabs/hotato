@@ -9,6 +9,37 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **`hotato start --demo` act two: the say-do check.** After the timing act
+  (unchanged, still first), the guided first run now evaluates ONE say-do
+  conversation check end to end, offline, over a bundled scripted
+  conversation (`data/demo/saydo/`, mirroring the reference agent's
+  `refund-claimed-not-issued` job): the agent says the refund was sent; the
+  trace carries no `issue_refund` tool span and the post-call state's
+  `refund_status` stays `"none"`, so the check FAILS by design through the
+  same `evaluate_conversation_test` path `hotato test run` drives. Every
+  packaged file is verified against the sha256 its manifest records, the
+  bundle plus the evaluated `hotato.test-run.v1` result land under
+  `saydo/` in `--dir`, the printed replay command
+  (`hotato test run saydo/test.json ...`) exits 1 like the CI gate it is,
+  and the narrated catch is checked against the evaluated results before it
+  is printed (claim assertion PASS, tool + state assertions FAIL) -- a
+  mismatch fails the run loudly instead of shipping an unbacked story.
+  `--format json` gains a `saydo` block. `start --demo` still exits 0.
+  Docs: `docs/START.md`.
+- **`hotato card`: the say-do failure card (sixth kind).** A `hotato test
+  run` result (kind `hotato.test-run`) whose deterministic lane failed a
+  tool/state evidence assertion (`tool_result`, `tool_call`, `tool_error`,
+  `http_result`, `state`, `state_change`) now auto-detects into a
+  claim-vs-evidence card: the failing assertion's id and kind, its span
+  refs when the evaluator recorded any, and its share-safe `public_reason`
+  (allowlisted structured fields only -- never transcript text, a tool
+  payload, or a state value). The failing outcome-tagged evidence assertion
+  leads deterministically; a result with no failing tool/state evidence
+  assertion is refused (exit 2). Same SVG invariants as the other five
+  kinds: byte-deterministic, no timestamp, no accuracy number, inline color
+  only, redacted by default. A committed example
+  (`docs/assets/cards/say-do-card.svg`) joins the generator and its
+  lockstep test. Docs: `docs/CARDS.md`.
 - **`http_result`: a deterministic HTTP-exchange assertion kind.** Reads
   `http_exchange` spans already present in the ingested
   `hotato.voice_trace.v1` trace (`method`, `url`, `status_code`, `response`)
