@@ -21,21 +21,18 @@
 # TWICE, on purpose:
 #
 #   (a) it only runs on `workflow_dispatch`, never on a tag push, AND
-#   (b) `if: false` is hardcoded on the job itself, so even a manual dispatch
-#       with confirm_registry_publish=true cannot make it run.
+#   (b) the dispatch must set confirm_registry_publish=true; the job's `if:`
+#       checks that input, so a tag push or a default dispatch never fires it.
 #
-# To perform the first (or any subsequent) registry publish:
+# To publish a new version to the registry:
 #   1. An operator reviews server.json (name, description, package block,
 #      version) against the release being cut.
-#   2. The hardcoded `if: false` on the `publish-mcp-registry` job below is
-#      replaced with a real condition, e.g.
-#      `if: ${{ inputs.confirm_registry_publish == true }}`, in its own
-#      reviewed commit.
-#   3. The workflow is dispatched manually with confirm_registry_publish set
+#   2. The workflow is dispatched manually with confirm_registry_publish set
 #      to true, and the run is watched to completion.
 #
-# Until step 2 lands, this job cannot fire under any input or trigger.
-# Do not remove this comment block when editing the gate.
+# History: the first publish (one-way name claim) happened under a hardcoded
+# `if: false` lifted for that run; since 2026-07-16 the gate is the dispatch
+# input itself. Do not remove this comment block when editing the gate.
 # ============================================================================
 
 name: release
@@ -52,6 +49,10 @@ on:
           publish-mcp-registry job (see the header comment in release.yml).
         type: boolean
         default: false
+
+# Least privilege default; the registry job elevates id-token on itself.
+permissions:
+  contents: read
 
 jobs:
   sanity:
@@ -135,7 +136,10 @@ jobs:
   # publish wiring exists and is reviewable ahead of the first real publish.
   publish-mcp-registry:
     needs: sanity
-    if: false # re-gated 2026-07-09: first registry publish is DONE (one-way, permanent); flip to ${{ inputs.confirm_registry_publish == true }} to re-publish a new version
+    # Dispatch-gated (2026-07-16): runs ONLY on a manual workflow_dispatch with
+    # confirm_registry_publish=true, never on a tag push. Re-publishes
+    # server.json so the registry tracks the released version.
+    if: ${{ inputs.confirm_registry_publish == true }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write # required for GitHub OIDC auth to the MCP registry
