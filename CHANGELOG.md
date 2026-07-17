@@ -29,6 +29,12 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   alternate.
 
 ### Fixed
+- **The read-only SQL guard cannot be hung.** `SqlStateAdapter`'s
+  read-only check matched leading whitespace with a catastrophic-backtracking
+  regex (over 5s on ~1KB of leading whitespace); it is now a linear scan that
+  accepts exactly the same queries (verified across 27 equivalence cases) and
+  stays O(n) into the millions of characters. Also swapped two insecure
+  `tempfile.mktemp` calls in the test suite for `mkstemp`.
 - **Auto-opened reports now open on Ubuntu.** `hotato doctor` and `hotato
   demo` wrote their HTML report into the system temp dir and opened
   `file:///tmp/...`; the default browser on Ubuntu is a snap that cannot read
