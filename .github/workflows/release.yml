@@ -135,7 +135,10 @@ jobs:
   # publish wiring exists and is reviewable ahead of the first real publish.
   publish-mcp-registry:
     needs: sanity
-    if: false # re-gated 2026-07-09: first registry publish is DONE (one-way, permanent); flip to ${{ inputs.confirm_registry_publish == true }} to re-publish a new version
+    # Dispatch-gated (2026-07-16): runs ONLY on a manual workflow_dispatch with
+    # confirm_registry_publish=true, never on a tag push. Re-publishes
+    # server.json so the registry tracks the released version.
+    if: ${{ inputs.confirm_registry_publish == true }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write # required for GitHub OIDC auth to the MCP registry
