@@ -6,9 +6,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
-## [Unreleased]
+## [1.9.0] - 2026-07-17
 
 ### Added
+- **Telephony lifecycle plane: `hotato telephony`.** `capabilities`,
+  `create`, `status`, `cancel`, and `export` drive one provider-agnostic
+  call-lifecycle controller with per-provider declared capabilities,
+  bounded provider pulls shared with `capture`/`drive`, and a redacted
+  lifecycle receipt (`telephony-receipt.v1`) whose export states lifecycle
+  facts only, never a media-delivery claim. Each subcommand carries the
+  documented exit-code contract in `hotato describe`. Docs:
+  `docs/TRANSPORT-RUNTIME.md`.
+- **Caller plane: `hotato caller run/verify`.** Runs a scripted, hybrid, or
+  generative caller program against a target transport and packages every
+  artifact into a content-addressed caller package (`caller-plan.v1`,
+  `caller-result.v1`, `caller-session.v1`); `verify` independently
+  reproduces the package and hash-compares every bound artifact. Speech
+  comes from a pinned local Piper TTS engine (`docs/PIPER-CALLER-TTS.md`);
+  LiveKit session support stays an optional, lazily loaded integration
+  (`docs/LIVEKIT-CALLER-SESSION.md`, `docs/GENERATIVE-CALLER.md`,
+  `docs/CALLER-SIDECAR-PROTOCOL.md`).
+- **Load plane: `hotato load telephony|caller run/verify`.**
+  Closed-concurrency staircase and open-arrival workloads with a per-child
+  evidence package (`load-plan.v2`, `load-result.v2`, `load-evidence.v1`),
+  queue delay, dropped starts, blocked/error rate, completion, and
+  endpoint-match rate reported separately (never blended), and an
+  adversarial offline verifier that refuses tampered, replayed, partial, or
+  wrong-child packages. Docs: `docs/CALLER-LOAD.md`,
+  `docs/LOAD-AND-RECOVERY.md`.
+- **Production evidence plane: `hotato production`.** A loopback evidence
+  gateway (`serve`, `ingest`, `status`, `finalize`, `maintain`, `alerts`,
+  `audit`, `delete`) over a local SQLite store with a verifiable audit
+  chain, plus `export-regression`/`verify-regression` for
+  offline-verifiable regression candidates promoted through the atomic
+  no-replace publish. `hotato serve --production-db` projects manifests and
+  alerts from that store read-only into `/health`, without payload access
+  and without importing production rows into the fleet registry. Docs:
+  `docs/PRODUCTION-MONITORING.md`; deployment reference (Compose topology,
+  loopback binds, firewall manifest): `deploy/control-plane/`.
+- All four planes above are offline-verified: the shipped suite exercises
+  them hermetically against recorded provider shapes and local processes.
+  Live carrier, provider, sustained-load, and production-durability
+  behavior is qualified only by the external acceptance gates
+  (`deploy/control-plane/README.md`).
 - **`hotato start --demo` act two: the say-do check.** After the timing act
   (unchanged, still first), the guided first run now evaluates ONE say-do
   conversation check end to end, offline, over a bundled scripted

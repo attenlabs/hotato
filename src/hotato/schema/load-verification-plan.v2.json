@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/load-verification-plan.v2.json",
+  "title": "Hotato privacy-safe workload-bound load verification plan",
+  "description": "Portable execution metadata sufficient to bind the normalized workload and recompute stage metrics, recovery, SLOs, and process conclusions without exposing credentials or call destinations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plan_id", "workload", "stages", "faults", "slos", "safety"],
+  "properties": {
+    "schema": {"const": "hotato.load-verification-plan.v2"},
+    "plan_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "call_spec_sha256", "normalized_plan_sha256", "terminal_timeout_seconds", "poll_seconds"],
+      "properties": {
+        "provider": {"enum": ["local", "twilio", "vapi", "retell"]},
+        "call_spec_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "normalized_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "terminal_timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400},
+        "poll_seconds": {"type": "number", "minimum": 0.001, "maximum": 300}
+      }
+    },
+    "stages": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}},
+    "faults": {"type": "array", "maxItems": 1000, "items": {"type": "object"}},
+    "slos": {"type": "object"},
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_calls", "estimated_cost_per_call_usd", "max_estimated_cost_usd", "estimated_plan_cost_usd", "allowed_destination_count", "stop_file_configured"],
+      "properties": {
+        "max_calls": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "estimated_cost_per_call_usd": {"type": "number", "minimum": 0},
+        "max_estimated_cost_usd": {"type": "number", "minimum": 0},
+        "estimated_plan_cost_usd": {"type": "number", "minimum": 0},
+        "allowed_destination_count": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "stop_file_configured": {"type": "boolean"}
+      }
+    }
+  }
+}

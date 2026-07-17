@@ -864,11 +864,13 @@ def render_production_health(m: dict) -> str:
     parts.append(_kv("days of history", str(m["days_of_history"])))
     parts.append('</div></section>')
 
+    production_evidence = m.get("production_evidence")
     if not m["enough_history"] and m["ingested_total"] == 0:
         parts.append('<div class="notice">No conversations ingested yet. Pull '
                      'production calls with <span class="mono">hotato production '
                      'ingest</span> to populate health.</div>')
-        return "".join(parts)
+        if production_evidence is None:
+            return "".join(parts)
 
     for origin, stats in m["origins"].items():
         if stats["ingested"] == 0:
@@ -914,6 +916,139 @@ def render_production_health(m: dict) -> str:
             parts.append(f'<span class="dimtag"><span class="rel">{_esc(mk["release_id"])}</span> '
                          f'<span class="mono">{_esc(mk.get("day") or "-")}</span></span>')
         parts.append('</div></section>')
+    if production_evidence is not None:
+        parts.append(_render_production_evidence_bridge(production_evidence))
+    return "".join(parts)
+
+
+def _production_state_chip(value: str) -> str:
+    colours = {
+        "COMPLETE": _C["green"],
+        "DEGRADED": _C["red"],
+        "QUIESCENT": _C["ember"],
+        "OPEN": _C["agent"],
+        "EXPIRED": _C["muted"],
+        "FIRING": _C["red"],
+        "RESOLVED": _C["green"],
+    }
+    return (
+        '<span class="chip small" style="background:%s">%s</span>'
+        % (colours.get(value, _C["muted"]), _esc(value))
+    )
+
+
+def _production_lane(lane: str, item: dict, *, required: bool) -> str:
+    availability = str(item.get("availability") or "missing")
+    authority = str(item.get("authority") or "unavailable")
+    colour = _C["green"] if availability == "available" else _C["ember"]
+    eligibility = (
+        "execution-claim eligible"
+        if item.get("eligible_for_execution_claim")
+        else "execution-claim ineligible"
+    )
+    requirement = "required" if required else "optional"
+    return (
+        '<div class="dimtag" style="border-left:3px solid %s">'
+        '<span class="rel">%s</span> '
+        '<span class="mono">%s</span>'
+        '<div class="cldim">authority <span class="mono">%s</span> &middot; '
+        '%s &middot; %s</div></div>'
+        % (
+            colour,
+            _esc(lane),
+            _esc(availability),
+            _esc(authority),
+            _esc(eligibility),
+            requirement,
+        )
+    )
+
+
+def _render_production_evidence_bridge(model: dict) -> str:
+    """Render the separate mode=ro projection without merging fleet counts."""
+
+    source = model["source"]
+    summary = model["summary"]
+    parts = [
+        '<h2 class="vh" style="margin-top:28px">Production evidence plane</h2>',
+        '<p class="vsub">A separate SQLite source projected read-only. No event '
+        'payload column is read, production rows are not imported into fleet, and these counts '
+        'are not added to the workspace aggregates above.</p>',
+        '<section class="card"><div class="grid">',
+        _kv("sessions", str(summary["sessions_total"])),
+        _kv("alerts", str(summary["alerts_total"])),
+        _kv("source access", source["access"], mono=True),
+        _kv("workspace scope", source["workspace_scope"], mono=True),
+        '</div><div class="cldim" style="margin-top:10px">source '
+        '<span class="mono">%s</span> &middot; schema %s</div></section>'
+        % (_esc(source["path"]), _esc(source["schema_version"])),
+    ]
+
+    firing = [item for item in model["alerts"] if item["state"] == "FIRING"]
+    if model["alerts"]:
+        parts.append('<section class="card"><div class="cvsub">alerts</div>')
+        parts.append(
+            '<div class="cldim">%d firing &middot; %d returned%s</div>'
+            % (
+                len(firing),
+                len(model["alerts"]),
+                " (bounded view)" if summary["alerts_truncated"] else "",
+            )
+        )
+        parts.append('<ul class="members">')
+        for alert in model["alerts"]:
+            parts.append(
+                '<li>%s <span class="rel">%s</span> on '
+                '<span class="mono">%s</span> &middot; condition '
+                '<span class="mono">%s</span> &middot; generation %s</li>'
+                % (
+                    _production_state_chip(alert["state"]),
+                    _esc(alert["rule_id"]),
+                    _esc(alert["session_id"]),
+                    _esc(alert["condition"]),
+                    _esc(alert["generation"]),
+                )
+            )
+        parts.append('</ul></section>')
+
+    if not model["sessions"]:
+        parts.append('<div class="notice">The production evidence database has no '
+                     'sessions.</div>')
+        return "".join(parts)
+
+    for entry in model["sessions"]:
+        manifest = entry["manifest"]
+        required = set(manifest["required_evidence_lanes"])
+        missing = entry["missing_required_lanes"]
+        parts.append('<section class="card">')
+        parts.append(
+            '<div class="fcrow"><span><span class="rel">%s</span> %s</span>'
+            '<span class="mono">%s events</span></div>'
+            % (
+                _esc(manifest["session_id"]),
+                _production_state_chip(manifest["status"]),
+                _esc(manifest["event_count"]),
+            )
+        )
+        sources = ", ".join(entry["event_sources"]) or "none"
+        parts.append(
+            '<div class="cldim">event sources <span class="mono">%s</span> '
+            '&middot; payload storage <span class="mono">%s</span></div>'
+            % (_esc(sources), _esc(manifest["payload_storage"]))
+        )
+        if missing:
+            parts.append(
+                '<div class="notice">missing required lanes: '
+                '<span class="mono">%s</span></div>'
+                % _esc(", ".join(missing))
+            )
+        parts.append('<div class="dimrow">')
+        for lane, item in manifest["evidence"].items():
+            parts.append(_production_lane(lane, item, required=lane in required))
+        parts.append('</div></section>')
+    if summary["sessions_truncated"]:
+        parts.append('<div class="notice">Session list is bounded; use the '
+                     'production CLI for the complete database.</div>')
     return "".join(parts)
 
 

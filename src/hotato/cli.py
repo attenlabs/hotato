@@ -749,6 +749,113 @@ _EXIT_CODES: dict = {
             "or zero history: empty states, never a crash)"),
         (2, "usage error or an unwritable --out"),
     ),
+    "telephony": (
+        (2, "no subcommand given (see hotato telephony --help)"),
+    ),
+    "telephony capabilities": (
+        (0, "reported the selected lifecycle controller's declared capabilities"),
+        (2, "usage error or an unavailable provider configuration"),
+    ),
+    "telephony create": (
+        (0, "the provider accepted the call; with --wait, it reached a successful terminal state"),
+        (1, "with --wait, the call reached a failed terminal state"),
+        (2, "usage, credential, provider, export, or timeout error"),
+    ),
+    "telephony status": (
+        (0, "the call is pending or in a successful terminal state"),
+        (1, "the call is in a failed terminal state"),
+        (2, "usage, credential, provider, or lookup error"),
+    ),
+    "telephony cancel": (
+        (0, "the selected lifecycle controller accepted cancellation"),
+        (2, "usage, credential, provider, or capability error"),
+    ),
+    "telephony export": (
+        (0, "wrote a redacted lifecycle receipt; no media-delivery claim is implied"),
+        (2, "usage, credential, provider, lookup, or output error"),
+    ),
+    "caller": (
+        (2, "no subcommand given (see hotato caller run/verify --help)"),
+    ),
+    "caller run": (
+        (0, "the verified caller package passed its declared completion criteria"),
+        (1, "the verified caller package failed its declared completion criteria"),
+        (2, "the plan, transport, model, speech engine, or package verification was unusable"),
+    ),
+    "caller verify": (
+        (0, "the caller package reproduced and every bound artifact matched"),
+        (2, "the package was malformed, incomplete, or failed independent verification"),
+    ),
+    "load": (
+        (2, "no workload family given (see hotato load telephony/caller --help)"),
+    ),
+    "load telephony": (
+        (2, "no subcommand given (see hotato load telephony run/verify --help)"),
+    ),
+    "load telephony run": (
+        (0, "the independently verified workload passed every declared SLO"),
+        (1, "the independently verified workload failed at least one declared SLO"),
+        (2, "execution was inconclusive, refused, errored, or failed package verification"),
+    ),
+    "load telephony verify": (
+        (0, "the workload package reproduced and every bound artifact matched"),
+        (2, "the package was malformed, incomplete, or failed independent verification"),
+    ),
+    "load caller": (
+        (2, "no subcommand given (see hotato load caller run/verify --help)"),
+    ),
+    "load caller run": (
+        (0, "the independently verified caller workload passed every declared SLO"),
+        (1, "the independently verified caller workload failed at least one declared SLO"),
+        (2, "execution was inconclusive, refused, errored, or failed package verification"),
+    ),
+    "load caller verify": (
+        (0, "the caller-load package reproduced and every bound artifact matched"),
+        (2, "the package was malformed, incomplete, or failed independent verification"),
+    ),
+    "production": (
+        (2, "no subcommand given (see hotato production --help)"),
+    ),
+    "production serve": (
+        (0, "the loopback evidence gateway ran and shut down cleanly"),
+        (2, "usage, authentication, database, policy, or gateway error"),
+    ),
+    "production ingest": (
+        (0, "the validated event or OTLP batch committed to the local evidence store"),
+        (2, "the input, authority, database, or event contract was unusable"),
+    ),
+    "production status": (
+        (0, "returned the persisted session manifest"),
+        (2, "the session was unknown or the database was unusable"),
+    ),
+    "production finalize": (
+        (0, "finalized every eligible quiescent session without collapsing missing evidence"),
+        (2, "the evidence-lane, timing, or database configuration was unusable"),
+    ),
+    "production maintain": (
+        (0, "completed one bounded finalization, alert, and retention pass"),
+        (2, "the policy or database was unusable"),
+    ),
+    "production alerts": (
+        (0, "evaluated the fixed alert rules and persisted any transitions"),
+        (2, "the rules or database were unusable"),
+    ),
+    "production export-regression": (
+        (0, "wrote an offline-verifiable regression candidate"),
+        (2, "the session, evidence, database, or output path was unusable"),
+    ),
+    "production verify-regression": (
+        (0, "the regression candidate reproduced and every bound artifact matched"),
+        (2, "the candidate was malformed, incomplete, or failed independent verification"),
+    ),
+    "production audit": (
+        (0, "the complete audit chain and local head/count checkpoint verified"),
+        (2, "the chain, checkpoint, or database failed verification"),
+    ),
+    "production delete": (
+        (0, "deleted the selected session payloads and wrote a deletion receipt"),
+        (2, "the session was unknown or the database operation failed"),
+    ),
 }
 
 
@@ -4292,7 +4399,7 @@ def _cmd_serve(args) -> int:
     return _serve.run_serve(
         workspace=args.workspace, host=args.host, port=args.port,
         registry=args.registry, token=args.token, token_file=args.token_file,
-        open_browser=not args.no_open,
+        open_browser=not args.no_open, production_db=args.production_db,
     )
 
 
@@ -8429,6 +8536,15 @@ def build_parser() -> argparse.ArgumentParser:
                      help="listen port (default 8321)")
     srv.add_argument("--registry", default=None, metavar="PATH",
                      help="registry home directory (default ~/.hotato/fleet)")
+    srv.add_argument(
+        "--production-db",
+        default=None,
+        metavar="PATH",
+        help=(
+            "project manifests and alerts from a separate production SQLite "
+            "database into /health; opened read-only without payload access"
+        ),
+    )
     srv.add_argument("--token", default=None, metavar="TOKEN",
                      help="bearer token (default: reuse the stored one, else "
                           "generate + store 0600 under the workspace state dir)")
@@ -8439,6 +8555,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "skipped when stdout is not a TTY, in CI, or when "
                           "$HOTATO_NO_BROWSER is set)")
     srv.set_defaults(func=_cmd_serve)
+
+    # Operational families live in a standalone registrar so this integration
+    # remains a one-line semantic merge as the main CLI evolves.
+    from . import ops_cli as _ops_cli
+
+    _ops_cli.register(sub, epilog_factory=_exit_codes_epilog)
 
     return p
 

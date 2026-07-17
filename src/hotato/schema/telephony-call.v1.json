@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotato.dev/schema/telephony-call.v1.json",
+  "title": "Hotato outbound call lifecycle request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "provider", "to"],
+  "properties": {
+    "schema": {"const": "hotato.telephony-call.v1"},
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$"},
+    "provider": {"enum": ["twilio", "vapi", "retell", "local"]},
+    "to": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "from": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "agent_id": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "phone_number_id": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "twiml_url": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "callback_url": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600},
+    "record": {"type": "boolean"},
+    "metadata": {"type": "object", "maxProperties": 64, "additionalProperties": {"type": "string", "maxLength": 1000}}
+  }
+}
