@@ -38,6 +38,17 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import summary as summary_mod  # noqa: E402  (sibling module, stdlib only)
 
+# Whether the openat-style publish primitive below is usable at all: a
+# directory opened as a trusted descriptor plus dir_fd-relative opens. POSIX
+# has both; Windows has NEITHER -- ``os.open`` of a DIRECTORY raises
+# PermissionError (the CRT open cannot take a directory) and every ``dir_fd``
+# argument raises NotImplementedError (``os.supports_dir_fd`` is empty there,
+# per the os docs) -- so Windows publishes each leaf by path inside the
+# private output directory the gate just created, where O_CREAT|O_EXCL still
+# refuses ANY pre-existing name (a planted file or symlink) rather than
+# truncating through it.
+_HAS_DIR_FD = os.open in os.supports_dir_fd
+
 _AGENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _RELEASE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@/-]{0,199}$")
 _VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.]{0,31}$")
@@ -93,7 +104,12 @@ def _contained_path(value: str, workspace: str, *, name: str,
     if expect == "dir" and not os.path.isdir(real):
         raise InputError(f"input {name!r} is not a directory in the"
                          f" workspace: {value!r}")
-    return norm
+    # Return the path with "/" separators on every OS (byte-identical on
+    # POSIX, where os.sep IS "/"): the value lands in step outputs, the job
+    # summary, and the reproduce command, all consumed by workflow YAML where
+    # "/" is the convention, and Windows file APIs accept "/" wherever the
+    # gate reuses it as a real path.
+    return norm.replace(os.sep, "/")
 
 
 def validate_inputs() -> Dict[str, Any]:
@@ -288,24 +304,36 @@ def _publish_flags() -> int:
             | getattr(os, "O_NOFOLLOW", 0))
 
 
-def _open_new(name: str, *, dir_fd: Optional[int] = None):
+def _open_new(name: str, *, dir_fd: Optional[int] = None,
+              dir_path: Optional[str] = None):
     """Create a NEW output file with no-follow/exclusive semantics and return a
     UTF-8 text handle. A planted symlink or pre-existing regular file at the
     path can never be truncated: O_CREAT|O_EXCL fails (EEXIST) on any existing
     name, and O_NOFOLLOW refuses a terminal symlink. ``name`` is opened relative
     to ``dir_fd`` (the private output directory) when given, so the write is not
-    re-resolved through a hostile path prefix."""
+    re-resolved through a hostile path prefix. ``dir_path`` is the path-based
+    stand-in for platforms without dir_fd (see ``_HAS_DIR_FD``): the same
+    exclusive-create flags inside the private directory. There CREATE_NEW
+    refuses any existing name and any link to an existing target; a DANGLING
+    planted symlink could still redirect the create, but the directory was
+    created privately by this run moments earlier and symlink creation on
+    Windows needs elevation, so the residual window has no unprivileged
+    attacker. ``newline="\\n"`` keeps the published bytes identical across
+    platforms: these files are hashed and compared byte-for-byte downstream,
+    and the CRT's default newline translation would break that on Windows."""
+    target = name if dir_fd is not None else os.path.join(dir_path or ".", name)
     try:
-        fd = os.open(name, _publish_flags(), 0o600, dir_fd=dir_fd)
+        fd = os.open(target, _publish_flags(), 0o600,
+                     **({"dir_fd": dir_fd} if dir_fd is not None else {}))
     except OSError as exc:
         raise InputError(
             f"refusing to publish output {name!r}: a file already exists at "
             f"that path (possible planted symlink): {exc.strerror}"
         )
-    return os.fdopen(fd, "w", encoding="utf-8")
+    return os.fdopen(fd, "w", encoding="utf-8", newline="\n")
 
 
-def _prepare_output_dir(workspace: str, output: str) -> Tuple[str, int]:
+def _prepare_output_dir(workspace: str, output: str) -> Tuple[str, Optional[int]]:
     """Create the workspace output directory PRIVATELY and refuse a pre-existing
     tree, then return (absolute_dir, dir_fd).
 
@@ -330,6 +358,12 @@ def _prepare_output_dir(workspace: str, output: str) -> Tuple[str, int]:
     except OSError as exc:
         raise InputError(f"cannot create output directory {output!r}: "
                          f"{exc.strerror}")
+    if not _HAS_DIR_FD:
+        # Windows (no dir_fd): there is no directory descriptor to anchor the
+        # leaf writes, so leaves publish by path inside this just-created
+        # private directory instead; ``_open_new``'s O_CREAT|O_EXCL still
+        # refuses any pre-existing name there, never truncating a target.
+        return full, None
     dir_fd = os.open(full, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
                      | getattr(os, "O_NOFOLLOW", 0))
     return full, dir_fd
@@ -356,7 +390,7 @@ def run_hotato(cfg: Dict[str, Any]) -> Tuple[int, str]:
     proc = _run(argv, cwd=workspace, capture_output=True, text=True)
     if proc.stderr:
         sys.stderr.write(proc.stderr)
-    with _open_new(result_name, dir_fd=dir_fd) as fh:
+    with _open_new(result_name, dir_fd=dir_fd, dir_path=full_out) as fh:
         fh.write(proc.stdout)
     return proc.returncode, result_path
 
@@ -585,8 +619,11 @@ def render_records(cfg: Dict[str, Any], result_path: str) -> Dict[str, Any]:
         result["note"] = result["warning"]
         return result
 
-    digest_scoped = os.path.join(cfg["output"], "records",
-                                 "sha256-" + source_hex)
+    # "/"-joined for the same reason _contained_path normalizes its return:
+    # this string is a step output consumed by workflow YAML on every runner
+    # OS (byte-identical to os.path.join on POSIX).
+    digest_scoped = "/".join((cfg["output"], "records",
+                              "sha256-" + source_hex))
     try:
         proc = _run(
             [sys.executable, "-m", "hotato", "record", "render", result_path,
@@ -714,12 +751,14 @@ def main() -> int:
     outputs["status"] = status
 
     dir_fd = cfg.get("_output_fd") if isinstance(cfg, dict) else None
-    if summary_path and isinstance(dir_fd, int):
+    out_dir = cfg.get("_output_full") if isinstance(cfg, dict) else None
+    if summary_path and (isinstance(dir_fd, int) or out_dir):
         # summary.md is a direct child of the private output directory created
         # by run_hotato; publish it descriptor-relative with the same no-follow/
-        # exclusive semantics so a planted symlink is refused, never followed.
+        # exclusive semantics so a planted symlink is refused, never followed
+        # (path-based inside the same private directory without dir_fd support).
         try:
-            with _open_new("summary.md", dir_fd=dir_fd) as fh:
+            with _open_new("summary.md", dir_fd=dir_fd, dir_path=out_dir) as fh:
                 fh.write(markdown + "\n")
             outputs["summary"] = summary_path
         except (OSError, InputError):

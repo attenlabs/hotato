@@ -302,10 +302,18 @@ class ArtifactStore:
         fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK | _O_BINARY)
         try:
             st = os.fstat(fd)
+            if not _O_NOFOLLOW and stat.S_ISLNK(
+                    os.lstat(path).st_mode):
+                # Windows (no O_NOFOLLOW): the open above FOLLOWED a symlink
+                # and ``fstat`` reports its TARGET as a regular file, so a
+                # link at ``path`` must be refused explicitly -- ``lstat``
+                # never follows -- to keep the same fail-closed outcome the
+                # ELOOP from O_NOFOLLOW gives POSIX at open time.
+                st = None
         except OSError:
             os.close(fd)
             raise
-        if not stat.S_ISREG(st.st_mode):
+        if st is None or not stat.S_ISREG(st.st_mode):
             os.close(fd)
             raise ValueError(
                 "%r is not a regular file (found a named pipe/FIFO, device, "
@@ -404,8 +412,20 @@ class ArtifactStore:
             dest = self._resolved_blob_path(digest)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             if not self._blob_present(digest):
-                os.replace(tmp, dest)
-                published = True
+                try:
+                    os.replace(tmp, dest)
+                    published = True
+                except OSError:
+                    # A concurrent writer of the SAME digest can publish in
+                    # the present-check gap, and on Windows the losing
+                    # ``os.replace`` may then be refused (MoveFileEx denies a
+                    # replace racing another rename of the same destination;
+                    # POSIX rename never fails this way). The store is content
+                    # addressed, so whichever writer won is correct by
+                    # construction: losing is success IFF the blob is now
+                    # present; anything else stays an error.
+                    if not self._blob_present(digest):
+                        raise
             return digest
         finally:
             if not published:

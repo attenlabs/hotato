@@ -37,7 +37,12 @@ def _atomic_write_text(path: str, text: str) -> None:
     d = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".hotato-tmp-", suffix=".part")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        # newline="": several of these outputs are byte-compared or hashed
+        # against their canonical "\n" text (a regression bundle's committed
+        # failure-record.json regenerates byte-identically via `record
+        # render`); text mode's default newline=None would rewrite "\n" to
+        # os.linesep ("\r\n" on Windows, per the io docs) and break that.
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
         os.replace(tmp, path)
     except BaseException:
