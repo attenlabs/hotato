@@ -49,12 +49,6 @@ htmlcov/
 # --- internal / not for the public repo (curated 2026-07-05) ---
 HANDOFF-*.md
 benchmark-report/
-# superseded internal demonstration artifacts (kept local, not published)
-docs/SAA-FIX-POINTER.md
-docs/SAA-BEHAVIOR-CARD.md
-docs/saa_behavior_card.py
-tests/test_saa_card.py
-
 # rendered suite audio regenerates byte-identically in ~19s: python3 corpus/suites/build_suites.py
 corpus/suites/*/audio/
 # rendered class-corpus audio regenerates byte-identically: python3 corpus/classes/build_classes.py

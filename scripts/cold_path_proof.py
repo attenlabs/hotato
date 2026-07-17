@@ -152,7 +152,7 @@ def main():
     # A cold user's empty project dir. No key, no connected stack, fresh HOME so
     # there is no prior hotato state.
     env = {k: v for k, v in os.environ.items()
-           if k not in ("SAA_API_KEY",) and not k.startswith("HOTATO_")}
+           if not k.endswith("_API_KEY") and not k.startswith("HOTATO_")}
     env["HOME"] = tempfile.mkdtemp(prefix="coldhome-")
     results = {
         "proof": "machine-cold credentialless first-run of the released hotato package",

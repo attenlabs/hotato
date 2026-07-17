@@ -72,8 +72,7 @@ The caller only gives listener feedback; the correct agent holds the floor
 This battery demonstrates failure. The agent here both misses a real interruption
 and stops for a bare backchannel, so `run_suite` over it fails on both axes and
 `fixmap.systemic_pointer` returns a non-null pointer: no single sensitivity
-threshold satisfies both cases at once. `docs/SAA-BEHAVIOR-CARD.md` is generated
-from this battery.
+threshold satisfies both cases at once.
 
 | id | behaviour | outcome |
 |---|---|---|
