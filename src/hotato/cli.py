@@ -111,6 +111,15 @@ _EXIT_CODES: dict = {
         (2, "usage error, missing credentials, or unusable input (including "
             "a capture with no scorable events)"),
     ),
+    "drive": (
+        (0, "the live agent met the declared invariant on the fresh call; the "
+            "recaptured contract can go green"),
+        (1, "the live agent still violates the invariant on the fresh call (the "
+            "gate stays red), or the fresh call produced no scorable moment"),
+        (2, "usage error, a stack drive does not originate against (vapi/twilio "
+            "only; see docs/RECAPTURE.md), missing credentials, the missing "
+            "--yes egress opt-in, or a missing drive target"),
+    ),
     "setup": (
         (0, "the recording scaffold was printed"),
     ),
@@ -1164,6 +1173,38 @@ def _cmd_capture(args) -> int:
 
 def _cmd_setup(args) -> int:
     return _capture.run_setup(args.stack)
+
+
+def _cmd_drive(args) -> int:
+    from . import drivecmd as _drivecmd
+
+    result = _drivecmd.run_drive(
+        args.input,
+        stack=args.stack,
+        expect=args.expect,
+        max_talk_over_sec=args.max_talk_over,
+        max_time_to_yield_sec=args.max_time_to_yield,
+        scenario_path=args.scenario,
+        assistant=args.assistant,
+        api_key=args.api_key,
+        account_sid=args.account_sid,
+        auth_token=args.auth_token,
+        to_number=args.to_number,
+        from_number=args.from_number,
+        phone_number_id=args.phone_number_id,
+        customer_number=args.customer_number,
+        base_url=args.base_url,
+        poll_interval=args.poll_interval,
+        max_wait=args.max_wait,
+        out_path=args.out,
+        yes=args.yes,
+        contracts_out_dir=args.contracts_out,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_drivecmd.drive_result_json(result), indent=2))
+    else:
+        print(_drivecmd.render_drive_text(result))
+    return result["exit_code"]
 
 
 def _cmd_connect(args) -> int:
@@ -4656,6 +4697,99 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--out", default=None, help="where to write the downloaded recording (else a temp file)")
     _add_format_arg(c)
     c.set_defaults(func=_cmd_capture)
+
+    # --- drive: re-run the LIVE agent to get a red gate to green ----------
+    dr = sub.add_parser(
+        "drive",
+        help="re-run the LIVE agent to get a red regression gate to green",
+        description=(
+            "Originate ONE fresh call against your CURRENT agent, capture the "
+            "new recording, and score it against a contract's declared "
+            "invariant (--expect yield/hold). Where `hotato contract verify` "
+            "re-scores the frozen recording (which never changes, so a pinned "
+            "bad call stays red), `hotato drive` produces the FRESH evidence a "
+            "recapture needs to go green. It verifies the invariant on the new "
+            "call; it does not assert the conversation is identical to the "
+            "frozen one. Origination is available for vapi and twilio; for any "
+            "other stack it points you at the manual recapture path "
+            "(docs/RECAPTURE.md). Placing a call is real and billable, so it "
+            "requires credentials, an explicit --yes egress opt-in, and a drive "
+            "target; nothing dials without all three."
+        ),
+        epilog=(
+            _exit_codes_epilog("drive") + "\n\n"
+            "Examples:\n"
+            "  hotato drive contracts/refund-cutoff-001.hotato --stack vapi "
+            "--assistant asst_staging --phone-number-id PN --customer "
+            "+15551234567 --yes\n"
+            "  hotato drive caller.scenario.json --stack twilio --to "
+            "+15550000001 --from +15550000002 --yes\n"
+            "\n"
+            "vapi reads VAPI_API_KEY / VAPI_PHONE_NUMBER_ID / "
+            "HOTATO_DRIVE_CUSTOMER_NUMBER; twilio reads TWILIO_ACCOUNT_SID / "
+            "TWILIO_AUTH_TOKEN / HOTATO_DRIVE_TO_NUMBER / HOTATO_DRIVE_FROM_NUMBER. "
+            "HOTATO_DRIVE_OPT_IN=1 is the env form of --yes."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    dr.add_argument(
+        "input",
+        help="a .hotato contract bundle (the red gate), or a "
+             "hotato.scenario.v1 caller-stimulus file")
+    dr.add_argument("--stack", default=None,
+                    help="voice stack to originate against (vapi or twilio); "
+                         "read from a .hotato bundle when omitted")
+    dr.add_argument("--expect", default=None, choices=["yield", "hold"],
+                    help="the invariant to verify on the fresh call (default: "
+                         "the contract's label; else yield)")
+    dr.add_argument("--scenario", default=None,
+                    help="[twilio] a hotato.scenario.v1 scripted caller stimulus "
+                         "when the input is a bundle (a bundle stores timing "
+                         "evidence, not a caller script)")
+    dr.add_argument("--assistant", default=None,
+                    help="[vapi] the assistant/clone id to originate the call FROM")
+    dr.add_argument("--api-key", default=None,
+                    help="[vapi] API key (else env VAPI_API_KEY)")
+    dr.add_argument("--account-sid", default=None,
+                    help="[twilio] Account SID (else env TWILIO_ACCOUNT_SID)")
+    dr.add_argument("--auth-token", default=None,
+                    help="[twilio] Auth Token (else env TWILIO_AUTH_TOKEN)")
+    dr.add_argument("--to", dest="to_number", default=None,
+                    help="[twilio] the agent's phone number to call (else env "
+                         "HOTATO_DRIVE_TO_NUMBER)")
+    dr.add_argument("--from", dest="from_number", default=None,
+                    help="[twilio] your Twilio number to call from (else env "
+                         "HOTATO_DRIVE_FROM_NUMBER)")
+    dr.add_argument("--phone-number-id", dest="phone_number_id", default=None,
+                    help="[vapi] the phoneNumberId to originate from (else env "
+                         "VAPI_PHONE_NUMBER_ID)")
+    dr.add_argument("--customer", dest="customer_number", default=None,
+                    help="[vapi] the customer number the assistant calls (else "
+                         "env HOTATO_DRIVE_CUSTOMER_NUMBER)")
+    dr.add_argument("--base-url", dest="base_url", default=None,
+                    help="provider API base URL (else the provider default)")
+    dr.add_argument("--poll-interval", dest="poll_interval", type=float,
+                    default=None, help="seconds between call-status polls")
+    dr.add_argument("--max-wait", dest="max_wait", type=float, default=None,
+                    help="max seconds to wait for the call to finish")
+    dr.add_argument("--max-talk-over", dest="max_talk_over", type=float,
+                    default=None,
+                    help="override the yield talk-over bound scored on the "
+                         "fresh call")
+    dr.add_argument("--max-time-to-yield", dest="max_time_to_yield", type=float,
+                    default=None,
+                    help="override the yield time-to-yield bound scored on the "
+                         "fresh call")
+    dr.add_argument("--out", default=None,
+                    help="where to write the fresh recording (else a temp file)")
+    dr.add_argument("--contracts-out", dest="contracts_out", default=None,
+                    help="dir the printed recapture `contract create` writes to "
+                         "(default: the bundle's parent, else contracts)")
+    dr.add_argument("--yes", action="store_true",
+                    help="authorize placing a REAL, billable call (else "
+                         "HOTATO_DRIVE_OPT_IN=1)")
+    _add_format_arg(dr)
+    dr.set_defaults(func=_cmd_drive)
 
     # --- setup: scaffold the exact recording config for a stack -----------
     s = sub.add_parser(
