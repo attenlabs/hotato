@@ -83,19 +83,29 @@ def test_start_demo_prints_the_next_commands(tmp_path, capsys):
     rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
-    # The golden-path promote/card refs point at the EVIDENCE-SELECTED missed
-    # interruption (the moment --expect yield is CORRECT for), computed the same
-    # way the demo contract picks it -- never a hardcoded #1, which on the
-    # bundled demo is the backchannel the agent yielded to (a hold moment).
-    sweep = json.loads((tmp_path / "hotato-sweep.json").read_text())
+    # The human closing collapses to ONE clear next step -- score your own call
+    # with `hotato investigate` -- plus a single CI line. The promote/run/card
+    # fan is no longer in the human closing; it lives in the --format json
+    # next_commands payload (humans get one step, agents get the full set).
+    assert "hotato investigate path/to/your-call.wav" in out
+    assert "hotato init starter" in out
+    assert "fixture promote" not in out
+    assert "hotato card hotato-sweep.json" not in out
+
+    # The evidence-selected-rank invariant still holds where the promote command
+    # now lives (the machine payload): never present the backchannel #1 as a
+    # --expect yield regression (on the bundled demo #1 is a hold moment).
+    json_dir = tmp_path / "json_run"
+    assert cli.main(["start", "--demo", "--dir", str(json_dir),
+                     "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    sweep = json.loads((json_dir / "hotato-sweep.json").read_text())
     rank = S._select_demo_candidate(sweep, S._demo_scenario())
+    joined = " ".join(payload["next_commands"])
     assert (f"hotato fixture promote hotato-sweep.json#{rank} --expect yield"
-            in out)
-    assert "hotato run --scenarios tests/hotato/scenarios" in out
-    assert f"hotato card hotato-sweep.json#{rank} --out candidate.svg" in out
-    # the backchannel #1 must NOT be presented as a --expect yield regression
+            in joined)
     assert ("hotato fixture promote hotato-sweep.json#1 --expect yield"
-            not in out)
+            not in joined)
 
 
 def test_start_demo_json_format(tmp_path, capsys):
@@ -411,7 +421,8 @@ def test_start_demo_prints_the_say_do_catch_after_the_timing_act(
     assert ("hotato test run saydo/test.json --agent demo-agent "
             "--transcript saydo/transcript.json --trace saydo/trace.jsonl "
             "--state saydo/state.json") in out
-    assert "hotato card saydo/test-run.json --out saydo-card.svg" in out
+    # (the say-do card command moved out of the human closing into the
+    # --format json next_commands payload when the closing was collapsed.)
 
 
 def test_start_demo_json_saydo_block_is_complete(tmp_path, capsys):
