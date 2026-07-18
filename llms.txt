@@ -448,6 +448,8 @@ it, never whether the policy itself was right.
 ## Links
 
 - README.md: quickstart and scope.
+- docs/GETTING-STARTED.md: the five-step, no-forks onboarding walkthrough,
+  first touch to a CI gate that guards every pull request.
 - docs/WHY.md: why timing bugs are invisible to text-level tests, and the
   "is this even a turn-taking bug" triage for conflated failure modes (STT
   hallucination, client-side buffering, LLM verbosity/tool-selection, safety
