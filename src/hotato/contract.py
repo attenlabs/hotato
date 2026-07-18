@@ -1649,7 +1649,28 @@ def render_verify_text(v: dict) -> str:
             f"  {v['assertions_failed']} contract(s) have a FAILING embedded "
             "assertion (separate from the timing verdict above)"
         )
-    lines.append(f"  {_STORED_EVIDENCE_CAVEAT}")
+    # A red result is a REVIEW CHECKPOINT, not an error: a pinned bad call can
+    # only go green by fixing the agent and recapturing, exactly like a
+    # snapshot test. Every machine-parseable line above (the per-contract
+    # verdicts and the `N/M contracts pass; exit_code=` summary) is left
+    # byte-identical; this framing is added strictly after it.
+    if v["exit_code"] != 0:
+        lines.append(
+            "  These contracts pin known failures. Each stays red until you "
+            "fix the agent and recapture the call, the same way a snapshot "
+            "test stays red until you update the snapshot."
+        )
+        lines.append(
+            "  This step re-measures stored evidence and never re-runs your "
+            "live agent, so a real regression cannot slip through as routine."
+        )
+        lines.append(
+            "  Path to green: fix the agent, then recapture with `hotato "
+            "drive <bundle>` (vapi/twilio), or the manual path in "
+            "docs/RECAPTURE.md."
+        )
+    else:
+        lines.append(f"  {_STORED_EVIDENCE_CAVEAT}")
     return "\n".join(lines)
 
 

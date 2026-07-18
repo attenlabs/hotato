@@ -496,6 +496,8 @@ def _next_commands_text(card_written: bool, contract_written: bool,
     alt = ", ".join(_DEMO_STARTER_STACKS)
     lines = [
         "",
+        "Score your own call:  hotato investigate path/to/your-call.wav",
+        "",
         "Add hotato to your repo (durable: a CI gate + contracts/ + fixtures/)",
         "",
         f"  {_DEMO_STARTER_PRIMARY}",
