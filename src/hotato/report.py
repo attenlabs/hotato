@@ -1606,6 +1606,424 @@ def _trace_section(trace: dict) -> str:
     )
 
 
+# --- forensic analysis: derived, labeled fields over the report's inputs ---
+#
+# Three additive, purely-DERIVED enrichments to the forensic report, each
+# composed from evidence the report ALREADY carries (the timing event models,
+# the attached voice trace's span timestamps, and the already-evaluated
+# assert.v1 results) -- never a new capture, never a score, never a verdict.
+# Every one is fail-closed: a hop or lane whose spans are absent is labeled
+# "not captured", never estimated or fabricated. Present only when a voice
+# trace is attached (the investigate / contract forensic path always attaches
+# one); a plain timing report renders none of this and stays byte-identical.
+#
+# report.py never imports hotato.trace here either -- the trace is the same
+# duck-typed {"meta", "spans"} payload the trace section renders.
+
+_HOP_LABEL = {
+    "stt": "STT (speech to text)",
+    "llm": "LLM (first token)",
+    "tool": "Tool call",
+    "tts": "TTS (speech out)",
+    "transport": "Transport (backend HTTP)",
+}
+
+
+def _fx_span_start(span: dict):
+    """The wall-clock start of a span: ``start_sec`` for an interval, else
+    ``time_sec`` for a point event, else ``None`` (never a fabricated 0.0)."""
+    v = span.get("start_sec")
+    return v if v is not None else span.get("time_sec")
+
+
+def _fx_hop(hop: str, ms, basis: str) -> dict:
+    return {"hop": hop, "label": _HOP_LABEL[hop], "ms": ms,
+            "status": "measured", "basis": basis}
+
+
+def _fx_hop_nc(hop: str, basis: str) -> dict:
+    """A hop with no spans to measure: fail-closed, ms is None, status names
+    the absence rather than guessing a number."""
+    return {"hop": hop, "label": _HOP_LABEL[hop], "ms": None,
+            "status": "not captured", "basis": basis}
+
+
+def _latency_waterfall(trace: dict) -> dict:
+    """A labeled per-hop latency breakdown -- STT / LLM / tool / TTS /
+    transport -- synthesized ENTIRELY from span timestamps already captured in
+    the attached voice trace (no new capture). Each hop names the exact span
+    delta it is derived from; a hop whose spans are absent is "not captured".
+    Context, not a score, and never a sum presented as the whole call."""
+    spans = trace.get("spans") or []
+
+    def _of(t):
+        return [s for s in spans if s.get("type") == t]
+
+    hops = []
+
+    # STT: the asr_partial recognition window (first partial start to last end).
+    asr = _of("asr_partial")
+    asr_starts = [_fx_span_start(s) for s in asr if _fx_span_start(s) is not None]
+    asr_ends = [s.get("end_sec") for s in asr if s.get("end_sec") is not None]
+    if asr_starts and (asr_ends or len(asr_starts) > 1):
+        last = max(asr_ends) if asr_ends else max(asr_starts)
+        hops.append(_fx_hop("stt", round((last - min(asr_starts)) * 1000, 1),
+                            "asr_partial recognition window (first start to last end)"))
+    elif asr:
+        hops.append(_fx_hop_nc("stt", "asr_partial spans carry no usable start/end time"))
+    else:
+        hops.append(_fx_hop_nc("stt", "no asr_partial spans in the trace"))
+
+    # LLM: first-token latency after the last recognized partial.
+    llm = _of("llm_first_token")
+    llm_t = [_fx_span_start(s) for s in llm if _fx_span_start(s) is not None]
+    if llm_t and asr_ends:
+        hops.append(_fx_hop("llm", round((min(llm_t) - max(asr_ends)) * 1000, 1),
+                            "llm_first_token minus last asr_partial end"))
+    elif llm:
+        hops.append(_fx_hop_nc("llm", "llm_first_token present but no asr_partial end to measure from"))
+    else:
+        hops.append(_fx_hop_nc("llm", "no llm_first_token span in the trace"))
+
+    # Tool: total measured tool_call latency (sum of the tool_call latency_ms).
+    tool = _of("tool_call")
+    tool_lat = [s["latency_ms"] for s in tool
+                if isinstance(s.get("latency_ms"), (int, float))
+                and not isinstance(s.get("latency_ms"), bool)]
+    if tool_lat:
+        basis = f"sum of {len(tool_lat)} tool_call latency_ms"
+        if _of("tool_timeout"):
+            basis += "; a tool_timeout is also present"
+        hops.append(_fx_hop("tool", round(float(sum(tool_lat)), 1), basis))
+    elif tool:
+        hops.append(_fx_hop_nc("tool", "tool_call spans carry no latency_ms"))
+    else:
+        hops.append(_fx_hop_nc("tool", "no tool_call spans in the trace"))
+
+    # TTS: the cancellation lag (cancel to audio stopped), else the agent
+    # speech window (agent_audio_active).
+    cancel = [_fx_span_start(s) for s in _of("tts_cancel_requested")
+              if _fx_span_start(s) is not None]
+    stopped = [_fx_span_start(s) for s in _of("tts_audio_stopped")
+               if _fx_span_start(s) is not None]
+    if cancel and stopped:
+        hops.append(_fx_hop("tts", round((min(stopped) - min(cancel)) * 1000, 1),
+                            "tts_audio_stopped minus tts_cancel_requested (cancellation lag)"))
+    else:
+        agent = _of("agent_audio_active")
+        wins = [s["end_sec"] - _fx_span_start(s) for s in agent
+                if _fx_span_start(s) is not None and s.get("end_sec") is not None]
+        if wins:
+            hops.append(_fx_hop("tts", round(sum(wins) * 1000, 1),
+                                "agent_audio_active speech window"))
+        else:
+            hops.append(_fx_hop_nc("tts", "no tts cancel/stop pair and no agent_audio_active interval"))
+
+    # Transport: the backend HTTP round trip (http_exchange latency).
+    http = _of("http_exchange")
+    http_lat = []
+    for s in http:
+        v = s.get("latency_ms")
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            v = (s.get("attributes") or {}).get("latency_ms")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            http_lat.append(float(v))
+        elif _fx_span_start(s) is not None and s.get("end_sec") is not None:
+            http_lat.append((s["end_sec"] - _fx_span_start(s)) * 1000.0)
+    if http_lat:
+        hops.append(_fx_hop("transport", round(sum(http_lat), 1),
+                            f"sum of {len(http_lat)} http_exchange round trip(s)"))
+    elif http:
+        hops.append(_fx_hop_nc("transport", "http_exchange spans carry no latency"))
+    else:
+        hops.append(_fx_hop_nc("transport", "no http_exchange spans in the trace"))
+
+    return {
+        "hops": hops,
+        "note": ("Per-hop latency derived from voice-trace span timestamps "
+                 "already captured. Context, not a score, and not the whole "
+                 "call: a hop with no spans reads not captured, never estimated."),
+    }
+
+
+def _interrupted_speech(trace: dict) -> list:
+    """Where a ``tts_cancel_requested`` / ``tts_audio_stopped`` span records
+    that the agent's speech was cut off, preserve WHAT it was saying when cut
+    off -- the interrupted text -- as evidence, not just the timestamp. The
+    trace's own redaction wall is honored: a ``text_redacted`` span yields the
+    text_state "redacted" and NEVER its raw text. When no cut-off span carries
+    any speech text at all, this returns ``[]`` (the absence is noted by
+    omission, never a fabricated line)."""
+    spans = trace.get("spans") or []
+    entries = []
+    for s in spans:
+        if s.get("type") not in ("tts_cancel_requested", "tts_audio_stopped"):
+            continue
+        if s.get("text_redacted"):
+            text, state = None, "redacted"
+        elif s.get("text"):
+            text, state = str(s.get("text")), "preserved"
+        else:
+            text, state = None, "not captured"
+        entries.append({
+            "at_sec": _fx_span_start(s),
+            "event": s.get("type"),
+            "text": text,
+            "text_state": state,
+        })
+    if not any(e["text_state"] in ("preserved", "redacted") for e in entries):
+        return []
+    return entries
+
+
+def _fx_assertion_lane(kind: str) -> str:
+    """The cross-lane bucket a failing assertion belongs to for the earliest
+    -violation selection: tool (tool/http evidence), state (post-call state),
+    else trace (handoff/dtmf/termination/sequence/count and friends all read
+    the authenticated trace spans)."""
+    if kind in ("tool_call", "tool_result", "tool_error", "http_result"):
+        return "tool"
+    if kind in ("state", "state_change"):
+        return "state"
+    return "trace"
+
+
+def _fx_span_time_by_id(spans: list, sid: str):
+    """The wall-clock start of the span a synthetic ``s_<idx>`` id refers to,
+    or ``None`` when the id does not resolve (bounds-checked; the report's
+    trace and the evaluated assertions share the same span list, so an id
+    resolves to the same moment the evaluator saw)."""
+    try:
+        idx = int(str(sid).split("_")[1])
+    except (IndexError, ValueError):
+        return None
+    if 0 <= idx < len(spans):
+        return _fx_span_start(spans[idx])
+    return None
+
+
+def _earliest_violation(models: list, assertions: Optional[dict],
+                        trace: dict) -> Optional[dict]:
+    """The chronologically FIRST failure across ALL lanes -- turn-taking, tool,
+    state, and trace -- selected by wall-clock time-in-call, not by lane order.
+    (The say-do card picks a first failure only within its own family, by list
+    order; this is the cross-lane, wall-clock version the report surfaces as
+    one labeled field.) A failure that cites no timed span is listed under
+    ``untimed`` -- it can never be guessed into the ordering. Returns ``None``
+    when nothing failed."""
+    spans = trace.get("spans") or []
+    timed: list = []
+    untimed: list = []
+
+    # Turn-taking lane: a failing timing event, timed at the caller onset (the
+    # moment the caller spoke into the agent's floor).
+    for m in models or []:
+        if _event_status(m) != "fail":
+            continue
+        if m.get("expected_yield", True) and not m.get("did_yield"):
+            label = "turn-taking: the agent did not yield to the caller"
+        elif m.get("talk_over_sec"):
+            label = ("turn-taking: the agent talked over the caller "
+                     f"({_s(m.get('talk_over_sec'))})")
+        else:
+            label = "turn-taking: the measured turn-taking verdict failed"
+        entry = {"lane": "turn-taking", "label": label, "source": "timing"}
+        onset = m.get("onset")
+        if onset is not None:
+            timed.append(dict(entry, time_sec=round(float(onset), 3)))
+        else:
+            untimed.append(dict(entry, reason="this event carries no caller onset time"))
+
+    # Tool / state / trace lanes: failing deterministic assertions, timed at
+    # the earliest trace span they cite.
+    for r in (assertions or {}).get("results") or []:
+        if not isinstance(r, dict) or r.get("status") != "FAIL":
+            continue
+        kind = r.get("kind", "")
+        lane = _fx_assertion_lane(kind)
+        aid = r.get("id", "assertion")
+        entry = {"lane": lane, "source": f"assertion:{kind}",
+                 "label": f"{lane}: assertion {aid} ({kind}) failed"}
+        times = [t for t in (_fx_span_time_by_id(spans, sid)
+                             for sid in (r.get("span_ids") or []))
+                 if t is not None]
+        if times:
+            timed.append(dict(entry, time_sec=round(float(min(times)), 3)))
+        else:
+            untimed.append(dict(entry, reason="the failing assertion cites no timed trace span"))
+
+    if not timed and not untimed:
+        return None
+    timed.sort(key=lambda e: e["time_sec"])
+    return {
+        "earliest": dict(timed[0]) if timed else None,
+        "considered": timed,
+        "untimed": untimed,
+        "note": ("The chronologically first failure across the turn-taking, "
+                 "tool, state, and trace lanes, by time-in-call -- selected by "
+                 "wall-clock span time, not lane order. A failure that cites no "
+                 "timed span is listed under untimed, never ordered by guess."),
+    }
+
+
+def _forensic_block(models: list, assertions: Optional[dict],
+                    trace: Optional[dict]) -> Optional[dict]:
+    """Assemble the additive forensic-analysis block folded into the envelope
+    and rendered as one labeled section. Only when a voice trace is attached
+    (its span timestamps are what every piece derives from); a trace-less
+    report gets ``None`` and stays byte-identical to before."""
+    if trace is None:
+        return None
+    block: dict = {"latency_waterfall": _latency_waterfall(trace)}
+    interrupted = _interrupted_speech(trace)
+    if interrupted:
+        block["interrupted_speech"] = interrupted
+    ev = _earliest_violation(models, assertions, trace)
+    if ev is not None:
+        block["earliest_violation"] = ev
+    return block
+
+
+_FORENSIC_CSS = """
+details.forensic summary{cursor:pointer;color:%(cream)s;font-size:16.5px;
+ font-weight:650}
+.forensic .fnote{color:%(muted)s;font-size:12.5px;margin:8px 0 12px}
+.fx-earliest{margin:6px 0 14px;padding:9px 12px;border-left:3px solid %(ember)s;
+ background:%(card2)s;border-radius:0 8px 8px 0}
+.fx-k{display:block;color:%(muted)s;font-size:11px;text-transform:uppercase;
+ letter-spacing:.05em;margin-bottom:2px}
+.fx-v{display:block;color:%(cream)s;font-weight:600}
+.fx-lane{color:%(muted)s;font-size:12px}
+.fx-sub{color:%(muted)s;font-size:12px;font-weight:600;margin:10px 0 4px}
+table.fxtab{border-collapse:collapse;width:auto;font-size:12px;margin-bottom:6px}
+table.fxtab th{text-align:left;color:%(muted)s;font-weight:600;font-size:11.5px;
+ padding:5px 18px 5px 0;border-bottom:1px solid %(line)s;white-space:nowrap}
+table.fxtab td{text-align:left;color:%(mono)s;padding:3px 18px 3px 0;
+ border-bottom:1px solid %(card2)s;vertical-align:top}
+table.fxtab td.fx-nc{color:%(muted)s;font-style:italic}
+.forensic ul.fxint{margin:2px 0 8px;padding-left:18px}
+.forensic ul.fxint li{color:%(mono)s;font-size:12.5px;margin:2px 0}
+""" % _C
+
+
+def _fx_ms(ms) -> str:
+    return "not captured" if ms is None else f"{ms:g} ms"
+
+
+def _forensic_section(forensic: dict) -> str:
+    """The one collapsed, clearly-labeled "Forensic analysis" section: the
+    earliest violated invariant, the per-hop latency waterfall, and any
+    preserved interrupted-speech text. All derived context, never a score."""
+    parts = []
+    ev = forensic.get("earliest_violation")
+    if ev is not None:
+        e = ev.get("earliest")
+        if e is not None:
+            parts.append(
+                '<div class="fx-earliest">'
+                '<span class="fx-k">Earliest violated invariant</span>'
+                f'<span class="fx-v">{_esc(e["label"])} at {_esc(_s(e["time_sec"]))}</span>'
+                f'<span class="fx-lane">lane: {_esc(e["lane"])} '
+                f'&middot; by time-in-call across all lanes</span>'
+                '</div>')
+        else:
+            parts.append(
+                '<div class="fx-earliest">'
+                '<span class="fx-k">Earliest violated invariant</span>'
+                '<span class="fx-v">a failure occurred but none cites a '
+                'wall-clock span time; see untimed failures</span></div>')
+
+    wf = forensic.get("latency_waterfall")
+    if wf is not None:
+        rows = []
+        for h in wf["hops"]:
+            cls = "" if h["status"] == "measured" else ' class="fx-nc"'
+            rows.append(
+                '<tr>'
+                f'<td>{_esc(h["label"])}</td>'
+                f'<td{cls}>{_esc(_fx_ms(h["ms"]))}</td>'
+                f'<td>{_esc(h["basis"])}</td>'
+                '</tr>')
+        parts.append('<div class="fx-sub">Per-hop latency waterfall</div>')
+        parts.append(
+            '<table class="fxtab"><thead><tr><th>hop</th><th>latency</th>'
+            f'<th>derived from</th></tr></thead><tbody>{"".join(rows)}</tbody></table>')
+
+    interrupted = forensic.get("interrupted_speech")
+    if interrupted:
+        items = []
+        for e in interrupted:
+            when = _s(e["at_sec"]) if e.get("at_sec") is not None else "unknown time"
+            if e["text_state"] == "preserved":
+                what = f'"{_esc(e["text"])}"'
+            elif e["text_state"] == "redacted":
+                what = "[redacted]"
+            else:
+                what = "text not captured"
+            items.append(f'<li>{_esc(e["event"])} at {_esc(when)}: {what}</li>')
+        parts.append('<div class="fx-sub">Interrupted speech (cut off)</div>')
+        parts.append(f'<ul class="fxint">{"".join(items)}</ul>')
+
+    return (
+        '<details class="card forensic">'
+        '<summary>Forensic analysis (derived context, not a score)</summary>'
+        '<div class="fnote">Derived entirely from evidence already in this '
+        'report -- the timing verdict, the attached voice trace\'s span '
+        'timestamps, and the evaluated assertions. Nothing here is a new '
+        'measurement or a score; a hop or lane with no spans reads not '
+        'captured, never estimated.</div>'
+        f'{"".join(parts)}'
+        '</details>'
+    )
+
+
+def _forensic_md(forensic: dict) -> list:
+    """The Markdown mirror of ``_forensic_section``."""
+    L = ["## Forensic analysis (derived context, not a score)", ""]
+    L.append("Derived entirely from evidence already in this report -- the "
+             "timing verdict, the attached voice trace's span timestamps, and "
+             "the evaluated assertions. Nothing here is a new measurement or a "
+             "score; a hop or lane with no spans reads not captured, never "
+             "estimated.")
+    L.append("")
+    ev = forensic.get("earliest_violation")
+    if ev is not None:
+        e = ev.get("earliest")
+        L.append("### Earliest violated invariant")
+        L.append("")
+        if e is not None:
+            L.append(f"- {e['label']} at {_s(e['time_sec'])} (lane: {e['lane']}; "
+                     "by time-in-call across all lanes)")
+        else:
+            L.append("- a failure occurred but none cites a wall-clock span "
+                     "time; see untimed failures")
+        L.append("")
+    wf = forensic.get("latency_waterfall")
+    if wf is not None:
+        L.append("### Per-hop latency waterfall")
+        L.append("")
+        L.append(_md_row(["hop", "latency", "derived from"]))
+        L.append(_md_row(["---"] * 3))
+        for h in wf["hops"]:
+            L.append(_md_row([h["label"], _fx_ms(h["ms"]), h["basis"]]))
+        L.append("")
+    interrupted = forensic.get("interrupted_speech")
+    if interrupted:
+        L.append("### Interrupted speech (cut off)")
+        L.append("")
+        for e in interrupted:
+            when = _s(e["at_sec"]) if e.get("at_sec") is not None else "unknown time"
+            if e["text_state"] == "preserved":
+                what = f'"{e["text"]}"'
+            elif e["text_state"] == "redacted":
+                what = "[redacted]"
+            else:
+                what = "text not captured"
+            L.append(f"- {e['event']} at {when}: {what}")
+        L.append("")
+    return L
+
+
 # --- transcript context (opt-in aid; never a scoring input) ---------------
 #
 # report.py never imports hotato.transcribe and never runs any speech-to-text:
@@ -2514,7 +2932,8 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
                  trace: Optional[dict] = None,
                  conversation: Optional[dict] = None,
                  rubric: Optional[dict] = None,
-                 reliability: Optional[dict] = None) -> str:
+                 reliability: Optional[dict] = None,
+                 forensic: Optional[dict] = None) -> str:
     s = env["summary"]
     # A real failure always dominates: REGRESSION beats NOT SCORABLE beats
     # ALL PASS. NOT SCORABLE appears only when nothing failed but at least one
@@ -2562,6 +2981,11 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         style_css += _SCORECARD_CSS
     if trace is not None:
         style_css += _TRACE_CSS
+    # The forensic-analysis CSS is appended ONLY when the derived forensic block
+    # actually rendered (trace attached), so a plain / trace-less report stays
+    # byte-identical to one built before this feature existed.
+    if forensic is not None:
+        style_css += _FORENSIC_CSS
     # Conversation-provenance CSS is appended ONLY when a manifest was supplied,
     # so conversation=None (the default) stays byte-identical.
     if conversation is not None:
@@ -2634,6 +3058,13 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
     # default (trace=None), so a plain report carries none of this markup.
     trace_html = _trace_section(trace) if trace is not None else ""
 
+    # The forensic analysis (per-hop latency waterfall, earliest violated
+    # invariant, preserved interrupted speech) reads right after the raw trace
+    # table it derives from: the reader sees the spans, then the labeled
+    # analysis over them. Absent by default (forensic=None, i.e. no trace), so
+    # a plain report carries none of this markup.
+    forensic_html = _forensic_section(forensic) if forensic is not None else ""
+
     # The conversation-artifact provenance (real|simulated + bound digests)
     # reads right after the headline summary -- a reader sees WHAT the report
     # was produced from (and whether it was a real or simulated call) before the
@@ -2648,7 +3079,7 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         f'{conversation_html}'
         f'{_not_scorable_section_html(env)}'
         f'{base_html}{cards}'
-        f'{analytics_html}{assertions_html}{trace_html}'
+        f'{analytics_html}{assertions_html}{trace_html}{forensic_html}'
         f'{_thresholds(cfg)}</main>{_footer()}</div>'
     )
 
@@ -2886,7 +3317,8 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
                trace: Optional[dict] = None,
                conversation: Optional[dict] = None,
                rubric: Optional[dict] = None,
-               reliability: Optional[dict] = None) -> str:
+               reliability: Optional[dict] = None,
+               forensic: Optional[dict] = None) -> str:
     s = env["summary"]
     eng = env.get("engine", {})
     mode_label = f"suite: {env['suite']}" if env.get("suite") else env.get("mode", "")
@@ -3059,6 +3491,11 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
     # trace (voice_trace.v1): absent by default, byte-identical without it
     if trace is not None:
         L.extend(_trace_md(trace))
+
+    # forensic analysis (derived): absent by default (no trace), byte-identical
+    # without it
+    if forensic is not None:
+        L.extend(_forensic_md(forensic))
 
     # base comparison
     if base_env:
@@ -3355,10 +3792,17 @@ def build_report_html(*, base: Optional[dict] = None,
         # dimension, over an honest empty envelope (0 assertions, stated in the
         # note). assertions=None WITH reliability=None stays byte-identical.
         assertions = _EMPTY_ASSERT_ENVELOPE
+    # Additive forensic-analysis block, DERIVED from the report's own inputs
+    # (timing models + attached trace spans + evaluated assertions) and folded
+    # into the envelope as one additive top-level ``forensic`` key. Present only
+    # when a voice trace is attached, so a trace-less envelope is byte-identical.
+    forensic = _forensic_block(models, assertions, env.get("trace_context"))
+    if forensic is not None:
+        env["forensic"] = forensic
     page = _render_page(env, models, cfg, base_env=base, base_label=base_label,
                         audio_mode=mode, assertions=assertions,
                         trace=env.get("trace_context"), conversation=cv,
-                        rubric=rubric, reliability=rel)
+                        rubric=rubric, reliability=rel, forensic=forensic)
     return page, env
 
 
@@ -3422,10 +3866,14 @@ def build_report_md(*, base: Optional[dict] = None,
         # dimension, over an honest empty envelope (0 assertions, stated in the
         # note). assertions=None WITH reliability=None stays byte-identical.
         assertions = _EMPTY_ASSERT_ENVELOPE
+    forensic = _forensic_block(models, assertions, env.get("trace_context"))
+    if forensic is not None:
+        env["forensic"] = forensic
     return (
         _render_md(env, models, cfg, base_env=base, base_label=base_label,
                   assertions=assertions, trace=env.get("trace_context"),
-                  conversation=cv, rubric=rubric, reliability=rel),
+                  conversation=cv, rubric=rubric, reliability=rel,
+                  forensic=forensic),
         env,
     )
 
