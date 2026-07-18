@@ -5,6 +5,42 @@ is written to be executed top to bottom. Every command below is offline,
 reversible, and needs no account or key. Prefer the CLI's own contract
 (`hotato describe --format json`) over this prose when they disagree.
 
+## The core loop (run this first)
+
+One path, first touch to a CI gate. Each step prints the exact next command, so
+you can chain the whole loop from stdout alone:
+
+```text
+1  hotato start --demo                    see it catch a failure on two bundled calls
+2  hotato investigate ./call.wav          score your own two-channel recording
+3  hotato investigate label <ref>         commit the caught moment as a regression
+4  hotato pr create --fixtures <bundle>   open the pull request that adds the CI gate
+5  hotato contract verify contracts/      the gate re-runs the stored evidence
+```
+
+- **Step 1** sweeps the two bundled demo calls, builds one failure contract, and
+  runs one say-do conversation check. It exits 0 because setup finished; the
+  gate command it points at exits 1.
+- **Step 2** opens a local dual-channel WAV (or pulls one live with
+  `--stack vapi --call-id ID`), authenticates its capture origin, runs the
+  input-health gate, and ranks the timing moments. It marks the top-ranked one
+  `most likely failure` and prints one `investigate label` command for it. No
+  intent is inferred; a suspected channel swap refuses the verdict path.
+- **Step 3** writes a signed contract bundle to `contracts/<id>.hotato/` from the
+  candidate ref (`.hotato/investigate-state.json#N`) and the `--expect yield|hold`
+  label you supply. The label is the human decision; hotato measures whether the
+  timing matched it.
+- **Step 4** stages that bundle byte-identical under `tests/hotato/contracts/` and
+  opens the PR (dry run by default; `--yes` runs git and gh).
+- **Step 5** re-measures the stored evidence deterministically. This is the CI
+  gate: exit 0 pass, exit 1 fail.
+
+A committed contract pins a known failure, so it stays exit 1 until you fix the
+agent and recapture the call (the way a snapshot test stays red until you update
+the snapshot). That still-red state is a review checkpoint, not a broken test.
+Path to green: `hotato drive <bundle>` (vapi/twilio) or the manual path in
+`docs/RECAPTURE.md`.
+
 ## What it is
 
 hotato turns a failed voice call into a deterministic regression test that lives
@@ -32,25 +68,10 @@ config. Confirm a file is scorable before scoring it:
 hotato trust --stereo call.wav        # per-channel activity, swap flag, scorability
 ```
 
-## Try it in 10 seconds (no credentials)
+## Other ways in (friction order)
 
-```bash
-uvx hotato demo --fail                 # zero-install; scores the bundled battery
-# no uv on this box:
-pipx run hotato demo --fail
-# or: pip install hotato && python -m hotato demo --fail
-```
-
-It scores two recorded calls a provider's default agent got wrong, prints each
-caught moment (`did_yield`, `seconds_to_yield`, `talk_over`), writes an HTML
-report to a temp path, and **exits 1** because both fail on timing. Exit 1 is the
-signal, not an error. `hotato demo` without `--fail` runs the same battery and
-exits 0.
-
-## Three ways in (friction order)
-
-Pick the onramp matching the data the project already has; every path feeds
-the same offline scoring and the same 0/1/2 exit contract.
+The core loop is the shortest path. When the project has different data on hand,
+each of these feeds the same offline scoring and the same 0/1/2 exit contract.
 
 1. **Traces, no audio needed.** `tool_call` assertions read only the ingested
    trace's `voice_trace.v1` spans; `outcome` assertions combine those spans
@@ -85,10 +106,6 @@ the same offline scoring and the same 0/1/2 exit contract.
    hotato simulate --init demo.scenario.json && hotato simulate demo.scenario.json --out ./sim
    ```
 
-After a first catch on a captured call, the second move is driving a call
-against the live agent on demand (the same pull -> score pipeline; it bills
-one outbound phone call per run): `docs/DRIVE-A-CALL.md`.
-
 ## Is it worth wiring in?
 
 - **Transcript and text tests do not see timing.** A clean transcript can come
@@ -113,8 +130,8 @@ one outbound phone call per run): `docs/DRIVE-A-CALL.md`.
 
 ### Which part answers your question
 
-- Turn-taking / barge-in / talk-over, day one: `demo`, `scan`, `run` work
-  offline now on a two-channel recording.
+- Turn-taking / barge-in / talk-over, day one: `start --demo`, `investigate`,
+  `run` work offline now on a two-channel recording.
 - Latency / response-gap: the same commands, the speech signals in the envelope.
 - Answer-correctness / task-completion / policy disclosures: you supply the
   transcript, state, labels, or a local judge; these are not measured
@@ -171,10 +188,10 @@ micro-pause reads as a yield.
 
 ## Machine surfaces
 
-- `hotato describe --format json` emits every subcommand, its flags, its exit
-  codes, the schema URLs, and the version, generated from the CLI's own argparse
-  so it cannot drift. Read this before you script anything; do not hardcode the
-  version or the command list.
+- `hotato describe --format json` emits the core loop, then every subcommand, its
+  flags, its exit codes, the schema URLs, and the version, generated from the
+  CLI's own argparse so it cannot drift. Read this before you script anything; do
+  not hardcode the version or the command list.
 - Schemas ship in-package at `src/hotato/schema/*.v1.json` (for example
   `envelope.v1.json`, `error.v1.json`). Validate the `--format json` output
   offline against these; the `schema_version` and `tool` fields in the envelope
@@ -196,4 +213,4 @@ micro-pause reads as a yield.
   auto-applies a fix. `hotato apply` is clone-only (a new staging assistant),
   never a production write.
 - Never upload or pull customer audio without explicit human consent. The demo,
-  scan, benchmark, and contract paths need none of it.
+  investigate, benchmark, and contract paths need none of it.
