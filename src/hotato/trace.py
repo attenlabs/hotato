@@ -57,6 +57,8 @@ from .errors import open_regular as _open_regular
 
 __all__ = [
     "SCHEMA",
+    "CANONICAL_SPAN_TYPES",
+    "TOOL_LIFECYCLE_SPAN_TYPES",
     "TRACE_REL_PATH",
     "ingest_otel",
     "render_ingest_text",
@@ -81,9 +83,21 @@ TRACE_REL_PATH = _contract._REL["traces_dir"] + "/voice_trace.jsonl"
 # type is passed through as-is rather than dropped or rejected).
 CANONICAL_SPAN_TYPES = (
     "caller_audio_active", "agent_audio_active", "tts_cancel_requested",
-    "tts_audio_stopped", "asr_partial", "tool_call", "llm_first_token",
-    "handoff", "http_exchange",
+    "tts_audio_stopped", "asr_partial", "tool_call", "tool_timeout",
+    "tool_retry", "llm_first_token", "handoff", "http_exchange",
 )
+
+# The tool-lifecycle span family: a ``tool_call`` plus the two first-class
+# failure spans a timed-out-then-retried tool emits. ``tool_timeout`` marks a
+# tool invocation that passed its deadline (carries the tool ``name`` and,
+# when the source recorded one, the ``latency_ms`` it waited before giving
+# up); ``tool_retry`` marks a re-invocation of the same tool (carries
+# ``name`` and the retry ``attempt`` number). Kept first-class -- not folded
+# into the generic ``attributes`` bag -- so the zombie-tool / double-fire
+# failure class (a tool that times out, is retried, and then double-fires on
+# the backend) is a queryable span sequence a ``sequence`` / ``count``
+# assertion can bind to by ``span_type``, never smuggled evidence.
+TOOL_LIFECYCLE_SPAN_TYPES = ("tool_call", "tool_timeout", "tool_retry")
 
 _NOT_PROVED_TRACE = (
     "Hotato does not prove root cause. A voice trace adds timing "
@@ -198,6 +212,10 @@ _OTEL_NAME_MAP = {
     "asr_partial": "asr_partial",
     "llm.first_token": "llm_first_token",
     "llm_first_token": "llm_first_token",
+    "tool.timeout": "tool_timeout",
+    "tool_timeout": "tool_timeout",
+    "tool.retry": "tool_retry",
+    "tool_retry": "tool_retry",
 }
 
 
@@ -269,7 +287,7 @@ def _parse_otel_standard_json(doc: dict) -> tuple:
             span["end_sec"] = end_sec
         else:
             span["time_sec"] = time_sec
-        if mapped == "tool_call":
+        if mapped in TOOL_LIFECYCLE_SPAN_TYPES:
             tool_name = attrs.get("tool.name") or attrs.get("gen_ai.tool.name")
             if tool_name is not None:
                 span["name"] = tool_name
@@ -277,6 +295,12 @@ def _parse_otel_standard_json(doc: dict) -> tuple:
                 span["latency_ms"] = attrs["latency_ms"]
             elif start_sec is not None and end_sec is not None:
                 span["latency_ms"] = round((end_sec - start_sec) * 1000, 3)
+            if mapped == "tool_retry":
+                attempt = attrs.get("attempt")
+                if attempt is None:
+                    attempt = attrs.get("retry.attempt")
+                if attempt is not None:
+                    span["attempt"] = attempt
         if mapped == "asr_partial":
             text = attrs.get("text") or attrs.get("asr.transcript.partial")
             if text is not None:
@@ -555,6 +579,13 @@ def _svg_trace_row(spans: list, *, duration: float) -> str:
                      f'stroke="{C["ember"]}" stroke-width="1.4" stroke-dasharray="2 2" />')
             if typ == "tool_call" and s.get("name"):
                 label = f'tool:{s["name"]}'
+            elif typ == "tool_timeout":
+                label = f'timeout:{s["name"]}' if s.get("name") else "tool timeout"
+            elif typ == "tool_retry":
+                attempt = s.get("attempt")
+                nm = s.get("name")
+                label = ("retry" + (f" {attempt}" if attempt is not None else "")
+                         + (f":{nm}" if nm else ""))
             elif typ == "asr_partial":
                 label = "asr partial"
             else:
@@ -753,7 +784,7 @@ def export_trace(bundle_dir: str, *, out_path: str, fmt: str = "otel",
     for s in vt.get("spans") or []:
         span_out = {"type": s.get("type")}
         for k in ("start_sec", "end_sec", "time_sec", "name", "latency_ms",
-                  "text_redacted", "text", "attributes"):
+                  "attempt", "text_redacted", "text", "attributes"):
             if k in s:
                 span_out[k] = s[k]
         lines.append(json.dumps(span_out, sort_keys=True))
