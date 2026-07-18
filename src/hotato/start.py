@@ -493,41 +493,20 @@ def _demo_record_verify_command() -> str:
 
 def _next_commands_text(card_written: bool, contract_written: bool,
                         candidate_rank: Optional[int] = None) -> str:
+    # One clear next step, not a fan: the demo's job is to get you to score
+    # your OWN call, so `hotato investigate` is THE next command. Adding it to
+    # CI is one condensed line below; promote/run/card are what
+    # `hotato init starter` and the docs walk you through, so they stay out of
+    # the first-run closing. (card_written/contract_written/candidate_rank are
+    # kept for caller compatibility; the collapsed closing does not branch.)
     alt = ", ".join(_DEMO_STARTER_STACKS)
-    lines = [
+    return "\n".join([
         "",
-        "Score your own call:  hotato investigate path/to/your-call.wav",
+        "Your next step -- score your own call:",
+        "  hotato investigate path/to/your-call.wav",
         "",
-        "Add hotato to your repo (durable: a CI gate + contracts/ + fixtures/)",
-        "",
-        f"  {_DEMO_STARTER_PRIMARY}",
-        f"  # stack-tuned instead:  --stack {alt}",
-        "",
-        "Then  (all offline, no account, no network)",
-        "",
-    ]
-    if candidate_rank is not None:
-        # #{candidate_rank} is the EVIDENCE-SELECTED missed interruption (the
-        # agent talked over the caller), so --expect yield freezes the RIGHT
-        # moment. It is deliberately never the hardcoded #1 -- on the bundled
-        # demo #1 is the backchannel the agent yielded to (a --expect hold
-        # moment), so #1 --expect yield would enshrine the demonstrated defect
-        # as passing behavior.
-        lines += [
-            f"  Save a regression   hotato fixture promote {_SWEEP_JSON}#{candidate_rank} --expect yield --id my-first-fixture --out tests/hotato",
-            "  Run fixtures in CI  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio",
-            f"  Render a card       hotato card {_SWEEP_JSON}#{candidate_rank} --out candidate.svg",
-        ]
-    else:
-        # Rank unavailable (a contract-step hiccup): keep only the label-free,
-        # always-correct command rather than print a promote example whose
-        # --expect could be backwards for whatever candidate #1 happens to be.
-        lines += [
-            "  Run fixtures in CI  hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio",
-        ]
-    # Act two leaves a test-run result behind; the say-do card renders it.
-    lines += [f"  Say-do card         {_saydo_card_command()}"]
-    return "\n".join(lines)
+        f"  Then add it to CI:  {_DEMO_STARTER_PRIMARY}   (--stack {alt} to tune)",
+    ])
 
 
 def _secs(x) -> str:

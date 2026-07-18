@@ -28,6 +28,14 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   -> `pr create`), with the `fixture promote` sequence kept as the
   alternate.
 
+### Changed
+- **`start --demo` ends with one clear next step.** The guided first run's
+  closing collapsed from a fan of promote/run/card/say-do commands to a single
+  next action, scoring your own call with `hotato investigate`, plus one
+  condensed line for wiring it into CI. The full command set stays in the
+  `--format json` `next_commands` payload, so agents get everything while a
+  new developer sees exactly one step.
+
 ### Fixed
 - **The read-only SQL guard cannot be hung.** `SqlStateAdapter`'s
   read-only check matched leading whitespace with a catastrophic-backtracking
