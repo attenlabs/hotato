@@ -484,6 +484,9 @@ it, never whether the policy itself was right.
   observability bridge attached to a failure contract's evidence.
 - docs/OTEL.md: the two `trace ingest --otel` source shapes (a standard OTel
   JSON export, and hotato's own documented bridge JSONL).
+- docs/latency-waterfall.md: the per-hop latency waterfall (STT, LLM, tool,
+  TTS, transport) rendered in the report's forensic block from attached trace
+  spans; a hop with no spans reads "not captured", never estimated.
 - docs/REPORTS.md: doctor, report, team, and export in depth.
 - docs/ASSERTIONS.md: `assert.v1`, the five deterministic assertion kinds
   (phrase, pii, policy, tool_call, outcome) evaluated against a transcript /
@@ -520,6 +523,20 @@ it, never whether the policy itself was right.
 - docs/INVESTIGATE.md: `hotato investigate`, one recording to ranked candidate
   moments with an authenticated capture origin and the trust gate, then
   `investigate label` into a signed contract.
+- docs/scenarios/browser-vs-pstn.md: scoring the same moment clean and through
+  the 8 kHz telephony-degraded corpus class (G.711 mu-law plus a fixed
+  packet-loss schedule), then triaging a phone-quality recording.
+- docs/scenarios/load-and-recovery.md: the closed-concurrency load staircase
+  with one verifiable evidence package per started call, dry-run on the
+  built-in local provider, re-verified offline.
+- docs/scenarios/dtmf-verification.md: the deterministic dtmf assertion over
+  voice_trace.v1 spans, authority-stamped send evidence, INCONCLUSIVE when
+  the trace is missing.
+- docs/scenarios/echo-self-interruption.md: signals.echo (cross-channel
+  coherence at a lag) and --echo-gate, holding an echo-coincident yield out
+  of the verdict.
+- docs/scenarios/false-interruption-replay.md: a backchannel false yield
+  labeled hold and pinned as a deterministic, replayable CI contract.
 - docs/CONTRACTS.md: `hotato contract create|verify|inspect|pack|unpack`, the
   portable, CI-enforced <id>.hotato failure-contract bundle.
 - docs/COUNTEREXAMPLES.md: one deterministic scripted failure to a private,
