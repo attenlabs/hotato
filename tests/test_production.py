@@ -694,20 +694,21 @@ def saturated_request(gateway, method, path, body=b"", headers=None):
     """Issue a request that a saturated gateway is expected to refuse.
 
     The shed path writes the 503 and closes without reading the request
-    bytes, which forces a TCP RST. POSIX loopback stacks deliver the
-    buffered 503 before surfacing the reset, so callers keep the strict
-    status assertion there. Windows discards undelivered receive-buffer
-    data when it processes the RST and aborts the client's read instead
-    (WinError 10053/10054), so the same refusal can surface as a
-    connection abort rather than a readable 503. Returns ``(None, b"")``
-    for that abort shape; both shapes are the gateway refusing the
-    request, never accepting it.
+    bytes, which forces a TCP RST. The refusal's client-side shape is
+    platform- and timing-dependent: Linux loopback usually delivers the
+    buffered 503 before surfacing the reset; Windows discards undelivered
+    receive-buffer data on RST and aborts the client's read (WinError
+    10053/10054); macOS can fail the client's SEND with EPIPE when the
+    request write races the server's early close. Every one of these
+    shapes is the gateway refusing the request, never accepting it, so all
+    three are accepted on every platform and return ``(None, b"")``; the
+    callers' state assertions (nothing enqueued, permit still exhausted,
+    healthz after release) verify the refusal semantics regardless of
+    which shape the socket layer produced.
     """
     try:
         return request(gateway, method, path, body, headers)
-    except (ConnectionAbortedError, ConnectionResetError):
-        if os.name != "nt":
-            raise
+    except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
         return None, b""
 
 
