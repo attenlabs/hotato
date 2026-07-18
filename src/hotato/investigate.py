@@ -272,12 +272,19 @@ def _capture_config_snapshot(
             "config baseline was not captured."
         )
     prov = result.get("fetched_at_provenance") or {}
+    # The provenance method is a request line like "GET .../assistant/<id>", so
+    # the assistant/agent id is embedded in its URL. Strip it before the method
+    # enters the share-safe bundle -- the endpoint shape is useful provenance,
+    # the id is not, and this snapshot is a share-safe surface.
+    method = prov.get("method")
+    if method and agent_id:
+        method = method.replace(agent_id, "<agent-id>")
     return {
         "stack": stack_l,
         "config": result.get("turn_taking", {}),
         "observations": result.get("observations", []),
         "captured": True,
-        "inspect_method": prov.get("method"),
+        "inspect_method": method,
         "note": (
             "captured live from `hotato inspect` at investigate time "
             "(read-only GET); a later config drift can be diffed against this "
