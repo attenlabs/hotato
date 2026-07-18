@@ -24,8 +24,6 @@ import os
 import shutil
 from importlib import resources
 
-import pytest
-
 from hotato import capture as _capture
 from hotato import contract as _contract
 from hotato import inspectcfg as _inspect

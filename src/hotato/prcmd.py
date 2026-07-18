@@ -566,7 +566,7 @@ def build_contract_pr(
         "body": body,
         "stage_copies": stage_copies,
         "stage_copies_display": [
-            f"copy {cp['src']} -> {cp['dest']} (byte-identical)"
+            f"copy {_repo_path(cp['src'])} -> {_repo_path(cp['dest'])} (byte-identical)"
             for cp in stage_copies
         ],
         "git_commands": git_commands,
