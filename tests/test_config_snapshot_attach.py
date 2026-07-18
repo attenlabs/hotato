@@ -109,7 +109,9 @@ def test_capture_success_keeps_config_and_hides_the_id(monkeypatch):
         assert kw["assistant_id"] == "asst_SECRET"
         return {
             "stack": "vapi", "target": "asst_SECRET",
-            "fetched_at_provenance": {"method": "GET https://api.vapi.ai/x"},
+            # mirror real inspect_vapi: the id is embedded in the request URL
+            "fetched_at_provenance": {
+                "method": "GET https://api.vapi.ai/assistant/asst_SECRET"},
             "turn_taking": {"interrupt_min_words": 3,
                             "interrupt_voice_seconds": 0.2, "raw": {"numWords": 3}},
             "observations": ["waitSeconds is at its floor"],
@@ -121,8 +123,12 @@ def test_capture_success_keeps_config_and_hides_the_id(monkeypatch):
     assert snap["captured"] is True
     assert snap["config"]["interrupt_min_words"] == 3
     assert snap["observations"] == ["waitSeconds is at its floor"]
-    # the assistant id is never carried into the share-safe snapshot
+    # the assistant id is never carried into the share-safe snapshot, even
+    # though the real inspect provenance embeds it in the request URL
     assert "asst_SECRET" not in json.dumps(snap)
+    # the endpoint shape is still kept as provenance (id redacted)
+    assert "assistant" in snap["inspect_method"]
+    assert "<agent-id>" in snap["inspect_method"]
 
 
 # --- end to end: live pull -> state -> label -> bundle snapshot -------------
@@ -136,7 +142,9 @@ def test_live_pull_threads_config_into_the_bundle(tmp_path, monkeypatch):
     def _fake_inspect(**kw):
         return {
             "stack": "vapi", "target": "asst_1",
-            "fetched_at_provenance": {"method": "GET https://api.vapi.ai/x"},
+            # mirror real inspect_vapi: the id is embedded in the request URL
+            "fetched_at_provenance": {
+                "method": "GET https://api.vapi.ai/assistant/asst_1"},
             "turn_taking": {"interrupt_min_words": 5, "raw": {"numWords": 5}},
             "observations": [],
             "notes": [],
