@@ -265,6 +265,7 @@ def create_contract(
     human_review_attested: bool = False,
     candidate_ref: Optional[str] = None,
     candidate_kind: Optional[str] = None,
+    config_snapshot: Optional[dict] = None,
 ) -> dict:
     """Create one ``<id>.hotato`` failure-contract bundle under ``out_dir``.
 
@@ -390,6 +391,7 @@ def create_contract(
                 human_review_attested=human_review_attested,
                 candidate_ref_override=candidate_ref,
                 candidate_kind_override=candidate_kind,
+                config_snapshot=config_snapshot,
             )
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -579,7 +581,18 @@ def _call_metadata(*, stack, expect, category, recording_type, channels,
     return out
 
 
-def _stack_config_snapshot(stack: Optional[str]) -> dict:
+def _stack_config_snapshot(stack: Optional[str], *,
+                           snapshot: Optional[dict] = None) -> dict:
+    """The bundle's ``source/stack_config_snapshot.json`` contents.
+
+    When ``snapshot`` is provided (``hotato investigate --stack`` captured the
+    live turn-taking config from ``hotato inspect`` at investigate time), it is
+    used verbatim -- the same ``{stack, config, note}`` shape, with ``config``
+    populated from the read-only inspect GET, so a later config-drift diff has a
+    real baseline. Absent (a bare local WAV, or an inspect that could not run),
+    the honest placeholder is written instead of a fabricated snapshot."""
+    if snapshot is not None:
+        return snapshot
     return {
         "stack": stack or "generic",
         "config": {},
@@ -744,6 +757,7 @@ def _create_from_fixture_path(
     caller_channel, agent_channel, include_identifiers, confirm_channels=False,
     reviewer_principal=None, human_review_attested=False,
     candidate_ref_override=None, candidate_kind_override=None,
+    config_snapshot=None,
 ) -> dict:
     fx_kwargs, resolved_onset, recording_type, candidate_ref, candidate_kind = (
         _resolve_raw_input(from_candidate=from_candidate, stereo=stereo,
@@ -956,6 +970,7 @@ def _create_from_fixture_path(
         source_name=source_name, duration_sec=duration_sec,
         source_sha=source_sha, rationale=rationale,
         include_identifiers=include_identifiers,
+        config_snapshot=config_snapshot,
     )
     return contract
 
@@ -1082,7 +1097,8 @@ def _bundle_paths_rel() -> dict:
 
 def _finish_bundle(tmp_dir, contract, *, want_yield, expect, stack, category,
                    candidate_ref, candidate_kind, source_name, duration_sec,
-                   source_sha, rationale, include_identifiers) -> None:
+                   source_sha, rationale, include_identifiers,
+                   config_snapshot=None) -> None:
     """Write the remaining bundle files that do not depend on which input
     path produced the contract: policy, source metadata, provenance, CI
     scaffold, and the shareable card (rendered from the contract dict itself,
@@ -1101,7 +1117,7 @@ def _finish_bundle(tmp_dir, contract, *, want_yield, expect, stack, category,
     )
     _write_json(os.path.join(tmp_dir, _REL["source"]["call_metadata"]), call_meta)
     _write_json(os.path.join(tmp_dir, _REL["source"]["stack_config_snapshot"]),
-               _stack_config_snapshot(stack))
+               _stack_config_snapshot(stack, snapshot=config_snapshot))
 
     prov = _provenance(
         contract_id=contract_id, created_by=contract["created_by"],

@@ -216,6 +216,76 @@ def _capture_origin(path: str, *, stack: Optional[str],
     }
 
 
+# --- config identity: auto-attach the live turn-taking config snapshot -----
+
+def _capture_config_snapshot(
+    stack: str, *, agent_id: Optional[str], api_key: Optional[str],
+) -> dict:
+    """Best-effort: run the read-only ``hotato inspect`` config snapshot for a
+    LIVE stack and wrap it in the bundle's ``{stack, config, note}`` shape, so
+    ``investigate --stack`` fills ``source/stack_config_snapshot.json`` with a
+    real turn-taking baseline instead of the bare placeholder (silent config
+    drift is a confirmed cross-provider failure class).
+
+    Never raises and never fabricates: an inspect that cannot run -- an
+    unsupported stack, a static-config stack with no call-time file, a missing
+    ``--agent-id`` or credential, or a network/parse error -- returns an honest
+    ``captured: False`` note naming the real reason, so the bundle records WHY
+    the baseline is absent rather than a fabricated snapshot. Non-identifying by
+    construction: only the normalized turn-taking config and observations are
+    kept, never the assistant/agent id or raw target."""
+    from . import inspectcfg as _inspect
+
+    stack_l = (stack or "").strip().lower()
+
+    def _note_only(reason: str) -> dict:
+        return {"stack": stack_l or "generic", "config": {},
+                "captured": False, "note": reason}
+
+    if stack_l not in _inspect.INSPECT_STACKS:
+        return _note_only(
+            f"hotato inspect has no live config reader for {stack_l!r}; run "
+            "`hotato inspect` for a supported stack and attach it by hand."
+        )
+    if stack_l in ("livekit", "pipecat"):
+        return _note_only(
+            f"{stack_l} turn-taking config lives in a local agent file, not a "
+            f"call pull; run `hotato inspect --stack {stack_l} --config "
+            "<file.py>` and attach it by hand."
+        )
+    if not agent_id:
+        return _note_only(
+            f"no assistant/agent id given (--agent-id), so `hotato inspect "
+            f"--stack {stack_l}` could not fetch the live config; pass "
+            "--agent-id to auto-capture the baseline."
+        )
+    try:
+        if stack_l == "vapi":
+            result = _inspect.run_inspect(
+                stack="vapi", assistant_id=agent_id, api_key=api_key)
+        else:  # retell
+            result = _inspect.run_inspect(
+                stack="retell", agent_id=agent_id, api_key=api_key)
+    except Exception as exc:  # best-effort: never fail investigate on inspect
+        return _note_only(
+            f"`hotato inspect --stack {stack_l}` could not run ({exc}); the "
+            "config baseline was not captured."
+        )
+    prov = result.get("fetched_at_provenance") or {}
+    return {
+        "stack": stack_l,
+        "config": result.get("turn_taking", {}),
+        "observations": result.get("observations", []),
+        "captured": True,
+        "inspect_method": prov.get("method"),
+        "note": (
+            "captured live from `hotato inspect` at investigate time "
+            "(read-only GET); a later config drift can be diffed against this "
+            "baseline."
+        ),
+    }
+
+
 # --- audio in: reuse capture.py wholesale, never a second fetch path -------
 
 def _resolve_audio(
@@ -314,6 +384,15 @@ def run_investigate(
         path, stack=fetch_meta.get("stack"), call_id=fetch_meta.get("call_id"),
     )
 
+    # Config identity auto-attach: only for a LIVE stack pull (never a bare
+    # local WAV), best-effort and fail-closed. Carried in this state file so
+    # `investigate label` writes it into the contract bundle's
+    # source/stack_config_snapshot.json instead of the bare placeholder.
+    config_snapshot = None
+    if fetch_meta.get("stack"):
+        config_snapshot = _capture_config_snapshot(
+            fetch_meta["stack"], agent_id=agent_id, api_key=api_key)
+
     cfg = ScoreConfig()
     # K6, contract mode: the SAME stricter crosstalk/leakage bar
     # `contract create` itself checks, since this discovery is aimed at
@@ -382,6 +461,7 @@ def run_investigate(
         "folder_path": folder_path,
         "note": scan_note,
         "capture_origin": origin,
+        "stack_config_snapshot": config_snapshot,
         "trust": trust_rep,
         "verdict_status": verdict_status,
         "config": {
@@ -424,6 +504,7 @@ def run_investigate(
         "run": run_no,
         "source": source_name,
         "capture_origin": origin,
+        "stack_config_snapshot": config_snapshot,
         "trust": {
             "recommendation": trust_rep.get("recommendation"),
             "scorable": trust_rep.get("scorable"),
@@ -486,6 +567,13 @@ def _candidate_line(cand: dict, rank: int) -> str:
 def render_text(result: dict, *, show_all: bool = False) -> str:
     lines = [f"hotato investigate [run {result['run']}]: {result['source']}"]
     lines.extend(_render_capture_origin_lines(result["capture_origin"]))
+    snap = result.get("stack_config_snapshot")
+    if isinstance(snap, dict):
+        if snap.get("captured"):
+            lines.append("  config baseline: captured live "
+                         "(source/stack_config_snapshot.json in the contract)")
+        else:
+            lines.append(f"  config baseline: not captured ({snap.get('note')})")
 
     t = result["trust"]
     lines.append(f"  input health: {t['recommendation']}")
@@ -618,8 +706,15 @@ def run_investigate_label(
     auto_id = contract_id is None
     cid = contract_id or _auto_contract_id(cand, expect)
 
+    # Config identity auto-attach: when this ref resolves to an investigate-state
+    # file that captured a live turn-taking config snapshot, thread it into the
+    # bundle's source/stack_config_snapshot.json (a plain analyze/sweep FILE#N
+    # ref carries none, so this stays None and the placeholder is written).
+    config_snapshot = doc.get("stack_config_snapshot") if isinstance(doc, dict) else None
+
     result = _contract.create_contract(
         from_candidate=ref,
+        config_snapshot=config_snapshot,
         # `investigate label` is a deliberate human-review act that already
         # requires an explicit --reviewer, so that reviewer IS the human
         # attestation (R-09); the tty/--i-attest gate applies to the plain
@@ -651,6 +746,7 @@ def run_investigate_label(
     # sweep FILE#N ref carries no such field, and this stays None -- never
     # guessed).
     result["capture_origin"] = doc.get("capture_origin")
+    result["stack_config_snapshot"] = config_snapshot
     return result
 
 
