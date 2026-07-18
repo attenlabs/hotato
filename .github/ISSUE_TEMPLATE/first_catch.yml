@@ -1,0 +1,86 @@
+name: "First catch: a moment hotato found on your call"
+description: Report the first candidate moment hotato surfaced on one of your own calls, with the card or report attached.
+title: "First catch: "
+labels: ["first-catch"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        One filled form here is the strongest signal this tool can get: the
+        loop ran on a stack we did not operate. Attach the card or the
+        report text, never the audio. If the moment is worth contributing
+        as audio, the corpus path
+        [docs/SUBMITTING.md](https://github.com/attenlabs/hotato/blob/main/docs/SUBMITTING.md)
+        handles consent and PII.
+  - type: dropdown
+    id: stack
+    attributes:
+      label: Stack
+      description: The voice-agent stack the call came from.
+      options:
+        - Vapi
+        - Retell
+        - Twilio
+        - LiveKit
+        - Pipecat
+        - Local WAV (any stack)
+        - Trace-only (spans, no audio)
+        - Other (name it below)
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command you ran
+      description: The exact invocation, credentials removed.
+      placeholder: "hotato investigate --stack vapi --call-id <id>"
+    validations:
+      required: true
+  - type: textarea
+    id: what_was_caught
+    attributes:
+      label: What was caught
+      description: >-
+        The moment in your words plus the numbers: candidate kind
+        (talk-over, false stop, long gap), onset, durations, and the label
+        you chose (yield or hold) with why. The label is yours by design;
+        the why is the interesting part.
+      placeholder: "Talk-over at t=42.1s: agent kept the floor 1.4s after the caller cut in. Labeled yield: the caller was correcting an address, not backchanneling."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Card or report
+      description: >-
+        Drag in the SVG from `hotato card .hotato/investigate-state.json#1
+        --out card.svg`, or paste the text report block. Timings and
+        measurements only; no audio, call ids, phone numbers, or names.
+    validations:
+      required: true
+  - type: dropdown
+    id: where_it_went
+    attributes:
+      label: Where it went next
+      options:
+        - Labeled into a contract (investigate label / contract create)
+        - Promoted to a fixture (fixture promote)
+        - Gating a branch in CI (contract verify)
+        - Still a candidate, deciding
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: hotato version
+      description: Output of `hotato --version`.
+      placeholder: "hotato x.y.z"
+    validations:
+      required: true
+  - type: checkboxes
+    id: share_safe
+    attributes:
+      label: Share-safe
+      options:
+        - label: No audio is attached, and the paste carries no call id, phone number, or name of any call participant.
+          required: true
