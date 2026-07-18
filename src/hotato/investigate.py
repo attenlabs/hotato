@@ -466,7 +466,24 @@ def _render_capture_origin_lines(origin: dict) -> list:
     return lines
 
 
-def render_text(result: dict) -> str:
+def _investigate_input_ref(result: dict) -> str:
+    """The re-runnable ``hotato investigate`` input for this result: the
+    ``--stack``/``--call-id`` pair for a live pull, else the local source
+    name. Used only to point the reader at ``--all`` for the full list."""
+    origin = result.get("capture_origin") or {}
+    if origin.get("kind") == "provider_pulled":
+        return (f"--stack {origin['stack']} "
+                f"--call-id {shlex.quote(str(origin['call_id']))}")
+    return shlex.quote(result["source"])
+
+
+def _candidate_line(cand: dict, rank: int) -> str:
+    d = cand.get("durations") or {}
+    detail = ", ".join(f"{k}={v}" for k, v in d.items())
+    return f"    [{rank}] t={cand['t_sec']}s {cand['kind']}  {detail}"
+
+
+def render_text(result: dict, *, show_all: bool = False) -> str:
     lines = [f"hotato investigate [run {result['run']}]: {result['source']}"]
     lines.extend(_render_capture_origin_lines(result["capture_origin"]))
 
@@ -495,20 +512,35 @@ def render_text(result: dict) -> str:
             "a verdict; label one only after confirming the channel mapping "
             "(--confirm-channels) or fixing the crosstalk"
         )
-    lines.append(f"  {result['note']}")
-    lines.append(
-        f"  {result['total_candidates']} candidate moment(s) "
-        f"(showing {result['shown']}):"
-    )
-    for n in result["next"]:
-        c = result["candidates"][n["rank"] - 1]
-        d = c.get("durations") or {}
-        detail = ", ".join(f"{k}={v}" for k, v in d.items())
-        lines.append(f"    [{n['rank']}] t={c['t_sec']}s {c['kind']}  {detail}")
-        lines.append(f"        label: {n['command']}")
-    if result["next"]:
-        lines.append("  (each label takes --expect yield, or --expect hold "
-                     "when the agent was right to keep talking)")
+
+    nexts = result["next"]
+    cands = result["candidates"]
+    if not nexts:
+        lines.append("  no candidate moments found in this recording.")
+        lines.append(f"  state remembered at: {result['state_path']}")
+        return "\n".join(lines)
+
+    # Lead with the single top-ranked candidate as the recommended action and
+    # exactly ONE next command -- a verdict, not a fan. The remaining
+    # candidates live behind --all so the first read stays one clear step.
+    top = nexts[0]
+    lines.append("  most likely failure (top-ranked candidate):")
+    lines.append(_candidate_line(cands[top["rank"] - 1], top["rank"]))
+    lines.append("  next: label it (use --expect hold instead if the agent "
+                 "was right to keep talking):")
+    lines.append(f"    {top['command']}")
+
+    if show_all and len(nexts) > 1:
+        lines.append(f"  all {len(nexts)} candidate moment(s):")
+        for n in nexts[1:]:
+            lines.append(_candidate_line(cands[n["rank"] - 1], n["rank"]))
+            lines.append(f"        label: {n['command']}")
+    elif len(nexts) > 1:
+        more = len(nexts) - 1
+        lines.append(
+            f"  {more} more candidate(s). See all: hotato investigate "
+            f"{_investigate_input_ref(result)} --all"
+        )
     lines.append(f"  state remembered at: {result['state_path']}")
     return "\n".join(lines)
 

@@ -2056,7 +2056,7 @@ def _cmd_investigate(args) -> int:
     if args.format == "json":
         print(_errors.safe_json_dumps(result, indent=2))
     else:
-        print(_investigate.render_text(result))
+        print(_investigate.render_text(result, show_all=args.all))
     return code
 
 
@@ -7969,6 +7969,10 @@ def build_parser() -> argparse.ArgumentParser:
     iv.add_argument("--top", type=int, default=10,
                     help="how many top candidate moments to show and print "
                          "label commands for (default 10; 0 shows all)")
+    iv.add_argument("--all", action="store_true",
+                    help="show every candidate moment in the human report "
+                         "(default: only the top-ranked one plus its label "
+                         "command; the machine JSON always lists all)")
     iv.add_argument("--state", default=None, metavar="PATH",
                     help="investigate state file (default "
                          ".hotato/investigate-state.json in the current "
