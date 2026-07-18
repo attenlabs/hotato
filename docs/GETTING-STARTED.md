@@ -141,3 +141,13 @@ a time; none of them is required to complete the loop above.
 - [`ASSERTIONS.md`](ASSERTIONS.md) and [`TRACE.md`](TRACE.md): the say-do check from traces you already log.
 - [`MCP.md`](MCP.md): drive the loop from Claude Code, Cursor, or any MCP client.
 - [`../AGENTS.md`](../AGENTS.md): the same loop, written for a coding agent, plus the machine contract.
+
+Symptom-first walkthroughs, each opening with the direct answer and running on
+what ships in the repo:
+
+- [`scenarios/browser-vs-pstn.md`](scenarios/browser-vs-pstn.md): passes in the browser, fails on the phone; score the same moment clean and codec-degraded.
+- [`latency-waterfall.md`](latency-waterfall.md): perceived latency worse than the dashboard; the per-hop waterfall from your traces.
+- [`scenarios/load-and-recovery.md`](scenarios/load-and-recovery.md): breaks under concurrent call load; the evidence-preserving load staircase.
+- [`scenarios/dtmf-verification.md`](scenarios/dtmf-verification.md): verifying DTMF from the evidence your pipeline logs.
+- [`scenarios/echo-self-interruption.md`](scenarios/echo-self-interruption.md): the agent interrupts itself; TTS bleed measured and gated.
+- [`scenarios/false-interruption-replay.md`](scenarios/false-interruption-replay.md): stops talking on "mhm"; pin the false yield as a CI contract.
