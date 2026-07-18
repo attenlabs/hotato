@@ -16,6 +16,8 @@
 
 *The transcript passed. The call failed.* Your transcript tests are green, and the call still went wrong: the agent talked over the caller, ran through the interruption, then left a beat of dead air handing the floor back. None of it is in the words. Hotato is self-hosted conversation QA for voice agents: give it a two-channel call recording and it scores the turn timing between caller and agent, verifies what the agent *said* against what the backend *did* from your traces, and rolls outcome, policy, conversation, speech, and reliability into one pass/fail verdict. Every catch locks into a content-addressed contract that returns the same exit `0` or `1` in CI on every machine.
 
+Your platform already has the audio: `hotato pull --stack vapi` fetches the separated two-channel recording from Vapi, Twilio, or Retell, and the trace path scores say-do with no audio at all.
+
 ## See the loop catch a regression
 
 One recording in. Hotato ranks the timing moments, hands you the single command to pin the top one, and that pinned failure becomes a CI gate:
