@@ -4418,6 +4418,10 @@ def build_capability_manifest() -> dict:
         "tool": _errors.TOOL,
         "schema_version": _errors.SCHEMA_VERSION,
         "version": __version__,
+        "core_loop": [
+            {"step": i, "command": cmd, "purpose": blurb}
+            for i, (cmd, blurb) in enumerate(_CORE_LOOP_STEPS, 1)
+        ],
         "schemas": {
             "envelope": _schema_id("envelope.v1.json"),
             "error": _schema_id("error.v1.json"),
@@ -4435,6 +4439,13 @@ def _render_describe_text(manifest: dict) -> str:
         f"{name}={url}" for name, url in manifest["schemas"].items()
     ))
     lines.append("")
+    if manifest.get("core_loop"):
+        lines.append("core loop (start here; every other command is advanced):")
+        for step in manifest["core_loop"]:
+            lines.append(
+                f"  {step['step']}  {step['command'].ljust(38)} {step['purpose']}"
+            )
+        lines.append("")
 
     def _walk(cmds, indent=""):
         for c in cmds:
@@ -4498,19 +4509,61 @@ def _cmd_serve(args) -> int:
     )
 
 
+# The canonical core loop: one linear path, first touch to a CI gate. This is the
+# single source of truth rendered identically everywhere a newcomer meets hotato:
+# the GET STARTED block atop `hotato --help`, `hotato describe`'s core_loop, the
+# README's first screenful, and docs/GETTING-STARTED.md. Keep the commands byte
+# identical across those surfaces.
+_CORE_LOOP_STEPS = (
+    ("hotato start --demo", "see it catch a failure on two bundled calls"),
+    ("hotato investigate ./call.wav", "score your own two-channel recording"),
+    ("hotato investigate label <ref>", "commit the caught moment as a regression"),
+    ("hotato pr create --fixtures <bundle>", "open the pull request that adds the CI gate"),
+    ("hotato contract verify contracts/", "the gate re-runs the stored evidence"),
+)
+
+
+def _get_started_block() -> str:
+    """The GET STARTED block: the core loop, numbered, one command per step."""
+    lines = ["GET STARTED -- the core loop, first touch to a CI gate:"]
+    for i, (cmd, blurb) in enumerate(_CORE_LOOP_STEPS, 1):
+        lines.append(f"  {i}  {cmd.ljust(38)} {blurb}")
+    lines.append("")
+    lines.append("Each step prints the next command. New here? Run step 1 and follow along.")
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hotato",
-        description="Hotato: open-source, self-hosted conversation QA for voice "
-        "agents. Simulate, evaluate, review, and track calls across five dimensions "
-        "(outcome, policy, conversation, speech, reliability) with the evidence behind "
-        "every result. Offline. MIT. Deterministic checks stay separate from the "
-        "model-judged rubric; there is no blended score and no accuracy percentage.",
+        description=(
+            _get_started_block()
+            + "\n\n"
+            "Hotato: self-hosted conversation QA for voice agents. Scores calls "
+            "across five dimensions (outcome, policy, conversation, speech, "
+            "reliability) with the evidence behind every result. Offline. MIT. "
+            "Deterministic checks stay separate from the model-judged rubric; there "
+            "is no blended score and no accuracy percentage."
+        ),
+        epilog=(
+            "Core commands (the loop above):\n"
+            "  start        guided first run on the bundled demo calls\n"
+            "  investigate  score your own recording and rank its timing moments\n"
+            "  contract     pin a caught moment as a CI contract (verify is the gate)\n"
+            "  pr           open the pull request that adds the contract to CI\n\n"
+            "Everything else is advanced. Full machine-readable list of every "
+            "command: hotato describe --format json\n"
+            "Exit codes: 0 pass, 1 regression, 2 refuse."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--version", action="version", version=f"hotato {__version__}")
     # Not required: bare `hotato` prints the first-run guide (score your OWN call),
     # rather than an argparse usage error.
-    sub = p.add_subparsers(dest="command", required=False)
+    # metavar collapses the 50+ command names into one token in the usage line and
+    # the positional-arguments header, so a newcomer reads the GET STARTED loop
+    # first; each command still lists (with its help) below, and all stay callable.
+    sub = p.add_subparsers(dest="command", required=False, metavar="<command>")
 
     r = sub.add_parser(
         "run",
