@@ -45,10 +45,12 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 from hotato._engine.audio import write_wav  # noqa: E402
 
 # (scenarios_dir, audio_dir) relative to this file. Each set is rendered
-# independently. funnel-demo is a deliberately-bad-agent battery (see README).
+# independently. funnel-demo is a deliberately-bad-agent battery; full-duplex is
+# a barge-in pass/fail pair with sustained simultaneous speech (see README).
 SETS = [
     (os.path.join(HERE, "scenarios"), os.path.join(HERE, "audio")),
     (os.path.join(HERE, "funnel-demo", "scenarios"), os.path.join(HERE, "funnel-demo", "audio")),
+    (os.path.join(HERE, "full-duplex", "scenarios"), os.path.join(HERE, "full-duplex", "audio")),
 ]
 
 
