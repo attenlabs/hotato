@@ -30,6 +30,14 @@ works too, no extra syntax needed.
 
 ## Add it to a client
 
+In a project checkout, one command registers hotato with every agent config
+surface the project already carries, including the `.mcp.json` server entry
+when that file exists:
+
+```bash
+hotato init --agents
+```
+
 Every block below is copy-paste exact; only the outer key (client-specific)
 differs -- all three use the same command and args.
 
