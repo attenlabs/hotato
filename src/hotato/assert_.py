@@ -124,7 +124,15 @@ SUPPORTED_DOC_VERSION = 1
 #                                    timing contract re-verified via `contract verify`)
 #   entity_accuracy               -- deterministic entity/string match vs a
 #                                    supplied reference (NOT WER)
-#   sequence / count              -- ordered / counted spans (or phrases)
+#   sequence / count              -- ordered / counted spans (or phrases). Read
+#                                    ANY span_type generically, so the tool
+#                                    lifecycle spans hotato.trace makes
+#                                    first-class -- tool_timeout, tool_retry --
+#                                    are queryable here without a new kind: a
+#                                    `sequence` of tool_call -> tool_timeout ->
+#                                    tool_retry -> tool_call, or a `count` of
+#                                    tool_retry span_type, binds the zombie-tool
+#                                    / double-fire failure class to real spans.
 #
 # HONESTY INVARIANT (structural): tool_result / tool_error / http_result /
 # state / state_change (Authorities 1 & 2, listed in

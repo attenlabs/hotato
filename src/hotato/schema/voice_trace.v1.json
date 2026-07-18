@@ -49,7 +49,7 @@
       "type": "object",
       "required": ["type"],
       "additionalProperties": true,
-      "description": "One discrete voice-pipeline event. type is an open string set; common values: caller_audio_active, agent_audio_active, tts_cancel_requested, tts_audio_stopped, asr_partial (carries text_redacted, and text only when --include-text was passed), tool_call (carries name, latency_ms), http_exchange (a recorded request/response report -- method, url, status_code, response; hotato never performs the request during assertion evaluation), llm_first_token, handoff. Exactly one time shape applies: an interval span carries start_sec/end_sec, a point event carries time_sec.",
+      "description": "One discrete voice-pipeline event. type is an open string set; common values: caller_audio_active, agent_audio_active, tts_cancel_requested, tts_audio_stopped, asr_partial (carries text_redacted, and text only when --include-text was passed), tool_call (carries name, latency_ms), tool_timeout (a tool invocation that passed its deadline -- carries name and, when recorded, latency_ms), tool_retry (a re-invocation of the same tool -- carries name and the retry attempt number), http_exchange (a recorded request/response report -- method, url, status_code, response; hotato never performs the request during assertion evaluation), llm_first_token, handoff. Exactly one time shape applies: an interval span carries start_sec/end_sec, a point event carries time_sec.",
       "properties": {
         "type": { "type": "string" },
         "start_sec": { "type": ["number", "null"] },
@@ -59,6 +59,7 @@
         "text": { "type": "string" },
         "name": { "type": ["string", "null"] },
         "latency_ms": { "type": ["number", "null"] },
+        "attempt": { "type": ["integer", "null"], "description": "The retry attempt number on a tool_retry span (1-based)." },
         "attributes": { "type": "object", "additionalProperties": true }
       }
     }

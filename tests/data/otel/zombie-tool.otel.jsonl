@@ -1,0 +1,5 @@
+{"call_id": "zombie-call-001", "deployment": {"stack": "livekit", "agent_id": "agent-zombie-1", "git_sha": "feedface1234"}}
+{"type": "tool_call", "start_sec": 3.10, "end_sec": 3.42, "name": "issue_refund", "latency_ms": 320}
+{"type": "tool_timeout", "time_sec": 8.10, "name": "issue_refund", "latency_ms": 5000}
+{"type": "tool_retry", "time_sec": 8.20, "name": "issue_refund", "attempt": 2}
+{"type": "tool_call", "start_sec": 8.25, "end_sec": 8.61, "name": "issue_refund", "latency_ms": 360}
