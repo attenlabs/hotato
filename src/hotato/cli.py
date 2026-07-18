@@ -4076,6 +4076,25 @@ def _cmd_init_webhook(args) -> int:
     return 0
 
 
+def _cmd_init_group(args) -> int:
+    """``hotato init`` with no subcommand: ``--agents`` registers hotato with
+    the agent config surfaces in the current project; anything else is a
+    usage error (exit 2), matching the old required-subcommand behavior."""
+    from . import initcmd as _initcmd
+
+    if not getattr(args, "agents", False):
+        raise ValueError(
+            "hotato init needs a subcommand (webhook | starter | ci) or "
+            "--agents; see hotato init --help"
+        )
+    result = _initcmd.register_agents(os.getcwd())
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_initcmd.agents_result_json(result), indent=2))
+    else:
+        print(_initcmd.render_agents_text(result), end="")
+    return 0
+
+
 def _cmd_init_starter(args) -> int:
     from . import initcmd as _initcmd
 
@@ -8150,20 +8169,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     it = sub.add_parser(
         "init",
-        help="scaffold a hotato integration, a whole-repo starter kit, or a "
-             "CI gate config (hotato init webhook | starter | ci)",
+        help="scaffold a hotato integration, a whole-repo starter kit, a "
+             "CI gate config (hotato init webhook | starter | ci), or "
+             "register hotato with the project's coding agents "
+             "(hotato init --agents)",
         description=(
             "Scaffolding for adding hotato to a voice-agent repository: a "
             "passive webhook worker (see hotato init webhook --help), a "
             "whole-repo starter kit -- CI gate, hotato.yaml, fixtures/, "
-            "contracts/, reports/ (see hotato init starter --help), or one "
+            "contracts/, reports/ (see hotato init starter --help), one "
             "canonical turn-taking gate config for GitLab CI, Jenkins, "
-            "Azure Pipelines, or CircleCI (see hotato init ci --help)."
+            "Azure Pipelines, or CircleCI (see hotato init ci --help), or, "
+            "with --agents and no subcommand, a one-line registration of "
+            "hotato with the agent config surfaces already present in the "
+            "current directory: an AGENTS.md section, a Claude Code skill "
+            "(or CLAUDE.md section), a Cursor rule, and the .mcp.json "
+            "server entry. Idempotent and additive: delimited blocks are "
+            "refreshed in place, every byte outside them is preserved, and "
+            "a second run changes nothing."
         ),
         epilog=_exit_codes_epilog("init"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    itsub = it.add_subparsers(dest="init_command", required=True,
+    it.add_argument(
+        "--agents", action="store_true",
+        help="register hotato with the agent config surfaces in the current "
+             "directory (AGENTS.md, Claude Code skill, Cursor rule, "
+             ".mcp.json); runs on its own, without a subcommand",
+    )
+    _add_format_arg(it, choices=("text", "json"))
+    it.set_defaults(func=_cmd_init_group)
+    itsub = it.add_subparsers(dest="init_command", required=False,
                               metavar="webhook|starter|ci")
     iw = itsub.add_parser(
         "webhook",

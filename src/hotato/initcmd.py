@@ -36,6 +36,8 @@ __all__ = [
     "WEBHOOK_STACKS", "TARGETS", "InitError", "scaffold_webhook",
     "STARTER_STACKS", "scaffold_starter", "render_starter_text",
     "CI_SYSTEMS", "scaffold_ci", "render_ci_text",
+    "MCP_COMMAND", "register_agents", "render_agents_text",
+    "agents_result_json",
 ]
 
 # Only the stacks with a verified webhook + a read-only recording fetch (see
@@ -1227,3 +1229,322 @@ def render_ci_text(result: dict) -> str:
     ]
     lines += [f"  {c}" for c in result["next"]]
     return "\n".join(lines) + "\n"
+
+
+# =============================================================================
+# ``hotato init --agents``: register hotato with the coding agents already
+# configured in the current project.
+#
+# One command, run from the project root, that writes the SAME core-loop
+# registration into every agent config surface the project already carries:
+# an AGENTS.md section, a Claude Code skill (or CLAUDE.md section), a Cursor
+# rule, and the project ``.mcp.json`` server entry. Everything is idempotent
+# and additive:
+#
+#   * Markdown files the USER owns (AGENTS.md, CLAUDE.md, .cursorrules) get a
+#     clearly delimited ``<!-- hotato:begin -->`` ... ``<!-- hotato:end -->``
+#     block: created when absent, refreshed in place when present, and every
+#     byte outside the markers is preserved untouched. A second run changes
+#     nothing.
+#   * Files hotato OWNS by path (.claude/skills/hotato/SKILL.md,
+#     .cursor/rules/hotato.mdc) are written whole, and only while they carry
+#     the managed-file marker line; a user-edited copy without the marker is
+#     kept as-is, never overwritten.
+#   * ``.mcp.json`` gains a ``mcpServers.hotato`` entry when the file exists;
+#     every other key is preserved (JSON round-trip, two-space indent). An
+#     unparseable file is kept untouched. When no ``.mcp.json`` exists, the
+#     one-line stdio command is printed instead.
+#
+# The rendered core loop reuses the CLI's own ``_CORE_LOOP_STEPS`` tuple, so
+# the registration can never drift from the GET STARTED block, ``describe``,
+# AGENTS.md, and the README (the byte-identical-everywhere rule).
+# =============================================================================
+
+# The one-line stdio command every MCP client uses (docs/MCP.md; the --from
+# form is load-bearing, `uvx hotato-mcp` alone fails).
+MCP_COMMAND = 'uvx --from "hotato[mcp]" hotato-mcp'
+
+# The same command as a project .mcp.json server entry.
+_MCP_SERVER_ENTRY = {
+    "command": "uvx",
+    "args": ["--from", "hotato[mcp]", "hotato-mcp"],
+}
+
+# Delimiters for the block owned inside USER-owned markdown files. Everything
+# between them is replaced on refresh; everything outside is never touched.
+AGENTS_BLOCK_BEGIN = "<!-- hotato:begin -->"
+AGENTS_BLOCK_END = "<!-- hotato:end -->"
+
+# Marker carried by files hotato owns whole (SKILL.md, the Cursor rule). A
+# copy without it has been taken over by the user and is left alone.
+_MANAGED_MARK = "<!-- managed by `hotato init --agents`; re-run it to refresh -->"
+
+_NEXT_STEP = "hotato start --demo"
+
+
+def _core_loop_markdown() -> str:
+    """The 5-step core loop as markdown, rendered from the CLI's own
+    ``_CORE_LOOP_STEPS`` tuple (imported lazily; the CLI imports this module
+    lazily too) so every registered surface stays byte-congruent with
+    ``hotato --help`` and ``hotato describe``."""
+    from .cli import _CORE_LOOP_STEPS
+
+    return "\n".join(
+        f"{i}. `{cmd}` -- {blurb}"
+        for i, (cmd, blurb) in enumerate(_CORE_LOOP_STEPS, 1)
+    )
+
+
+def _registration_body() -> str:
+    """The one registration text every surface carries: what hotato measures,
+    the two-channel precondition, the core loop, the exit codes, and the
+    machine contract."""
+    return (
+        "hotato scores the timing between the two channels of a recorded "
+        "voice call\n"
+        "(caller on one channel, agent on the other): did the agent stop "
+        "talking when\n"
+        "the caller took the floor, how fast, and how many seconds both were "
+        "talking\n"
+        "at once. Offline and deterministic; exit codes: 0 pass, 1 "
+        "regression, 2 refuse.\n"
+        "Scoring needs two separate channels; a mono or mixed export is NOT "
+        "SCORABLE\n"
+        "(exit 2), not scored.\n"
+        "\n"
+        "The core loop, first touch to a CI gate:\n"
+        "\n"
+        f"{_core_loop_markdown()}\n"
+        "\n"
+        "Machine contract: `hotato describe --format json` emits every "
+        "command, flag,\n"
+        "and exit code, generated from the CLI itself; read it before "
+        "scripting, and\n"
+        "do not hardcode the version or the command list.\n"
+        f"MCP (local stdio): `{MCP_COMMAND}`."
+    )
+
+
+def _delimited_block() -> str:
+    return (
+        f"{AGENTS_BLOCK_BEGIN}\n"
+        "## hotato: turn-taking regression checks for recorded voice calls\n"
+        "\n"
+        f"{_registration_body()}\n"
+        f"{AGENTS_BLOCK_END}"
+    )
+
+
+def _skill_md() -> str:
+    return (
+        "---\n"
+        "name: hotato\n"
+        "description: Turn-taking regression checks for recorded voice "
+        "calls. Use when a two-channel call recording needs a timing verdict "
+        "(talk-over, slow yield, missed barge-in) or a caught failure should "
+        "become a committed CI regression contract.\n"
+        "---\n"
+        "\n"
+        f"{_MANAGED_MARK}\n"
+        "\n"
+        "# hotato\n"
+        "\n"
+        f"{_registration_body()}\n"
+    )
+
+
+def _cursor_rule() -> str:
+    return (
+        "---\n"
+        "description: hotato turn-taking regression checks for recorded "
+        "voice calls\n"
+        "alwaysApply: false\n"
+        "---\n"
+        "\n"
+        f"{_MANAGED_MARK}\n"
+        "\n"
+        f"{_registration_body()}\n"
+    )
+
+
+def _read_text_or_none(path: str):
+    if not os.path.isfile(path):
+        return None
+    # open_regular: the path lives inside the user's project dir, so the read
+    # is FIFO-guarded like every other externally supplied path.
+    with _errors.open_regular(path, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _write_text(path: str, text: str) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    # newline="": the written bytes are exactly the composed "\n" text on
+    # every OS, so a second run compares byte-equal and rewrites nothing.
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+
+
+def _upsert_block(existing, *, created_heading: str = "") -> str:
+    """Return the file content with the delimited hotato block inserted
+    (absent) or refreshed in place (present). Every byte outside the markers
+    is preserved. A file with a begin marker but no end marker is refused
+    (:class:`InitError` -> exit 2) rather than guessed at."""
+    block = _delimited_block()
+    if existing is None:
+        head = f"{created_heading}\n\n" if created_heading else ""
+        return f"{head}{block}\n"
+    if AGENTS_BLOCK_BEGIN in existing:
+        pre, rest = existing.split(AGENTS_BLOCK_BEGIN, 1)
+        if AGENTS_BLOCK_END not in rest:
+            raise InitError(
+                f"found {AGENTS_BLOCK_BEGIN!r} without a matching "
+                f"{AGENTS_BLOCK_END!r}; restore the end marker (or delete "
+                "the block) and re-run"
+            )
+        _, post = rest.split(AGENTS_BLOCK_END, 1)
+        return pre + block + post
+    sep = "" if existing == "" else existing.rstrip("\n") + "\n\n"
+    return f"{sep}{block}\n"
+
+
+def _upsert_managed_markdown(path: str, rel: str, surface: str,
+                             *, created_heading: str = "") -> dict:
+    existing = _read_text_or_none(path)
+    new = _upsert_block(existing, created_heading=created_heading)
+    if existing is None:
+        action = "created"
+    elif new != existing:
+        action = "updated"
+    else:
+        action = "unchanged"
+    if action != "unchanged":
+        _write_text(path, new)
+    return {"surface": surface, "path": rel, "action": action}
+
+
+def _write_owned_file(path: str, rel: str, surface: str, text: str) -> dict:
+    existing = _read_text_or_none(path)
+    if existing is None:
+        action = "created"
+    elif _MANAGED_MARK not in existing:
+        # The user took this file over; keep every byte.
+        return {"surface": surface, "path": rel, "action": "kept"}
+    elif existing != text:
+        action = "updated"
+    else:
+        action = "unchanged"
+    if action != "unchanged":
+        _write_text(path, text)
+    return {"surface": surface, "path": rel, "action": action}
+
+
+def _upsert_mcp_json(path: str, rel: str) -> dict:
+    import json
+
+    raw = _read_text_or_none(path)
+    if raw is None:
+        return {"surface": "mcp", "path": rel, "action": "absent"}
+    try:
+        doc = json.loads(raw)
+    except ValueError:
+        # Unparseable: keep the user's bytes; the printed one-line command
+        # still carries the config.
+        return {"surface": "mcp", "path": rel, "action": "kept"}
+    if not isinstance(doc, dict):
+        return {"surface": "mcp", "path": rel, "action": "kept"}
+    servers = doc.get("mcpServers")
+    if servers is None:
+        servers = {}
+        doc["mcpServers"] = servers
+    if not isinstance(servers, dict):
+        return {"surface": "mcp", "path": rel, "action": "kept"}
+    if servers.get("hotato") == _MCP_SERVER_ENTRY:
+        return {"surface": "mcp", "path": rel, "action": "unchanged"}
+    action = "updated" if "hotato" in servers else "created"
+    servers["hotato"] = dict(_MCP_SERVER_ENTRY)
+    _write_text(path, json.dumps(doc, indent=2) + "\n")
+    return {"surface": "mcp", "path": rel, "action": action}
+
+
+def register_agents(root: str = ".") -> dict:
+    """Register hotato with every agent config surface present under
+    ``root`` (the current project directory) and return a result dict.
+
+    Always writes/refreshes the AGENTS.md hotato block. Writes the Claude
+    Code skill when ``.claude/`` exists (or a CLAUDE.md block when only
+    CLAUDE.md does), the Cursor rule when ``.cursor/`` exists (or a
+    .cursorrules block when only that file does), and the ``mcpServers``
+    entry when ``.mcp.json`` exists. Idempotent: a second run reports every
+    surface ``unchanged`` and rewrites nothing."""
+    root = root or "."
+    if not os.path.isdir(root):
+        raise InitError(f"project directory {root!r} does not exist")
+
+    surfaces = [
+        _upsert_managed_markdown(
+            os.path.join(root, "AGENTS.md"), "AGENTS.md", "agents-md",
+            created_heading="# AGENTS.md",
+        )
+    ]
+
+    if os.path.isdir(os.path.join(root, ".claude")):
+        rel = _as_posix(os.path.join(".claude", "skills", "hotato", "SKILL.md"))
+        surfaces.append(_write_owned_file(
+            os.path.join(root, ".claude", "skills", "hotato", "SKILL.md"),
+            rel, "claude-skill", _skill_md(),
+        ))
+    elif os.path.isfile(os.path.join(root, "CLAUDE.md")):
+        surfaces.append(_upsert_managed_markdown(
+            os.path.join(root, "CLAUDE.md"), "CLAUDE.md", "claude-md",
+        ))
+
+    if os.path.isdir(os.path.join(root, ".cursor")):
+        rel = _as_posix(os.path.join(".cursor", "rules", "hotato.mdc"))
+        surfaces.append(_write_owned_file(
+            os.path.join(root, ".cursor", "rules", "hotato.mdc"),
+            rel, "cursor-rule", _cursor_rule(),
+        ))
+    elif os.path.isfile(os.path.join(root, ".cursorrules")):
+        surfaces.append(_upsert_managed_markdown(
+            os.path.join(root, ".cursorrules"), ".cursorrules", "cursor-rules-file",
+        ))
+
+    surfaces.append(_upsert_mcp_json(os.path.join(root, ".mcp.json"), ".mcp.json"))
+
+    return {
+        "tool": _errors.TOOL,
+        "kind": "init-agents",
+        "root": root,
+        "surfaces": surfaces,
+        "mcp_command": MCP_COMMAND,
+        "next": [_NEXT_STEP],
+    }
+
+
+_AGENTS_ACTION_TEXT = {
+    "created": "wrote the hotato registration",
+    "updated": "updated the hotato registration",
+    "unchanged": "already current",
+    "kept": "kept as-is (user-owned copy)",
+}
+
+
+def render_agents_text(result: dict) -> str:
+    written = [s for s in result["surfaces"] if s["action"] != "absent"]
+    lines = ["hotato init --agents: agent surfaces in "
+             f"{result['root']}", ""]
+    width = max(len(s["path"]) for s in written)
+    for s in written:
+        lines.append(f"  {s['path'].ljust(width)}  {_AGENTS_ACTION_TEXT[s['action']]}")
+    lines += [
+        "",
+        f"MCP (any client, stdio): {result['mcp_command']}",
+        "",
+        "next:",
+    ]
+    lines += [f"  {c}" for c in result["next"]]
+    return "\n".join(lines) + "\n"
+
+
+def agents_result_json(result: dict) -> dict:
+    return dict(result)

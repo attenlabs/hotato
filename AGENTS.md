@@ -140,6 +140,18 @@ each of these feeds the same offline scoring and the same 0/1/2 exit contract.
 
 ## Integrate
 
+Register hotato with the project's coding agents in one offline command:
+
+```bash
+hotato init --agents
+```
+
+It writes the core loop into every agent config surface present in the
+current directory -- an AGENTS.md section, a Claude Code skill (or CLAUDE.md
+section), a Cursor rule, and the `.mcp.json` server entry -- idempotently:
+delimited blocks are refreshed in place, every byte outside them is
+preserved, and a second run changes nothing.
+
 Scaffold a CI gate into an existing repo in one offline command:
 
 ```bash
