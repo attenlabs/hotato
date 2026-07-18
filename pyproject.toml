@@ -24,7 +24,7 @@ keywords = [
     "voice-agent-testing", "llm-eval", "evals", "regression-testing", "ci",
     "self-hosted", "offline", "barge-in", "turn-taking", "reliability",
     "observability", "mcp", "agent-native", "ollama", "livekit", "pipecat",
-    "vapi", "retell",
+    "vapi", "retell", "twilio",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

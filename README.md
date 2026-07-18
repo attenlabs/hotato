@@ -8,7 +8,7 @@
 <a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=6f5d44" alt="Python versions"></a>
 <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/attenlabs/hotato/tests.yml?branch=main&style=flat-square&color=2a5f52&label=ci" alt="CI status"></a></p>
 
-### Regression testing for voice agents
+# hotato: regression testing for voice agents
 
 **[hotato.dev](https://hotato.dev)**
 
