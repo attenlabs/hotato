@@ -37,6 +37,7 @@ def pytest_sessionstart(session):
         example_scen_dirs = [
             _EXAMPLES / "scenarios",
             _EXAMPLES / "funnel-demo" / "scenarios",
+            _EXAMPLES / "full-duplex" / "scenarios",
         ]
         if any(s.is_dir() and not (s.parent / "audio").is_dir()
                for s in example_scen_dirs):

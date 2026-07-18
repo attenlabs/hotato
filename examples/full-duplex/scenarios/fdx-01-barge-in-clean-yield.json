@@ -1,0 +1,26 @@
+{
+  "id": "fdx-01-barge-in-clean-yield",
+  "title": "FULL-DUPLEX PASS: caller barges in mid-sentence, agent yields the floor fast (overlap, then a clean yield)",
+  "category": "should_yield",
+  "tags": ["full-duplex", "barge-in", "overlap", "clean-yield", "simultaneous-speech"],
+  "sample_rate": 16000,
+  "duration_sec": 6.5,
+  "caller_onset_sec": 2.00,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.00,
+    "max_talk_over_sec": 1.00
+  },
+  "transcript": {
+    "agent": "Your appointment window is Thursday between nine and eleven and the technician will bring the replacement part so the whole...",
+    "caller": "hold on, Thursday does not work for me, I need an afternoon slot, what do you have after two"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 2.60]],
+    "caller_segments_sec": [[2.00, 5.50]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "Both voices are live at once from 2.00 s to 2.60 s: the caller takes the floor mid-sentence while the agent is still speaking, and the agent drops its turn inside the yield and talk-over bounds. This is the correct full-duplex behavior in miniature: overlap itself is not the failure, holding the floor through it is. The event PASSES because the measured floor transfer stays inside both declared bounds. Its bad twin is fdx-02, the byte-identical barge-in where the agent keeps transmitting instead; the pair isolates the one variable that separates a clean yield from a sustained talk-over.",
+  "related_signals": ["did_yield", "talk_over"]
+}

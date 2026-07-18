@@ -32,6 +32,9 @@ examples/
   funnel-demo/
     scenarios/                  # a deliberately-bad agent battery (all FAIL, on purpose)
     audio/
+  full-duplex/
+    scenarios/                  # a barge-in pass/fail pair under sustained simultaneous speech
+    audio/
 ```
 
 ## Scenarios
@@ -86,6 +89,26 @@ contains no numbers by design.
 The same fixtures also ship inside the package as `hotato demo`: `uvx hotato demo`
 runs this battery and opens its visual report with zero checkout.
 
+### full-duplex/: overlap then yield, vs sustained talk-over: `full-duplex/scenarios/fdx-*`
+
+A pass/fail pair where BOTH voices are live at once: the caller barges in
+mid-sentence while the agent is still speaking. The two scenarios declare the
+same expectation (`yield` within 1.00 s, talk-over at most 1.00 s) and the same
+caller onset; they differ only in what the agent's channel does after the
+barge-in. This is the fixture pair behind [docs/FULL-DUPLEX.md](../docs/FULL-DUPLEX.md).
+
+| id | behaviour | outcome |
+|---|---|---|
+| `fdx-01-barge-in-clean-yield` | agent stops 0.75 s after the caller takes the floor | overlap, then a clean yield: PASS |
+| `fdx-02-barge-in-talk-over` | agent keeps transmitting through 2.75 s of simultaneous speech | should yield fast, talked over instead: FAIL (talk-over bound) |
+
+The PASS case still contains measured simultaneous speech: overlap itself is
+not the failure, holding the floor through it is. Unlike `fd-01` (which never
+yields inside the search window), `fdx-02`'s agent does drop the floor
+eventually; the regression is the measured seconds of talk-over on the way
+there, so the pair isolates the one variable separating a clean full-duplex
+yield from a talk-over regression.
+
 ## Run them
 
 ```python
@@ -93,6 +116,10 @@ from hotato.core import run_suite
 
 # the good references (all pass)
 run_suite(suite="barge-in", scenarios_dir="examples/scenarios", audio_dir="examples/audio")
+
+# the full-duplex pair (one PASS, one talk-over FAIL; exit 1: one caught regression)
+run_suite(suite="barge-in", scenarios_dir="examples/full-duplex/scenarios",
+          audio_dir="examples/full-duplex/audio")
 
 # the bad-agent battery (fails on both axes; env["funnel"] is non-null)
 env = run_suite(suite="barge-in",
@@ -120,15 +147,3 @@ generator (`openrepo/scenarios/generate_fixtures.py`): the render algorithm is
 identical and stdlib-only, the WAV bytes come from the vendored engine, and the
 per-channel seed is `sha256(id)`, so two runs are byte-identical on any machine.
 CI renders twice and diffs to prove it.
-
-## Roadmap (v1.x)
-
-These are intentional fast-follows:
-
-- **Overlap / double-talk grading fixtures**: scoring the quality of sustained
-  simultaneous speech beyond the single `talk_over_sec` number.
-- **Resume / re-interruption fixtures**: grading whether the agent comes back
-  cleanly after yielding, and handles a second interruption during its resume.
-- **SNR / codec robustness sweeps**: the same scenarios under added noise,
-  8 kHz / Opus / mu-law transcode, and level variation, to characterise the
-  method's floor across channel conditions.

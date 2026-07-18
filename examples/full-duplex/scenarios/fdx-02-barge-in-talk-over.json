@@ -1,0 +1,26 @@
+{
+  "id": "fdx-02-barge-in-talk-over",
+  "title": "FULL-DUPLEX FAIL: caller barges in mid-sentence, agent keeps talking through it (sustained talk-over)",
+  "category": "should_yield",
+  "tags": ["full-duplex", "barge-in", "overlap", "talk-over", "bad-agent", "simultaneous-speech"],
+  "sample_rate": 16000,
+  "duration_sec": 7.0,
+  "caller_onset_sec": 2.00,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 1.00,
+    "max_talk_over_sec": 1.00
+  },
+  "transcript": {
+    "agent": "Your appointment window is Thursday between nine and eleven and the technician will bring the replacement part so the whole visit should take under an hour and you will get a text when...",
+    "caller": "hold on, Thursday does not work for me, I need an afternoon slot, what do you have after two"
+  },
+  "reference_render": {
+    "agent_segments_sec": [[0.20, 4.60]],
+    "caller_segments_sec": [[2.00, 5.80]],
+    "agent_pitch": "low",
+    "caller_pitch": "high"
+  },
+  "why_it_matters": "DELIBERATE BAD-AGENT RENDER, the bad twin of fdx-01. The caller takes the floor at 2.00 s and the agent keeps transmitting through more than two seconds of simultaneous speech before finally dropping its turn, so the floor does transfer eventually but far outside both bounds: the event FAILS on the talk-over bound (and on the yield-time bound). This is the failure mode specific to full-duplex operation: the agent can hear while it speaks, and the caller's channel shows a sustained floor-take, yet the agent's channel never stops. It is distinct from fd-01 in funnel-demo, where the agent never yields inside the search window at all; here the regression is the measured seconds of talk-over, the number a transcript-level eval cannot see.",
+  "related_signals": ["did_yield", "talk_over"]
+}

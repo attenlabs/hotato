@@ -1,0 +1,22 @@
+{
+  "scenarios": [
+    {
+      "id": "fdx-01-barge-in-clean-yield",
+      "title": "FULL-DUPLEX PASS: caller barges in mid-sentence, agent yields the floor fast (overlap, then a clean yield)",
+      "category": "should_yield",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/fdx-01-barge-in-clean-yield.example.wav",
+      "caller_wav": "audio/fdx-01-barge-in-clean-yield.caller.wav"
+    },
+    {
+      "id": "fdx-02-barge-in-talk-over",
+      "title": "FULL-DUPLEX FAIL: caller barges in mid-sentence, agent keeps talking through it (sustained talk-over)",
+      "category": "should_yield",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "example_wav": "audio/fdx-02-barge-in-talk-over.example.wav",
+      "caller_wav": "audio/fdx-02-barge-in-talk-over.caller.wav"
+    }
+  ]
+}

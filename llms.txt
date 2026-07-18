@@ -512,6 +512,9 @@ it, never whether the policy itself was right.
   discover, human-label, and run manifest-bound before/after experiments that
   recommend, never auto-deploy.
 - docs/START.md: `hotato start`, the guided credential-less first run.
+- docs/FULL-DUPLEX.md: scoring the moment both sides speak at once; the
+  `examples/full-duplex/` pass/fail pair (overlap then a clean yield, vs a
+  sustained talk-over) rendered deterministically and scored with `hotato run`.
 - docs/INVESTIGATE.md: `hotato investigate`, one recording to ranked candidate
   moments with an authenticated capture origin and the trust gate, then
   `investigate label` into a signed contract.
