@@ -690,6 +690,27 @@ def request(gateway, method, path, body=b"", headers=None):
     return response.status, data
 
 
+def saturated_request(gateway, method, path, body=b"", headers=None):
+    """Issue a request that a saturated gateway is expected to refuse.
+
+    The shed path writes the 503 and closes without reading the request
+    bytes, which forces a TCP RST. POSIX loopback stacks deliver the
+    buffered 503 before surfacing the reset, so callers keep the strict
+    status assertion there. Windows discards undelivered receive-buffer
+    data when it processes the RST and aborts the client's read instead
+    (WinError 10053/10054), so the same refusal can surface as a
+    connection abort rather than a readable 503. Returns ``(None, b"")``
+    for that abort shape; both shapes are the gateway refusing the
+    request, never accepting it.
+    """
+    try:
+        return request(gateway, method, path, body, headers)
+    except (ConnectionAbortedError, ConnectionResetError):
+        if os.name != "nt":
+            raise
+        return None, b""
+
+
 def test_gateway_bearer_auth_persists_before_ack(tmp_path):
     store = ProductionStore(str(tmp_path / "production.sqlite"), clock=lambda: 1000.0)
     gateway = ProductionGateway(store, "0123456789abcdef", max_workers=2)
@@ -850,12 +871,43 @@ def test_gateway_returns_backpressure_when_worker_capacity_is_full(tmp_path):
     # loop must refuse the next connection instead of creating an unbounded
     # thread or queueing it in memory.
     assert gateway.server._capacity.acquire(blocking=False)
+    permit_held = True
     try:
-        status, body = request(gateway, "GET", "/healthz")
-        assert status == 503
-        assert json.loads(body) == {"error": "backpressure"}
-    finally:
+        status, body = saturated_request(gateway, "GET", "/healthz")
+        if status is not None:
+            assert status == 503
+            assert json.loads(body) == {"error": "backpressure"}
+        raw = json.dumps(event(), separators=(",", ":")).encode()
+        status, body = saturated_request(
+            gateway,
+            "POST",
+            "/v1/events",
+            raw,
+            {
+                "Authorization": "Bearer 0123456789abcdef",
+                "Content-Length": str(len(raw)),
+            },
+        )
+        if status is not None:
+            assert status == 503
+            assert json.loads(body) == {"error": "backpressure"}
+        # Refusal is observable from gateway state on every platform,
+        # including when Windows surfaces it as a connection abort: the
+        # authenticated POST enqueued no work, and the sole worker permit
+        # is still exhausted because shedding spawned no worker and
+        # released nothing.
+        assert store.db.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+        assert gateway.server._capacity.acquire(blocking=False) is False
         gateway.server._capacity.release()
+        permit_held = False
+        # With the permit back, the same gateway serves again: the refusals
+        # above were load shedding, not a wedged or crashed accept loop.
+        status, body = request(gateway, "GET", "/healthz")
+        assert status == 200
+        assert json.loads(body) == {"status": "ok"}
+    finally:
+        if permit_held:
+            gateway.server._capacity.release()
         gateway.close()
         store.close()
 
@@ -880,9 +932,12 @@ def test_gateway_times_out_partial_request_body_and_releases_worker(tmp_path):
         assert b" 408 " in response
     finally:
         client.close()
-    # The timed-out handler relinquishes the sole semaphore permit.
+    # The timed-out handler relinquishes the sole semaphore permit. Polls
+    # that land before the release are shed, which Windows can surface as a
+    # connection abort instead of a readable 503; both shapes mean "still
+    # saturated, poll again".
     for _ in range(50):
-        status, _body = request(gateway, "GET", "/healthz")
+        status, _body = saturated_request(gateway, "GET", "/healthz")
         if status == 200:
             break
         time.sleep(0.01)
