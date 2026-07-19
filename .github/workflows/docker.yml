@@ -1,0 +1,98 @@
+# hotato Docker image release — builds the self-host workspace image (the repo
+# Dockerfile, default core-only profile) from tagged source and pushes it to
+# GitHub Container Registry as ghcr.io/attenlabs/hotato.
+#
+# Triggers:
+#   - every version tag push (v*.*.*), alongside release.yml's sanity job
+#   - manual dispatch with an EXISTING tag, used to publish the image for a
+#     release cut before this workflow existed (e.g. v1.9.0)
+#
+# A dispatch also moves the `latest` tag, so dispatch only for the newest
+# release. No extras are baked in (WITH_TRANSCRIBE / WITH_SIGN stay build-args
+# for people building locally); the published image is the zero-dependency
+# `hotato serve` workspace.
+
+name: docker
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing v*.*.* tag to build and push (e.g. v1.9.0)"
+        required: true
+        type: string
+
+# Least privilege default; the job elevates packages on itself.
+permissions:
+  contents: read
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Resolve the release tag
+        id: rel
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$GITHUB_REF_NAME"
+          fi
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "tag '$TAG' is not v<major>.<minor>.<patch>" >&2; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ steps.rel.outputs.tag }}
+
+      # Same lockstep rule as release.yml: the image version must be the
+      # package version at that tag, or the publish stops here.
+      - name: Tag matches pyproject.toml version
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          python3 - "$VERSION" <<'PY'
+          import re, sys
+          pyproject = open("pyproject.toml").read()
+          m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+          if not m:
+              raise SystemExit("could not find version in pyproject.toml")
+          if m.group(1) != sys.argv[1]:
+              raise SystemExit(f"pyproject.toml {m.group(1)!r} != tag version {sys.argv[1]!r}")
+          print(f"pyproject.toml matches tag: {sys.argv[1]}")
+          PY
+
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/attenlabs/hotato:${{ steps.rel.outputs.version }}
+            ghcr.io/attenlabs/hotato:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/attenlabs/hotato
+            org.opencontainers.image.description=hotato self-host workspace (hotato serve)
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ steps.rel.outputs.version }}
