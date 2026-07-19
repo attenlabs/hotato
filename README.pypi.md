@@ -177,7 +177,7 @@ PYTHONPATH=src python3 -m hotato.benchmark \
   --scenarios corpus/real/scenarios --audio corpus/real/audio
 ```
 
-On 13 recorded AMI Meeting Corpus clips, the median error between measured caller-onset and the human word-alignment label is **20 ms**. Provenance and caveats: [`corpus/real/README.md`](https://github.com/attenlabs/hotato/blob/main/corpus/real) &#183; method: [`METHODOLOGY.md`](https://github.com/attenlabs/hotato/blob/main/METHODOLOGY.md).
+On 13 recorded AMI Meeting Corpus clips, the median error between measured caller-onset and the human word-alignment label is **20 ms**. Provenance and caveats: [`corpus/real/README.md`](https://github.com/attenlabs/hotato/blob/main/corpus/real) &#183; method: [`METHODOLOGY.md`](https://github.com/attenlabs/hotato/blob/main/METHODOLOGY.md) has the details.
 
 </details>
 
