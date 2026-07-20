@@ -406,6 +406,19 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
             "internal contract: the selected demo candidate verified as "
             f"not scorable ({result.get('not_scorable_reason')!r}); the demo "
             "must never present an unscorable moment as a failure")
+    # Display-layer enrichments (never written into the byte-stable machine
+    # verify output above): the measured-timing stat row -- including the
+    # response gap the golden path otherwise drops -- and the caught moment's
+    # caller/agent overlap timeline, both read from the SAME bundled event.wav
+    # at the SAME onset the verify used.
+    try:
+        onset = float(sweep["candidates"][rank - 1].get("t_sec"))
+    except (TypeError, ValueError, IndexError, KeyError):
+        onset = None
+    event_wav = os.path.join(create_result["dir"], "audio", "event.wav")
+    have_audio = os.path.isfile(event_wav)
+    timing = _demo_timing(event_wav, onset) if have_audio else None
+    timeline = _demo_timeline_model(event_wav, onset) if have_audio else None
     return {
         "bundle_dir": create_result["dir"],
         "bundle_rel": _demo_contract_bundle_rel(),
@@ -414,6 +427,8 @@ def _create_and_verify_demo_contract(out_dir: str, sweep_json_path: str) -> dict
         "passed": result["passed"],
         "scorable": result["scorable"],
         "verify": verify,
+        "timing": timing,
+        "timeline": timeline,
     }
 
 
@@ -436,7 +451,66 @@ def _projection_envelope(verify: dict) -> dict:
     return doc
 
 
-def _write_demo_failure_record(out_dir: str, verify: dict) -> dict:
+def _demo_timing(audio_path: str, onset_sec) -> Optional[dict]:
+    """The measured-timing stat row for the demo's caught moment: the barge-in
+    verdict AND the endpointing latency the scorer ALREADY computes on the same
+    two VAD tracks (``core.run_single`` -> ``score_channels``), for the human
+    report and the share card. A DISPLAY read of the same scorer on the same
+    bundled clip+onset the contract verify used -- it surfaces the response gap
+    the golden path otherwise drops; it is never written into the machine
+    ``contract verify`` output (which stays byte-stable). Best-effort: any hiccup
+    returns ``None`` so the guided run still finishes."""
+    if onset_sec is None:
+        return None
+    try:
+        from .core import run_single
+
+        env = run_single(stereo=audio_path, onset_sec=float(onset_sec),
+                         expect="yield", caller_channel=0, agent_channel=1)
+        ev = env["events"][0]
+        v = ev.get("verdict") or {}
+        meas = ev.get("measurements") or {}
+        lat = (ev.get("signals") or {}).get("latency") or {}
+        return {
+            "caller_onset_sec": meas.get("caller_onset_sec"),
+            "seconds_to_yield": v.get("seconds_to_yield"),
+            "talk_over_sec": v.get("talk_over_sec"),
+            "response_gap_sec": lat.get("response_gap_sec"),
+            "premature_start_sec": lat.get("premature_start_sec"),
+        }
+    except Exception:  # pragma: no cover - defensive; enrichment is additive
+        return None
+
+
+def _demo_timeline_model(audio_path: str, onset_sec) -> Optional[dict]:
+    """The caller/agent activity model for the demo's caught moment, from the
+    SAME two VAD tracks the scan/score path walks (``scan.activity_tracks`` +
+    ``report._spans``, the geometry the sweep dashboard already draws). Feeds the
+    Failure Record card's overlap timeline. Best-effort: any read/decode hiccup
+    returns ``None`` so the guided run still finishes -- the timeline is an
+    additive enrichment, never load-bearing."""
+    try:
+        from . import report as _report
+        from . import scan as _scan
+
+        caller, agent, hop, _sr, dur = _scan.activity_tracks(audio_path)
+        n = min(len(caller), len(agent))
+        frames = [{"t_sec": i * hop, "caller_active": caller[i],
+                   "agent_active": agent[i],
+                   "both": bool(caller[i] and agent[i])} for i in range(n)]
+        return {
+            "duration": dur,
+            "caller_spans": _report._spans(frames, "caller_active", hop),
+            "agent_spans": _report._spans(frames, "agent_active", hop),
+            "talkover_spans": _report._spans(frames, "both", hop),
+            "onset": onset_sec,
+            "yield_abs": None,
+        }
+    except Exception:  # pragma: no cover - defensive; enrichment is additive
+        return None
+
+
+def _write_demo_failure_record(out_dir: str, contract_info: dict) -> dict:
     """Project the demo's failing contract into the canonical share-safe
     Failure Record and render its four formats -- JSON, Markdown, HTML, SVG --
     into ``hotato-failure-record/``.
@@ -461,9 +535,17 @@ def _write_demo_failure_record(out_dir: str, verify: dict) -> dict:
     from . import failure_record as _failure_record
     from . import failure_render as _failure_render
 
+    verify = contract_info["verify"]
     record = _failure_record.project(
         _projection_envelope(verify), selector=_DEMO_CONTRACT_ID)
-    outputs = _failure_render.render_all(record)
+    # Render-only enrichments (from evidence this run already measured): the
+    # measured-timing stat row and the caught moment's caller/agent overlap
+    # timeline. They enrich the shareable Markdown/HTML/SVG so the share card
+    # shows the timing that was caught, not only grey lane boxes; the canonical
+    # JSON record is the same content-addressed record either way.
+    outputs = _failure_render.render_all(
+        record, timing=contract_info.get("timing"),
+        timeline=contract_info.get("timeline"))
     if set(outputs) != set(_DEMO_RECORD_FILES):
         raise DemoSelectionError(
             "internal contract: the Failure Record renderer produced "
@@ -491,21 +573,26 @@ def _demo_record_verify_command() -> str:
             f"{_DEMO_RECORD_DIR}/failure-record.json")
 
 
-def _next_commands_text(card_written: bool, contract_written: bool,
-                        candidate_rank: Optional[int] = None) -> str:
-    # One clear next step, not a fan: the demo's job is to get you to score
-    # your OWN call, so `hotato investigate` is THE next command. Adding it to
-    # CI is one condensed line below; promote/run/card are what
-    # `hotato init starter` and the docs walk you through, so they stay out of
-    # the first-run closing. (card_written/contract_written/candidate_rank are
-    # kept for caller compatibility; the collapsed closing does not branch.)
+def _next_commands_text(event_wav_rel: Optional[str] = None) -> str:
+    # One clear next step that RUNS AS PRINTED: the demo just wrote a scorable
+    # two-channel recording (the contract's audio/event.wav), so `hotato
+    # investigate` on THAT file is the next command -- no placeholder path, and
+    # no recording of your own needed to see step two. Swapping in your own call
+    # is the same command; the CI-kit scaffold is one line below. (promote/run/
+    # card are what `hotato init starter` and the docs walk you through, so they
+    # stay out of the first-run closing.)
     alt = ", ".join(_DEMO_STARTER_STACKS)
+    invest = (f"hotato investigate {event_wav_rel}" if event_wav_rel
+              else "hotato investigate path/to/your-call.wav")
     return "\n".join([
         "",
-        "Your next step -- score your own call:",
-        "  hotato investigate path/to/your-call.wav",
+        "Your next step -- score a call now (the demo just wrote one you can "
+        "score):",
+        f"  {invest}",
+        "  Run the same command on your own recording once you have one.",
         "",
-        f"  Then add it to CI:  {_DEMO_STARTER_PRIMARY}   (--stack {alt} to tune)",
+        f"  Scaffold a CI gate for your repo:  {_DEMO_STARTER_PRIMARY}   "
+        f"(--stack {alt} to tune)",
     ])
 
 
@@ -585,7 +672,7 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
     # first run with a missing or faked artifact.
     record_info = None
     if contract_written:
-        record_info = _write_demo_failure_record(out_dir, contract_info["verify"])
+        record_info = _write_demo_failure_record(out_dir, contract_info)
     record_written = record_info is not None
 
     # Act two: the say-do check on the bundled scripted conversation, through
@@ -640,6 +727,12 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
                 "passed": contract_info["passed"],
                 "verified_fail_as_expected": contract_info["passed"] is False,
             }
+            if contract_info.get("timing"):
+                # The measured-timing lenses on the same clip (barge-in verdict
+                # + the endpointing response gap the golden path otherwise
+                # drops), for agent consumers -- a display read, not the machine
+                # verify measurement.
+                payload["contract"]["measured_timing"] = contract_info["timing"]
         if record_written:
             payload["next_commands"].append(_demo_record_verify_command())
             payload["failure_record"] = {
@@ -657,6 +750,8 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             "evidence_assertions", "files")}
         print(_errors.safe_json_dumps(payload, indent=2))
     else:
+        measurement = (contract_info.get("timing") or {}) if contract_written \
+            else {}
         print("hotato start: swept the 2 bundled demo calls offline.")
         print(f"  sweep result:    {_SWEEP_JSON}")
         print(f"  sweep dashboard: {_SWEEP_HTML}")
@@ -664,7 +759,43 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             print(f"  funnel card:     {_FUNNEL_CARD}")
         if contract_written:
             print(f"  demo contract:   {contract_info['bundle_rel']}")
+        # The CATCH first (the hit above the hedging), visually isolated: the
+        # one quotable headline between two rules, one plain-English sentence,
+        # and the two DISTINCT measured signals on the same clip (talk-over is
+        # not the response gap), with the share pointers beneath it.
+        if record_written:
+            md_path = f"{_DEMO_RECORD_DIR}/failure-record.md"
+            svg_path = f"{_DEMO_RECORD_DIR}/failure-record.svg"
+            to = measurement.get("talk_over_sec")
+            rg = measurement.get("response_gap_sec")
+            ps = measurement.get("premature_start_sec")
+            rule = "  " + "-" * 66
+            print("")
+            print(rule)
+            print(record_info["headline"])
+            print(rule)
+            if to is not None:
+                print("  In plain terms: after the caller took the floor, the "
+                      "agent kept talking")
+                print(f"  over them for {_secs(to)} instead of yielding.")
+            print("  Two measured signals on this one call:")
+            print(f"    talk-over     {_secs(to)}  seconds the agent kept "
+                  "talking while the caller held the floor")
+            if rg is not None:
+                print(f"    response gap  {_secs(rg)}  seconds of dead air from "
+                      "the caller's turn end to the reply")
+            elif ps is not None and ps > 0:
+                print(f"    premature start {_secs(ps)}  seconds the agent's "
+                      "reply led the caller's turn end")
+            print("")
+            print(f"  Share in a PR:      {md_path}")
+            print(f"  Share as an image:  {svg_path}")
+            print(f"  Verify the record:  {_demo_record_verify_command()}")
+        # The provenance + gate caveats, now BELOW the hit: what the frozen
+        # contract does and does not prove, and the exit-0 explanation.
+        if contract_written:
             if contract_info["passed"] is False:
+                print("")
                 print("  re-scored FAIL, by design: this call talked over "
                       "the caller.")
                 print("  The contract freezes that moment as evidence, so a "
@@ -678,15 +809,6 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
             else:  # pragma: no cover - the bundled demo candidate always fails
                 mark = "PASS" if contract_info["passed"] else "NOT SCORABLE"
                 print(f"  verified contract: {mark}")
-        if record_written:
-            md_path = f"{_DEMO_RECORD_DIR}/failure-record.md"
-            svg_path = f"{_DEMO_RECORD_DIR}/failure-record.svg"
-            print("")
-            print(record_info["headline"])
-            print("")
-            print(f"  Share in a PR:      {md_path}")
-            print(f"  Share as an image:  {svg_path}")
-            print(f"  Verify the record:  {_demo_record_verify_command()}")
         # Act two: the say-do check. Every line below is backed by the
         # evaluated results (_run_saydo_check raised unless the claim PASSed
         # and the tool + state evidence FAILed).
@@ -712,8 +834,9 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
               "return")
         print("  exit 1:")
         print(f"      {_saydo_next_command()}")
-        print(_next_commands_text(card_written, contract_written,
-                                  candidate_rank))
+        event_wav_rel = (f"{contract_info['bundle_rel']}/audio/event.wav"
+                         if contract_written else None)
+        print(_next_commands_text(event_wav_rel))
     return 0
 
 

@@ -83,12 +83,17 @@ def test_start_demo_prints_the_next_commands(tmp_path, capsys):
     rc = cli.main(["start", "--demo", "--dir", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
-    # The human closing collapses to ONE clear next step -- score your own call
-    # with `hotato investigate` -- plus a single CI line. The promote/run/card
-    # fan is no longer in the human closing; it lives in the --format json
-    # next_commands payload (humans get one step, agents get the full set).
-    assert "hotato investigate path/to/your-call.wav" in out
+    # The human closing leads with ONE clear next step that RUNS AS PRINTED: the
+    # demo just wrote a scorable two-channel recording (the contract's
+    # audio/event.wav), so `hotato investigate` on THAT file is the printed next
+    # command -- no placeholder path, no recording of your own needed to reach
+    # step two -- plus a single CI-scaffold line. The promote/run/card fan is
+    # not in the human closing; it lives in the --format json next_commands
+    # payload (humans get one step, agents get the full set).
+    assert ("hotato investigate contracts/demo-missed-interruption.hotato/"
+            "audio/event.wav") in out
     assert "hotato init starter" in out
+    assert "path/to/your-call.wav" not in out
     assert "fixture promote" not in out
     assert "hotato card hotato-sweep.json" not in out
 
