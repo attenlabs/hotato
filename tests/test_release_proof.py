@@ -28,7 +28,6 @@ from hotato import apply as _apply
 from hotato import evidence as _evidence
 from hotato import fix_trial as _fix_trial
 from hotato import manifest as _manifest
-from hotato import verify as _verify
 from tests.test_fix_trial import _config_plan, _write_patch, build_trial
 
 # A fully-attested paired vector: every REQUIRED_FOR_PAIRED_PROOF dimension holds
