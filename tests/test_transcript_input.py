@@ -25,10 +25,9 @@ from contextlib import redirect_stdout
 
 import pytest
 
-from hotato import cli
+from hotato import cli, fixture
 from hotato import diarize as D
 from hotato import investigate as I
-from hotato import fixture
 from hotato import transcript_input as tx
 from hotato._engine.score import ScoreConfig, score_channels
 
