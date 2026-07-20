@@ -1,0 +1,63 @@
+{
+  "pack": "hotato-voice-personas",
+  "version": 1,
+  "description": "A curated, seeded persona and scenario library for hotato simulate. Each entry is a hotato.scenario.v1 doc that renders through the deterministic scripted caller into a labelled origin=simulated conversation. A fixed (scenario, seed) renders byte-identical every run, so the same test case is a stable, reusable fixture across machines and CI runs.",
+  "scenarios": [
+    {
+      "name": "barge-in-missed",
+      "file": "barge-in-missed.scenario.json",
+      "title": "Missed barge-in (hard interruption)",
+      "category": "should_yield",
+      "seed": 101,
+      "tests": "The caller takes the floor mid-sentence at a fixed offset. Run it to see whether your agent stops its own speech and listens."
+    },
+    {
+      "name": "backchannel-not-floor-take",
+      "file": "backchannel-not-floor-take.scenario.json",
+      "title": "Backchannel that is not a floor-take",
+      "category": "should_hold",
+      "seed": 202,
+      "tests": "The caller drops short acknowledgements (mm-hmm, right) while listening. Run it to see whether your agent holds the floor instead of treating a backchannel as an interruption."
+    },
+    {
+      "name": "dead-air-silence",
+      "file": "dead-air-silence.scenario.json",
+      "title": "Long silence and dead air",
+      "category": "should_reprompt",
+      "seed": 303,
+      "tests": "The caller opens, then goes quiet and re-prompts. Run it to see whether your agent recovers a stalled call rather than waiting on empty air."
+    },
+    {
+      "name": "over-eager-early-response",
+      "file": "over-eager-early-response.scenario.json",
+      "title": "Mid-utterance pause before an over-eager reply",
+      "category": "should_wait",
+      "seed": 404,
+      "tests": "The caller pauses in the middle of one request. Run it to see whether your agent waits for the caller to finish rather than replying into the pause."
+    },
+    {
+      "name": "caller-talk-over",
+      "file": "caller-talk-over.scenario.json",
+      "title": "Caller talking over the agent",
+      "category": "should_yield",
+      "seed": 505,
+      "tests": "The caller overlaps the agent twice at fixed offsets. Run it to see whether your agent yields under sustained talk-over."
+    },
+    {
+      "name": "fast-interrupter",
+      "file": "fast-interrupter.scenario.json",
+      "title": "Fast interrupter (pacing variation)",
+      "category": "should_yield",
+      "seed": 606,
+      "tests": "A fast-paced caller cuts in very early. Run it to see how your agent handles an impatient, quick-talking caller."
+    },
+    {
+      "name": "slow-speaker",
+      "file": "slow-speaker.scenario.json",
+      "title": "Slow speaker (pacing variation)",
+      "category": "should_wait",
+      "seed": 707,
+      "tests": "A slow-paced caller spreads one request across long turns and states a member id. Run it to see whether your agent waits out the pace and keeps the caller's ground-truth fact."
+    }
+  ]
+}
