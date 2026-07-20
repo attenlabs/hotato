@@ -1,0 +1,21 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "fast-interrupter",
+  "goal": { "type": "interrupt_early", "target": "agent greeting" },
+  "facts": {},
+  "caller": {
+    "script": [
+      { "say": "Yeah yeah I know, skip the intro, I need to reschedule my appointment." }
+    ],
+    "behavior": {
+      "speaking_rate": 1.6,
+      "interruptions": [
+        { "trigger": "agent_greeting", "offset_ms": 400 }
+      ],
+      "backchannels": { "probability": 0.0 }
+    }
+  },
+  "environment": { "locale": "en-US", "noise": "clean", "route": "phone" },
+  "seed": 606
+}

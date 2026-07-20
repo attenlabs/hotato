@@ -160,6 +160,11 @@ hotato = [
     "data/silero_vad.onnx.NOTICE",
     "data/scenarios/*.json",
     "data/simulate/*.json",
+    # The curated, seeded persona/scenario pack (hotato.simulate_pack): the
+    # manifest + each scenario.v1 the deterministic caller renders. README ships
+    # alongside so the pack is self-describing in the wheel.
+    "data/simulate/pack/*.json",
+    "data/simulate/pack/*.md",
     "data/audio/*.wav",
     "data/demo/failing/scenarios/*.json",
     "data/demo/failing/audio/*.wav",
