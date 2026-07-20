@@ -1,0 +1,19 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "backchannel-not-floor-take",
+  "goal": { "type": "acknowledge_while_listening", "target": "agent explanation" },
+  "facts": {},
+  "caller": {
+    "script": [
+      { "say": "Mm-hmm, right, go on." },
+      { "say": "Okay yeah, I'm following you." }
+    ],
+    "behavior": {
+      "speaking_rate": 1.0,
+      "backchannels": { "probability": 1.0 }
+    }
+  },
+  "environment": { "locale": "en-US", "noise": "clean", "route": "phone" },
+  "seed": 202
+}

@@ -1,11 +1,11 @@
-"""``hotato.notify``: the optional ``--notify`` webhook on ``sweep`` and
-``hotato fleet run``.
+"""``hotato.notify``: the optional ``--notify`` webhook on ``sweep``,
+``hotato fleet run``, and ``hotato contract verify``.
 
 Covers: the payload shape (no forbidden fields -- no audio, no credentials, no
 transcript text), fail-open delivery (a monkeypatched ``urlopen`` failure never
 raises and never surfaces as a non-zero exit), the non-http(s) scheme refusal
 (fail-closed, before any network attempt), and that ``--notify`` is actually
-wired into the ``sweep`` and ``fleet run`` CLI paths.
+wired into the ``sweep``, ``fleet run``, and ``contract verify`` CLI paths.
 """
 
 from __future__ import annotations
@@ -15,11 +15,17 @@ import json
 import socket
 import urllib.error
 import urllib.request
+from importlib import resources
 
 import pytest
 
 from hotato import cli
 from hotato import notify as _notify
+
+# A bundled two-channel example that yields at 2.40s -- the same fixture
+# tests/test_contract_cli.py builds real pass/fail contracts from.
+HARD = str(resources.files("hotato").joinpath(
+    "data", "audio", "01-hard-interruption.example.wav"))
 
 
 class _FakeResp(io.BytesIO):
@@ -329,4 +335,160 @@ def test_fleet_run_notify_rejects_bad_scheme_before_the_run(tmp_path, monkeypatc
     monkeypatch.setattr(urllib.request, "urlopen", fail)
     rc = cli.main(["fleet", "run", "--home", home, "-w", "ws1",
                    "--agent", "support-bot", "--notify", "ftp://example.com/x"])
+    assert rc == 2
+
+
+# =========================================================================
+# 6. contract verify --notify: a share-safe run-summary of the gate result
+# =========================================================================
+
+def _create_contract(tmp_path, cid, *extra, expect="yield"):
+    """Build one real contract bundle in ``tmp_path`` via the CLI (no fixture
+    plumbing) so the verify path re-scores genuine bundled audio."""
+    return cli.main([
+        "contract", "create", "--stereo", HARD, "--id", cid,
+        "--onset", "2.40", "--expect", expect, "--out", str(tmp_path), *extra,
+    ])
+
+
+def test_contract_verify_payload_shape_and_no_forbidden_fields():
+    # Built directly (like the fleet_run_payload shape test) so every axis --
+    # a plain fail, a tampered bundle, and a refused one -- is exercised.
+    v = {
+        "tool": "hotato", "kind": "contract-verify", "schema_version": "1",
+        "offline": True, "dir": "/home/u/secret-layout/contracts", "count": 4,
+        "results": [
+            {"id": "ct-pass", "dir": "/home/u/secret-layout/contracts/ct-pass.hotato",
+             "expect": "yield", "passed": True,
+             "measurement": {"did_yield": True, "seconds_to_yield": 1.1,
+                             "talk_over_sec": 0.0}},
+            {"id": "ct-fail", "dir": "/home/u/secret-layout/contracts/ct-fail.hotato",
+             "expect": "yield", "passed": False,
+             "measurement": {"did_yield": False, "seconds_to_yield": 3.4,
+                             "talk_over_sec": 1.2}},
+            {"id": "ct-tampered",
+             "dir": "/home/u/secret-layout/contracts/ct-tampered.hotato",
+             "expect": "hold", "passed": False, "authenticity": "tampered",
+             "measurement": {"did_yield": None, "seconds_to_yield": None,
+                             "talk_over_sec": None}},
+            {"id": "ct-refused",
+             "dir": "/home/u/secret-layout/contracts/ct-refused.hotato",
+             "expect": "hold", "passed": False, "verdict_eligible": False,
+             "measurement": {"did_yield": None, "seconds_to_yield": None,
+                             "talk_over_sec": None}},
+        ],
+        "summary": {"passed": 1, "failed": 3},
+        "tampered": 1, "refused": 1, "assertions_failed": 0, "exit_code": 1,
+    }
+    payload = _notify.contract_verify_payload(v)
+    assert payload["tool"] == "hotato"
+    assert payload["kind"] == "contract-verify"
+    assert payload["exit_code"] == 1
+    # tampered / refused / assertions_failed are reported SEPARATELY from
+    # failed -- their own count fields, never blended into one verdict.
+    assert payload["counts"] == {"passed": 1, "failed": 3, "tampered": 1,
+                                 "refused": 1, "assertions_failed": 0}
+    assert isinstance(payload["text"], str) and "1/4 pass" in payload["text"]
+    # ONLY the failing contracts are listed (never the passing one), each with
+    # only whitelisted keys -- no `dir`, no authenticity/verdict leak.
+    assert [c["id"] for c in payload["top_candidates"]] == [
+        "ct-fail", "ct-tampered", "ct-refused"]
+    for c in payload["top_candidates"]:
+        assert set(c.keys()) <= {"id", "kind", "t_sec", "onset_sec",
+                                 "severity", "durations"}
+    # the measured timing numbers ride in the whitelisted `durations` field.
+    assert payload["top_candidates"][0]["durations"] == {
+        "did_yield": False, "seconds_to_yield": 3.4, "talk_over_sec": 1.2}
+    # no artifacts and no `dir` -> nothing that leaks the local layout.
+    assert payload.get("artifacts") in (None, {})
+    assert "secret-layout" not in json.dumps(payload)
+    _assert_no_forbidden_content(payload)
+
+
+def test_contract_verify_notify_posts_on_a_failing_verify(tmp_path, monkeypatch, capsys):
+    # An impossible bound makes the contract fail its own policy on re-verify.
+    assert _create_contract(tmp_path, "ct-bad-001", "--max-time-to-yield", "0.0") == 0
+    capsys.readouterr()
+
+    calls = []
+
+    def fake_post(url, payload, timeout=10):
+        calls.append((url, payload))
+        return True
+
+    monkeypatch.setattr(_notify, "post_notification", fake_post)
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--notify", "https://hooks.example.com/v"])
+    assert rc == 1  # the verify verdict is UNCHANGED by --notify
+    assert len(calls) == 1
+    assert calls[0][0] == "https://hooks.example.com/v"
+    payload = calls[0][1]
+    assert payload["kind"] == "contract-verify"
+    assert payload["counts"]["passed"] == 0
+    assert payload["counts"]["failed"] == 1
+    assert [c["id"] for c in payload["top_candidates"]] == ["ct-bad-001"]
+    _assert_no_forbidden_content(payload)
+
+
+def test_contract_verify_notify_posts_on_an_all_pass_verify(tmp_path, monkeypatch, capsys):
+    assert _create_contract(tmp_path, "ct-good-001") == 0
+    capsys.readouterr()
+
+    calls = []
+
+    def fake_post(url, payload, timeout=10):
+        calls.append((url, payload))
+        return True
+
+    monkeypatch.setattr(_notify, "post_notification", fake_post)
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--notify", "https://hooks.example.com/v"])
+    assert rc == 0
+    assert len(calls) == 1  # fires on a green run too, not only on failures
+    payload = calls[0][1]
+    assert payload["kind"] == "contract-verify"
+    assert payload["counts"] == {"passed": 1, "failed": 0, "tampered": 0,
+                                 "refused": 0, "assertions_failed": 0}
+    assert payload["top_candidates"] == []
+    _assert_no_forbidden_content(payload)
+
+
+def test_contract_verify_without_notify_never_calls_post_notification(tmp_path, monkeypatch, capsys):
+    assert _create_contract(tmp_path, "ct-good-002") == 0
+    capsys.readouterr()
+
+    def fail(*a, **k):
+        raise AssertionError("post_notification must not be called without --notify")
+
+    monkeypatch.setattr(_notify, "post_notification", fail)
+    rc = cli.main(["contract", "verify", str(tmp_path)])
+    assert rc == 0
+
+
+def test_contract_verify_notify_fails_open_on_unreachable_webhook(tmp_path, monkeypatch, capsys):
+    # A failing contract + a dead webhook: the real post_notification path runs
+    # (not monkeypatched away) and must not raise or change the exit code.
+    assert _create_contract(tmp_path, "ct-fo-001", "--max-time-to-yield", "0.0") == 0
+    capsys.readouterr()
+
+    def boom(req, timeout=10):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--notify", "https://hooks.example.com/down"])
+    assert rc == 1  # the verify verdict is unchanged by a down webhook
+    assert "[notify]" in capsys.readouterr().err
+
+
+def test_contract_verify_notify_rejects_bad_scheme_before_the_rescore(tmp_path, monkeypatch, capsys):
+    assert _create_contract(tmp_path, "ct-bs-001") == 0
+    capsys.readouterr()
+
+    def fail(*a, **k):
+        raise AssertionError("must not reach the network for a refused --notify scheme")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--notify", "file:///etc/passwd"])
     assert rc == 2

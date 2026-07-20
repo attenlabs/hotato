@@ -1,0 +1,19 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "slow-speaker",
+  "goal": { "type": "complete_request_slowly", "target": "prescription refill" },
+  "facts": { "member_id": "M-7788" },
+  "caller": {
+    "script": [
+      { "say": "Hi... I need... to refill my prescription." },
+      { "say": "My member id is M-7788." }
+    ],
+    "behavior": {
+      "speaking_rate": 0.5,
+      "backchannels": { "probability": 0.0 }
+    }
+  },
+  "environment": { "locale": "en-US", "noise": "clean", "route": "phone" },
+  "seed": 707
+}

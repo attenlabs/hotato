@@ -39,6 +39,7 @@ __all__ = [
     "build_payload",
     "sweep_payload",
     "fleet_run_payload",
+    "contract_verify_payload",
 ]
 
 _ALLOWED_SCHEMES = ("http", "https")
@@ -227,3 +228,46 @@ def fleet_run_payload(*, workspace_id: str, agent_id: str, res: Dict[str, Any],
     return build_payload(kind="fleet_run", text=text, counts=counts,
                          top_candidates=top_candidates, artifacts=artifacts,
                          workspace_id=workspace_id, agent_id=agent_id)
+
+
+def contract_verify_payload(v: Dict[str, Any], *, top: int = 5) -> Dict[str, Any]:
+    """Build the ``hotato contract verify --notify`` run-summary payload from
+    the batch proof dict :func:`hotato.contract.verify_contracts` returns.
+
+    Carries the pass/fail counts and the top FAILING contracts' ids + measured
+    timing (each result's ``measurement`` block: ``did_yield``/
+    ``seconds_to_yield``/``talk_over_sec``) and nothing else -- no audio, no
+    credentials, no transcript text, and no ``dir``/bundle file paths that would
+    leak the local layout (this payload deliberately carries no ``artifacts``,
+    unlike sweep's, for exactly that reason). The distinct ``tampered``/
+    ``refused``/``assertions_failed`` counts stay SEPARATE from ``failed`` --
+    reported as their own count fields, never collapsed into one blended verdict,
+    exactly as ``contract verify`` itself reports them. This is a side-channel
+    summary of an already-decided verify: the CLI's exit code is unchanged
+    whether or not a webhook is set, and this payload is emitted on every verify
+    (pass or fail) when ``--notify`` is given. The candidate whitelist in
+    :func:`_clean_candidate` still enforces the share-safe shape -- the
+    ``measurement`` numbers ride in the whitelisted ``durations`` field, never a
+    new leaking key."""
+    results = v.get("results") or []
+    summary = v.get("summary") or {}
+    failing = [r for r in results if not r.get("passed")]
+    top_candidates = [
+        {"id": r.get("id"), "kind": r.get("expect"),
+         "durations": dict(r.get("measurement") or {})}
+        for r in failing[:top]
+    ]
+    counts = {
+        "passed": summary.get("passed", 0),
+        "failed": summary.get("failed", 0),
+        "tampered": v.get("tampered", 0),
+        "refused": v.get("refused", 0),
+        "assertions_failed": v.get("assertions_failed", 0),
+    }
+    text = (
+        f"hotato contract verify: {counts['passed']}/{v.get('count', 0)} pass"
+        + (f", {counts['failed']} failing" if counts["failed"] else "")
+    )
+    return build_payload(kind="contract-verify", text=text, counts=counts,
+                         top_candidates=top_candidates,
+                         exit_code=v.get("exit_code"))

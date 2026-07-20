@@ -146,10 +146,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.10.1
+      - uses: attenlabs/hotato@v1.11.0
         with:
           contracts: contracts/          # the catches you committed
-          hotato-version: 1.10.1          # exact pin, never a range
+          hotato-version: 1.11.0          # exact pin, never a range
 ```
 
 <details>
@@ -3985,6 +3985,51 @@ reliability: pass@1=1.000 pass@k=1.000 pass^k=1.000 (n=1)
 `./sim` holds a `conversation.json` plus its bound transcript and
 `voice_trace.jsonl`, all `origin.kind=simulated`.
 
+## The curated persona pack (seeded, byte-reproducible)
+
+The package ships a curated persona/scenario library, `hotato-voice-personas`,
+covering the common voice-agent test cases: a missed barge-in, a backchannel
+that is not a floor-take, long silence / dead air, a mid-utterance pause before
+an over-eager reply, a caller talking over the agent, and pacing variations (a
+fast interrupter, a slow speaker). Each entry is a real `hotato.scenario.v1`
+the deterministic caller renders, and each pins a fixed `seed`, so a fixed
+`(scenario, seed)` renders **byte-identical every run** across machines and CI:
+`conversation.json`, `transcript.json`, and `trace.jsonl` all match, because the
+manifest `created_at` defaults to a reproducible instant (SOURCE_DATE_EPOCH-style,
+never the wall clock). Pass `--created-at` (or set `$SOURCE_DATE_EPOCH`) to pin a
+real timestamp when you want one. Run a common test case by name, no file
+authoring:
+
+```bash
+# list the pack (add --format json for the machine-readable index):
+hotato simulate --list
+
+# run one pack scenario by name into a labelled origin=simulated conversation:
+hotato simulate barge-in-missed --out ./sim
+```
+
+`hotato simulate --list` prints:
+
+```
+hotato simulate pack: hotato-voice-personas -- 7 curated scenario(s)
+each renders a deterministic origin=simulated caller (never real); a fixed (scenario, seed) is byte-identical
+  backchannel-not-floor-take  [should_hold] seed=202  Backchannel that is not a floor-take
+      The caller drops short acknowledgements (mm-hmm, right) while listening. Run it to see whether your agent holds the floor instead of treating a backchannel as an interruption.
+  barge-in-missed             [should_yield] seed=101  Missed barge-in (hard interruption)
+      The caller takes the floor mid-sentence at a fixed offset. Run it to see whether your agent stops its own speech and listens.
+  ...
+run one with: hotato simulate <name> --out ./sim
+```
+
+The name resolves to a scenario bundled with the package; a scenario file on
+disk always wins, so a local file is never shadowed by a pack name. A pack
+scenario is deterministic INPUT that renders `origin=simulated`, labelled as
+such; it is scripted-caller stimulus, not production audio, and it scores
+nothing on its own -- scoring is the separate assert layer's job over the
+produced artifact. The pack lives in
+[`src/hotato/data/simulate/pack/`](../src/hotato/data/simulate/pack/) with its
+own `README.md` and `manifest.json`.
+
 > **Two different `scenario` concepts, one name.** `hotato simulate`
 > consumes a `hotato.scenario.v1` doc -- author one with `hotato simulate
 > --init`. `hotato scenario init` writes a separate file, a
@@ -6059,7 +6104,7 @@ Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
-  Verify the record:  uvx --from hotato==1.10.1 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.11.0 hotato record verify hotato-failure-record/failure-record.json
 ```
 
 Preview it locally, then scaffold the durable gate into your own repository
@@ -6083,11 +6128,11 @@ offline -- it runs the pinned Action revision itself off PYTHONPATH (no
 pip, no package index), installs no model, no ASR, no Node tool, calls no
 external judge, and reads no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.10.1), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.11.0), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.10.1
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.11.0
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -6109,7 +6154,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.10.1
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.11.0
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -6147,7 +6192,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.10.1` | `pip install --no-deps hotato==1.10.1` |
+| an exact version, e.g. `1.11.0` | `pip install --no-deps hotato==1.11.0` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
@@ -8880,6 +8925,7 @@ configured (`gh`, a Slack token), and only for actions you invoked.
 | `--judge-provider hosted --judge-endpoint URL` (any rubric command) | sends the transcript + rubric criterion to a hosted OpenAI/Anthropic-compatible `/chat/completions` endpoint you name | requires `--judge-egress-opt-in` (exit 2 without it); the default local judge stays on your machine. `rubric.py`: `HostedJudge` (raises `EgressRefused` without the flag) |
 | A non-local `--judge-endpoint` (e.g. a remote Ollama host) | reaches that host | same gate -- requires `--judge-egress-opt-in`. `localhost`/`127.0.0.1`/`::1` skip it. `rubric.py`: `OllamaJudge._is_local_endpoint` |
 | `--notify URL` (`sweep`, `fleet run`) | POSTs one JSON summary -- counts, top candidate moments (id, kind, timing numbers only), local artifact paths, plus a `text` line for Slack incoming webhooks. Audio, credentials, and transcript text stay out of it | off by default; fires only with an explicit, repeatable `--notify URL`. A non-http(s) scheme is refused (exit 2) before any network attempt. Once sent, delivery is fail-open -- a down or slow webhook logs one stderr warning and the run keeps going. See `notify.py`: `post_notification` |
+| `--notify URL` (`contract verify`) | POSTs one JSON run-summary when the gate finishes -- kind `contract-verify`, the pass/fail counts (`passed`/`failed`/`tampered`/`refused`/`assertions_failed`, reported as separate fields, never blended), the top FAILING contracts' ids + measured timing (`did_yield`/`seconds_to_yield`/`talk_over_sec`), plus a `text` line for Slack. Audio, credentials, transcript text, and file/bundle paths all stay out of it (this payload carries no artifact paths, unlike sweep's) | off by default; fires on every verify (pass or fail) only with an explicit, repeatable `--notify URL`. A non-http(s) scheme is refused (exit 2) before the re-score. Delivery is fail-open -- a down webhook never raises and never changes the verify exit code. See `notify.py`: `contract_verify_payload` / `post_notification` |
 
 ## The one credential-safety detail worth knowing
 
@@ -12239,7 +12285,7 @@ FILE: docs/TRUST-GALLERY.md
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.10.1, offline. The rows
+Every block below is verbatim CLI output from hotato 1.11.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean and echo cases use the bundled examples

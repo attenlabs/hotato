@@ -1,0 +1,21 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "barge-in-missed",
+  "goal": { "type": "interrupt_and_correct", "target": "shipping address" },
+  "facts": {},
+  "caller": {
+    "script": [
+      { "say": "Wait, stop, I need to change the shipping address before it ships." }
+    ],
+    "behavior": {
+      "speaking_rate": 1.0,
+      "interruptions": [
+        { "trigger": "agent_mid_sentence", "offset_ms": 1200 }
+      ],
+      "backchannels": { "probability": 0.0 }
+    }
+  },
+  "environment": { "locale": "en-US", "noise": "clean", "route": "phone" },
+  "seed": 101
+}
