@@ -2035,25 +2035,40 @@ def _cmd_loop(args) -> int:
 def _cmd_investigate(args) -> int:
     from . import investigate as _investigate
 
-    result, code = _investigate.run_investigate(
-        args.source,
-        stack=args.stack,
-        call_id=args.call_id,
-        api_key=args.api_key,
-        account_sid=args.account_sid,
-        auth_token=args.auth_token,
-        model_id=args.model_id,
-        agent_id=args.agent_id,
-        base_url=args.base_url,
-        allow_mono=args.allow_mono,
-        caller_channel=args.caller_channel,
-        agent_channel=args.agent_channel,
-        min_gap=args.min_gap,
-        top=args.top,
-        state_path=args.state,
-        channel_map_confirmed=args.confirm_channels,
-        demo=args.demo,
-    )
+    if args.transcript is not None:
+        if args.source or args.demo or args.stack or args.call_id:
+            raise ValueError(
+                "--transcript scores a text transcript directly; do not also "
+                "pass a SOURCE path, --demo, --stack, or --call-id"
+            )
+        result, code = _investigate.run_investigate_transcript(
+            args.transcript,
+            caller_role=args.caller_role,
+            agent_role=args.agent_role,
+            min_gap=args.min_gap,
+            top=args.top,
+            state_path=args.state,
+        )
+    else:
+        result, code = _investigate.run_investigate(
+            args.source,
+            stack=args.stack,
+            call_id=args.call_id,
+            api_key=args.api_key,
+            account_sid=args.account_sid,
+            auth_token=args.auth_token,
+            model_id=args.model_id,
+            agent_id=args.agent_id,
+            base_url=args.base_url,
+            allow_mono=args.allow_mono,
+            caller_channel=args.caller_channel,
+            agent_channel=args.agent_channel,
+            min_gap=args.min_gap,
+            top=args.top,
+            state_path=args.state,
+            channel_map_confirmed=args.confirm_channels,
+            demo=args.demo,
+        )
     if args.format == "json":
         print(_errors.safe_json_dumps(result, indent=2))
     else:
@@ -8112,6 +8127,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  hotato investigate --demo\n"
             "  hotato investigate call.wav\n"
             "  hotato investigate --stack vapi --call-id abc123\n"
+            "  hotato investigate --transcript chat.json   (score a text "
+            "transcript, no audio)\n"
             "  hotato investigate label .hotato/investigate-state.json#1 "
             "--expect yield"
         ),
@@ -8131,6 +8148,20 @@ def build_parser() -> argparse.ArgumentParser:
     iv.add_argument("--call-id", default=None, metavar="ID",
                     help="the call/recording id to pull (with --stack); for "
                          "twilio pass a Recording SID (RE...)")
+    iv.add_argument("--transcript", default=None, metavar="FILE",
+                    help="score a timestamped, speaker-labeled TRANSCRIPT "
+                         "(JSON, no audio) instead of a recording, so a "
+                         "text/chat agent is scorable: turn timings are "
+                         "text-derived, so acoustic overlap (talk-over, "
+                         "premature start) is reported null with a reason. "
+                         "Mutually exclusive with a SOURCE / --demo / "
+                         "--stack / --call-id")
+    iv.add_argument("--caller-role", default=None, metavar="ROLE",
+                    help="transcript role to treat as the CALLER (overrides "
+                         "the built-in caller aliases, e.g. a custom label)")
+    iv.add_argument("--agent-role", default=None, metavar="ROLE",
+                    help="transcript role to treat as the AGENT (overrides "
+                         "the built-in agent aliases, e.g. a custom label)")
     _add_cred_args(iv)
     iv.add_argument("--allow-mono", action="store_true",
                     help="allow pulling a mono/mixed stack recording "
