@@ -803,6 +803,115 @@ def load_plan(path: str) -> Dict[str, Any]:
     return validate_plan(value)
 
 
+# ---------------------------------------------------------------------------
+# Reactive barge-in: the agent-speech-onset convention + a named plan builder.
+#
+# The agent-speech-onset event rides the already-supported ``lifecycle`` kind
+# (see EVENT_KINDS) with a dedicated status, so it needs no new event kind and
+# no schema change: a ``{"event": "lifecycle", "status": AGENT_SPEECH_ONSET}``
+# trigger already routes today (status matching is an existing capability).
+# ---------------------------------------------------------------------------
+
+AGENT_SPEECH_ONSET_STATUS = "agent_speech_started"
+
+
+def agent_speech_started_event() -> Dict[str, Any]:
+    """The session-emitted lifecycle event marking agent-speech ONSET.
+
+    A caller session emits this the instant the agent starts talking -- in the
+    hermetic harness the simulated agent stream emits it deterministically at a
+    known time; in a future, operator-gated live path it would come from an
+    activity/VAD detector on real audio.  It carries speech ACTIVITY, never
+    transcribed content: the reactive caller reacts to onset, it does not read
+    the agent's words, and it never replaces provider STT.
+    """
+
+    return {"kind": "lifecycle", "status": AGENT_SPEECH_ONSET_STATUS}
+
+
+def agent_speech_onset_trigger() -> Dict[str, Any]:
+    """The caller-plan trigger that fires on the agent-speech-onset event."""
+
+    return {"event": "lifecycle", "status": AGENT_SPEECH_ONSET_STATUS}
+
+
+def reactive_barge_in_plan(
+    *,
+    text: str,
+    delay_ms: int,
+    listen_timeout_ms: int,
+    on_timeout: str = "giveup",
+    plan_id: str = "reactive-barge-in",
+) -> Dict[str, Any]:
+    """Build the caller plan that barges in REACTIVELY, keyed to agent-speech onset.
+
+    Reactive vs fixed-timeline.  A fixed-timeline caller (``hotato.drive``'s
+    TwiML path) speaks at wall-clock offsets from call start and CANNOT react to
+    the agent.  This plan instead waits for the agent to start talking: it
+    ``listen``s until the agent-speech-onset event (``lifecycle`` /
+    ``agent_speech_started``), then ``wait``s ``delay_ms`` past that onset,
+    ``say``s ``text`` over the agent, and hangs up.  The interrupt is therefore
+    measured from the ONSET EVENT, not from call start -- shift the onset and the
+    barge-in shifts with it.  If the agent never starts talking within
+    ``listen_timeout_ms``, the ``on_timeout="giveup"`` policy hangs up WITHOUT
+    speaking: the caller reacts to the signal, it does not speak on a clock.
+
+    Hermetic-only boundary.  This helper decides WHEN to barge in relative to the
+    agent-speech onset event and produces the caller's turn timing and evidence.
+    It does not score anything.  Whether the resulting two-channel audio actually
+    overlaps the agent (talk-over) and whether the agent yielded or held the floor
+    remain the job of the existing two-channel scoring engine.  In the hermetic
+    harness the onset event is emitted deterministically by the simulated agent
+    stream; a live activity/VAD detector on real audio is a separate,
+    operator-gated step and is not part of this plan.
+
+    ``delay_ms`` and ``listen_timeout_ms`` are milliseconds in ``[0, 300000]``.
+    The returned plan is already validated (a normalized ``caller-plan.v1``
+    mapping) and is ready to hand to :func:`run_caller`.
+    """
+
+    text = _nonempty(text, "reactive_barge_in_plan text")
+    delay_ms = _integer(delay_ms, "reactive_barge_in_plan delay_ms", 0, 300_000)
+    listen_timeout_ms = _integer(
+        listen_timeout_ms, "reactive_barge_in_plan listen_timeout_ms", 0, 300_000
+    )
+    if on_timeout != "giveup":
+        raise ValueError("reactive_barge_in_plan on_timeout must be 'giveup'")
+    if not isinstance(plan_id, str) or not _ID_RE.fullmatch(plan_id):
+        raise ValueError("reactive_barge_in_plan plan_id must be a safe identifier")
+
+    trigger = agent_speech_onset_trigger()
+    nodes = [
+        {
+            "id": "await_agent_onset", "type": "listen", "next": "settle",
+            "timeout_ms": listen_timeout_ms, "max_events": 16,
+            "until": trigger, "on_timeout": "giveup",
+        },
+        {"id": "settle", "type": "wait", "next": "barge_in", "duration_ms": delay_ms},
+        {"id": "barge_in", "type": "say", "next": "done", "text": text},
+        {"id": "done", "type": "hangup", "reason": "reactive_barge_in_complete"},
+        {"id": "giveup", "type": "hangup", "reason": "agent_speech_onset_not_detected"},
+    ]
+    # max_wait_ms gates both the listen timeout and the settle wait at runtime;
+    # size it to whichever the caller asked for so a legitimate delay is honored.
+    max_wait_ms = max(DEFAULT_LIMITS["max_wait_ms"], delay_ms, listen_timeout_ms)
+    return validate_plan({
+        "schema": PLAN_SCHEMA,
+        "id": plan_id,
+        "mode": "scripted",
+        "start": "await_agent_onset",
+        "nodes": nodes,
+        "limits": {"max_wait_ms": max_wait_ms},
+        "metadata": {
+            "kind": "reactive_barge_in",
+            "reacts_to": trigger,
+            "delay_ms": delay_ms,
+            "listen_timeout_ms": listen_timeout_ms,
+            "on_timeout": on_timeout,
+        },
+    })
+
+
 def _json_path(value: Any, path: str) -> Any:
     current = value
     for part in path.split("."):
@@ -1770,5 +1879,6 @@ __all__ = [
     "UNOBSERVABLE", "CAPABILITY_STATES", "MODES", "NODE_TYPES", "CallerSession",
     "CallerModel", "CallerTTS", "OllamaCallerModel", "CallerRun", "validate_plan", "load_plan",
     "run_caller", "verify_package", "MAX_TRIGGER_REGEX_CHARS",
-    "MAX_TRIGGER_SEARCH_CHARS",
+    "MAX_TRIGGER_SEARCH_CHARS", "AGENT_SPEECH_ONSET_STATUS",
+    "agent_speech_started_event", "agent_speech_onset_trigger", "reactive_barge_in_plan",
 ]
