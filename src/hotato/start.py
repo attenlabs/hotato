@@ -698,7 +698,18 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
         # Same evidence-selected rank as the text path: the promote/card refs
         # point at the missed interruption (#{candidate_rank}), never a
         # hardcoded #1 (the backchannel the agent yielded to).
-        next_commands = [_DEMO_STARTER_PRIMARY]
+        # The activation on-ramp leads, converging with the text closing
+        # (_next_commands_text): score the scorable event.wav the demo just wrote
+        # -- no recording of your own needed to reach step two -- before the
+        # CI-gate scaffold, so `--format json` (agent) consumers get the same
+        # first step a human sees. Same guard as the text path: only when the
+        # demo wrote the contract bundle that holds audio/event.wav.
+        event_wav_rel = (f"{contract_info['bundle_rel']}/audio/event.wav"
+                         if contract_written else None)
+        next_commands = (
+            [f"hotato investigate {event_wav_rel}"] if event_wav_rel else []
+        )
+        next_commands.append(_DEMO_STARTER_PRIMARY)
         if candidate_rank is not None:
             next_commands.append(
                 f"hotato fixture promote {_SWEEP_JSON}#{candidate_rank} "

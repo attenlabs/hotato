@@ -246,6 +246,85 @@ def test_investigate_rejects_unpullable_stack():
         _investigate.run_investigate(None, stack="livekit", call_id="c1")
 
 
+# --- --demo: the no-recording on-ramp (packaged sample, any cwd) -----------
+
+def test_demo_recording_path_is_the_packaged_resource():
+    # The demo sample resolves through importlib.resources to the WAV bundled
+    # in the package (not a repo-relative path), so it is found from any cwd
+    # after a bare install -- the same posture simulate --example takes.
+    src = resources.files("hotato").joinpath(
+        "data", "demo", "failing", "audio",
+        "fd-01-missed-interruption.example.wav")
+    with resources.as_file(src) as p:
+        assert os.path.isfile(str(p))
+    assert _investigate.demo_recording_path() == str(src)
+
+
+def test_investigate_demo_scores_the_bundled_sample_from_a_bare_cwd(
+    tmp_path, monkeypatch,
+):
+    # A cwd with NO repo files: --demo still resolves the packaged sample and
+    # runs the identical investigate path a real recording does.
+    monkeypatch.chdir(tmp_path)
+    assert not os.path.exists(".hotato")
+    state = str(tmp_path / ".hotato" / "investigate-state.json")
+    result, code = _investigate.run_investigate(demo=True, state_path=state)
+
+    # investigate's scorable exit code + a real caught moment
+    assert code == 0
+    assert result["run"] == 1
+    assert result["trust"]["scorable"] is True
+    assert result["total_candidates"] >= 1
+    # the packaged sample is a previously-frozen fixture clip (a sibling
+    # scenario names it): the honest origin, never a fabricated provider pull
+    assert result["capture_origin"]["kind"] == "frozen_regression"
+
+    # step two is reachable: the printed label next-step for the caught moment
+    assert len(result["next"]) == result["shown"]
+    assert result["next"][0]["command"] == (
+        f"hotato investigate label {shlex.quote(f'{state}#1')} --expect yield"
+    )
+    text = _investigate.render_text(result)
+    assert (f"hotato investigate label {shlex.quote(f'{state}#1')} "
+            "--expect yield") in text
+
+    # state persisted under the bare cwd
+    assert os.path.exists(state)
+    st = json.loads(open(state, encoding="utf-8").read())
+    assert st["schema"] == "hotato.investigate-state.v1"
+
+
+def test_investigate_demo_rejects_a_positional_source(call_wav):
+    with pytest.raises(ValueError, match="--demo"):
+        _investigate.run_investigate(call_wav, demo=True)
+
+
+def test_investigate_demo_rejects_stack(tmp_path):
+    with pytest.raises(ValueError, match="--demo"):
+        _investigate.run_investigate(demo=True, stack="vapi", call_id="c1")
+    with pytest.raises(ValueError, match="--demo"):
+        _investigate.run_investigate(demo=True, stack="vapi")
+
+
+def test_cli_investigate_demo_mode(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    code = cli.main(["investigate", "--demo", "--format", "json"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert out["kind"] == "investigate"
+    assert out["total_candidates"] >= 1
+    assert out["next"][0]["command"].startswith("hotato investigate label ")
+    assert os.path.exists(tmp_path / ".hotato" / "investigate-state.json")
+
+
+def test_cli_investigate_demo_help_lists_the_example():
+    parser = cli.build_parser()
+    for action in parser._actions:
+        if isinstance(action, __import__("argparse")._SubParsersAction):
+            help_text = action.choices["investigate"].format_help()
+            assert "hotato investigate --demo" in help_text
+
+
 # --- the label step: a real signed, CI-ready contract ----------------------
 
 def test_investigate_label_creates_a_scorable_contract(call_wav, tmp_path):

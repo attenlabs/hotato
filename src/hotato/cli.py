@@ -2052,6 +2052,7 @@ def _cmd_investigate(args) -> int:
         top=args.top,
         state_path=args.state,
         channel_map_confirmed=args.confirm_channels,
+        demo=args.demo,
     )
     if args.format == "json":
         print(_errors.safe_json_dumps(result, indent=2))
@@ -2797,7 +2798,12 @@ def _cmd_contract_create(args) -> int:
 
 def _cmd_contract_verify(args) -> int:
     from . import contract as _contract
+    from . import notify as _notify
 
+    # Validate --notify URLs BEFORE the re-score (same discipline as sweep /
+    # fleet run): a bad scheme is an immediate exit-2 usage error, never a
+    # surprise emitted after verify already ran.
+    notify_urls = _notify.validate_notify_urls(getattr(args, "notify", None))
     v = _contract.verify_contracts(
         args.dir, transcript_path=getattr(args, "transcript", None),
     )
@@ -2811,6 +2817,10 @@ def _cmd_contract_verify(args) -> int:
         print(_errors.safe_json_dumps(_contract.verify_result_json(v), indent=2))
     else:
         print(_contract.render_verify_text(v))
+    # A share-safe run-summary on every verify (pass or fail) when --notify is
+    # set; fail-open, so a down webhook never changes the exit code below.
+    if notify_urls:
+        _notify.notify_all(notify_urls, _notify.contract_verify_payload(v))
     return v["exit_code"]
 
 
@@ -6401,6 +6411,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "envelope) used as context for every contract's "
                          "embedded `assertions` block, if any; works fully "
                          "without the [transcribe] extra")
+    cv.add_argument("--notify", action="append", default=None, metavar="URL",
+                    help="POST a JSON run-summary (pass/fail counts and the top "
+                         "failing contracts' ids + measured timing -- no audio, "
+                         "no credentials, no transcript, no file paths) to this "
+                         "webhook URL when verify finishes; repeatable. Off by "
+                         "default; fails open (a down webhook never changes the "
+                         "verify exit code). See docs/EGRESS.md")
     cv.set_defaults(func=_cmd_contract_verify)
 
     ci_ = ctsub.add_parser(
@@ -8092,6 +8109,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("investigate") + "\n\n" + _LABEL_NOTE + "\n\n"
             "Examples:\n"
+            "  hotato investigate --demo\n"
             "  hotato investigate call.wav\n"
             "  hotato investigate --stack vapi --call-id abc123\n"
             "  hotato investigate label .hotato/investigate-state.json#1 "
@@ -8101,7 +8119,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     iv.add_argument("source", nargs="?", default=None, metavar="SOURCE",
                     help="a local dual-channel WAV path (omit when using "
-                         "--stack/--call-id)")
+                         "--demo or --stack/--call-id)")
+    iv.add_argument("--demo", action="store_true",
+                    help="score the stereo demo call bundled with hotato "
+                         "instead of a SOURCE -- a no-recording on-ramp that "
+                         "runs the same scorer on a packaged sample (works "
+                         "from any directory after install)")
     iv.add_argument("--stack", default=None, choices=list(_capture.PULL_STACKS),
                     help="pull the recording from this connected stack "
                          "instead of a local SOURCE")
