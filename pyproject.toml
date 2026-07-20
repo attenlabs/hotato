@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.10.0"
+version = "1.10.1"
 description = "Regression testing for voice agents: turn timing scored from two-channel calls, exit 0/1 in CI; plus say-do verification from your traces and content-addressed failure records that reproduce byte-for-byte. Self-hosted, MIT."
 readme = "README.pypi.md"
 # Support policy: requires-python is lower-bounded only. There is no upper cap

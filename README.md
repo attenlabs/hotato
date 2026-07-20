@@ -13,9 +13,19 @@
 
 </div>
 
-**The transcript passed. The call failed.** The agent talked over the caller. None of it is in the words. Hotato is self-hosted conversation QA for voice agents: it scores the turn timing from a two-channel recording, checks what the agent *said* against what the backend *did*, and gates CI with exit `0` or `1`.
+**Your voice agent talked over the caller, and the transcript looks clean.** It also told the caller "you're all set" on a booking the backend never wrote. You find out when a customer complains, not in the pull request that shipped it, because the failure lives in the timing and the say-do gap, not in the words.
 
-Your platform has the audio: `hotato pull --stack vapi` fetches the two-channel recording.
+Hotato is self-hosted conversation QA for voice agents: it scores those failures from your own two-channel recording and turns each catch into a CI gate that runs offline. First catch in minutes, no account:
+
+```console
+$ uvx hotato start --demo
+...
+Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
+    talk-over     0.25s  seconds the agent kept talking while the caller held the floor
+    response gap  2.18s  seconds of dead air from the caller's turn end to the reply
+```
+
+It measures turn timing and say-do, not intent.
 
 ## See the loop catch a regression
 
@@ -38,7 +48,7 @@ A committed contract is a pinned bad call: it is *meant* to stay exit `1` until 
 
 ## Quickstart
 
-Zero setup, no account. The five commands are the whole path, first touch to a CI gate that guards every pull request:
+The five commands are the whole path, first touch to a CI gate that guards every pull request:
 
 ```bash
 # 1. see it catch a failure on two bundled calls (no account; this step exits 0)
@@ -64,7 +74,7 @@ two-channel recording
   ->  CI verdict: exit 0 pass / exit 1 fail
 ```
 
-A catch becomes a contract addressed by its own content, so the exact failure reproduces on any machine that runs the suite.
+A catch becomes a contract addressed by its own content, so the exact failure reproduces on any machine.
 
 ## What it scores
 
@@ -132,10 +142,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.10.0
+      - uses: attenlabs/hotato@v1.10.1
         with:
           contracts: contracts/          # the catches you committed
-          hotato-version: 1.10.0          # exact pin, never a range
+          hotato-version: 1.10.1          # exact pin, never a range
 ```
 
 <details>
