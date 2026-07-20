@@ -62,10 +62,20 @@ from .errors import open_regular as _open_regular
 STATE_SCHEMA_ID = "hotato.investigate-state.v1"
 DEFAULT_OUT_DIR = "contracts"
 
+# The stereo demo call shipped INSIDE the package (installed with the wheel
+# under ``hotato/data/demo/failing/audio/``) so ``hotato investigate --demo``
+# runs the scorer from a bare ``pip install`` with no recording on disk -- the
+# same posture ``hotato simulate --example`` takes with its bundled scenario.
+# A scorable missed barge-in; a sibling scenario file names it, so its capture
+# origin authenticates honestly as a previously-frozen fixture clip.
+DEMO_RECORDING_FILENAME = "fd-01-missed-interruption.example.wav"
+
 __all__ = [
     "STATE_SCHEMA_ID",
     "DEFAULT_OUT_DIR",
+    "DEMO_RECORDING_FILENAME",
     "default_state_path",
+    "demo_recording_path",
     "load_state",
     "save_state",
     "run_investigate",
@@ -295,11 +305,26 @@ def _capture_config_snapshot(
 
 # --- audio in: reuse capture.py wholesale, never a second fetch path -------
 
+def demo_recording_path() -> str:
+    """Absolute path to the stereo demo call bundled INSIDE the package
+    (shipped in the wheel under ``hotato/data/demo/failing/audio/``), so
+    ``hotato investigate --demo`` scores it from a bare ``pip install`` with no
+    recording on disk. Resolved through ``importlib.resources`` (never a
+    repo-relative path), mirroring ``hotato.scenario.example_scenario_path``."""
+    from importlib import resources  # deferred: import cost at interpreter start
+
+    return str(
+        resources.files("hotato").joinpath(
+            "data", "demo", "failing", "audio", DEMO_RECORDING_FILENAME)
+    )
+
+
 def _resolve_audio(
     source: Optional[str], *, stack: Optional[str], call_id: Optional[str],
     api_key: Optional[str], account_sid: Optional[str],
     auth_token: Optional[str], model_id: Optional[str],
     agent_id: Optional[str], base_url: Optional[str], allow_mono: bool,
+    demo: bool = False,
 ) -> Tuple[str, dict]:
     """Resolve the local WAV path to investigate, plus its fetch metadata
     (``{"stack", "call_id"}``, empty for a local SOURCE). Reuses
@@ -307,6 +332,18 @@ def _resolve_audio(
     fetch ``hotato pull`` loops over -- so a live pull is never a second HTTP
     client or a re-implemented adapter."""
     from . import capture as _capture
+
+    # --demo scores the recording bundled with hotato: no SOURCE, no live
+    # pull. Its empty fetch metadata means the capture origin authenticates
+    # honestly from the file itself (a previously-frozen fixture clip, since a
+    # sibling scenario names it) -- never a fabricated provider pull.
+    if demo:
+        if source or stack or call_id:
+            raise ValueError(
+                "--demo investigates the recording bundled with hotato; do "
+                "not also pass a SOURCE path or --stack/--call-id"
+            )
+        return demo_recording_path(), {}
 
     if source and (stack or call_id):
         raise ValueError(
@@ -359,6 +396,7 @@ def run_investigate(
     top: int = 10,
     state_path: Optional[str] = None,
     channel_map_confirmed: bool = False,
+    demo: bool = False,
 ) -> Tuple[dict, int]:
     """Investigate one recording end to end: pull/open it, authenticate its
     capture origin, run the K6 trust gate, scan it for candidate moments, and
@@ -371,6 +409,12 @@ def run_investigate(
     ``ValueError`` (exit 2) for a bad usage combination (both SOURCE and
     --stack/--call-id, neither given, a bad --min-gap, or an out-of-range
     channel flag) before any network call or file read.
+
+    ``demo`` scores the stereo demo call bundled with the package (resolved via
+    ``importlib.resources``, so it works from any cwd after a bare install),
+    the same scorer on a bundled sample -- a no-recording on-ramp mirroring
+    ``hotato simulate --example``. It is mutually exclusive with ``source`` and
+    ``stack``/``call_id`` (a clear ``ValueError`` otherwise).
     """
     from . import analyze as _analyze
     from . import scan as _scan
@@ -386,6 +430,7 @@ def run_investigate(
         source, stack=stack, call_id=call_id, api_key=api_key,
         account_sid=account_sid, auth_token=auth_token, model_id=model_id,
         agent_id=agent_id, base_url=base_url, allow_mono=allow_mono,
+        demo=demo,
     )
     origin = _capture_origin(
         path, stack=fetch_meta.get("stack"), call_id=fetch_meta.get("call_id"),

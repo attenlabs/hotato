@@ -126,6 +126,25 @@ def test_start_demo_json_format(tmp_path, capsys):
     assert any("hotato card" in c for c in payload["next_commands"])
 
 
+def test_start_demo_json_next_commands_lead_with_the_investigate_on_ramp(
+        tmp_path, capsys):
+    # The JSON next_commands converge with the human closing: the activation
+    # on-ramp -- score the scorable event.wav the demo just wrote -- LEADS the
+    # list, so `--format json` (agent) consumers get the same FIRST step a human
+    # sees, not just the CI-scaffold fan. It is the exact command the text
+    # closing prints (the contract's audio/event.wav), proving text/JSON parity.
+    event_wav = ("hotato investigate contracts/demo-missed-interruption.hotato/"
+                 "audio/event.wav")
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path),
+                     "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["next_commands"][0] == event_wav
+    # and it is exactly what the human closing prints (text/JSON parity).
+    text_dir = tmp_path / "text_run"
+    assert cli.main(["start", "--demo", "--dir", str(text_dir)]) == 0
+    assert event_wav in capsys.readouterr().out
+
+
 def test_start_demo_sweep_resolves_back_into_a_card(tmp_path):
     """The sweep start writes is a real analyze result: a #N ref off it renders
     a card, so the printed `hotato card hotato-sweep.json#1` actually works."""
@@ -353,12 +372,17 @@ def test_start_demo_record_second_run_is_byte_identical_and_exit_0(tmp_path):
 
 def test_start_demo_primary_next_step_scaffolds_the_durable_starter_path(
         tmp_path, capsys):
-    """The demo's PRIMARY next step is the durable starter path; running it for
-    real scaffolds a whole-repo kit (CI gate + contracts/ + fixtures/)."""
+    """The demo's durable CI-scaffold step is the starter path; running it for
+    real scaffolds a whole-repo kit (CI gate + contracts/ + fixtures/). It
+    follows the activation on-ramp (score the scorable event.wav), which leads
+    the list to converge with the human closing."""
     assert cli.main(["start", "--demo", "--dir", str(tmp_path / "demo"),
                      "--format", "json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["next_commands"][0] == "hotato init starter --stack generic --out ."
+    # The activation on-ramp leads (text/JSON parity); the durable starter path
+    # is the CI-scaffold step that follows it.
+    assert payload["next_commands"][0].startswith("hotato investigate ")
+    assert "hotato init starter --stack generic --out ." in payload["next_commands"]
     # not decorative: the printed command actually scaffolds the durable kit
     repo = tmp_path / "repo"
     repo.mkdir()
