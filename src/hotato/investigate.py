@@ -618,9 +618,9 @@ def run_investigate_transcript(
     Returns ``(result, exit_code)``: 0 when the transcript scored, 2 (via a
     ``ValueError`` the CLI maps) for bad input (a missing file, a bad --min-gap,
     an unmapped role, or a non-numeric/degenerate turn span)."""
-    from . import scan as _scan
     from . import core as _core
     from . import diarize as _diarize
+    from . import scan as _scan
     from . import transcript_input as _tx
 
     min_gap = _scan.DEFAULT_MIN_GAP_SEC if min_gap is None else min_gap

@@ -26,8 +26,8 @@ import math
 from typing import Dict, List, Optional
 
 from . import diarize
-from .diarize import SPEAKER_A, SPEAKER_B
 from ._engine.score import ScoreConfig, ScoreResult, score_channels
+from .diarize import SPEAKER_A, SPEAKER_B
 from .errors import load_json_file as _load_json_file
 
 __all__ = [
