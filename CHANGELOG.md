@@ -8,6 +8,25 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **Curated seeded persona pack (`hotato-voice-personas`).** Ships seven common
+  voice-agent test cases inside the wheel — missed barge-in, backchannel that is
+  not a floor-take, dead-air/silence, over-eager early response, caller
+  talk-over, and fast/slow pacing — so a bare `pip install hotato` can list and
+  run them by name with no file authoring: `hotato simulate --list` and
+  `hotato simulate barge-in-missed --out ./sim`. Each entry is a real
+  `hotato.scenario.v1` the existing deterministic caller renders; the pack adds
+  a loader and manifest index, no engine, and scores nothing on its own.
+
+### Fixed
+- **`hotato simulate <name> --out DIR` is byte-identical every run.** The
+  single-run path stamped the manifest `created_at` from the wall clock, so the
+  documented command was not byte-reproducible (only `transcript.json` /
+  `trace.jsonl` were). It now defaults `created_at` to a reproducible instant
+  (SOURCE_DATE_EPOCH-style), matching the `--matrix` path, so the full bundle —
+  `conversation.json` included — matches across runs; `--created-at` or
+  `$SOURCE_DATE_EPOCH` still pins a real timestamp.
+
 ## [1.10.1] - 2026-07-20
 
 ### Changed
