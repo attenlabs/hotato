@@ -8,6 +8,16 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-07-20
+
+### Changed
+- **The first catch reads as one shareable moment.** `hotato start --demo`
+  closes with a next step that scores the demo's own `event.wav`, so the
+  first command a new user runs already has a call to score. The catch leads
+  with a plain-English sentence and two labeled signals, talk-over and
+  response gap; `hotato investigate` leads with the caught moment; and the
+  failure-record card renders the caller/agent overlap timeline.
+
 ## [1.10.0] - 2026-07-20
 
 ### Added
