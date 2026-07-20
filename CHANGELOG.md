@@ -8,7 +8,22 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-20
+
 ### Added
+- **Reactive barge-in caller plan (`reactive_barge_in_plan`).** Builds a
+  caller program that listens on an agent-speech-onset event, waits, says its
+  line, then hangs up, timing the interrupt from the agent's speech onset
+  rather than a fixed clock. Uses the existing `lifecycle` event kind, so the
+  caller-plan schema and the CLI are unchanged. Hermetic-only; wiring to a
+  live drive call against the deployed agent stays operator-gated.
+- **Config-hash-bound release proof (`meets_release_proof`).** Adds
+  `REQUIRED_FOR_RELEASE_PROOF` (the paired-proof dimensions plus
+  `deployment_identity`) alongside `meets_paired_proof`: a release proof is
+  stronger than a paired proof, passing only when the candidate deployment
+  identity is config-hash-bound. Optional agent / deployment / config-hash
+  identity threads through `fix_trial` into the pinned manifest; the defaults
+  preserve byte-identical behavior.
 - **`pr create` accepts contract bundles.** `--fixtures` now takes a
   `<id>.hotato` contract bundle from `hotato investigate label` /
   `hotato contract create` (or a directory of them) as well as a fixtures
@@ -51,6 +66,11 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   into the working directory, and the open helper stages any
   browser-unreachable path under a non-hidden `$HOME` directory before
   opening.
+- **`docs/RECAPTURE.md` signing note corrected.** The doc said bundle
+  signing was unimplemented; `attest.py` (HMAC-SHA256) and `sign.py`
+  (Ed25519) provide bundle authenticity signing today, so the note now
+  describes the available signature (an unsigned bundle stays
+  unauthenticated).
 
 ## [1.9.0] - 2026-07-17
 
