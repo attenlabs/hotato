@@ -8,6 +8,8 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-20
+
 ### Added
 - **Curated seeded persona pack (`hotato-voice-personas`).** Ships seven common
   voice-agent test cases inside the wheel (missed barge-in, backchannel that is
