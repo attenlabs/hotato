@@ -67,7 +67,8 @@ def _resolve_np():
     return _np
 
 __all__ = ["scan_recording", "activity_tracks", "render_text", "KINDS",
-           "SCAN_NOTE", "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC"]
+           "SCAN_NOTE", "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC",
+           "candidate_detail", "candidate_plain_english"]
 
 # A caller run whose envelope is a lag-shifted copy of the agent's own audio: a
 # CAVEAT ("this may be the agent hearing its leaked TTS"), never a real event.
@@ -555,35 +556,74 @@ def activity_tracks(
     return caller[:n], agent[:n], hop, sample_rate, duration
 
 
-def _line(i: int, c: dict) -> str:
+def candidate_detail(c: dict) -> str:
+    """The one-line timing detail for a scan candidate: its durations plus the
+    ``agent_reaction`` narrative, per kind. Shared by ``hotato scan`` and
+    ``hotato investigate`` so one candidate never reads two different ways.
+    Timing facts only -- never an intent claim (see ``SCAN_NOTE``)."""
     d = c["durations"]
-    if c["kind"] == "overlap_while_agent_talking":
-        r = c["agent_reaction"]
-        if r["went_silent_within_search"]:
+    kind = c["kind"]
+    if kind == "overlap_while_agent_talking":
+        r = c.get("agent_reaction") or {}
+        if r.get("went_silent_within_search"):
             tail = f"agent went silent after {r['after_sec']:.2f}s"
         else:
             tail = (f"agent did not go silent within "
-                    f"{r['search_window_sec']:.1f}s")
-        detail = f"overlap={d['overlap_sec']:.2f}s  {tail}"
-    elif c["kind"] == "agent_start_during_caller":
+                    f"{float(r.get('search_window_sec', 0.0)):.1f}s")
+        return f"overlap={d['overlap_sec']:.2f}s  {tail}"
+    if kind == "agent_start_during_caller":
         detail = f"overlap={d['overlap_sec']:.2f}s"
         if d.get("caller_kept_talking_sec") is not None:
             detail += (f"  caller kept talking "
                        f"{d['caller_kept_talking_sec']:.2f}s")
-    elif c["kind"] == "long_response_gap":
+        return detail
+    if kind == "long_response_gap":
         detail = f"gap={d['gap_sec']:.2f}s"
-        nxt = c["agent_reaction"]["next_agent_onset_sec"]
+        nxt = (c.get("agent_reaction") or {}).get("next_agent_onset_sec")
         detail += (f"  next agent onset {nxt:.2f}s" if nxt is not None
                    else "  no agent onset before the end of the recording")
-    elif c["kind"] == "echo_correlated_activity":
-        coh = c["agent_reaction"]["coherence"]
-        detail = (f"WARNING likely agent echo: coherence={coh:.2f} at lag "
-                  f"{d['lag_sec']:.2f}s  (caller channel looks like leaked TTS; "
-                  f"a yield here may be the agent hearing itself)")
-    else:
-        detail = (f"trailing silence={d['trailing_silence_sec']:.2f}s  "
-                  f"no caller energy within {d['caller_proximity_sec']:.2f}s")
-    return (f"  [{i:>2}] t={c['t_sec']:.2f}s  {c['kind']:<28} {detail}")
+        return detail
+    if kind == ECHO_CORRELATED_KIND:
+        coh = (c.get("agent_reaction") or {}).get("coherence")
+        return (f"WARNING likely agent echo: coherence={coh:.2f} at lag "
+                f"{d['lag_sec']:.2f}s  (caller channel looks like leaked TTS; "
+                f"a yield here may be the agent hearing itself)")
+    return (f"trailing silence={d['trailing_silence_sec']:.2f}s  "
+            f"no caller energy within {d['caller_proximity_sec']:.2f}s")
+
+
+def candidate_plain_english(c: dict) -> str:
+    """One plain-English sentence describing a candidate's caught timing, built
+    only from numbers already measured. Addressee framing -- who held the floor,
+    never who spoke -- and never an intent claim: the same functional boundary
+    as the rest of scan (energy is not intent)."""
+    d = c["durations"]
+    kind = c["kind"]
+    if kind == "overlap_while_agent_talking":
+        r = c.get("agent_reaction") or {}
+        over = d["overlap_sec"]
+        if r.get("went_silent_within_search"):
+            return ("the caller took the floor and the agent kept talking over "
+                    f"them for {over:.2f} s before going quiet")
+        win = float(r.get("search_window_sec", 0.0))
+        return ("the caller took the floor and the agent kept talking over "
+                f"them for {over:.2f} s without going quiet within {win:.1f} s")
+    if kind == "agent_start_during_caller":
+        return ("the agent started talking while the caller still had the "
+                f"floor, overlapping them for {d['overlap_sec']:.2f} s")
+    if kind == "long_response_gap":
+        return ("the caller finished and waited "
+                f"{d['gap_sec']:.2f} s of dead air before the agent responded")
+    if kind == ECHO_CORRELATED_KIND:
+        return ("the caller channel looks like a lag-shifted copy of the "
+                "agent's own audio, so this may be leaked TTS, not a caller")
+    return (f"the agent went quiet for {d['trailing_silence_sec']:.2f} s with "
+            "no caller energy nearby")
+
+
+def _line(i: int, c: dict) -> str:
+    return (f"  [{i:>2}] t={c['t_sec']:.2f}s  {c['kind']:<28} "
+            f"{candidate_detail(c)}")
 
 
 def render_text(scan: dict, top: int = DEFAULT_TOP) -> str:

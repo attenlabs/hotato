@@ -130,6 +130,16 @@ def _real_verify(tmp_path):
     return info["verify"]
 
 
+def _contract_info(verify):
+    """Wrap a verify envelope in the ``contract_info`` shape
+    ``_write_demo_failure_record`` now takes (it carries the bundle location so
+    the record card can add the caught-moment timeline). The bundle_rel here
+    points at no real event.wav, so the render-only timeline stays absent and
+    these tests exercise the projection path exactly as before."""
+    return {"verify": verify,
+            "bundle_rel": f"contracts/{S._DEMO_CONTRACT_ID}.hotato"}
+
+
 def _decoy_failing_result(contract_id="decoy-failing-contract"):
     """A second, FAILING contract-verify result. If the demo picked its moment
     by POSITION (first failing result), a decoy placed first would win; because
@@ -165,8 +175,8 @@ def test_write_demo_record_selects_by_contract_id_not_position(tmp_path):
 
     (tmp_path / "b").mkdir()
     (tmp_path / "a").mkdir()
-    S._write_demo_failure_record(str(tmp_path / "b"), before)
-    S._write_demo_failure_record(str(tmp_path / "a"), after)
+    S._write_demo_failure_record(str(tmp_path / "b"), _contract_info(before))
+    S._write_demo_failure_record(str(tmp_path / "a"), _contract_info(after))
 
     records = {}
     for key, base in (("before", tmp_path / "b"), ("after", tmp_path / "a")):
@@ -195,7 +205,7 @@ def test_write_demo_record_does_not_copy_source_paths_or_media(tmp_path):
 
     out = tmp_path / "out"
     out.mkdir()
-    S._write_demo_failure_record(str(out), verify)
+    S._write_demo_failure_record(str(out), _contract_info(verify))
 
     rec_dir = out / S._DEMO_RECORD_DIR
     # only the four record files are written into the share directory
@@ -219,7 +229,7 @@ def test_write_demo_record_is_an_essential_invariant_not_swallowed(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     with pytest.raises(SelectorError):
-        S._write_demo_failure_record(str(out), broken)
+        S._write_demo_failure_record(str(out), _contract_info(broken))
     # nothing half-written: the selector fails before any record file lands
     assert not (out / S._DEMO_RECORD_DIR).exists()
 

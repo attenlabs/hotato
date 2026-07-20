@@ -53,6 +53,95 @@ _STATUS_COLOR = {
     "INCONCLUSIVE": _MUTED, "NOT_RUN": _MUTED, "UNAVAILABLE": _MUTED,
 }
 
+_SVG_FONT = "'Spline Sans Mono',ui-monospace,SFMono-Regular,monospace"
+# Two distinct track hues for the caller/agent activity strip, and the FAIL red
+# for the both-active overlap band -- so the overlap that IS the caught failure
+# reads in the same alarm color as the failing lane above it.
+_TL_CALLER = "#e0b15e"
+_TL_AGENT = "#7fb2c4"
+
+# The measured-timing stat row, in the SAME order + labels the sweep report's
+# event card uses (report._event_card): the barge-in and endpointing signals
+# the scorer already produced on the one clip, two distinct lenses side by side.
+# ``talk-over`` (both-active seconds while the caller holds the floor) and
+# ``response gap`` (dead-air seconds from the caller's turn end to the agent's
+# reply) are labelled distinctly so the two never read as one number disagreeing.
+_TIMING_ROW = (
+    ("caller onset", "caller_onset_sec"),
+    ("time to yield", "seconds_to_yield"),
+    ("talk-over", "talk_over_sec"),
+    ("response gap", "response_gap_sec"),
+    ("premature start", "premature_start_sec"),
+)
+
+
+def _fmt_secs(x: Any) -> str:
+    """Format a seconds value for the human report: ``n/a`` for a missing
+    measurement, never a raw ``None`` (report.py / start.py do the same)."""
+    return "n/a" if x is None else f"{float(x):.2f}s"
+
+
+def _timing_pairs(timing: Dict[str, Any]) -> List[tuple]:
+    return [(label, _fmt_secs(timing.get(key))) for label, key in _TIMING_ROW]
+
+
+def _timing_line(timing: Dict[str, Any]) -> str:
+    return " · ".join(f"{label} {val}" for label, val in _timing_pairs(timing))
+
+
+def _timeline_group_svg(timeline: Dict[str, Any]) -> str:
+    """A compact caller/agent activity strip with the both-active overlap band
+    marked, for the failure-record share card -- so the caught moment shows as a
+    caller/agent timeline instead of only grey NOT_RUN boxes. Reuses the sweep report's
+    time->pixel math (report._svg_timeline) in the failure card's own palette;
+    the spans are precomputed (report._spans) and passed in, so this renderer
+    reads no audio and stays deterministic."""
+    dur = float(timeline.get("duration") or 0.0) or 1.0
+    x0, x1 = 150.0, 1144.0
+    scale = (x1 - x0) / dur
+
+    def X(t: Any) -> float:
+        return x0 + max(0.0, min(float(t), dur)) * scale
+
+    caller_y, agent_y, track_h = 388, 412, 16
+    band_top, band_bot = 386, 430
+    parts: List[str] = [
+        f'<text x="56" y="380" fill="{_MUTED}" font-family="{_SVG_FONT}" '
+        'font-size="13">CAUGHT MOMENT · CALLER + AGENT ACTIVITY · '
+        'BOTH-ACTIVE OVERLAP MARKED</text>',
+        f'<text x="56" y="{caller_y + 13}" fill="{_MUTED}" '
+        f'font-family="{_SVG_FONT}" font-size="12">Caller</text>',
+        f'<text x="56" y="{agent_y + 13}" fill="{_MUTED}" '
+        f'font-family="{_SVG_FONT}" font-size="12">Agent</text>',
+        f'<line x1="{x0:.0f}" y1="{caller_y + track_h / 2:.0f}" x2="{x1:.0f}" '
+        f'y2="{caller_y + track_h / 2:.0f}" stroke="{_BORDER}"/>',
+        f'<line x1="{x0:.0f}" y1="{agent_y + track_h / 2:.0f}" x2="{x1:.0f}" '
+        f'y2="{agent_y + track_h / 2:.0f}" stroke="{_BORDER}"/>',
+    ]
+    for a, b in timeline.get("talkover_spans") or []:
+        x = X(a)
+        parts.append(
+            f'<rect x="{x:.1f}" y="{band_top}" width="{max(2.0, X(b) - x):.1f}" '
+            f'height="{band_bot - band_top}" fill="{_FAIL}" fill-opacity="0.18"/>')
+    for a, b in timeline.get("caller_spans") or []:
+        x = X(a)
+        parts.append(
+            f'<rect x="{x:.1f}" y="{caller_y}" width="{max(2.0, X(b) - x):.1f}" '
+            f'height="{track_h}" rx="4" fill="{_TL_CALLER}"/>')
+    for a, b in timeline.get("agent_spans") or []:
+        x = X(a)
+        parts.append(
+            f'<rect x="{x:.1f}" y="{agent_y}" width="{max(2.0, X(b) - x):.1f}" '
+            f'height="{track_h}" rx="4" fill="{_TL_AGENT}"/>')
+    onset = timeline.get("onset")
+    if onset is not None:
+        ox = X(onset)
+        parts.append(
+            f'<line x1="{ox:.1f}" y1="{band_top - 2}" x2="{ox:.1f}" '
+            f'y2="{band_bot + 2}" stroke="{_FAIL}" stroke-width="1.6" '
+            'stroke-dasharray="3 3"/>')
+    return "".join(parts)
+
 # Restrained attribution: one footer line, offline, no query string, no
 # tracking pixel, no remote asset. ``hotato.dev`` is plain text in the inert
 # HTML/SVG (only Markdown may make it a canonical link). It never competes
@@ -156,7 +245,8 @@ def render_json(record: Dict[str, Any]) -> str:
 # Markdown
 # =========================================================================
 
-def render_markdown(record: Dict[str, Any]) -> str:
+def render_markdown(record: Dict[str, Any], *,
+                    timing: Optional[Dict[str, Any]] = None) -> str:
     primary = _primary_assertion(record)
     lines = [
         f"# {_md_text(record['headline'])}",
@@ -174,6 +264,12 @@ def render_markdown(record: Dict[str, Any]) -> str:
             f"| {_md_text(lane.title())} | {_md_text(dim['status'])} "
             f"| {_md_text(_lane_observed(record, lane))} |"
         )
+    if timing is not None:
+        lines.extend([
+            "",
+            "**Measured timing** (one clip, distinct signals): "
+            + _md_text(_timing_line(timing)),
+        ])
     lines.extend([
         "",
         f"**Deterministic gate:** `{_md_text(record['gate']['status'])}` "
@@ -227,8 +323,23 @@ def render_markdown(record: Dict[str, Any]) -> str:
 # HTML (self-contained, inert)
 # =========================================================================
 
-def render_html(record: Dict[str, Any]) -> str:
+def render_html(record: Dict[str, Any], *,
+                timing: Optional[Dict[str, Any]] = None) -> str:
     primary = _primary_assertion(record)
+    timing_html = ""
+    if timing is not None:
+        cells = "".join(
+            f'<div style="min-width:150px">'
+            f'<div style="color:{_MUTED};font-size:0.8rem">{_esc(label)}</div>'
+            f'<div class="status" style="font-size:1.1rem;color:{_TEXT}">'
+            f"{_esc(val)}</div></div>"
+            for label, val in _timing_pairs(timing)
+        )
+        timing_html = (
+            '\n<div class="panel"><h2>Measured timing</h2>'
+            '<div style="display:flex;flex-wrap:wrap;gap:18px">'
+            f"{cells}</div></div>"
+        )
     rows: List[str] = []
     for lane in LANES:
         dim = record["dimensions"][lane]
@@ -294,7 +405,7 @@ pre {{ white-space:pre-wrap; background:{_SURFACE}; border:1px solid {_BORDER}; 
 <main>
 <div class="eyebrow">hotato failure record · <span class="status" style="color:{status_color}">{_esc(record['status'])}</span> · {_esc(record['subject']['test_id'])}</div>
 <h1>{_esc(record['headline'])}</h1>
-<table aria-label="Five evaluation dimensions"><thead><tr><th>Dimension</th><th>Status</th><th>Observed</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
+<table aria-label="Five evaluation dimensions"><thead><tr><th>Dimension</th><th>Status</th><th>Observed</th></tr></thead><tbody>{''.join(rows)}</tbody></table>{timing_html}
 <div class="panel"><h2>Gate authority</h2>
 <p>Deterministic gate: <strong>{_esc(record['gate']['status'])}</strong> · policy <code>{_esc(record['gate']['policy'])}</code></p>
 <p>Model advisory: <strong>{_esc(record['advisory']['status'])}</strong> · gate {_esc('enabled' if record['advisory']['gate_enabled'] else 'not enabled')}</p></div>
@@ -321,7 +432,9 @@ def _svg_esc(value: Any, limit: int) -> str:
     return _esc(_clip(value, limit))
 
 
-def render_svg(record: Dict[str, Any]) -> str:
+def render_svg(record: Dict[str, Any], *,
+               timing: Optional[Dict[str, Any]] = None,
+               timeline: Optional[Dict[str, Any]] = None) -> str:
     lanes: List[str] = []
     for x, lane in zip((56, 286, 516, 746, 976), LANES):
         dim = record["dimensions"][lane]
@@ -342,6 +455,33 @@ def render_svg(record: Dict[str, Any]) -> str:
     status_color = _STATUS_COLOR.get(record["status"], _FAIL)
     font = "'Spline Sans Mono',ui-monospace,SFMono-Regular,monospace"
     mono = "'Spline Sans Mono',ui-monospace,SFMono-Regular,monospace"
+    # The band between the lane boxes and the REGENERATE command. Plain: the
+    # PRIMARY EVIDENCE observed sentence (byte-identical to before, so an
+    # un-enriched record renders unchanged). Enriched (the demo golden path
+    # supplies them): the measured-timing stat row and the caught moment's
+    # caller/agent overlap timeline in the SAME vertical span, so nothing below
+    # shifts.
+    if timing is None and timeline is None:
+        middle = (
+            f'<text x="56" y="376" fill="{_MUTED}" font-family="{font}" font-size="16">PRIMARY EVIDENCE</text>\n'
+            f'<text x="56" y="406" fill="{_TEXT}" font-family="{font}" font-size="21">{_svg_esc(observed, 120)}</text>'
+        )
+    else:
+        parts: List[str] = []
+        if timing is not None:
+            stat_line = "MEASURED · " + " · ".join(
+                f"{label} {_fmt_secs(timing.get(key))}"
+                for label, key in _TIMING_ROW)
+            parts.append(
+                f'<text x="56" y="356" fill="{_TEXT}" font-family="{font}" '
+                f'font-size="15">{_svg_esc(stat_line, 128)}</text>')
+        else:
+            parts.append(
+                f'<text x="56" y="356" fill="{_TEXT}" font-family="{font}" '
+                f'font-size="16">{_svg_esc(observed, 118)}</text>')
+        if timeline is not None:
+            parts.append(_timeline_group_svg(timeline))
+        middle = "\n".join(parts)
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
 <title id="title">{_svg_esc(record['status'], 14)} · {_svg_esc(record['subject']['test_id'], 60)}</title>
 <desc id="desc">{_svg_esc(record['headline'], 200)}</desc>
@@ -351,8 +491,7 @@ def render_svg(record: Dict[str, Any]) -> str:
 <text x="56" y="166" fill="{_TEXT}" font-family="{font}" font-size="23">{_svg_esc(record['headline'], 112)}</text>
 <text x="56" y="205" fill="{_MUTED}" font-family="{font}" font-size="16">FIVE DIMENSIONS · EACH WITH ITS OWN STATUS · NEVER BLENDED</text>
 {''.join(lanes)}
-<text x="56" y="376" fill="{_MUTED}" font-family="{font}" font-size="16">PRIMARY EVIDENCE</text>
-<text x="56" y="406" fill="{_TEXT}" font-family="{font}" font-size="21">{_svg_esc(observed, 120)}</text>
+{middle}
 <text x="56" y="446" fill="{_MUTED}" font-family="{font}" font-size="15">REGENERATE FROM THE PRIVATE SOURCE RESULT</text>
 <text x="56" y="472" fill="{_TEXT}" font-family="{mono}" font-size="16">{_svg_esc(_command(record), 118)}</text>
 <text x="56" y="504" fill="{_MUTED}" font-family="{font}" font-size="15">VERIFY THIS RECORD</text>
@@ -369,15 +508,26 @@ def render_svg(record: Dict[str, Any]) -> str:
 # all four, from the one validated record
 # =========================================================================
 
-def render_all(record: Dict[str, Any]) -> Dict[str, str]:
+def render_all(record: Dict[str, Any], *,
+               timing: Optional[Dict[str, Any]] = None,
+               timeline: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     """Validate ``record`` once, then render every format from it. Keys are
-    the canonical output file names. Deterministic: same record, same bytes."""
+    the canonical output file names. Deterministic: same record, same bytes.
+
+    ``timing`` (the re-scored measurement: caller onset / time-to-yield /
+    talk-over / response gap / premature start) and ``timeline`` (a precomputed
+    caller/agent activity model) are OPTIONAL render-only enrichments the caller
+    supplies when it has the measured evidence in hand (the demo golden path).
+    They enrich the shareable Markdown/HTML/SVG only; the canonical JSON is the
+    same content-addressed record either way, and with both omitted every format
+    is byte-identical to the un-enriched render."""
     validate_record(record)
     return {
         "failure-record.json": render_json(record),
-        "failure-record.md": render_markdown(record),
-        "failure-record.html": render_html(record),
-        "failure-record.svg": render_svg(record),
+        "failure-record.md": render_markdown(record, timing=timing),
+        "failure-record.html": render_html(record, timing=timing),
+        "failure-record.svg": render_svg(record, timing=timing,
+                                         timeline=timeline),
     }
 
 
