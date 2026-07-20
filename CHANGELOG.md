@@ -8,6 +8,19 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **Score text and chat agents from a transcript (`hotato investigate --transcript FILE.json`).**
+  Accepts a timestamped, speaker-labeled transcript of `{role|speaker, text,
+  start, end}` turns and scores them through the existing turn-taking scorer with
+  no recording, so agents without two-channel audio are scorable in the same
+  complaint-to-CI-gate loop. The scoring engine is unchanged (the transcript is
+  quantized onto the score hop grid and run through the diarize stub-backend
+  seam). Because a sequential transcript cannot represent acoustic overlap,
+  `talk_over_sec` and `premature_start_sec` are reported as null with a reason
+  and the overlap-based candidate kinds are suppressed; `did_yield`,
+  `seconds_to_yield`, `response_gap_sec`, and `caller_onset_sec` are reported,
+  derived from the turn timestamps.
+
 ## [1.11.0] - 2026-07-20
 
 ### Added
