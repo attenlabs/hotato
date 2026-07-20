@@ -410,11 +410,32 @@ def run_trial(
     min_n: int = _verify.DEFAULT_MIN_N,
     patch_source: Optional[str] = None,
     plan: Optional[dict] = None,
+    agent_id: Optional[str] = None,
+    deployment_id: Optional[str] = None,
+    source_config_hash: Optional[str] = None,
+    candidate_config_hash: Optional[str] = None,
 ) -> dict:
     """Run the S4 before/after proof. Pure and OFFLINE: never creates a clone
     and never touches the network. Raises ``ValueError`` / ``OSError`` (CLI exit
     2) for anything unusable -- the SAME errors ``apply`` / ``verify`` /
-    ``contract verify`` already raise, never a new error class."""
+    ``contract verify`` already raise, never a new error class.
+
+    ``agent_id`` / ``deployment_id`` / ``source_config_hash`` /
+    ``candidate_config_hash`` are OPTIONAL deployment-identity fields plumbed
+    straight into the pinned trial manifest (:func:`hotato.manifest.build_manifest`).
+    They all default to ``None``, which reproduces the previous manifest body
+    byte-for-byte (build_manifest already wrote these keys as ``None``), so an
+    existing caller sees no change.
+
+    They exist to support a RELEASE proof, which is strictly stronger than the
+    paired proof this function's verdict already gates on: a release proof
+    additionally requires the candidate deployment identity to be
+    config-hash-bound (see :func:`hotato.evidence.meets_release_proof`), so a
+    fresh scored after side is bound to the intended agent revision, not merely
+    to a pinned manifest. This function only PLUMBS caller-supplied identity into
+    the manifest; the actual provider-fetch of the candidate's true deployment
+    identity is a separate, operator-gated LIVE step, and this call does NOT
+    itself contact any provider, place a call, or touch the network."""
     battery_dir = battery or before
 
     # 1. The exact apply gate, clone-only, refusal-first, offline. If this is
@@ -484,6 +505,17 @@ def run_trial(
     man = _manifest.build_manifest(
         battery_env, trial_id=name or "trial", nonce=nonce, policy=policy,
         min_n=min_n,
+        # Optional deployment identity, plumbed additively. All default None,
+        # which build_manifest already wrote as None -- so the manifest body is
+        # byte-identical to before when a caller supplies nothing. Supplying a
+        # config-hash-bound candidate identity is what a RELEASE proof requires
+        # on top of this paired proof (hotato.evidence.meets_release_proof); the
+        # provider-fetch of that identity stays a separate, operator-gated live
+        # step and no provider is contacted here.
+        agent_id=agent_id,
+        deployment_id=deployment_id,
+        source_config_hash=source_config_hash,
+        candidate_config_hash=candidate_config_hash,
     )
 
     # 4. RECOMPUTE both sides from the on-disk audio under the manifest. This

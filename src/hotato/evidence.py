@@ -206,6 +206,21 @@ REQUIRED_FOR_MEASURED: Tuple[str, ...] = (
     "score_integrity",
 )
 
+# The dimensions that gate a RELEASE proof: a paired proof PLUS a candidate
+# deployment identity that is config-hash-bound. A paired proof shows a fresh
+# before/after over one pinned manifest; it does NOT show which agent revision
+# actually produced the after side. A release proof closes that gap -- it binds
+# the after evidence to the intended candidate deployment. This is STRICTLY
+# STRONGER than REQUIRED_FOR_PAIRED_PROOF (a superset), and it never replaces or
+# weakens it: REQUIRED_FOR_PAIRED_PROOF is left exactly as-is.
+#
+# Enforcement only. The provider-FETCH of the candidate's true deployment
+# identity (querying the platform for the live agent's config hash) is a
+# separate, operator-gated LIVE step; nothing here contacts any provider.
+REQUIRED_FOR_RELEASE_PROOF: Tuple[str, ...] = REQUIRED_FOR_PAIRED_PROOF + (
+    "deployment_identity",
+)
+
 
 def _cap_for(dimension: str, state: Optional[str]) -> int:
     table = _DIMENSIONS.get(dimension)
@@ -296,6 +311,48 @@ def classify(
     }
 
 
+def meets_paired_proof(vector: Dict[str, Optional[str]]) -> bool:
+    """True iff this vector clears a paired before/after proof: every
+    REQUIRED_FOR_PAIRED_PROOF dimension holds the tier at or above PAIRED. Thin
+    wrapper over :func:`evidence_tier` so the release-proof gate below can state
+    the 'strictly stronger' relationship without duplicating the lattice."""
+    return evidence_tier(vector, REQUIRED_FOR_PAIRED_PROOF) >= TIER_PAIRED
+
+
+def meets_release_proof(vector: Dict[str, Optional[str]]) -> bool:
+    """True iff this vector clears a RELEASE proof, which is STRICTLY STRONGER
+    than a paired proof.
+
+    A release proof requires BOTH:
+
+    * every REQUIRED_FOR_PAIRED_PROOF dimension to hold a paired proof
+      (:func:`meets_paired_proof`), AND
+    * the candidate deployment identity to resolve to ``config_hash_bound``
+      (the only ``deployment_identity`` state whose cap is TIER_ATTESTED).
+
+    The second clause is what closes the gap a bare paired proof leaves open: a
+    fresh scored before/after does not, on its own, prove WHICH agent revision
+    produced the after side. A release proof additionally requires that
+    candidate deployment identity to be config-hash-bound, so the after evidence
+    is bound to the intended revision, not merely to a pinned manifest.
+
+    The tier resolution is reused, never duplicated: ``deployment_identity`` is
+    passed through the same :func:`_cap_for` lattice, and only its
+    ``config_hash_bound`` state reaches TIER_ATTESTED (``operator_asserted`` caps
+    at PAIRED, ``unknown``/absent at MEASURED), so nothing weaker can satisfy the
+    gate.
+
+    Enforcement only: this checks a caller-SUPPLIED deployment identity. The
+    actual provider-fetch of the candidate's true deployment identity is a
+    separate, operator-gated LIVE step; this function does NOT itself contact any
+    provider, place a call, or touch the network.
+    """
+    if not meets_paired_proof(vector):
+        return False
+    return _cap_for("deployment_identity",
+                    vector.get("deployment_identity")) >= TIER_ATTESTED
+
+
 def one_sentence(classification: dict) -> str:
     """One plain sentence stating what this tier proves and what it does not."""
     tier = classification["tier"]
@@ -329,6 +386,7 @@ __all__ = [
     "TIER_NONE", "TIER_ASSERTED", "TIER_MEASURED", "TIER_PAIRED", "TIER_ATTESTED",
     "TIER_LABEL", "TIER_HEADLINE",
     "REQUIRED_FOR_PAIRED_PROOF", "REQUIRED_FOR_MEASURED",
+    "REQUIRED_FOR_RELEASE_PROOF",
     "evidence_tier", "limiting_dimensions", "classify", "one_sentence",
-    "headline_for",
+    "headline_for", "meets_paired_proof", "meets_release_proof",
 ]

@@ -10616,12 +10616,14 @@ recomputes, overrides that. Specifically:
   scenario" you reproduced in Step 2 doesn't match the original bug, the
   audio identity check has nothing to say about it -- it verifies the bytes
   are freshly captured, never that the scenario is the one you claim.
-- **Repacking a `.hotato` contract with a loosened policy still verifies.**
-  `MANIFEST.sha256.json` is integrity (the archive agrees with itself), not
-  authenticity (who approved the policy inside it). Only a trusted
-  signature over the manifest closes that gap, and none is implemented
-  today; treat a bundle's origin with the same care as any file that
-  arrived from outside your own pipeline.
+- **Repacking a `.hotato` contract with a loosened policy still verifies
+  as an unsigned bundle.** `MANIFEST.sha256.json` is integrity (the archive
+  agrees with itself), not authenticity (who approved the policy inside it).
+  A trusted signature over the manifest closes that gap: an unsigned bundle
+  is reported unauthenticated, while an HMAC-SHA256 attestation (or an
+  Ed25519 signature for third-party trust) marks an authenticated bundle.
+  Absent a signature, treat a bundle's origin with the same care as any
+  file that arrived from outside your own pipeline.
 - **A resample, re-encode, or gain change of the SAME call still reads as a
   distinct capture,** because the guard's freshness check is decoded-PCM
   difference, and those transforms change the decoded samples of an
