@@ -566,14 +566,17 @@ def _investigate_input_ref(result: dict) -> str:
 
 
 def _candidate_line(cand: dict, rank: int) -> str:
-    d = cand.get("durations") or {}
-    detail = ", ".join(f"{k}={v}" for k, v in d.items())
-    return f"    [{rank}] t={cand['t_sec']}s {cand['kind']}  {detail}"
+    from . import scan as _scan
+    return (f"    [{rank}] t={cand['t_sec']}s {cand['kind']}  "
+            f"{_scan.candidate_detail(cand)}")
 
 
-def render_text(result: dict, *, show_all: bool = False) -> str:
-    lines = [f"hotato investigate [run {result['run']}]: {result['source']}"]
-    lines.extend(_render_capture_origin_lines(result["capture_origin"]))
+def _capture_and_health_lines(result: dict) -> list:
+    """The provenance caveats for one investigate result: the authenticated
+    capture origin, the config baseline, and the input-health recommendation
+    plus any warnings. Rendered together so the same result never describes its
+    provenance two ways."""
+    lines = list(_render_capture_origin_lines(result["capture_origin"]))
     snap = result.get("stack_config_snapshot")
     if isinstance(snap, dict):
         if snap.get("captured"):
@@ -581,49 +584,71 @@ def render_text(result: dict, *, show_all: bool = False) -> str:
                          "(source/stack_config_snapshot.json in the contract)")
         else:
             lines.append(f"  config baseline: not captured ({snap.get('note')})")
-
     t = result["trust"]
     lines.append(f"  input health: {t['recommendation']}")
     for w in t.get("warnings") or []:
         lines.append(f"    warning: {w}")
+    return lines
+
+
+def _verdict_lines(vs: dict) -> list:
+    if vs["eligible"]:
+        return ["  verdict path: eligible (a labeled event here can carry a "
+                "yield/hold verdict)"]
+    return [
+        f"  verdict path: REFUSED ({vs['mode']} mode): {vs['reason']}",
+        "    the candidates shown are still timing facts, never a "
+        "verdict; label one only after confirming the channel mapping "
+        "(--confirm-channels) or fixing the crosstalk",
+    ]
+
+
+def render_text(result: dict, *, show_all: bool = False) -> str:
+    from . import scan as _scan
+
+    t = result["trust"]
+    lines = [f"hotato investigate [run {result['run']}]: {result['source']}"]
+
+    # No catch to lead with (not scorable): keep the caveat-first report
+    # -- capture origin, input health, the reason, and the fix.
     if not t["scorable"]:
+        lines.extend(_capture_and_health_lines(result))
         lines.append(f"  NOT SCORABLE: {t['not_scorable_reason']}")
         lines.append("  no candidates scanned; fix the input and re-run.")
         lines.append(f"  state remembered at: {result['state_path']}")
         return "\n".join(lines)
 
-    vs = result["verdict_status"]
-    if vs["eligible"]:
-        lines.append(
-            "  verdict path: eligible (a labeled event here can carry a "
-            "real yield/hold verdict)"
-        )
-    else:
-        lines.append(
-            f"  verdict path: REFUSED ({vs['mode']} mode): {vs['reason']}"
-        )
-        lines.append(
-            "    the candidates below are still honest timing facts, never "
-            "a verdict; label one only after confirming the channel mapping "
-            "(--confirm-channels) or fixing the crosstalk"
-        )
-
     nexts = result["next"]
     cands = result["candidates"]
+    vs = result["verdict_status"]
+
     if not nexts:
+        lines.extend(_capture_and_health_lines(result))
+        lines.extend(_verdict_lines(vs))
         lines.append("  no candidate moments found in this recording.")
         lines.append(f"  state remembered at: {result['state_path']}")
         return "\n".join(lines)
 
-    # Lead with the single top-ranked candidate as the recommended action and
-    # exactly ONE next command -- a verdict, not a fan. The remaining
-    # candidates live behind --all so the first read stays one clear step.
+    # Lead with the CATCH (the hit above the hedging): the single top-ranked
+    # candidate, one plain-English sentence describing it, visually isolated,
+    # with the one command that turns it into a CI contract beneath it. The
+    # provenance/health caveats follow, just below the hit.
     top = nexts[0]
+    top_cand = cands[top["rank"] - 1]
+    rule = "  " + "-" * 64
     lines.append("  most likely failure (top-ranked candidate):")
-    lines.append(_candidate_line(cands[top["rank"] - 1], top["rank"]))
-    lines.append("  next: label it (use --expect hold instead if the agent "
-                 "was right to keep talking):")
+    lines.append(rule)
+    lines.append(_candidate_line(top_cand, top["rank"]))
+    lines.append(f"    {_scan.candidate_plain_english(top_cand)}")
+    lines.append(rule)
+    lines.append("  turn it into a CI contract (use --expect hold instead if "
+                 "the agent was right to keep talking):")
     lines.append(f"    {top['command']}")
+
+    # The provenance/health caveats, now BELOW the hit.
+    lines.append("")
+    lines.extend(_capture_and_health_lines(result))
+    lines.extend(_verdict_lines(vs))
 
     if show_all and len(nexts) > 1:
         lines.append(f"  all {len(nexts)} candidate moment(s):")
