@@ -2052,6 +2052,7 @@ def _cmd_investigate(args) -> int:
         top=args.top,
         state_path=args.state,
         channel_map_confirmed=args.confirm_channels,
+        demo=args.demo,
     )
     if args.format == "json":
         print(_errors.safe_json_dumps(result, indent=2))
@@ -2797,7 +2798,12 @@ def _cmd_contract_create(args) -> int:
 
 def _cmd_contract_verify(args) -> int:
     from . import contract as _contract
+    from . import notify as _notify
 
+    # Validate --notify URLs BEFORE the re-score (same discipline as sweep /
+    # fleet run): a bad scheme is an immediate exit-2 usage error, never a
+    # surprise emitted after verify already ran.
+    notify_urls = _notify.validate_notify_urls(getattr(args, "notify", None))
     v = _contract.verify_contracts(
         args.dir, transcript_path=getattr(args, "transcript", None),
     )
@@ -2811,6 +2817,10 @@ def _cmd_contract_verify(args) -> int:
         print(_errors.safe_json_dumps(_contract.verify_result_json(v), indent=2))
     else:
         print(_contract.render_verify_text(v))
+    # A share-safe run-summary on every verify (pass or fail) when --notify is
+    # set; fail-open, so a down webhook never changes the exit code below.
+    if notify_urls:
+        _notify.notify_all(notify_urls, _notify.contract_verify_payload(v))
     return v["exit_code"]
 
 
@@ -3637,6 +3647,63 @@ def _cmd_conversation_verify(args) -> int:
     return 2 if verdict["refused"] else 0
 
 
+def _resolve_scenario_ref(ref):
+    """Resolve a positional simulate reference to a scenario file path. A real
+    file on disk is used as-is; otherwise, if ``ref`` is a curated pack scenario
+    NAME, it resolves to the packaged scenario file. A path always wins (the pack
+    is consulted only when the path does not exist), so a local scenario file is
+    never shadowed by a pack name. Any other value is returned unchanged so the
+    normal file loader raises its usual not-found / usage error."""
+    if not ref or os.path.exists(ref):
+        return ref
+    from . import simulate_pack as _pack
+
+    if _pack.is_pack_name(ref):
+        return _pack.scenario_path(ref)
+    return ref
+
+
+def _cmd_simulate_list(args) -> int:
+    """List the curated, seeded persona/scenario pack and exit. Each entry is a
+    hotato.scenario.v1 the deterministic scripted caller renders into a labelled
+    origin=simulated conversation; a fixed (scenario, seed) is byte-identical.
+    Run one with `hotato simulate <name>`."""
+    from . import simulate_pack as _pack
+
+    manifest = _pack.load_manifest()
+    entries = _pack.list_entries()
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "simulate-pack",
+            "pack": manifest.get("pack", _pack.PACK_NAME),
+            "count": len(entries),
+            "scenarios": entries,
+        }
+        print(_errors.safe_json_dumps(payload, indent=2))
+        return 0
+    print(
+        f"hotato simulate pack: {manifest.get('pack', _pack.PACK_NAME)} -- "
+        f"{len(entries)} curated scenario(s)"
+    )
+    print(
+        "each renders a deterministic origin=simulated caller (never real); a "
+        "fixed (scenario, seed) is byte-identical"
+    )
+    width = max((len(e["name"]) for e in entries), default=0)
+    for e in entries:
+        cat = e.get("category", "")
+        print(
+            f"  {e['name']:<{width}}  [{cat}] seed={e.get('seed')}  "
+            f"{e.get('title', '')}"
+        )
+        tests = e.get("tests")
+        if tests:
+            print(f"      {tests}")
+    print("run one with: hotato simulate <name> --out ./sim")
+    return 0
+
+
 def _cmd_simulate_init(args) -> int:
     """Write a MINIMAL valid scenario.v1 the user can simulate immediately -- the
     onboarding path for a fresh install. It writes a hotato.scenario.v1 doc (the
@@ -3673,14 +3740,15 @@ def _cmd_simulate_init(args) -> int:
 
 
 def _cmd_simulate(args) -> int:
-    import datetime as _dt
-
     from . import scenario as _scn
     from . import simulate as SIM
 
-    # Onboarding paths, handled before anything loads a file: --init writes a
-    # minimal scenario the user can simulate immediately; --example renders the
-    # scenario bundled inside the package (a runnable demo from a bare install).
+    # Onboarding paths, handled before anything loads a file: --list prints the
+    # curated pack; --init writes a minimal scenario the user can simulate
+    # immediately; --example renders the scenario bundled inside the package (a
+    # runnable demo from a bare install).
+    if getattr(args, "list_pack", False):
+        return _cmd_simulate_list(args)
     if args.init is not None:
         return _cmd_simulate_init(args)
     if args.example:
@@ -3707,10 +3775,15 @@ def _cmd_simulate(args) -> int:
         )
     if not args.scenario:
         raise ValueError(
-            "provide a scenario file (positional), or --matrix <scenario.yaml> "
+            "provide a scenario file (positional) or a curated pack scenario "
+            "NAME (see `hotato simulate --list`), or --matrix <scenario.yaml> "
             "to run the whole variation matrix"
         )
 
+    # A positional that is not a file on disk but IS a curated pack NAME resolves
+    # to the packaged scenario file; a real file always wins (only consulted when
+    # the path does not exist), so a local scenario is never shadowed by a name.
+    args.scenario = _resolve_scenario_ref(args.scenario)
     doc = _scn.load_scenario_file(args.scenario)
     # --seed folds into the base seed (so derived per-run seeds shift with it);
     # --repetitions overrides the matrix repetition count (or sets it for a
@@ -3732,9 +3805,12 @@ def _cmd_simulate(args) -> int:
         runs[0]["seed"] = args.seed if args.seed is not None else int(doc.get("seed", 0))
 
     single = len(runs) == 1
-    created_at = args.created_at or _dt.datetime.now(
-        _dt.timezone.utc
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # A DETERMINISTIC replay's manifest created_at defaults to a reproducible
+    # instant (SOURCE_DATE_EPOCH-style, never the wall clock), matching the
+    # --matrix path and write_conversation, so the documented
+    # `hotato simulate <name> --out DIR` writes a byte-identical bundle every
+    # run. --created-at (or $SOURCE_DATE_EPOCH) pins the timestamp explicitly.
+    created_at = SIM.deterministic_created_at(args.created_at)
 
     run_records = []
     verdicts = []
@@ -3819,6 +3895,10 @@ def _cmd_simulate_matrix(args) -> int:
     from . import scenario as _scn
     from . import simulate as SIM
 
+    # A curated pack NAME resolves to its packaged scenario file (a real file
+    # always wins); so `hotato simulate --matrix <name>` runs a pack scenario's
+    # whole variation matrix too.
+    args.matrix = _resolve_scenario_ref(args.matrix)
     doc = _scn.load_scenario_file(args.matrix)
     # --seed folds into the base seed (per-run seeds shift with it); --repetitions
     # overrides the matrix repetition count. Both keep the summary byte-stable for
@@ -6331,6 +6411,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "envelope) used as context for every contract's "
                          "embedded `assertions` block, if any; works fully "
                          "without the [transcribe] extra")
+    cv.add_argument("--notify", action="append", default=None, metavar="URL",
+                    help="POST a JSON run-summary (pass/fail counts and the top "
+                         "failing contracts' ids + measured timing -- no audio, "
+                         "no credentials, no transcript, no file paths) to this "
+                         "webhook URL when verify finishes; repeatable. Off by "
+                         "default; fails open (a down webhook never changes the "
+                         "verify exit code). See docs/EGRESS.md")
     cv.set_defaults(func=_cmd_contract_verify)
 
     ci_ = ctsub.add_parser(
@@ -7239,6 +7326,11 @@ def build_parser() -> argparse.ArgumentParser:
             "  Use --init to write a minimal scenario, or --example to run the "
             "bundled one.\n"
             "\n"
+            "Curated pack (bundled, seeded, byte-reproducible test cases):\n"
+            "  hotato simulate --list\n"
+            "  hotato simulate barge-in-missed --out ./sim\n"
+            "  Run a common voice-agent test case by NAME, no file authoring.\n"
+            "\n"
             "Examples:\n"
             "  hotato simulate refund.scenario.yaml --out ./sim\n"
             "  hotato simulate refund.scenario.yaml --repetitions 5 --format json\n"
@@ -7256,8 +7348,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sm.add_argument("scenario", metavar="scenario.yaml", nargs="?", default=None,
                     help="the hotato.scenario.v1 file to render (single-run mode; "
-                         "use --matrix to run the whole variation matrix). Get a "
-                         "starter with `hotato simulate --init`")
+                         "use --matrix to run the whole variation matrix), OR a "
+                         "curated pack scenario NAME (see --list). Get a starter "
+                         "with `hotato simulate --init`")
+    sm.add_argument("--list", action="store_true", dest="list_pack",
+                    help="list the curated, seeded persona/scenario pack (the "
+                         "common voice-agent test cases bundled with the package) "
+                         "and exit; run one with `hotato simulate <name>`")
     sm.add_argument("--init", nargs="?", const="demo.scenario.json", default=None,
                     metavar="PATH",
                     help="write a MINIMAL valid scenario.v1 (default "
@@ -7302,11 +7399,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "the caller-side stimulus is not bound to an agent until "
                          "a later live-play slice)")
     sm.add_argument("--created-at", default=None, metavar="ISO8601",
-                    help="the artifact's created_at (single-run default: now, "
-                         "UTC; --matrix default: a reproducible "
+                    help="the artifact's created_at (default: a reproducible "
                          "SOURCE_DATE_EPOCH-style instant, never the wall clock, "
-                         "so a seeded matrix writes byte-identical manifests); "
-                         "set it to pin the manifest timestamp")
+                         "so a seeded run writes a byte-identical bundle every "
+                         "time); set it (or $SOURCE_DATE_EPOCH) to pin the "
+                         "manifest timestamp")
     _add_format_arg(sm, choices=("text", "json"))
     sm.set_defaults(func=_cmd_simulate)
 
@@ -8012,6 +8109,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("investigate") + "\n\n" + _LABEL_NOTE + "\n\n"
             "Examples:\n"
+            "  hotato investigate --demo\n"
             "  hotato investigate call.wav\n"
             "  hotato investigate --stack vapi --call-id abc123\n"
             "  hotato investigate label .hotato/investigate-state.json#1 "
@@ -8021,7 +8119,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     iv.add_argument("source", nargs="?", default=None, metavar="SOURCE",
                     help="a local dual-channel WAV path (omit when using "
-                         "--stack/--call-id)")
+                         "--demo or --stack/--call-id)")
+    iv.add_argument("--demo", action="store_true",
+                    help="score the stereo demo call bundled with hotato "
+                         "instead of a SOURCE -- a no-recording on-ramp that "
+                         "runs the same scorer on a packaged sample (works "
+                         "from any directory after install)")
     iv.add_argument("--stack", default=None, choices=list(_capture.PULL_STACKS),
                     help="pull the recording from this connected stack "
                          "instead of a local SOURCE")

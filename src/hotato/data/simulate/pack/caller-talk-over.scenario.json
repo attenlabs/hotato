@@ -1,0 +1,23 @@
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "caller-talk-over",
+  "goal": { "type": "talk_over_agent", "target": "agent explanation" },
+  "facts": {},
+  "caller": {
+    "script": [
+      { "say": "No no no, that's not what I asked, listen to me." },
+      { "say": "I want to speak to a human right now." }
+    ],
+    "behavior": {
+      "speaking_rate": 1.2,
+      "interruptions": [
+        { "trigger": "agent_mid_sentence", "offset_ms": 900 },
+        { "trigger": "agent_resumes", "offset_ms": 2600 }
+      ],
+      "backchannels": { "probability": 0.0 }
+    }
+  },
+  "environment": { "locale": "en-US", "noise": "clean", "route": "phone" },
+  "seed": 505
+}

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.10.1"
+version = "1.11.0"
 description = "Regression testing for voice agents: turn timing scored from two-channel calls, exit 0/1 in CI; plus say-do verification from your traces and content-addressed failure records that reproduce byte-for-byte. Self-hosted, MIT."
 readme = "README.pypi.md"
 # Support policy: requires-python is lower-bounded only. There is no upper cap
@@ -160,6 +160,11 @@ hotato = [
     "data/silero_vad.onnx.NOTICE",
     "data/scenarios/*.json",
     "data/simulate/*.json",
+    # The curated, seeded persona/scenario pack (hotato.simulate_pack): the
+    # manifest + each scenario.v1 the deterministic caller renders. README ships
+    # alongside so the pack is self-describing in the wheel.
+    "data/simulate/pack/*.json",
+    "data/simulate/pack/*.md",
     "data/audio/*.wav",
     "data/demo/failing/scenarios/*.json",
     "data/demo/failing/audio/*.wav",

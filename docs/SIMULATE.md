@@ -46,6 +46,51 @@ reliability: pass@1=1.000 pass@k=1.000 pass^k=1.000 (n=1)
 `./sim` holds a `conversation.json` plus its bound transcript and
 `voice_trace.jsonl`, all `origin.kind=simulated`.
 
+## The curated persona pack (seeded, byte-reproducible)
+
+The package ships a curated persona/scenario library, `hotato-voice-personas`,
+covering the common voice-agent test cases: a missed barge-in, a backchannel
+that is not a floor-take, long silence / dead air, a mid-utterance pause before
+an over-eager reply, a caller talking over the agent, and pacing variations (a
+fast interrupter, a slow speaker). Each entry is a real `hotato.scenario.v1`
+the deterministic caller renders, and each pins a fixed `seed`, so a fixed
+`(scenario, seed)` renders **byte-identical every run** across machines and CI:
+`conversation.json`, `transcript.json`, and `trace.jsonl` all match, because the
+manifest `created_at` defaults to a reproducible instant (SOURCE_DATE_EPOCH-style,
+never the wall clock). Pass `--created-at` (or set `$SOURCE_DATE_EPOCH`) to pin a
+real timestamp when you want one. Run a common test case by name, no file
+authoring:
+
+```bash
+# list the pack (add --format json for the machine-readable index):
+hotato simulate --list
+
+# run one pack scenario by name into a labelled origin=simulated conversation:
+hotato simulate barge-in-missed --out ./sim
+```
+
+`hotato simulate --list` prints:
+
+```
+hotato simulate pack: hotato-voice-personas -- 7 curated scenario(s)
+each renders a deterministic origin=simulated caller (never real); a fixed (scenario, seed) is byte-identical
+  backchannel-not-floor-take  [should_hold] seed=202  Backchannel that is not a floor-take
+      The caller drops short acknowledgements (mm-hmm, right) while listening. Run it to see whether your agent holds the floor instead of treating a backchannel as an interruption.
+  barge-in-missed             [should_yield] seed=101  Missed barge-in (hard interruption)
+      The caller takes the floor mid-sentence at a fixed offset. Run it to see whether your agent stops its own speech and listens.
+  ...
+run one with: hotato simulate <name> --out ./sim
+```
+
+The name resolves to a scenario bundled with the package; a scenario file on
+disk always wins, so a local file is never shadowed by a pack name. A pack
+scenario is deterministic INPUT that renders `origin=simulated`, labelled as
+such; it is scripted-caller stimulus, not production audio, and it scores
+nothing on its own -- scoring is the separate assert layer's job over the
+produced artifact. The pack lives in
+[`src/hotato/data/simulate/pack/`](../src/hotato/data/simulate/pack/) with its
+own `README.md` and `manifest.json`.
+
 > **Two different `scenario` concepts, one name.** `hotato simulate`
 > consumes a `hotato.scenario.v1` doc -- author one with `hotato simulate
 > --init`. `hotato scenario init` writes a separate file, a

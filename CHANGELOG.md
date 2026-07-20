@@ -8,6 +8,48 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-20
+
+### Added
+- **Curated seeded persona pack (`hotato-voice-personas`).** Ships seven common
+  voice-agent test cases inside the wheel (missed barge-in, backchannel that is
+  not a floor-take, dead-air/silence, over-eager early response, caller
+  talk-over, and fast/slow pacing), so a bare `pip install hotato` can list and
+  run them by name with no file authoring: `hotato simulate --list` and
+  `hotato simulate barge-in-missed --out ./sim`. Each entry is a real
+  `hotato.scenario.v1` the existing deterministic caller renders; the pack adds
+  a loader and manifest index, no engine, and scores nothing on its own.
+- **`hotato investigate --demo`.** A no-recording first-run on-ramp: runs the
+  scorer on a bundled two-channel demo call so a new user reaches the caught
+  moment and the `investigate label` step with nothing of their own. It is the
+  same scorer on a packaged sample (resolved as package data, so it works from
+  any directory), mutually exclusive with a positional recording / `--stack` /
+  `--call-id`.
+- **`hotato contract verify --notify URL`.** Opt-in, repeatable webhook that
+  POSTs a share-safe run-summary when the gate finishes: the pass/fail counts
+  (`passed`/`failed`/`tampered`/`refused`/`assertions_failed`, kept as separate
+  fields) and the top failing contracts' ids + measured timing, plus a Slack
+  `text` line. No audio, credentials, transcript, or file paths leave the
+  machine. Off by default; a non-http(s) scheme is refused before the re-score;
+  delivery is fail-open, so a down webhook never changes the verify exit code.
+  Reuses the existing `notify.py` path; see `docs/EGRESS.md`.
+
+### Changed
+- **`hotato start --demo --format json` leads with the activation on-ramp.** The
+  JSON `next_commands` now lead with the `hotato investigate <event.wav>` step
+  the human closing already prints (score the scorable call the demo just
+  wrote) before the CI-scaffold commands, so `--format json` (agent) consumers
+  get the same first step a person sees.
+
+### Fixed
+- **`hotato simulate <name> --out DIR` is byte-identical every run.** The
+  single-run path stamped the manifest `created_at` from the wall clock, so the
+  documented command was not byte-reproducible (only `transcript.json` /
+  `trace.jsonl` were). It now defaults `created_at` to a reproducible instant
+  (SOURCE_DATE_EPOCH-style), matching the `--matrix` path, so the full bundle
+  (`conversation.json` included) matches across runs; `--created-at` or
+  `$SOURCE_DATE_EPOCH` still pins a real timestamp.
+
 ## [1.10.1] - 2026-07-20
 
 ### Changed
