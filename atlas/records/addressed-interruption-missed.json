@@ -164,7 +164,7 @@
     "provenance": {
       "hotato": {
         "name": "hotato",
-        "version": "1.9.0"
+        "version": "1.10.0"
       },
       "inputs": [
         {
@@ -196,7 +196,7 @@
       ],
       "source_result_digest": "sha256:d3ec5aa5bbbdac05ef1ee7ad6d2612afd3916504e313e16df56ea3c334cb1346"
     },
-    "record_id": "sha256:97184b00f8058708a1858f71a3567cdcac09baef2d051def45ee7d114c72fba8",
+    "record_id": "sha256:63cf1eabe8af70210f4f85a74fab2cecbebed255aa7ce9bd8fd94e41a761d51c",
     "reproduction": {
       "argv": [
         "hotato",
@@ -222,7 +222,7 @@
     "version": "1.0"
   },
   "reproduction_metadata": {
-    "hotato_version": "1.9.0",
+    "hotato_version": "1.10.0",
     "reviewer_principal": "hotato-examples",
     "working_directory": ".",
     "bundle": {
@@ -242,7 +242,7 @@
     "verify_output": "verify.json",
     "selector": "fd-01-missed-interruption",
     "record_out": "record",
-    "expected_record_id": "sha256:97184b00f8058708a1858f71a3567cdcac09baef2d051def45ee7d114c72fba8"
+    "expected_record_id": "sha256:63cf1eabe8af70210f4f85a74fab2cecbebed255aa7ce9bd8fd94e41a761d51c"
   },
   "supersedes": {
     "record_id": "sha256:772fbb2a13addeb5cfbfb82d3c1652b15cb547d004e2db3db4341779c99c4336",
@@ -270,8 +270,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-01-missed-interruption --out record",
-      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:97184b00f8058708a1858f71a3567cdcac09baef2d051def45ee7d114c72fba8\n"
+      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:63cf1eabe8af70210f4f85a74fab2cecbebed255aa7ce9bd8fd94e41a761d51c\n"
     }
   ],
-  "content_digest": "sha256:94b238d1505012828e386c0ab6150c5d94ddd46cfc34c5e384af6126c9160a2b"
+  "content_digest": "sha256:25f991238bffe71c4347c783228d894312a52b54b27fb4bd7618992064b989e1"
 }
