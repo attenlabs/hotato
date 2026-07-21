@@ -114,7 +114,7 @@ def _cases():
 
 def test_case_matrix_covers_every_supported_deterministic_kind():
     assert set(_cases()) == set(A.KINDS).difference({
-        "timing_contract", "dtmf", "http_result", "formula",
+        "timing_contract", "dtmf", "http_result", "formula", "order",
     })
 
 

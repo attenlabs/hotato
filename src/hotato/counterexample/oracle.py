@@ -20,7 +20,7 @@ from .model import (
     prefixed_digest,
 )
 
-_REFUSED_KINDS = frozenset({"timing_contract", "dtmf", "http_result", "formula"})
+_REFUSED_KINDS = frozenset({"timing_contract", "dtmf", "http_result", "formula", "order"})
 _RUBRIC_KINDS = frozenset(A.RUBRIC_KINDS)
 _MAX_PROOF_REGEX_BYTES = 1_024
 _MAX_TARGET_ASSERTION_BYTES = 256 * 1024
@@ -237,6 +237,13 @@ def target_assertion(test_doc: Dict[str, Any], target_id: str) -> Dict[str, Any]
                 "formula assertions compose OTHER assertions' results from the "
                 "same run; the counterexample lane targets one assertion at a "
                 "time",
+            )
+        if assertion["kind"] == "order":
+            raise CounterexampleRefusal(
+                "unsupported_target",
+                "order assertions depend on the RELATIVE position of two phrase "
+                "matches across the whole transcript, which deletion-only "
+                "reduction can invert; they are outside reducers v1",
             )
         raise CounterexampleRefusal(
             "unsupported_target",

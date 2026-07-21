@@ -165,6 +165,10 @@ hotato = [
     # alongside so the pack is self-describing in the wheel.
     "data/simulate/pack/*.json",
     "data/simulate/pack/*.md",
+    # The curated, deterministic assertion packs (hotato.assert_packs): the
+    # manifest + each assert.v1 pack file merged into a run with
+    # `hotato assert run --pack`.
+    "data/assertions/packs/*.json",
     "data/audio/*.wav",
     "data/demo/failing/scenarios/*.json",
     "data/demo/failing/audio/*.wav",

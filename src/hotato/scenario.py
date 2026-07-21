@@ -27,9 +27,11 @@ Reproducibility here is scoped to "a seeded replay is byte-identical", never
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
-from typing import Any, Dict
+import re
+from typing import Any, Dict, List
 
 from .assert_ import parse_assertions_yaml
 from .errors import (
@@ -52,6 +54,11 @@ __all__ = [
     "load_scenario_file",
     "build_starter",
     "example_scenario_path",
+    "variable_references",
+    "substitute_variables",
+    "variable_combinations",
+    "node_say_lines",
+    "enumerate_branch_paths",
 ]
 
 KIND = "hotato.scenario"
@@ -65,6 +72,97 @@ DEFAULT_SPEAKING_RATE = 1.0
 # :func:`build_starter` -- one source of truth, pinned by a test.
 EXAMPLE_FILENAME = "quickstart.scenario.json"
 EXAMPLE_SCENARIO_ID = "simulate-quickstart"
+
+# A ``{name}`` template reference inside a caller ``say`` line: an identifier in
+# braces. Only a valid identifier matches, so literal braces around anything else
+# (e.g. code in a transcript) are left untouched -- a scenario with no template
+# refs and no ``variables`` block is byte-identical to before this feature.
+_VARIABLE_REF_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_VARIABLE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def variable_references(text: str) -> "set[str]":
+    """The set of ``{name}`` template variable names referenced in ``text``. A
+    plain string with no ``{identifier}`` yields the empty set."""
+    if not isinstance(text, str):
+        return set()
+    return set(_VARIABLE_REF_RE.findall(text))
+
+
+def substitute_variables(text: str, bindings: Dict[str, Any]) -> str:
+    """Substitute every ``{name}`` reference in ``text`` with ``bindings[name]``
+    (stringified). A reference with no binding is left VERBATIM (validation has
+    already refused an unbound reference before any expansion runs). Uses a regex
+    replace, never ``str.format``, so stray braces elsewhere never raise or get
+    mangled -- the substitution is scoped to declared identifiers only."""
+    def _repl(m: "re.Match") -> str:
+        name = m.group(1)
+        return str(bindings[name]) if name in bindings else m.group(0)
+
+    return _VARIABLE_REF_RE.sub(_repl, text)
+
+
+def variable_combinations(variables: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The deterministic cross product of a ``variables`` block: one binding dict
+    per combination of values, iterating variable names in SORTED order and each
+    name's values in declared order. An empty/absent block yields a single empty
+    binding ``[{}]`` -- so a scenario without variables expands to exactly one
+    (unchanged) cell along this axis."""
+    if not variables:
+        return [{}]
+    names = sorted(variables)
+    value_lists = [list(variables[n]) for n in names]
+    return [
+        {n: combo[i] for i, n in enumerate(names)}
+        for combo in itertools.product(*value_lists)
+    ]
+
+
+def node_say_lines(node: Dict[str, Any]) -> List[str]:
+    """The ordered caller lines a branch node speaks. A node's ``say`` is either
+    a single string (one line) or a list of strings (several)."""
+    say = node.get("say")
+    if isinstance(say, str):
+        return [say]
+    return list(say or [])
+
+
+def enumerate_branch_paths(branches: Dict[str, Any]) -> List[List[str]]:
+    """Enumerate EVERY root-to-leaf path through a ``branches`` graph, as a list
+    of node-name lists in deterministic depth-first, declared-``next`` order. A
+    leaf is a node with no ``next``.
+
+    REFUSES (``ValueError``, the caller's exit-2 path) an edge to an UNKNOWN node
+    (a ``next`` naming a node not defined under ``branches.nodes``) and any CYCLE
+    (a ``next`` pointing back to an ancestor on the current path) -- root-to-leaf
+    paths must be finite. A shared child reached by two distinct parents (a
+    diamond) is NOT a cycle: it yields one path per route, which is the point."""
+    root = branches["root"]
+    nodes = branches["nodes"]
+    paths: List[List[str]] = []
+
+    def _walk(name: str, trail: List[str], ancestors: "frozenset[str]") -> None:
+        if name not in nodes:
+            raise ValueError(
+                f"branches references unknown node {name!r}; define it under "
+                "branches.nodes or fix the 'next'/'root' that names it"
+            )
+        if name in ancestors:
+            loop = " -> ".join(trail + [name])
+            raise ValueError(
+                f"branches contains a cycle ({loop}); every root-to-leaf path "
+                "must be finite, so a node may not appear twice on one path"
+            )
+        trail = trail + [name]
+        nxt = nodes[name].get("next") or []
+        if not nxt:
+            paths.append(trail)
+            return
+        for child in nxt:
+            _walk(child, trail, ancestors | {name})
+
+    _walk(root, [], frozenset())
+    return paths
 
 
 def _reject_overall_score(obj: Any, where: str) -> None:
@@ -239,6 +337,126 @@ def _validate_agent_mock(am: Any) -> None:
             "agent_mock.state must be a {resource: rows} post-call sandbox")
 
 
+def _validate_variables(variables: Any) -> None:
+    """Validate the OPTIONAL ``variables`` block: a mapping of name -> a non-empty
+    list of scalar values (strings or numbers). Each declared variable is a matrix
+    axis (:func:`variable_combinations`); its values are substituted into ``{name}``
+    template references in the caller's ``say`` lines. It is ADDITIVE and gated --
+    a scenario without it expands byte-identically. The unbound-reference check
+    (a ``{name}`` with no declared variable) lives in :func:`validate_scenario_doc`
+    where both the caller script and any branch nodes are in view."""
+    if variables is None:
+        return
+    if not isinstance(variables, dict) or not variables:
+        raise ValueError(
+            "'variables' must be a non-empty mapping of name -> list of values"
+        )
+    for name, values in variables.items():
+        if not isinstance(name, str) or not _VARIABLE_NAME_RE.match(name):
+            raise ValueError(
+                f"variables key {name!r} must be an identifier "
+                "([A-Za-z_][A-Za-z0-9_]*) so it can be a '{name}' template"
+            )
+        if not isinstance(values, list) or not values:
+            raise ValueError(
+                f"variables[{name!r}] must be a non-empty list of values"
+            )
+        for v in values:
+            if isinstance(v, bool) or not isinstance(v, (str, int, float)):
+                raise ValueError(
+                    f"variables[{name!r}] values must be strings or numbers, "
+                    f"got {v!r}"
+                )
+
+
+def _validate_node_say(name: str, say: Any) -> None:
+    if isinstance(say, str):
+        if not say:
+            raise ValueError(
+                f"branches.nodes[{name!r}].say must be a non-empty caller line"
+            )
+        return
+    if isinstance(say, list) and say and all(
+        isinstance(x, str) and x for x in say
+    ):
+        return
+    raise ValueError(
+        f"branches.nodes[{name!r}].say must be a non-empty caller line string "
+        "or a non-empty list of such strings"
+    )
+
+
+def _validate_branches(branches: Any) -> None:
+    """Validate the OPTIONAL ``branches`` block: a decision tree/DAG of named
+    nodes the caller walks. ``root`` names the entry node; ``nodes`` maps a name
+    to ``{say, next?}`` where ``say`` is the node's caller line(s) and ``next`` is
+    the list of successor node names (a leaf has none). Every root-to-leaf path
+    is a deterministic expansion cell (:func:`enumerate_branch_paths`); its lines
+    are appended to the base caller script for that run. It is ADDITIVE and gated
+    -- a scenario without it expands byte-identically.
+
+    REFUSES (``ValueError``, exit 2): a missing/blank ``root``; an empty/malformed
+    ``nodes`` map; a bad node ``say``/``next``; a ``root`` that is not a defined
+    node; an edge to an UNKNOWN node; and any CYCLE (all three graph faults are
+    surfaced by walking the graph here, up front, before any expansion)."""
+    if branches is None:
+        return
+    if not isinstance(branches, dict):
+        raise ValueError(
+            "'branches' must be a mapping with a 'root' node name and a 'nodes' map"
+        )
+    _reject_overall_score(branches, "branches")
+    root = branches.get("root")
+    if not root or not isinstance(root, str):
+        raise ValueError(
+            "branches.root is required and must name the entry node (a string)"
+        )
+    nodes = branches.get("nodes")
+    if not isinstance(nodes, dict) or not nodes:
+        raise ValueError(
+            "branches.nodes is required and must be a non-empty mapping of node "
+            "name -> {say, next?}"
+        )
+    for nname, node in nodes.items():
+        if not isinstance(node, dict):
+            raise ValueError(f"branches.nodes[{nname!r}] must be a mapping")
+        _reject_overall_score(node, f"branches.nodes[{nname!r}]")
+        _validate_node_say(nname, node.get("say"))
+        nxt = node.get("next")
+        if nxt is not None and (
+            not isinstance(nxt, list)
+            or not all(isinstance(x, str) and x for x in nxt)
+        ):
+            raise ValueError(
+                f"branches.nodes[{nname!r}].next must be a list of successor "
+                "node-name strings"
+            )
+    if root not in nodes:
+        raise ValueError(
+            f"branches.root {root!r} is not a defined node; add it under "
+            "branches.nodes"
+        )
+    # Walk the whole graph now so an unknown-node edge or a cycle is refused up
+    # front (exit 2), never at render time.
+    enumerate_branch_paths(branches)
+
+
+def _collect_variable_refs(doc: Dict[str, Any]) -> "set[str]":
+    """Every ``{name}`` template reference across the base caller script AND any
+    branch-node lines -- the full set a scenario must declare in ``variables``."""
+    refs: "set[str]" = set()
+    for turn in (doc.get("caller") or {}).get("script") or []:
+        if isinstance(turn, dict):
+            refs |= variable_references(turn.get("say", ""))
+    branches = doc.get("branches")
+    if isinstance(branches, dict):
+        for node in (branches.get("nodes") or {}).values():
+            if isinstance(node, dict):
+                for line in node_say_lines(node):
+                    refs |= variable_references(line)
+    return refs
+
+
 def _validate_variation_matrix(vm: Any) -> None:
     if vm is None:
         return
@@ -333,6 +551,20 @@ def validate_scenario_doc(doc: Any) -> Dict[str, Any]:
 
     _validate_variation_matrix(doc.get("variation_matrix"))
     _validate_agent_mock(doc.get("agent_mock"))
+    _validate_variables(doc.get("variables"))
+    _validate_branches(doc.get("branches"))
+
+    # Every ``{name}`` template referenced by a caller line (script or branch
+    # node) must be declared in ``variables``; an unbound reference is refused up
+    # front (exit 2), never left to substitute to a literal at render time.
+    declared_vars = set(doc.get("variables") or {})
+    unbound = _collect_variable_refs(doc) - declared_vars
+    if unbound:
+        raise ValueError(
+            "caller script references undeclared variable(s) "
+            f"{sorted(unbound)}; declare each under 'variables' as name -> list "
+            "of values (an unbound '{name}' template)"
+        )
 
     seed = doc.get("seed", 0)
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:

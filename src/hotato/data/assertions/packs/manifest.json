@@ -1,0 +1,31 @@
+{
+  "pack_set": "hotato-compliance-packs",
+  "version": 1,
+  "description": "Curated, deterministic assertion packs for common voice-agent compliance checks. Each pack is a set of assert.v1 assertions built from the deterministic, offline, model-free kinds; merge one or more into a run with `hotato assert run --pack NAME`. Every check measures a deterministic signal in the transcript or trace (a phrase present or absent, a detector hit, a phrase ordering), never intent, and makes no certification claim.",
+  "packs": [
+    {
+      "name": "required-disclosure",
+      "file": "required-disclosure.pack.json",
+      "title": "Required disclosures",
+      "description": "Checks that the agent speaks required compliance disclosures (a recording notice and a consent request)."
+    },
+    {
+      "name": "prohibited-language",
+      "file": "prohibited-language.pack.json",
+      "title": "Prohibited language",
+      "description": "Checks that the agent avoids prohibited phrasing (guarantee/promise language and unsolicited medical direction)."
+    },
+    {
+      "name": "pii-leak",
+      "file": "pii-leak.pack.json",
+      "title": "PII leak",
+      "description": "Checks that no SSN, card number, email, or phone number leaks into the transcript."
+    },
+    {
+      "name": "identity-verification-order",
+      "file": "identity-verification-order.pack.json",
+      "title": "Identity verification order",
+      "description": "Checks that the agent requests identity verification and that it occurs before any account details are disclosed."
+    }
+  ]
+}
