@@ -8,6 +8,8 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-21
+
 ### Added
 - **Compliance assertion packs + the `order` kind.** Curated, deterministic
   assertion packs (`hotato assert packs`, `hotato assert run --pack NAME`):
