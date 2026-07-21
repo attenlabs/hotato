@@ -9,6 +9,40 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **Composite and conditional assertions (`formula`, `when:`).** A `formula`
+  assertion combines other named assertions' results with `and`/`or`/`not`,
+  parentheses, and a weighted-sum threshold form, parsed without `eval()`. Any
+  assertion may carry a `when:` precondition that skips it (INCONCLUSIVE) unless
+  the referenced assertions passed. Unknown names, self-references, and cycles
+  are refused up front; a referenced INCONCLUSIVE propagates, never a guess.
+- **`hotato baseline check`.** Gates drift between a committed baseline result
+  and a candidate result under per-dimension tolerances (`response_gap_sec:
+  "+10%"`, `seconds_to_yield: "+0.05"`), per event and per dimension, exit 0/1/2
+  with JUnit output. A one-sided or absent dimension is refused, never scored 0.
+- **`hotato simulate --chat URL`.** Drives the scripted deterministic caller
+  against a chat agent over local HTTP and records a timestamped transcript in
+  the shape `hotato investigate --transcript` consumes, so a text agent goes
+  from scenario to CI gate with no audio. Localhost by default; a non-local URL
+  requires `--egress-opt-in`.
+- **Acoustic health metrics (`hotato investigate`, audio path).** Per-channel
+  SNR, percent-silence, energy-burst rate, and clipping fraction, reported as an
+  `acoustic` block. Each states it is a signal measure, not intelligibility or
+  intent; the transcript path omits it.
+- **Robustness battery (`hotato battery robustness`).** Renders a recording at
+  staged SNR, clipping, dropout, and jitter, scores each stage, and reports how
+  the timing signals move across degradation. Byte-reproducible for a fixed seed.
+- **Fleet latency percentiles.** p50/p90/p99 for `response_gap_sec`,
+  `seconds_to_yield`, and `talk_over_sec` across a corpus, in the team trend and
+  report. Nulls are excluded with a shown count, never treated as 0.
+- **PR result reporting (`hotato contract verify --step-summary FILE`).**
+  Appends a tight Markdown summary of the verify (verdict line, pass/fail
+  counts, top failing contracts with measured timing) to FILE, made for
+  GitHub's `$GITHUB_STEP_SUMMARY`. The root Action's contracts run uses it to
+  put the verdict on the PR's job summary, ahead of the five-lane summary.
+  Presentation only and fail-open: a render or write problem reports on
+  stderr and never changes the verify exit code, and the Action's exit-code
+  contract is untouched (an exact older hotato pin without the flag runs
+  with its unchanged argv).
 - **Score text and chat agents from a transcript (`hotato investigate --transcript FILE.json`).**
   Accepts a timestamped, speaker-labeled transcript of `{role|speaker, text,
   start, end}` turns and scores them through the existing turn-taking scorer with

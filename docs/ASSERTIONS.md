@@ -50,15 +50,16 @@ never the matched text.
 
 ### The whole `kind` vocabulary
 
-The full `assert.v1` `kind` vocabulary is **18 deterministic kinds**, all
+The full `assert.v1` `kind` vocabulary is **19 deterministic kinds**, all
 `deterministic: true`, all model-free. Beyond the five core kinds:
 `tool_result` and `tool_error` (a tool's returned value or raised error, from
 the trace), `http_result` (a recorded HTTP exchange span's method, URL,
 status, and response subset, from the trace), `state` and `state_change` (a
 state adapter's snapshot or
 transition -- see [STATE-ADAPTERS.md](STATE-ADAPTERS.md)), `handoff`, `dtmf`,
-`termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`, and
-`count`. Two more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
+`termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`,
+`count`, and `formula` (a boolean composite over other assertions' results in
+the same run, below). Two more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
 model-judged rubric lane ([RUBRIC.md](RUBRIC.md)); inside a raw `assert.v1`
 document they resolve to a deterministic `INCONCLUSIVE`, so no model runs here
 and the guarantee holds.
@@ -90,6 +91,78 @@ exchange matched but its status/response did not"; a context with no trace at
 all reports `INCONCLUSIVE`, never a guess. A malformed assertion (missing
 `method`, an invalid `url_matches` regex, a `status` outside 100-599) is a
 usage error caught up front, before any assertion runs.
+
+### `formula`: a composite verdict over other assertions
+
+`formula` combines OTHER named assertions' results from the same run into one
+verdict. Its `expr` is a boolean expression over assertion ids -- `and`, `or`,
+`not`, parentheses -- plus a weighted-sum comparison
+(`0.6*a + 0.4*b >= 0.5`, where a bare id weighs 1). A referenced `PASS` is
+true and a `FAIL` is false; the weighted form sums the weights of the
+referenced assertions that passed and compares the total with the threshold.
+
+```yaml
+version: 1
+assertions:
+  - id: refund-issued
+    kind: tool_call
+    name: issue_refund
+  - id: confirmation-said
+    kind: phrase
+    regex: "confirmation number"
+    role: agent
+  - id: identity-verified
+    kind: tool_call
+    name: verify_identity
+  - id: happy-path
+    kind: formula
+    expr: "refund-issued and (confirmation-said or identity-verified)"
+  - id: mostly-healthy
+    kind: formula
+    expr: "0.5*refund-issued + 0.3*confirmation-said + 0.2*identity-verified >= 0.7"
+```
+
+The expression is parsed by a small recursive-descent parser -- never
+`eval()` -- and the whole reference graph is checked up front, before any
+assertion runs: an unknown id, a self-reference, or a reference cycle
+(including one through another `formula` or a `when:`) is a usage error
+(`ValueError`, exit `2`). References evaluate first whatever the document
+order (a `formula` may reference another `formula`), and `results` are always
+emitted in document order, byte-stable.
+
+A referenced `INCONCLUSIVE` makes the formula `INCONCLUSIVE`, with a reason
+naming the reference -- absent input propagates; a composite never guesses.
+A determinate result carries `refs` (the referenced ids), `met`/`of` (how many
+referenced assertions passed), and, on `FAIL`, a reason listing which
+references passed and which did not.
+
+### `when:`: conditional assertions
+
+Any assertion -- any kind -- may carry an optional `when:` precondition: one
+assertion id, or a list of ids. Unless every referenced assertion `PASS`ed,
+the assertion is SKIPPED: an `INCONCLUSIVE` result with `skipped: true` and a
+reason naming the unmet reference(s), because the check itself never ran --
+there is no verdict to report.
+
+```yaml
+version: 1
+assertions:
+  - id: refund-issued
+    kind: tool_call
+    name: issue_refund
+  - id: refund-amount-correct
+    kind: tool_result
+    name: issue_refund
+    result_subset: {status: ok}
+    when: refund-issued          # or a list: [refund-issued, other-id]
+```
+
+A referenced `FAIL` and a referenced `INCONCLUSIVE` both skip -- the
+precondition demands a `PASS`. `when:` references obey the same up-front
+unknown-name and cycle refusal as `formula`, and the referenced assertions
+always evaluate first. Under `inconclusive_policy: fail`/`refuse` a skip gates
+like any other `INCONCLUSIVE`, so a suite that must not stay green on skipped
+checks can opt in.
 
 ## Context: transcript, trace, timing
 

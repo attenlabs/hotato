@@ -3365,15 +3365,16 @@ never the matched text.
 
 ### The whole `kind` vocabulary
 
-The full `assert.v1` `kind` vocabulary is **18 deterministic kinds**, all
+The full `assert.v1` `kind` vocabulary is **19 deterministic kinds**, all
 `deterministic: true`, all model-free. Beyond the five core kinds:
 `tool_result` and `tool_error` (a tool's returned value or raised error, from
 the trace), `http_result` (a recorded HTTP exchange span's method, URL,
 status, and response subset, from the trace), `state` and `state_change` (a
 state adapter's snapshot or
 transition -- see [STATE-ADAPTERS.md](STATE-ADAPTERS.md)), `handoff`, `dtmf`,
-`termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`, and
-`count`. Two more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
+`termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`,
+`count`, and `formula` (a boolean composite over other assertions' results in
+the same run, below). Two more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
 model-judged rubric lane ([RUBRIC.md](RUBRIC.md)); inside a raw `assert.v1`
 document they resolve to a deterministic `INCONCLUSIVE`, so no model runs here
 and the guarantee holds.
@@ -3405,6 +3406,78 @@ exchange matched but its status/response did not"; a context with no trace at
 all reports `INCONCLUSIVE`, never a guess. A malformed assertion (missing
 `method`, an invalid `url_matches` regex, a `status` outside 100-599) is a
 usage error caught up front, before any assertion runs.
+
+### `formula`: a composite verdict over other assertions
+
+`formula` combines OTHER named assertions' results from the same run into one
+verdict. Its `expr` is a boolean expression over assertion ids -- `and`, `or`,
+`not`, parentheses -- plus a weighted-sum comparison
+(`0.6*a + 0.4*b >= 0.5`, where a bare id weighs 1). A referenced `PASS` is
+true and a `FAIL` is false; the weighted form sums the weights of the
+referenced assertions that passed and compares the total with the threshold.
+
+```yaml
+version: 1
+assertions:
+  - id: refund-issued
+    kind: tool_call
+    name: issue_refund
+  - id: confirmation-said
+    kind: phrase
+    regex: "confirmation number"
+    role: agent
+  - id: identity-verified
+    kind: tool_call
+    name: verify_identity
+  - id: happy-path
+    kind: formula
+    expr: "refund-issued and (confirmation-said or identity-verified)"
+  - id: mostly-healthy
+    kind: formula
+    expr: "0.5*refund-issued + 0.3*confirmation-said + 0.2*identity-verified >= 0.7"
+```
+
+The expression is parsed by a small recursive-descent parser -- never
+`eval()` -- and the whole reference graph is checked up front, before any
+assertion runs: an unknown id, a self-reference, or a reference cycle
+(including one through another `formula` or a `when:`) is a usage error
+(`ValueError`, exit `2`). References evaluate first whatever the document
+order (a `formula` may reference another `formula`), and `results` are always
+emitted in document order, byte-stable.
+
+A referenced `INCONCLUSIVE` makes the formula `INCONCLUSIVE`, with a reason
+naming the reference -- absent input propagates; a composite never guesses.
+A determinate result carries `refs` (the referenced ids), `met`/`of` (how many
+referenced assertions passed), and, on `FAIL`, a reason listing which
+references passed and which did not.
+
+### `when:`: conditional assertions
+
+Any assertion -- any kind -- may carry an optional `when:` precondition: one
+assertion id, or a list of ids. Unless every referenced assertion `PASS`ed,
+the assertion is SKIPPED: an `INCONCLUSIVE` result with `skipped: true` and a
+reason naming the unmet reference(s), because the check itself never ran --
+there is no verdict to report.
+
+```yaml
+version: 1
+assertions:
+  - id: refund-issued
+    kind: tool_call
+    name: issue_refund
+  - id: refund-amount-correct
+    kind: tool_result
+    name: issue_refund
+    result_subset: {status: ok}
+    when: refund-issued          # or a list: [refund-issued, other-id]
+```
+
+A referenced `FAIL` and a referenced `INCONCLUSIVE` both skip -- the
+precondition demands a `PASS`. `when:` references obey the same up-front
+unknown-name and cycle refusal as `formula`, and the referenced assertions
+always evaluate first. Under `inconclusive_policy: fail`/`refuse` a skip gates
+like any other `INCONCLUSIVE`, so a suite that must not stay green on skipped
+checks can opt in.
 
 ## Context: transcript, trace, timing
 
@@ -4126,13 +4199,52 @@ hotato simulate --matrix demo.scenario.json \
 The summary stays byte-identical no matter the worker count. Every result
 is attributed to its own variation cell, each scored on its own lane.
 
+## Drive the scripted caller at YOUR chat agent (`--chat URL`)
+
+`--chat` drives the same scripted caller turn plan against your own chat
+agent over HTTP and writes a timestamped transcript
+[`hotato investigate --transcript`](INVESTIGATE.md) scores:
+
+```bash
+hotato simulate demo.scenario.json --chat http://127.0.0.1:8080/chat
+hotato investigate --transcript .hotato/chat-transcript.json
+```
+
+The whole wire contract is one POST per scripted turn:
+
+```
+request:   POST <URL>   {"conversation_id": "<id>", "turn_index": 0, "text": "<caller turn>"}
+response:  200          {"text": "<agent reply>"}
+```
+
+Extra response keys are ignored; a non-200, a redirect, a non-JSON body, or
+a missing `text` is a loud exit-2 error naming the contract. Local by
+default: a host off `localhost`/`127.0.0.1` is refused before any request
+unless you pass `--egress-opt-in` (the same explicit gate the hosted
+diarizer and hosted judge carry).
+
+What lands in the transcript, each labelled for what it is:
+
+- agent replies **verbatim**, with per-turn reply latency **measured** as the
+  HTTP round trip -- that measured latency is exactly the response gap
+  `investigate --transcript` scores;
+- caller/agent turn spans from the scenario's deterministic pacing model
+  (the same word-count/speaking-rate constants the offline renderer uses),
+  so the caller side derives from `(scenario, seed)`, never a wall clock;
+- `origin.kind = "simulated"` provenance: the caller side is the scripted
+  simulator's, and the agent text is your agent's own replies
+  (`agent_replies: "live-chat-http"`).
+
+`--out DIR` names the transcript's directory (default `.hotato/`, written
+as `chat-transcript.json`).
+
 ## Exit codes
 
 | Exit | Meaning |
 |---|---|
-| `0` | every produced conversation is `origin=simulated`, validated as a faithful rendering (and, under `--matrix --conversation-test`, every scored aggregate passed) |
+| `0` | every produced conversation is `origin=simulated`, validated as a faithful rendering (and, under `--matrix --conversation-test`, every scored aggregate passed); with `--chat`, every scripted turn was driven and the transcript written |
 | `1` | at least one simulation was `SIMULATOR_INVALID` -- a broken fixture, distinct from an agent PASS/FAIL -- or, under `--matrix --conversation-test`, a scored aggregate FAILed |
-| `2` | usage error / unusable input: a malformed or unreadable scenario/conversation-test file (or, under `--matrix --conversation-test` with `inconclusive_policy refuse`, a withheld verdict) |
+| `2` | usage error / unusable input: a malformed or unreadable scenario/conversation-test file (or, under `--matrix --conversation-test` with `inconclusive_policy refuse`, a withheld verdict); a non-local `--chat` URL without `--egress-opt-in`, an unreachable chat agent, or a reply off the `--chat` contract |
 
 ## Related
 
@@ -6292,6 +6404,35 @@ overlap grew (talk-over up) or the agent stopped later (time to yield up)
 lists under Regressions with the delta. Best effort: when it can't run,
 the comment falls back to the current pass/fail table and the gate still
 holds.
+
+## Gate timing drift against a saved baseline
+
+`hotato baseline check` turns those deltas into a hard gate. Commit a
+tolerance file naming how much each timing dimension may rise, save a
+baseline run envelope, and the check exits 1 the moment a candidate run
+drifts beyond a tolerance:
+
+```yaml
+# tolerances.yaml -- how much increase each dimension may absorb
+response_gap_sec: "+10%"     # percent of the baseline mean
+seconds_to_yield: "+0.05"    # absolute seconds
+```
+
+```bash
+hotato run --suite barge-in --format json --no-fail > baseline.json   # once, on main
+hotato run --suite barge-in --format json --no-fail > candidate.json  # per PR
+hotato baseline check tolerances.yaml baseline.json candidate.json --junit drift.xml
+```
+
+Dimensions: `seconds_to_yield`, `talk_over_sec`, `response_gap_sec`,
+`premature_start_sec`; each side's value is the pooled mean across its
+scorable events. Every dimension is lower-is-better timing, so the gate is
+one-sided: an improvement always passes, and a dimension with no
+measurements on a side refuses (exit 2) rather than passing silently.
+`--format json` emits the machine envelope with the per-dimension deltas;
+`--junit drift.xml` feeds the same CI test widgets as `hotato contract
+verify --junit`. Exit codes: 0 within tolerance, 1 drift beyond tolerance,
+2 usage error.
 
 ## Render a comment yourself
 
@@ -8907,6 +9048,7 @@ non-local Ollama endpoint, or `--judge-provider hosted`.
 | `pr create --yes` | Git remote + GitHub, through your local `gh` CLI's existing auth | only with `--yes` | `prcmd.py`: `subprocess.run([...git...])` then `subprocess.run(["gh", "pr", "create", ...])` |
 | `test run --state F` (state-config `adapter: http`) | your configured system-of-record REST API | per `state`/`state_change` assertion, and ONLY when the config sets `egress_opt_in: true`. What leaves: the mapped filter VALUES for that one query (in the URL or a JSON body); never audio, transcript, or the config | `state_adapter.py`: `HttpStateAdapter.query` via `urllib.request` (credential-safe redirects reused from `capture.py`) |
 | `test run --state F` (state-config `adapter: sql` + a `dsn`) | your database, over the network via the driver you install | per assertion, and ONLY with `egress_opt_in: true`. A parameterized read-only SELECT; filter VALUES are bound as data, never interpolated. A local `sqlite_path` opens no socket | `state_adapter.py`: `SqlStateAdapter.query` (stdlib `sqlite3`, or a caller-installed DBAPI driver) |
+| `simulate --chat URL` | YOUR chat agent at the URL you name -- `localhost`/`127.0.0.1` only by default | one POST per scripted caller turn (`{conversation_id, turn_index, text}` -> `{text}`); a non-local host is refused (exit 2) BEFORE any request unless you pass `--egress-opt-in`, and redirects are refused outright, so a local URL never bounces off-box. What leaves: the scenario's caller turn text, nothing else | `chat_sim.py`: `check_chat_url` / `_post_turn` via `urllib.request` |
 
 `load_state_adapter` requires `egress_opt_in: true` before an `http`
 adapter or a `sql` adapter over a `dsn` connects -- checked before any

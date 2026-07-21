@@ -20,7 +20,7 @@ from .model import (
     prefixed_digest,
 )
 
-_REFUSED_KINDS = frozenset({"timing_contract", "dtmf", "http_result"})
+_REFUSED_KINDS = frozenset({"timing_contract", "dtmf", "http_result", "formula"})
 _RUBRIC_KINDS = frozenset(A.RUBRIC_KINDS)
 _MAX_PROOF_REGEX_BYTES = 1_024
 _MAX_TARGET_ASSERTION_BYTES = 256 * 1024
@@ -230,6 +230,13 @@ def target_assertion(test_doc: Dict[str, Any], target_id: str) -> Dict[str, Any]
                 "unsupported_target",
                 "HTTP-result assertions require captured exchange evidence the "
                 "scripted simulator does not emit",
+            )
+        if assertion["kind"] == "formula":
+            raise CounterexampleRefusal(
+                "unsupported_target",
+                "formula assertions compose OTHER assertions' results from the "
+                "same run; the counterexample lane targets one assertion at a "
+                "time",
             )
         raise CounterexampleRefusal(
             "unsupported_target",

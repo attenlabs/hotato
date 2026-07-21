@@ -9,6 +9,10 @@ by hand:
            calls "linear"): with the values sorted ascending and n values,
            pos = q * (n - 1); p_q = v[floor(pos)] + frac * (v[floor(pos)+1]
            - v[floor(pos)]).
+* nearest-rank percentile (``nearest_rank``, used by the fleet corpus
+  percentiles): with the values sorted ascending and n values,
+  rank = ceil(q * n) (1-based, at least 1); p_q = v[rank - 1]. Every
+  percentile is an observed measurement, never an interpolation.
 
 Empty input returns None, never a fabricated number.
 """
@@ -30,6 +34,22 @@ def percentile(values, q: float) -> Optional[float]:
     hi = min(lo + 1, len(v) - 1)
     frac = pos - lo
     return v[lo] + (v[hi] - v[lo]) * frac
+
+
+def nearest_rank(values, q: float) -> Optional[float]:
+    """Deterministic nearest-rank percentile of ``values`` (q in (0, 1]).
+
+    With the values sorted ascending and n values: rank = ceil(q * n)
+    (1-based, clamped to at least 1); the percentile is v[rank - 1]. The
+    result is always one of the observed measurements (never interpolated),
+    so it is re-derivable by hand and stable across platforms. Empty input
+    returns None, never a fabricated number.
+    """
+    if not values:
+        return None
+    v = sorted(values)
+    rank = max(1, math.ceil(q * len(v)))
+    return v[min(rank, len(v)) - 1]
 
 
 def _numeric(values) -> list:
@@ -57,6 +77,34 @@ def dist_summary(values) -> Optional[dict]:
         "p90": round(percentile(v, 0.90), 3),
         "p95": round(percentile(v, 0.95), 3),
         "max": round(v[-1], 3),
+    }
+
+
+def corpus_percentiles(values, total: int) -> dict:
+    """p50 / p90 / p99 of a pooled corpus by the nearest-rank method.
+
+    ``values`` is every candidate measurement pooled across the corpus (nulls
+    and junk included); ``total`` is the number of events the metric could
+    have been measured on. Only real numeric measurements enter the
+    percentiles (see ``_numeric``); ``excluded_null`` = total - n counts the
+    events with no numeric measurement for the metric (null or missing, e.g.
+    transcript-path talk-over), shown so the exclusion is visible and a null
+    is never treated as 0. The shape is stable even with nothing measured:
+    the percentiles are None and the exclusion count still stated.
+    """
+    v = sorted(_numeric(values))
+
+    def p(q: float) -> Optional[float]:
+        r = nearest_rank(v, q)
+        return round(r, 3) if r is not None else None
+
+    return {
+        "method": "nearest-rank",
+        "n": len(v),
+        "excluded_null": max(0, total - len(v)),
+        "p50": p(0.50),
+        "p90": p(0.90),
+        "p99": p(0.99),
     }
 
 

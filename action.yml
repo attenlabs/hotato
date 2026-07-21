@@ -16,6 +16,12 @@
 #     in with gate-advisory: true (hotato's own --gate-judge flag).
 #   - artifact upload stays a consumer step (actions/upload-artifact pinned
 #     by full commit SHA); this Action never uploads, comments, or notifies.
+#   - a contracts run also appends hotato's own tight verify Markdown
+#     (verdict line, pass/fail counts, top failing contracts with measured
+#     timing; `hotato contract verify --step-summary`) to the job summary,
+#     ahead of the five-lane summary. Presentation only and fail-open: it
+#     never changes the step exit code, and an exact older hotato pin
+#     without the flag runs with its unchanged argv.
 #   - every input is passed to python through the environment and used as an
 #     argv token; no input string is ever shell evaluated.
 name: hotato conversation QA

@@ -409,6 +409,17 @@ _EXIT_CODES: dict = {
             "never an error and never a blended delta score)"),
         (2, "a usage error or an unreadable registry --registry"),
     ),
+    "baseline": (
+        (2, "no subcommand given (see hotato baseline check --help)"),
+    ),
+    "baseline check": (
+        (0, "every checked dimension stayed within its tolerance"),
+        (1, "at least one dimension drifted beyond its tolerance"),
+        (2, "usage error or unusable input: a malformed tolerance file, an "
+            "unknown dimension, a result JSON that is not a run envelope, or "
+            "a dimension with no measurements on a side (a refusal, never a "
+            "silent pass)"),
+    ),
     "record": (
         (2, "no subcommand given (see hotato record render/verify --help)"),
     ),
@@ -472,7 +483,9 @@ _EXIT_CODES: dict = {
     "simulate": (
         (0, "every produced conversation is labelled origin=simulated and "
             "validated as a faithful rendering of its scenario (and, under "
-            "--matrix --conversation-test, every scored aggregate passed)"),
+            "--matrix --conversation-test, every scored aggregate passed); "
+            "with --chat, every scripted turn was driven and the transcript "
+            "was written"),
         (1, "at least one produced simulation was SIMULATOR_INVALID -- a broken "
             "fixture, never an agent PASS/FAIL -- or, under --matrix "
             "--conversation-test, a scored aggregate FAILed (or an INCONCLUSIVE "
@@ -480,7 +493,9 @@ _EXIT_CODES: dict = {
         (2, "under --matrix --conversation-test with inconclusive_policy refuse, "
             "a scored INCONCLUSIVE withheld the verdict; OR a usage error / "
             "unusable input: a malformed or unreadable scenario / "
-            "conversation-test file"),
+            "conversation-test file, a non-local --chat URL without "
+            "--egress-opt-in (refused before any request), an unreachable "
+            "chat agent, or a reply off the --chat POST contract"),
     ),
     "compare": (
         (0, "compared (measures, does not gate by default)"),
@@ -729,6 +744,15 @@ _EXIT_CODES: dict = {
     "synth": (
         (0, "synthetic-derived perturbations were written as a separate axis"),
         (2, "usage error or unreadable source audio"),
+    ),
+    "battery": (
+        (2, "no subcommand given (see hotato battery robustness --help)"),
+    ),
+    "battery robustness": (
+        (0, "the degradation ladder rendered and scored; the stability table "
+            "was emitted (movement is reported, never gated)"),
+        (2, "usage error, unreadable source audio, or a baseline recording "
+            "that is not scorable"),
     ),
     "fleet experiment run": (
         (0, "the before/after battery improved under the pinned manifest "
@@ -1386,6 +1410,20 @@ def _emit_team_text(agg: dict, dirpath: str) -> None:
               f"p90 {d['p90']:.2f}s p95 {d['p95']:.2f}s (n={d['n']})")
     else:
         print("  response gap: no measurements")
+    lp = agg["latency_percentiles"]
+    print("  fleet percentiles (nearest-rank, pooled across all runs; "
+          "null measurements excluded, never counted as 0):")
+    for name, key in (("response gap", "response_gap_sec"),
+                      ("time to yield", "seconds_to_yield"),
+                      ("talk-over", "talk_over_sec")):
+        p = lp[key]
+        if p["n"]:
+            print(f"    {name}: p50 {p['p50']:.2f}s p90 {p['p90']:.2f}s "
+                  f"p99 {p['p99']:.2f}s (n={p['n']}, "
+                  f"{p['excluded_null']} null excluded)")
+        else:
+            print(f"    {name}: no measurements "
+                  f"({p['excluded_null']} null excluded)")
     sla = agg["latency_sla"]
     if sla["bound_sec"] is not None:
         observed = (f'{sla["observed_p95_sec"]:.2f}s'
@@ -2710,6 +2748,54 @@ def _cmd_synth(args) -> int:
     return 0
 
 
+def _cmd_battery_robustness(args) -> int:
+    from . import synth as _synth
+    res = _synth.robustness_battery(args.wav, args.out, seed=args.seed,
+                                    onset_sec=args.onset, expect=args.expect)
+    body = dict(res)
+    body["generator_tool"] = body.pop("tool")   # hotato-synth/<version> provenance
+    payload = {"tool": "hotato", "kind": "robustness-battery", **body}
+    if getattr(args, "format", "text") == "json":
+        print(_errors.safe_json_dumps(payload, indent=2))
+        return 0
+
+    def _sec(v):
+        return "n/a" if v is None else f"{v:.2f}s"
+
+    def _dsec(v):
+        return "" if v is None else f" ({v:+.2f}s)"
+
+    print(f"robustness battery: {len(res['stages'])} stage(s) from {args.wav} "
+          f"(seed {args.seed}, expect {res['expect']})")
+    for row in res["stages"]:
+        if not row["scorable"]:
+            print(f"  [ ? ] {row['stage']}: not scorable "
+                  f"({row.get('not_scorable_reason')})")
+            continue
+        m, d = row["metrics"], row["delta"] or {}
+        if row["recipe"] is None:
+            mark, flip = "-", ""
+        elif d.get("did_yield_flipped"):
+            mark, flip = "!", " (flipped)"
+        else:
+            mark, flip = "=", ""
+        print(f"  [ {mark} ] {row['stage']}: did_yield={m['did_yield']}{flip} "
+              f"seconds_to_yield={_sec(m['seconds_to_yield'])}"
+              f"{_dsec(d.get('seconds_to_yield_delta'))} "
+              f"talk_over={_sec(m['talk_over_sec'])}"
+              f"{_dsec(d.get('talk_over_sec_delta'))} "
+              f"response_gap={_sec(m['response_gap_sec'])}"
+              f"{_dsec(d.get('response_gap_sec_delta'))}")
+    s = res["summary"]
+    flipped = ", ".join(s["did_yield_flipped_stages"]) or "none"
+    print(f"  did_yield flipped at: {flipped}")
+    if s["not_scorable_stages"]:
+        print(f"  not scorable at: {', '.join(s['not_scorable_stages'])}")
+    print(f"  stage clips -> {args.out}; kept as a SEPARATE 'synthetic' axis; "
+          "never blended with real-call evidence.")
+    return 0
+
+
 def _cmd_fleet_canary(args) -> int:
     # Deliberately does NOT touch a live stack: routing/rollback need connected
     # credentials and a tested rollback path, absent in this release.
@@ -2828,6 +2914,21 @@ def _cmd_contract_verify(args) -> int:
     if args.junit:
         _atomic_write_text(args.junit, _contract.render_verify_junit(v))
         print(f"wrote {args.junit}", file=sys.stderr)
+    # A tight Markdown job summary (--step-summary, typically GitHub's
+    # $GITHUB_STEP_SUMMARY) is APPENDED, matching that file's shared-across-
+    # steps convention. Presentation only and fail-open by contract: any
+    # render or write problem reports on stderr and never changes the verify
+    # exit code returned below.
+    if getattr(args, "step_summary", None):
+        try:
+            md = _contract.render_verify_step_summary(v)
+            with open(args.step_summary, "a", encoding="utf-8") as fh:
+                fh.write(md)
+            print(f"appended step summary to {args.step_summary}",
+                  file=sys.stderr)
+        except Exception as exc:
+            print(f"note: step summary not written ({exc}); the verify "
+                  "result is unchanged", file=sys.stderr)
     if args.format == "json":
         print(_errors.safe_json_dumps(_contract.verify_result_json(v), indent=2))
     else:
@@ -3554,6 +3655,23 @@ def _cmd_release_compare(args) -> int:
     return 0
 
 
+def _cmd_baseline_check(args) -> int:
+    from . import baseline as _baseline
+
+    check = _baseline.check_files(args.tolerances, args.baseline,
+                                  args.candidate)
+    if args.junit:
+        _atomic_write_text(args.junit, _baseline.render_junit(check))
+        print(f"wrote {args.junit}", file=sys.stderr)
+    if args.format == "json":
+        payload = {"tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+                   **check}
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(_baseline.render_text(check), end="")
+    return check["exit_code"]
+
+
 def _cmd_scenario_init(args) -> int:
     from . import conversation_test as CT
 
@@ -3774,6 +3892,20 @@ def _cmd_simulate(args) -> int:
             )
         args.scenario = _scn.example_scenario_path()
 
+    # --chat is the live chat-agent driver: one scripted plan, driven once.
+    # Refuse the offline multi-run flags with it rather than silently ignore.
+    if args.chat is not None:
+        if args.matrix:
+            raise ValueError(
+                "--chat drives ONE live chat conversation; --matrix is the "
+                "offline variation-matrix renderer -- pass one or the other"
+            )
+        if args.repetitions is not None:
+            raise ValueError(
+                "--repetitions applies to the offline renderer; --chat "
+                "drives the scripted turn plan once"
+            )
+
     # --matrix switches to the parallel scenario-matrix runner. --conversation-test
     # / --parallel are matrix-only; refuse them in single-run mode rather than
     # silently ignore them.
@@ -3807,6 +3939,10 @@ def _cmd_simulate(args) -> int:
     # deterministic".
     if args.seed is not None:
         doc = {**doc, "seed": args.seed}
+    # --chat: drive the loaded (seed-folded) scripted plan at the live chat
+    # agent instead of the offline renderer.
+    if args.chat is not None:
+        return _cmd_simulate_chat(args, doc)
     if args.repetitions is not None:
         vm = dict(doc.get("variation_matrix") or {})
         vm["repetitions"] = args.repetitions
@@ -3902,6 +4038,59 @@ def _render_simulate_text(p: dict) -> str:
         f"(n={rel['n']})"
     )
     lines.append(f"  {rel['note']}")
+    return "\n".join(lines) + "\n"
+
+
+def _cmd_simulate_chat(args, doc) -> int:
+    """``hotato simulate <scenario> --chat URL``: drive the scripted caller
+    turn plan at the user's chat agent over HTTP (localhost by default; a
+    non-local URL needs --egress-opt-in) and write the timestamped transcript
+    ``hotato investigate --transcript`` consumes, with origin=simulated
+    provenance. The next step is printed on both surfaces."""
+    import shlex
+
+    from . import chat_sim as _chat
+
+    result = _chat.drive_chat(
+        doc, int(doc.get("seed", 0)), args.chat,
+        egress_opt_in=args.egress_opt_in,
+    )
+    out_dir = args.out or ".hotato"
+    path = _chat.write_transcript(result, out_dir)
+    payload = {
+        "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+        "kind": _chat.CHAT_KIND, "scenario_id": result["scenario_id"],
+        "seed": result["seed"], "chat_url": result["url"],
+        "conversation_id": result["conversation_id"],
+        # The caller side is the scripted simulator's (origin=simulated,
+        # never real); the agent text is the user's own agent's replies.
+        "origin_kind": result["origin"]["kind"],
+        "turns": result["turns"],
+        "transcript_path": path,
+        "next": f"hotato investigate --transcript {shlex.quote(path)}",
+        "exit_code": 0,
+    }
+    if args.format == "json":
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(_render_simulate_chat_text(payload), end="")
+    return 0
+
+
+def _render_simulate_chat_text(p: dict) -> str:
+    lines = [
+        f"hotato simulate --chat: {p['scenario_id']} -- "
+        f"{len(p['turns'])} scripted turn(s) driven at {p['chat_url']}, "
+        "origin=simulated (never real)"
+    ]
+    for t in p["turns"]:
+        lines.append(
+            f"  turn {t['turn_index'] + 1}: reply latency {t['latency_ms']}ms "
+            f"(measured)  caller {t['caller_start']:.3f}-{t['caller_end']:.3f}s "
+            f"-> agent {t['agent_start']:.3f}-{t['agent_end']:.3f}s"
+        )
+    lines.append(f"transcript: {p['transcript_path']}")
+    lines.append(f"next: {p['next']}")
     return "\n".join(lines) + "\n"
 
 
@@ -5236,7 +5425,11 @@ def build_parser() -> argparse.ArgumentParser:
             "It reports runs, mean/median/p90 talk-over and time-to-yield pooled "
             "across all events, mean/median/p90/p95 response gap (dead air before "
             "the agent speaks), pass rate per run over time, the most common "
-            "failure class, and a pass-rate trend line in the HTML page. Every "
+            "failure class, and a pass-rate trend line in the HTML page. Also "
+            "pools fleet latency percentiles: p50/p90/p99 of response gap, time "
+            "to yield, and talk-over across the whole corpus (nearest-rank, so "
+            "every percentile is an observed value), with null measurements "
+            "excluded and counted, never treated as 0. Every "
             "number is a real measurement pooled from the envelopes; fewer than 2 "
             "runs is stated plainly (exit 0), never padded into a trend. "
             "--max-response-gap gates the pooled p95 response gap: a latency SLA "
@@ -6405,7 +6598,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  hotato contract verify contracts/\n"
             "  hotato contract verify contracts/ --format json --junit contracts-junit.xml\n"
-            "  hotato contract verify contracts/refund-cutoff-001.hotato --html verify.html"
+            "  hotato contract verify contracts/refund-cutoff-001.hotato --html verify.html\n"
+            "  hotato contract verify contracts/ --step-summary \"$GITHUB_STEP_SUMMARY\""
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6433,6 +6627,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "webhook URL when verify finishes; repeatable. Off by "
                          "default; fails open (a down webhook never changes the "
                          "verify exit code). See docs/EGRESS.md")
+    cv.add_argument("--step-summary", default=None, metavar="FILE",
+                    help="append a tight Markdown summary of this verify "
+                         "(verdict line, pass/fail counts, top failing "
+                         "contracts' measured timing) to FILE, made for "
+                         "GitHub's $GITHUB_STEP_SUMMARY; fails open (a render "
+                         "or write problem reports on stderr and never "
+                         "changes the verify exit code)")
     cv.set_defaults(func=_cmd_contract_verify)
 
     ci_ = ctsub.add_parser(
@@ -7001,6 +7202,65 @@ def build_parser() -> argparse.ArgumentParser:
     _add_format_arg(rlc, choices=("text", "json"))
     rlc.set_defaults(func=_cmd_release_compare)
 
+    # --- baseline: tolerance-gated timing drift between two saved runs -------
+    bl = sub.add_parser(
+        "baseline",
+        help="gate a candidate run against a saved baseline run with "
+             "per-dimension timing tolerances",
+        description=(
+            "Operate on saved run envelopes (`hotato run --format json`). "
+            "`check` compares a candidate run to a baseline run per timing "
+            "dimension and gates the drift against a committed tolerance "
+            "file."
+        ),
+        epilog=_exit_codes_epilog("baseline"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    blsub = bl.add_subparsers(dest="baseline_command", required=True,
+                              metavar="check")
+    blc = blsub.add_parser(
+        "check",
+        help="gate candidate-vs-baseline timing drift against a tolerance "
+             "file",
+        description=(
+            "Compare two saved run envelopes per timing dimension and gate "
+            "the drift against a tolerance file (YAML subset or JSON) mapping "
+            "a dimension to the increase it may absorb: absolute seconds "
+            "(seconds_to_yield: \"+0.05\") or a percent of the baseline "
+            "(response_gap_sec: \"+10%\"). Dimensions: seconds_to_yield, "
+            "talk_over_sec, response_gap_sec, premature_start_sec; each "
+            "side's value is the pooled mean across its scorable events. "
+            "Every dimension is lower-is-better timing, so the gate is "
+            "one-sided: only an increase beyond the tolerance is drift, and "
+            "a dimension with no measurements on a side refuses (exit 2), "
+            "never a silent pass."
+        ),
+        epilog=(
+            _exit_codes_epilog("baseline check") + "\n\n"
+            "Examples:\n"
+            "  hotato run --suite barge-in --format json --no-fail > baseline.json\n"
+            "  hotato run --suite barge-in --format json --no-fail > candidate.json\n"
+            "  hotato baseline check tolerances.yaml baseline.json candidate.json\n"
+            "  hotato baseline check tolerances.yaml base.json cand.json "
+            "--format json --junit drift.xml"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    blc.add_argument("tolerances", metavar="TOLERANCES.yaml",
+                     help="per-dimension tolerance file, e.g. "
+                          "response_gap_sec: \"+10%%\" or "
+                          "seconds_to_yield: \"+0.05\"")
+    blc.add_argument("baseline", metavar="BASELINE.json",
+                     help="the baseline run envelope "
+                          "(hotato run --format json)")
+    blc.add_argument("candidate", metavar="CANDIDATE.json",
+                     help="the candidate run envelope to gate")
+    blc.add_argument("--junit", default=None, metavar="PATH",
+                     help="also write a JUnit XML file (one testcase per "
+                          "dimension) for CI dashboards")
+    _add_format_arg(blc, choices=("text", "json"))
+    blc.set_defaults(func=_cmd_baseline_check)
+
     # --- record: the Failure Record (failure-record.v1) ----------------------
     rec = sub.add_parser(
         "record",
@@ -7322,7 +7582,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Render a hotato.scenario.v1 file with a DETERMINISTIC scripted "
             "caller into one or more hotato.conversation.v1 artifacts, each "
             "labelled origin=simulated (never real, never merged into a real "
-            "bucket). No live agent, no TTS, no network on this path. A SEEDED "
+            "bucket). The render path is offline: no live agent, no TTS, no "
+            "network. A SEEDED "
             "REPLAY is byte-identical (the produced transcript is content-"
             "hashed); different seeds differ only where the scenario allows "
             "(probabilistic backchannels). Each produced conversation is checked "
@@ -7330,7 +7591,11 @@ def build_parser() -> argparse.ArgumentParser:
             "SIMULATOR_INVALID, NEVER scored as an agent PASS/FAIL. --repetitions "
             "expands the variation matrix and reports Reliability (pass@1 / "
             "pass@k / pass^k); pass^k == pass@1 for this deterministic caller "
-            "(zero variance by construction). No overall_score anywhere."
+            "(zero variance by construction). No overall_score anywhere. "
+            "--chat URL drives the same scripted turn plan at YOUR live chat "
+            "agent over HTTP (localhost by default; --egress-opt-in for a "
+            "non-local URL) and writes the timestamped transcript `hotato "
+            "investigate --transcript` scores."
         ),
         epilog=(
             _exit_codes_epilog("simulate") + "\n\n"
@@ -7352,6 +7617,14 @@ def build_parser() -> argparse.ArgumentParser:
             "  hotato simulate --matrix refund.scenario.yaml --out ./matrix\n"
             "  hotato simulate --matrix refund.scenario.yaml "
             "--conversation-test refund.test.yaml --parallel 8 --format json\n"
+            "\n"
+            "Chat agent (drive the scripted caller at YOUR agent over HTTP):\n"
+            "  hotato simulate refund.scenario.yaml "
+            "--chat http://127.0.0.1:8080/chat\n"
+            "  the contract: POST {\"conversation_id\", \"turn_index\", "
+            "\"text\"} -> 200 {\"text\"}\n"
+            "  then: hotato investigate --transcript "
+            ".hotato/chat-transcript.json\n"
             "\n"
             "NOTE: a simulate scenario is a hotato.scenario.v1 doc (get one with "
             "--init),\n"
@@ -7419,6 +7692,19 @@ def build_parser() -> argparse.ArgumentParser:
                          "so a seeded run writes a byte-identical bundle every "
                          "time); set it (or $SOURCE_DATE_EPOCH) to pin the "
                          "manifest timestamp")
+    sm.add_argument("--chat", default=None, metavar="URL",
+                    help="drive the scenario's scripted caller turn plan at "
+                         "YOUR chat agent over HTTP (POST {conversation_id, "
+                         "turn_index, text} -> 200 {text}) and write the "
+                         "timestamped transcript `hotato investigate "
+                         "--transcript` scores (--out names its directory; "
+                         "default .hotato). Reply latency is measured per "
+                         "turn. localhost/127.0.0.1 only without "
+                         "--egress-opt-in")
+    sm.add_argument("--egress-opt-in", action="store_true",
+                    help="(--chat) allow a NON-LOCAL chat URL; without it, a "
+                         "host off localhost/127.0.0.1 is refused (exit 2) "
+                         "before any request is sent")
     _add_format_arg(sm, choices=("text", "json"))
     sm.set_defaults(func=_cmd_simulate)
 
@@ -7558,6 +7844,54 @@ def build_parser() -> argparse.ArgumentParser:
                      help="deterministic seed (default 1)")
     _add_format_arg(syn, choices=("text", "json"))
     syn.set_defaults(func=_cmd_synth)
+
+    # --- battery: staged degradation batteries over one recording ----------
+    bat = sub.add_parser(
+        "battery",
+        help="staged degradation batteries over one recording "
+             "(hotato battery robustness)",
+        description=(
+            "Battery runs: render a documented ladder of deterministic "
+            "degradations over ONE recording and score every stage with the "
+            "same scorer, so you can see where a verdict starts to move."
+        ),
+        epilog=_exit_codes_epilog("battery"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    batsub = bat.add_subparsers(dest="battery_command", required=True,
+                                metavar="robustness")
+    bro = batsub.add_parser(
+        "robustness",
+        help="degrade one recording in stages (noise SNR steps, hard clip, "
+             "seeded dropouts, clock-skew resample) and table how the "
+             "verdict moved",
+        description=(
+            "Render the staged degradation ladder over ONE recording -- clean "
+            "baseline, additive noise at 20/10/5 dB SNR, hard clipping, "
+            "seeded dropout gaps, and a constant clock-skew resample -- then "
+            "score EVERY stage with the same scorer and labels, and emit a "
+            "stability table: how did_yield, talk_over, and response_gap "
+            "moved against the baseline. Byte-reproducible for a fixed "
+            "--seed. Derived clips carry synthetic provenance on a SEPARATE "
+            "axis; movement measures scorer stability under degradation, "
+            "never agent intent."
+        ),
+        epilog=_exit_codes_epilog("battery robustness"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bro.add_argument("--wav", required=True, metavar="FILE",
+                     help="the stereo recording to degrade and score")
+    bro.add_argument("--out", required=True, metavar="DIR",
+                     help="directory to write the derived stage clips into")
+    bro.add_argument("--seed", type=int, default=1, metavar="N",
+                     help="deterministic seed (default 1)")
+    bro.add_argument("--onset", type=float, default=None, metavar="SEC",
+                     help="caller onset label applied to every stage "
+                          "(default: detect)")
+    bro.add_argument("--expect", default="yield", choices=["yield", "hold"],
+                     help="expected behavior at the onset (default yield)")
+    _add_format_arg(bro, choices=("text", "json"))
+    bro.set_defaults(func=_cmd_battery_robustness)
 
     # --- trust: input-health check (is this recording even scorable?) --------
     tr = sub.add_parser(
