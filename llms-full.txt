@@ -18,9 +18,13 @@ FILE: README.md
 
 </div>
 
-**Your voice agent talked over the caller, and the transcript looks clean.** It also told the caller "you're all set" on a booking the backend never wrote. You find out when a customer complains, not in the pull request that shipped it, because the failure lives in the timing and the say-do gap, not in the words.
+**The transcript read clean, and the call still failed.** Talk-over, dead air, "you're all set" on a booking the backend never wrote. Nothing in your pipeline can see those failures.
 
-Hotato is self-hosted conversation QA for voice agents: it scores those failures from your own two-channel recording and turns each catch into a CI gate that runs offline. First catch in minutes, no account:
+Hotato catches them from what you already have: a two-channel recording, or a timestamped transcript with no audio at all. Each catch becomes a CI gate that fails the build until the agent stops failing that call.
+
+Deterministic: same input, same verdict, byte for byte, on any machine. Offline: your calls and your customers' audio stay on your machine. Free, MIT, no account, and the gate itself sits behind a 4,300-test suite.
+
+**First catch in seconds, one command:**
 
 ```console
 $ uvx hotato start --demo
@@ -32,7 +36,7 @@ Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
 
 It measures turn timing and say-do, not intent.
 
-## See the loop catch a regression
+## Catch a failure on your own call
 
 One recording in. The pinned failure becomes a CI gate:
 
@@ -49,7 +53,7 @@ $ hotato contract verify contracts
   0/1 contracts pass; exit_code=1
 ```
 
-A committed contract is a pinned bad call: it is *meant* to stay exit `1` until you fix the agent and recapture, the same way a snapshot test stays red until you update the snapshot.
+A committed contract is a pinned bad call: the gate stays red until the agent stops failing that call, the same contract a snapshot test gives you.
 
 ## Quickstart
 
@@ -58,7 +62,7 @@ The five commands are the whole path, first touch to a CI gate that guards every
 ```bash
 # 1. see it catch a failure on two bundled calls (no account; this step exits 0)
 uvx hotato start --demo
-# 2. score your own two-channel recording
+# 2. score your own recording (or a timestamped transcript: --transcript t.json)
 hotato investigate ./call.wav
 # 3. commit the caught moment as a regression contract
 hotato investigate label '.hotato/investigate-state.json#1' --expect yield
@@ -73,7 +77,7 @@ Install with `pipx install hotato`, drive it over MCP with `uvx --from "hotato[m
 ## How it works
 
 ```text
-two-channel recording
+two-channel recording, or timestamped transcript
   ->  measure turn timing + verify say-do from the trace
   ->  content-addressed contract
   ->  CI verdict: exit 0 pass / exit 1 fail
@@ -95,7 +99,7 @@ Each dimension scores on its own, then rolls up into one pass/fail verdict.
 
 Timing comes straight from the two channels; say-do reads your `voice_trace.v1` spans, so what the agent told the caller is checked against what the backend did.
 
-## Other ways to feed it
+## Feed it what you already have
 
 Every onramp feeds the same offline scoring and the same `0` / `1` / `2` exit contract.
 
