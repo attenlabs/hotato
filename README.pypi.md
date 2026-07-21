@@ -126,7 +126,7 @@ Details: [`docs/SIMULATE.md`](https://github.com/attenlabs/hotato/blob/main/docs
 
 ## Point your agent at it
 
-Point Claude Code, Cursor, or any coding agent at this repo: it reads [`AGENTS.md`](https://github.com/attenlabs/hotato/blob/main/AGENTS.md) and runs the spine itself, offline, no key.
+Point Claude Code, Cursor, or any coding agent at this repo: it reads [`AGENTS.md`](https://github.com/attenlabs/hotato/blob/main/AGENTS.md) and runs it end to end, offline, no key.
 
 ```text
 "Try hotato on the calls in ./recordings and add a CI gate that fails the build on a talk-over regression."
