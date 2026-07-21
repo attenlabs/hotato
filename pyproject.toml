@@ -154,6 +154,9 @@ hotato = [
     # the package) so a type checker reads the installed wheel as typed.
     "py.typed",
     "data/evidence_language.json",
+    # The starter per-model price table for `hotato observe cost --prices
+    # starter`: a LOCAL estimate input the user edits, never a fetched rate.
+    "data/prices.yaml",
     # Bundled Silero VAD ONNX weights (MIT) + its attribution notice for the
     # OPTIONAL [neural] extra; loaded directly on onnxruntime (no torch).
     "data/silero_vad.onnx",

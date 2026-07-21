@@ -24,6 +24,9 @@ recursive-include src/hotato/templates *.tmpl *.py
 # time) ships in the wheel (package-data) and the sdist (here).
 include src/hotato/py.typed
 include src/hotato/data/evidence_language.json
+# The starter per-model price table for `hotato observe cost --prices starter`
+# ships in the wheel (package-data) and the sdist (here).
+include src/hotato/data/prices.yaml
 
 # The curated, seeded persona/scenario pack (hotato.simulate_pack) ships in the
 # wheel (package-data) and the sdist (here): the manifest, each scenario.v1 the

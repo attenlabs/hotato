@@ -346,6 +346,33 @@ _EXIT_CODES: dict = {
         (2, "usage error, no trace attached to the bundle, or an existing "
             "--out without --force"),
     ),
+    "observe": (
+        (2, "no subcommand given (see hotato observe capture/cost/"
+            "percentiles/report --help)"),
+    ),
+    "observe capture": (
+        (0, "the child's spans were captured to a local file sink, ingested "
+            "into a voice trace, and summarized"),
+        (2, "usage error, an existing --out without --force, or the child "
+            "wrote no spans to the local OTel file sink"),
+    ),
+    "observe cost": (
+        (0, "per-model token usage was rolled up (USD estimated from a local "
+            "table when --prices was given)"),
+        (2, "usage error, an unreadable or schema-mismatched voice trace, or "
+            "an unreadable/malformed --prices table"),
+    ),
+    "observe percentiles": (
+        (0, "per-hop and end-to-end latency percentiles were computed over "
+            "the trace folder"),
+        (2, "usage error, a missing folder, or no readable voice traces in "
+            "it"),
+    ),
+    "observe report": (
+        (0, "a self-contained observe.html was written"),
+        (2, "usage error, a missing folder, no readable voice traces, an "
+            "unreadable --prices table, or an existing --out without --force"),
+    ),
     "assert": (
         (2, "no subcommand given (see hotato assert init/run --help)"),
     ),
@@ -3064,6 +3091,21 @@ def _cmd_contract_verify(args) -> int:
         except Exception as exc:
             print(f"note: step summary not written ({exc}); the verify "
                   "result is unchanged", file=sys.stderr)
+    # A tight, share-safe PR-comment block (--pr-comment) heroing the single
+    # caught moment with an ASCII barge-in timeline, for a sticky PR comment.
+    # Same fail-open discipline as --step-summary: any render or write problem
+    # reports on stderr and never changes the verify exit code. Posting the
+    # rendered block to a PR is a separate, opt-in step.
+    if getattr(args, "pr_comment", None):
+        try:
+            md = _contract.render_verify_pr_comment(v)
+            with open(args.pr_comment, "a", encoding="utf-8") as fh:
+                fh.write(md)
+            print(f"wrote PR-comment block to {args.pr_comment}",
+                  file=sys.stderr)
+        except Exception as exc:
+            print(f"note: PR-comment block not written ({exc}); the verify "
+                  "result is unchanged", file=sys.stderr)
     if args.format == "json":
         print(_errors.safe_json_dumps(_contract.verify_result_json(v), indent=2))
     else:
@@ -3148,6 +3190,67 @@ def _cmd_trace_export(args) -> int:
         print(_errors.safe_json_dumps(_trace.export_result_json(result), indent=2))
     else:
         print(_trace.render_export_text(result))
+    return 0
+
+
+def _cmd_observe_capture(args) -> int:
+    from . import observe as _observe
+
+    command = list(args.command or [])
+    if command and command[0] == "--":
+        command = command[1:]
+    result = _observe.capture(command, out_path=args.out, force=args.force)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_observe.capture_result_json(result), indent=2))
+    else:
+        print(_observe.render_capture_text(result))
+    return 0
+
+
+def _cmd_observe_cost(args) -> int:
+    from . import observe as _observe
+    from . import trace as _trace
+
+    trace = _trace.load_voice_trace_jsonl(args.trace)
+    rollup = _observe.cost_rollup(trace, prices=args.prices)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_observe.cost_result_json(rollup), indent=2))
+    else:
+        print(_observe.render_cost_text(rollup))
+    return 0
+
+
+def _cmd_observe_percentiles(args) -> int:
+    from . import observe as _observe
+
+    result = _observe.percentiles_over_dir(args.dir)
+    if args.html:
+        html = _observe.build_report_html({
+            "dir": args.dir, "percentiles": result,
+            "tokens": _observe.cost_rollup({"spans": []}, prices=None),
+            "worst_traces": [],
+        })
+        with open(args.html, "w", encoding="utf-8") as fh:  # write-mode: FIFO-safe
+            fh.write(html)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_observe.percentiles_result_json(result), indent=2))
+    else:
+        print(_observe.render_percentiles_text(result))
+        if args.html:
+            print(f"  html panel: {args.html}")
+    return 0
+
+
+def _cmd_observe_report(args) -> int:
+    from . import observe as _observe
+
+    result = _observe.build_report(
+        args.dir, out_path=args.out, prices=args.prices, force=args.force,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(_observe.report_result_json(result), indent=2))
+    else:
+        print(_observe.render_report_text(result))
     return 0
 
 
@@ -6842,6 +6945,14 @@ def build_parser() -> argparse.ArgumentParser:
                          "GitHub's $GITHUB_STEP_SUMMARY; fails open (a render "
                          "or write problem reports on stderr and never "
                          "changes the verify exit code)")
+    cv.add_argument("--pr-comment", default=None, metavar="FILE",
+                    help="append a tight, share-safe PR-comment block to FILE: "
+                         "the verdict line, the single caught moment, the one "
+                         "measured number, and an ASCII caller/agent barge-in "
+                         "timeline. Made for a sticky pull-request comment "
+                         "(posting is a separate, opt-in step); fails open (a "
+                         "render or write problem reports on stderr and never "
+                         "changes the verify exit code)")
     cv.set_defaults(func=_cmd_contract_verify)
 
     ci_ = ctsub.add_parser(
@@ -7051,6 +7162,155 @@ def build_parser() -> argparse.ArgumentParser:
                          "(--format is already claimed by the export "
                          "format on this subcommand)")
     te.set_defaults(func=_cmd_trace_export)
+
+    # --- observe: local-first, deterministic LLM/voice observability --------
+    ob = sub.add_parser(
+        "observe",
+        help="local-first, deterministic observability over voice traces "
+             "(hotato observe capture/cost/percentiles/report)",
+        description=(
+            "The observability an LLM or voice agent already emits as "
+            "OpenTelemetry spans, read on your machine instead of shipped to "
+            "an account. Capture a process's spans through a local file sink "
+            "(no account, no config, and hotato opens no socket and makes no "
+            "network call of its own), then roll up per-model token cost, "
+            "latency percentiles, and one self-contained HTML report. Tokens "
+            "are facts from the spans; USD is a local estimate from a price "
+            "table you keep; a value no span reported reads 'not captured', "
+            "never 0. See docs/OBSERVE.md."
+        ),
+        epilog=_exit_codes_epilog("observe"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    obsub = ob.add_subparsers(dest="observe_command", required=True,
+                              metavar="capture|cost|percentiles|report")
+
+    oc = obsub.add_parser(
+        "capture",
+        help="run a command, capture its OTel spans to a local file, and "
+             "ingest them into a voice trace",
+        description=(
+            "Run `-- <command...>` with a LOCAL FILE SINK wired through its "
+            "environment: HOTATO_OTEL_FILE plus a file:// OTLP endpoint and "
+            "OTEL_EXPORTER_OTLP_PROTOCOL=http/json. Any OTel-emitting process "
+            "(or one that writes hotato's OTel bridge JSONL to "
+            "$HOTATO_OTEL_FILE) is captured with zero account and zero "
+            "config; hotato adds no socket, no listener, and no network of "
+            "its own. On exit the captured spans are ingested through the "
+            "same `trace ingest` path into --out, and a one-screen summary "
+            "(span count, per-hop latency, token totals) is printed. The "
+            "child's own network is the child's business."
+        ),
+        epilog=(
+            _exit_codes_epilog("observe capture") + "\n\n"
+            "Examples:\n"
+            "  hotato observe capture --out voice_trace.jsonl -- python agent.py\n"
+            "  hotato observe capture --out run.jsonl --force -- node index.js"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    oc.add_argument("--out", default="voice_trace.jsonl", metavar="PATH",
+                    help="voice_trace.jsonl to write (default voice_trace.jsonl)")
+    oc.add_argument("--force", action="store_true",
+                    help="overwrite an existing --out file")
+    _add_format_arg(oc, choices=("text", "json"))
+    oc.add_argument("command", nargs=argparse.REMAINDER,
+                    metavar="-- COMMAND [ARGS...]",
+                    help="the command to run, after a `--` separator")
+    oc.set_defaults(func=_cmd_observe_capture)
+
+    ocst = obsub.add_parser(
+        "cost",
+        help="roll up per-model LLM token usage (and an estimated USD cost "
+             "with --prices) from a voice trace",
+        description=(
+            "Sum each span's LLM token usage -- gen_ai.usage.input_tokens / "
+            "output_tokens / cached / reasoning, by first-match alias -- per "
+            "model and in total. Tokens are facts read from the spans. With "
+            "--prices (a LOCAL per-model $/1M table, or 'starter' for the "
+            "bundled one) an estimated USD cost is added, labeled 'estimated "
+            "from <table>'. A category no span reported reads 'not captured' "
+            "(null plus a missing-span count), never 0; a model with no price "
+            "row is unpriced (null), never a guessed rate."
+        ),
+        epilog=(
+            _exit_codes_epilog("observe cost") + "\n\n"
+            "Examples:\n"
+            "  hotato observe cost voice_trace.jsonl\n"
+            "  hotato observe cost voice_trace.jsonl --prices starter\n"
+            "  hotato observe cost voice_trace.jsonl --prices my-rates.yaml --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ocst.add_argument("trace", metavar="voice_trace.jsonl",
+                      help="a hotato.voice_trace.v1 JSONL file")
+    ocst.add_argument("--prices", default=None, metavar="FILE",
+                      help="a LOCAL per-model $/1M price table (YAML or JSON), "
+                           "or 'starter' for the bundled table; without it "
+                           "USD stays null and only token facts are reported")
+    _add_format_arg(ocst, choices=("text", "json"))
+    ocst.set_defaults(func=_cmd_observe_cost)
+
+    opct = obsub.add_parser(
+        "percentiles",
+        help="p50/p90/p99 of per-hop and end-to-end latency over a folder of "
+             "traces (nearest-rank)",
+        description=(
+            "Over every readable voice trace in DIR, report p50 / p90 / p99 "
+            "of each per-hop latency (STT, LLM, tool, TTS, transport) and of "
+            "end-to-end latency by the nearest-rank method "
+            "(hotato._stats.nearest_rank): with the measured values sorted "
+            "and n of them, rank = ceil(q*n) and the percentile is the value "
+            "at that rank, so every percentile is an observed measurement. A "
+            "trace that did not capture a hop is excluded with the excluded "
+            "count shown, never counted as 0."
+        ),
+        epilog=(
+            _exit_codes_epilog("observe percentiles") + "\n\n"
+            "Examples:\n"
+            "  hotato observe percentiles traces/\n"
+            "  hotato observe percentiles traces/ --html latency.html --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    opct.add_argument("dir", metavar="DIR",
+                      help="a folder of ingested voice_trace.jsonl files")
+    opct.add_argument("--html", default=None, metavar="PATH",
+                      help="also write a self-contained HTML latency panel here")
+    _add_format_arg(opct, choices=("text", "json"))
+    opct.set_defaults(func=_cmd_observe_percentiles)
+
+    orpt = obsub.add_parser(
+        "report",
+        help="write one self-contained HTML summary of a folder of traces "
+             "(latency percentiles, token totals, worst traces)",
+        description=(
+            "Summarize every readable voice trace in DIR into ONE "
+            "self-contained HTML page (inline CSS and SVG, no external "
+            "request): trace and span counts, per-hop latency and its "
+            "percentiles, per-model token totals and an estimated USD line "
+            "(with --prices), and links to the slowest traces. Every number "
+            "is derived on your machine."
+        ),
+        epilog=(
+            _exit_codes_epilog("observe report") + "\n\n"
+            "Examples:\n"
+            "  hotato observe report traces/ --out observe.html\n"
+            "  hotato observe report traces/ --out observe.html --prices starter"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    orpt.add_argument("dir", metavar="DIR",
+                      help="a folder of ingested voice_trace.jsonl files")
+    orpt.add_argument("--out", default="observe.html", metavar="PATH",
+                      help="the HTML file to write (default observe.html)")
+    orpt.add_argument("--prices", default=None, metavar="FILE",
+                      help="a LOCAL per-model $/1M price table (YAML or JSON), "
+                           "or 'starter'; adds an estimated USD line")
+    orpt.add_argument("--force", action="store_true",
+                      help="overwrite an existing --out file")
+    _add_format_arg(orpt, choices=("text", "json"))
+    orpt.set_defaults(func=_cmd_observe_report)
 
     # --- assert: the deterministic assertion engine (assert.v1) -------------
 

@@ -9,6 +9,23 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **`hotato observe`: local-first LLM observability.** A command group that
+  offers the value of hosted observability tools with nothing leaving your
+  machine. `observe capture -- <command>` runs any OpenTelemetry-emitting
+  process with export wired to a local file sink, then ingests and summarizes
+  its spans offline. `observe cost` rolls up token usage per model from an
+  ingested trace and estimates USD from a local price table (tokens are facts;
+  a field no span reported is "not captured", never 0; USD is a labeled estimate
+  from your table). `observe percentiles DIR` and `observe report DIR` compute
+  p50/p90/p99 latency and render a self-contained dashboard across a corpus of
+  traces; uncaptured hops are excluded with a shown count, never zeroed.
+- **`hotato contract verify --pr-comment`: a visual PR comment.** Renders the
+  gate verdict, the caught moment, the measured number, and a deterministic
+  caller/agent barge-in timeline as Markdown for a pull-request comment. The
+  Action posts or updates one comment when a token is present; fail-open, so a
+  comment problem never changes the verify exit code.
+
+### Added
 - **`hotato gauntlet`: a bundled turn-taking stress suite + a shareable badge.**
   Ten standardized, seeded, byte-reproducible stress cases (hard barge-in,
   backchannel-not-a-floor-take, filler-start interruption, urgent correction,
