@@ -1690,6 +1690,76 @@ def render_verify_text(v: dict) -> str:
     return "\n".join(lines)
 
 
+def _md_cell(s) -> str:
+    """One Markdown table cell: pipes escaped, backticks dropped, newlines
+    collapsed, so a hostile contract id read off disk cannot break the table
+    or smuggle extra rows into a CI job summary."""
+    return (str("" if s is None else s)
+            .replace("\r", " ").replace("\n", " ")
+            .replace("`", "'").replace("|", "\\|"))
+
+
+def render_verify_step_summary(v: dict, *, top: int = 5) -> str:
+    """Tight Markdown for a CI job summary (``--step-summary``, typically
+    GitHub's ``$GITHUB_STEP_SUMMARY``): one verdict line with the pass/fail
+    counts, then the top failing contracts with their measured timing.
+    Shares :func:`render_verify_text`'s axes discipline: the tampered /
+    refused / failing-embedded-assertion counts are reported as their own
+    line, never blended into the pass count. Presentation over an
+    already-decided verify; rendering this never changes the exit code."""
+    s = v["summary"]
+    verdict = "PASS" if v["exit_code"] == 0 else "FAIL"
+    counts = f"{s['passed']}/{v['count']} contracts pass"
+    if s["failed"]:
+        counts += f", {s['failed']} failing"
+    lines = [
+        "### hotato contract verify",
+        "",
+        f"**{verdict}**: {counts} (exit code {v['exit_code']})",
+    ]
+    axes = []
+    if v.get("tampered"):
+        axes.append(f"{v['tampered']} tampered (edited after creation)")
+    if v.get("refused"):
+        axes.append(f"{v['refused']} refused (channel mapping unconfirmed)")
+    if v.get("assertions_failed"):
+        axes.append(f"{v['assertions_failed']} with a failing embedded "
+                    "assertion")
+    if axes:
+        lines += ["", "Separate axes, never blended into the count above: "
+                  + "; ".join(axes) + "."]
+    failing = [r for r in v["results"] if not r.get("passed")]
+    if failing:
+        shown = failing[:top]
+        head = "Failing contracts (measured timing)"
+        if len(failing) > len(shown):
+            head += f", first {len(shown)} of {len(failing)}"
+        lines += [
+            "", head + ":", "",
+            "| contract | expect | did_yield | seconds_to_yield "
+            "| talk_over | note |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for r in shown:
+            m = r.get("measurement") or {}
+            if not r.get("scorable", True):
+                note = r.get("not_scorable_reason") or "not scorable"
+            elif not r.get("verdict_eligible", True):
+                note = r.get("verdict_ineligible_reason") or "refused"
+            elif r.get("authenticity") == "tampered":
+                note = "tampered"
+            else:
+                note = ""
+            did = {True: "true", False: "false"}.get(m.get("did_yield"), "n/a")
+            lines.append(
+                f"| `{_md_cell(r.get('id'))}` | {_md_cell(r.get('expect'))} "
+                f"| {did} | {_md_cell(_report._s(m.get('seconds_to_yield')))} "
+                f"| {_md_cell(_report._s(m.get('talk_over_sec')))} "
+                f"| {_md_cell(note)} |")
+    lines += ["", _STORED_EVIDENCE_CAVEAT]
+    return "\n".join(lines) + "\n"
+
+
 def verify_result_json(v: dict) -> dict:
     return v
 

@@ -107,6 +107,94 @@ def test_response_gap_percentile_math_on_known_events(tmp_path):
     assert agg["exit_code"] == 0
 
 
+def test_fleet_latency_percentiles_on_known_corpus(tmp_path):
+    _write_runs_with_gaps(tmp_path)
+    loaded = aggregate.load_run_dir(str(tmp_path), order="mtime")
+    agg = aggregate.aggregate_runs(loaded["runs"], order="mtime")
+
+    lp = agg["latency_percentiles"]
+    # pooled response gaps [0.2..0.7], all 6 events measured. Nearest rank:
+    # p50 rank = ceil(0.5*6) = 3 -> 0.4; p90 rank = ceil(0.9*6) = 6 -> 0.7;
+    # p99 rank = ceil(0.99*6) = 6 -> 0.7
+    assert lp["response_gap_sec"] == {
+        "method": "nearest-rank", "n": 6, "excluded_null": 0,
+        "p50": 0.4, "p90": 0.7, "p99": 0.7}
+    # pooled talk-over sorted [0.1..0.6]: p50 rank 3 -> 0.3, p90/p99 rank 6 -> 0.6
+    assert lp["talk_over_sec"] == {
+        "method": "nearest-rank", "n": 6, "excluded_null": 0,
+        "p50": 0.3, "p90": 0.6, "p99": 0.6}
+    # pooled time-to-yield sorted [0.5,0.6,0.6,0.7,0.7,0.8]:
+    # p50 rank 3 -> 0.6, p90/p99 rank 6 -> 0.8
+    assert lp["seconds_to_yield"] == {
+        "method": "nearest-rank", "n": 6, "excluded_null": 0,
+        "p50": 0.6, "p90": 0.8, "p99": 0.8}
+
+
+def test_fleet_percentiles_exclude_nulls_never_zero(tmp_path):
+    # _write_runs holds 2 null time-to-yields and no latency signals at all:
+    # nulls must be excluded with the count shown, never pooled as 0.
+    _write_runs(tmp_path)
+    loaded = aggregate.load_run_dir(str(tmp_path), order="mtime")
+    agg = aggregate.aggregate_runs(loaded["runs"], order="mtime")
+
+    lp = agg["latency_percentiles"]
+    tty = lp["seconds_to_yield"]
+    assert tty["n"] == 4 and tty["excluded_null"] == 2
+    # measured [0.5,0.6,0.7,0.8]: p50 rank = ceil(0.5*4) = 2 -> 0.6. Were the
+    # 2 nulls pooled as 0, p50 would drop to 0.5 (rank 3 of 6) instead.
+    assert tty["p50"] == 0.6
+    assert tty["p90"] == 0.8 and tty["p99"] == 0.8
+    # nothing measured: percentiles stay None with every event counted excluded
+    assert lp["response_gap_sec"] == {
+        "method": "nearest-rank", "n": 0, "excluded_null": 6,
+        "p50": None, "p90": None, "p99": None}
+
+
+def test_team_envelope_shape_includes_latency_percentiles(tmp_path, capsys):
+    _write_runs(tmp_path)
+    code = cli.main(["team", str(tmp_path), "--format", "json"])
+    assert code == 0
+    agg = json.loads(capsys.readouterr().out)
+    assert agg["kind"] == "team-aggregate"
+    lp = agg["latency_percentiles"]
+    assert set(lp) == {"response_gap_sec", "seconds_to_yield", "talk_over_sec"}
+    for key in lp:
+        assert set(lp[key]) == {"method", "n", "excluded_null",
+                                "p50", "p90", "p99"}
+        assert lp[key]["method"] == "nearest-rank"
+
+
+def test_team_cli_prints_fleet_percentiles(tmp_path, capsys):
+    _write_runs(tmp_path)
+    code = cli.main(["team", str(tmp_path)])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "fleet percentiles (nearest-rank" in out
+    assert ("talk-over: p50 0.30s p90 0.60s p99 0.60s "
+            "(n=6, 0 null excluded)") in out
+    assert ("time to yield: p50 0.60s p90 0.80s p99 0.80s "
+            "(n=4, 2 null excluded)") in out
+    assert "response gap: no measurements (6 null excluded)" in out
+
+
+def test_team_html_has_fleet_percentiles_panel(tmp_path):
+    _write_runs(tmp_path)
+    html_path = tmp_path / "team.html"
+    code = cli.main(["team", str(tmp_path), "--html", str(html_path)])
+    assert code == 0
+    html = html_path.read_text(encoding="utf-8")
+    assert "Fleet latency percentiles" in html
+    assert "nearest-rank" in html
+    assert "<th>p99</th>" in html
+    assert "<th>excluded (null)</th>" in html
+    # the excluded count is shown, and an unmeasured metric says so plainly
+    assert "no measurements" in html
+    # honesty + self-containment rules still hold with the new panel
+    assert "%" not in html
+    assert "<script" not in html
+    assert "–" not in html and "—" not in html
+
+
 def test_latency_sla_gate_fails_over_bound_and_passes_under_it(tmp_path):
     _write_runs_with_gaps(tmp_path)
     loaded = aggregate.load_run_dir(str(tmp_path), order="mtime")

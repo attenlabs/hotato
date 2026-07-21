@@ -14,9 +14,14 @@ from hotato.diagnose import (
     FINDINGS,
     LAYERS,
     advisory_for,
+    cluster_fleet,
     diagnose_envelope,
+    fingerprint_failure,
+    magnitude_bucket,
     opposite_risk_coverage,
+    render_fleet_text,
     render_text,
+    scan_fleet,
 )
 
 # --- helpers ----------------------------------------------------------------
@@ -408,3 +413,212 @@ def test_real_backchannel_beside_missed_still_funnels():
 
 def test_ambient_finding_is_in_findings_enum():
     assert "false_stop_on_ambient_noise" in FINDINGS
+
+
+# --- cross-run failure clustering (hotato diagnose --fleet DIR) --------------
+
+def _write_fleet(tmp_path, files):
+    """Write {name: envelope-dict} into a directory and return its path."""
+    d = tmp_path / "runs"
+    d.mkdir()
+    for name, env in files.items():
+        (d / name).write_text(json.dumps(env), encoding="utf-8")
+    return str(d)
+
+
+def test_magnitude_bucket_boundaries_are_half_open_and_stable():
+    # Fixed boundaries; a bucket edge lands in the UPPER bucket [lo, hi).
+    assert magnitude_bucket(0.0) == "0.0-0.2s"
+    assert magnitude_bucket(0.19) == "0.0-0.2s"
+    assert magnitude_bucket(0.2) == "0.2-0.5s"
+    assert magnitude_bucket(0.49) == "0.2-0.5s"
+    assert magnitude_bucket(0.5) == "0.5-1.0s"
+    assert magnitude_bucket(0.999) == "0.5-1.0s"
+    assert magnitude_bucket(1.0) == "1.0-2.0s"
+    assert magnitude_bucket(2.0) == "2.0s+"
+    assert magnitude_bucket(12.3) == "2.0s+"
+    # None / non-numeric never crash: they land in the 'unknown' bucket.
+    assert magnitude_bucket(None) == "unknown"
+    assert magnitude_bucket("nope") == "unknown"
+
+
+def test_fingerprint_axes_per_finding():
+    missed = diagnose_envelope(_envelope([_event("a", **MISSED),
+                                          _event("b", **PASS_HOLD)]))["diagnoses"]
+    fp = fingerprint_failure(next(d for d in missed if d["finding"] ==
+                                  "missed_real_interruption"))
+    assert fp == {"dimension": "interruption_yield", "direction": "no_yield",
+                  "magnitude_bucket": "2.0s+", "config_hash": None}
+
+    talk = diagnose_envelope(_envelope([_event("a", **TALK_OVER),
+                                        _event("b", **PASS_HOLD)]))["diagnoses"]
+    fp = fingerprint_failure(next(d for d in talk if d["finding"] ==
+                                  "excess_talk_over"))
+    assert fp["dimension"] == "talk_over"
+    assert fp["direction"] == "over"
+    assert fp["magnitude_bucket"] == "1.0-2.0s"
+
+
+def test_known_corpus_clusters_exactly():
+    # run1: a missed interruption (talk_over 2.5s) + a passing hold guard.
+    # run2: the SAME missed interruption + an excess talk-over (1.2s).
+    # run3: a slow yield (1.4s).
+    files = {
+        "run1.json": _envelope([_event("a", **MISSED), _event("b", **PASS_HOLD)]),
+        "run2.json": _envelope([_event("a", **MISSED), _event("c", **TALK_OVER)]),
+        "run3.json": _envelope([_event("a", **SLOW)]),
+    }
+    result = cluster_fleet([(n, e) for n, e in sorted(files.items())])
+
+    assert result["kind"] == "fleet-clusters"
+    assert result["envelopes_scanned"] == 3
+    assert result["failures"] == 4  # missed x2, talk_over x1, slow x1
+    clusters = result["clusters"]
+    assert len(clusters) == 3
+
+    # Ranked by count: the recurring missed interruption first, at count 2.
+    top = clusters[0]
+    assert top["finding"] == "missed_real_interruption"
+    assert top["count"] == 2
+    assert top["fingerprint"]["magnitude_bucket"] == "2.0s+"
+    assert [(m["source"], m["event_id"]) for m in top["members"]] == [
+        ("run1.json", "a"), ("run2.json", "a")]
+
+    # The two singletons are ordered by fingerprint id (deterministic tiebreak).
+    rest = clusters[1:]
+    assert {c["finding"] for c in rest} == {"excess_talk_over", "slow_yield"}
+    assert all(c["count"] == 1 for c in rest)
+    ids = [c["fingerprint_id"] for c in rest]
+    assert ids == sorted(ids)
+
+
+def test_config_hash_splits_otherwise_identical_failures():
+    """The SAME failure under two different agent configs must NOT collapse into
+    one cluster; the config hash is part of the fingerprint when present."""
+    base = _envelope([_event("a", **MISSED)])
+    cfg_a = dict(base, config={"interrupt_min_words": 2})
+    cfg_b = dict(base, config={"interrupt_min_words": 5})
+    result = cluster_fleet([("a.json", cfg_a), ("b.json", cfg_b)])
+    assert len(result["clusters"]) == 2
+    hashes = {c["fingerprint"]["config_hash"] for c in result["clusters"]}
+    assert None not in hashes and len(hashes) == 2
+    # No config present -> null hash, and the two collapse back to one cluster.
+    plain = cluster_fleet([("a.json", base), ("b.json", base)])
+    assert len(plain["clusters"]) == 1
+    assert plain["clusters"][0]["fingerprint"]["config_hash"] is None
+
+
+def test_not_scorable_events_never_become_fleet_failures():
+    ns = _event("bad", expected_yield=True, did_yield=False, passed=False,
+                scorable=False, not_scorable_reason="input problem")
+    env = _envelope([ns, _event("ok", **PASS_HOLD)])
+    result = cluster_fleet([("run.json", env)])
+    assert result["failures"] == 0
+    assert result["clusters"] == []
+
+
+def test_scan_fleet_is_byte_reproducible(tmp_path):
+    files = {
+        "run1.json": _envelope([_event("a", **MISSED), _event("b", **PASS_HOLD)]),
+        "run2.json": _envelope([_event("a", **MISSED), _event("c", **TALK_OVER)]),
+        "run3.json": _envelope([_event("a", **SLOW)]),
+    }
+    d = _write_fleet(tmp_path, files)
+    a = json.dumps(scan_fleet(d), indent=2, sort_keys=True)
+    b = json.dumps(scan_fleet(d), indent=2, sort_keys=True)
+    assert a == b
+    # And independent of file-visit order: renaming does not shuffle output
+    # (source names change, but the ranking/bucketing logic is identical).
+    assert scan_fleet(d)["clusters"][0]["fingerprint_id"] == \
+        scan_fleet(d)["clusters"][0]["fingerprint_id"]
+
+
+def test_scan_fleet_refuses_empty_directory(tmp_path):
+    d = tmp_path / "empty"
+    d.mkdir()
+    with pytest.raises(ValueError):
+        scan_fleet(str(d))
+
+
+def test_scan_fleet_refuses_missing_directory(tmp_path):
+    with pytest.raises(ValueError):
+        scan_fleet(str(tmp_path / "nope"))
+
+
+def test_scan_fleet_refuses_malformed_member(tmp_path):
+    d = tmp_path / "runs"
+    d.mkdir()
+    (d / "good.json").write_text(json.dumps(_envelope([_event("a", **MISSED)])),
+                                 encoding="utf-8")
+    (d / "bad.json").write_text("{ not valid json", encoding="utf-8")
+    with pytest.raises(ValueError):
+        scan_fleet(str(d))
+
+
+def test_scan_fleet_refuses_non_envelope_member(tmp_path):
+    d = tmp_path / "runs"
+    d.mkdir()
+    (d / "not-hotato.json").write_text(json.dumps({"hello": "world"}),
+                                       encoding="utf-8")
+    with pytest.raises(ValueError):
+        scan_fleet(str(d))
+
+
+def test_render_fleet_text_ranks_clusters():
+    files = {
+        "run1.json": _envelope([_event("a", **MISSED)]),
+        "run2.json": _envelope([_event("a", **MISSED)]),
+    }
+    result = cluster_fleet([(n, e) for n, e in sorted(files.items())])
+    text = render_fleet_text(result)
+    assert "2 failure(s), 1 cluster(s)" in text
+    assert "[1] x2  missed_real_interruption" in text
+    assert "run1.json:a" in text and "run2.json:a" in text
+
+
+# --- CLI surface for --fleet -------------------------------------------------
+
+def test_cli_diagnose_fleet_exit_1_on_failures(tmp_path, capsys):
+    d = tmp_path / "runs"
+    d.mkdir()
+    (d / "run1.json").write_text(json.dumps(_envelope([_event("a", **MISSED)])),
+                                 encoding="utf-8")
+    (d / "run2.json").write_text(json.dumps(_envelope([_event("a", **MISSED)])),
+                                 encoding="utf-8")
+    assert cli.main(["diagnose", "--fleet", str(d)]) == 1
+    assert "missed_real_interruption" in capsys.readouterr().out
+
+
+def test_cli_diagnose_fleet_exit_0_when_clean(tmp_path):
+    d = tmp_path / "runs"
+    d.mkdir()
+    (d / "clean.json").write_text(json.dumps(run_suite()), encoding="utf-8")
+    assert cli.main(["diagnose", "--fleet", str(d)]) == 0
+
+
+def test_cli_diagnose_fleet_json_shape(tmp_path, capsys):
+    d = tmp_path / "runs"
+    d.mkdir()
+    (d / "run1.json").write_text(json.dumps(_envelope([_event("a", **MISSED),
+                                                       _event("c", **TALK_OVER)])),
+                                 encoding="utf-8")
+    assert cli.main(["diagnose", "--fleet", str(d), "--format", "json"]) == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "fleet-clusters"
+    assert doc["tool"] == "hotato" and doc["schema_version"] == "1"
+    for c in doc["clusters"]:
+        assert set(c) >= {"fingerprint_id", "fingerprint", "finding",
+                          "count", "members"}
+        assert set(c["fingerprint"]) == {"dimension", "direction",
+                                         "magnitude_bucket", "config_hash"}
+
+
+def test_cli_diagnose_fleet_refuses_malformed(tmp_path):
+    d = tmp_path / "runs"
+    d.mkdir()
+    (d / "bad.json").write_text("not json at all", encoding="utf-8")
+    assert cli.main(["diagnose", "--fleet", str(d)]) == 2
+
+
+def test_cli_diagnose_without_envelope_or_fleet_is_usage_error(capsys):
+    assert cli.main(["diagnose"]) == 2

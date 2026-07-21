@@ -182,13 +182,52 @@ hotato simulate --matrix demo.scenario.json \
 The summary stays byte-identical no matter the worker count. Every result
 is attributed to its own variation cell, each scored on its own lane.
 
+## Drive the scripted caller at YOUR chat agent (`--chat URL`)
+
+`--chat` drives the same scripted caller turn plan against your own chat
+agent over HTTP and writes a timestamped transcript
+[`hotato investigate --transcript`](INVESTIGATE.md) scores:
+
+```bash
+hotato simulate demo.scenario.json --chat http://127.0.0.1:8080/chat
+hotato investigate --transcript .hotato/chat-transcript.json
+```
+
+The whole wire contract is one POST per scripted turn:
+
+```
+request:   POST <URL>   {"conversation_id": "<id>", "turn_index": 0, "text": "<caller turn>"}
+response:  200          {"text": "<agent reply>"}
+```
+
+Extra response keys are ignored; a non-200, a redirect, a non-JSON body, or
+a missing `text` is a loud exit-2 error naming the contract. Local by
+default: a host off `localhost`/`127.0.0.1` is refused before any request
+unless you pass `--egress-opt-in` (the same explicit gate the hosted
+diarizer and hosted judge carry).
+
+What lands in the transcript, each labelled for what it is:
+
+- agent replies **verbatim**, with per-turn reply latency **measured** as the
+  HTTP round trip -- that measured latency is exactly the response gap
+  `investigate --transcript` scores;
+- caller/agent turn spans from the scenario's deterministic pacing model
+  (the same word-count/speaking-rate constants the offline renderer uses),
+  so the caller side derives from `(scenario, seed)`, never a wall clock;
+- `origin.kind = "simulated"` provenance: the caller side is the scripted
+  simulator's, and the agent text is your agent's own replies
+  (`agent_replies: "live-chat-http"`).
+
+`--out DIR` names the transcript's directory (default `.hotato/`, written
+as `chat-transcript.json`).
+
 ## Exit codes
 
 | Exit | Meaning |
 |---|---|
-| `0` | every produced conversation is `origin=simulated`, validated as a faithful rendering (and, under `--matrix --conversation-test`, every scored aggregate passed) |
+| `0` | every produced conversation is `origin=simulated`, validated as a faithful rendering (and, under `--matrix --conversation-test`, every scored aggregate passed); with `--chat`, every scripted turn was driven and the transcript written |
 | `1` | at least one simulation was `SIMULATOR_INVALID` -- a broken fixture, distinct from an agent PASS/FAIL -- or, under `--matrix --conversation-test`, a scored aggregate FAILed |
-| `2` | usage error / unusable input: a malformed or unreadable scenario/conversation-test file (or, under `--matrix --conversation-test` with `inconclusive_policy refuse`, a withheld verdict) |
+| `2` | usage error / unusable input: a malformed or unreadable scenario/conversation-test file (or, under `--matrix --conversation-test` with `inconclusive_policy refuse`, a withheld verdict); a non-local `--chat` URL without `--egress-opt-in`, an unreachable chat agent, or a reply off the `--chat` contract |
 
 ## Related
 

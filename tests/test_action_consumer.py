@@ -723,6 +723,102 @@ def test_action_performs_no_upload_comment_or_network(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# contracts mode: hotato's own tight verify Markdown on the job summary
+# (gap #8, PR result reporting; `hotato contract verify --step-summary`)
+# ---------------------------------------------------------------------------
+
+def _create_contract_bundle(ws, cid, *extra):
+    """Build one real contract bundle inside the workspace via the CLI (the
+    engine scores it at create and re-scores it inside the gate run)."""
+    from importlib import resources
+    hard = str(resources.files("hotato").joinpath(
+        "data", "audio", "01-hard-interruption.example.wav"))
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("HOTATO_ACTION_", "GITHUB_"))}
+    env["PYTHONPATH"] = os.path.join(ROOT, "src") + os.pathsep + env.get(
+        "PYTHONPATH", "")
+    out = ws / "qa" / "contracts"
+    out.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [sys.executable, "-m", "hotato", "contract", "create",
+         "--stereo", hard, "--id", cid, "--onset", "2.40",
+         "--expect", "yield", "--out", str(out), *extra],
+        env=env, capture_output=True, text=True, timeout=300)
+    assert proc.returncode == 0, proc.stderr
+    return "qa/contracts"
+
+
+def test_contracts_argv_step_summary_only_when_supported():
+    """The verify argv carries --step-summary ONLY when the installed hotato
+    was probed to support it: an exact older pin keeps its unchanged argv, so
+    the Action's exit-code contract is untouched by the summary feature."""
+    gate = _load_gate()
+    cfg = {"mode": "contracts", "target": "qa/contracts",
+           "output": ".hotato/results"}
+    assert "--step-summary" not in gate.build_argv(cfg)
+    cfg["step_summary"] = ".hotato/results/contract-summary.md"
+    argv = gate.build_argv(cfg)
+    i = argv.index("--step-summary")
+    assert argv[i + 1] == ".hotato/results/contract-summary.md"
+
+
+def test_step_summary_probe_detects_current_cli(monkeypatch):
+    gate = _load_gate()
+    src = os.path.join(ROOT, "src")
+    monkeypatch.setenv("PYTHONPATH",
+                       src + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    assert gate._step_summary_supported() is True
+
+
+def test_append_contract_step_summary_fails_open_on_missing_leaf(
+        tmp_path, monkeypatch):
+    """A missing leaf (an exact older pin never wrote one) appends nothing,
+    raises nothing, and reports nothing as present."""
+    gate = _load_gate()
+    gh = tmp_path / "s.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(gh))
+    meta = {}
+    gate.append_contract_step_summary(
+        {"workspace": str(tmp_path),
+         "step_summary": "missing/contract-summary.md"}, meta)
+    assert not gh.exists()
+    assert "contract_summary_path" not in meta
+
+
+def test_gate_contracts_step_summary_appends_tight_markdown(tmp_path):
+    ws = _workspace(tmp_path)
+    contracts = _create_contract_bundle(ws, "gate-ss-001")
+    proc, outputs, step_summary = _run_gate(tmp_path, ws,
+                                            {"contracts": contracts})
+    assert proc.returncode == 0, proc.stderr
+    assert outputs["exit-code"] == "0"
+    assert outputs["status"] == "pass"
+    # hotato's own tight verify Markdown lands ahead of the five-lane summary
+    assert "### hotato contract verify" in step_summary
+    assert "**PASS**: 1/1 contracts pass (exit code 0)" in step_summary
+    assert step_summary.index("hotato contract verify") < step_summary.index(
+        "VOICE CONVERSATION REGRESSION")
+    # the leaf itself sits inside the private output directory
+    assert (ws / ".hotato" / "results" / "contract-summary.md").is_file()
+    # the reproduce line is the exact executed argv, flag included
+    assert "--step-summary" in step_summary
+
+
+def test_gate_contracts_step_summary_fail_preserves_exit(tmp_path):
+    ws = _workspace(tmp_path)
+    contracts = _create_contract_bundle(ws, "gate-ss-bad-001",
+                                        "--max-time-to-yield", "0.0")
+    proc, outputs, step_summary = _run_gate(tmp_path, ws,
+                                            {"contracts": contracts})
+    # the summary is additive: hotato's exit code flows through untouched
+    assert proc.returncode == 1, proc.stderr
+    assert outputs["exit-code"] == "1"
+    assert "**FAIL**: 0/1 contracts pass, 1 failing (exit code 1)" in step_summary
+    assert "`gate-ss-bad-001`" in step_summary
+    assert "seconds_to_yield" in step_summary
+
+
+# ---------------------------------------------------------------------------
 # P0.2: the Action must never follow a planted result / summary symlink
 # (a consumer PR commits an output leaf as a symlink so the pinned Action
 # truncates an accessible target and still exits 0)

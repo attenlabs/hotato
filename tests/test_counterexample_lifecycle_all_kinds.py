@@ -159,7 +159,7 @@ def _documents(kind: str, case: LifecycleCase) -> tuple[dict[str, Any], dict[str
 
 def test_lifecycle_matrix_covers_every_scripted_counterexample_assertion_kind() -> None:
     assert set(CASES) == set(A.KINDS).difference({
-        "timing_contract", "dtmf", "http_result",
+        "timing_contract", "dtmf", "http_result", "formula",
     })
 
 

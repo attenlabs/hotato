@@ -12,6 +12,13 @@ Every number is computed from the envelopes' real measurements:
   (dead air before the agent speaks), pooled across all events (definitions
   in ``hotato._stats``; time-to-yield and response-gap only over measured
   values, with the n stated)
+* fleet latency percentiles: p50 / p90 / p99 of response gap, time to yield,
+  and talk-over pooled across the whole corpus, by the deterministic
+  nearest-rank method (with the n measured values sorted ascending,
+  p(q) = the value at rank ceil(q * n), so every percentile is an observed
+  measurement, never an interpolation). Events with no numeric measurement
+  (null, e.g. transcript-path talk-over) are excluded with the excluded
+  count shown, never treated as 0.
 * pass rate per run over time, ordered by file mtime or by filename (use a
   numeric filename prefix as an explicit index)
 * the most common failure class across all runs
@@ -31,12 +38,12 @@ import json
 import os
 from typing import Optional
 
-from ._stats import dist_summary, latency_sla
+from ._stats import corpus_percentiles, dist_summary, latency_sla
 from .errors import open_regular as _open_regular
 from .report import _C, _esc
 
 __all__ = ["load_run_dir", "aggregate_runs", "build_team_section_html",
-           "build_team_page_html"]
+           "build_percentiles_section_html", "build_team_page_html"]
 
 
 # --- loading ----------------------------------------------------------------
@@ -195,6 +202,15 @@ def aggregate_runs(runs: list, order: str = "name",
         "talk_over_sec": dist_summary(tov),
         "seconds_to_yield": dist_summary(tty),
         "response_gap_sec": response_gap_sec,
+        # Fleet percentiles over the pooled corpus, nearest-rank (see
+        # hotato._stats.corpus_percentiles): each metric states its measured n
+        # and the events excluded for having no numeric measurement (null or
+        # missing, e.g. transcript-path talk-over). A null never enters as 0.
+        "latency_percentiles": {
+            "response_gap_sec": corpus_percentiles(rg, events_total),
+            "seconds_to_yield": corpus_percentiles(tty, events_total),
+            "talk_over_sec": corpus_percentiles(tov, events_total),
+        },
         "latency_sla": sla,
         "pass_rate": {
             "latest": latest_rate,
@@ -337,6 +353,50 @@ def build_team_section_html(agg: dict) -> str:
     )
 
 
+_PCTL_METRICS = (
+    ("response gap", "response_gap_sec"),
+    ("time to yield", "seconds_to_yield"),
+    ("talk-over", "talk_over_sec"),
+)
+
+
+def _percentile_row(name: str, p: dict) -> str:
+    def fmt(x) -> str:
+        return f"{x:.2f}s" if x is not None else "no measurements"
+
+    return (
+        f'<tr><td class="mono">{_esc(name)}</td>'
+        f'<td class="mono">{fmt(p["p50"])}</td>'
+        f'<td class="mono">{fmt(p["p90"])}</td>'
+        f'<td class="mono">{fmt(p["p99"])}</td>'
+        f'<td class="mono">{p["n"]}</td>'
+        f'<td class="mono">{p["excluded_null"]}</td></tr>'
+    )
+
+
+def build_percentiles_section_html(agg: dict) -> str:
+    """The fleet latency percentiles as an HTML panel (embeddable,
+    self-contained). One row per metric: p50 / p90 / p99 by nearest rank,
+    the measured n, and the excluded null count."""
+    lp = agg["latency_percentiles"]
+    rows = "".join(_percentile_row(name, lp[key]) for name, key in _PCTL_METRICS)
+    return (
+        '<section class="card">'
+        '<div class="ctitle">Fleet latency percentiles</div>'
+        f'<div class="tnote">p50 / p90 / p99 pooled across all {agg["runs"]} '
+        'runs by the nearest-rank method: with the n measured values sorted '
+        'ascending, p(q) is the value at rank ceil(q * n), so every '
+        'percentile is an observed measurement, never an interpolation. '
+        'Events with no numeric measurement (null, e.g. transcript-path '
+        'talk-over) are excluded and counted, never treated as 0.</div>'
+        '<table class="vadtab"><thead><tr><th>metric</th><th>p50</th>'
+        '<th>p90</th><th>p99</th><th>measured n</th>'
+        '<th>excluded (null)</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+        '</section>'
+    )
+
+
 _TEAM_CSS = """
 :root{color-scheme:dark}
 *{box-sizing:border-box}
@@ -388,7 +448,7 @@ def build_team_page_html(agg: dict) -> str:
         'counts of real verdicts, shown as 0 to 1 fractions.</footer>'
     )
     body = (f'<div class="wrap">{head}<main>{build_team_section_html(agg)}'
-            f'</main>{foot}</div>')
+            f'{build_percentiles_section_html(agg)}</main>{foot}</div>')
     return (
         "<!doctype html>\n<html lang=\"en\"><head>"
         "<meta charset=\"utf-8\">"

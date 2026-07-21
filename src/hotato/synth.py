@@ -170,6 +170,31 @@ def _apply(chans, rate, recipe: dict, seed: int):
                     if i + k < len(c):
                         c[i + k] = 0
                 i += period_n
+    elif kind == "dropout":
+        # ``count`` dropout gaps of ``gap_ms`` each at SEEDED positions: the
+        # LCG draws every window start, so one seed always drops the same
+        # windows. Zeroed on every channel; length-preserving.
+        count = int(recipe.get("count", 3))
+        gap_ms = float(recipe["gap_ms"])
+        gap_n = max(1, int(gap_ms * rate / 1000.0))
+        rng = _lcg(seed)
+        span = max(1, len(out[0]) - gap_n)
+        for _ in range(count):
+            start = int(((next(rng) + 1.0) / 2.0) * span)
+            for c in out:
+                for k in range(gap_n):
+                    if start + k < len(c):
+                        c[start + k] = 0
+    elif kind == "jitter_resample":
+        # constant clock-skew jitter: nearest-neighbour resample by a fixed
+        # ``factor`` while KEEPING the declared sample rate, so the whole
+        # timeline stretches (factor > 1) or compresses (factor < 1)
+        # uniformly. Deterministic; no PRNG.
+        factor = float(recipe["factor"])
+        if factor <= 0:
+            raise ValueError("jitter_resample factor must be > 0")
+        out = [[c[min(len(c) - 1, int(i / factor))]
+                for i in range(int(len(c) * factor))] for c in out]
     else:
         raise ValueError(f"unknown transform {kind!r}")
     return out, out_rate
@@ -252,4 +277,131 @@ def synth_battery(source_wav: str, out_dir: str, *, seed: int = 1) -> List[dict]
     return records
 
 
-__all__ = ["perturb", "default_matrix", "synth_battery", "SCHEMA_VERSION", "TOOL"]
+# --- degradation/robustness battery ---------------------------------------
+def robustness_stages(*, snrs=(20, 10, 5), clip_ceiling=0.5, dropout_count=3,
+                      dropout_gap_ms=60.0, jitter_factor=1.005) -> List[dict]:
+    """The staged degradation ladder: a clean baseline, additive noise at
+    stepped SNRs, hard clipping at a ceiling fraction, seeded dropout gaps,
+    and a constant clock-skew resample. Fixed stage names; every stage is
+    deterministic for a fixed seed."""
+    stages: List[dict] = [{"stage": "baseline", "recipe": None}]
+    for snr in snrs:
+        stages.append({"stage": f"noise-snr{int(snr)}db",
+                       "recipe": {"transform": "noise", "snr_db": snr}})
+    stages.append({"stage": f"clip-{clip_ceiling:g}",
+                   "recipe": {"transform": "clip", "ceiling": clip_ceiling}})
+    stages.append({"stage": f"dropout-{int(dropout_count)}x{dropout_gap_ms:g}ms",
+                   "recipe": {"transform": "dropout", "count": dropout_count,
+                              "gap_ms": dropout_gap_ms}})
+    stages.append({"stage": f"jitter-{jitter_factor:g}x",
+                   "recipe": {"transform": "jitter_resample",
+                              "factor": jitter_factor}})
+    return stages
+
+
+def _stage_metrics(event: dict) -> dict:
+    v = event.get("verdict") or {}
+    lat = (event.get("signals") or {}).get("latency") or {}
+    return {
+        "did_yield": v.get("did_yield"),
+        "seconds_to_yield": v.get("seconds_to_yield"),
+        "talk_over_sec": v.get("talk_over_sec"),
+        "response_gap_sec": lat.get("response_gap_sec"),
+    }
+
+
+def _metric_delta(base: dict, cur: dict) -> dict:
+    def _d(key):
+        a, b = base.get(key), cur.get(key)
+        if a is None or b is None:
+            return None
+        return round(b - a, 6)
+    flipped = (base.get("did_yield") is not None
+               and cur.get("did_yield") is not None
+               and bool(base["did_yield"]) != bool(cur["did_yield"]))
+    return {
+        "did_yield_flipped": flipped,
+        "seconds_to_yield_delta": _d("seconds_to_yield"),
+        "talk_over_sec_delta": _d("talk_over_sec"),
+        "response_gap_sec_delta": _d("response_gap_sec"),
+    }
+
+
+def robustness_battery(source_wav: str, out_dir: str, *, seed: int = 1,
+                       onset_sec=None, expect: str = "yield",
+                       stages=None) -> dict:
+    """Render the staged degradation ladder over ONE recording, score every
+    stage with the SAME scorer and the SAME labels (onset/expect), and report
+    how did_yield / talk_over / response_gap moved against the clean baseline.
+
+    Byte-reproducible for a fixed seed: the LCG fixes the noise samples and
+    the dropout positions, the stage names and clip filenames are fixed, and
+    the scorer is deterministic. Derived clips carry the same synthetic
+    provenance as :func:`perturb` on the SEPARATE synthetic axis. The movement
+    table measures scorer stability under degradation -- timing signal only,
+    never agent intent."""
+    from . import core as _core  # deferred: synth stays stdlib-only at import
+
+    stage_list = list(stages) if stages is not None else robustness_stages()
+    if not stage_list or stage_list[0].get("recipe") is not None:
+        raise ValueError("robustness battery needs a leading baseline stage")
+    os.makedirs(out_dir, exist_ok=True)
+    rows: List[dict] = []
+    baseline_metrics = None
+    for i, st in enumerate(stage_list):
+        recipe = st.get("recipe")
+        if recipe is None:
+            path, prov = source_wav, None
+        else:
+            path = os.path.join(out_dir, f"robustness-{i:02d}-{st['stage']}.wav")
+            prov = perturb(source_wav, recipe, out_path=path, seed=seed)
+        env = _core.run_single(stereo=path, onset_sec=onset_sec, expect=expect)
+        event = env["events"][0]
+        scorable = event.get("scorable", True) is not False
+        metrics = _stage_metrics(event)
+        row = {
+            "stage": st["stage"],
+            "recipe": recipe,
+            "clip": None if prov is None else prov["output"],
+            "scorable": scorable,
+            "metrics": metrics,
+            "delta": None,
+        }
+        if not scorable:
+            row["not_scorable_reason"] = event.get("not_scorable_reason")
+        if recipe is None:
+            if not scorable:
+                raise ValueError(
+                    "the baseline recording is not scorable, so there is no "
+                    "reference to measure stage movement against: "
+                    f"{event.get('not_scorable_reason')}"
+                )
+            baseline_metrics = metrics
+        elif scorable:
+            row["delta"] = _metric_delta(baseline_metrics, metrics)
+        rows.append(row)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "synthetic": True,                 # explicit: NEVER a real recording
+        "axis": "synthetic",               # a SEPARATE report axis, never blended
+        "designation": "synthetic-derived",
+        "tool": TOOL,
+        "seed": seed,
+        "expect": expect,
+        "onset_sec": onset_sec,
+        "source": {"path": os.path.basename(source_wav),
+                   "pcm_sha256": _pcm_sha256(source_wav)},
+        "stages": rows,
+        "summary": {
+            "stage_count": len(rows),
+            "did_yield_flipped_stages": [
+                r["stage"] for r in rows
+                if r["delta"] and r["delta"]["did_yield_flipped"]],
+            "not_scorable_stages": [
+                r["stage"] for r in rows if not r["scorable"]],
+        },
+    }
+
+
+__all__ = ["perturb", "default_matrix", "synth_battery", "robustness_stages",
+           "robustness_battery", "SCHEMA_VERSION", "TOOL"]
