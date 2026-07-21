@@ -8970,9 +8970,12 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             _exit_codes_epilog("init") + "\n\n"
             "Zero-config onboarding:\n"
-            "  hotato init --auto            # detect the stack + scaffold the tuned kit\n"
-            "  hotato init --auto --out .    # into the current repo (the default)\n"
-            "  hotato init --agents          # register hotato with the project's agents"
+            "  # detect the stack and scaffold the tuned kit\n"
+            "  hotato init --auto\n"
+            "  # scaffold into the current repo (the default location)\n"
+            "  hotato init --auto --out .\n"
+            "  # register hotato with the project's agents\n"
+            "  hotato init --agents"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
