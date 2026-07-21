@@ -1,0 +1,101 @@
+{
+  "suite": "hotato-turn-taking-gauntlet",
+  "version": 1,
+  "description": "A curated, seeded, byte-reproducible turn-taking stress suite. Each case is a bundled two-channel stimulus (a packaged reference recording, some with a seeded synthetic perturbation applied) scored by the hotato deterministic timing scorer at a labelled caller onset. A case passes when the scorer's yield/hold verdict agrees with the case's ground-truth label. The suite scores the bundled deterministic stimulus; a fixed suite renders and scores byte-identical on every machine.",
+  "cases": [
+    {
+      "id": "hard-barge-in",
+      "title": "Hard mid-sentence barge-in",
+      "family": "barge-in",
+      "wav": "01-hard-interruption.example.wav",
+      "onset_sec": 2.4,
+      "expect": "yield",
+      "note": "The caller takes the floor mid sentence. A correct scorer marks a yield."
+    },
+    {
+      "id": "backchannel-hold",
+      "title": "Backchannel that is not a floor-take",
+      "family": "backchannel",
+      "wav": "02-backchannel-mhm.example.wav",
+      "onset_sec": 2.1,
+      "expect": "hold",
+      "note": "The caller drops a short acknowledgement while listening. A correct scorer holds the floor rather than reads a yield."
+    },
+    {
+      "id": "filler-start-barge-in",
+      "title": "Interruption that opens with a filler",
+      "family": "barge-in",
+      "wav": "03-filler-start.example.wav",
+      "onset_sec": 2.3,
+      "expect": "yield",
+      "note": "An interruption that opens with a filler still takes the floor. A correct scorer marks a yield."
+    },
+    {
+      "id": "urgent-correction",
+      "title": "Urgent mid-answer correction",
+      "family": "correction",
+      "wav": "04-correction.example.wav",
+      "onset_sec": 2.0,
+      "expect": "yield",
+      "note": "The caller corrects the agent in the middle of its answer. A correct scorer marks a yield."
+    },
+    {
+      "id": "telephony-8khz-barge-in",
+      "title": "Hard barge-in over an 8 kHz telephony route",
+      "family": "barge-in",
+      "wav": "05-telephony-8khz.example.wav",
+      "onset_sec": 2.4,
+      "expect": "yield",
+      "note": "A hard barge in carried over an 8 kHz telephony route. A correct scorer marks a yield."
+    },
+    {
+      "id": "sustained-double-talk",
+      "title": "Sustained caller talk-over",
+      "family": "talk-over",
+      "wav": "06-double-talk.example.wav",
+      "onset_sec": 2.2,
+      "expect": "yield",
+      "note": "Both parties speak at once under sustained talk over. A correct scorer marks a yield."
+    },
+    {
+      "id": "echo-bleed-hold",
+      "title": "Agent audio bleed on the caller channel",
+      "family": "echo-bleed",
+      "wav": "07-echo-bleed.example.wav",
+      "onset_sec": 2.0,
+      "expect": "hold",
+      "note": "Agent audio bleeds back on the caller channel. A correct scorer holds the floor rather than reads a phantom yield."
+    },
+    {
+      "id": "rapid-turn-taking",
+      "title": "Rapid turn-taking after an interruption",
+      "family": "rapid",
+      "wav": "08-rapid-turn-taking.example.wav",
+      "onset_sec": 2.1,
+      "expect": "yield",
+      "note": "Fast back and forth right after an interruption. A correct scorer marks a yield."
+    },
+    {
+      "id": "noisy-barge-in",
+      "title": "Hard barge-in under moderate background noise",
+      "family": "robustness",
+      "wav": "01-hard-interruption.example.wav",
+      "onset_sec": 2.4,
+      "expect": "yield",
+      "perturbation": { "transform": "noise", "snr_db": 30 },
+      "seed": 101,
+      "note": "The hard barge in with additive noise at 30 dB SNR. A robust scorer still marks a yield."
+    },
+    {
+      "id": "packet-loss-barge-in",
+      "title": "Hard barge-in under seeded packet dropout",
+      "family": "robustness",
+      "wav": "01-hard-interruption.example.wav",
+      "onset_sec": 2.4,
+      "expect": "yield",
+      "perturbation": { "transform": "dropout", "count": 3, "gap_ms": 60 },
+      "seed": 101,
+      "note": "The hard barge in with three seeded 60 ms dropout gaps. A robust scorer still marks a yield."
+    }
+  ]
+}
