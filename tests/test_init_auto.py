@@ -22,7 +22,6 @@ import pytest
 
 from hotato import cli, initcmd
 
-
 STARTER_FILES = {
     "hotato.yaml",
     "HOTATO.md",
