@@ -1,0 +1,25 @@
+{
+  "name": "identity-verification-order",
+  "version": 1,
+  "title": "Identity verification order",
+  "description": "Checks that the agent requests identity verification and that it occurs before any account details are disclosed.",
+  "assertions": [
+    {
+      "id": "identity-verification-order.verification-requested",
+      "kind": "phrase",
+      "regex": "verify your identity|date of birth|last four|security question",
+      "role": "agent",
+      "position": "any",
+      "dimension": "policy"
+    },
+    {
+      "id": "identity-verification-order.verify-before-details",
+      "kind": "order",
+      "before": "verify your identity|date of birth|last four|security question",
+      "after": "your account number is|your balance is|current balance is",
+      "role": "agent",
+      "case_sensitive": false,
+      "dimension": "policy"
+    }
+  ]
+}

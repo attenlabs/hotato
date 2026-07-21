@@ -50,7 +50,7 @@ never the matched text.
 
 ### The whole `kind` vocabulary
 
-The full `assert.v1` `kind` vocabulary is **19 deterministic kinds**, all
+The full `assert.v1` `kind` vocabulary is **20 deterministic kinds**, all
 `deterministic: true`, all model-free. Beyond the five core kinds:
 `tool_result` and `tool_error` (a tool's returned value or raised error, from
 the trace), `http_result` (a recorded HTTP exchange span's method, URL,
@@ -58,8 +58,9 @@ status, and response subset, from the trace), `state` and `state_change` (a
 state adapter's snapshot or
 transition -- see [STATE-ADAPTERS.md](STATE-ADAPTERS.md)), `handoff`, `dtmf`,
 `termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`,
-`count`, and `formula` (a boolean composite over other assertions' results in
-the same run, below). Two more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
+`count`, `formula` (a boolean composite over other assertions' results in
+the same run, below), and `order` (a transcript ordering check, below). Two
+more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
 model-judged rubric lane ([RUBRIC.md](RUBRIC.md)); inside a raw `assert.v1`
 document they resolve to a deterministic `INCONCLUSIVE`, so no model runs here
 and the guarantee holds.
@@ -135,6 +136,32 @@ naming the reference -- absent input propagates; a composite never guesses.
 A determinate result carries `refs` (the referenced ids), `met`/`of` (how many
 referenced assertions passed), and, on `FAIL`, a reason listing which
 references passed and which did not.
+
+### `order`: one phrase must come before another
+
+`order` checks the sequence of two phrases in the transcript: the FIRST turn
+matching the `before` regex must precede (be strictly earlier than) the FIRST
+turn matching `after`. It measures where two phrases first appear, not why they
+appear. It reads only transcript text, so it needs a `--transcript`.
+
+```yaml
+version: 1
+assertions:
+  - id: verify-before-account-details
+    kind: order
+    before: "verify your identity|date of birth|last four"
+    after: "your account number is|current balance"
+    role: agent            # optional: match only this speaker's turns
+    case_sensitive: false  # optional, default false
+```
+
+`PASS` carries `before_turn` and `after_turn` (the zero-based turn indices the
+two phrases first matched at). If either phrase never matches there is no
+ordering constraint to violate, so the result is a vacuous `PASS` carrying
+`vacuous: true`. A context with no transcript reports `INCONCLUSIVE`, never a
+guess. The phrases present but in the wrong order is a `FAIL`. A malformed
+assertion (a missing or invalid `before`/`after` regex, a non-string `role`) is
+a usage error caught up front, before any assertion runs.
 
 ### `when:`: conditional assertions
 

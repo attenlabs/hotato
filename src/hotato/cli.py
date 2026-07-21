@@ -364,11 +364,17 @@ _EXIT_CODES: dict = {
             "(missing required input) result"),
         (2, "under --inconclusive-policy refuse, at least one INCONCLUSIVE "
             "result withheld the verdict (this refusal takes precedence over "
-            "a FAIL); OR a usage error / unusable input: a malformed "
-            "--assertions file (including a bad inconclusive_policy value), "
-            "an unreadable --transcript/--trace file, an unscorable --stereo "
+            "a FAIL); OR a usage error / unusable input: neither --assertions "
+            "nor --pack given, a malformed --assertions file (including a bad "
+            "inconclusive_policy value), an unknown --pack name, a duplicate "
+            "assertion id across the merged --assertions/--pack sources, an "
+            "unreadable --transcript/--trace file, an unscorable --stereo "
             "recording, or --transcribe without --stereo (or combined with "
             "--transcript)"),
+    ),
+    "assert packs": (
+        (0, "listed the bundled assertion packs"),
+        (2, "a malformed bundled assertion packs manifest (a packaging defect)"),
     ),
     "test": (
         (2, "no subcommand given (see hotato test run --help)"),
@@ -3138,15 +3144,59 @@ def _cmd_assert_run(args) -> int:
         trace_path=args.trace,
         timing=timing,
     )
-    env_out = A.run_assertions_from_file(
-        args.assertions, ctx,
-        inconclusive_policy=getattr(args, "inconclusive_policy", None),
-    )
+    packs = list(getattr(args, "pack", None) or [])
+    if not args.assertions and not packs:
+        raise ValueError(
+            "pass --assertions FILE and/or one or more --pack NAME (at least "
+            "one assertion source is required)"
+        )
+    policy = getattr(args, "inconclusive_policy", None)
+    if packs:
+        # Merge the named packs' assertions into the (optional) --assertions
+        # document, then run the same deterministic engine. A duplicate id
+        # across the merged sources is refused up front (exit 2).
+        from . import assert_packs as AP
+
+        merged = AP.load_and_merge(args.assertions, packs)
+        env_out = A.run_assertions(merged, ctx, inconclusive_policy=policy)
+    else:
+        env_out = A.run_assertions_from_file(
+            args.assertions, ctx, inconclusive_policy=policy,
+        )
     if args.format == "json":
         print(_errors.safe_json_dumps(env_out, indent=2))
     else:
         print(A.render_run_text(env_out), end="")
     return env_out["exit_code"]
+
+
+def _cmd_assert_packs(args) -> int:
+    from . import assert_packs as AP
+
+    entries = AP.list_entries()
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "assert-packs",
+            "pack_set": AP.PACK_SET_NAME,
+            "packs": entries,
+        }
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        lines = [f"{len(entries)} assertion pack(s) [{AP.PACK_SET_NAME}]:"]
+        for e in entries:
+            lines.append(
+                f"  {e['name']}  ({len(e['assertion_ids'])} assertion(s), "
+                f"kinds: {', '.join(e['kinds'])})"
+            )
+            if e.get("description"):
+                lines.append(f"    {e['description']}")
+        lines.append(
+            "merge into a run: hotato assert run --pack NAME [--pack NAME ...] "
+            "--transcript call.transcript.json"
+        )
+        print("\n".join(lines))
+    return 0
 
 
 def _load_state_adapter(path: str):
@@ -4178,9 +4228,15 @@ def _render_matrix_text(s: dict) -> str:
     for cell in s["variation_cells"]:
         v = cell["cell"]
         rel = cell["reliability"]
+        extra = ""
+        if v.get("variables"):
+            extra += " vars=" + ",".join(
+                f"{k}={v['variables'][k]}" for k in sorted(v["variables"]))
+        if v.get("path"):
+            extra += " path=" + ">".join(v["path"])
         lines.append(
             f"  [{v['locale']} rate={v['speaking_rate']} noise={v['noise']} "
-            f"behavior={v['behavior']}] "
+            f"behavior={v['behavior']}{extra}] "
             f"pass@1={rel['pass_at_1']:.3f} pass@k={rel['pass_at_k']:.3f} "
             f"pass^k={rel['pass_caret_k']:.3f} (n={rel['n']})"
         )
@@ -6894,7 +6950,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     asub = asrt.add_subparsers(dest="assert_command", required=True,
-                               metavar="init|run")
+                               metavar="init|run|packs")
 
     ai = asub.add_parser(
         "init",
@@ -6962,9 +7018,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ar.add_argument("--assertions", required=True, metavar="FILE",
+    ar.add_argument("--assertions", default=None, metavar="FILE",
                     help="the assertions.yaml (or equivalent JSON) file to "
-                         "evaluate")
+                         "evaluate; optional when one or more --pack is given "
+                         "(at least one assertion source is required)")
+    ar.add_argument("--pack", action="append", default=None, metavar="NAME",
+                    help="merge a bundled assertion pack's checks into this "
+                         "run (repeatable); list packs with `hotato assert "
+                         "packs`. Combined with --assertions, or used alone. A "
+                         "duplicate assertion id across the merged sources is a "
+                         "usage error")
     ar.add_argument("--stereo", default=None, metavar="WAV",
                     help="score this recording for timing context "
                          "(outcome's field_present) and, with --transcribe, "
@@ -7013,6 +7076,33 @@ def build_parser() -> argparse.ArgumentParser:
                          "set fail or refuse")
     _add_format_arg(ar, choices=("text", "json"))
     ar.set_defaults(func=_cmd_assert_run)
+
+    ap_ = asub.add_parser(
+        "packs",
+        help="list the bundled, deterministic assertion packs you can merge "
+             "into a run with `assert run --pack`",
+        description=(
+            "List the curated assertion packs that ship in the wheel "
+            "(required-disclosure, prohibited-language, pii-leak, "
+            "identity-verification-order). Each pack is a set of assert.v1 "
+            "assertions built only from the deterministic, offline, model-free "
+            "kinds; merge one or more into a run with `hotato assert run --pack "
+            "NAME`. Every check measures a deterministic signal (a phrase "
+            "present or absent, a detector hit, a phrase ordering), never "
+            "intent, and no pack makes a certification claim."
+        ),
+        epilog=(
+            _exit_codes_epilog("assert packs") + "\n\n"
+            "Examples:\n"
+            "  hotato assert packs\n"
+            "  hotato assert packs --format json\n"
+            "  hotato assert run --pack pii-leak --pack required-disclosure "
+            "--transcript call.transcript.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_format_arg(ap_, choices=("text", "json"))
+    ap_.set_defaults(func=_cmd_assert_packs)
 
     # --- test: the Phase-1 EXIT -- one conversation-test file end to end -----
     tst = sub.add_parser(
