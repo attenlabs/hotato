@@ -26,7 +26,7 @@ you can chain the whole loop from stdout alone:
   input-health gate, and ranks the timing moments. It marks the top-ranked one
   `most likely failure` and prints one `investigate label` command for it. No
   intent is inferred; a suspected channel swap refuses the verdict path.
-- **Step 3** writes a signed contract bundle to `contracts/<id>.hotato/` from the
+- **Step 3** writes a content-addressed contract bundle to `contracts/<id>.hotato/` from the
   candidate ref (`.hotato/investigate-state.json#N`) and the `--expect yield|hold`
   label you supply. The label is the human decision; hotato measures whether the
   timing matched it.
