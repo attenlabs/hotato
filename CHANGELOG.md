@@ -8,6 +8,17 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-07-21
+
+### Changed
+- **Positioning copy across README, PyPI, and llms.txt** now leads with
+  deterministic regression testing for voice and chat agents, organizes the
+  capability surface into the Catch, Exercise, Decide, and Gate workflows, adds
+  the proof strip (byte-reproducible verdicts, content-addressed contracts,
+  git-bisect predicates, agent-native over local MCP), and states contract
+  verification in Captured-Evidence terms (a contract preserves the captured
+  failure and re-measures it under the pinned policy). No code changes.
+
 ## [1.12.0] - 2026-07-21
 
 ### Added
