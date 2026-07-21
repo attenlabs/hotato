@@ -183,7 +183,8 @@ def test_order_result_is_byte_stable():
     b = A.run_assertions(doc, A.build_context(transcript=[
         _turn("agent", "verify"), _turn("agent", "balance"),
     ]))
-    dumps = lambda e: json.dumps(e, sort_keys=True, separators=(",", ":"))
+    def dumps(e):
+        return json.dumps(e, sort_keys=True, separators=(",", ":"))
     assert dumps(a) == dumps(b)
 
 
