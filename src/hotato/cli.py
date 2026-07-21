@@ -620,8 +620,12 @@ _EXIT_CODES: dict = {
         (2, "usage error: no mode given, or --dir is not a directory"),
     ),
     "init": (
-        (2, "no subcommand given (see hotato init webhook --help / hotato "
-            "init starter --help / hotato init ci --help)"),
+        (0, "scaffolded the auto-detected starter kit (--auto), or registered "
+            "hotato with the project's coding agents (--agents)"),
+        (2, "no subcommand or mode given (see hotato init webhook --help / "
+            "hotato init starter --help / hotato init ci --help), --auto "
+            "detected neither a framework nor a recording, or a destination "
+            "file already exists without --force"),
     ),
     "init webhook": (
         (0, "scaffolded the webhook worker project to --out"),
@@ -760,6 +764,16 @@ _EXIT_CODES: dict = {
             "was emitted (movement is reported, never gated)"),
         (2, "usage error, unreadable source audio, or a baseline recording "
             "that is not scorable"),
+    ),
+    "gauntlet": (
+        (0, "the bundled turn-taking stress suite ran and every case cleared"),
+        (1, "the bundled suite ran and a case did not clear (the scorer "
+            "disagreed with a ground-truth label)"),
+        (2, "usage error, unusable bundled suite data, or an unwritable --out"),
+    ),
+    "gauntlet badge": (
+        (0, "the Gauntlet N/M badge SVG was rendered from a fresh suite run"),
+        (2, "usage error, unusable bundled suite data, or an unwritable --out"),
     ),
     "fleet experiment run": (
         (0, "the before/after battery improved under the pinned manifest "
@@ -2820,6 +2834,103 @@ def _cmd_battery_robustness(args) -> int:
     return 0
 
 
+def _cmd_gauntlet_list(args) -> int:
+    """List the bundled turn-taking gauntlet cases and exit. Each case is a
+    packaged reference recording (some with a seeded synthetic perturbation)
+    scored by the deterministic timing scorer at a labelled onset; a case clears
+    when the yield/hold verdict agrees with its ground-truth label."""
+    from . import gauntlet as _gauntlet
+
+    manifest = _gauntlet.load_manifest()
+    cases = _gauntlet.list_cases()
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "gauntlet-list",
+            "suite": manifest.get("suite", _gauntlet.SUITE_NAME),
+            "count": len(cases),
+            "families": _gauntlet.families(),
+            "cases": cases,
+        }
+        print(_errors.safe_json_dumps(payload, indent=2))
+        return 0
+    print(
+        f"hotato gauntlet: {manifest.get('suite', _gauntlet.SUITE_NAME)} -- "
+        f"{len(cases)} bundled turn-taking stress case(s)"
+    )
+    print(
+        "each scores a packaged deterministic stimulus at a labelled onset; a "
+        "case clears when the yield/hold verdict matches its ground-truth label"
+    )
+    width = max((len(c["id"]) for c in cases), default=0)
+    for c in cases:
+        pert = c.get("perturbation")
+        tag = f" +{pert['transform']}" if pert else ""
+        print(
+            f"  {c['id']:<{width}}  [{c.get('family', '')}] "
+            f"expect={c['expect']}{tag}  {c.get('title', '')}"
+        )
+        note = c.get("note")
+        if note:
+            print(f"      {note}")
+    print("run the whole suite with: hotato gauntlet")
+    print("render the shareable badge with: hotato gauntlet badge --out gauntlet.svg")
+    return 0
+
+
+def _render_gauntlet_text(result: dict) -> str:
+    lines = [
+        f"hotato gauntlet: {result['suite']} -- {result['passed']}/"
+        f"{result['total']} case(s) cleared",
+        "scores the bundled deterministic stimulus (a fixed suite scores the "
+        "same on every machine)",
+    ]
+    for c in result["cases"]:
+        mark = "PASS" if c["passed"] else ("n/s" if not c["scorable"] else "FAIL")
+        pert = c.get("perturbation")
+        tag = f" +{pert['transform']}" if pert else ""
+        lines.append(
+            f"  [{mark}] {c['id']} [{c.get('family', '')}] "
+            f"expect={c['expect']}{tag} did_yield={c['did_yield']}"
+        )
+        if not c["scorable"]:
+            lines.append(f"      not scorable: {c.get('not_scorable_reason')}")
+    return "\n".join(lines)
+
+
+def _cmd_gauntlet(args) -> int:
+    from . import gauntlet as _gauntlet
+
+    if getattr(args, "list_cases", False):
+        return _cmd_gauntlet_list(args)
+    result = _gauntlet.run_gauntlet(out_dir=args.out)
+    if getattr(args, "format", "text") == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_render_gauntlet_text(result))
+        if args.out:
+            print(f"wrote gauntlet result + derived clips under {args.out}/",
+                  file=sys.stderr)
+    # A cleared suite exits 0; a case the scorer got wrong is a regression in
+    # the deterministic suite (exit 1), so `hotato gauntlet` gates in CI.
+    return 0 if result["all_passed"] else 1
+
+
+def _cmd_gauntlet_badge(args) -> int:
+    from . import gauntlet as _gauntlet
+
+    # The badge score is READ from a fresh suite run -- never invented.
+    result = _gauntlet.run_gauntlet(out_dir=None)
+    svg = _gauntlet.render_badge(result)
+    if args.out:
+        _atomic_write_text(args.out, svg)
+        print(f"wrote Gauntlet {result['passed']}/{result['total']} badge to "
+              f"{args.out}", file=sys.stderr)
+    else:
+        sys.stdout.write(svg)
+    return 0
+
+
 def _cmd_fleet_canary(args) -> int:
     # Deliberately does NOT touch a live stack: routing/rollback need connected
     # credentials and a tested rollback path, absent in this release.
@@ -4435,22 +4546,32 @@ def _cmd_init_webhook(args) -> int:
 
 
 def _cmd_init_group(args) -> int:
-    """``hotato init`` with no subcommand: ``--agents`` registers hotato with
-    the agent config surfaces in the current project; anything else is a
-    usage error (exit 2), matching the old required-subcommand behavior."""
+    """``hotato init`` with no subcommand: ``--auto`` auto-detects the stack
+    and scaffolds a tuned starter kit; ``--agents`` registers hotato with the
+    agent config surfaces in the current project; anything else is a usage
+    error (exit 2), matching the old required-subcommand behavior."""
     from . import initcmd as _initcmd
 
-    if not getattr(args, "agents", False):
-        raise ValueError(
-            "hotato init needs a subcommand (webhook | starter | ci) or "
-            "--agents; see hotato init --help"
+    if getattr(args, "auto", False):
+        result = _initcmd.scaffold_auto(
+            os.getcwd(), args.out, force=args.force,
         )
-    result = _initcmd.register_agents(os.getcwd())
-    if args.format == "json":
-        print(_errors.safe_json_dumps(_initcmd.agents_result_json(result), indent=2))
-    else:
-        print(_initcmd.render_agents_text(result), end="")
-    return 0
+        if args.format == "json":
+            print(_errors.safe_json_dumps(_initcmd.auto_result_json(result), indent=2))
+        else:
+            print(_initcmd.render_auto_text(result), end="")
+        return 0
+    if getattr(args, "agents", False):
+        result = _initcmd.register_agents(os.getcwd())
+        if args.format == "json":
+            print(_errors.safe_json_dumps(_initcmd.agents_result_json(result), indent=2))
+        else:
+            print(_initcmd.render_agents_text(result), end="")
+        return 0
+    raise ValueError(
+        "hotato init needs a subcommand (webhook | starter | ci) or "
+        "--auto / --agents; see hotato init --help"
+    )
 
 
 def _cmd_init_starter(args) -> int:
@@ -8014,6 +8135,68 @@ def build_parser() -> argparse.ArgumentParser:
     _add_format_arg(bro, choices=("text", "json"))
     bro.set_defaults(func=_cmd_battery_robustness)
 
+    # --- gauntlet: the bundled turn-taking stress suite + its N/M badge -------
+    ga = sub.add_parser(
+        "gauntlet",
+        help="run the bundled turn-taking stress suite over the packaged "
+             "fixtures and report how many cases the deterministic scorer "
+             "cleared (hotato gauntlet badge renders the shareable N/M badge)",
+        description=(
+            "Run a curated, seeded, byte-reproducible battery of standardized "
+            "turn-taking stimuli that ship inside the package -- hard barge-in, "
+            "a backchannel that is not a floor-take, filler-start and correction "
+            "interruptions, telephony-rate barge-in, sustained caller talk-over, "
+            "agent-audio-bleed hold, rapid turn-taking, plus seeded synthetic "
+            "robustness variants (additive noise and packet dropout). Every case "
+            "is scored by the same deterministic timing scorer at a labelled "
+            "caller onset; a case clears when the yield/hold verdict agrees with "
+            "its ground-truth label. Scores the bundled deterministic stimulus, "
+            "so a fixed suite scores identically on every machine. --list shows "
+            "the cases; --out writes the derived robustness clips plus a "
+            "gauntlet.json result."
+        ),
+        epilog=(
+            _exit_codes_epilog("gauntlet") + "\n\n"
+            "Examples:\n"
+            "  hotato gauntlet\n"
+            "  hotato gauntlet --list\n"
+            "  hotato gauntlet --out ./gauntlet-out --format json\n"
+            "  hotato gauntlet badge --out gauntlet.svg"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ga.add_argument("--list", dest="list_cases", action="store_true",
+                    help="list the bundled gauntlet cases and exit (does not "
+                         "score)")
+    ga.add_argument("--out", default=None, metavar="DIR",
+                    help="write the derived robustness clips and a gauntlet.json "
+                         "result into this directory (default: score in a "
+                         "throwaway temp dir, persist nothing)")
+    _add_format_arg(ga)
+    ga.set_defaults(func=_cmd_gauntlet)
+
+    gasub = ga.add_subparsers(dest="gauntlet_command", required=False,
+                              metavar="badge")
+    gab = gasub.add_parser(
+        "badge",
+        help="render the deterministic self-contained 'Gauntlet N/M' SVG badge "
+             "from a fresh suite run",
+        description=(
+            "Run the bundled gauntlet and render a deterministic, self-contained "
+            "SVG badge whose score is READ from that real run (never invented): "
+            "'hotato gauntlet N/M', where N is the cases the deterministic "
+            "scorer cleared. No external resource -- inline color only, no font, "
+            "image, stylesheet, script, or link -- so it drops straight into a "
+            "README or a PR. Writes to --out, or to stdout when --out is "
+            "omitted."
+        ),
+        epilog=_exit_codes_epilog("gauntlet badge"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    gab.add_argument("--out", default=None, metavar="FILE",
+                     help="write the badge SVG here (default: stdout)")
+    gab.set_defaults(func=_cmd_gauntlet_badge)
+
     # --- trust: input-health check (is this recording even scorable?) --------
     tr = sub.add_parser(
         "trust",
@@ -8759,9 +8942,10 @@ def build_parser() -> argparse.ArgumentParser:
     it = sub.add_parser(
         "init",
         help="scaffold a hotato integration, a whole-repo starter kit, a "
-             "CI gate config (hotato init webhook | starter | ci), or "
-             "register hotato with the project's coding agents "
-             "(hotato init --agents)",
+             "CI gate config (hotato init webhook | starter | ci), "
+             "auto-detect the stack and scaffold in one command "
+             "(hotato init --auto), or register hotato with the project's "
+             "coding agents (hotato init --agents)",
         description=(
             "Scaffolding for adding hotato to a voice-agent repository: a "
             "passive webhook worker (see hotato init webhook --help), a "
@@ -8769,22 +8953,49 @@ def build_parser() -> argparse.ArgumentParser:
             "contracts/, reports/ (see hotato init starter --help), one "
             "canonical turn-taking gate config for GitLab CI, Jenkins, "
             "Azure Pipelines, or CircleCI (see hotato init ci --help), or, "
-            "with --agents and no subcommand, a one-line registration of "
-            "hotato with the agent config surfaces already present in the "
-            "current directory: an AGENTS.md section, a Claude Code skill "
-            "(or CLAUDE.md section), a Cursor rule, and the .mcp.json "
-            "server entry. Idempotent and additive: delimited blocks are "
-            "refreshed in place, every byte outside them is preserved, and "
-            "a second run changes nothing."
+            "with no subcommand, two zero-argument modes. With --auto, hotato "
+            "READ-ONLY inspects the project's declared dependencies "
+            "(pyproject.toml, requirements.txt, package.json) for a known "
+            "voice-agent framework and any committed call recordings, then "
+            "scaffolds the starter kit pre-tuned to what it found (it never "
+            "imports or runs project code, and refuses cleanly with the "
+            "manual path when it detects neither). With --agents, hotato "
+            "writes a one-line registration into the agent config surfaces "
+            "already present in the current directory: an AGENTS.md section, "
+            "a Claude Code skill (or CLAUDE.md section), a Cursor rule, and "
+            "the .mcp.json server entry. Idempotent and additive: delimited "
+            "blocks are refreshed in place, every byte outside them is "
+            "preserved, and a second run changes nothing."
         ),
-        epilog=_exit_codes_epilog("init"),
+        epilog=(
+            _exit_codes_epilog("init") + "\n\n"
+            "Zero-config onboarding:\n"
+            "  hotato init --auto            # detect the stack + scaffold the tuned kit\n"
+            "  hotato init --auto --out .    # into the current repo (the default)\n"
+            "  hotato init --agents          # register hotato with the project's agents"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    it.add_argument(
+        "--auto", action="store_true",
+        help="auto-detect the voice-agent framework from the project's "
+             "declared dependencies (read-only) and scaffold the starter kit "
+             "tuned for it; runs on its own, without a subcommand",
     )
     it.add_argument(
         "--agents", action="store_true",
         help="register hotato with the agent config surfaces in the current "
              "directory (AGENTS.md, Claude Code skill, Cursor rule, "
              ".mcp.json); runs on its own, without a subcommand",
+    )
+    it.add_argument(
+        "--out", default=".", metavar="DIR",
+        help="[--auto] directory to scaffold the detected starter kit into "
+             "(default . -- your existing repo root)",
+    )
+    it.add_argument(
+        "--force", action="store_true",
+        help="[--auto] overwrite existing files in --out",
     )
     _add_format_arg(it, choices=("text", "json"))
     it.set_defaults(func=_cmd_init_group)
