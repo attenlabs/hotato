@@ -279,14 +279,20 @@ def test_investigate_demo_scores_the_bundled_sample_from_a_bare_cwd(
     # scenario names it): the honest origin, never a fabricated provider pull
     assert result["capture_origin"]["kind"] == "frozen_regression"
 
-    # step two is reachable: the printed label next-step for the caught moment
+    # step two is reachable, and the headline leads with the STORY-WORTHY catch:
+    # the real missed interruption (a barge-in the agent talked through), not a
+    # passive end-of-call trailing silence. next[] keeps its salience order; only
+    # the printed headline prefers the higher-severity kind.
     assert len(result["next"]) == result["shown"]
-    assert result["next"][0]["command"] == (
-        f"hotato investigate label {shlex.quote(f'{state}#1')} --expect yield"
-    )
     text = _investigate.render_text(result)
-    assert (f"hotato investigate label {shlex.quote(f'{state}#1')} "
-            "--expect yield") in text
+    lead = result["next"][
+        _investigate._story_lead_index(result["next"], result["candidates"])
+    ]
+    assert (result["candidates"][lead["rank"] - 1]["kind"]
+            == "overlap_while_agent_talking")
+    # the headlined next-step is a reachable label command for that catch
+    assert lead["command"] in text
+    assert "--expect yield" in text
 
     # state persisted under the bare cwd
     assert os.path.exists(state)

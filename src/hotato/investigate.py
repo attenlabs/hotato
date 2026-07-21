@@ -880,6 +880,28 @@ def _verdict_lines(vs: dict) -> list:
     ]
 
 
+def _story_lead_index(nexts: list, cands: list) -> int:
+    """Index into ``nexts`` of the most story-worthy candidate to headline.
+
+    Candidates are salience-sorted, but salience is not comparable across kinds
+    (seconds of acoustic overlap vs seconds of dead air), so a passive
+    end-of-call trailing silence can out-rank a real missed barge-in. Headline
+    by the canonical kind severity (:data:`hotato.scan.KINDS` order, most severe
+    first), tie-broken by the existing salience rank. Deterministic; never
+    reorders ``nexts`` itself."""
+    from . import scan as _scan
+
+    tier = {k: i for i, k in enumerate(_scan.KINDS)}
+    unknown = len(tier)
+
+    def key(pair):
+        i, nx = pair
+        kind = (cands[nx["rank"] - 1] or {}).get("kind", "")
+        return (tier.get(kind, unknown), i)
+
+    return min(enumerate(nexts), key=key)[0]
+
+
 def render_text(result: dict, *, show_all: bool = False) -> str:
     from . import scan as _scan
 
@@ -906,11 +928,17 @@ def render_text(result: dict, *, show_all: bool = False) -> str:
         lines.append(f"  state remembered at: {result['state_path']}")
         return "\n".join(lines)
 
-    # Lead with the CATCH (the hit above the hedging): the single top-ranked
-    # candidate, one plain-English sentence describing it, visually isolated,
-    # with the one command that turns it into a CI contract beneath it. The
-    # provenance/health caveats follow, just below the hit.
-    top = nexts[0]
+    # Lead with the most STORY-WORTHY catch, not merely the longest by raw
+    # salience: overlap and gap salience are on different scales (seconds of
+    # overlap vs seconds of dead air), so a passive end-of-call trailing
+    # silence can otherwise out-rank a real missed barge-in and headline a
+    # non-story. Headline by the canonical kind severity (scan.KINDS order),
+    # tie-broken by the existing salience rank, so the agent talking over or
+    # stepping on the caller leads over a trailing gap. The full candidate
+    # list and every FILE#N ref keep their salience order, unchanged.
+    lead_i = _story_lead_index(nexts, cands)
+    top = nexts[lead_i]
+    rest = [n for j, n in enumerate(nexts) if j != lead_i]
     top_cand = cands[top["rank"] - 1]
     rule = "  " + "-" * 64
     lines.append("  most likely failure (top-ranked candidate):")
@@ -929,7 +957,7 @@ def render_text(result: dict, *, show_all: bool = False) -> str:
 
     if show_all and len(nexts) > 1:
         lines.append(f"  all {len(nexts)} candidate moment(s):")
-        for n in nexts[1:]:
+        for n in rest:
             lines.append(_candidate_line(cands[n["rank"] - 1], n["rank"]))
             lines.append(f"        label: {n['command']}")
     elif len(nexts) > 1:

@@ -673,8 +673,18 @@ def _render_contract(contract: dict, *, include_identifiers: bool = False) -> st
     if not scorable:
         num_text, sub = "N/A", "NOT SCORABLE"
     elif expect == "yield":
-        num_text = _fmt_sec(measurement.get("seconds_to_yield"))
-        sub = "measured time to yield"
+        # Hero the DEFINED number. When the agent never yielded (the sharpest
+        # failure), ``seconds_to_yield`` is null by definition, so heroing it
+        # renders a meaningless "?s" on the most-shared asset. Lead instead with
+        # the measured talk-over and say plainly that the agent never yielded.
+        stt = measurement.get("seconds_to_yield")
+        tov = measurement.get("talk_over_sec")
+        if stt is None and tov is not None:
+            num_text = _fmt_sec(tov)
+            sub = "talk-over; the agent never yielded"
+        else:
+            num_text = _fmt_sec(stt)
+            sub = "measured time to yield"
     else:
         num_text = _fmt_sec(measurement.get("talk_over_sec"))
         sub = "measured talk-over while the agent held the floor"
