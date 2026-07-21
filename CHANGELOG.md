@@ -8,6 +8,8 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-21
+
 ### Added
 - **`hotato observe`: local-first LLM observability.** A command group that
   offers the value of hosted observability tools with nothing leaving your
