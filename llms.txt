@@ -1,17 +1,20 @@
 # hotato
 
-> Self-hosted conversation QA for voice agents. Give it both channels of a
-> recorded call and it measures the timing between the two voices: did the agent
-> yield when the caller took the floor, how fast, and how many seconds both
-> talked at once. Measures timing, not intent; a mono or bad export is NOT
-> SCORABLE. MIT, offline, zero-install, deterministic exit 0 pass / 1 regression.
+> Deterministic regression testing for voice and chat agents, self-hosted and
+> MIT. Give it a two-channel recording or a timestamped transcript and it
+> measures turn timing and say-do evidence: did the agent yield when the caller
+> took the floor, how fast, how many seconds both talked at once, and did what
+> the agent said match what the backend did. Measures timing and say-do, not
+> intent; a mono or bad export is NOT SCORABLE. Offline, zero-install,
+> deterministic exit 0 pass / 1 regression.
 >
-> Open-source, self-hosted conversation QA for voice agents, MIT and
-> zero-install: simulate, evaluate, review, and track calls across five
-> dimensions (outcome, policy, conversation, speech, reliability) with the
-> evidence behind every result. Each caught bug becomes a CI contract and a
+> Open-source, self-hosted conversation QA across five dimensions (outcome,
+> policy, conversation, speech, reliability), MIT and zero-install: catch from
+> recordings, transcripts, or traces; exercise with personas, chat simulation,
+> and robustness batteries; decide with deterministic assertions and policy
+> packs; gate every pull request. Each caught bug becomes a CI contract and a
 > share-safe, content-addressed Failure Record a reviewer re-derives from the
-> same audio and config. Deterministic checks stay separate from the
+> same evidence and config. Deterministic checks stay separate from the
 > model-judged rubric; no blended score. The conversation (turn-taking) dimension
 > measures whether the agent stopped talking when the caller started (a yield), how
 > many seconds that took, and how many seconds both were talking at once
