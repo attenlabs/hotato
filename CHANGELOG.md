@@ -8,6 +8,19 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **`hotato gauntlet`: a bundled turn-taking stress suite + a shareable badge.**
+  Ten standardized, seeded, byte-reproducible stress cases (hard barge-in,
+  backchannel-not-a-floor-take, filler-start interruption, urgent correction,
+  telephony 8kHz, sustained talk-over, agent-audio-bleed, rapid turn-taking, and
+  two seeded robustness variants) scored over the packaged reference recordings.
+  `hotato gauntlet badge` renders a self-contained "Gauntlet N/10" SVG derived
+  from a real run. Scores the bundled deterministic stimulus.
+- **`hotato init --auto`: zero-config onboarding.** Detects the voice-agent
+  framework from the project's dependencies, locates candidate recordings, and
+  scaffolds the config and CI gate pre-filled for the detected framework. Read
+  only; refuses cleanly with the manual path when nothing is detected.
+
 ### Fixed
 - **The failure card heroes the measured number, never `?s`.** A yield contract
   the agent failed by never yielding has `seconds_to_yield` null by definition;
