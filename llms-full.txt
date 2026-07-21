@@ -12,17 +12,19 @@ FILE: README.md
 <a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=6f5d44" alt="Python versions"></a>
 <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg?branch=main" alt="CI status"></a></p>
 
-# hotato: regression testing for voice agents
+# hotato: regression testing for voice and chat agents
 
 **[hotato.dev](https://hotato.dev)**
 
 </div>
 
-**The transcript read clean. The call still failed.** Talk-over. Dead air. "You're all set" on a booking that never happened.
+**The transcript read clean. The call still failed.** Talk-over. Dead air. A booking the agent confirmed and the backend never wrote.
 
-Hotato catches it from a two-channel recording or a timestamped transcript, then fails the build until the agent stops failing that call.
+Hotato measures turn timing and say-do evidence from a two-channel recording or a timestamped transcript, then pins each catch as a content-addressed CI contract.
 
-Deterministic, byte for byte. Offline. Free, MIT, no account.
+Same input. Same verdict. Byte for byte. Runs locally. Free, MIT, no account.
+
+**Byte-reproducible verdicts** &#183; **content-addressed contracts** &#183; **git-bisect predicates** &#183; **agent-native over local MCP**
 
 **First catch in seconds, one command:**
 
@@ -53,7 +55,7 @@ $ hotato contract verify contracts
   0/1 contracts pass; exit_code=1
 ```
 
-A committed contract is a pinned bad call: the gate stays red until the agent stops failing that call, the same contract a snapshot test gives you.
+A contract preserves the captured failure and re-measures it under the pinned policy on every CI run, the same discipline a snapshot test gives you: the check stays red until the measured behavior changes.
 
 ## Quickstart
 
@@ -84,6 +86,15 @@ two-channel recording, or timestamped transcript
 ```
 
 A catch becomes a contract addressed by its own content, so the exact failure reproduces on any machine.
+
+Everything inside maps to four workflows, feeding five scored dimensions (speech, conversation, outcome, policy, reliability):
+
+| Workflow | What it covers |
+| :-- | :-- |
+| **Catch** | recordings, transcripts, traces, acoustic signals, failure clustering |
+| **Exercise** | personas, chat simulation, robustness batteries, scenario variables and branches |
+| **Decide** | deterministic assertions, formulas, policy packs, reliability |
+| **Gate** | contracts, baseline drift, PR summaries, release comparison, bisect |
 
 ## What it scores
 
