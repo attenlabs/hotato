@@ -32,6 +32,9 @@ This module is read-only: it never touches any platform config.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 from typing import Optional
 
 FINDINGS = (
@@ -649,4 +652,271 @@ def render_text(diagnosis: dict) -> str:
         lines.append("    " + advisory_for(d["finding"], d["config_only_safe"]))
     lines.append(f"  battery decision: {b['decision']}")
     lines.append("    " + b["notes"])
+    return "\n".join(lines)
+
+
+# --- cross-run failure clustering (hotato diagnose --fleet DIR) --------------
+#
+# Fingerprint each FAILURE across many envelopes so the same defect recurring
+# on N runs collapses into one ranked cluster. Everything here is a pure,
+# deterministic function of fields the scorer already measured plus the same
+# honest classification `diagnose` uses; no model, no wall-clock, no network.
+#
+# A fingerprint is (dimension, direction, magnitude_bucket, config_hash):
+#   * dimension        -- the failure AXIS, mapped from the honest finding;
+#   * direction        -- which way it is wrong (no_yield / false_yield /
+#                         slower / over / premature / dead_air);
+#   * magnitude_bucket -- the measured overage bucketed on fixed, documented
+#                         second boundaries so it is byte-reproducible;
+#   * config_hash      -- a short digest of the agent config that produced the
+#                         run, when the envelope carries one; else null.
+
+# Fixed, documented half-open [lo, hi) boundaries in seconds. Frozen here so a
+# fingerprint is identical across machines and hotato versions.
+_MAGNITUDE_EDGES = (0.2, 0.5, 1.0, 2.0)
+
+# finding -> (dimension, direction, evidence field that supplies the magnitude).
+# endpointing_miss refines its direction/magnitude from the measured latency
+# fields below (premature start vs dead air), so its magnitude field is None.
+_FINGERPRINT_SPEC = {
+    "missed_real_interruption":    ("interruption_yield", "no_yield",           "talk_over_sec"),
+    "false_stop_on_backchannel":   ("interruption_yield", "false_yield",        "seconds_to_yield"),
+    "false_stop_on_ambient_noise": ("interruption_yield", "false_yield_ambient", "seconds_to_yield"),
+    "slow_yield":                  ("yield_latency",      "slower",             "seconds_to_yield"),
+    "excess_talk_over":            ("talk_over",          "over",               "talk_over_sec"),
+    "endpointing_miss":            ("endpointing",        None,                 None),
+}
+
+
+def magnitude_bucket(value) -> str:
+    """Bucket a non-negative seconds magnitude into a stable label.
+
+    ``None`` (or anything non-numeric / negative, which a real magnitude never
+    is) maps to the ``unknown`` bucket rather than crashing. Boundaries are
+    half-open ``[lo, hi)``, so exactly 0.5s lands in ``0.5-1.0s``."""
+    if value is None:
+        return "unknown"
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if v < 0:
+        return "unknown"
+    lo = 0.0
+    for hi in _MAGNITUDE_EDGES:
+        if v < hi:
+            return f"{lo:.1f}-{hi:.1f}s"
+        lo = hi
+    return f"{_MAGNITUDE_EDGES[-1]:.1f}s+"
+
+
+def _config_hash(config) -> Optional[str]:
+    """A short, order-independent digest of the config that produced a run, or
+    None when the envelope carries no (or an empty) config."""
+    if not config:
+        return None
+    payload = json.dumps(config, sort_keys=True, separators=(",", ":"),
+                         default=str)
+    return "cfg:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def _envelope_config(env: dict) -> dict:
+    """The agent/turn-taking config an envelope carries, if any. Run envelopes
+    usually carry none; investigate and inspected envelopes may."""
+    for key in ("config", "stack_config_snapshot", "turn_taking"):
+        c = env.get(key)
+        if isinstance(c, dict) and c:
+            return c
+    return {}
+
+
+def _fleet_events(env: dict) -> list:
+    """Normalize an envelope to a list of scorable events. A run/suite/capture
+    envelope carries an ``events`` list; an investigate envelope carries a
+    single ``event``."""
+    events = env.get("events")
+    if isinstance(events, list):
+        return events
+    event = env.get("event")
+    if isinstance(event, dict):
+        return [event]
+    return []
+
+
+def fingerprint_failure(diagnosis: dict, config_hash: Optional[str] = None) -> dict:
+    """The deterministic fingerprint for one failing diagnosis. Pure."""
+    finding = diagnosis.get("finding")
+    ev = diagnosis.get("evidence") or {}
+    dimension, direction, mag_field = _FINGERPRINT_SPEC.get(
+        finding, ("unknown", "unknown", None))
+    if finding == "endpointing_miss":
+        premature = ev.get("premature_start_sec")
+        if premature not in (None, 0, 0.0):
+            direction, mag_value = "premature", premature
+        else:
+            direction, mag_value = "dead_air", ev.get("response_gap_sec")
+    elif mag_field is not None:
+        mag_value = ev.get(mag_field)
+    else:
+        mag_value = None
+    return {
+        "dimension": dimension,
+        "direction": direction,
+        "magnitude_bucket": magnitude_bucket(mag_value),
+        "config_hash": config_hash,
+    }
+
+
+def fingerprint_id(fingerprint: dict) -> str:
+    """A short, stable id for a fingerprint (12 hex chars of its canonical
+    JSON). Order-independent and byte-reproducible."""
+    payload = json.dumps(fingerprint, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def cluster_fleet(members: list, source_dir: Optional[str] = None) -> dict:
+    """Cluster the failures across many envelopes by fingerprint.
+
+    ``members`` is a list of ``(source_name, envelope)`` pairs, already loaded
+    and validated. Deterministic: clusters are ranked by member count (ties
+    broken by fingerprint id), and members within a cluster are sorted. Reuses
+    the same honest per-event classification ``diagnose`` uses; not-scorable
+    and passing events never become failures.
+    """
+    records = []
+    scanned = 0
+    for source_name, env in members:
+        scanned += 1
+        events = _fleet_events(env)
+        coverage = opposite_risk_coverage(events)
+        funnel = _funnel_active(events)
+        cfg_hash = _config_hash(_envelope_config(env))
+        for event in events:
+            d = _diagnose_event(event, coverage, funnel)
+            if d is None or d["finding"] == "not_scorable":
+                continue
+            fp = fingerprint_failure(d, cfg_hash)
+            records.append({
+                "fingerprint_id": fingerprint_id(fp),
+                "fingerprint": fp,
+                "finding": d["finding"],
+                "member": {
+                    "source": source_name,
+                    "event_id": event.get("event_id"),
+                    "scenario_id": event.get("scenario_id"),
+                },
+            })
+
+    groups: dict = {}
+    for r in records:
+        g = groups.get(r["fingerprint_id"])
+        if g is None:
+            g = groups[r["fingerprint_id"]] = {
+                "fingerprint_id": r["fingerprint_id"],
+                "fingerprint": r["fingerprint"],
+                "finding": r["finding"],
+                "count": 0,
+                "members": [],
+            }
+        g["count"] += 1
+        g["members"].append(r["member"])
+
+    clusters = list(groups.values())
+    for g in clusters:
+        g["members"].sort(key=lambda m: (
+            str(m.get("source") or ""),
+            str(m.get("event_id") or ""),
+            str(m.get("scenario_id") or ""),
+        ))
+    clusters.sort(key=lambda g: (-g["count"], g["fingerprint_id"]))
+
+    return {
+        "tool": "hotato",
+        "kind": "fleet-clusters",
+        "schema_version": "1",
+        "source_dir": source_dir,
+        "envelopes_scanned": scanned,
+        "failures": len(records),
+        "clusters": clusters,
+    }
+
+
+def _require_fleet_member(env, name: str) -> None:
+    """Fail-closed: a fleet member must be a hotato run/capture/suite envelope
+    (an ``events`` list) or a hotato investigate envelope (a single ``event``).
+    Anything else refuses the whole scan (the CLI's exit-2 path)."""
+    ok = (
+        isinstance(env, dict)
+        and env.get("tool") == "hotato"
+        and env.get("kind") != "frame-dump"
+        and (
+            isinstance(env.get("events"), list)
+            or (env.get("kind") == "investigate"
+                and isinstance(env.get("event"), dict))
+        )
+    )
+    if not ok:
+        raise ValueError(
+            f"--fleet member {name!r} is not a hotato run or investigate "
+            "envelope JSON (need tool=hotato with an events list, or a "
+            "kind=investigate envelope). Fix or remove it and re-run."
+        )
+
+
+def scan_fleet(source_dir: str) -> dict:
+    """Load and cluster a directory of hotato envelope JSON files.
+
+    Deterministic (files are visited in sorted order) and fail-closed. Raises
+    ``ValueError`` (the CLI's exit-2 refusal path) when ``source_dir`` is not a
+    directory, holds no ``.json`` files, or holds a member that is not valid
+    JSON or not a hotato run/investigate envelope. Never crashes on bad input.
+    """
+    from . import errors as _errors
+
+    if not os.path.isdir(source_dir):
+        raise ValueError(
+            f"--fleet {source_dir!r} is not a directory. Point it at a folder "
+            "of hotato run/investigate envelope JSON files (one per run)."
+        )
+    names = sorted(
+        n for n in os.listdir(source_dir)
+        if n.endswith(".json") and os.path.isfile(os.path.join(source_dir, n))
+    )
+    if not names:
+        raise ValueError(
+            f"--fleet {source_dir!r} contains no .json envelope files. Save "
+            "some with: hotato run --suite barge-in --format json > runs/one.json"
+        )
+    members = []
+    for name in names:
+        env = _errors.load_json_file(
+            os.path.join(source_dir, name), label=repr(name))
+        _require_fleet_member(env, name)
+        members.append((name, env))
+    return cluster_fleet(members, source_dir=source_dir)
+
+
+def render_fleet_text(result: dict) -> str:
+    """The cross-run cluster report, human-readable and ranked by count."""
+    clusters = result.get("clusters") or []
+    lines = [
+        f"hotato diagnose --fleet {result.get('source_dir')}",
+        f"  scanned {result['envelopes_scanned']} envelope(s), "
+        f"{result['failures']} failure(s), {len(clusters)} cluster(s)",
+    ]
+    if not clusters:
+        lines.append("  no failures across the scanned envelopes.")
+        return "\n".join(lines)
+    for rank, g in enumerate(clusters, start=1):
+        fp = g["fingerprint"]
+        cfg = fp.get("config_hash") or "none"
+        lines.append(
+            f"  [{rank}] x{g['count']}  {g['finding']}  "
+            f"({fp['dimension']}/{fp['direction']} {fp['magnitude_bucket']}, "
+            f"config={cfg})  fp={g['fingerprint_id']}"
+        )
+        for m in g["members"]:
+            scen = m.get("scenario_id")
+            suffix = f" ({scen})" if scen and scen != m.get("event_id") else ""
+            lines.append(f"      - {m['source']}:{m['event_id']}{suffix}")
     return "\n".join(lines)

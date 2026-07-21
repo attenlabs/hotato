@@ -153,6 +153,17 @@ def test_describe_json_run_args_include_stereo_and_suite(capsys):
     assert stereo["type"] == "str"
 
 
+def test_describe_json_diagnose_surfaces_fleet_flag(capsys):
+    cli.main(["describe", "--format", "json"])
+    manifest = json.loads(capsys.readouterr().out)
+    diagnose = next(c for c in manifest["subcommands"] if c["name"] == "diagnose")
+    arg_names = {a["name"] for a in diagnose["args"]}
+    assert "--fleet" in arg_names
+    # The positional envelope is optional now (--fleet is the alternative).
+    envelope = next(a for a in diagnose["args"] if a["name"] == "envelope")
+    assert envelope["required"] is False
+
+
 def test_describe_json_capture_stack_is_required(capsys):
     code = cli.main(["describe", "--format", "json"])
     manifest = json.loads(capsys.readouterr().out)

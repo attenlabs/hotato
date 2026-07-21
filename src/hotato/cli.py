@@ -209,9 +209,10 @@ _EXIT_CODES: dict = {
             "design"),
     ),
     "diagnose": (
-        (0, "no failing events"),
-        (1, "failing events were diagnosed"),
-        (2, "unusable input"),
+        (0, "no failing events (or, with --fleet, no failures clustered)"),
+        (1, "failing events were diagnosed (or, with --fleet, clustered)"),
+        (2, "unusable input (bad envelope, or with --fleet an empty/missing "
+            "directory or a malformed member)"),
     ),
     "inspect": (
         (0, "inspected"),
@@ -1775,6 +1776,23 @@ def _load_envelope_for(path: str, flag: str) -> dict:
 def _cmd_diagnose(args) -> int:
     from . import diagnose as _diagnose
 
+    # --fleet DIR: cross-run failure clustering over a folder of envelopes.
+    # A clean exit-2 refusal (empty dir / no envelopes / a malformed member)
+    # is raised as ValueError and handled at the CLI boundary; never a crash.
+    if getattr(args, "fleet", None):
+        result = _diagnose.scan_fleet(args.fleet)
+        if args.format == "json":
+            print(_errors.safe_json_dumps(result, indent=2))
+        else:
+            print(_diagnose.render_fleet_text(result))
+        # 0 = no failures anywhere, 1 = failures were clustered.
+        return 1 if result["failures"] else 0
+
+    if not args.envelope:
+        raise ValueError(
+            "hotato diagnose needs a RESULT.json envelope (hotato run --format "
+            "json > result.json), or --fleet DIR to cluster a folder of them"
+        )
     env = _load_envelope_for(args.envelope, "diagnose")
     diagnosis = _diagnose.diagnose_envelope(env, source=args.envelope)
     if args.format == "json":
@@ -5882,19 +5900,32 @@ def build_parser() -> argparse.ArgumentParser:
             "opposite-risk fixture stays unknown_root_cause (TTS buffering, "
             "transport, and VAD are indistinguishable from one recording); "
             "not-scorable events are input problems, never agent failures. "
-            "Read-only: nothing is fetched and nothing is changed."
+            "Pass --fleet DIR instead of one result to cluster failures across "
+            "a whole folder of run/investigate envelopes: each failure is "
+            "fingerprinted deterministically (dimension, direction, magnitude "
+            "bucket, config hash when present) and recurring defects are ranked "
+            "by count with their member runs. Read-only: nothing is fetched "
+            "and nothing is changed."
         ),
         epilog=(
             _exit_codes_epilog("diagnose") + "\n"
             "Examples:\n"
             "  hotato run --suite barge-in --format json > result.json\n"
             "  hotato diagnose result.json\n"
-            "  hotato diagnose result.json --format json"
+            "  hotato diagnose result.json --format json\n"
+            "  hotato diagnose --fleet ./runs\n"
+            "  hotato diagnose --fleet ./runs --format json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    dg.add_argument("envelope", metavar="RESULT.json",
-                    help="a hotato envelope JSON from run/capture")
+    dg.add_argument("envelope", metavar="RESULT.json", nargs="?", default=None,
+                    help="a hotato envelope JSON from run/capture (omit when "
+                         "using --fleet)")
+    dg.add_argument("--fleet", metavar="DIR", default=None,
+                    help="cluster failures across a folder of run/investigate "
+                         "envelope JSON files: fingerprint each failure "
+                         "(dimension, direction, magnitude bucket, config hash) "
+                         "and rank recurring defects by count (deterministic)")
     dg.add_argument("--format", default="text", choices=["json", "text"],
                     help="output format (default text: the Level 0 advisory)")
     dg.set_defaults(func=_cmd_diagnose)

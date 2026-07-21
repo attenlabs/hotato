@@ -9,6 +9,11 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **Cross-run failure clustering (`hotato diagnose --fleet DIR`).** Scans a
+  folder of run and investigate results, fingerprints each failure
+  deterministically (dimension, direction, magnitude bucket, config hash when
+  present), and groups them into clusters ranked by count with member
+  references. Text and JSON; a malformed envelope is refused, never a crash.
 - **Composite and conditional assertions (`formula`, `when:`).** A `formula`
   assertion combines other named assertions' results with `and`/`or`/`not`,
   parentheses, and a weighted-sum threshold form, parsed without `eval()`. Any
