@@ -8,6 +8,20 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Fixed
+- **The failure card heroes the measured number, never `?s`.** A yield contract
+  the agent failed by never yielding has `seconds_to_yield` null by definition;
+  the share card now leads with the measured talk-over and states plainly that
+  the agent never yielded, instead of rendering a meaningless `?s` on the most
+  shared asset.
+- **`hotato investigate` headlines the most story-worthy catch.** Candidate
+  salience is not comparable across kinds (seconds of acoustic overlap vs
+  seconds of dead air), so a passive end-of-call trailing silence could
+  out-rank a real missed barge-in and headline a non-story. The headline now
+  leads by the canonical kind severity, so the agent talking over or stepping
+  on the caller leads over a trailing gap. The full candidate list and every
+  reference keep their salience order.
+
 ## [1.12.1] - 2026-07-21
 
 ### Changed
