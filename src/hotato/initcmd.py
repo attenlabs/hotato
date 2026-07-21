@@ -24,7 +24,9 @@ only). The per-stack signature-verification and event-detection code lives in
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import shlex
 import stat
 from importlib import resources
@@ -32,12 +34,20 @@ from importlib import resources
 from . import __version__
 from . import errors as _errors
 
+try:  # stdlib on 3.11+; the >=3.9 floor keeps a text fallback for 3.9/3.10.
+    import tomllib as _tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised via monkeypatch below
+    _tomllib = None
+
 __all__ = [
     "WEBHOOK_STACKS", "TARGETS", "InitError", "scaffold_webhook",
     "STARTER_STACKS", "scaffold_starter", "render_starter_text",
     "CI_SYSTEMS", "scaffold_ci", "render_ci_text",
     "MCP_COMMAND", "register_agents", "render_agents_text",
     "agents_result_json",
+    "FRAMEWORK_REGISTRY", "RECORDING_DIRS", "detect_frameworks",
+    "locate_recordings", "choose_stack", "scaffold_auto", "render_auto_text",
+    "auto_result_json",
 ]
 
 # Only the stacks with a verified webhook + a read-only recording fetch (see
@@ -1547,4 +1557,399 @@ def render_agents_text(result: dict) -> str:
 
 
 def agents_result_json(result: dict) -> dict:
+    return dict(result)
+
+
+# =============================================================================
+# ``hotato init --auto``: zero-config onboarding.
+#
+# One command, run from the root of an existing voice-agent repo, that (1)
+# READ-ONLY inspects the project's declared dependencies for a known
+# voice-agent framework, (2) locates any call recordings already committed,
+# and (3) hands off to :func:`scaffold_starter` for the framework it found,
+# pre-tuning the starter kit (hotato.yaml + the CI gate) to that stack and
+# printing a first-baseline next step. It refuses cleanly (:class:`InitError`
+# -> exit 2, with the manual path) when it finds neither a framework nor a
+# recording, so a wrong guess is never scaffolded silently.
+#
+# Detection never imports or executes project code: pyproject.toml is parsed
+# with the stdlib ``tomllib`` (a conservative text scan on the 3.9/3.10 floor),
+# requirements.txt line by line, and package.json as JSON -- a static read of
+# the SAME declared dependencies a human would read. Every match is reported
+# with its evidence (the file and the dependency name), and the chosen stack is
+# always one of :data:`STARTER_STACKS`, so `init --auto` can only ever produce
+# a kit `init starter` could have produced by hand.
+# =============================================================================
+
+# Declared-dependency files, inspected in this fixed order (read-only).
+_DEP_FILES = ("pyproject.toml", "requirements.txt", "package.json")
+
+# Directories a recorded call commonly lands in, scanned for ``*.wav`` (plus any
+# ``*.wav`` directly in the project root). Read-only; heavy vendored trees are
+# pruned from the walk (see :data:`_SKIP_DIRS`).
+RECORDING_DIRS = ("recordings", "logs", "calls", "audio", "call-recordings")
+_SKIP_DIRS = {
+    "node_modules", "__pycache__", ".git", ".venv", "venv", "env",
+    "site-packages", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
+}
+_RECORDINGS_SCAN_CAP = 1000   # bound the walk on a pathological tree
+_RECORDINGS_SAMPLE_CAP = 10   # how many paths the public result lists
+
+# Known voice-agent packages -> (starter stack, framework family). Keys are
+# normalized the same way :func:`_normalize_dep` normalizes a scanned name
+# (PEP 503 for PyPI names; npm scoped names kept verbatim, lowercased). A
+# vendor with a stack-tuned starter maps to that stack; a mono/mixed vendor
+# with no dedicated starter maps to `generic` (the bring-your-own-WAV kit),
+# which is honest: hotato scores its two-channel recording without a tuned
+# connector. Every value's stack is asserted to be a real STARTER_STACKS entry.
+FRAMEWORK_REGISTRY = {
+    # --- PyPI ---
+    "vapi": ("vapi", "vapi"),
+    "vapi-python": ("vapi", "vapi"),
+    "vapi-server-sdk": ("vapi", "vapi"),
+    "retell-sdk": ("retell", "retell"),
+    "retell": ("retell", "retell"),
+    "twilio": ("twilio", "twilio"),
+    "livekit": ("livekit", "livekit"),
+    "livekit-agents": ("livekit", "livekit"),
+    "livekit-api": ("livekit", "livekit"),
+    "pipecat-ai": ("pipecat", "pipecat"),
+    "pipecat": ("pipecat", "pipecat"),
+    "elevenlabs": ("generic", "elevenlabs"),
+    "synthflow": ("generic", "synthflow"),
+    "cartesia": ("generic", "cartesia"),
+    # --- npm ---
+    "@vapi-ai/server-sdk": ("vapi", "vapi"),
+    "@vapi-ai/web": ("vapi", "vapi"),
+    "retell-client-js-sdk": ("retell", "retell"),
+    "livekit-client": ("livekit", "livekit"),
+    "@livekit/agents": ("livekit", "livekit"),
+    "@livekit/rtc-node": ("livekit", "livekit"),
+    "@elevenlabs/elevenlabs-js": ("generic", "elevenlabs"),
+}
+
+# Deterministic stack pick when a repo pulls in more than one framework: a
+# stack-tuned vendor wins over the generic kit, earlier entries win over later.
+_STACK_PRIORITY = ("vapi", "retell", "twilio", "livekit", "pipecat", "generic")
+
+assert {stack for stack, _family in FRAMEWORK_REGISTRY.values()} <= set(STARTER_STACKS)
+assert set(_STACK_PRIORITY) == set(STARTER_STACKS)
+
+
+def _normalize_dep(name: str) -> str:
+    """Normalize a dependency name for registry lookup. npm scoped names
+    (``@scope/pkg``) are kept verbatim (lowercased); everything else gets PEP
+    503 normalization (lowercase, runs of ``-_.`` collapsed to a single ``-``)
+    so ``LiveKit_Agents`` and ``livekit-agents`` match the same entry."""
+    n = name.strip().strip("\"'").lower()
+    if n.startswith("@"):
+        return n
+    return re.sub(r"[-_.]+", "-", n)
+
+
+def _req_name(spec: str) -> str:
+    """The leading distribution name of a requirement/spec string, e.g.
+    ``vapi>=1.0 ; python_version>='3.9'`` -> ``vapi``. Returns ``""`` for an
+    editable/URL/option line (``-e ...``, ``git+https://...`` still yields
+    ``git`` which simply never matches the registry)."""
+    m = re.match(r"\s*([A-Za-z0-9@][A-Za-z0-9._/-]*)", spec)
+    return m.group(1) if m else ""
+
+
+def _loose_tokens(text: str) -> set:
+    """Framework-name candidates from raw config text, used only when a
+    structured parse is unavailable (the 3.9/3.10 tomllib floor) or fails.
+    Pulls the leading name out of every quoted string (dependency specs) and
+    every ``name =`` table key; spurious tokens are harmless because the caller
+    only keeps names that hit the registry."""
+    names = set()
+    for m in re.finditer(r"[\"']([^\"']+)[\"']", text):
+        n = _req_name(m.group(1))
+        if n:
+            names.add(_normalize_dep(n))
+    for m in re.finditer(r"(?m)^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*=", text):
+        names.add(_normalize_dep(m.group(1)))
+    return names
+
+
+def _as_list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _deps_from_pyproject(text: str) -> set:
+    if _tomllib is not None:
+        try:
+            doc = _tomllib.loads(text)
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            return _deps_from_pyproject_doc(doc)
+    return _loose_tokens(text)
+
+
+def _deps_from_pyproject_doc(doc: dict) -> set:
+    names = set()
+    project = doc.get("project")
+    if isinstance(project, dict):
+        for spec in _as_list(project.get("dependencies")):
+            n = _req_name(str(spec))
+            if n:
+                names.add(_normalize_dep(n))
+        opt = project.get("optional-dependencies")
+        if isinstance(opt, dict):
+            for group in opt.values():
+                for spec in _as_list(group):
+                    n = _req_name(str(spec))
+                    if n:
+                        names.add(_normalize_dep(n))
+    # PEP 735 top-level [dependency-groups].
+    groups = doc.get("dependency-groups")
+    if isinstance(groups, dict):
+        for group in groups.values():
+            for spec in _as_list(group):
+                n = _req_name(str(spec))
+                if n:
+                    names.add(_normalize_dep(n))
+    # Poetry: [tool.poetry.dependencies] table rows (name = "^x").
+    tool = doc.get("tool")
+    if isinstance(tool, dict):
+        poetry = tool.get("poetry")
+        if isinstance(poetry, dict):
+            deps = poetry.get("dependencies")
+            if isinstance(deps, dict):
+                for name in deps:
+                    if name.lower() != "python":
+                        names.add(_normalize_dep(name))
+    return names
+
+
+def _deps_from_requirements(text: str) -> set:
+    names = set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("-"):
+            continue
+        line = line.split("#", 1)[0].strip()
+        n = _req_name(line)
+        if n:
+            names.add(_normalize_dep(n))
+    return names
+
+
+def _deps_from_package_json(text: str) -> set:
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return _loose_tokens(text)
+    if not isinstance(doc, dict):
+        return set()
+    names = set()
+    for key in ("dependencies", "devDependencies", "peerDependencies",
+                "optionalDependencies"):
+        section = doc.get(key)
+        if isinstance(section, dict):
+            for name in section:
+                names.add(_normalize_dep(name))
+    return names
+
+
+_DEP_PARSERS = {
+    "pyproject.toml": _deps_from_pyproject,
+    "requirements.txt": _deps_from_requirements,
+    "package.json": _deps_from_package_json,
+}
+
+
+def detect_frameworks(root: str = ".") -> list:
+    """Static, read-only scan of ``root``'s declared dependencies for known
+    voice-agent frameworks. Returns one evidence dict per matched dependency
+    -- ``{"file", "dependency", "framework", "stack"}`` -- in a deterministic
+    order (files in :data:`_DEP_FILES` order, dependencies sorted). Never
+    imports or executes project code."""
+    detections = []
+    for fname in _DEP_FILES:
+        text = _read_text_or_none(os.path.join(root, fname))
+        if text is None:
+            continue
+        for dep in sorted(_DEP_PARSERS[fname](text)):
+            entry = FRAMEWORK_REGISTRY.get(dep)
+            if entry:
+                stack, family = entry
+                detections.append({
+                    "file": fname, "dependency": dep,
+                    "framework": family, "stack": stack,
+                })
+    return detections
+
+
+def _iter_wav_paths(base: str) -> list:
+    """Every ``*.wav`` under ``base``, sorted, heavy trees pruned, capped."""
+    out = []
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = sorted(
+            d for d in dirnames if not d.startswith(".") and d not in _SKIP_DIRS
+        )
+        for fn in sorted(filenames):
+            if fn.lower().endswith(".wav"):
+                out.append(os.path.join(dirpath, fn))
+                if len(out) >= _RECORDINGS_SCAN_CAP:
+                    return out
+    return out
+
+
+def _root_wavs(root: str) -> list:
+    try:
+        entries = sorted(os.listdir(root))
+    except OSError:
+        return []
+    return [
+        os.path.join(root, e) for e in entries
+        if e.lower().endswith(".wav") and os.path.isfile(os.path.join(root, e))
+    ]
+
+
+def locate_recordings(root: str = ".") -> dict:
+    """Read-only scan for committed call recordings under ``root``: every
+    ``*.wav`` in :data:`RECORDING_DIRS` (recursively) plus any directly in the
+    root. Returns ``{"dirs": [{"dir", "count"}], "files": [...capped],
+    "total": int}`` with all paths ``/``-normalized relative to ``root`` and
+    sorted, so the result is identical on every platform and run."""
+    dir_counts = {}
+    all_files = set()
+    for d in RECORDING_DIRS:
+        base = os.path.join(root, d)
+        if os.path.isdir(base):
+            found = [
+                _as_posix(os.path.relpath(p, root)) for p in _iter_wav_paths(base)
+            ]
+            if found:
+                dir_counts[d] = len(found)
+                all_files.update(found)
+    all_files.update(
+        _as_posix(os.path.relpath(p, root)) for p in _root_wavs(root)
+    )
+    files = sorted(all_files)
+    return {
+        "dirs": [{"dir": d, "count": dir_counts[d]} for d in sorted(dir_counts)],
+        "files": files[:_RECORDINGS_SAMPLE_CAP],
+        "total": len(files),
+    }
+
+
+def choose_stack(detections: list):
+    """Pick the single starter stack (and its framework family) for a list of
+    detections, deterministically: a stack-tuned vendor beats the generic kit,
+    then earlier :data:`_STACK_PRIORITY` entries, then file/dependency order.
+    Returns ``(stack, family)`` or ``None`` for an empty list."""
+    if not detections:
+        return None
+    ranked = sorted(
+        detections,
+        key=lambda d: (_STACK_PRIORITY.index(d["stack"]), d["file"], d["dependency"]),
+    )
+    return ranked[0]["stack"], ranked[0]["framework"]
+
+
+def _auto_refusal(root: str) -> "InitError":
+    dirs = ", ".join(f"{d}/" for d in RECORDING_DIRS)
+    return InitError(
+        "could not auto-detect a voice-agent framework or any call recordings "
+        f"under {root!r}. Detection is read-only: it reads pyproject.toml, "
+        "requirements.txt, and package.json dependencies, plus .wav files under "
+        f"{dirs}. Name your stack to scaffold the same kit by hand:\n"
+        "  hotato init starter --stack generic --out .   # score any two-channel WAV\n"
+        "  hotato init starter --stack vapi    --out .   # or retell|twilio|livekit|pipecat"
+    )
+
+
+def scaffold_auto(root: str, out_dir: str, *, force: bool = False) -> dict:
+    """Auto-detect the stack under ``root`` and render the matching starter kit
+    into ``out_dir`` (typically the same directory). Raises :class:`InitError`
+    (-> exit 2) when nothing is detected (with the manual path), when the stack
+    is somehow unknown, or -- via :func:`scaffold_starter` -- when a destination
+    file already exists without ``force``. Read-only detection runs BEFORE any
+    write, and the scaffold itself is all-or-nothing, so a refusal leaves the
+    project untouched."""
+    root = root or "."
+    if not os.path.isdir(root):
+        raise InitError(f"project directory {root!r} does not exist")
+    out_dir = out_dir or "."
+
+    detections = detect_frameworks(root)
+    recordings = locate_recordings(root)
+    if not detections and recordings["total"] == 0:
+        raise _auto_refusal(root)
+
+    if detections:
+        stack, framework = choose_stack(detections)
+    else:
+        # Recordings but no declared framework: the bring-your-own-WAV kit
+        # scores exactly what was found, with no fabricated vendor claim.
+        stack, framework = "generic", None
+
+    scaffolded = scaffold_starter(stack, out_dir, force=force)
+
+    first_wav = recordings["files"][0] if recordings["files"] else None
+    baseline = (
+        f"hotato investigate {shlex.quote(first_wav)}" if first_wav
+        else "hotato start --demo"
+    )
+    verify = "hotato contract verify contracts --junit hotato.xml"
+    if out_dir != ".":
+        verify = f"cd {shlex.quote(out_dir)} && {verify}"
+    next_steps = [baseline, verify]
+
+    return {
+        "tool": _errors.TOOL,
+        "kind": "init-auto",
+        "root": root,
+        "out": out_dir,
+        "detected": {
+            "framework": framework,
+            "stack": stack,
+            "evidence": detections,
+        },
+        "recordings": recordings,
+        "stack": stack,
+        "auto_pull": scaffolded["auto_pull"],
+        "credential_env": scaffolded["credential_env"],
+        "files": scaffolded["files"],
+        "next": next_steps,
+    }
+
+
+def render_auto_text(result: dict) -> str:
+    det = result["detected"]
+    rec = result["recordings"]
+    if det["framework"]:
+        sources = ", ".join(sorted({e["file"] for e in det["evidence"]}))
+        head = (
+            f"detected {det['framework']} in {sources}; scaffolded the "
+            f"{result['stack']} starter kit to {result['out']}"
+        )
+    else:
+        head = (
+            f"found {rec['total']} call recording(s); scaffolded the "
+            f"{result['stack']} starter kit to {result['out']}"
+        )
+    lines = [head, ""]
+    if rec["total"]:
+        sample = f" (e.g. {rec['files'][0]})" if rec["files"] else ""
+        lines += [f"recordings: {rec['total']} found{sample}", ""]
+    lines.append("files:")
+    lines += [f"  {f}" for f in result["files"]]
+    lines += [
+        "",
+        "CI gate: .github/workflows/hotato-contracts.yml verifies contracts/ "
+        "and fixtures/",
+        "on push, pull request, and weekly; a no-op until you add your first "
+        "one.",
+        "",
+        "next:",
+    ]
+    lines += [f"  {c}" for c in result["next"]]
+    return "\n".join(lines) + "\n"
+
+
+def auto_result_json(result: dict) -> dict:
     return dict(result)
