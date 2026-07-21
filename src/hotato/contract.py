@@ -1760,6 +1760,178 @@ def render_verify_step_summary(v: dict, *, top: int = 5) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------------------
+# PR comment: one tight, share-safe visual block for a sticky pull-request
+# comment (``contract verify --pr-comment FILE``). Distinct from the job
+# summary above (that lists every failing contract); this heroes the single
+# caught moment with an ASCII caller/agent barge-in timeline, so every PR
+# carries the one turn-taking moment this guard pins. Rendering is
+# deterministic, offline, and share-safe: it names contract ids, the measured
+# timing, and the yield/talk-over verdict only, never raw audio or transcript
+# text. Posting the rendered block to a PR is a SEPARATE, opt-in step (see
+# ci/action/pr_comment_post.py); this renderer only produces the local bytes.
+
+# A hidden sticky marker so a poster can update ONE comment in place rather
+# than stacking a new one each run. Distinct from scripts/pr_comment.py's
+# suite-envelope marker so the two surfaces never clobber each other.
+_PR_COMMENT_MARKER = "<!-- hotato-contract-verify -->"
+
+# Fixed timeline geometry: a bounded, monospace-stable plot rendered purely
+# from the measured seconds, so the same measurement always renders the same
+# rows (no wall-clock, no audio, no onset needed from the caller).
+_TL_COLS = 30           # plot columns (share-tight, alignment-stable)
+_TL_LEAD = 0.8          # seconds the agent already held the floor before onset
+_TL_TAIL = 0.8          # minimum caller-only tail after the agent yields
+
+
+def _pr_hero(v: dict):
+    """The single moment the PR comment heroes: the first non-passing contract
+    (the caught regression), else the first contract (the moment this green
+    guard keeps pinned). Returns a per-contract result dict, or ``None`` for an
+    empty batch."""
+    results = v.get("results") or []
+    for r in results:
+        if not r.get("passed", True) or r.get("authenticity") == "tampered":
+            return r
+    return results[0] if results else None
+
+
+def _pr_hero_number(r: dict):
+    """The one measured number to hero for a contract, mirroring the failure
+    card's discipline: hero the DEFINED number, and when the agent never
+    yielded (``seconds_to_yield`` is null by definition) lead with the measured
+    talk-over instead of a meaningless blank. Returns ``(number_or_None,
+    descriptor)``."""
+    m = r.get("measurement") or {}
+    if not r.get("scorable", True):
+        return None, "not scorable"
+    if not r.get("verdict_eligible", True):
+        return None, "channel mapping unconfirmed (refused)"
+    expect = str(r.get("expect", "yield"))
+    stt = m.get("seconds_to_yield")
+    tov = m.get("talk_over_sec")
+    if expect == "yield":
+        if stt is None and tov is not None:
+            return _card._fmt_sec(tov), "talk-over, the agent never yielded"
+        if stt is not None:
+            return _card._fmt_sec(stt), "time to yield"
+        return None, "no timing measured"
+    if tov is not None:
+        return _card._fmt_sec(tov), "talk-over while the agent held the floor"
+    return None, "no timing measured"
+
+
+def _timeline_rows(r: dict):
+    """Rasterize one contract's measured timing to two fixed-width monospace
+    tracks (caller over agent) with the talk-over overlap marked. Built ONLY
+    from the fields the verify result carries (``did_yield``,
+    ``seconds_to_yield``, ``talk_over_sec``): the agent holds the floor from a
+    fixed lead-in, the caller barges in, and the ``X`` run is the MEASURED
+    talk-over window where both tracks are active. Returns ``(caller_row,
+    agent_row)`` strings, or ``None`` when the contract has no scorable/eligible
+    verdict to draw."""
+    m = r.get("measurement") or {}
+    if not r.get("scorable", True) or not r.get("verdict_eligible", True):
+        return None
+    did_yield = bool(m.get("did_yield"))
+    _tov = m.get("talk_over_sec")
+    tov = float(_tov) if isinstance(_tov, (int, float)) and _tov >= 0 else 0.0
+    _stt = m.get("seconds_to_yield")
+    stt = float(_stt) if isinstance(_stt, (int, float)) and _stt >= 0 else None
+
+    barge = _TL_LEAD
+    if did_yield and stt is not None:
+        agent_end = barge + stt
+        window_end = max(agent_end, barge + tov) + _TL_TAIL
+    else:
+        # Never yielded (or no yield time): the agent runs through the window.
+        window_end = barge + max(tov, _TL_TAIL) + _TL_TAIL
+        agent_end = window_end
+    window_end = max(window_end, barge + _TL_TAIL, 0.001)
+    overlap_hi = barge + tov
+
+    caller, agent = [], []
+    for c in range(_TL_COLS):
+        t = (c + 0.5) / _TL_COLS * window_end
+        a_active = t < agent_end
+        k_active = t >= barge
+        overlap = (barge <= t < overlap_hi) and a_active and k_active
+        agent.append("X" if overlap else ("=" if a_active else "."))
+        caller.append("X" if overlap else ("=" if k_active else "."))
+    return "".join(caller), "".join(agent)
+
+
+def _ascii_barge_timeline(r: dict) -> list:
+    """The fenced ASCII barge-in timeline for the hero contract: a caller track
+    over an agent track with the talk-over overlap marked, or an honest note
+    when the moment carries no drawable verdict."""
+    rows = _timeline_rows(r)
+    if rows is None:
+        note = ("no timeline: contract not scorable"
+                if not r.get("scorable", True)
+                else "no timeline: channel mapping unconfirmed (refused)")
+        return ["```text", note, "```"]
+    caller_row, agent_row = rows
+    return [
+        "```text",
+        f"caller  {caller_row}",
+        f"agent   {agent_row}",
+        "= speaking   X both talking (talk-over)   . silent",
+        "```",
+    ]
+
+
+def render_verify_pr_comment(v: dict) -> str:
+    """A tight, share-safe Markdown block for a sticky PR comment: a hidden
+    update marker, the verdict line with pass/fail counts, the single caught
+    moment (contract id + expect), the one measured number, and an ASCII
+    caller/agent barge-in timeline. Deterministic and offline; rendering this
+    never changes the verify exit code. The tampered / refused /
+    failing-embedded-assertion counts stay their own line, never blended into
+    the pass count."""
+    s = v["summary"]
+    verdict = "PASS" if v["exit_code"] == 0 else "FAIL"
+    plural = "" if v.get("count") == 1 else "s"
+    counts = f"{s['passed']} of {v['count']} contract{plural} pass"
+    lines = [
+        _PR_COMMENT_MARKER,
+        "### hotato: turn-taking regression guard",
+        "",
+        f"**{verdict}**: {counts} (exit code {v['exit_code']}).",
+    ]
+    hero = _pr_hero(v)
+    if hero is not None:
+        expect = str(hero.get("expect", "yield"))
+        label = "Guarding" if hero.get("passed") else "Caught"
+        num, sub = _pr_hero_number(hero)
+        moment = f"**{num} {sub}**" if num else f"**{sub}**"
+        lines += [
+            "",
+            f"{label} `{_md_cell(hero.get('id'))}` (expect {_md_cell(expect)}):"
+            f" {moment}",
+            "",
+        ]
+        lines += _ascii_barge_timeline(hero)
+        lines += [
+            "",
+            "Measured from call-audio timing (a transcript-only check carries "
+            "no timing signal).",
+        ]
+    axes = []
+    if v.get("tampered"):
+        axes.append(f"{v['tampered']} tampered (edited after creation)")
+    if v.get("refused"):
+        axes.append(f"{v['refused']} refused (channel mapping unconfirmed)")
+    if v.get("assertions_failed"):
+        axes.append(f"{v['assertions_failed']} with a failing embedded "
+                    "assertion")
+    if axes:
+        lines += ["", "Separate axes, never blended into the count above: "
+                  + "; ".join(axes) + "."]
+    lines += ["", _STORED_EVIDENCE_CAVEAT]
+    return "\n".join(lines) + "\n"
+
+
 def verify_result_json(v: dict) -> dict:
     return v
 

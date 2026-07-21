@@ -3,7 +3,9 @@
 # own exit status.
 #
 # Consumer contract (docs/CI.md has the copy-paste workflow):
-#   - permissions: contents: read is sufficient; no secret is read or needed.
+#   - permissions: contents: read is sufficient by default; no secret is read
+#     or needed. The opt-in PR comment (comment-pr: true) is the only path that
+#     reads a token, and then the workflow also grants pull-requests: write.
 #   - the default install is the pinned Action revision itself
 #     (run directly off PYTHONPATH -- no pip, no index egress), so the executed code is
 #     exactly the revision the consumer pinned; hotato-version accepts an
@@ -15,13 +17,19 @@
 #     error. A rubric verdict changes the exit only when the consumer opted
 #     in with gate-advisory: true (hotato's own --gate-judge flag).
 #   - artifact upload stays a consumer step (actions/upload-artifact pinned
-#     by full commit SHA); this Action never uploads, comments, or notifies.
+#     by full commit SHA); this Action never uploads or notifies, and by
+#     default posts no comment.
 #   - a contracts run also appends hotato's own tight verify Markdown
 #     (verdict line, pass/fail counts, top failing contracts with measured
 #     timing; `hotato contract verify --step-summary`) to the job summary,
 #     ahead of the five-lane summary. Presentation only and fail-open: it
 #     never changes the step exit code, and an exact older hotato pin
 #     without the flag runs with its unchanged argv.
+#   - a contracts run also renders a share-safe PR-comment block (verdict, the
+#     one caught moment, the measured number, and an ASCII barge-in timeline;
+#     `hotato contract verify --pr-comment`) into an output leaf. Posting it to
+#     a pull request is OPT-IN (comment-pr: true) and fail-open: the poster
+#     exits 0 on every path, so a comment failure never changes the gate.
 #   - every input is passed to python through the environment and used as an
 #     argv token; no input string is ever shell evaluated.
 name: hotato conversation QA
@@ -122,6 +130,22 @@ inputs:
     description: Python version for actions/setup-python.
     required: false
     default: "3.12"
+  comment-pr:
+    description: >-
+      Opt in to posting the share-safe contract-verify PR-comment block onto
+      one sticky pull-request comment (applies to a contracts run). Default
+      false: the Action then reads no token and posts nothing. When true, the
+      comment step is fail-open and token-gated -- it updates one comment in
+      place and can never change the gate exit code.
+    required: false
+    default: "false"
+  github-token:
+    description: >-
+      Token used ONLY by the opt-in PR-comment step (comment-pr: true); the
+      workflow must also grant pull-requests: write. Unused when comment-pr is
+      false.
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   output:
@@ -163,6 +187,12 @@ outputs:
   hotato-version:
     description: The executed hotato package version.
     value: ${{ steps.gate.outputs.hotato-version }}
+  pr-comment:
+    description: >-
+      Workspace-relative path of the rendered share-safe PR-comment block on a
+      contracts run (else empty). Presentation only; posting it is the opt-in
+      comment step.
+    value: ${{ steps.gate.outputs.pr-comment }}
 
 runs:
   using: composite
@@ -189,3 +219,18 @@ runs:
         HOTATO_ACTION_RECORD_LIMIT: ${{ inputs.record-limit }}
         HOTATO_ACTION_PATH: ${{ github.action_path }}
       run: python "${GITHUB_ACTION_PATH}/ci/action/gate.py"
+    # Opt-in, fail-open PR comment (contracts run). Skipped entirely by default
+    # (comment-pr: false), so the default Action reads no token and posts
+    # nothing. When enabled, this mirrors the rendered block onto one sticky
+    # comment; the poster exits 0 on every path, so it can never change the
+    # gate exit code the step above already established.
+    - id: comment
+      if: ${{ inputs.comment-pr == 'true' && steps.gate.outputs.pr-comment != '' }}
+      shell: bash
+      env:
+        HOTATO_PR_COMMENT_FILE: ${{ steps.gate.outputs.pr-comment }}
+        HOTATO_PR_COMMENT_TOKEN: ${{ inputs.github-token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_EVENT_PATH: ${{ github.event_path }}
+        GITHUB_API_URL: ${{ github.api_url }}
+      run: python "${GITHUB_ACTION_PATH}/ci/action/pr_comment_post.py"
