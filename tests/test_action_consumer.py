@@ -936,3 +936,244 @@ def test_gate_refuses_preexisting_output_dir(tmp_path):
     })
     assert proc.returncode == 2, (proc.stdout, proc.stderr)
     assert outputs.get("status") == "error"
+
+
+# ---------------------------------------------------------------------------
+# contracts mode: the share-safe PR-comment leaf + its opt-in, fail-open poster
+# (`hotato contract verify --pr-comment`; ci/action/pr_comment_post.py)
+# ---------------------------------------------------------------------------
+
+def _load_pr_comment_post():
+    spec = importlib.util.spec_from_file_location(
+        "pr_comment_post", os.path.join(ACTION_DIR, "pr_comment_post.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_contracts_argv_pr_comment_only_when_supported():
+    """The verify argv carries --pr-comment ONLY when the leaf key is set (an
+    exact older pin without the flag never sets it, so its argv is unchanged)."""
+    gate = _load_gate()
+    cfg = {"mode": "contracts", "target": "qa/contracts",
+           "output": ".hotato/results"}
+    assert "--pr-comment" not in gate.build_argv(cfg)
+    cfg["pr_comment"] = ".hotato/results/contract-pr-comment.md"
+    argv = gate.build_argv(cfg)
+    i = argv.index("--pr-comment")
+    assert argv[i + 1] == ".hotato/results/contract-pr-comment.md"
+
+
+def test_pr_comment_probe_detects_current_cli(monkeypatch):
+    gate = _load_gate()
+    src = os.path.join(ROOT, "src")
+    monkeypatch.setenv("PYTHONPATH",
+                       src + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    assert gate._pr_comment_supported() is True
+
+
+def test_gate_contracts_exposes_pr_comment_leaf(tmp_path):
+    ws = _workspace(tmp_path)
+    contracts = _create_contract_bundle(ws, "gate-pc-001")
+    proc, outputs, step_summary = _run_gate(tmp_path, ws,
+                                            {"contracts": contracts})
+    assert proc.returncode == 0, proc.stderr
+    assert outputs["exit-code"] == "0"
+    # the leaf is exposed as a workspace-relative output and really exists,
+    # inside the private output directory the verify subprocess wrote into
+    leaf = outputs["pr-comment"]
+    assert leaf == ".hotato/results/contract-pr-comment.md"
+    body = (ws / leaf).read_text(encoding="utf-8")
+    assert body.startswith("<!-- hotato-contract-verify -->")
+    assert "**PASS**: 1 of 1 contract pass (exit code 0)" in body
+    assert "```text" in body  # the ASCII barge-in timeline shipped
+    # the job summary points at the share-safe leaf as a separate, opt-in post
+    assert "PR-comment block (share-safe)" in step_summary
+
+
+def test_gate_contracts_pr_comment_fail_preserves_exit(tmp_path):
+    ws = _workspace(tmp_path)
+    contracts = _create_contract_bundle(ws, "gate-pc-bad-001",
+                                        "--max-time-to-yield", "0.0")
+    proc, outputs, _ = _run_gate(tmp_path, ws, {"contracts": contracts})
+    # the leaf is presentation only: hotato's failing exit flows through
+    assert proc.returncode == 1, proc.stderr
+    assert outputs["exit-code"] == "1"
+    body = (ws / outputs["pr-comment"]).read_text(encoding="utf-8")
+    assert "**FAIL**: 0 of 1 contract pass (exit code 1)" in body
+    assert "Caught `gate-pc-bad-001`" in body
+
+
+def test_pr_comment_post_marker_lockstep():
+    # the poster's sticky marker must match the renderer's, or a re-run would
+    # never find (and would stack, not update) its own comment
+    import hotato.contract as contract_mod
+    poster = _load_pr_comment_post()
+    assert poster.MARKER == contract_mod._PR_COMMENT_MARKER
+
+
+def _clear_pr_env(monkeypatch):
+    for name in ("HOTATO_PR_COMMENT_FILE", "HOTATO_PR_COMMENT_TOKEN",
+                 "GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_EVENT_PATH",
+                 "GITHUB_REF", "GITHUB_API_URL"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_pr_comment_post_missing_file_is_noop(monkeypatch, capsys):
+    poster = _load_pr_comment_post()
+    _clear_pr_env(monkeypatch)
+    monkeypatch.setenv("HOTATO_PR_COMMENT_FILE", "/no/such/leaf.md")
+    monkeypatch.setenv("HOTATO_PR_COMMENT_TOKEN", "t")
+    assert poster.main() == 0
+    assert "nothing to do" in capsys.readouterr().err
+
+
+def test_pr_comment_post_no_token_is_noop(tmp_path, monkeypatch, capsys):
+    poster = _load_pr_comment_post()
+    _clear_pr_env(monkeypatch)
+    leaf = tmp_path / "pr.md"
+    leaf.write_text("<!-- hotato-contract-verify -->\nbody\n", encoding="utf-8")
+    monkeypatch.setenv("HOTATO_PR_COMMENT_FILE", str(leaf))
+    # no token at all: a no-op that never touches the network
+    assert poster.main() == 0
+    assert "no token" in capsys.readouterr().err
+
+
+def test_pr_comment_post_not_a_pull_request_is_noop(
+        tmp_path, monkeypatch, capsys):
+    poster = _load_pr_comment_post()
+    _clear_pr_env(monkeypatch)
+    leaf = tmp_path / "pr.md"
+    leaf.write_text("<!-- hotato-contract-verify -->\nbody\n", encoding="utf-8")
+    monkeypatch.setenv("HOTATO_PR_COMMENT_FILE", str(leaf))
+    monkeypatch.setenv("HOTATO_PR_COMMENT_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "octo/repo")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")  # not a pull request
+    assert poster.main() == 0
+    assert "not a pull request" in capsys.readouterr().err
+
+
+def test_pr_comment_post_pr_number_from_event_and_ref(tmp_path):
+    poster = _load_pr_comment_post()
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"pull_request": {"number": 42}}),
+                     encoding="utf-8")
+    assert poster.pr_number(str(event), None) == 42
+    # the ref is the fallback source
+    assert poster.pr_number(None, "refs/pull/7/merge") == 7
+    # off a pull request there is no number, so the poster stays a no-op
+    assert poster.pr_number(None, "refs/heads/main") is None
+
+
+def test_pr_comment_post_find_existing_sticky():
+    poster = _load_pr_comment_post()
+    comments = [
+        {"id": 1, "body": "unrelated review comment"},
+        {"id": 2, "body": "leading text\n" + poster.MARKER + "\nmore"},
+    ]
+    assert poster.find_existing(comments) == 2
+    assert poster.find_existing([{"id": 3, "body": "no marker"}]) is None
+    assert poster.find_existing("not a list") is None
+
+
+def test_pr_comment_post_updates_existing_else_creates(monkeypatch):
+    poster = _load_pr_comment_post()
+    calls = []
+
+    def fake_request(url, token, *, method="GET", payload=None):
+        calls.append((method, url, payload))
+        if method == "GET":
+            return [{"id": 55, "body": poster.MARKER + "\nold body"}]
+        return {"id": 55}
+    monkeypatch.setattr(poster, "_request", fake_request)
+    status = poster.post_or_update("https://api.example", "octo/repo", 9,
+                                   "tok", "new body")
+    assert "updated comment 55" == status
+    assert calls[-1][0] == "PATCH"
+    assert calls[-1][2] == {"body": "new body"}
+
+    # no existing sticky comment -> a fresh POST
+    calls.clear()
+
+    def fake_request_empty(url, token, *, method="GET", payload=None):
+        calls.append((method, url, payload))
+        return [] if method == "GET" else {"id": 100}
+    monkeypatch.setattr(poster, "_request", fake_request_empty)
+    status = poster.post_or_update("https://api.example", "octo/repo", 9,
+                                   "b", "b")
+    assert status == "posted a new comment"
+    assert calls[-1][0] == "POST"
+
+
+def test_pr_comment_post_api_error_fails_open(monkeypatch):
+    poster = _load_pr_comment_post()
+
+    def boom(url, token, *, method="GET", payload=None):
+        raise poster.urllib.error.URLError("network down")
+    monkeypatch.setattr(poster, "_request", boom)
+    # an API/network error is caught and reported, never raised
+    status = poster.post_or_update("https://api.example", "octo/repo", 9,
+                                   "tok", "body")
+    assert "skipped" in status and "gate unaffected" in status
+
+
+def test_pr_comment_post_main_posts_end_to_end(tmp_path, monkeypatch):
+    poster = _load_pr_comment_post()
+    _clear_pr_env(monkeypatch)
+    leaf = tmp_path / "pr.md"
+    leaf.write_text("<!-- hotato-contract-verify -->\nverdict\n",
+                    encoding="utf-8")
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"pull_request": {"number": 11}}),
+                     encoding="utf-8")
+    monkeypatch.setenv("HOTATO_PR_COMMENT_FILE", str(leaf))
+    monkeypatch.setenv("HOTATO_PR_COMMENT_TOKEN", "tok")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "octo/repo")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    monkeypatch.setenv("GITHUB_API_URL", "https://api.example/")
+    calls = []
+
+    def fake_request(url, token, *, method="GET", payload=None):
+        calls.append((method, url, payload))
+        return [] if method == "GET" else {"id": 1}
+    monkeypatch.setattr(poster, "_request", fake_request)
+    assert poster.main() == 0
+    methods = [c[0] for c in calls]
+    assert "GET" in methods and "POST" in methods
+    # the posted body is exactly the rendered leaf, onto issue 11 of octo/repo
+    post = next(c for c in calls if c[0] == "POST")
+    assert "octo/repo/issues/11/comments" in post[1]
+    assert post[2]["body"].startswith("<!-- hotato-contract-verify -->")
+
+
+def test_pr_comment_post_imports_no_shell_or_gh(monkeypatch):
+    # the poster reaches the API through stdlib urllib only -- never a shell,
+    # a subprocess, or a bundled `gh` (the composite maps every input via env)
+    with open(os.path.join(ACTION_DIR, "pr_comment_post.py"),
+              "r", encoding="utf-8") as fh:
+        src = fh.read()
+    for banned in ("subprocess", "os.system", "shell=True", "gh api",
+                   "import requests", "requests.post", "requests.get"):
+        assert banned not in src, banned
+
+
+def test_action_yaml_pr_comment_wiring():
+    yaml = pytest.importorskip("yaml")
+    with open(os.path.join(ROOT, "action.yml"), "r", encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    # the opt-in inputs and the presentation-only output are declared
+    assert doc["inputs"]["comment-pr"]["default"] == "false"
+    assert "github-token" in doc["inputs"]
+    assert "pr-comment" in doc["outputs"]
+    # the poster step is opt-in (comment-pr == 'true') and runs the local
+    # stdlib poster -- never a github-script/curl/gh step
+    steps = doc["runs"]["steps"]
+    comment_steps = [s for s in steps if s.get("id") == "comment"]
+    assert len(comment_steps) == 1
+    step = comment_steps[0]
+    assert "comment-pr == 'true'" in step["if"]
+    assert "pr_comment_post.py" in step["run"]
+    assert "uses" not in step  # a local run: script, not a third-party action
+    # the token is mapped only into the opt-in step's environment
+    assert "HOTATO_PR_COMMENT_TOKEN" in step["env"]

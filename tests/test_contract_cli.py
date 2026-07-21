@@ -1214,3 +1214,181 @@ def test_verify_step_summary_bad_path_fails_open(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "step summary not written" in err
     assert "the verify result is unchanged" in err
+
+
+# --- verify --pr-comment: one tight, share-safe visual block for a PR --------
+
+# A verify JSON fixture whose hero (first non-passing contract) never yielded:
+# the agent talked over the caller, so the block must lead with the MEASURED
+# talk-over, not a null yield time. One pass and one refused ride along so the
+# separate-axis line and the "guarding vs caught" branch are both exercised.
+_PR_COMMENT_FIXTURE = {
+    "tool": "hotato", "kind": "contract-verify", "schema_version": "1",
+    "offline": True, "dir": "contracts", "count": 3,
+    "results": [
+        {"id": "ct-fail", "expect": "yield", "passed": False,
+         "scorable": True, "verdict_eligible": True,
+         "measurement": {"did_yield": False, "seconds_to_yield": None,
+                         "talk_over_sec": 1.2}},
+        {"id": "ct-pass", "expect": "yield", "passed": True,
+         "scorable": True, "verdict_eligible": True,
+         "measurement": {"did_yield": True, "seconds_to_yield": 1.1,
+                         "talk_over_sec": 0.0}},
+        {"id": "ct-refused", "expect": "hold", "passed": False,
+         "scorable": True, "verdict_eligible": False,
+         "verdict_ineligible_reason": "suspected channel swap",
+         "measurement": {"did_yield": None, "seconds_to_yield": None,
+                         "talk_over_sec": None}},
+    ],
+    "summary": {"passed": 1, "failed": 2},
+    "tampered": 0, "refused": 1, "assertions_failed": 0, "exit_code": 1,
+}
+
+
+def _timeline_block(md):
+    """The three plotted lines of the first fenced ``text`` block: the caller
+    track, the agent track, and the legend. Fails if no fence is present."""
+    lines = md.splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln == "```text")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i] == "```")
+    return lines[start + 1:end]
+
+
+def test_pr_comment_render_failing_fixture_heroes_caught_moment():
+    md = _contract.render_verify_pr_comment(_PR_COMMENT_FIXTURE)
+    # the hidden sticky marker leads the block so a poster updates one comment
+    assert md.startswith(_contract._PR_COMMENT_MARKER)
+    # the verdict line with the honest counts (exit code owns the gate)
+    assert "**FAIL**: 1 of 3 contracts pass (exit code 1)" in md
+    # the single caught moment is heroed: the failing contract, its expect,
+    # and the MEASURED talk-over (never a blank yield time)
+    assert "Caught `ct-fail` (expect yield)" in md
+    assert "talk-over, the agent never yielded" in md
+    assert "1.2s" in md
+    # the passing / refused contracts are NOT heroed as the caught moment
+    assert "ct-pass" not in md
+    # refused stays its own axis, never blended into the pass count
+    assert "1 refused (channel mapping unconfirmed)" in md
+    # the honest measurement-scope lines both ship
+    assert "a transcript-only check carries no timing signal" in md
+    assert _contract._STORED_EVIDENCE_CAVEAT in md
+    # share-safe: no raw transcript / audio text, only ids + timing + verdict
+    assert "suspected channel swap" not in md
+
+
+def test_pr_comment_timeline_marks_talk_over_overlap():
+    md = _contract.render_verify_pr_comment(_PR_COMMENT_FIXTURE)
+    caller, agent, legend = _timeline_block(md)
+    caller = caller.split(None, 1)[1]
+    agent = agent.split(None, 1)[1]
+    # both tracks are the same fixed monospace width (alignment-stable)
+    assert len(caller) == len(agent) == _contract._TL_COLS
+    # the overlap is a contiguous X run at the SAME columns on both tracks --
+    # that shared run IS the measured talk-over window
+    xs_caller = [i for i, ch in enumerate(caller) if ch == "X"]
+    xs_agent = [i for i, ch in enumerate(agent) if ch == "X"]
+    assert xs_caller and xs_caller == xs_agent
+    # a talk-over means the caller barges in AFTER the agent already held the
+    # floor: the caller track opens silent, the agent track opens speaking
+    assert caller[0] == "." and agent[0] == "="
+    assert set(caller) <= {".", "=", "X"} and set(agent) <= {".", "=", "X"}
+    assert "talk-over" in legend
+
+
+def test_pr_comment_timeline_yielded_agent_goes_silent():
+    # A clean pass: the agent yields at seconds_to_yield, so its track ends
+    # silent while the caller keeps the floor -- and there is no talk-over run.
+    v = dict(_PR_COMMENT_FIXTURE,
+             results=[_PR_COMMENT_FIXTURE["results"][1]], count=1,
+             summary={"passed": 1, "failed": 0},
+             refused=0, exit_code=0)
+    md = _contract.render_verify_pr_comment(v)
+    assert "**PASS**: 1 of 1 contract pass (exit code 0)" in md
+    # the green run guards (never "caught") its heroed moment
+    assert "Guarding `ct-pass` (expect yield)" in md
+    assert "1.1s" in md and "time to yield" in md
+    assert "Separate axes" not in md
+    caller, agent, _legend = _timeline_block(md)
+    caller = caller.split(None, 1)[1]
+    agent = agent.split(None, 1)[1]
+    assert "X" not in caller and "X" not in agent  # no talk-over
+    assert agent.endswith(".") and caller.endswith("=")  # agent yielded
+
+
+def test_pr_comment_refused_hero_renders_honest_no_timeline_note():
+    # When the only contract is refused (channel mapping unconfirmed), the
+    # block draws no fabricated plot -- it states the honest reason instead.
+    only_refused = dict(_PR_COMMENT_FIXTURE,
+                        results=[_PR_COMMENT_FIXTURE["results"][2]], count=1,
+                        summary={"passed": 0, "failed": 1}, exit_code=1)
+    md = _contract.render_verify_pr_comment(only_refused)
+    block = _timeline_block(md)
+    assert any("no timeline" in ln for ln in block)
+    assert not any("X" in ln or "=" in ln for ln in block)
+
+
+def test_pr_comment_marker_distinct_from_suite_envelope_marker():
+    # The contract-verify sticky marker must not collide with the suite
+    # envelope poster's marker, or the two surfaces would clobber each other.
+    import importlib.util
+    script = pathlib.Path(__file__).resolve().parents[1] / "scripts" / \
+        "pr_comment.py"
+    spec = importlib.util.spec_from_file_location("suite_pr_comment", script)
+    suite_pr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(suite_pr)
+    assert _contract._PR_COMMENT_MARKER != suite_pr.MARKER
+
+
+def test_verify_pr_comment_appends_to_file(tmp_path, capsys):
+    assert _create(tmp_path, cid="ct-pc-001") == 0
+    out = tmp_path / "pr.md"
+    out.write_text("# a prior block\n", encoding="utf-8")
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--pr-comment", str(out)])
+    assert rc == 0
+    text = out.read_text(encoding="utf-8")
+    # appended after existing content, never truncated over it
+    assert text.startswith("# a prior block\n")
+    assert _contract._PR_COMMENT_MARKER in text
+    assert "**PASS**: 1 of 1 contract pass (exit code 0)" in text
+    assert "wrote PR-comment block" in capsys.readouterr().err
+
+
+def test_verify_pr_comment_failing_exit_unchanged(tmp_path):
+    # An impossible bound makes the contract fail on re-verify; the exit code
+    # stays the verify verdict with --pr-comment set, and the block heroes it.
+    assert _create(tmp_path, "--max-time-to-yield", "0.0", cid="ct-pc-002") == 0
+    out = tmp_path / "pr.md"
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--pr-comment", str(out)])
+    assert rc == 1
+    text = out.read_text(encoding="utf-8")
+    assert "**FAIL**: 0 of 1 contract pass (exit code 1)" in text
+    assert "Caught `ct-pc-002`" in text
+    assert "```text" in text  # the ASCII timeline shipped
+
+
+def test_verify_pr_comment_bad_path_fails_open(tmp_path, capsys):
+    assert _create(tmp_path, cid="ct-pc-003") == 0
+    bad = tmp_path / "no-such-dir" / "pr.md"  # unwritable: parent missing
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--pr-comment", str(bad)])
+    # the verdict is unchanged; the problem reports on stderr only
+    assert rc == 0
+    assert not bad.exists()
+    err = capsys.readouterr().err
+    assert "PR-comment block not written" in err
+    assert "the verify result is unchanged" in err
+
+
+def test_verify_pr_comment_and_step_summary_write_both_leaves(tmp_path):
+    # Both presentation flags together write both leaves; neither touches the
+    # exit code, and the two markers keep the surfaces distinct.
+    assert _create(tmp_path, cid="ct-pc-004") == 0
+    ss = tmp_path / "step.md"
+    pr = tmp_path / "pr.md"
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--step-summary", str(ss), "--pr-comment", str(pr)])
+    assert rc == 0
+    assert "### hotato contract verify" in ss.read_text(encoding="utf-8")
+    assert _contract._PR_COMMENT_MARKER in pr.read_text(encoding="utf-8")

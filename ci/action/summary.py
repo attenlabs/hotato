@@ -478,6 +478,11 @@ def _artifact_lines(meta: Dict[str, Any]) -> List[str]:
         lines.append(f"- Failure Records: `{meta['records']}`")
     elif meta.get("records_note"):
         lines.append(f"- Failure Records: {meta['records_note']}")
+    if meta.get("pr_comment_path"):
+        lines.append(
+            f"- PR-comment block (share-safe): `{meta['pr_comment_path']}`"
+            " (posting it to a pull request is a separate, opt-in step)"
+        )
     lines.append(
         "- artifact upload is a consumer workflow step (actions/upload-artifact"
         " pinned by full commit SHA); this Action never uploads"
