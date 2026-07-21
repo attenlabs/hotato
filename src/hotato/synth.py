@@ -340,7 +340,7 @@ def robustness_battery(source_wav: str, out_dir: str, *, seed: int = 1,
     provenance as :func:`perturb` on the SEPARATE synthetic axis. The movement
     table measures scorer stability under degradation -- timing signal only,
     never agent intent."""
-    from . import core as _core   # deferred: synth stays stdlib-only at import
+    from . import core as _core  # deferred: synth stays stdlib-only at import
 
     stage_list = list(stages) if stages is not None else robustness_stages()
     if not stage_list or stage_list[0].get("recipe") is not None:

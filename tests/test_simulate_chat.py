@@ -32,8 +32,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from hotato import chat_sim
-from hotato import cli
+from hotato import chat_sim, cli
 
 
 def _scenario(**over):

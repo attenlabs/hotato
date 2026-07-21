@@ -303,7 +303,8 @@ def test_acoustic_suite_report_stays_free_of_the_table():
 
 def test_acoustic_split_report_block_shapes_roles():
     # acoustic_report_split maps file 0 -> caller, file 1 -> agent, one block.
-    import tempfile, os
+    import os
+    import tempfile
     with tempfile.TemporaryDirectory() as td:
         caller = os.path.join(td, "c.wav")
         agent = os.path.join(td, "a.wav")
