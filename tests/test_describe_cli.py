@@ -36,7 +36,7 @@ _ALL_SUBCOMMANDS = [
     "contract", "contract create", "contract verify",
     "contract inspect", "contract pack", "contract unpack",
     "trace", "trace ingest", "trace attach", "trace export",
-    "assert", "assert init", "assert run",
+    "assert", "assert init", "assert run", "assert packs",
     "test", "test run",
     "suite", "suite run",
     "release", "release compare",

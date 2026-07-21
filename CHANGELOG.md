@@ -9,6 +9,18 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **Compliance assertion packs + the `order` kind.** Curated, deterministic
+  assertion packs (`hotato assert packs`, `hotato assert run --pack NAME`):
+  required-disclosure, prohibited-language, pii-leak, and
+  identity-verification-order, built only from deterministic kinds. Adds a new
+  `order` kind (the first transcript turn matching `before` must precede the
+  first matching `after`). These are configurable transcript checks, not a
+  certification.
+- **Scenario variables and branches.** `scenario.v1` gains `variables:`
+  (templated `{name}` substitution into caller lines) and `branches:` (a node
+  graph whose every root-to-leaf path is deterministically enumerated), both
+  expanding into the existing `simulate --matrix` runner with stable derived
+  seeds. Cycles, unknown nodes, and unbound variables are refused.
 - **Cross-run failure clustering (`hotato diagnose --fleet DIR`).** Scans a
   folder of run and investigate results, fingerprints each failure
   deterministically (dimension, direction, magnitude bucket, config hash when

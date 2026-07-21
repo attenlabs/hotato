@@ -221,13 +221,93 @@ What lands in the transcript, each labelled for what it is:
 `--out DIR` names the transcript's directory (default `.hotato/`, written
 as `chat-transcript.json`).
 
+## Dynamic variables and branches (matrix expansion)
+
+Two optional scenario blocks widen a single scenario into a whole family of
+deterministic cells, expanded through the same `--matrix` runner. Both are
+gated and additive: a scenario with neither expands byte-for-byte as before,
+and each produced cell is still `origin=simulated`, seeded from a stable
+hash, and scored on its own lane.
+
+### `variables`: templated caller lines
+
+`variables` maps a name to a list of values. Each `{name}` reference in a
+caller `say` line is substituted with a value, and every declared variable
+is a cross-product axis of the matrix:
+
+```json
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "refund-cities",
+  "goal": { "type": "get_refund", "target": "an order" },
+  "caller": {
+    "script": [
+      { "say": "Hi, I'm calling from {city} about order {order_id}." },
+      { "say": "Please refund {order_id} to my card." }
+    ],
+    "behavior": { "backchannels": { "probability": 0.0 } }
+  },
+  "variables": {
+    "city": ["Austin", "Denver"],
+    "order_id": ["A-1001", "A-2002"]
+  }
+}
+```
+
+`hotato simulate --matrix refund-cities.scenario.json` expands to `2 x 2 = 4`
+cells (crossed with any `variation_matrix` dimensions), each with the values
+substituted in and a distinct, stable derived seed. A `{name}` reference with
+no matching entry under `variables` is refused up front (exit 2).
+
+### `branches`: enumerate every path
+
+`branches` declares a caller decision tree (or DAG). `root` names the entry
+node; each node under `nodes` carries its caller line(s) as `say` and its
+successor node names as `next` (a node with no `next` is a leaf). The runner
+enumerates **every root-to-leaf path** deterministically and appends each
+path's lines to the base caller script, one cell per path, each stamped with
+a `path` label:
+
+```json
+{
+  "kind": "hotato.scenario",
+  "version": 1,
+  "id": "refund-tree",
+  "goal": { "type": "get_refund", "target": "order A-1001" },
+  "facts": { "order_id": "A-1001" },
+  "caller": {
+    "script": [ { "say": "Hi, order A-1001 arrived damaged." } ],
+    "behavior": { "backchannels": { "probability": 0.0 } }
+  },
+  "branches": {
+    "root": "ask",
+    "nodes": {
+      "ask": { "say": "Can I get a refund?", "next": ["insist", "accept"] },
+      "insist": { "say": ["No, I want the money back.", "Refund it, please."] },
+      "accept": { "say": "A store credit is fine." }
+    }
+  }
+}
+```
+
+Here two paths (`ask>insist`, `ask>accept`) expand to two cells. A `next`
+that names an undefined node (an unknown node) or any cycle (a `next` that
+points back to an ancestor on the same path) is refused up front (exit 2);
+root-to-leaf paths must be finite. A shared child reached by two distinct
+parents (a diamond) is not a cycle -- it yields one path per route.
+
+`variables` and `branches` compose: with both present, the runner produces
+one cell per `(variable binding, root-to-leaf path, variation-matrix cell)`,
+and variable substitution applies to the branch lines too.
+
 ## Exit codes
 
 | Exit | Meaning |
 |---|---|
 | `0` | every produced conversation is `origin=simulated`, validated as a faithful rendering (and, under `--matrix --conversation-test`, every scored aggregate passed); with `--chat`, every scripted turn was driven and the transcript written |
 | `1` | at least one simulation was `SIMULATOR_INVALID` -- a broken fixture, distinct from an agent PASS/FAIL -- or, under `--matrix --conversation-test`, a scored aggregate FAILed |
-| `2` | usage error / unusable input: a malformed or unreadable scenario/conversation-test file (or, under `--matrix --conversation-test` with `inconclusive_policy refuse`, a withheld verdict); a non-local `--chat` URL without `--egress-opt-in`, an unreachable chat agent, or a reply off the `--chat` contract |
+| `2` | usage error / unusable input: a malformed or unreadable scenario/conversation-test file -- including an unbound `{name}` template, an unknown branch node, or a branch cycle -- (or, under `--matrix --conversation-test` with `inconclusive_policy refuse`, a withheld verdict); a non-local `--chat` URL without `--egress-opt-in`, an unreachable chat agent, or a reply off the `--chat` contract |
 
 ## Related
 
