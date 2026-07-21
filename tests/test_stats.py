@@ -5,8 +5,7 @@ the latency SLA gate (latency_sla) is exercised over its three states: not
 configured, pass, fail.
 """
 
-from hotato._stats import (corpus_percentiles, dist_summary, latency_sla,
-                           nearest_rank, percentile)
+from hotato._stats import corpus_percentiles, dist_summary, latency_sla, nearest_rank, percentile
 
 
 def test_percentile_linear_interpolation_on_known_values():

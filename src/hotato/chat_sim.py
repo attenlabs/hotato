@@ -55,11 +55,11 @@ from typing import Any, Dict, List
 from . import scenario as _scn
 from .errors import TOOL as _TOOL
 from .simulate import (
-    MODEL_ID,
     _GAP_SEC,
     _LEAD_IN_SEC,
     _MIN_TURN_SEC,
     _SEC_PER_WORD,
+    MODEL_ID,
     _canonical_json,
     _write_owned,
 )

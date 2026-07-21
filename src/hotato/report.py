@@ -100,6 +100,8 @@ from ._engine.score import ScoreConfig
 from ._stats import dist_summary
 from .acoustic import (
     acoustic_report as _acoustic_report,
+)
+from .acoustic import (
     acoustic_report_split as _acoustic_report_split,
 )
 from .core import (
