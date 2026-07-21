@@ -291,9 +291,52 @@ def build_argv(cfg: Dict[str, Any]) -> List[str]:
         return argv
     argv = ["contract", "verify", target, "--format", "json",
             "--junit", os.path.join(output, "contracts-junit.xml")]
+    if cfg.get("step_summary"):
+        argv += ["--step-summary", cfg["step_summary"]]
     if cfg.get("transcript"):
         argv += ["--transcript", cfg["transcript"]]
     return argv
+
+
+def _step_summary_supported() -> bool:
+    """True when the INSTALLED hotato's ``contract verify`` knows
+    ``--step-summary``, probed from its own ``--help`` text (an exact older
+    PyPI pin predates the flag and must keep its unchanged argv, exactly the
+    graceful-degradation discipline ``_classify_unsupported`` applies to
+    ``record render --all``). A failed probe reads as unsupported: the flag
+    is simply not passed and the verify runs exactly as before."""
+    try:
+        proc = _run([sys.executable, "-m", "hotato", "contract", "verify",
+                     "--help"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0 and "--step-summary" in (proc.stdout or "")
+
+
+def append_contract_step_summary(cfg: Dict[str, Any],
+                                 meta: Dict[str, Any]) -> None:
+    """Append hotato's own tight contract-verify Markdown (the
+    ``--step-summary`` leaf the verify subprocess wrote inside the private
+    output directory) to the job summary, ahead of the five-lane summary the
+    gate renders below. Additive presentation and fail-open by contract: a
+    missing or empty leaf and any read/write problem change NOTHING about
+    the gate exit or the step outputs."""
+    leaf = cfg.get("step_summary")
+    if not leaf:
+        return
+    try:
+        with open(os.path.join(cfg["workspace"], leaf), "r",
+                  encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError:
+        return
+    if not content.strip():
+        return
+    try:
+        write_summary(content.rstrip("\n"))
+    except OSError:
+        return
+    meta["contract_summary_path"] = leaf
 
 
 def _publish_flags() -> int:
@@ -705,6 +748,13 @@ def main() -> int:
         version = hotato_version()
         meta["hotato_version"] = version
         outputs["hotato-version"] = version
+        if cfg["mode"] == "contracts" and _step_summary_supported():
+            # hotato renders its own tight verify Markdown into a leaf of the
+            # private output directory; the reproduce line is recomputed so it
+            # stays the exact executed argv.
+            cfg["step_summary"] = "/".join((cfg["output"],
+                                            "contract-summary.md"))
+            meta["reproduce"] = shlex.join(["hotato"] + build_argv(cfg))
         exit_code, result_path = run_hotato(cfg)
         outputs["suite-result"] = result_path
         meta["result_path"] = result_path
@@ -712,6 +762,7 @@ def main() -> int:
             junit = os.path.join(cfg["output"], "contracts-junit.xml")
             if os.path.isfile(os.path.join(cfg["workspace"], junit)):
                 meta["junit_path"] = junit
+            append_contract_step_summary(cfg, meta)
         doc, error = summary_mod.load_result(
             os.path.join(cfg["workspace"], result_path))
         if error is not None and exit_code == 0:

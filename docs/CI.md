@@ -203,6 +203,35 @@ lists under Regressions with the delta. Best effort: when it can't run,
 the comment falls back to the current pass/fail table and the gate still
 holds.
 
+## Gate timing drift against a saved baseline
+
+`hotato baseline check` turns those deltas into a hard gate. Commit a
+tolerance file naming how much each timing dimension may rise, save a
+baseline run envelope, and the check exits 1 the moment a candidate run
+drifts beyond a tolerance:
+
+```yaml
+# tolerances.yaml -- how much increase each dimension may absorb
+response_gap_sec: "+10%"     # percent of the baseline mean
+seconds_to_yield: "+0.05"    # absolute seconds
+```
+
+```bash
+hotato run --suite barge-in --format json --no-fail > baseline.json   # once, on main
+hotato run --suite barge-in --format json --no-fail > candidate.json  # per PR
+hotato baseline check tolerances.yaml baseline.json candidate.json --junit drift.xml
+```
+
+Dimensions: `seconds_to_yield`, `talk_over_sec`, `response_gap_sec`,
+`premature_start_sec`; each side's value is the pooled mean across its
+scorable events. Every dimension is lower-is-better timing, so the gate is
+one-sided: an improvement always passes, and a dimension with no
+measurements on a side refuses (exit 2) rather than passing silently.
+`--format json` emits the machine envelope with the per-dimension deltas;
+`--junit drift.xml` feeds the same CI test widgets as `hotato contract
+verify --junit`. Exit codes: 0 within tolerance, 1 drift beyond tolerance,
+2 usage error.
+
 ## Render a comment yourself
 
 `scripts/pr_comment.py` is stdlib only and reads the same JSON the CLI

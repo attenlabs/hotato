@@ -40,12 +40,13 @@ _ALL_SUBCOMMANDS = [
     "test", "test run",
     "suite", "suite run",
     "release", "release compare",
+    "baseline", "baseline check",
     "record", "record render", "record verify",
     "rubric", "rubric run", "rubric calibrate",
     "scenario", "scenario init", "scenario validate",
     "conversation", "conversation verify",
     "simulate",
-    "compare", "scan", "synth", "trust",
+    "compare", "scan", "synth", "battery", "battery robustness", "trust",
     "ingest", "analyze", "verify", "fix", "fix trial", "loop",
     "investigate", "investigate label", "describe",
     "init", "init webhook", "init starter", "init ci",
@@ -150,6 +151,17 @@ def test_describe_json_run_args_include_stereo_and_suite(capsys):
     stereo = next(a for a in run["args"] if a["name"] == "--stereo")
     assert stereo["required"] is False
     assert stereo["type"] == "str"
+
+
+def test_describe_json_diagnose_surfaces_fleet_flag(capsys):
+    cli.main(["describe", "--format", "json"])
+    manifest = json.loads(capsys.readouterr().out)
+    diagnose = next(c for c in manifest["subcommands"] if c["name"] == "diagnose")
+    arg_names = {a["name"] for a in diagnose["args"]}
+    assert "--fleet" in arg_names
+    # The positional envelope is optional now (--fleet is the alternative).
+    envelope = next(a for a in diagnose["args"] if a["name"] == "envelope")
+    assert envelope["required"] is False
 
 
 def test_describe_json_capture_stack_is_required(capsys):

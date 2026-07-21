@@ -133,6 +133,22 @@ SUPPORTED_DOC_VERSION = 1
 #                                    tool_retry -> tool_call, or a `count` of
 #                                    tool_retry span_type, binds the zombie-tool
 #                                    / double-fire failure class to real spans.
+#   formula                       -- a boolean composite over OTHER named
+#                                    assertions' results in the SAME run:
+#                                    and/or/not with parentheses, plus a
+#                                    weighted-sum >= threshold form. Parsed by
+#                                    a small recursive-descent parser (never
+#                                    eval()); references are checked up front
+#                                    (unknown names and cycles are refused as
+#                                    usage errors) and evaluated in dependency
+#                                    order, so a formula reads only results
+#                                    already produced in its own run.
+#
+# Any assertion may additionally carry an optional ``when:`` precondition (an
+# assertion id, or a list of ids). Unless every referenced assertion PASSed,
+# the assertion is SKIPPED: an INCONCLUSIVE result with ``skipped: true`` and
+# a reason naming the unmet precondition -- deterministic, never a guess.
+# ``when`` references obey the same unknown-name/cycle refusal as ``formula``.
 #
 # HONESTY INVARIANT (structural): tool_result / tool_error / http_result /
 # state / state_change (Authorities 1 & 2, listed in
@@ -145,7 +161,7 @@ KINDS = (
     "tool_result", "tool_error", "http_result", "state", "state_change",
     "handoff", "dtmf",
     "termination", "latency", "timing_contract", "entity_accuracy",
-    "sequence", "count",
+    "sequence", "count", "formula",
 )
 
 # The judge lane's kinds -- NAMED so a conversation-test / assert document may
@@ -707,6 +723,254 @@ def parse_assertions_yaml(text: str) -> Any:
 
 
 # =========================================================================
+# The ``formula`` expression parser: a tiny recursive-descent parser over
+# OTHER assertions' ids -- ``and`` / ``or`` / ``not`` with parentheses, plus
+# a weighted-sum comparison (``0.6*a + 0.4*b >= 0.5``). Never eval(): the
+# expression is tokenized and parsed into a plain tuple AST here, and the
+# AST is walked with ordinary Python below. Deterministic by construction.
+# =========================================================================
+
+_FORMULA_KEYWORDS = ("and", "or", "not")
+_FORMULA_NUM_RE = re.compile(r"\d+(?:\.\d+)?|\.\d+")
+# A referencable assertion id, as the formula grammar sees it: a bare token
+# starting with a letter/underscore (so a leading digit is always a WEIGHT,
+# never an id) over the id characters hotato assertion files use in practice.
+_FORMULA_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.\-]*")
+
+
+def _formula_tokens(aid: str, expr: str) -> List[Tuple[str, Any, int]]:
+    """Tokenize a formula expression into ``(type, value, position)`` tuples.
+    Types: ``name`` (a referenced assertion id), ``num`` (a float weight or
+    threshold), the keywords ``and``/``or``/``not``, and the single-purpose
+    operators ``( ) + * >=``. Anything else raises ``ValueError`` (the
+    caller's usage-error / exit-2 path)."""
+    tokens: List[Tuple[str, Any, int]] = []
+    i, n = 0, len(expr)
+    while i < n:
+        ch = expr[i]
+        if ch in " \t":
+            i += 1
+            continue
+        if ch in "()+*":
+            tokens.append((ch, ch, i))
+            i += 1
+            continue
+        if expr.startswith(">=", i):
+            tokens.append((">=", ">=", i))
+            i += 2
+            continue
+        m = _FORMULA_NUM_RE.match(expr, i)
+        if m:
+            end = m.end()
+            if end < n and (expr[end].isalnum() or expr[end] in "_.-"):
+                raise ValueError(
+                    f"assertion {aid!r} (formula): a referenced assertion id "
+                    f"must start with a letter or underscore, got "
+                    f"{expr[i:]!r} at position {i} in expr {expr!r}"
+                )
+            tokens.append(("num", float(m.group(0)), i))
+            i = end
+            continue
+        m = _FORMULA_NAME_RE.match(expr, i)
+        if m:
+            word = m.group(0)
+            kind = word if word in _FORMULA_KEYWORDS else "name"
+            tokens.append((kind, word, i))
+            i = m.end()
+            continue
+        raise ValueError(
+            f"assertion {aid!r} (formula): unexpected character {ch!r} at "
+            f"position {i} in expr {expr!r}"
+        )
+    return tokens
+
+
+class _FormulaParser:
+    """Recursive-descent parser for one formula expression. Grammar
+    (loosest-binding first)::
+
+        expr    := or
+        or      := and ("or" and)*
+        and     := unary ("and" unary)*
+        unary   := "not" unary | primary
+        primary := "(" expr ")" | weighted | NAME
+        weighted:= term ("+" term)* ">=" NUMBER
+        term    := NUMBER "*" NAME | NAME        # a bare NAME weighs 1
+
+    A ``NAME`` resolves to another assertion's result in the same run
+    (PASS -> true, FAIL -> false; an INCONCLUSIVE reference makes the whole
+    formula INCONCLUSIVE at evaluation). The AST is plain tuples:
+    ``("name", id)``, ``("not", node)``, ``("and"|"or", [nodes])``,
+    ``("wsum", [(weight, id), ...], threshold)``."""
+
+    def __init__(self, aid: str, expr: str):
+        self.aid = aid
+        self.expr = expr
+        self.tokens = _formula_tokens(aid, expr)
+        self.i = 0
+
+    def _err(self, msg: str) -> None:
+        raise ValueError(
+            f"assertion {self.aid!r} (formula): {msg} in expr {self.expr!r}"
+        )
+
+    def _peek(self) -> Optional[Tuple[str, Any, int]]:
+        return self.tokens[self.i] if self.i < len(self.tokens) else None
+
+    def _take(self) -> Tuple[str, Any, int]:
+        tok = self._peek()
+        if tok is None:
+            self._err("expression ended unexpectedly")
+        self.i += 1
+        return tok
+
+    def parse(self) -> Tuple:
+        if not self.tokens:
+            self._err("'expr' is empty")
+        node = self._or()
+        trailing = self._peek()
+        if trailing is not None:
+            self._err(
+                f"unexpected {trailing[1]!r} at position {trailing[2]}"
+            )
+        return node
+
+    def _or(self) -> Tuple:
+        parts = [self._and()]
+        while self._peek() is not None and self._peek()[0] == "or":
+            self._take()
+            parts.append(self._and())
+        return parts[0] if len(parts) == 1 else ("or", parts)
+
+    def _and(self) -> Tuple:
+        parts = [self._unary()]
+        while self._peek() is not None and self._peek()[0] == "and":
+            self._take()
+            parts.append(self._unary())
+        return parts[0] if len(parts) == 1 else ("and", parts)
+
+    def _unary(self) -> Tuple:
+        tok = self._peek()
+        if tok is not None and tok[0] == "not":
+            self._take()
+            return ("not", self._unary())
+        return self._primary()
+
+    def _primary(self) -> Tuple:
+        tok = self._peek()
+        if tok is None:
+            self._err("expression ended unexpectedly")
+        if tok[0] == "(":
+            self._take()
+            node = self._or()
+            closing = self._peek()
+            if closing is None or closing[0] != ")":
+                self._err(f"missing ')' for '(' at position {tok[2]}")
+            self._take()
+            return node
+        if tok[0] == "num":
+            return self._weighted(first=None)
+        if tok[0] == "name":
+            self._take()
+            nxt = self._peek()
+            if nxt is not None and nxt[0] in ("+", ">="):
+                return self._weighted(first=(1.0, tok[1]))
+            if nxt is not None and nxt[0] == "*":
+                self._err(
+                    "a weighted term is written weight*name (for example "
+                    f"0.5*{tok[1]}), got {tok[1]!r} followed by '*'"
+                )
+            return ("name", tok[1])
+        self._err(f"unexpected {tok[1]!r} at position {tok[2]}")
+
+    def _weighted(self, first: Optional[Tuple[float, str]]) -> Tuple:
+        terms = [first] if first is not None else [self._term()]
+        while self._peek() is not None and self._peek()[0] == "+":
+            self._take()
+            terms.append(self._term())
+        cmp_tok = self._peek()
+        if cmp_tok is None or cmp_tok[0] != ">=":
+            self._err("a weighted sum must be compared with '>= threshold'")
+        self._take()
+        thr = self._peek()
+        if thr is None or thr[0] != "num":
+            self._err("'>=' must be followed by a numeric threshold")
+        self._take()
+        return ("wsum", terms, thr[1])
+
+    def _term(self) -> Tuple[float, str]:
+        tok = self._peek()
+        if tok is not None and tok[0] == "num":
+            self._take()
+            star = self._peek()
+            if star is None or star[0] != "*":
+                self._err(
+                    f"a weight must be followed by '*name' (for example "
+                    f"{_fmt_public_number(tok[1])}*some-assertion-id)"
+                )
+            self._take()
+            name = self._peek()
+            if name is None or name[0] != "name":
+                self._err("'*' must be followed by an assertion id")
+            self._take()
+            return (tok[1], name[1])
+        if tok is not None and tok[0] == "name":
+            self._take()
+            return (1.0, tok[1])
+        self._err("expected a weighted term (weight*name, or a bare name)")
+
+
+def _formula_ast_refs(node: Tuple, out: List[str]) -> None:
+    t = node[0]
+    if t == "name":
+        out.append(node[1])
+    elif t == "not":
+        _formula_ast_refs(node[1], out)
+    elif t in ("and", "or"):
+        for child in node[1]:
+            _formula_ast_refs(child, out)
+    elif t == "wsum":
+        for _w, name in node[1]:
+            out.append(name)
+
+
+def _parse_formula(aid: str, expr: str) -> Tuple[Tuple, List[str]]:
+    """Parse ``expr`` into ``(ast, refs)``: the tuple AST plus the referenced
+    assertion ids, deduplicated in first-reference order. Raises ``ValueError``
+    (naming the assertion and the position) on any malformed expression."""
+    ast = _FormulaParser(aid, expr).parse()
+    seen: List[str] = []
+    raw: List[str] = []
+    _formula_ast_refs(ast, raw)
+    for name in raw:
+        if name not in seen:
+            seen.append(name)
+    return ast, seen
+
+
+def _formula_truth(node: Tuple, passed: Dict[str, bool]) -> bool:
+    """Walk a formula AST against ``passed`` (referenced id -> PASSed?).
+    Pure dict lookups and arithmetic; every reference is determinate by the
+    time this runs (an INCONCLUSIVE reference is routed out before). The
+    weighted sum is accumulated in the expression's own term order, so the
+    result is bit-stable across runs."""
+    t = node[0]
+    if t == "name":
+        return passed[node[1]]
+    if t == "not":
+        return not _formula_truth(node[1], passed)
+    if t == "and":
+        return all(_formula_truth(child, passed) for child in node[1])
+    if t == "or":
+        return any(_formula_truth(child, passed) for child in node[1])
+    total = 0.0
+    for weight, name in node[1]:
+        if passed[name]:
+            total += weight
+    return total >= node[2]
+
+
+# =========================================================================
 # Assertion-document validation (malformed input -> ValueError, exit 2)
 # =========================================================================
 
@@ -1125,6 +1389,16 @@ def _validate_expanded_kind_fields(aid: str, kind: str, item: Dict[str, Any]) ->
                 ) from exc
         _validate_count_spec(aid, "count", item.get("count"))
 
+    elif kind == "formula":
+        expr = item.get("expr")
+        if not isinstance(expr, str) or not expr.strip():
+            raise ValueError(
+                f"assertion {aid!r} (formula): 'expr' is required and must be "
+                "a non-empty expression string over other assertion ids "
+                "(and/or/not, parentheses, or a weighted sum '>= threshold')"
+            )
+        _parse_formula(aid, expr)  # syntax only; references are checked doc-wide
+
     elif kind in RUBRIC_KINDS:
         # The rubric-object shape is validated by the model-judge engine
         # (hotato.rubric.validate_rubric_object) in the SEPARATE rubric lane.
@@ -1133,6 +1407,106 @@ def _validate_expanded_kind_fields(aid: str, kind: str, item: Dict[str, Any]) ->
         # out as a deterministic INCONCLUSIVE pointing to the rubric lane, never
         # a guess and never a model call.
         return
+
+
+def _validate_when_field(aid: str, item: Dict[str, Any]) -> None:
+    """Shape-check an optional ``when:`` precondition (any kind may carry
+    one): an assertion id string, or a non-empty list of id strings. The ids
+    themselves are resolved doc-wide by :func:`_validate_references`."""
+    if "when" not in item:
+        return
+    when = item["when"]
+    refs = [when] if isinstance(when, str) else when
+    if (
+        not isinstance(refs, list)
+        or not refs
+        or not all(isinstance(r, str) and r for r in refs)
+    ):
+        raise ValueError(
+            f"assertion {aid!r}: 'when' must be an assertion id string or a "
+            "non-empty list of assertion id strings"
+        )
+
+
+def _when_refs(a: Dict[str, Any]) -> List[str]:
+    when = a.get("when")
+    if when is None:
+        return []
+    return [when] if isinstance(when, str) else list(when)
+
+
+def _assertion_refs(a: Dict[str, Any]) -> List[str]:
+    """Every other-assertion id this assertion depends on -- its ``when:``
+    precondition ids plus, for a ``formula``, the ids its ``expr`` references
+    -- deduplicated in first-reference order."""
+    refs = list(_when_refs(a))
+    if a.get("kind") == "formula":
+        _ast, expr_refs = _parse_formula(a["id"], a["expr"])
+        refs.extend(expr_refs)
+    out: List[str] = []
+    for r in refs:
+        if r not in out:
+            out.append(r)
+    return out
+
+
+def _validate_references(assertions: List[Dict[str, Any]]) -> None:
+    """Doc-wide reference resolution for ``formula`` expressions and ``when:``
+    preconditions: every referenced id must name ANOTHER assertion in the same
+    document (an unknown id and a self-reference are each a ``ValueError``),
+    and the whole reference graph must be acyclic (:func:`_evaluation_order`
+    refuses a cycle). Runs before any assertion is evaluated."""
+    ids = {a["id"] for a in assertions}
+    for a in assertions:
+        aid = a["id"]
+        for source, refs in (
+            ("'when'", _when_refs(a)),
+            ("(formula) 'expr'",
+             _parse_formula(aid, a["expr"])[1] if a.get("kind") == "formula" else []),
+        ):
+            for ref in refs:
+                if ref == aid:
+                    raise ValueError(
+                        f"assertion {aid!r}: {source} references the assertion "
+                        "itself; a reference must point at another assertion"
+                    )
+                if ref not in ids:
+                    raise ValueError(
+                        f"assertion {aid!r}: {source} references unknown "
+                        f"assertion id {ref!r}"
+                    )
+    _evaluation_order(assertions)  # refuses a reference cycle
+
+
+def _evaluation_order(assertions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Topologically sort ``assertions`` by their ``formula``/``when``
+    references so every assertion is evaluated after everything it reads.
+    Deterministic: repeated document-order passes, so independent assertions
+    keep their document order. Raises ``ValueError`` on a reference cycle,
+    naming the assertions involved. Results are still EMITTED in document
+    order (see :func:`run_assertions`); this order is internal only."""
+    deps = {a["id"]: _assertion_refs(a) for a in assertions}
+    done: set = set()
+    order: List[Dict[str, Any]] = []
+    remaining = list(assertions)
+    while remaining:
+        stuck = []
+        progressed = False
+        for a in remaining:
+            if all(d in done for d in deps[a["id"]]):
+                order.append(a)
+                done.add(a["id"])
+                progressed = True
+            else:
+                stuck.append(a)
+        if not progressed:
+            cycle_ids = [a["id"] for a in stuck]
+            raise ValueError(
+                f"assertion reference cycle detected among {cycle_ids}; "
+                "'formula' expressions and 'when' preconditions must be acyclic"
+            )
+        remaining = stuck
+    return order
 
 
 def validate_assertions_doc(doc: Any) -> Tuple[int, List[Dict[str, Any]]]:
@@ -1203,7 +1577,13 @@ def validate_assertions_doc(doc: Any) -> Tuple[int, List[Dict[str, Any]]]:
                 f"assertion {aid!r}: 'dimension' (optional) must be one of "
                 f"{RESULT_DIMENSIONS}, got {dim!r}"
             )
+        _validate_when_field(aid, item)
         out.append(item)
+
+    # Doc-wide reference resolution for formula/when: unknown names, self-
+    # references, and cycles are refused HERE, before any assertion is
+    # evaluated -- the same up-front usage-error contract as a bad kind/regex.
+    _validate_references(out)
 
     return version, out
 
@@ -2319,6 +2699,105 @@ def _eval_count(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     return result
 
 
+def _eval_formula(
+    a: Dict[str, Any], results_by_id: Optional[Dict[str, Dict[str, Any]]]
+) -> Dict[str, Any]:
+    """Evaluate a ``formula`` assertion against the SAME run's other results
+    (``results_by_id``, keyed by assertion id -- :func:`run_assertions` builds
+    it in dependency order, so every reference is already evaluated). A
+    referenced PASS is true, a FAIL is false; a referenced INCONCLUSIVE makes
+    the whole formula INCONCLUSIVE (absent input propagates, never a guess).
+    Pure AST walking over already-produced statuses -- no eval(), no model,
+    no context read -- so ``deterministic`` stays structurally true."""
+    result = _base_result(a)
+    _ast, refs = _parse_formula(a["id"], a["expr"])
+    result["refs"] = refs
+    if results_by_id is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            "a formula reads other assertions' results from the same run; "
+            "evaluate it through run_assertions (no run results available)"
+        )
+        return result
+    unresolved = [r for r in refs if r not in results_by_id]
+    if unresolved:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            f"referenced result(s) {unresolved} were not evaluated in this run"
+        )
+        return result
+    inconclusive = [
+        r for r in refs if results_by_id[r].get("status") == "INCONCLUSIVE"
+    ]
+    if inconclusive:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            f"referenced result(s) {inconclusive} are INCONCLUSIVE, so the "
+            "formula has no determinate inputs to combine"
+        )
+        return result
+    passed = {r: results_by_id[r].get("status") == "PASS" for r in refs}
+    met = sum(1 for r in refs if passed[r])
+    result["met"] = met
+    result["of"] = len(refs)
+    value = _formula_truth(_ast, passed)
+    result["status"] = "PASS" if value else "FAIL"
+    if not value:
+        not_passed = [r for r in refs if not passed[r]]
+        result["reason"] = (
+            f"formula {a['expr']!r} evaluated false "
+            f"(passed: {[r for r in refs if passed[r]]}, "
+            f"not passed: {not_passed})"
+        )
+    return result
+
+
+def _eval_formula_standalone(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    """The :data:`_EVALUATORS` entry for ``formula``: outside a run there are
+    no other results to read, so this is the honest INCONCLUSIVE.
+    :func:`evaluate_assertion` routes an in-run formula to
+    :func:`_eval_formula` with the run's results instead."""
+    return _eval_formula(a, None)
+
+
+def _when_skip_result(
+    a: Dict[str, Any], results_by_id: Optional[Dict[str, Dict[str, Any]]]
+) -> Optional[Dict[str, Any]]:
+    """The SKIP result for an assertion whose ``when:`` precondition is not
+    met, or ``None`` when the assertion should evaluate normally (no ``when``,
+    or every referenced assertion PASSed). A skip is an INCONCLUSIVE result
+    carrying ``skipped: true`` and a reason naming the unmet reference(s) --
+    the assertion's own check never ran, so no PASS/FAIL verdict exists to
+    report. Evaluating a ``when``-carrying assertion outside a run (no
+    ``results_by_id``) is also a skip: the precondition cannot be checked."""
+    refs = _when_refs(a)
+    if not refs:
+        return None
+    result = _base_result(a)
+    result["skipped"] = True
+    result["status"] = "INCONCLUSIVE"
+    if results_by_id is None:
+        result["reason"] = (
+            f"skipped: 'when' precondition {refs} cannot be checked outside a "
+            "run (no other results available)"
+        )
+        return result
+    unmet = [
+        r for r in refs
+        if (results_by_id.get(r) or {}).get("status") != "PASS"
+    ]
+    if not unmet:
+        return None
+    statuses = {
+        r: (results_by_id.get(r) or {}).get("status") for r in unmet
+    }
+    result["reason"] = (
+        f"skipped: 'when' precondition not met -- referenced assertion(s) "
+        f"did not pass: {statuses}"
+    )
+    return result
+
+
 def _eval_rubric_stub(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     """The model-judged ``human_rubric``/``judge_rubric`` kinds do NOT run in the
     deterministic ``assert.v1`` lane -- they run in the SEPARATE rubric lane
@@ -2393,6 +2872,8 @@ def _inconclusive_noun(a: Dict[str, Any]) -> str:
     if kind in ("tool_call", "tool_result", "tool_error", "http_result",
                 "handoff", "dtmf", "termination", "sequence", "entity_accuracy"):
         return "trace"
+    if kind == "formula":
+        return "referenced-result"
     return "input"
 
 
@@ -2544,6 +3025,14 @@ def _pub_outcome(a, r):
     return "The declared outcome conditions were not supported by supplied evidence."
 
 
+def _pub_formula(a, r):
+    met, of = _pub_int(r.get("met")), _pub_int(r.get("of"))
+    if met is not None and of is not None:
+        return (f"The declared formula was not satisfied; {met} of {of} "
+                "referenced checks passed.")
+    return "The declared formula was not satisfied."
+
+
 _PUBLIC_FAIL = {
     "phrase": _pub_phrase, "pii": _pub_pii, "policy": _pub_policy,
     "tool_call": _pub_tool_call, "tool_result": _pub_tool_result,
@@ -2553,7 +3042,7 @@ _PUBLIC_FAIL = {
     "dtmf": _pub_dtmf, "termination": _pub_termination, "latency": _pub_latency,
     "timing_contract": _pub_timing_contract,
     "entity_accuracy": _pub_entity_accuracy, "sequence": _pub_sequence,
-    "count": _pub_count, "outcome": _pub_outcome,
+    "count": _pub_count, "outcome": _pub_outcome, "formula": _pub_formula,
 }
 
 
@@ -2569,7 +3058,12 @@ def _public_reason(a: Dict[str, Any], result: Dict[str, Any]) -> Optional[str]:
     if status == "ERROR":
         text = "The deterministic check could not run."
     elif status == "INCONCLUSIVE":
-        text = f"Required {_inconclusive_noun(a)} evidence was missing."
+        if result.get("skipped"):
+            # A 'when'-skip: the precondition did not pass, so the check never
+            # ran. Fixed vocabulary, no payload value.
+            text = "A declared precondition did not pass; the check was skipped."
+        else:
+            text = f"Required {_inconclusive_noun(a)} evidence was missing."
     elif status == "FAIL":
         builder = _PUBLIC_FAIL.get(a.get("kind"))
         text = builder(a, result) if builder else "A declared check was not satisfied."
@@ -2600,12 +3094,17 @@ _EVALUATORS = {
     "entity_accuracy": _eval_entity_accuracy,
     "sequence": _eval_sequence,
     "count": _eval_count,
+    "formula": _eval_formula_standalone,
     "human_rubric": _eval_rubric_stub,
     "judge_rubric": _eval_rubric_stub,
 }
 
 
-def evaluate_assertion(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+def evaluate_assertion(
+    a: Dict[str, Any],
+    ctx: Context,
+    results_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     """Evaluate one already-validated assertion dict against ``ctx``.
     Returns one ``results[]`` entry of the ``assert.v1`` envelope:
     ``{id, kind, status, deterministic: true, ...kind-specific fields}``.
@@ -2614,12 +3113,27 @@ def evaluate_assertion(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     including on an ``INCONCLUSIVE`` result, which reflects absent INPUT,
     never a non-deterministic judgment.
 
+    ``results_by_id`` (optional, additive) is the SAME run's already-evaluated
+    results keyed by assertion id -- :func:`run_assertions` passes it while
+    walking the dependency order. It backs the two cross-assertion features:
+    a ``formula`` kind reads its referenced results from it, and a ``when:``
+    precondition is checked against it (unmet -> a SKIP: INCONCLUSIVE with
+    ``skipped: true``). Without it (a standalone call, exactly the historical
+    signature) a formula or a ``when``-carrying assertion reports
+    INCONCLUSIVE -- the cross-assertion input is absent -- and every other
+    assertion evaluates exactly as before.
+
     A non-passing result additionally carries a ``public_reason``: a share-safe,
     one-line restatement built ONLY from allowlisted structured fields (see
     :func:`_public_reason`), so a Failure Record can quote it without ever
     touching the raw ``reason`` (which may embed a regex, a tool argument, a
     state value, or a DTMF digit). A PASS result is unchanged."""
-    result = _EVALUATORS[a["kind"]](a, ctx)
+    result = _when_skip_result(a, results_by_id)
+    if result is None:
+        if a["kind"] == "formula":
+            result = _eval_formula(a, results_by_id)
+        else:
+            result = _EVALUATORS[a["kind"]](a, ctx)
     public = _public_reason(a, result)
     if public is not None:
         result["public_reason"] = public
@@ -2721,10 +3235,22 @@ def run_assertions(
     code, see :func:`envelope_from_results`) resolves as: an explicit
     caller/CLI argument overrides the document's own optional top-level
     ``inconclusive_policy`` key; absent both, the default ``"report"`` (the
-    historical, backward-compatible behavior)."""
+    historical, backward-compatible behavior).
+
+    Cross-assertion references (a ``formula``'s ``expr``, any assertion's
+    ``when:`` precondition) are evaluated in dependency order -- every
+    assertion runs after everything it reads, whatever the document order --
+    but ``results`` are always EMITTED in document order, so the envelope is
+    byte-stable and position-predictable. Unknown names and reference cycles
+    were already refused by validation, before anything ran."""
     _version, assertions = validate_assertions_doc(doc)
     policy = _resolve_inconclusive_policy(doc, inconclusive_policy)
-    results = [evaluate_assertion(a, ctx) for a in assertions]
+    results_by_id: Dict[str, Dict[str, Any]] = {}
+    for a in _evaluation_order(assertions):
+        results_by_id[a["id"]] = evaluate_assertion(
+            a, ctx, results_by_id=results_by_id
+        )
+    results = [results_by_id[a["id"]] for a in assertions]
     return envelope_from_results(results, inconclusive_policy=policy)
 
 

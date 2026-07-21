@@ -98,6 +98,12 @@ from typing import Any, Optional
 
 from ._engine.score import ScoreConfig
 from ._stats import dist_summary
+from .acoustic import (
+    acoustic_report as _acoustic_report,
+)
+from .acoustic import (
+    acoustic_report_split as _acoustic_report_split,
+)
 from .core import (
     LIMITS,
     _bundled_audio_path,
@@ -1606,6 +1612,75 @@ def _trace_section(trace: dict) -> str:
     )
 
 
+# --- acoustic health: per-channel signal measures for the scored recording -
+
+def _acoustic_cell(value, suffix: str = "") -> str:
+    """One acoustic table cell: the measured number (with its unit suffix),
+    or a plain ``n/a`` when the measure is null for this channel."""
+    if value is None:
+        return "n/a"
+    return f"{value}{suffix}"
+
+
+def _acoustic_section(models: list) -> str:
+    """The per-channel acoustic-health table for a single-recording report:
+    SNR estimate, percent silence, energy-burst rate, clipping fraction, and
+    duration, one row per channel, straight from the ``acoustic`` block the
+    model carries (computed from the same decoded audio the scorer read).
+    Empty string when no model carries one (suite pages), so those pages stay
+    byte-identical to before this section existed. Signal measures only: the
+    note under the heading states the boundary, mirroring
+    ``acoustic.ACOUSTIC_NOTE``."""
+    blocks = [m["acoustic"] for m in models if m.get("acoustic")]
+    if not blocks:
+        return ""
+    rows = []
+    for block in blocks:
+        for ch in block.get("channels") or []:
+            if ch.get("role"):
+                label = f'{ch["role"]} (ch {ch["channel"]})'
+            else:
+                label = f'ch {ch["channel"]}'
+            rate = ch.get("energy_burst_rate_per_min")
+            rate_txt = (f'{rate} ({ch["energy_bursts"]} bursts)'
+                        if rate is not None else "n/a")
+            # Fractions, not percentages: this page carries no percent sign
+            # anywhere (the strongest form of its no-accuracy-score stance),
+            # so the share metrics render as 0..1 fractions of frames/samples.
+            silence = ch.get("percent_silence")
+            silence_frac = (round(silence / 100.0, 3)
+                            if silence is not None else None)
+            rows.append(
+                '<tr>'
+                f'<td>{_esc(label)}</td>'
+                f'<td>{_esc(_acoustic_cell(ch.get("snr_db")))}</td>'
+                f'<td>{_esc(_acoustic_cell(silence_frac))}</td>'
+                f'<td>{_esc(rate_txt)}</td>'
+                f'<td>{_esc(_acoustic_cell(ch.get("clipping_fraction")))}</td>'
+                f'<td>{_esc(_acoustic_cell(ch.get("duration_sec")))}</td>'
+                '</tr>'
+            )
+    return (
+        '<section class="card acoustic">'
+        '<h2 class="ach">Acoustic health (signal measures)</h2>'
+        '<div class="tnote">Per-channel signal measures over energy frames, '
+        'from the same decoded audio the scorer read: SNR compares '
+        'speech-frame RMS to noise-floor RMS split by the energy VAD gate; '
+        'silence is the share of frames below that gate; the burst rate '
+        'counts sustained bursts of acoustic energy, never words; clipping '
+        'is the share of samples at full scale. Signal quality only -- '
+        'none of these measure intelligibility, word content, or intent.'
+        '</div>'
+        '<table class="actab mono"><thead><tr><th>channel</th>'
+        '<th>SNR est. (dB)</th><th>silence (fraction of frames)</th>'
+        '<th>energy bursts (/min)</th>'
+        '<th>clipping (fraction of samples)</th>'
+        '<th>duration (s)</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table>'
+        '</section>'
+    )
+
+
 # --- forensic analysis: derived, labeled fields over the report's inputs ---
 #
 # Three additive, purely-DERIVED enrichments to the forensic report, each
@@ -2679,6 +2754,21 @@ table.tracetab td{text-align:left;color:%(mono)s;padding:3px 18px 3px 0;
  border-bottom:1px solid %(card2)s;vertical-align:top}
 """ % _C
 
+# Appended to the page's <style> ONLY when the acoustic-health table actually
+# rendered (a single-recording page whose model carries an ``acoustic`` block;
+# see _render_page): a suite page, which carries none, stays byte-identical to
+# one built before this section existed.
+_ACOUSTIC_CSS = """
+.acoustic .ach{font-size:16.5px;font-weight:650;color:%(cream)s;margin:0 0 4px}
+.acoustic .tnote{color:%(muted)s;font-size:12.5px;margin:8px 0 12px}
+table.actab{border-collapse:collapse;width:auto;font-size:12px}
+table.actab th{text-align:left;color:%(muted)s;font-weight:600;
+ font-size:11.5px;padding:5px 18px 5px 0;border-bottom:1px solid %(line)s;
+ white-space:nowrap}
+table.actab td{text-align:left;color:%(mono)s;padding:3px 18px 3px 0;
+ border-bottom:1px solid %(card2)s;vertical-align:top}
+""" % _C
+
 # Appended to the page's <style> ONLY when at least one assertion result carries
 # a ``dimension`` (see _render_page): an assertions envelope with no dimensions
 # renders the flat deterministic shelf exactly as before, so it needs none of
@@ -2979,6 +3069,12 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         _assertions_have_dimensions(assertions) or reliability is not None
     ):
         style_css += _SCORECARD_CSS
+    # The acoustic-health CSS is appended ONLY when the table actually
+    # rendered (a single-recording page; suite models carry no acoustic
+    # block), so a suite page stays byte-identical to before it existed.
+    acoustic_html = _acoustic_section(models)
+    if acoustic_html:
+        style_css += _ACOUSTIC_CSS
     if trace is not None:
         style_css += _TRACE_CSS
     # The forensic-analysis CSS is appended ONLY when the derived forensic block
@@ -3079,6 +3175,10 @@ def _render_page(env: dict, models: list, cfg: ScoreConfig,
         f'{conversation_html}'
         f'{_not_scorable_section_html(env)}'
         f'{base_html}{cards}'
+        # The acoustic-health table reads right after the event cards it
+        # describes the input of: the reader sees the timing story, then the
+        # signal-quality facts of the recording it was measured on.
+        f'{acoustic_html}'
         f'{analytics_html}{assertions_html}{trace_html}{forensic_html}'
         f'{_thresholds(cfg)}</main>{_footer()}</div>'
     )
@@ -3665,6 +3765,18 @@ def _score_and_model(
         elif caller and agent:
             model["audio_sources"] = [{"label": "caller", "path": caller},
                                       {"label": "agent", "path": agent}]
+        # Acoustic health (per-channel signal measures) for the scored
+        # recording, from the SAME decoded audio the scorer read. Attached to
+        # the renderer model only, never the envelope, so every existing
+        # envelope stays byte-identical; the HTML renderer draws it as its
+        # own table. Signal quality only -- see acoustic.ACOUSTIC_NOTE.
+        if stereo:
+            model["acoustic"] = _acoustic_report(
+                stereo, caller_channel=caller_channel,
+                agent_channel=agent_channel, cfg=cfg,
+            )
+        elif caller and agent:
+            model["acoustic"] = _acoustic_report_split(caller, agent, cfg=cfg)
         models = [model]
 
     # Fold the call-level voice trace into the envelope as one additive

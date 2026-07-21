@@ -14,7 +14,7 @@
 
 </div>
 
-**The transcript read clean. The call still burned.** Talk-over. Dead air. "You're all set" on a booking that never happened.
+**The transcript read clean. The call still failed.** Talk-over. Dead air. "You're all set" on a booking that never happened.
 
 Hotato catches it from a two-channel recording or a timestamped transcript, then fails the build until the agent stops failing that call.
 
@@ -83,7 +83,7 @@ A catch becomes a contract addressed by its own content, so the exact failure re
 
 ## What it scores
 
-Each dimension scores on its own, then rolls up into one pass/fail verdict.
+Conversation QA across five dimensions: speech, conversation, outcome, policy, reliability. Each scores on its own, then rolls up into one pass/fail verdict.
 
 | Dimension | What it scores |
 | :-- | :-- |
@@ -126,7 +126,7 @@ Details: [`docs/SIMULATE.md`](docs/SIMULATE.md)
 
 ## Point your agent at it
 
-Point Claude Code, Cursor, or any coding agent at this repo: it reads [`AGENTS.md`](AGENTS.md) and runs the spine itself, offline, no key.
+Point Claude Code, Cursor, or any coding agent at this repo: it reads [`AGENTS.md`](AGENTS.md) and runs it end to end, offline, no key.
 
 ```text
 "Try hotato on the calls in ./recordings and add a CI gate that fails the build on a talk-over regression."
