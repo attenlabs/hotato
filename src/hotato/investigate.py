@@ -79,6 +79,7 @@ __all__ = [
     "load_state",
     "save_state",
     "run_investigate",
+    "run_investigate_transcript",
     "render_text",
     "run_investigate_label",
     "render_label_text",
@@ -171,9 +172,9 @@ def _frozen_regression_scenario(path: str) -> Optional[str]:
 
 
 def _capture_origin(path: str, *, stack: Optional[str],
-                    call_id: Optional[str]) -> dict:
-    """Authenticate where this audio came from, honestly. Three distinct
-    kinds -- deliberately NOT the ``runner_attested`` / ``operator_asserted``
+                    call_id: Optional[str], transcript: bool = False) -> dict:
+    """Authenticate where this audio came from, honestly. Distinct kinds --
+    deliberately NOT the ``runner_attested`` / ``operator_asserted``
     vocabulary :mod:`hotato.receipt` / :mod:`hotato.evidence` use for a
     before/after fresh-recapture PAIR (a stronger, distinct claim this
     single-shot discovery command never makes):
@@ -190,7 +191,23 @@ def _capture_origin(path: str, *, stack: Optional[str],
                                 "runner-attested" or "machine-verified".
       operator_asserted_local  you handed hotato a local WAV path directly;
                                 nothing here independently verifies it.
+      transcript_asserted      you handed hotato a timestamped, speaker-labeled
+                                TRANSCRIPT (no audio): the turn timings are
+                                text-derived, so acoustic overlap is not
+                                represented and is reported null (with a reason).
     """
+    if transcript:
+        return {
+            "kind": "transcript_asserted",
+            "path": os.path.basename(path),
+            "note": (
+                "you supplied a timestamped, speaker-labeled transcript "
+                "directly; hotato scored its text-derived turn timings, not "
+                "audio, so acoustic overlap (talk-over, premature start) is "
+                "not represented on this path and is reported as null with a "
+                "reason"
+            ),
+        }
     frozen = _frozen_regression_scenario(path)
     if frozen is not None:
         return {
@@ -574,6 +591,194 @@ def run_investigate(
     return result, exit_code
 
 
+def run_investigate_transcript(
+    path: str,
+    *,
+    caller_role: Optional[str] = None,
+    agent_role: Optional[str] = None,
+    min_gap: Optional[float] = None,
+    top: Optional[int] = None,
+    state_path: Optional[str] = None,
+) -> Tuple[dict, int]:
+    """Investigate a timestamped, speaker-labeled TRANSCRIPT (no audio): score
+    it through hotato's EXISTING turn-taking scorer so a text/chat agent is
+    scorable, and persist the SAME investigate-state shape a WAV investigation
+    writes -- so ``hotato investigate label`` and the ``FILE#N`` candidate ref
+    are unchanged.
+
+    Mirrors :func:`run_investigate`'s state/serialization, minus the audio
+    resolve/trust path (there is no audio to health-check). The HONESTY GATE is
+    mandatory: a sequential transcript cannot represent acoustic overlap, so
+    ``talk_over_sec`` and ``premature_start_sec`` are reported null with a
+    reason; ``did_yield`` / ``seconds_to_yield`` / ``response_gap_sec`` /
+    ``caller_onset_sec`` are honestly derived from the turn timings. The
+    overlap/crosstalk candidate kinds are suppressed (not derivable from a
+    sequential transcript).
+
+    Returns ``(result, exit_code)``: 0 when the transcript scored, 2 (via a
+    ``ValueError`` the CLI maps) for bad input (a missing file, a bad --min-gap,
+    an unmapped role, or a non-numeric/degenerate turn span)."""
+    from . import core as _core
+    from . import diarize as _diarize
+    from . import scan as _scan
+    from . import transcript_input as _tx
+
+    min_gap = _scan.DEFAULT_MIN_GAP_SEC if min_gap is None else min_gap
+    top = 10 if top is None else top
+    if min_gap <= 0:
+        raise ValueError(f"--min-gap must be > 0 seconds; got {min_gap}.")
+    state_path = state_path or default_state_path()
+
+    if not os.path.isfile(path):
+        raise ValueError(f"{path!r}: no such file.")
+
+    # No audio resolve, no trust/K6 (there is no audio channel to health-check);
+    # the reference config, the same the audio path scores under.
+    cfg = ScoreConfig()
+    sample_rate = 16000
+    hop_samples = _diarize._hop_samples(sample_rate, cfg)
+    hop_sec = hop_samples / sample_rate
+
+    segments = _tx.load_transcript_segments(path)
+    timelines = _tx.transcript_to_timelines(
+        segments, hop_sec, cfg,
+        caller_role=caller_role, agent_role=agent_role,
+    )
+    caller_tl = timelines[_diarize.SPEAKER_A]
+    agent_tl = timelines[_diarize.SPEAKER_B]
+    n_frames = len(caller_tl)
+    duration_sec = round(n_frames * hop_sec, 3)
+
+    source_name = os.path.basename(path)
+
+    # Score through the UNCHANGED engine, then apply the mandatory honesty gate.
+    score = _tx.score_transcript_timelines(timelines, sample_rate=sample_rate, cfg=cfg)
+    event = _core._event_from_result(
+        event_id=_sanitize_slug_part(os.path.splitext(source_name)[0]),
+        result=score,
+        expected={},
+        stack=None,
+        title=source_name,
+        onset_provided=False,
+    )
+    _tx.apply_transcript_honesty_gate(event)
+
+    # Candidate walk over the two timelines, with the overlap/crosstalk kinds
+    # suppressed (not derivable from a sequential transcript).
+    scan_result = _scan.scan_tracks(
+        caller_tl, agent_tl, hop_sec,
+        sample_rate=sample_rate, duration_sec=duration_sec,
+        source=source_name, cfg=cfg,
+        min_gap_sec=min_gap, overlap_derivable=False,
+    )
+    candidates = scan_result["candidates"]
+    scan_note = scan_result["note"]
+    for c in candidates:
+        # Same per-candidate "source" the WAV path stamps, so this state file's
+        # candidates resolve through the identical FILE#N ref resolver.
+        c["source"] = source_name
+
+    origin = _capture_origin(path, stack=None, call_id=None, transcript=True)
+
+    # On the transcript path the timing signals are text-derived, so there is no
+    # acoustic channel-swap / crosstalk risk to gate the verdict on: the scored
+    # event is verdict-eligible (the honesty gate has already nulled the two
+    # overlap signals it cannot honestly derive).
+    verdict_status = {
+        "eligible": True,
+        "reason": None,
+        "mode": "transcript",
+    }
+
+    prior = load_state(state_path)
+    run_no = (prior.get("run", 0) if prior else 0) + 1
+    history = list(prior.get("history") or []) if prior else []
+    updated_at = _now()
+    folder_path = os.path.dirname(os.path.abspath(path))
+
+    state = {
+        "schema": STATE_SCHEMA_ID,
+        "tool": "hotato",
+        # Additive: makes this state file ITSELF a valid FILE#N candidate ref
+        # (kind "analyze" with a candidates list), exactly like the WAV path.
+        "kind": "analyze",
+        "schema_version": "1",
+        "run": run_no,
+        "created_at": (prior or {}).get("created_at") or updated_at,
+        "updated_at": updated_at,
+        "source_path": os.path.abspath(path),
+        "folder": os.path.basename(folder_path) or folder_path,
+        "folder_path": folder_path,
+        "note": scan_note,
+        "capture_origin": origin,
+        "stack_config_snapshot": None,
+        "trust": None,
+        "verdict_status": verdict_status,
+        "event": event,
+        "config": {
+            "input_kind": "transcript",
+            "min_gap_sec": min_gap,
+            "hop_sec": hop_sec,
+            "sample_rate": sample_rate,
+        },
+        "total_candidates": len(candidates),
+        "candidates": candidates,
+        "history": history,
+    }
+    state["history"].append({
+        "run": run_no,
+        "at": updated_at,
+        "source": source_name,
+        "capture_origin": origin["kind"],
+        "candidate_eligible": True,
+        "verdict_eligible": verdict_status["eligible"],
+        "total_candidates": len(candidates),
+    })
+    save_state(state_path, state)
+
+    top_n = len(candidates) if top <= 0 else min(top, len(candidates))
+    shown = candidates[:top_n]
+    next_cmds = []
+    for i in range(1, top_n + 1):
+        ref = f"{state_path}#{i}"
+        next_cmds.append({
+            "rank": i,
+            "ref": ref,
+            "command": (f"hotato investigate label {shlex.quote(ref)} "
+                        "--expect yield"),
+        })
+
+    exit_code = 0
+    result = {
+        "tool": "hotato",
+        "kind": "investigate",
+        "schema_version": "1",
+        "state_path": state_path,
+        "run": run_no,
+        "source": source_name,
+        "capture_origin": origin,
+        "stack_config_snapshot": None,
+        "trust": {
+            "recommendation": (
+                "transcript input: text-derived turn timings (no audio "
+                "channel-health check applies)"
+            ),
+            "scorable": True,
+            "not_scorable_reason": None,
+            "warnings": [],
+        },
+        "verdict_status": verdict_status,
+        "note": scan_note,
+        "event": event,
+        "total_candidates": len(candidates),
+        "shown": len(shown),
+        "candidates": shown,
+        "next": next_cmds,
+        "exit_code": exit_code,
+    }
+    return result, exit_code
+
+
 def _render_capture_origin_lines(origin: dict) -> list:
     """The SAME honest three-way capture-origin classification (K6's
     provenance, not a mutation/recapture claim -- see the module docstring)
@@ -592,6 +797,9 @@ def _render_capture_origin_lines(origin: dict) -> list:
             f"  capture origin: frozen regression clip "
             f"({origin['scenario_path']})"
         )
+    elif origin["kind"] == "transcript_asserted":
+        lines.append(f"  capture origin: operator-asserted transcript "
+                     f"({origin['path']})")
     else:
         lines.append(f"  capture origin: operator-asserted local file "
                      f"({origin['path']})")

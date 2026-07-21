@@ -66,8 +66,8 @@ def _resolve_np():
             _np = numpy
     return _np
 
-__all__ = ["scan_recording", "activity_tracks", "render_text", "KINDS",
-           "SCAN_NOTE", "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC",
+__all__ = ["scan_recording", "scan_tracks", "activity_tracks", "render_text",
+           "KINDS", "SCAN_NOTE", "DEFAULT_TOP", "DEFAULT_MIN_GAP_SEC",
            "candidate_detail", "candidate_plain_english"]
 
 # A caller run whose envelope is a lag-shifted copy of the agent's own audio: a
@@ -337,6 +337,51 @@ def scan_recording(
     )
     caller = energy_vad(rms_c, hop, cfg.caller_vad).active
     agent = energy_vad(rms_a, hop, cfg.agent_vad).active
+    return scan_tracks(
+        caller, agent, hop,
+        sample_rate=sample_rate, duration_sec=duration,
+        source=os.path.basename(path), cfg=cfg,
+        min_gap_sec=min_gap_sec, overlap_derivable=True,
+        rms_c=rms_c, rms_a=rms_a,
+    )
+
+
+def scan_tracks(
+    caller: List[bool],
+    agent: List[bool],
+    hop: float,
+    *,
+    sample_rate: int,
+    duration_sec: float,
+    source: str,
+    cfg: Optional[ScoreConfig] = None,
+    min_gap_sec: float = DEFAULT_MIN_GAP_SEC,
+    overlap_derivable: bool = True,
+    rms_c: Optional[List[float]] = None,
+    rms_a: Optional[List[float]] = None,
+) -> dict:
+    """Walk two caller/agent VAD activity timelines and return every candidate
+    turn-taking moment as timing facts -- the whole-call candidate walk factored
+    out of :func:`scan_recording`, so a caller that ALREADY holds the two
+    activity tracks (e.g. a text/chat transcript quantized to frames, with no
+    audio) reuses the identical walk.
+
+    ``overlap_derivable=False`` suppresses the three candidate kinds that require
+    genuine acoustic overlap/crosstalk (``overlap_while_agent_talking``,
+    ``agent_start_during_caller``, ``echo_correlated_activity``): a sequential
+    transcript cannot represent two parties talking at once, so those kinds are
+    not derivable from it and are honestly omitted, leaving only
+    ``long_response_gap`` + ``agent_stop_no_caller``. The audio path
+    (``overlap_derivable=True``, the default) is byte-identical to the
+    pre-refactor ``scan_recording`` output.
+
+    ``rms_c`` / ``rms_a`` are the per-frame RMS envelopes the echo caveat needs;
+    they are read only on the audio path and may be ``None`` when overlap is not
+    derivable (echo is suppressed there anyway)."""
+    if cfg is None:
+        cfg = ScoreConfig()
+    if min_gap_sec <= 0:
+        raise ValueError(f"--min-gap must be > 0 seconds; got {min_gap_sec}.")
     n = min(len(caller), len(agent))
     caller, agent = caller[:n], agent[:n]
 
@@ -351,8 +396,16 @@ def scan_recording(
     agent_runs = _runs(agent, min_run)
     candidates = []
 
+    # The overlap/crosstalk candidate kinds (blocks 1, 2, and the echo block
+    # below) are only DERIVABLE from genuine acoustic overlap. On a sequential
+    # transcript (overlap_derivable=False) two parties cannot be active at once,
+    # so those kinds are honestly suppressed: an empty run list makes blocks 1
+    # and 2 no-ops, and the echo block is guarded outright.
+    overlap_caller_runs = caller_runs if overlap_derivable else []
+    overlap_agent_runs = agent_runs if overlap_derivable else []
+
     # 1. caller became active while the agent was active.
-    for cs, ce in caller_runs:
+    for cs, ce in overlap_caller_runs:
         agent_at_onset = any(
             agent[j] for j in range(max(0, cs - lookback), min(cs + 1, n))
         )
@@ -378,7 +431,7 @@ def scan_recording(
         })
 
     # 2. the agent started a fresh utterance while the caller was active.
-    for a_start, a_end in agent_runs:
+    for a_start, a_end in overlap_agent_runs:
         if a_start == 0 or not caller[a_start]:
             continue
         k = a_start
@@ -468,27 +521,28 @@ def scan_recording(
     #    the echo lag, then each caller run is scored locally at that lag. Runs
     #    above the coherence threshold are flagged so a "barge-in" that is really
     #    the agent hearing itself is not mistaken for a real caller event.
-    from .echo import DEFAULT_COHERENCE_THRESHOLD, echo_signal, window_cosine
-    echo = echo_signal(rms_c[:n], rms_a[:n], hop)
-    if echo["echo_suspected"]:
-        lag_frames = int(round(echo["lag_sec"] / hop))
-        for cs, ce in caller_runs:
-            coh = window_cosine(rms_c, rms_a, cs, ce, lag_frames)
-            if coh < DEFAULT_COHERENCE_THRESHOLD:
-                continue
-            candidates.append({
-                "t_sec": round(cs * hop, 3),
-                "kind": ECHO_CORRELATED_KIND,
-                "durations": {
-                    "activity_sec": round((ce - cs) * hop, 3),
-                    "lag_sec": echo["lag_sec"],
-                },
-                "agent_reaction": {
-                    "coherence": round(coh, 3),
-                    "echo_suspected": True,
-                },
-                "_salience": coh,
-            })
+    if overlap_derivable and rms_c is not None and rms_a is not None:
+        from .echo import DEFAULT_COHERENCE_THRESHOLD, echo_signal, window_cosine
+        echo = echo_signal(rms_c[:n], rms_a[:n], hop)
+        if echo["echo_suspected"]:
+            lag_frames = int(round(echo["lag_sec"] / hop))
+            for cs, ce in caller_runs:
+                coh = window_cosine(rms_c, rms_a, cs, ce, lag_frames)
+                if coh < DEFAULT_COHERENCE_THRESHOLD:
+                    continue
+                candidates.append({
+                    "t_sec": round(cs * hop, 3),
+                    "kind": ECHO_CORRELATED_KIND,
+                    "durations": {
+                        "activity_sec": round((ce - cs) * hop, 3),
+                        "lag_sec": echo["lag_sec"],
+                    },
+                    "agent_reaction": {
+                        "coherence": round(coh, 3),
+                        "echo_suspected": True,
+                    },
+                    "_salience": coh,
+                })
 
     # Two-level ranking, identical to analyze.py's ``_sort_key``: every non-echo
     # talk-over/gap candidate first (by descending salience), then all echo
@@ -515,9 +569,9 @@ def scan_recording(
         "tool": "hotato",
         "kind": "scan",
         "schema_version": "1",
-        "source": os.path.basename(path),
+        "source": source,
         "sample_rate": sample_rate,
-        "duration_sec": round(duration, 3),
+        "duration_sec": round(duration_sec, 3),
         "hop_sec": hop,
         "note": SCAN_NOTE,
         "config": {
