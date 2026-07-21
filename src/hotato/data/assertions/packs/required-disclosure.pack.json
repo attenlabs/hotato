@@ -1,0 +1,24 @@
+{
+  "name": "required-disclosure",
+  "version": 1,
+  "title": "Required disclosures",
+  "description": "Checks that the agent speaks required compliance disclosures (a recording notice and a consent request).",
+  "assertions": [
+    {
+      "id": "required-disclosure.recording-notice",
+      "kind": "phrase",
+      "regex": "recorded for (quality|training)",
+      "role": "agent",
+      "position": "any",
+      "dimension": "policy"
+    },
+    {
+      "id": "required-disclosure.consent-request",
+      "kind": "phrase",
+      "regex": "do you consent|may i have your permission|is that (okay|ok) with you",
+      "role": "agent",
+      "position": "any",
+      "dimension": "policy"
+    }
+  ]
+}

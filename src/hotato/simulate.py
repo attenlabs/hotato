@@ -620,8 +620,13 @@ def _fmt_rate(x: Any) -> str:
 def _seed_for(scenario_id: str, variation: Dict[str, Any], base: int) -> int:
     """A deterministic per-run seed = int(sha256(scenario_id + base + variation
     -tuple)). NO Math.random, NO time -- the same expansion always mints the
-    same seeds, on any machine."""
-    key = "|".join([
+    same seeds, on any machine.
+
+    The ``variables`` binding and branch ``path`` are folded in ONLY when the
+    scenario declares them, so a scenario with neither hashes byte-identically to
+    before those axes existed (the pre-existing per-run seeds are unchanged); a
+    branched/variabled scenario gets a distinct, stable seed per (binding, path)."""
+    parts = [
         scenario_id,
         f"base={int(base)}",
         f"locale={variation['locale']}",
@@ -629,14 +634,32 @@ def _seed_for(scenario_id: str, variation: Dict[str, Any], base: int) -> int:
         f"noise={variation['noise']}",
         f"behavior={variation['behavior']}",
         f"rep={int(variation['repetition'])}",
-    ])
+    ]
+    binding = variation.get("variables")
+    if binding:
+        parts.append(
+            "vars=" + ",".join(f"{k}={binding[k]}" for k in sorted(binding))
+        )
+    path = variation.get("path")
+    if path:
+        parts.append("path=" + ">".join(path))
+    key = "|".join(parts)
     return int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16)
 
 
 def _apply_variation(doc: Dict[str, Any], variation: Dict[str, Any]) -> Dict[str, Any]:
     """A concrete scenario for one variation cell: the base scenario with its
-    environment locale/noise and caller speaking_rate overridden, and the
-    behavior-variant label recorded. Deep-copied so the base is never mutated."""
+    environment locale/noise and caller speaking_rate overridden, the
+    behavior-variant label recorded, the cell's ``variables`` binding substituted
+    into every caller ``say`` line, and -- for a branched scenario -- the cell's
+    root-to-leaf ``path`` lines appended to the caller script. Deep-copied so the
+    base is never mutated.
+
+    The consumed ``variables``/``branches`` blocks are STRIPPED from the concrete
+    doc: after expansion each cell is a plain scenario whose caller script already
+    carries its bound, branch-selected turns, so :func:`render` and
+    :func:`validate_simulation` see a self-consistent single-path caller (the
+    facts-stating and script-verbatim invariants hold per concrete cell)."""
     concrete = copy.deepcopy(doc)
     env = dict(concrete.get("environment") or {})
     env["locale"] = variation["locale"]
@@ -647,22 +670,48 @@ def _apply_variation(doc: Dict[str, Any], variation: Dict[str, Any]) -> Dict[str
     behavior["speaking_rate"] = variation["speaking_rate"]
     behavior["behavior_variant"] = variation["behavior"]
     caller["behavior"] = behavior
+
+    binding = variation.get("variables") or {}
+    path = variation.get("path")
+    script = [dict(t) for t in caller.get("script") or []]
+    if binding:
+        for turn in script:
+            turn["say"] = _scn.substitute_variables(turn.get("say", ""), binding)
+    if path:
+        nodes = (doc.get("branches") or {}).get("nodes") or {}
+        for node_name in path:
+            for line in _scn.node_say_lines(nodes[node_name]):
+                script.append({"say": _scn.substitute_variables(line, binding)})
+    caller["script"] = script
     concrete["caller"] = caller
+    # The axes are consumed into the concrete script; drop them so the per-cell
+    # doc re-validates and renders as an ordinary single-path scenario.
+    concrete.pop("variables", None)
+    concrete.pop("branches", None)
     return concrete
 
 
 def expand(scenario: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Expand a scenario's ``variation_matrix`` (locale x speaking_rate x noise
-    x behavior x repetitions) into a list of concrete runs, each
+    """Expand a scenario into a list of concrete runs, each
     ``{"scenario", "seed", "variation", "scenario_id"}``.
 
-    A dimension the matrix omits collapses to the scenario's single declared
-    value, so expand ALWAYS yields at least one run (a matrix-less scenario ->
-    one run). Each run's ``seed`` is derived by :func:`_seed_for` from
+    The axes, crossed in a fixed order: the optional ``variables`` bindings
+    (outermost), the optional branch ``path`` (every root-to-leaf path through
+    ``branches``), then the ``variation_matrix`` (locale x speaking_rate x noise
+    x behavior x repetitions). Each ``variation_matrix`` dimension the matrix
+    omits collapses to the scenario's single declared value, and a scenario with
+    NEITHER ``variables`` nor ``branches`` collapses those two axes to a single
+    pass-through cell -- so a plain scenario expands to EXACTLY the same runs
+    (same count, same per-run seeds, same 5-key variation dicts) as before those
+    axes existed. A branched/variabled scenario adds one cell per
+    (binding, root-to-leaf path, matrix cell), each stamped with its ``variables``
+    binding and ``path`` label.
+
+    Each run's ``seed`` is derived by :func:`_seed_for` from
     ``sha256(scenario_id + base_seed + variation-tuple)`` -- fully deterministic
     (no Math.random, no time), so two expansions of the same scenario are
-    identical. The iteration order is fixed (locale, then speaking_rate, then
-    noise, then behavior, then repetition), so the list order is stable too."""
+    identical, and every distinct (binding, path, matrix cell) gets a distinct,
+    stable seed. The list order is fixed, so it is byte-stable too."""
     doc = _scn.validate_scenario_doc(scenario)
     vm = doc.get("variation_matrix") or {}
     env = doc.get("environment") or {}
@@ -676,22 +725,40 @@ def expand(scenario: Dict[str, Any]) -> List[Dict[str, Any]]:
     behaviors = list(vm.get("behavior") or [_DEFAULT_BEHAVIOR])
     reps = int(vm.get("repetitions", 1))
 
+    # The two OPTIONAL axes. Each collapses to a single pass-through value when
+    # its block is absent, so a plain scenario keeps its exact prior expansion and
+    # its 5-key variation dict (the extra keys are stamped ONLY when declared).
+    variables_declared = bool(doc.get("variables"))
+    branches_declared = bool(doc.get("branches"))
+    var_combos = _scn.variable_combinations(doc.get("variables") or {})
+    branch_paths = (
+        _scn.enumerate_branch_paths(doc["branches"])
+        if branches_declared else [None]
+    )
+
     runs: List[Dict[str, Any]] = []
-    for locale in locales:
-        for rate in rates:
-            for noise in noises:
-                for bvar in behaviors:
-                    for rep in range(reps):
-                        variation = {
-                            "locale": locale, "speaking_rate": rate,
-                            "noise": noise, "behavior": bvar, "repetition": rep,
-                        }
-                        runs.append({
-                            "scenario_id": doc["id"],
-                            "scenario": _apply_variation(doc, variation),
-                            "seed": _seed_for(doc["id"], variation, base),
-                            "variation": variation,
-                        })
+    for var_combo in var_combos:
+        for path in branch_paths:
+            for locale in locales:
+                for rate in rates:
+                    for noise in noises:
+                        for bvar in behaviors:
+                            for rep in range(reps):
+                                variation = {
+                                    "locale": locale, "speaking_rate": rate,
+                                    "noise": noise, "behavior": bvar,
+                                    "repetition": rep,
+                                }
+                                if variables_declared:
+                                    variation["variables"] = dict(var_combo)
+                                if branches_declared:
+                                    variation["path"] = list(path)
+                                runs.append({
+                                    "scenario_id": doc["id"],
+                                    "scenario": _apply_variation(doc, variation),
+                                    "seed": _seed_for(doc["id"], variation, base),
+                                    "variation": variation,
+                                })
     return runs
 
 
@@ -795,20 +862,34 @@ def _default_workers(n_runs: int) -> int:
 def _cell_key(variation: Dict[str, Any]) -> Dict[str, Any]:
     """The variation CELL a run belongs to: its variation tuple WITHOUT the
     repetition index (the repetitions of one cell are the k samples pass^k is
-    computed over). A stable, JSON-serializable mapping."""
-    return {
+    computed over). A stable, JSON-serializable mapping. The ``variables``
+    binding and branch ``path`` are part of the cell identity ONLY when the
+    scenario declared them -- so a plain scenario's cell keeps exactly its four
+    keys and its summary is byte-identical to before those axes existed."""
+    cell = {
         "locale": variation["locale"],
         "speaking_rate": variation["speaking_rate"],
         "noise": variation["noise"],
         "behavior": variation["behavior"],
     }
+    if "variables" in variation:
+        cell["variables"] = variation["variables"]
+    if "path" in variation:
+        cell["path"] = variation["path"]
+    return cell
 
 
 def _cell_sort_key(cell: Dict[str, Any]) -> tuple:
     """Total order over cells so the summary's ``variation_cells`` list is
-    byte-stable regardless of dict/iteration order or worker completion order."""
+    byte-stable regardless of dict/iteration order or worker completion order.
+    The optional ``variables``/``path`` suffix is empty for a plain scenario, so
+    its cell ordering is unchanged."""
+    vars_key = tuple(
+        sorted((k, str(v)) for k, v in (cell.get("variables") or {}).items())
+    )
+    path_key = tuple(cell.get("path") or ())
     return (cell["locale"], float(cell["speaking_rate"]), cell["noise"],
-            cell["behavior"])
+            cell["behavior"], vars_key, path_key)
 
 
 def _score_produced(

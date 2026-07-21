@@ -143,6 +143,15 @@ SUPPORTED_DOC_VERSION = 1
 #                                    usage errors) and evaluated in dependency
 #                                    order, so a formula reads only results
 #                                    already produced in its own run.
+#   order                         -- a transcript ordering check: the FIRST
+#                                    turn matching the `before` regex must
+#                                    precede the FIRST turn matching `after`
+#                                    (optional `role` / `case_sensitive`). An
+#                                    empty match set (either phrase never
+#                                    matches) is a vacuous PASS, no transcript
+#                                    is INCONCLUSIVE, and the wrong order is a
+#                                    FAIL. Pure regex + index arithmetic over
+#                                    the transcript, never a model call.
 #
 # Any assertion may additionally carry an optional ``when:`` precondition (an
 # assertion id, or a list of ids). Unless every referenced assertion PASSed,
@@ -161,7 +170,7 @@ KINDS = (
     "tool_result", "tool_error", "http_result", "state", "state_change",
     "handoff", "dtmf",
     "termination", "latency", "timing_contract", "entity_accuracy",
-    "sequence", "count", "formula",
+    "sequence", "count", "formula", "order",
 )
 
 # The judge lane's kinds -- NAMED so a conversation-test / assert document may
@@ -1398,6 +1407,28 @@ def _validate_expanded_kind_fields(aid: str, kind: str, item: Dict[str, Any]) ->
                 "(and/or/not, parentheses, or a weighted sum '>= threshold')"
             )
         _parse_formula(aid, expr)  # syntax only; references are checked doc-wide
+
+    elif kind == "order":
+        for f in ("before", "after"):
+            val = item.get(f)
+            if not isinstance(val, str) or not val:
+                raise ValueError(
+                    f"assertion {aid!r} (order): {f!r} is required and must be "
+                    "a non-empty regex string"
+                )
+            try:
+                re.compile(val)
+            except re.error as exc:
+                raise ValueError(
+                    f"assertion {aid!r} (order): invalid {f} regex {val!r}: {exc}"
+                ) from exc
+        role = item.get("role")
+        if role is not None and not isinstance(role, str):
+            raise ValueError(f"assertion {aid!r} (order): 'role' must be a string")
+        if "case_sensitive" in item and not isinstance(item["case_sensitive"], bool):
+            raise ValueError(
+                f"assertion {aid!r} (order): 'case_sensitive' must be a boolean"
+            )
 
     elif kind in RUBRIC_KINDS:
         # The rubric-object shape is validated by the model-judge engine
@@ -2699,6 +2730,58 @@ def _eval_count(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     return result
 
 
+def _eval_order(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    """A transcript ordering check: the FIRST turn matching ``before`` must
+    precede (be strictly earlier than) the FIRST turn matching ``after``,
+    both searched over the transcript (optionally filtered to ``role``). If
+    either phrase never matches, the ordering constraint is vacuously
+    satisfied -> PASS; no transcript at all -> INCONCLUSIVE (absent input,
+    never a guess); the phrases present but in the wrong order -> FAIL. Pure
+    regex + turn-index arithmetic, so ``deterministic`` stays structurally
+    true and a replay is byte-identical."""
+    result = _base_result(a)
+    if ctx.transcript is None:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = "no transcript was provided in the context"
+        return result
+
+    role = a.get("role")
+    case_sensitive = bool(a.get("case_sensitive", False))
+    flags = 0 if case_sensitive else re.IGNORECASE
+    before_rx = re.compile(a["before"], flags)
+    after_rx = re.compile(a["after"], flags)
+
+    first_before: Optional[int] = None
+    first_after: Optional[int] = None
+    for idx, turn in enumerate(ctx.transcript):
+        if role is not None and turn.get("role") != role:
+            continue
+        text = turn.get("text") or ""
+        if first_before is None and before_rx.search(text):
+            first_before = idx
+        if first_after is None and after_rx.search(text):
+            first_after = idx
+
+    # An empty match set (either phrase never matched) leaves the ordering
+    # constraint with nothing to violate -> a vacuous PASS, never a guess.
+    if first_before is None or first_after is None:
+        result["status"] = "PASS"
+        result["vacuous"] = True
+        return result
+
+    result["before_turn"] = first_before
+    result["after_turn"] = first_after
+    if first_before < first_after:
+        result["status"] = "PASS"
+    else:
+        result["status"] = "FAIL"
+        result["reason"] = (
+            f"'before' first matched at turn {first_before}, which does not "
+            f"precede 'after' at turn {first_after} (role={role or 'any'})"
+        )
+    return result
+
+
 def _eval_formula(
     a: Dict[str, Any], results_by_id: Optional[Dict[str, Dict[str, Any]]]
 ) -> Dict[str, Any]:
@@ -2859,7 +2942,7 @@ def _pub_int(value: Any) -> Optional[int]:
 # so it can never carry a payload value.
 def _inconclusive_noun(a: Dict[str, Any]) -> str:
     kind = a.get("kind")
-    if kind in ("phrase", "pii", "policy"):
+    if kind in ("phrase", "pii", "policy", "order"):
         return "transcript"
     if kind in ("state", "state_change"):
         return "state-adapter"
@@ -3033,6 +3116,14 @@ def _pub_formula(a, r):
     return "The declared formula was not satisfied."
 
 
+def _pub_order(a, r):
+    before, after = _pub_int(r.get("before_turn")), _pub_int(r.get("after_turn"))
+    if before is not None and after is not None:
+        return (f"A required ordering did not hold: the first phrase matched at "
+                f"turn {before}, not before the second at turn {after}.")
+    return "A required ordering of two declared phrases did not hold."
+
+
 _PUBLIC_FAIL = {
     "phrase": _pub_phrase, "pii": _pub_pii, "policy": _pub_policy,
     "tool_call": _pub_tool_call, "tool_result": _pub_tool_result,
@@ -3043,6 +3134,7 @@ _PUBLIC_FAIL = {
     "timing_contract": _pub_timing_contract,
     "entity_accuracy": _pub_entity_accuracy, "sequence": _pub_sequence,
     "count": _pub_count, "outcome": _pub_outcome, "formula": _pub_formula,
+    "order": _pub_order,
 }
 
 
@@ -3095,6 +3187,7 @@ _EVALUATORS = {
     "sequence": _eval_sequence,
     "count": _eval_count,
     "formula": _eval_formula_standalone,
+    "order": _eval_order,
     "human_rubric": _eval_rubric_stub,
     "judge_rubric": _eval_rubric_stub,
 }

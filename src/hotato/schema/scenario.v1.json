@@ -68,6 +68,51 @@
       "default": 0,
       "description": "The base seed. A seeded replay is byte-identical; different seeds vary only where the scenario allows (probabilistic backchannels). Never Math.random / time-based."
     },
+    "variables": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "type": ["string", "number"] }
+      },
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "description": "OPTIONAL dynamic variables. Each key is an identifier and each value is a non-empty list of scalar values (strings or numbers). Every declared variable is an expansion axis: `expand()` crosses its values with the variation matrix, substituting `{name}` template references in the caller's `say` lines with each value. A `{name}` reference with no declared variable is refused up front (exit 2). Additive and gated -- a scenario without it expands byte-identically."
+    },
+    "branches": {
+      "type": "object",
+      "required": ["root", "nodes"],
+      "additionalProperties": true,
+      "not": { "required": ["overall_score"] },
+      "description": "OPTIONAL caller decision tree/DAG. `root` names the entry node; `nodes` maps a node name to its caller line(s) and successors. `expand()` enumerates EVERY root-to-leaf path deterministically and appends each path's lines to the base caller script as its own expansion cell (stamped with a `path` label). An edge to an undefined node (unknown node) or any cycle is refused up front (exit 2). Additive and gated -- a scenario without it expands byte-identically.",
+      "properties": {
+        "root": { "type": "string", "minLength": 1, "description": "The entry node name; must be a key of `nodes`." },
+        "nodes": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "required": ["say"],
+            "additionalProperties": true,
+            "not": { "required": ["overall_score"] },
+            "properties": {
+              "say": {
+                "description": "The caller line(s) this node speaks: a non-empty string, or a non-empty list of non-empty strings.",
+                "oneOf": [
+                  { "type": "string", "minLength": 1 },
+                  { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+                ]
+              },
+              "next": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "description": "Successor node names. A node with no `next` (or an empty one) is a leaf that ends a path."
+              }
+            }
+          }
+        }
+      }
+    },
     "agent_mock": {
       "type": "object",
       "additionalProperties": true,
