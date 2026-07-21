@@ -96,6 +96,25 @@ def test_card_from_demo_candidate_talk_over(tmp_path):
     assert "Hotato reports timing candidates, not intent." in svg
 
 
+def test_contract_card_never_yielded_heroes_talk_over_not_question_mark():
+    # A yield contract the agent FAILED by never yielding has seconds_to_yield
+    # == null by definition; the hero must lead with the DEFINED talk-over, never
+    # a meaningless "?s" (the worst failure is the most-shared asset).
+    contract = {
+        "id": "demo-missed-interruption",
+        "label": {"expected_behavior": "yield"},
+        "measurement": {
+            "scorable": True, "passed": False, "did_yield": False,
+            "seconds_to_yield": None, "talk_over_sec": 0.25,
+        },
+    }
+    svg = _card._render_contract(contract)
+    assert "?s" not in svg
+    assert "0.25s" in svg
+    assert "never yielded" in svg
+    assert "FAILED" in svg
+
+
 def test_card_from_demo_candidate_false_stop(tmp_path):
     sweep, agg = _demo_sweep(tmp_path)
     n = _rank_of(agg, _FALSE_STOP)
