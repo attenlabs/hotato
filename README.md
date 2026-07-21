@@ -158,10 +158,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.12.1
+      - uses: attenlabs/hotato@v1.13.0
         with:
           contracts: contracts/          # the catches you committed
-          hotato-version: 1.12.1          # exact pin, never a range
+          hotato-version: 1.13.0          # exact pin, never a range
 ```
 
 <details>
