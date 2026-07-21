@@ -25,7 +25,6 @@ from hotato import cli
 from hotato import scenario as SC
 from hotato import simulate as SIM
 
-
 # --------------------------------------------------------------------------
 # fixtures
 # --------------------------------------------------------------------------
