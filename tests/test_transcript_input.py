@@ -225,6 +225,27 @@ def test_end_not_after_start_raises(tmp_path):
         I.run_investigate_transcript(str(p), state_path=str(tmp_path / "s.json"))
 
 
+def test_negative_timestamp_is_a_clean_usage_error_not_a_crash(tmp_path):
+    # A negative onset must be refused up front (a usage error), never passed to
+    # the scorer where it would index before frame 0 and crash with a traceback.
+    p = tmp_path / "t.json"
+    p.write_text(json.dumps([{"role": "caller", "start": -5.0, "end": -1.0}]))
+    with pytest.raises(ValueError, match="non-negative"):
+        I.run_investigate_transcript(str(p), state_path=str(tmp_path / "s.json"))
+
+
+def test_pathological_timestamp_is_bounded_not_an_unbounded_allocation(tmp_path):
+    # One mistyped end (units typo) must be a bounded usage error, never an
+    # unbounded per-hop timeline that exhausts memory on the no-audio path.
+    p = tmp_path / "t.json"
+    p.write_text(json.dumps([
+        {"role": "agent", "start": 0.0, "end": 1.0},
+        {"role": "caller", "start": 2.0, "end": 50000.0},
+    ]))
+    with pytest.raises(ValueError, match="bound|units"):
+        I.run_investigate_transcript(str(p), state_path=str(tmp_path / "s.json"))
+
+
 @pytest.mark.parametrize("extra", [
     ["source.wav"],
     ["--demo"],

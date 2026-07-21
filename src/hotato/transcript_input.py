@@ -46,6 +46,11 @@ __all__ = [
 AGENT_ROLE_ALIASES = frozenset({"agent", "assistant", "bot", "ai", "system"})
 CALLER_ROLE_ALIASES = frozenset({"caller", "user", "customer", "human"})
 
+# A single agent call rarely runs an hour; a timestamp past this bound is a
+# units typo, not a real turn. Bounding it keeps a mistyped `end` from building
+# an unbounded per-hop timeline and exhausting memory (a no-audio path).
+_MAX_TRANSCRIPT_SECONDS = 3600.0
+
 # The single honest reason the two acoustic-overlap signals are null on this
 # path (see :func:`apply_transcript_honesty_gate`).
 TRANSCRIPT_OVERLAP_REASON = (
@@ -140,10 +145,27 @@ def transcript_to_timelines(
             )
         start = float(start)
         end = float(end)
+        # Timestamps are seconds from the start of the call, so they must be
+        # non-negative: a negative onset would index before frame 0 and crash
+        # the scorer. Reject it up front as a usage error, never a crash.
+        if start < 0 or end < 0:
+            raise ValueError(
+                f"transcript turn #{pos} (role {role!r}) needs non-negative "
+                f"'start' and 'end' seconds; got start={start}, end={end}"
+            )
         if not end > start:
             raise ValueError(
                 f"transcript turn #{pos} (role {role!r}) needs end > start; "
                 f"got start={start}, end={end}"
+            )
+        # A transcript carries no audio, so one mistyped timestamp (end=50000s)
+        # would otherwise build a per-hop timeline spanning the whole span and
+        # exhaust memory. Bound the duration to a sane call length; a longer
+        # span is a usage error, never an unbounded allocation.
+        if end > _MAX_TRANSCRIPT_SECONDS:
+            raise ValueError(
+                f"transcript turn #{pos} (role {role!r}) ends at {end}s, beyond "
+                f"the {_MAX_TRANSCRIPT_SECONDS}s bound; check the timestamp units"
             )
 
         if agent_override is not None and role == agent_override:
