@@ -1894,7 +1894,21 @@ def scaffold_auto(root: str, out_dir: str, *, force: bool = False) -> dict:
         f"hotato investigate {shlex.quote(first_wav)}" if first_wav
         else "hotato start --demo"
     )
-    verify = "hotato contract verify contracts --junit hotato.xml"
+    # The gate command, GUARDED exactly like the CI job this scaffold generates
+    # (.github/workflows/hotato-contracts.yml): a freshly scaffolded contracts/ is
+    # empty, and a bare `hotato contract verify contracts` on an empty directory is
+    # a usage error (exit 2) -- so printing it unguarded errors on its own scaffold.
+    # The guard makes the empty scaffold a clean no-op (exit 0), then re-scores the
+    # first contract once it exists (preserving verify's real 0/1 exit), matching
+    # the CI job's "empty contracts/ is a normal starting state, a no-op, never a
+    # failure". Wrapped in `sh -c` so the empty-glob guard is shell-agnostic (a
+    # user's zsh `nomatch` never aborts it before the else branch runs).
+    verify = (
+        "sh -c 'if ls contracts/*.hotato >/dev/null 2>&1; then "
+        "hotato contract verify contracts --junit hotato.xml; "
+        "else echo \"no contracts yet -- add your first with the baseline "
+        "above, then this gate runs\"; fi'"
+    )
     if out_dir != ".":
         verify = f"cd {shlex.quote(out_dir)} && {verify}"
     next_steps = [baseline, verify]

@@ -226,9 +226,14 @@ def test_scaffold_auto_generates_tuned_starter_kit(tmp_path):
 
     # The baseline next step points at the recording it found.
     assert result["next"][0] == "hotato investigate recordings/first.wav"
-    # out != "." here, so the CI-gate step is run from out via a cd prefix.
-    assert result["next"][-1].endswith(
-        "hotato contract verify contracts --junit hotato.xml")
+    # The CI-gate step carries the real verify command, GUARDED so it is a
+    # clean no-op on the freshly scaffolded (empty) contracts/ instead of the
+    # exit-2 "no contracts" usage error a bare command would hit (M3). out != "."
+    # here, so it is run from out via a cd prefix.
+    gate = result["next"][-1]
+    assert "hotato contract verify contracts --junit hotato.xml" in gate
+    assert gate.startswith("cd ")
+    assert "if ls contracts/*.hotato" in gate
 
 
 def test_scaffold_auto_matches_a_hand_run_starter(tmp_path):
@@ -260,6 +265,38 @@ def test_scaffold_auto_no_recording_uses_demo_baseline(tmp_path):
     _write(tmp_path / "requirements.txt", "vapi\n")
     result = initcmd.scaffold_auto(str(tmp_path), str(tmp_path))
     assert result["next"][0] == "hotato start --demo"
+
+
+def test_scaffold_auto_gate_next_command_runs_clean_on_fresh_scaffold(tmp_path):
+    """M3: the printed CI-gate next-command must run exit 0 on the scaffold it
+    just wrote. A bare ``hotato contract verify contracts`` on the freshly
+    scaffolded (empty) contracts/ is a usage error (exit 2) -- proven here so
+    the guard is not vacuous -- yet the guarded command hotato prints is a
+    clean no-op (exit 0), matching the CI job the same scaffold generates."""
+    import subprocess
+
+    from hotato import contract as _contract
+
+    _write(tmp_path / "pyproject.toml", '[project]\ndependencies = ["vapi"]\n')
+    _wav(tmp_path / "recordings" / "first.wav")
+    result = initcmd.scaffold_auto(str(tmp_path), str(tmp_path))
+
+    # The empty scaffolded contracts/ really is an unguarded usage error.
+    contracts_dir = tmp_path / "contracts"
+    assert contracts_dir.is_dir()
+    with pytest.raises(ValueError):
+        _contract.verify_contracts(str(contracts_dir))
+
+    # The PRINTED gate command guards it, so running it verbatim on the fresh
+    # scaffold is a clean no-op: exit 0, never the exit-2 error. The empty
+    # branch never invokes the `hotato` binary, so this stays hermetic.
+    gate = result["next"][-1]
+    proc = subprocess.run(
+        gate, shell=True, cwd=str(tmp_path),
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, (gate, proc.stdout, proc.stderr)
+    assert "no contracts yet" in proc.stdout
 
 
 # --- clean refusal -----------------------------------------------------------

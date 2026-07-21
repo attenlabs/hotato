@@ -62,6 +62,19 @@ from .errors import open_regular as _open_regular
 STATE_SCHEMA_ID = "hotato.investigate-state.v1"
 DEFAULT_OUT_DIR = "contracts"
 
+# Acceptable prompt-yield talk-over ceiling for an auto-pinned yield contract.
+# When `investigate label --expect yield` pins a TALK-OVER catch
+# (overlap_while_agent_talking) and the human gave no explicit --max-talk-over,
+# a bare yield/hold policy passes on did_yield alone, so a call where the agent
+# kept the floor for seconds still goes GREEN -- the opposite of the first-catch
+# promise in README / docs/GETTING-STARTED (a pinned failure that stays red until
+# the agent is fixed). This ceiling is the prompt-yield talk-over the shipped
+# full-duplex scenarios treat as acceptable (fdx-01 clean yield / fdx-02 talk-over,
+# 01-hard-interruption, 03-filler-start all pin ~1.0s): a caller-yield that holds
+# the floor LONGER than this is the failure being pinned. Applied ONLY when the
+# caught overlap EXCEEDS it, so a genuinely prompt yield is never turned red.
+YIELD_TALK_OVER_CEILING_SEC = 1.0
+
 # The stereo demo call shipped INSIDE the package (installed with the wheel
 # under ``hotato/data/demo/failing/audio/``) so ``hotato investigate --demo``
 # runs the scorer from a bare ``pip install`` with no recording on disk -- the
@@ -73,6 +86,7 @@ DEMO_RECORDING_FILENAME = "fd-01-missed-interruption.example.wav"
 __all__ = [
     "STATE_SCHEMA_ID",
     "DEFAULT_OUT_DIR",
+    "YIELD_TALK_OVER_CEILING_SEC",
     "DEMO_RECORDING_FILENAME",
     "default_state_path",
     "demo_recording_path",
@@ -1040,6 +1054,35 @@ def run_investigate_label(
     doc = _fixture._load_result(path)
     cand = _fixture._resolve_candidate(doc, path=path, call=call, number=number)
 
+    # Auto-pin the talk-over so a headlined talk-over catch becomes a RED gate.
+    # A bare --expect yield policy passes on did_yield alone, so pinning a call
+    # where investigate just reported "the agent kept talking over them for
+    # N.NNs" would go GREEN -- contradicting the README / GETTING-STARTED
+    # first-catch promise (a pinned failure that stays red until the agent is
+    # fixed). When the caught candidate is a talk-over (overlap_while_agent_talking)
+    # whose overlap EXCEEDS the acceptable prompt-yield ceiling and the human gave
+    # no explicit --max-talk-over, derive the pass bound from the caught overlap:
+    # pin the ceiling as max_talk_over_sec so the caught magnitude is red now and a
+    # talk-over regression stays red. An explicit --max-talk-over always wins; a
+    # prompt yield (overlap within the ceiling) is never turned red; a --expect
+    # hold label is untouched (its policy carries no talk-over bound).
+    auto_talk_over_bound = None
+    if (
+        max_talk_over_sec is None
+        and str(expect).strip().lower() == "yield"
+        and cand.get("kind") == "overlap_while_agent_talking"
+    ):
+        observed_overlap = (cand.get("durations") or {}).get("overlap_sec")
+        if (
+            isinstance(observed_overlap, (int, float))
+            and observed_overlap > YIELD_TALK_OVER_CEILING_SEC
+        ):
+            max_talk_over_sec = YIELD_TALK_OVER_CEILING_SEC
+            auto_talk_over_bound = {
+                "max_talk_over_sec": YIELD_TALK_OVER_CEILING_SEC,
+                "observed_overlap_sec": round(float(observed_overlap), 3),
+            }
+
     auto_id = contract_id is None
     cid = contract_id or _auto_contract_id(cand, expect)
 
@@ -1077,6 +1120,10 @@ def run_investigate_label(
     )
     result["candidate_ref"] = ref
     result["auto_id"] = auto_id
+    # Transparency: record the auto-derived talk-over bound (None unless a
+    # talk-over catch was pinned red without an explicit --max-talk-over), so the
+    # rendered output and the JSON both state that hotato, not the human, set it.
+    result["auto_talk_over_bound"] = auto_talk_over_bound
     # Additive, honest classification: the SAME capture-origin block
     # `hotato investigate` reported for this exact recording, when the
     # candidate ref resolves to an investigate-state file (a plain analyze/
@@ -1133,6 +1180,14 @@ def render_label_text(result: dict) -> str:
     if origin:
         lines.extend(_render_capture_origin_lines(origin))
     lines.append(_contract.render_create_text(result))
+    bound = result.get("auto_talk_over_bound")
+    if bound:
+        lines.append(
+            "  talk-over bound: pinned max_talk_over_sec="
+            f"{bound['max_talk_over_sec']}s (the caught yield held the floor for "
+            f"{bound['observed_overlap_sec']}s); this gate stays red until the "
+            "agent yields within the bound. Pass --max-talk-over to set your own."
+        )
     ladder = _next_ladder(result)
     if ladder:
         lines.append("")
@@ -1147,6 +1202,7 @@ def label_result_json(result: dict) -> dict:
     out["kind"] = "investigate-label"
     out["candidate_ref"] = result["candidate_ref"]
     out["auto_id"] = result["auto_id"]
+    out["auto_talk_over_bound"] = result.get("auto_talk_over_bound")
     out["capture_origin"] = result.get("capture_origin")
     if _next_ladder(result):
         # structured, not the rendered indentation: the ONE next step, the
