@@ -14,11 +14,13 @@
 
 </div>
 
-**The transcript read clean, and the call still failed.** Talk-over, dead air, "you're all set" on a booking the backend never wrote. Nothing in your pipeline can see those failures.
+**The transcript read clean, and the call still failed.** Talk-over, dead air, "you're all set" on a booking the backend never wrote. Nothing in your pipeline can see those failures. The caller could.
 
-Hotato catches them from what you already have: a two-channel recording, or a timestamped transcript with no audio at all. Each catch becomes a CI gate that fails the build until the agent stops failing that call.
+Hotato catches them from what you already have: a two-channel recording, or a timestamped transcript with no audio at all. Each catch becomes a contract, and the exit code is the gate: the build stays red until the agent stops failing that call.
 
-Deterministic: same input, same verdict, byte for byte, on any machine. Offline: your calls and your customers' audio stay on your machine. Free, MIT, no account, and the gate itself sits behind a 4,300-test suite.
+The potato stays hot until someone deals with it. That is the entire design.
+
+Deterministic: same input, same verdict, byte for byte, on any machine. Offline: your calls never leave your machine. Free, MIT, no account. The gate itself sits behind a 4,300-test suite, because a fire alarm that hallucinates is just a second fire.
 
 **First catch in seconds, one command:**
 
