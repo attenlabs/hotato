@@ -28,7 +28,7 @@
 > --format json` regenerates the same command data straight from the CLI's
 > argparse, so it never drifts from the real flags.
 >
-> Version 1.12.0
+> Version 1.12.1
 
 ## Start here
 
