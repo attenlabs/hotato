@@ -1094,3 +1094,123 @@ def test_stricter_contract_mode_crosstalk_threshold_can_refuse_where_scan_warns(
         0.5, leakage, mode=_trust.VERDICT_MODE_SCAN) is False
     assert _trust.crosstalk_verdict_suspected(
         0.5, leakage, mode=_trust.VERDICT_MODE_CONTRACT) is True
+
+
+# --- verify --step-summary: tight Markdown for a CI job summary -------------
+
+# A verify JSON fixture exercising every failing axis at once (the same shape
+# tests/test_notify.py pins for the --notify payload): one pass, one plain
+# timing FAIL, one tampered, one refused.
+_STEP_SUMMARY_FIXTURE = {
+    "tool": "hotato", "kind": "contract-verify", "schema_version": "1",
+    "offline": True, "dir": "contracts", "count": 4,
+    "results": [
+        {"id": "ct-pass", "expect": "yield", "passed": True,
+         "scorable": True, "verdict_eligible": True,
+         "measurement": {"did_yield": True, "seconds_to_yield": 1.1,
+                         "talk_over_sec": 0.0}},
+        {"id": "ct-fail", "expect": "yield", "passed": False,
+         "scorable": True, "verdict_eligible": True,
+         "measurement": {"did_yield": False, "seconds_to_yield": 3.4,
+                         "talk_over_sec": 1.2}},
+        {"id": "ct-tampered", "expect": "hold", "passed": False,
+         "scorable": True, "verdict_eligible": True,
+         "authenticity": "tampered",
+         "measurement": {"did_yield": None, "seconds_to_yield": None,
+                         "talk_over_sec": None}},
+        {"id": "ct-refused", "expect": "hold", "passed": False,
+         "scorable": True, "verdict_eligible": False,
+         "verdict_ineligible_reason": "suspected channel swap",
+         "measurement": {"did_yield": None, "seconds_to_yield": None,
+                         "talk_over_sec": None}},
+    ],
+    "summary": {"passed": 1, "failed": 3},
+    "tampered": 1, "refused": 1, "assertions_failed": 0, "exit_code": 1,
+}
+
+
+def test_step_summary_render_failing_fixture_is_tight_markdown():
+    md = _contract.render_verify_step_summary(_STEP_SUMMARY_FIXTURE)
+    # verdict line with the counts, first
+    assert "### hotato contract verify" in md
+    assert "**FAIL**: 1/4 contracts pass, 3 failing (exit code 1)" in md
+    # only the failing contracts are listed, with their measured timing
+    assert "| `ct-fail` | yield | false | 3.40s | 1.20s |  |" in md
+    assert "`ct-tampered`" in md and "`ct-refused`" in md
+    assert "suspected channel swap" in md
+    assert "`ct-pass`" not in md
+    # tampered/refused stay separate axes, never blended into the pass count
+    assert "1 tampered (edited after creation)" in md
+    assert "1 refused (channel mapping unconfirmed)" in md
+    # the stored-evidence scope line ships on every render
+    assert _contract._STORED_EVIDENCE_CAVEAT in md
+
+
+def test_step_summary_render_pass_fixture_has_no_failing_table():
+    v = dict(_STEP_SUMMARY_FIXTURE,
+             results=[_STEP_SUMMARY_FIXTURE["results"][0]], count=1,
+             summary={"passed": 1, "failed": 0},
+             tampered=0, refused=0, exit_code=0)
+    md = _contract.render_verify_step_summary(v)
+    assert "**PASS**: 1/1 contracts pass (exit code 0)" in md
+    assert "Failing contracts" not in md
+    assert "Separate axes" not in md
+    assert _contract._STORED_EVIDENCE_CAVEAT in md
+
+
+def test_step_summary_render_caps_the_table_and_escapes_cells():
+    bad_id = "ct|pipe`tick\nnewline"
+    failing = [dict(_STEP_SUMMARY_FIXTURE["results"][1], id=f"ct-f{i}")
+               for i in range(7)]
+    failing[0]["id"] = bad_id
+    v = dict(_STEP_SUMMARY_FIXTURE, results=failing, count=7,
+             summary={"passed": 0, "failed": 7}, tampered=0, refused=0)
+    md = _contract.render_verify_step_summary(v)
+    assert "first 5 of 7" in md
+    assert "ct-f5" not in md and "ct-f6" not in md
+    # a hostile id cannot break the table: pipe escaped, backtick and
+    # newline gone from the cell
+    assert "ct\\|pipe'tick newline" in md
+    assert bad_id not in md
+
+
+def test_verify_step_summary_appends_to_file(tmp_path, capsys):
+    assert _create(tmp_path, cid="ct-ss-001") == 0
+    out = tmp_path / "step.md"
+    out.write_text("# a prior step\n", encoding="utf-8")
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--step-summary", str(out)])
+    assert rc == 0
+    text = out.read_text(encoding="utf-8")
+    # appended after the existing content, never truncated over it
+    assert text.startswith("# a prior step\n")
+    assert "### hotato contract verify" in text
+    assert "**PASS**: 1/1 contracts pass (exit code 0)" in text
+    assert "appended step summary" in capsys.readouterr().err
+
+
+def test_verify_step_summary_failing_lists_measured_timing(tmp_path):
+    # An impossible bound makes the contract fail its policy on re-verify;
+    # the exit code stays the verify verdict with --step-summary set.
+    assert _create(tmp_path, "--max-time-to-yield", "0.0", cid="ct-ss-002") == 0
+    out = tmp_path / "step.md"
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--step-summary", str(out)])
+    assert rc == 1
+    text = out.read_text(encoding="utf-8")
+    assert "**FAIL**: 0/1 contracts pass, 1 failing (exit code 1)" in text
+    assert "`ct-ss-002`" in text
+    assert "seconds_to_yield" in text
+
+
+def test_verify_step_summary_bad_path_fails_open(tmp_path, capsys):
+    assert _create(tmp_path, cid="ct-ss-003") == 0
+    bad = tmp_path / "no-such-dir" / "step.md"  # unwritable: parent missing
+    rc = cli.main(["contract", "verify", str(tmp_path),
+                   "--step-summary", str(bad)])
+    # the verdict is unchanged; the problem reports on stderr only
+    assert rc == 0
+    assert not bad.exists()
+    err = capsys.readouterr().err
+    assert "step summary not written" in err
+    assert "the verify result is unchanged" in err

@@ -433,6 +433,7 @@ def run_investigate(
     ``hotato simulate --example``. It is mutually exclusive with ``source`` and
     ``stack``/``call_id`` (a clear ``ValueError`` otherwise).
     """
+    from . import acoustic as _acoustic
     from . import analyze as _analyze
     from . import scan as _scan
     from . import trust as _trust
@@ -471,6 +472,17 @@ def run_investigate(
         path, caller_channel=caller_channel, agent_channel=agent_channel,
         cfg=cfg, mode=_trust.VERDICT_MODE_CONTRACT,
         channel_map_confirmed=channel_map_confirmed,
+    )
+
+    # Acoustic health: per-channel signal measures (SNR estimate, percent
+    # silence, energy-burst rate, clipping, duration) over the SAME decoded
+    # audio and reference VAD gate the trust/scan steps read. Audio path only
+    # (the transcript path has no audio to measure and carries no such block);
+    # signal quality only, never intelligibility or intent -- see
+    # acoustic.ACOUSTIC_NOTE, carried inside the block itself.
+    acoustic = _acoustic.acoustic_report(
+        path, caller_channel=caller_channel, agent_channel=agent_channel,
+        cfg=cfg,
     )
 
     candidates: list = []
@@ -532,6 +544,7 @@ def run_investigate(
         "capture_origin": origin,
         "stack_config_snapshot": config_snapshot,
         "trust": trust_rep,
+        "acoustic": acoustic,
         "verdict_status": verdict_status,
         "config": {
             "caller_channel": caller_channel, "agent_channel": agent_channel,
@@ -580,6 +593,7 @@ def run_investigate(
             "not_scorable_reason": trust_rep.get("not_scorable_reason"),
             "warnings": trust_rep.get("warnings"),
         },
+        "acoustic": acoustic,
         "verdict_status": verdict_status,
         "note": scan_note,
         "total_candidates": len(candidates),
@@ -841,6 +855,16 @@ def _capture_and_health_lines(result: dict) -> list:
     lines.append(f"  input health: {t['recommendation']}")
     for w in t.get("warnings") or []:
         lines.append(f"    warning: {w}")
+    # Acoustic health rides just under the input-health line it extends.
+    # Audio path only: a transcript result carries no acoustic block (there
+    # is no audio to measure), so nothing renders there.
+    acoustic = result.get("acoustic")
+    if acoustic:
+        from . import acoustic as _acoustic
+        lines.append("  acoustic health (signal measures, not speech "
+                     "content):")
+        for ch in acoustic.get("channels") or []:
+            lines.append(f"    {_acoustic.channel_summary_line(ch)}")
     return lines
 
 
