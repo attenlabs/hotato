@@ -293,24 +293,34 @@ def build_argv(cfg: Dict[str, Any]) -> List[str]:
             "--junit", os.path.join(output, "contracts-junit.xml")]
     if cfg.get("step_summary"):
         argv += ["--step-summary", cfg["step_summary"]]
+    if cfg.get("pr_comment"):
+        argv += ["--pr-comment", cfg["pr_comment"]]
     if cfg.get("transcript"):
         argv += ["--transcript", cfg["transcript"]]
     return argv
 
 
-def _step_summary_supported() -> bool:
-    """True when the INSTALLED hotato's ``contract verify`` knows
-    ``--step-summary``, probed from its own ``--help`` text (an exact older
-    PyPI pin predates the flag and must keep its unchanged argv, exactly the
-    graceful-degradation discipline ``_classify_unsupported`` applies to
-    ``record render --all``). A failed probe reads as unsupported: the flag
-    is simply not passed and the verify runs exactly as before."""
+def _verify_flag_supported(flag: str) -> bool:
+    """True when the INSTALLED hotato's ``contract verify`` knows ``flag``,
+    probed from its own ``--help`` text (an exact older PyPI pin predates a
+    flag and must keep its unchanged argv, exactly the graceful-degradation
+    discipline ``_classify_unsupported`` applies to ``record render --all``).
+    A failed probe reads as unsupported: the flag is simply not passed and the
+    verify runs exactly as before."""
     try:
         proc = _run([sys.executable, "-m", "hotato", "contract", "verify",
                      "--help"], capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired):
         return False
-    return proc.returncode == 0 and "--step-summary" in (proc.stdout or "")
+    return proc.returncode == 0 and flag in (proc.stdout or "")
+
+
+def _step_summary_supported() -> bool:
+    return _verify_flag_supported("--step-summary")
+
+
+def _pr_comment_supported() -> bool:
+    return _verify_flag_supported("--pr-comment")
 
 
 def append_contract_step_summary(cfg: Dict[str, Any],
@@ -730,6 +740,7 @@ def main() -> int:
     outputs: Dict[str, str] = {
         "output": "", "suite-result": "", "summary": "", "records": "",
         "records-index": "", "records-count": "", "records-total": "",
+        "pr-comment": "",
         "exit-code": "2", "status": "error", "hotato-version": "unknown",
     }
     exit_code: Optional[int] = None
@@ -748,13 +759,20 @@ def main() -> int:
         version = hotato_version()
         meta["hotato_version"] = version
         outputs["hotato-version"] = version
-        if cfg["mode"] == "contracts" and _step_summary_supported():
-            # hotato renders its own tight verify Markdown into a leaf of the
-            # private output directory; the reproduce line is recomputed so it
-            # stays the exact executed argv.
-            cfg["step_summary"] = "/".join((cfg["output"],
-                                            "contract-summary.md"))
-            meta["reproduce"] = shlex.join(["hotato"] + build_argv(cfg))
+        if cfg["mode"] == "contracts":
+            # hotato renders its own tight verify Markdown (and the share-safe
+            # PR-comment block) into leaves of the private output directory; the
+            # reproduce line is recomputed so it stays the exact executed argv.
+            # Each leaf is probed independently, so an exact older pin without a
+            # given flag keeps its unchanged argv (graceful degradation).
+            if _step_summary_supported():
+                cfg["step_summary"] = "/".join((cfg["output"],
+                                                "contract-summary.md"))
+            if _pr_comment_supported():
+                cfg["pr_comment"] = "/".join((cfg["output"],
+                                              "contract-pr-comment.md"))
+            if cfg.get("step_summary") or cfg.get("pr_comment"):
+                meta["reproduce"] = shlex.join(["hotato"] + build_argv(cfg))
         exit_code, result_path = run_hotato(cfg)
         outputs["suite-result"] = result_path
         meta["result_path"] = result_path
@@ -763,6 +781,14 @@ def main() -> int:
             if os.path.isfile(os.path.join(cfg["workspace"], junit)):
                 meta["junit_path"] = junit
             append_contract_step_summary(cfg, meta)
+            # Expose the rendered PR-comment leaf as an output (a poster step
+            # posts it; presentation only, and the leaf is a direct child of
+            # the private output directory the verify subprocess wrote into).
+            pr_leaf = cfg.get("pr_comment")
+            if pr_leaf and os.path.isfile(os.path.join(cfg["workspace"],
+                                                       pr_leaf)):
+                outputs["pr-comment"] = pr_leaf
+                meta["pr_comment_path"] = pr_leaf
         doc, error = summary_mod.load_result(
             os.path.join(cfg["workspace"], result_path))
         if error is not None and exit_code == 0:

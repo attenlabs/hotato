@@ -1,0 +1,61 @@
+# hotato observe: starter per-model price table (a LOCAL estimate input).
+#
+# USD per 1,000,000 tokens, by category. Every USD figure `hotato observe`
+# prints from a table like this is labeled "estimated from <table>": it is a
+# number you keep on your own machine and edit for your own contracts, priced
+# against the token counts your spans actually reported. Tokens are facts read
+# from the trace; the dollars are your local arithmetic over this table.
+#
+# Copy this file, change the rates to the ones in your own agreements, and pass
+# it with `--prices your-prices.yaml`. `--prices starter` reads this bundled
+# copy. A model with no row here stays UNPRICED (its cost reads null), never a
+# guessed rate. A category with no rate in a row is simply not billed.
+#
+# Categories: input, output, cached (a discounted input read), reasoning.
+
+table: starter
+currency: USD
+per_tokens: 1000000
+
+models:
+  gpt-4o:
+    input: 2.5
+    output: 10.0
+    cached: 1.25
+  gpt-4o-mini:
+    input: 0.15
+    output: 0.6
+    cached: 0.075
+  gpt-4.1:
+    input: 2.0
+    output: 8.0
+    cached: 0.5
+  gpt-4.1-mini:
+    input: 0.4
+    output: 1.6
+    cached: 0.1
+  o3:
+    input: 2.0
+    output: 8.0
+    cached: 0.5
+    reasoning: 8.0
+  claude-3-5-sonnet:
+    input: 3.0
+    output: 15.0
+    cached: 0.3
+  claude-3-5-haiku:
+    input: 0.8
+    output: 4.0
+    cached: 0.08
+  claude-3-opus:
+    input: 15.0
+    output: 75.0
+    cached: 1.5
+  gemini-1.5-pro:
+    input: 1.25
+    output: 5.0
+    cached: 0.3125
+  gemini-1.5-flash:
+    input: 0.075
+    output: 0.3
+    cached: 0.01875
