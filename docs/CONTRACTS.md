@@ -28,7 +28,7 @@ reports pass/fail.
 | **Re-scores** | the SAME `audio/event.wav` the contract was created from | a new recording of the SAME stimulus against your CURRENT agent |
 | **A pass proves** | the evidence, policy, and scorer are still intact and still agree with the human label | the CURRENT agent's behavior on that stimulus still matches the label |
 | **Leaves open** | whether the deployed agent's behavior has changed since | nothing extra -- this lane speaks to the live agent |
-| **Runs** | every push, in the shipped `ci/github-action.yml` (`contract verify contracts/`) | only when you recapture by hand or on a schedule -- see [`docs/RECAPTURE.md`](RECAPTURE.md) |
+| **Runs** | every push, in the shipped `ci/github_action.yml` (`contract verify contracts/`) | only when you recapture by hand or on a schedule -- see [`docs/RECAPTURE.md`](RECAPTURE.md) |
 
 A frozen-recording pass is necessary but not sufficient: the recording
 never changes, so it can only fail if someone edits the bundle's audio
@@ -149,7 +149,7 @@ Exit codes are the CI contract:
 | `2` | usage error, empty directory, or corrupt `contract.json` |
 
 `--junit` writes one `<testcase>` per contract; the shipped
-`ci/github-action.yml` scaffold runs this on push, on PR, and weekly,
+`ci/github_action.yml` scaffold runs this on push, on PR, and weekly,
 and publishes the JUnit file as an artifact.
 
 Every text and HTML render of `verify` also prints, verbatim: *"This
@@ -238,7 +238,7 @@ matching the packed manifest.
 
 ## CI
 
-The shipped `ci/github-action.yml` is the minimal wiring:
+The shipped `ci/github_action.yml` is the minimal wiring:
 
 ```bash
 uvx hotato contract verify contracts/ --junit contracts-junit.xml \

@@ -9,7 +9,9 @@
 > finds what text evals miss), pin (a labeled failure becomes a portable
 > content-addressed contract), test (simulate, drive, and the bundled stress
 > suite), and prove (hotato prove composes every evidence lane into one
-> fail-closed release proof). The wedge leads the demo: give it a two-channel recording or a
+> fail-closed, content-addressed proof headlining its claim scope: contracts
+> alone are Captured Evidence, a suite is a Test Suite, and a bound before/after
+> run is a Candidate Revision, never over-claiming). The wedge leads the demo: give it a two-channel recording or a
 > timestamped transcript and it measures turn timing and say-do evidence -- did
 > the agent yield when the caller took the floor, how fast, how many seconds
 > both talked at once, and did what the agent said match what the backend did.
