@@ -1,5 +1,5 @@
 """``hotato prove``: compose the evidence lanes you already ran into ONE
-portable, content-addressed release proof.
+portable, content-addressed proof whose CLAIM SCOPE states exactly what it establishes.
 
 It adds no new scoring engine: every number here is one existing command
 already measures -- ``hotato contract verify`` (the contracts lane, via
