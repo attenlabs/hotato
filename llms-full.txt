@@ -11324,6 +11324,7 @@ Every gate to clear before a release ships, top to bottom: green means proceed.
 - [ ] Verify `uvx hotato demo` works from the published package (fresh machine or cleared uv cache): it renders and opens the failing demo report.
 - [ ] Verify `uvx hotato doctor` (self-test path) works from the published package.
 - [ ] Publish the GitHub release notes for the tag `vX.Y.Z` (created above), pointing at the CHANGELOG entry.
+- [ ] **Reconcile the public surfaces (release-blocking).** Run `python3 scripts/check_public_surfaces.py --online` from a clean network. It cross-checks the version across `pyproject.toml`, `hotato.__version__`, the git tag, the README Action pin, the CHANGELOG top entry, and `llms.txt` (offline group A), then asserts PyPI's `/pypi/hotato/<version>/json`, `hotato.dev/release.json`, `hotato.dev/llms.txt`, and the `hotato.dev/` landing page (Googlebot UA, no-cache) all report the shipped version and positioning with no retired overclaim (group B). The release is not done until this exits 0. If the site lags, redeploy from the `vX.Y.Z` tag and purge the Cloudflare HTML cache, then re-run. (Group A alone runs in CI with no egress.)
 
 ### Publishing path: PyPI Trusted Publishing (OIDC) -- DEFAULT
 
