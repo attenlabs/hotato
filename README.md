@@ -102,10 +102,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.13.1
+      - uses: attenlabs/hotato@v1.14.0
         with:
           contracts: contracts/
-          hotato-version: 1.13.1
+          hotato-version: 1.14.0
 ```
 
 Copy-paste workflow with a commit-SHA pin: [`docs/CI.md`](docs/CI.md).

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.13.1"
+version = "1.14.0"
 description = "The local-first AI engineering platform: trace, evaluate, test, and gate your LLM and voice agents on your own machine. Everything you use a hosted platform for, free and MIT at any scale, byte-reproducible, and CI-native. Nothing leaves your machine."
 readme = "README.pypi.md"
 # Support policy: requires-python is lower-bounded only. There is no upper cap
