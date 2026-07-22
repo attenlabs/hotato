@@ -2132,6 +2132,8 @@ def _cmd_prove(args) -> int:
         contracts=args.contracts, suite=args.suite, agent=args.agent,
         before=args.before, after=args.after, min_n=args.min_n,
         gauntlet=args.gauntlet, name=args.name,
+        candidate_config_hash=args.candidate_config_hash,
+        provider=args.provider, deployment_id=args.deployment_id,
     )
     out_dir = args.out or os.path.join(".hotato", "proofs", proof["name"])
     os.makedirs(out_dir, exist_ok=True)
@@ -8978,10 +8980,19 @@ def build_parser() -> argparse.ArgumentParser:
         "prove",
         help="compose every evidence lane you have (contracts, suite, "
              "before/after, gauntlet) into one fail-closed, content-addressed "
-             "release proof; exit 0 only when every lane passed",
+             "proof whose CLAIM SCOPE reflects the evidence given; contracts "
+             "alone is Captured Evidence, not a release proof; exit 0 only "
+             "when every lane passed",
         description=(
             "hotato prove composes the evidence lanes you already ran into "
-            "ONE portable release proof. Each flag activates one lane: "
+            "ONE portable proof, headlined by the CLAIM SCOPE the evidence "
+            "actually supports -- contracts alone re-measures stored evidence "
+            "and reads as 'Captured Evidence', a suite/gauntlet run as 'Test "
+            "Suite', and a before/after lane reaches 'Candidate Revision' "
+            "(or 'Deployed Revision') only when you also bind the candidate "
+            "identity via --candidate-config-hash and --provider (plus "
+            "--deployment-id). It never claims more than the lanes support. "
+            "Each flag activates one lane: "
             "--contracts re-scores a directory of hotato contracts through "
             "contract verify's own logic; --suite runs a suite.v1 of "
             "conversation-tests through the suite runner; --before/--after "
@@ -9040,6 +9051,24 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--gauntlet", action="store_true",
                     help="gauntlet lane: run the bundled deterministic "
                          "turn-taking stress suite")
+    pv.add_argument("--candidate-config-hash", dest="candidate_config_hash",
+                    default=None, metavar="HASH",
+                    help="bind the candidate's config identity (an opaque "
+                         "digest, not a path): with --provider it raises a "
+                         "before/after proof from Test Suite to Candidate "
+                         "Revision; recorded as evidence but never raises the "
+                         "scope without the before/after lane")
+    pv.add_argument("--provider", default=None, metavar="NAME",
+                    help="the candidate's provider/runner name; with "
+                         "--candidate-config-hash it grounds the candidate "
+                         "identity a before/after proof needs to claim "
+                         "Candidate Revision")
+    pv.add_argument("--deployment-id", dest="deployment_id",
+                    default=None, metavar="ID",
+                    help="a deployment identifier: only on top of a bound "
+                         "candidate (--candidate-config-hash + --provider) "
+                         "does it raise a before/after proof to Deployed "
+                         "Revision; alone it is recorded but never elevates")
     pv.add_argument("--name", default=None, metavar="NAME",
                     help="name the proof (letters, digits, dot, underscore, "
                          "hyphen); also the default output directory name "
