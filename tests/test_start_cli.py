@@ -118,6 +118,20 @@ def test_start_demo_prints_the_next_commands(tmp_path, capsys):
                     not in joined)
 
 
+def test_start_demo_prints_one_quiet_star_ask_footer(tmp_path, capsys):
+    """The successful --demo text path closes with exactly ONE quiet star-ask
+    footer -- printed once, on the success path only. A usage error (no mode)
+    never reaches it."""
+    assert cli.main(["start", "--demo", "--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    ask = "Useful? A star helps other teams find it:  github.com/attenlabs/hotato"
+    assert ask in out
+    assert out.count(ask) == 1
+    # not emitted on the mode-usage-error path (exit 2, nothing scored)
+    assert cli.main(["start"]) == 2
+    assert ask not in capsys.readouterr().out
+
+
 def test_start_demo_json_format(tmp_path, capsys):
     rc = cli.main(["start", "--demo", "--dir", str(tmp_path),
                    "--format", "json"])
