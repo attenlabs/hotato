@@ -25,7 +25,6 @@ BUILDER_PATH = os.path.join(FIXTURE_DIR, "build_dtmf.py")
 
 from hotato.dtmf_conformance import (  # noqa: E402
     DTMF_DIGITS,
-    check_dtmf_conformance,
     check_dtmf_conformance_wav,
     detect_digit_presence,
     digit_frequencies,
