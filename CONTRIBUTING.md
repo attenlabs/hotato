@@ -92,7 +92,10 @@ Audio of people carries obligations. These are non-negotiable, and
 - **No PHI**, ever, regardless of consent.
 
 Synthetic and role-played clips need no caller release, but must still carry no
-identifier of any person.
+identifier of any person. For the repeatable role-play recipe -- script shape,
+the consent/PII/attestation checklist mapped to the schema, dual-channel
+capture, and the defect-performed-on-purpose labeling -- follow
+[`docs/RFC-ROLEPLAY-FIXTURES.md`](docs/RFC-ROLEPLAY-FIXTURES.md).
 
 ## Ground rules (these bind code and copy)
 

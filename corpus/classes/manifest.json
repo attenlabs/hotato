@@ -1,8 +1,8 @@
 {
   "generated_by": "corpus/classes/build_classes.py",
   "synthetic": true,
-  "note": "Four corpus scenario classes, additive to corpus/suites/: mid-utterance-pause, backchannel-multilingual, noise-hold, telephony-degraded. Every scenario is synthetic shaped noise rendered deterministically from its own reference_render timings (seed = sha256(id)). No accuracy claim is made or implied.",
-  "total_scenarios": 13,
+  "note": "Seven corpus scenario classes, additive to corpus/suites/: mid-utterance-pause, backchannel-multilingual, noise-hold, telephony-degraded, leading-edge-onset, structured-utterance, browser-telephony-parity. Every scenario is synthetic shaped noise rendered deterministically from its own reference_render timings (seed = sha256(id)). No accuracy claim is made or implied.",
+  "total_scenarios": 22,
   "classes": [
     {
       "name": "mid-utterance-pause",
@@ -46,6 +46,39 @@
       "fail": 1,
       "categories": [
         "should_yield"
+      ]
+    },
+    {
+      "name": "leading-edge-onset",
+      "path": "leading-edge-onset",
+      "note": "the caller onset is a short leading burst at the interruption boundary; a dropped-leading-audio defect render is measurable against the ground-truth onset",
+      "scenarios": 3,
+      "pass": 2,
+      "fail": 1,
+      "categories": [
+        "should_yield"
+      ]
+    },
+    {
+      "name": "structured-utterance",
+      "path": "structured-utterance",
+      "note": "the caller reads structured data (phone-number digit groups, a spelled email) with intra-item gaps; scored on the latency axis with a widened turn_end_silence_sec so an intra-item pause is not the turn end",
+      "scenarios": 4,
+      "pass": 2,
+      "fail": 2,
+      "categories": [
+        "latency"
+      ]
+    },
+    {
+      "name": "browser-telephony-parity",
+      "path": "browser-telephony-parity",
+      "note": "one conversation rendered twice: a clean browser leg with no agent-side gaps and a telephony leg (mu-law + packet loss) with a fixed silence-gap schedule, scored by the whole-call scan",
+      "scenarios": 2,
+      "pass": 1,
+      "fail": 1,
+      "categories": [
+        "should_not_yield"
       ]
     }
   ]

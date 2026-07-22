@@ -1,0 +1,44 @@
+{
+  "id": "leo-dropped-burst",
+  "title": "DEFECT RENDER: the leading burst is dropped from the caller channel (must FAIL)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "leading-edge",
+    "onset",
+    "dropped-audio",
+    "bad-capture"
+  ],
+  "family": "leading-edge-onset",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.9,
+    "max_talk_over_sec": 1.05
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.4
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        4.0,
+        5.5
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "barge_in",
+  "why_it_matters": "DEFECT RENDER. Identical timings to leo-onset-frame-edge, but the caller channel omits the leading burst while the label keeps the ground-truth onset at the burst. This is what a pipeline dropping the first phoneme at the interruption boundary looks like: scored against the same label, the corroborated yield now lands at the later utterance and the measured time-to-yield runs past the bound.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

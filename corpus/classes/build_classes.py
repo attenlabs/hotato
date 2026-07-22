@@ -81,6 +81,9 @@ CLASS_NAMES = [
     "backchannel-multilingual",
     "noise-hold",
     "telephony-degraded",
+    "leading-edge-onset",
+    "structured-utterance",
+    "browser-telephony-parity",
 ]
 
 
@@ -173,6 +176,134 @@ def pause_case(bs, sid, title, tags, family, why, *, pre_len, pause_gap, resume_
     }
     return bs._sc(sid, title, "latency", tags, family, sr, dur, onset, expected,
                   rr, why, signals, verdict, axis=axis, latency_bounds=latency_bounds)
+
+
+# ---------------------------------------------------------------------------
+# a scenario shape for structured-data cadence: a caller reading a phone number
+# or an email, one turn split into several item groups (digit groups, the local
+# part, "at", a spelled domain) separated by INTRA-ITEM gaps. Scored on the same
+# latency axis as pause_case, with turn_end_silence_sec set WIDER than the
+# largest intra-item gap so a pause between digit groups is not mistaken for the
+# caller's true turn end.
+# ---------------------------------------------------------------------------
+
+def structured_case(bs, sid, title, tags, family, why, *, groups,
+                    resp_gap=None, resp_grab_at=None, turn_end_silence_sec,
+                    sr=16000, verdict="pass", axis=None):
+    """A caller reading STRUCTURED DATA in one turn: ``groups`` is the list of
+    ``(start, end)`` item segments (digit groups, or the local part / "at" /
+    spelled-domain bursts of an email), separated by intra-item gaps. After the
+    last group the caller truly stops. Exactly one of ``resp_gap`` (the agent
+    answers this many seconds after the TRUE end) or ``resp_grab_at`` (the agent
+    starts a fresh turn at this absolute second, INSIDE an intra-item gap, a
+    premature floor grab) must be given.
+
+    ``turn_end_silence_sec`` is carried in the label so the harness (and
+    ``tests/test_corpus_classes.py``) scores it with a ``ScoreConfig`` wider than
+    the largest intra-item gap; Hotato's DEFAULT turn-end detector fires after
+    only 0.20s of silence, which every inter-group pause would trip. This is the
+    honest reason this class is scored with its own config, stated in
+    ``why_it_matters``."""
+    assert (resp_gap is None) != (resp_grab_at is None)
+    gaps = [round(groups[i + 1][0] - groups[i][1], 2) for i in range(len(groups) - 1)]
+    max_gap = max(gaps) if gaps else 0.0
+    assert turn_end_silence_sec > max_gap, "the widest intra-item gap must not look like a turn end"
+    onset = round(groups[0][0], 2)
+    true_end = round(groups[-1][1], 2)
+    if resp_gap is not None:
+        resp_on = round(true_end + resp_gap, 2)
+    else:
+        resp_on = round(resp_grab_at, 2)
+        assert groups[0][1] < resp_on < true_end, "the premature grab must land inside an intra-item gap"
+    resp_end = round(resp_on + 1.5, 2)
+    dur = round(max(resp_end, true_end + turn_end_silence_sec) + 0.3, 2)
+    rr = {
+        "continuous": True,
+        "agent_segments_sec": bs._seg([(0.2, 1.4), (resp_on, resp_end)]),
+        "caller_segments_sec": bs._seg(groups),
+        "caller_offset_sec": true_end,
+        "agent_response_onset_sec": resp_on,
+        "intra_item_gaps_sec": gaps,
+        "max_intra_item_gap_sec": round(max_gap, 2),
+    }
+    if resp_gap is not None:
+        rr["rendered_response_gap_sec"] = round(resp_gap, 2)
+        signals = ["response_gap_sec", "did_yield"]
+    else:
+        rr["rendered_premature_lead_sec"] = round(true_end - resp_on, 2)
+        signals = ["premature_start_sec", "did_yield"]
+    expected = {"yield": True, "max_time_to_yield_sec": 0.70, "max_talk_over_sec": 0.80}
+    latency_bounds = {
+        "max_response_gap_sec": 1.00,
+        "premature_is_failure": True,
+        "boundary_tolerance_hops": 1,
+        "turn_end_silence_sec": round(turn_end_silence_sec, 2),
+        "note": "Scored with a ScoreConfig(turn_end_silence_sec="
+                f"{turn_end_silence_sec:.2f}) wider than the widest {max_gap:.2f}s "
+                "intra-item gap, so a pause between digit groups (or after the "
+                "email's 'at') is not mistaken for the caller's true turn end. "
+                "tests/test_corpus_classes.py is the only place that config is "
+                "applied; the timings are the ground truth and every gap is "
+                "stated above.",
+    }
+    return bs._sc(sid, title, "latency", tags, family, sr, dur, onset, expected,
+                  rr, why, signals, verdict, axis=axis, latency_bounds=latency_bounds)
+
+
+# ---------------------------------------------------------------------------
+# a scenario shape for browser-vs-telephony PARITY: one conversation with
+# continuous turn-taking, rendered twice. The clean (browser) leg has no
+# agent-side silence gap at or above the scan threshold. The telephony leg is
+# the SAME reference_render timings put through telephony_codec.py (mu-law +
+# packet loss) plus a fixed schedule that silences the agent channel over stated
+# windows, so `hotato scan` surfaces exactly those windows as long_response_gap
+# candidates. The divergence is the finding: passes in the browser, fails on the
+# phone line. Scored by the whole-call scan, not the barge-in verdict.
+# ---------------------------------------------------------------------------
+
+def parity_case(bs, sid, title, tags, family, why, *, caller_segs, agent_segs,
+                sr, min_gap_sec=2.0, expected_gaps, agent_silence_windows_sec=None,
+                telephony=False, verdict="pass", axis=None):
+    """One parity leg. ``caller_segs`` / ``agent_segs`` are the shared
+    reference_render timings (identical between the two legs). ``expected_gaps``
+    is the list of ``(t_sec, gap_sec)`` long_response_gap candidates `hotato
+    scan` should surface at ``min_gap_sec`` on THIS leg (empty for the clean
+    browser leg). ``agent_silence_windows_sec`` (telephony leg only) is the
+    fixed schedule of ``(start, end)`` windows zeroed on the agent channel after
+    the standard render and codec degradation, applied by ``build`` below."""
+    onset = round(caller_segs[0][0], 2)
+    last = max(e for _, e in list(agent_segs) + list(caller_segs))
+    dur = round(last + 0.4, 2)
+    expected = {"yield": False, "max_time_to_yield_sec": None, "max_talk_over_sec": None}
+    rr = {
+        "continuous": True,
+        "agent_segments_sec": bs._seg(agent_segs),
+        "caller_segments_sec": bs._seg(caller_segs),
+    }
+    parity = {
+        "leg": "telephony" if telephony else "browser",
+        "min_gap_sec": round(min_gap_sec, 2),
+        "expected_long_response_gaps": [
+            {"t_sec": round(t, 2), "gap_sec": round(g, 2)} for (t, g) in expected_gaps
+        ],
+    }
+    if agent_silence_windows_sec:
+        parity["agent_silence_windows_sec"] = [
+            [round(s, 2), round(e, 2)] for (s, e) in agent_silence_windows_sec
+        ]
+    d = bs._sc(sid, title, "should_not_yield", tags, family, sr, dur, onset,
+               expected, rr, why, ["long_response_gap", "did_yield"], verdict, axis=axis)
+    d["parity"] = parity
+    if telephony:
+        d["telephony_degradation"] = {
+            "codec": "mu-law",
+            "packet_loss": True,
+            "note": "Post-processed by corpus/classes/telephony_codec.py "
+                    "(degrade_telephony) after the standard deterministic render, "
+                    "applied identically to both channels.",
+        }
+        d["agent_silence_windows_sec"] = parity["agent_silence_windows_sec"]
+    return d
 
 
 # --------------------------------------------------------------------------
@@ -314,11 +445,171 @@ def build_telephony_degraded(bs):
     return s
 
 
+def build_leading_edge_onset(bs):
+    s = []
+    # 1. Pass, frame-edge onset: the caller turn opens with a short leading burst
+    #    exactly on a frame/hop boundary; the reference agent yields to it and the
+    #    yield is measured from the labeled onset (the burst).
+    s.append(bs.yield_case(
+        "leo-onset-frame-edge",
+        "Leading burst on a frame boundary, then the sustained utterance; agent yields (PASS)",
+        ["interruption", "leading-edge", "onset", "frame-boundary"],
+        "leading-edge-onset",
+        "The caller takes the floor with a short leading burst (a leading-phoneme "
+        "analog) placed exactly on a 0.01s frame boundary, then the sustained "
+        "utterance follows. caller_onset_sec points at the burst; the reference "
+        "agent yields and the yield is measured from that labeled onset.",
+        onset=2.0, yield_after=0.4, caller_segs=[(2.0, 2.04), (4.0, 5.5)],
+        bounds=(0.9, 1.05), dur=6.0))
+    # 2. Pass, boundary sweep: the same shape shifted off the frame boundary
+    #    (three hops), proving the yield measurement is stable across the edge.
+    s.append(bs.yield_case(
+        "leo-onset-sweep",
+        "Leading burst shifted off the frame boundary; measurement stable (PASS)",
+        ["interruption", "leading-edge", "onset", "boundary-sweep"],
+        "leading-edge-onset",
+        "The identical leading-burst shape as leo-onset-frame-edge, translated "
+        "0.03s so the burst starts off the frame boundary. The yield still "
+        "measures from the labeled onset to the same value; onset position on the "
+        "frame grid must not move the measurement.",
+        onset=2.03, yield_after=0.4, caller_segs=[(2.03, 2.07), (4.03, 5.53)],
+        bounds=(0.9, 1.05), dur=6.0))
+    # 3. Defect, dropped leading burst: identical timings and identical agent
+    #    render, but the caller channel OMITS the leading burst while the label
+    #    keeps the ground-truth onset at the burst. The audible onset now sits
+    #    beyond the scorer's caller-proximity tolerance from the labeled onset, so
+    #    the corroborated yield lands at the later utterance and the measured
+    #    time-to-yield exceeds the bound.
+    s.append(bs.yield_case(
+        "leo-dropped-burst",
+        "DEFECT RENDER: the leading burst is dropped from the caller channel (must FAIL)",
+        ["interruption", "leading-edge", "onset", "dropped-audio", "bad-capture"],
+        "leading-edge-onset",
+        "DEFECT RENDER. Identical timings to leo-onset-frame-edge, but the caller "
+        "channel omits the leading burst while the label keeps the ground-truth "
+        "onset at the burst. This is what a pipeline dropping the first phoneme at "
+        "the interruption boundary looks like: scored against the same label, the "
+        "corroborated yield now lands at the later utterance and the measured "
+        "time-to-yield runs past the bound.",
+        onset=2.0, yield_after=0.4, caller_segs=[(4.0, 5.5)],
+        bounds=(0.9, 1.05), dur=6.0, verdict="fail", axis="barge_in"))
+    return s
+
+
+def build_structured_utterance(bs):
+    s = []
+    # 1. Pass, phone-number 3-3-4 rhythm: inter-group gaps up to 0.7s, then the
+    #    true turn end; the reference agent waits for the true end.
+    s.append(structured_case(
+        bs, "su-phone-rhythm",
+        "Caller reads a 3-3-4 phone number with inter-group gaps; agent waits (latency PASS)",
+        ["latency", "endpointing", "structured-data", "phone-number"],
+        "structured-utterance",
+        "The caller reads a phone number as three digit groups with inter-group "
+        "gaps up to 0.7s, then truly stops. The agent waits past the true end and "
+        "answers promptly; a gap between digit groups must not read as the caller "
+        "being done.",
+        groups=[(1.6, 2.2), (2.8, 3.4), (4.1, 4.9)], resp_gap=0.35,
+        turn_end_silence_sec=1.1))
+    # 2. Pass, email rhythm: local part, pause, "at", pause, domain in bursts.
+    s.append(structured_case(
+        bs, "su-email-rhythm",
+        "Caller spells an email (local, 'at', domain) with pauses; agent waits (latency PASS)",
+        ["latency", "endpointing", "structured-data", "email"],
+        "structured-utterance",
+        "The caller spells an email address: the local part, a pause, 'at', a "
+        "0.8s pause, then the domain in two bursts, then truly stops. The agent "
+        "waits for the true end; the pause after 'at' must not read as a turn end.",
+        groups=[(1.6, 2.4), (3.0, 3.3), (4.1, 4.5), (4.9, 5.4)], resp_gap=0.35,
+        turn_end_silence_sec=1.1))
+    # 3. Defect, floor grab inside a digit gap.
+    s.append(structured_case(
+        bs, "su-phone-gap-grab",
+        "DEFECT RENDER: agent grabs the floor inside a digit-group gap (latency must FAIL)",
+        ["latency", "endpointing", "structured-data", "phone-number", "bad-agent"],
+        "structured-utterance",
+        "DEFECT RENDER. Identical phone-number caller timings, but the agent "
+        "starts answering inside the gap between the second and third digit "
+        "groups, before the caller has finished the number; a premature grab of "
+        "the floor mid-item.",
+        groups=[(1.6, 2.2), (2.8, 3.4), (4.1, 4.9)], resp_grab_at=3.7,
+        turn_end_silence_sec=1.1, verdict="fail", axis="latency"))
+    # 4. Defect, floor grab after "at" (the email cadence's most tempting pause).
+    s.append(structured_case(
+        bs, "su-email-at-grab",
+        "DEFECT RENDER: agent grabs the floor in the pause after 'at' (latency must FAIL)",
+        ["latency", "endpointing", "structured-data", "email", "bad-agent"],
+        "structured-utterance",
+        "DEFECT RENDER. Identical email caller timings, but the agent starts "
+        "answering in the pause after 'at', before the domain; the most tempting "
+        "pause in the email cadence and a premature grab of the floor mid-item.",
+        groups=[(1.6, 2.4), (3.0, 3.3), (4.1, 4.5), (4.9, 5.4)], resp_grab_at=3.7,
+        turn_end_silence_sec=1.1, verdict="fail", axis="latency"))
+    return s
+
+
+# The one conversation shared by both browser-telephony-parity legs: continuous
+# turn-taking, each caller turn answered ~0.3s later, no agent-side gap at or
+# above the 2.0s scan threshold. The telephony leg silences the agent over
+# _PARITY_SILENCE_WINDOWS, each spanning one caller turn's dead air up to the
+# NEXT surviving agent onset, so the gap the scan reports equals the window.
+_PARITY_CALLER_SEGS = [
+    (1.0, 2.8), (5.4, 7.0), (12.2, 13.8), (19.0, 20.6),
+]
+_PARITY_AGENT_SEGS = [
+    (3.1, 5.1),          # answers caller 1
+    (7.3, 9.3),          # answers caller 2 (silenced on the telephony leg)
+    (9.9, 11.9),         # continues
+    (14.1, 16.1),        # answers caller 3 (silenced on the telephony leg)
+    (16.7, 18.7),        # continues
+    (20.9, 22.9),        # answers caller 4
+]
+_PARITY_SILENCE_WINDOWS = [(7.0, 9.9), (13.8, 16.7)]
+# The long_response_gap candidates `hotato scan` surfaces on each leg at the
+# default 2.0s threshold, filled in empirically by --check and pinned by
+# tests/test_corpus_classes.py within a hop-scale tolerance.
+_PARITY_TELEPHONY_GAPS = [(7.15, 2.75), (13.94, 2.75)]
+
+
+def build_browser_telephony_parity(bs):
+    s = []
+    s.append(parity_case(
+        bs, "btp-clean-browser",
+        "Clean browser-leg render: continuous turn-taking, no agent-side gaps (PASS)",
+        ["parity", "browser", "silence-gap", "scan"],
+        "browser-telephony-parity",
+        "The browser leg of one scripted conversation at 16 kHz: continuous "
+        "turn-taking with the agent answering each caller turn about 0.3s later, "
+        "so a whole-call scan surfaces no long_response_gap candidate at the 2.0s "
+        "threshold. This is the leg that passes.",
+        caller_segs=_PARITY_CALLER_SEGS, agent_segs=_PARITY_AGENT_SEGS,
+        sr=16000, expected_gaps=[]))
+    s.append(parity_case(
+        bs, "btp-telephony-gaps",
+        "DEFECT RENDER: telephony-leg render with silence gaps on the agent channel (must FAIL)",
+        ["parity", "telephony", "silence-gap", "scan", "codec", "packet-loss", "bad-line"],
+        "browser-telephony-parity",
+        "DEFECT RENDER. The identical reference_render timings on the telephony "
+        "leg: G.711 mu-law companding plus packet loss, plus a fixed schedule that "
+        "silences the agent channel over two windows. A whole-call scan surfaces "
+        "exactly those two windows as long_response_gap candidates, while the "
+        "browser leg surfaced none; same scenario, same scan, the divergence is "
+        "the finding. Passes in the browser, fails on the phone line.",
+        caller_segs=_PARITY_CALLER_SEGS, agent_segs=_PARITY_AGENT_SEGS,
+        sr=8000, expected_gaps=_PARITY_TELEPHONY_GAPS,
+        agent_silence_windows_sec=_PARITY_SILENCE_WINDOWS,
+        telephony=True, verdict="fail", axis="latency"))
+    return s
+
+
 BUILDERS = {
     "mid-utterance-pause": build_mid_utterance_pause,
     "backchannel-multilingual": build_backchannel_multilingual,
     "noise-hold": build_noise_hold,
     "telephony-degraded": build_telephony_degraded,
+    "leading-edge-onset": build_leading_edge_onset,
+    "structured-utterance": build_structured_utterance,
+    "browser-telephony-parity": build_browser_telephony_parity,
 }
 
 CLASS_NOTES = {
@@ -332,6 +623,17 @@ CLASS_NOTES = {
     "telephony-degraded": "an existing gold scenario re-rendered through a "
                           "degraded 8 kHz telephony line (mu-law + mild packet "
                           "loss)",
+    "leading-edge-onset": "the caller onset is a short leading burst at the "
+                          "interruption boundary; a dropped-leading-audio defect "
+                          "render is measurable against the ground-truth onset",
+    "structured-utterance": "the caller reads structured data (phone-number digit "
+                            "groups, a spelled email) with intra-item gaps; scored "
+                            "on the latency axis with a widened turn_end_silence_sec "
+                            "so an intra-item pause is not the turn end",
+    "browser-telephony-parity": "one conversation rendered twice: a clean browser "
+                                "leg with no agent-side gaps and a telephony leg "
+                                "(mu-law + packet loss) with a fixed silence-gap "
+                                "schedule, scored by the whole-call scan",
 }
 
 
@@ -343,6 +645,20 @@ def _dump_json(path, obj):
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, indent=2)
         fh.write("\n")
+
+
+def _zero_windows(samples, sample_rate, windows):
+    """Zero fixed ``(start_sec, end_sec)`` windows on a channel: the deterministic
+    agent-side silence-gap schedule used by browser-telephony-parity's telephony
+    leg. Pure stdlib, no randomness, the same on every machine."""
+    out = list(samples)
+    n = len(out)
+    for (s, e) in windows:
+        a = max(0, int(round(s * sample_rate)))
+        b = min(n, int(round(e * sample_rate)))
+        for k in range(a, b):
+            out[k] = 0.0
+    return out
 
 
 def _class_manifest(scenarios):
@@ -382,10 +698,11 @@ def _classes_manifest(all_classes):
     return {
         "generated_by": "corpus/classes/build_classes.py",
         "synthetic": True,
-        "note": "Four corpus scenario classes, additive to corpus/suites/: "
+        "note": "Seven corpus scenario classes, additive to corpus/suites/: "
                 "mid-utterance-pause, backchannel-multilingual, noise-hold, "
-                "telephony-degraded. Every scenario is synthetic shaped noise "
-                "rendered deterministically from its own reference_render "
+                "telephony-degraded, leading-edge-onset, structured-utterance, "
+                "browser-telephony-parity. Every scenario is synthetic shaped "
+                "noise rendered deterministically from its own reference_render "
                 "timings (seed = sha256(id)). No accuracy claim is made or "
                 "implied.",
         "total_scenarios": total,
@@ -414,6 +731,8 @@ def build(root=HERE):
             if sc.get("telephony_degradation"):
                 caller = codec.degrade_telephony(caller, sr)
                 agent = codec.degrade_telephony(agent, sr)
+            if sc.get("agent_silence_windows_sec"):
+                agent = _zero_windows(agent, sr, sc["agent_silence_windows_sec"])
             renderer.write_wav(
                 os.path.join(audio_dir, sc["id"] + ".example.wav"), sr, [caller, agent])
             renderer.write_wav(

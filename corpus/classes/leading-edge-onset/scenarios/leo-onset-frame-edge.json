@@ -1,0 +1,46 @@
+{
+  "id": "leo-onset-frame-edge",
+  "title": "Leading burst on a frame boundary, then the sustained utterance; agent yields (PASS)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "leading-edge",
+    "onset",
+    "frame-boundary"
+  ],
+  "family": "leading-edge-onset",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.0,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.9,
+    "max_talk_over_sec": 1.05
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.4
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.0,
+        2.04
+      ],
+      [
+        4.0,
+        5.5
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The caller takes the floor with a short leading burst (a leading-phoneme analog) placed exactly on a 0.01s frame boundary, then the sustained utterance follows. caller_onset_sec points at the burst; the reference agent yields and the yield is measured from that labeled onset.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

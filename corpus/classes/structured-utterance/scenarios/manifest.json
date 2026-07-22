@@ -1,0 +1,52 @@
+{
+  "scenarios": [
+    {
+      "id": "su-phone-rhythm",
+      "title": "Caller reads a 3-3-4 phone number with inter-group gaps; agent waits (latency PASS)",
+      "category": "latency",
+      "family": "structured-utterance",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/su-phone-rhythm.example.wav",
+      "caller_wav": "audio/su-phone-rhythm.caller.wav"
+    },
+    {
+      "id": "su-email-rhythm",
+      "title": "Caller spells an email (local, 'at', domain) with pauses; agent waits (latency PASS)",
+      "category": "latency",
+      "family": "structured-utterance",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/su-email-rhythm.example.wav",
+      "caller_wav": "audio/su-email-rhythm.caller.wav"
+    },
+    {
+      "id": "su-phone-gap-grab",
+      "title": "DEFECT RENDER: agent grabs the floor inside a digit-group gap (latency must FAIL)",
+      "category": "latency",
+      "family": "structured-utterance",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "fail",
+      "failure_axis": "latency",
+      "example_wav": "audio/su-phone-gap-grab.example.wav",
+      "caller_wav": "audio/su-phone-gap-grab.caller.wav"
+    },
+    {
+      "id": "su-email-at-grab",
+      "title": "DEFECT RENDER: agent grabs the floor in the pause after 'at' (latency must FAIL)",
+      "category": "latency",
+      "family": "structured-utterance",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "fail",
+      "failure_axis": "latency",
+      "example_wav": "audio/su-email-at-grab.example.wav",
+      "caller_wav": "audio/su-email-at-grab.caller.wav"
+    }
+  ]
+}
