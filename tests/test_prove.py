@@ -251,3 +251,20 @@ def test_format_json_prints_the_proof_envelope(tmp_path, capsys):
     assert rc == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed == _read_proof(out)
+
+
+def test_gauntlet_lane_passes_and_counts_the_bundled_suite(tmp_path, capsys):
+    # The gauntlet lane runs the bundled deterministic stress suite through
+    # gauntlet.run_gauntlet itself; on the shipped scorer it passes 10/10, so
+    # the proof is a pass with the suite's own counts as evidence.
+    out = tmp_path / "proofout"
+    rc = cli.main(["prove", "--gauntlet", "--out", str(out)])
+    assert rc == 0
+    capsys.readouterr()
+    proof = _read_proof(out)
+    assert proof["overall"] == "pass"
+    (lane,) = proof["lanes"]
+    assert lane["lane"] == "gauntlet"
+    assert lane["verdict"] == "pass"
+    assert lane["counts"]["total"] == 10
+    assert lane["counts"]["passed"] == 10
