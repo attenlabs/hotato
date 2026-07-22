@@ -91,9 +91,13 @@ deterministic: the same scenario and seed render the same bytes on every run.
 
 ## 5. Prove
 
-One command composes every evidence lane you have into one fail-closed release
-proof: contracts re-verified, suites re-run, before/after movement measured,
-the stress suite cleared. The proof is a content-addressed receipt; CI gates on
+One command composes every evidence lane you have into one fail-closed,
+content-addressed proof: contracts re-verified, suites re-run, before/after
+movement measured, the stress suite cleared. The proof headlines its claim
+scope, exactly what the evidence establishes: contracts alone re-measure stored
+evidence (Captured Evidence), a suite or the stress suite establishes a Test
+Suite ran, and a before/after run reaches Candidate Revision only when you bind
+the candidate identity (`--candidate-config-hash`, `--provider`). CI gates on
 the exit code, and the receipt stays verifiable anywhere.
 
 ```bash

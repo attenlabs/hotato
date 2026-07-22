@@ -107,3 +107,10 @@ exclude docs/saa_behavior_card.py
 exclude tests/test_saa_card.py
 recursive-exclude docs SAA-*.md saa_*.py
 recursive-exclude tests test_saa_*.py
+
+# Rendered showcase reports with base64-embedded audio (~12 MB combined) are
+# documentation artifacts, not runtime dependencies: no code or test reads them.
+# Keep them in git (linked from the corpus READMEs) but exclude them from the
+# shipped sdist so a plain `pip install hotato` is ~0.6 MB instead of ~12 MB.
+exclude corpus/vapi-defaults/sample-report.html
+exclude corpus/real/sample-report.html
