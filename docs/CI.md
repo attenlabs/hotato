@@ -19,7 +19,7 @@ Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
-  Verify the record:  uvx --from hotato==1.15.0 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.15.1 hotato record verify hotato-failure-record/failure-record.json
 ```
 
 Preview it locally, then scaffold the durable gate into your own repository
@@ -43,11 +43,11 @@ offline -- it runs the pinned Action revision itself off PYTHONPATH (no
 pip, no package index), installs no model, no ASR, no Node tool, calls no
 external judge, and reads no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.15.0), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.15.1), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.15.0
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.15.1
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.15.0
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.15.1
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -107,7 +107,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.15.0` | `pip install --no-deps hotato==1.15.0` |
+| an exact version, e.g. `1.15.1` | `pip install --no-deps hotato==1.15.1` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact

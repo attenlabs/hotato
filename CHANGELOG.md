@@ -8,6 +8,25 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-07-22
+
+### Changed
+- **`hotato prove` states its claim scope.** The proof envelope gains
+  `claim_scope` (captured_evidence, test_suite, candidate_revision,
+  deployed_revision) and `evidence_authority`, and the renderer headlines the
+  scope. A contracts-only run reads **Captured Evidence**, not a "release
+  proof"; a before/after run reaches **Candidate Revision** only when the caller
+  binds the candidate identity with `--candidate-config-hash` and `--provider`
+  (and `--deployment-id` for a deployed revision). The proof never claims more
+  than its lanes support. No new scoring engine; this is a calibration.
+- **Corrected three overclaims on the public surfaces.** The package
+  description drops "everything you use a hosted platform for" (the public
+  package has no dataset/prompt management, hosted execution, or team
+  collaboration). The product one-liner is a capability, not an automatic
+  guarantee. `docs/COMPARE.md` replaces the caricature of hosted platforms with
+  an honest property-by-property table that names where a managed platform is
+  the stronger fit.
+
 ## [1.15.0] - 2026-07-22
 
 ### Added
