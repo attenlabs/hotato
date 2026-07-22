@@ -1,0 +1,71 @@
+{
+  "id": "su-phone-gap-grab",
+  "title": "DEFECT RENDER: agent grabs the floor inside a digit-group gap (latency must FAIL)",
+  "category": "latency",
+  "tags": [
+    "latency",
+    "endpointing",
+    "structured-data",
+    "phone-number",
+    "bad-agent"
+  ],
+  "family": "structured-utterance",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.3,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.0,
+    "premature_is_failure": true,
+    "boundary_tolerance_hops": 1,
+    "turn_end_silence_sec": 1.1,
+    "note": "Scored with a ScoreConfig(turn_end_silence_sec=1.10) wider than the widest 0.70s intra-item gap, so a pause between digit groups (or after the email's 'at') is not mistaken for the caller's true turn end. tests/test_corpus_classes.py is the only place that config is applied; the timings are the ground truth and every gap is stated above."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.4
+      ],
+      [
+        3.7,
+        5.2
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        2.2
+      ],
+      [
+        2.8,
+        3.4
+      ],
+      [
+        4.1,
+        4.9
+      ]
+    ],
+    "caller_offset_sec": 4.9,
+    "agent_response_onset_sec": 3.7,
+    "intra_item_gaps_sec": [
+      0.6,
+      0.7
+    ],
+    "max_intra_item_gap_sec": 0.7,
+    "rendered_premature_lead_sec": 1.2
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "latency",
+  "why_it_matters": "DEFECT RENDER. Identical phone-number caller timings, but the agent starts answering inside the gap between the second and third digit groups, before the caller has finished the number; a premature grab of the floor mid-item.",
+  "related_signals": [
+    "premature_start_sec",
+    "did_yield"
+  ]
+}

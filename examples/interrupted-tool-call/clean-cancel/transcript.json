@@ -1,0 +1,26 @@
+[
+  {
+    "role": "caller",
+    "text": "table for four tonight under Rivera",
+    "start": 0.6,
+    "end": 2.9
+  },
+  {
+    "role": "agent",
+    "text": "sure, booking a table for four under Rivera with a twenty dollar deposit",
+    "start": 3.2,
+    "end": 5.8
+  },
+  {
+    "role": "caller",
+    "text": "actually make it seven o'clock",
+    "start": 5.8,
+    "end": 7.2
+  },
+  {
+    "role": "agent",
+    "text": "you're all set: one table for four at seven, twenty dollar deposit taken",
+    "start": 7.6,
+    "end": 11.0
+  }
+]

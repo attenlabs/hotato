@@ -1,0 +1,79 @@
+{
+  "id": "btp-clean-browser",
+  "title": "Clean browser-leg render: continuous turn-taking, no agent-side gaps (PASS)",
+  "category": "should_not_yield",
+  "tags": [
+    "parity",
+    "browser",
+    "silence-gap",
+    "scan"
+  ],
+  "family": "browser-telephony-parity",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 23.3,
+  "caller_onset_sec": 1.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        3.1,
+        5.1
+      ],
+      [
+        7.3,
+        9.3
+      ],
+      [
+        9.9,
+        11.9
+      ],
+      [
+        14.1,
+        16.1
+      ],
+      [
+        16.7,
+        18.7
+      ],
+      [
+        20.9,
+        22.9
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.0,
+        2.8
+      ],
+      [
+        5.4,
+        7.0
+      ],
+      [
+        12.2,
+        13.8
+      ],
+      [
+        19.0,
+        20.6
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The browser leg of one scripted conversation at 16 kHz: continuous turn-taking with the agent answering each caller turn about 0.3s later, so a whole-call scan surfaces no long_response_gap candidate at the 2.0s threshold. This is the leg that passes.",
+  "related_signals": [
+    "long_response_gap",
+    "did_yield"
+  ],
+  "parity": {
+    "leg": "browser",
+    "min_gap_sec": 2.0,
+    "expected_long_response_gaps": []
+  }
+}

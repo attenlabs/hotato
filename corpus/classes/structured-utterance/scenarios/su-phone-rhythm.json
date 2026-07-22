@@ -1,0 +1,69 @@
+{
+  "id": "su-phone-rhythm",
+  "title": "Caller reads a 3-3-4 phone number with inter-group gaps; agent waits (latency PASS)",
+  "category": "latency",
+  "tags": [
+    "latency",
+    "endpointing",
+    "structured-data",
+    "phone-number"
+  ],
+  "family": "structured-utterance",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 7.05,
+  "caller_onset_sec": 1.6,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.7,
+    "max_talk_over_sec": 0.8
+  },
+  "latency_bounds": {
+    "max_response_gap_sec": 1.0,
+    "premature_is_failure": true,
+    "boundary_tolerance_hops": 1,
+    "turn_end_silence_sec": 1.1,
+    "note": "Scored with a ScoreConfig(turn_end_silence_sec=1.10) wider than the widest 0.70s intra-item gap, so a pause between digit groups (or after the email's 'at') is not mistaken for the caller's true turn end. tests/test_corpus_classes.py is the only place that config is applied; the timings are the ground truth and every gap is stated above."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        0.2,
+        1.4
+      ],
+      [
+        5.25,
+        6.75
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.6,
+        2.2
+      ],
+      [
+        2.8,
+        3.4
+      ],
+      [
+        4.1,
+        4.9
+      ]
+    ],
+    "caller_offset_sec": 4.9,
+    "agent_response_onset_sec": 5.25,
+    "intra_item_gaps_sec": [
+      0.6,
+      0.7
+    ],
+    "max_intra_item_gap_sec": 0.7,
+    "rendered_response_gap_sec": 0.35
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The caller reads a phone number as three digit groups with inter-group gaps up to 0.7s, then truly stops. The agent waits past the true end and answers promptly; a gap between digit groups must not read as the caller being done.",
+  "related_signals": [
+    "response_gap_sec",
+    "did_yield"
+  ]
+}

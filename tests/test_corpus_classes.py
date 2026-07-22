@@ -1,7 +1,8 @@
-"""P5: the four corpus scenario CLASSES under corpus/classes/.
+"""P5: the seven corpus scenario CLASSES under corpus/classes/.
 
-mid-utterance-pause, backchannel-multilingual, noise-hold, telephony-degraded:
-13 scenarios, additive to corpus/suites/, built by the SAME deterministic
+mid-utterance-pause, backchannel-multilingual, noise-hold, telephony-degraded,
+leading-edge-onset, structured-utterance, browser-telephony-parity: 22
+scenarios, additive to corpus/suites/, built by the SAME deterministic
 generator pattern (seed = sha256(id), scenario builders reused from
 corpus/suites/build_suites.py, audio rendered by examples/render_examples.py).
 Every scenario is synthetic and says so. Audio is gitignored and regenerates
@@ -374,6 +375,147 @@ def test_telephony_degradation_actually_changes_the_audio():
         # the fixed packet-loss schedule leaves exact-zero windows behind.
         zeroed = sum(1 for x in caller_committed if x == 0.0)
         assert zeroed > 0, sc["id"]
+
+
+# --- structured-utterance: latency axis, widened turn_end_silence_sec -------
+# Same scoring contract as mid-utterance-pause (each fixture states its own
+# turn_end_silence_sec in latency_bounds, always wider than the widest
+# intra-item gap), applied to structured-data cadence: phone-number digit groups
+# and a spelled email, where an intra-item pause must not read as the turn end.
+
+SU_SCENARIOS = (
+    [fn for fn in _scenario_files("structured-utterance")]
+    if "structured-utterance" in CLASS_NAMES else []
+)
+
+
+@pytest.mark.parametrize("fn", SU_SCENARIOS, ids=[f[:-5] for f in SU_SCENARIOS])
+def test_structured_utterance_scores_to_label(fn):
+    _require_audio("structured-utterance")
+    from hotato._engine.score import ScoreConfig
+    from hotato.core import run_single
+
+    sc = _load("structured-utterance", fn)
+    b = sc["latency_bounds"]
+    # the widened config is read straight from the label, never hand-picked, and
+    # is always wider than the widest intra-item gap the scenario renders.
+    assert b["turn_end_silence_sec"] > sc["reference_render"]["max_intra_item_gap_sec"]
+    cfg = ScoreConfig(turn_end_silence_sec=b["turn_end_silence_sec"])
+    env = run_single(
+        stereo=os.path.join(_audio_dir("structured-utterance"), sc["id"] + ".example.wav"),
+        onset_sec=sc["caller_onset_sec"],
+        expect="yield",
+        max_time_to_yield_sec=sc["expected"]["max_time_to_yield_sec"],
+        max_talk_over_sec=sc["expected"]["max_talk_over_sec"],
+        cfg=cfg,
+    )
+    e = env["events"][0]
+    lat = e["signals"]["latency"]
+    hop = e["measurements"]["hop_sec"]
+    tol = b["boundary_tolerance_hops"] * hop + 1e-6
+    rr = sc["reference_render"]
+
+    if "rendered_response_gap_sec" in rr:
+        # the agent waited for the caller's TRUE turn end: no premature start, and
+        # a response gap inside the bound (an intra-item pause was NOT the end).
+        assert lat["premature_start_sec"] == 0.0, (sc["id"], lat)
+        assert lat["response_gap_sec"] is not None, (sc["id"], lat)
+        assert lat["response_gap_sec"] <= b["max_response_gap_sec"] + tol, (sc["id"], lat)
+    else:
+        # the agent grabbed the floor inside an intra-item gap: a premature start
+        # measured against the true turn end.
+        assert lat["premature_start_sec"] is not None and lat["premature_start_sec"] > 0.0, (sc["id"], lat)
+        assert abs(lat["premature_start_sec"] - rr["rendered_premature_lead_sec"]) <= 1.0, (sc["id"], lat)
+
+    premature_fail = b["premature_is_failure"] and lat["premature_start_sec"] not in (None, 0.0)
+    gap_fail = lat["response_gap_sec"] is not None and lat["response_gap_sec"] > b["max_response_gap_sec"]
+    computed_pass = not (premature_fail or gap_fail)
+    assert computed_pass is (sc["reference_verdict"] == "pass"), (sc["id"], lat)
+
+
+# --- leading-edge-onset: barge-in verdict, default config -------------------
+# A real floor take opening with a short leading burst. The two PASS renders
+# yield within the bound measured from the labeled onset; the defect drops the
+# leading burst from the caller channel while the label keeps the ground-truth
+# onset, so the corroborated yield lands at the later utterance and the measured
+# time-to-yield runs past the bound. The agent yields in ALL three (the defect
+# fails on the yield-latency bound, not by never yielding).
+
+@pytest.mark.skipif(
+    "leading-edge-onset" not in CLASS_NAMES, reason="class not built")
+def test_leading_edge_onset_scores_to_label():
+    _require_audio("leading-edge-onset")
+    from hotato.core import run_suite
+
+    env = run_suite(
+        suite="barge-in",
+        scenarios_dir=_scen_dir("leading-edge-onset"),
+        audio_dir=_audio_dir("leading-edge-onset"),
+    )
+    by = {e["scenario_id"]: e for e in env["events"]}
+    for fn in _scenario_files("leading-edge-onset"):
+        sc = _load("leading-edge-onset", fn)
+        e = by[sc["id"]]
+        want_pass = sc["reference_verdict"] == "pass"
+        assert e["verdict"]["passed"] is want_pass, (sc["id"], e["verdict"]["reasons"])
+        assert e["verdict"]["did_yield"] is True, sc["id"]
+
+
+def test_leading_edge_dropped_burst_inflates_time_to_yield():
+    """The defect's mechanism, made explicit: the frame-edge PASS and the
+    dropped-burst DEFECT share identical agent timings, so the only difference is
+    the missing leading burst, and it shows up as a strictly larger measured
+    time-to-yield (the corroborated yield jumps to the later utterance)."""
+    _require_audio("leading-edge-onset")
+    from hotato.core import run_suite
+
+    env = run_suite(
+        suite="barge-in",
+        scenarios_dir=_scen_dir("leading-edge-onset"),
+        audio_dir=_audio_dir("leading-edge-onset"),
+    )
+    by = {e["scenario_id"]: e for e in env["events"]}
+    clean = by["leo-onset-frame-edge"]["verdict"]["seconds_to_yield"]
+    dropped = by["leo-dropped-burst"]["verdict"]["seconds_to_yield"]
+    assert clean is not None and dropped is not None
+    assert dropped > clean
+
+
+# --- browser-telephony-parity: whole-call scan, gap-schedule parity ---------
+# One conversation, two renders. The clean browser leg surfaces zero
+# long_response_gap candidates at the 2.0s threshold; the telephony leg (codec +
+# a fixed agent-silence schedule) surfaces exactly the inserted gaps at their
+# labeled offsets and durations. Same scenario, same scan, the divergence is the
+# finding.
+
+@pytest.mark.skipif(
+    "browser-telephony-parity" not in CLASS_NAMES, reason="class not built")
+def test_browser_telephony_parity_scan():
+    _require_audio("browser-telephony-parity")
+    from hotato.scan import scan_recording
+
+    by_gaps = {}
+    for fn in _scenario_files("browser-telephony-parity"):
+        sc = _load("browser-telephony-parity", fn)
+        path = os.path.join(_audio_dir("browser-telephony-parity"), sc["id"] + ".example.wav")
+        result = scan_recording(path, min_gap_sec=sc["parity"]["min_gap_sec"])
+        gaps = sorted(
+            (c for c in result["candidates"] if c["kind"] == "long_response_gap"),
+            key=lambda c: c["t_sec"],
+        )
+        by_gaps[sc["id"]] = gaps
+        expected = sorted(sc["parity"]["expected_long_response_gaps"], key=lambda g: g["t_sec"])
+        assert len(gaps) == len(expected), (
+            sc["id"], [(c["t_sec"], c["durations"]["gap_sec"]) for c in gaps])
+        for c, want in zip(gaps, expected):
+            assert abs(c["t_sec"] - want["t_sec"]) <= 0.2, (sc["id"], c["t_sec"], want)
+            assert abs(c["durations"]["gap_sec"] - want["gap_sec"]) <= 0.2, (
+                sc["id"], c["durations"]["gap_sec"], want)
+
+    # the parity claim in executable form: the browser leg is clean, the
+    # telephony leg carries the gaps.
+    assert len(by_gaps["btp-clean-browser"]) == 0
+    assert len(by_gaps["btp-telephony-gaps"]) == 2
 
 
 # --- render determinism ------------------------------------------------------

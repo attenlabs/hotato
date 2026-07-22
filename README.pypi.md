@@ -12,13 +12,13 @@
 
 **The local-first AI engineering platform.**
 
-Trace, evaluate, test, and gate any AI agent. On your machine. Nothing leaves it.
+Everything you reach for a hosted platform to do: trace, evaluate, test, and gate your LLM and voice agents, on your own machine. Free at any scale. Byte-reproducible. Nothing leaves it.
 
 **[hotato.dev](https://hotato.dev)**
 
 </div>
 
-Every observability, eval, and agent-testing tool ships your traces, prompts, and calls to someone else's cloud, billed per seat and per event, none of it reproducible. hotato does all of it locally: deterministic, byte-reproducible, free, MIT, CI-native.
+Hosted observability and eval platforms meter your traffic, keep your traces and prompts on their servers, and score your evals with a model, so the number drifts and cannot gate a build. hotato runs the same four jobs (tracing, evals, tests, and CI gates) on your own machine: free and MIT at any scale, byte-for-byte reproducible, and offline by default.
 
 **Catch your first failure in seconds. One command, no account:**
 
@@ -44,6 +44,18 @@ Four planes, one install, nothing leaves your machine.
 Deterministic. Byte-reproducible. Free, MIT. Agent-native over MCP.
 
 Every verdict carries its evidence, scored across five dimensions: outcome, policy, conversation, speech, and reliability.
+
+## Why it is different
+
+Same four jobs a hosted platform runs. Three things it cannot offer.
+
+| | hotato | Hosted platforms |
+| :-- | :-- | :-- |
+| Trace, evaluate, test, gate | yes | yes |
+| Price at scale | free, MIT, any volume | metered per seat and per event |
+| Verdicts | byte-for-byte reproducible, gate a build | vary run to run |
+| Your traces and prompts | stay on your machine | live on their servers |
+| Runs in CI, offline | yes | needs their service |
 
 ## From a bad call to a CI gate
 
