@@ -1,4 +1,4 @@
-"""hotato: the local-first AI engineering platform.
+"""hotato: local-first testing and observability for AI agents.
 
 Trace, evaluate, test, and gate any AI agent on your machine: four planes
 (observe, evaluate, test, gate) over one install. Turn-timing and say-do are
@@ -64,6 +64,6 @@ _register_diarizer_backend("pyannoteai", _build_pyannoteai_backend)
 # absent or can describe a DIFFERENT installed copy than the code executing.
 # tests/test_version_lockstep.py enforces the match; 0.4.0 shipped
 # self-reporting 0.3.1 because nothing did.
-__version__ = "1.14.0"
+__version__ = "1.15.0"
 
 __all__ = ["run_single", "run_suite", "LIMITS", "SUITE_ID", "__version__"]

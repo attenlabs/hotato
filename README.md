@@ -10,17 +10,17 @@
 
 # hotato
 
-**The local-first AI engineering platform.**
+**Local-first testing and observability for AI agents.**
 
-Everything you reach for a hosted platform to do: trace, evaluate, test, and gate your LLM and voice agents, on your own machine. Free at any scale. Byte-reproducible. Nothing leaves it.
+Your evals are green. Your agent still ships bugs they can't see: talk-over, dead air, a tool it swore it ran. hotato catches them on your machine and gates CI so they stay fixed.
 
 **[hotato.dev](https://hotato.dev)**
 
 </div>
 
-Hosted observability and eval platforms meter your traffic, keep your traces and prompts on their servers, and score your evals with a model, so the number drifts and cannot gate a build. hotato runs the same four jobs (tracing, evals, tests, and CI gates) on your own machine: free and MIT at any scale, byte-for-byte reproducible, and offline by default.
+Free, open-source, and deterministic: the same call scores the same way every run, so you can gate a build on it. Your traces and prompts never leave your machine, and there's no per-seat or per-event bill as you scale.
 
-**Catch your first failure in seconds. One command, no account:**
+**Your first catch in seconds. One command, no account:**
 
 ```console
 $ uvx hotato start --demo
@@ -28,38 +28,41 @@ Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
     talk-over     2.66s   the agent kept talking while the caller held the floor
 ```
 
-Your text eval read the words on that call and passed it. The timing failed. hotato scores what the transcript can't see, pins the catch as a CI contract, and reproduces the verdict byte for byte on every machine. It measures timing and say-do, not intent.
+That transcript passed every text eval. The timing did not. hotato pins the catch as a CI contract that reproduces byte for byte, so a fixed bug stays fixed. It measures timing and say-do, not intent.
 
-## What it does
+## The loop
 
-Four planes, one install, nothing leaves your machine.
+Every production failure becomes a portable test, every candidate runs against it, and every release carries evidence. Five steps, one command each, nothing leaves your machine.
 
 | | | |
 | :-- | :-- | :-- |
 | **Observe** | traces, tokens, cost, and latency, from the OTel spans you already emit | `hotato observe report traces/` |
-| **Evaluate** | deterministic assertions plus a separated local-judge lane, no blended score | `hotato assert run` |
-| **Test** | simulate calls, stress-test turn-taking, pin any failure as a fixture | `hotato gauntlet` |
-| **Gate** | content-addressed contracts fail the build on a regression, in CI | `hotato contract verify` |
+| **Catch** | deterministic scoring finds what text evals miss: timing, say-do, policy | `hotato investigate call.wav` |
+| **Pin** | your label turns the catch into a portable, content-addressed contract | `hotato investigate label STATE#1 --expect yield` |
+| **Test** | simulate, stress, and drive candidates against everything you pinned | `hotato gauntlet` |
+| **Prove** | every evidence lane composed into one fail-closed release proof, in CI | `hotato prove --contracts contracts/` |
 
-Deterministic. Byte-reproducible. Free, MIT. Agent-native over MCP.
+Deterministic. Byte-reproducible. Free, MIT. Agent-native over MCP. Every verdict carries its evidence across five dimensions (outcome, policy, conversation, speech, reliability), and production feeds the next loop: `hotato production export-regression` turns a live session back into a test.
 
-Every verdict carries its evidence, scored across five dimensions: outcome, policy, conversation, speech, and reliability.
+The whole loop, command by command: [`docs/LIFECYCLE.md`](docs/LIFECYCLE.md).
 
 ## Why it is different
 
-Same four jobs a hosted platform runs. Three things it cannot offer.
+Same loop a hosted platform runs. Three things it cannot offer.
 
 | | hotato | Hosted platforms |
 | :-- | :-- | :-- |
-| Trace, evaluate, test, gate | yes | yes |
+| Observe, catch, pin, test, prove | yes | yes |
 | Price at scale | free, MIT, any volume | metered per seat and per event |
 | Verdicts | byte-for-byte reproducible, gate a build | vary run to run |
 | Your traces and prompts | stay on your machine | live on their servers |
 | Runs in CI, offline | yes | needs their service |
 
-## From a bad call to a CI gate
+Full comparison: [`docs/COMPARE.md`](docs/COMPARE.md)
 
-One recording in. The pinned failure becomes a gate that stays red until the agent stops failing that call:
+## From a bad call to a release proof
+
+One recording in. The pinned failure becomes a gate that stays red until the agent stops failing that call, and every gate you have composes into one receipt:
 
 ```console
 $ hotato investigate ./call.wav
@@ -69,11 +72,15 @@ $ hotato investigate ./call.wav
 $ hotato investigate label '.hotato/investigate-state.json#1' --expect yield
   created hotato contract: call-8s-yield
 
-$ hotato contract verify contracts/
-  [FAIL] call-8s-yield  0/1 contracts pass; exit_code=1
+$ hotato prove --contracts contracts/
+hotato prove: proof -- overall FAIL (exit 1)
+  lane       verdict  counts
+  contracts  fail     contracts=1 passed=0 failed=1 tampered=0 refused=0
+content_id: sha256:2959c905ee6c1030...
+proof: .hotato/proofs/proof/proof.json
 ```
 
-A contract re-measures the captured failure under the pinned policy on every CI run, the same discipline a snapshot test gives you. Same input, same verdict, byte for byte, on every machine.
+A contract re-measures the captured failure under the pinned policy on every CI run, the same discipline a snapshot test gives you. `hotato prove` composes every lane you have (contracts, suites, before/after batteries, the stress suite) into one fail-closed verdict with a content-addressed receipt: pass only when every lane passed, and "could not tell" is never green.
 
 ## Quickstart
 
@@ -84,8 +91,8 @@ uvx hotato start --demo
 hotato investigate ./call.wav
 # 3. pin the caught moment as a regression contract
 hotato investigate label '.hotato/investigate-state.json#1' --expect yield
-# 4. gate every pull request on it
-hotato contract verify contracts/
+# 4. compose every gate into one release proof, on every pull request
+hotato prove --contracts contracts/
 ```
 
 Keep it with `pipx install hotato`, drive it over MCP with `uvx --from "hotato[mcp]" hotato-mcp`, or walk the path in [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
@@ -102,10 +109,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.14.0
+      - uses: attenlabs/hotato@v1.15.0
         with:
           contracts: contracts/
-          hotato-version: 1.14.0
+          hotato-version: 1.15.0
 ```
 
 Copy-paste workflow with a commit-SHA pin: [`docs/CI.md`](docs/CI.md).

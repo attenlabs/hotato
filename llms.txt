@@ -1,14 +1,15 @@
 # hotato
 
-> The local-first AI engineering platform: everything you use a hosted
+> Local-first testing and observability for AI agents: everything you use a hosted
 > observability or eval platform for, running on your own machine. Trace,
 > evaluate, test, and gate your LLM and voice agents: free and MIT at any scale,
 > byte-reproducible so a verdict can gate a build, and offline by default with
-> nothing leaving your machine. Four planes over one install -- observe
-> (traces, tokens, cost, and latency from your OTel spans), evaluate
-> (deterministic assertions plus a separated local-judge lane), test (simulate,
-> the gauntlet stress suite, robustness), and gate (content-addressed CI
-> contracts). The wedge leads the demo: give it a two-channel recording or a
+> nothing leaving your machine. One loop over one install: observe (traces,
+> tokens, cost, and latency from your OTel spans), catch (deterministic scoring
+> finds what text evals miss), pin (a labeled failure becomes a portable
+> content-addressed contract), test (simulate, drive, and the bundled stress
+> suite), and prove (hotato prove composes every evidence lane into one
+> fail-closed release proof). The wedge leads the demo: give it a two-channel recording or a
 > timestamped transcript and it measures turn timing and say-do evidence -- did
 > the agent yield when the caller took the floor, how fast, how many seconds
 > both talked at once, and did what the agent said match what the backend did.
@@ -35,7 +36,7 @@
 > --format json` regenerates the same command data straight from the CLI's
 > argparse, so it never drifts from the real flags.
 >
-> Version 1.14.0
+> Version 1.15.0
 
 ## Start here
 

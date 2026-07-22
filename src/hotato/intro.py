@@ -76,7 +76,7 @@ def render(*, color: bool = False, width: int | None = None) -> str:
         out.append("")
         out.append(b + e + "hotato" + r + d + "  (a hot potato)" + r)
     out.append("")
-    out.append("  " + b + "The local-first AI engineering platform." + r)
+    out.append("  " + b + "Local-first testing and observability for AI agents." + r)
     out.append("  Trace, evaluate, test, and gate any AI agent, on your machine.")
     out.append("")
     out.append("  " + b + "Try it now." + r + " One command, on your machine:")

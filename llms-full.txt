@@ -14,17 +14,17 @@ FILE: README.md
 
 # hotato
 
-**The local-first AI engineering platform.**
+**Local-first testing and observability for AI agents.**
 
-Everything you reach for a hosted platform to do: trace, evaluate, test, and gate your LLM and voice agents, on your own machine. Free at any scale. Byte-reproducible. Nothing leaves it.
+Your evals are green. Your agent still ships bugs they can't see: talk-over, dead air, a tool it swore it ran. hotato catches them on your machine and gates CI so they stay fixed.
 
 **[hotato.dev](https://hotato.dev)**
 
 </div>
 
-Hosted observability and eval platforms meter your traffic, keep your traces and prompts on their servers, and score your evals with a model, so the number drifts and cannot gate a build. hotato runs the same four jobs (tracing, evals, tests, and CI gates) on your own machine: free and MIT at any scale, byte-for-byte reproducible, and offline by default.
+Free, open-source, and deterministic: the same call scores the same way every run, so you can gate a build on it. Your traces and prompts never leave your machine, and there's no per-seat or per-event bill as you scale.
 
-**Catch your first failure in seconds. One command, no account:**
+**Your first catch in seconds. One command, no account:**
 
 ```console
 $ uvx hotato start --demo
@@ -32,38 +32,41 @@ Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
     talk-over     2.66s   the agent kept talking while the caller held the floor
 ```
 
-Your text eval read the words on that call and passed it. The timing failed. hotato scores what the transcript can't see, pins the catch as a CI contract, and reproduces the verdict byte for byte on every machine. It measures timing and say-do, not intent.
+That transcript passed every text eval. The timing did not. hotato pins the catch as a CI contract that reproduces byte for byte, so a fixed bug stays fixed. It measures timing and say-do, not intent.
 
-## What it does
+## The loop
 
-Four planes, one install, nothing leaves your machine.
+Every production failure becomes a portable test, every candidate runs against it, and every release carries evidence. Five steps, one command each, nothing leaves your machine.
 
 | | | |
 | :-- | :-- | :-- |
 | **Observe** | traces, tokens, cost, and latency, from the OTel spans you already emit | `hotato observe report traces/` |
-| **Evaluate** | deterministic assertions plus a separated local-judge lane, no blended score | `hotato assert run` |
-| **Test** | simulate calls, stress-test turn-taking, pin any failure as a fixture | `hotato gauntlet` |
-| **Gate** | content-addressed contracts fail the build on a regression, in CI | `hotato contract verify` |
+| **Catch** | deterministic scoring finds what text evals miss: timing, say-do, policy | `hotato investigate call.wav` |
+| **Pin** | your label turns the catch into a portable, content-addressed contract | `hotato investigate label STATE#1 --expect yield` |
+| **Test** | simulate, stress, and drive candidates against everything you pinned | `hotato gauntlet` |
+| **Prove** | every evidence lane composed into one fail-closed release proof, in CI | `hotato prove --contracts contracts/` |
 
-Deterministic. Byte-reproducible. Free, MIT. Agent-native over MCP.
+Deterministic. Byte-reproducible. Free, MIT. Agent-native over MCP. Every verdict carries its evidence across five dimensions (outcome, policy, conversation, speech, reliability), and production feeds the next loop: `hotato production export-regression` turns a live session back into a test.
 
-Every verdict carries its evidence, scored across five dimensions: outcome, policy, conversation, speech, and reliability.
+The whole loop, command by command: [`docs/LIFECYCLE.md`](docs/LIFECYCLE.md).
 
 ## Why it is different
 
-Same four jobs a hosted platform runs. Three things it cannot offer.
+Same loop a hosted platform runs. Three things it cannot offer.
 
 | | hotato | Hosted platforms |
 | :-- | :-- | :-- |
-| Trace, evaluate, test, gate | yes | yes |
+| Observe, catch, pin, test, prove | yes | yes |
 | Price at scale | free, MIT, any volume | metered per seat and per event |
 | Verdicts | byte-for-byte reproducible, gate a build | vary run to run |
 | Your traces and prompts | stay on your machine | live on their servers |
 | Runs in CI, offline | yes | needs their service |
 
-## From a bad call to a CI gate
+Full comparison: [`docs/COMPARE.md`](docs/COMPARE.md)
 
-One recording in. The pinned failure becomes a gate that stays red until the agent stops failing that call:
+## From a bad call to a release proof
+
+One recording in. The pinned failure becomes a gate that stays red until the agent stops failing that call, and every gate you have composes into one receipt:
 
 ```console
 $ hotato investigate ./call.wav
@@ -73,11 +76,15 @@ $ hotato investigate ./call.wav
 $ hotato investigate label '.hotato/investigate-state.json#1' --expect yield
   created hotato contract: call-8s-yield
 
-$ hotato contract verify contracts/
-  [FAIL] call-8s-yield  0/1 contracts pass; exit_code=1
+$ hotato prove --contracts contracts/
+hotato prove: proof -- overall FAIL (exit 1)
+  lane       verdict  counts
+  contracts  fail     contracts=1 passed=0 failed=1 tampered=0 refused=0
+content_id: sha256:2959c905ee6c1030...
+proof: .hotato/proofs/proof/proof.json
 ```
 
-A contract re-measures the captured failure under the pinned policy on every CI run, the same discipline a snapshot test gives you. Same input, same verdict, byte for byte, on every machine.
+A contract re-measures the captured failure under the pinned policy on every CI run, the same discipline a snapshot test gives you. `hotato prove` composes every lane you have (contracts, suites, before/after batteries, the stress suite) into one fail-closed verdict with a content-addressed receipt: pass only when every lane passed, and "could not tell" is never green.
 
 ## Quickstart
 
@@ -88,8 +95,8 @@ uvx hotato start --demo
 hotato investigate ./call.wav
 # 3. pin the caught moment as a regression contract
 hotato investigate label '.hotato/investigate-state.json#1' --expect yield
-# 4. gate every pull request on it
-hotato contract verify contracts/
+# 4. compose every gate into one release proof, on every pull request
+hotato prove --contracts contracts/
 ```
 
 Keep it with `pipx install hotato`, drive it over MCP with `uvx --from "hotato[mcp]" hotato-mcp`, or walk the path in [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
@@ -106,10 +113,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.14.0
+      - uses: attenlabs/hotato@v1.15.0
         with:
           contracts: contracts/
-          hotato-version: 1.14.0
+          hotato-version: 1.15.0
 ```
 
 Copy-paste workflow with a commit-SHA pin: [`docs/CI.md`](docs/CI.md).
@@ -6275,7 +6282,7 @@ Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
-  Verify the record:  uvx --from hotato==1.14.0 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.15.0 hotato record verify hotato-failure-record/failure-record.json
 ```
 
 Preview it locally, then scaffold the durable gate into your own repository
@@ -6299,11 +6306,11 @@ offline -- it runs the pinned Action revision itself off PYTHONPATH (no
 pip, no package index), installs no model, no ASR, no Node tool, calls no
 external judge, and reads no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.14.0), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.15.0), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.14.0
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.15.0
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -6325,7 +6332,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.14.0
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.15.0
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -6363,7 +6370,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.14.0` | `pip install --no-deps hotato==1.14.0` |
+| an exact version, e.g. `1.15.0` | `pip install --no-deps hotato==1.15.0` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
@@ -8620,98 +8627,71 @@ PYTHONPATH=src python3 scripts/render_card_assets.py
 FILE: docs/COMPARE.md
 ================================================================================
 
-# Compare: Hotato vs broad QA platforms
+# Compare: hotato vs hosted platforms
 
-Hotato is an open-source, self-hosted conversation-QA system. This page
-maps where it sits next to runtime layers and hosted platforms.
+Local-first testing and observability for AI agents, next to the hosted
+platforms that run the same jobs as a service. The short version: the same
+lifecycle, three structural differences.
 
-**Use Hamming, Cekura, Coval, Bluejay, Roark, Vapi, or Retell for:** broad
-session QA, synthetic simulation, task success, transcript rubrics,
-compliance workflows, production dashboards, load testing.
+## The lifecycle, side by side
 
-**Use Hotato for:** portable failure contracts from live calls,
-local/private timing evidence, CI-enforced regression tests, trace-backed
-turn-taking proof, refusing unsafe threshold bandaids.
+Every step below runs on your machine, from the CLI, with an exit code CI can
+gate on. The right column is what the equivalent step costs on a hosted
+platform, structurally, whoever the vendor is.
 
-**Hotato answers:** "Is the recorded evidence for this exact timing
-failure still intact (every push), and does the CURRENT agent still avoid
-it (on a fresh recapture, [`docs/RECAPTURE.md`](RECAPTURE.md))?"
-**A broad QA platform answers:** "Was the whole call successful?"
-
-The two are complementary. A team running one of those platforms for
-broad QA, or as the agent runtime itself, still needs the narrower answer:
-is the specific talk-over or false-stop moment a caller hit last week
-still fixed after today's prompt change? That is the layer Hotato owns.
-
-## What each platform is built for
-
-Capability descriptions only, sourced from each platform's own public
-launch and product material.
-
-| Platform | Built for |
-|---|---|
-| **Hamming** | Prompt-to-test generation, simulated call batteries, production-replay CI/CD regression |
-| **Cekura** | Production-call ingestion, test-case extraction, simulated scenarios, fleet monitoring, regulated verticals |
-| **Coval** | Voice/chat agent simulation and evaluation, with published testing-approach comparisons |
-| **Bluejay** | Synthetic stress-testing for voice agents at scale |
-| **Roark** | Production-call replay QA, preserving what the caller said, how, and when |
-| **Vapi** | Voice agent orchestration -- the runtime stack you build and deploy your agent on |
-| **Retell** | Voice agent orchestration for building and deploying voice agents |
-
-## Three layers, three jobs
-
-Easy to confuse, so it's worth being exact about which one answers which
-question:
-
-| Job | Best fit | Why |
+| Lifecycle step | hotato | Hosted platforms |
 |---|---|---|
-| Grade the whole call -- QA, transcript rubrics, task success, dashboards | Hamming, Cekura, Coval, Bluejay, Roark, Vapi, Retell | Grades the whole conversation and content, or is the agent platform itself |
-| Catch an interruption live -- predict endpointing, suppress barge-in on noise, tune the turn detector | Pipecat, LiveKit (and similar runtime layers) | Acts *during* the call; Hotato runs *after*, from the recording |
-| Prove one specific timing bug stays fixed, portably, byte-stable, on your machine | Hotato | A private, deterministic fixture -- audio, a human label, an explicit policy -- scored the same way everywhere with `hotato verify`; a fresh recapture ([`docs/RECAPTURE.md`](RECAPTURE.md)) checks whether the live agent still avoids it |
+| **Observe** traces, cost, latency | `hotato observe` on the OTel spans you already emit, locally | your traces live on their servers |
+| **Catch** the failures evals miss | `hotato investigate` / `sweep`: deterministic timing and say-do scoring | model-scored, so the number drifts run to run |
+| **Pin** a failure as a test | `hotato investigate label`: a portable, content-addressed contract | a dataset row inside their account |
+| **Test** candidates against it | `hotato simulate` / `drive` / `gauntlet`, seeded and byte-reproducible | simulation credits, metered per run |
+| **Prove** a release | `hotato prove`: every lane composed into one fail-closed receipt | a dashboard score you cannot re-derive |
+| **Confirm** in production | `hotato production` alerts, exported back into the loop as tests | alerts inside their service |
 
-Run every layer you need. A runtime layer improves the median call. Hotato
-catches evidence and policy drift on every push and, recaptured, shows
-whether a fix holds releases later: freeze the moment a runtime layer got
-wrong with `hotato fixture promote`, fail CI when the frozen evidence
-regresses, and recapture ([`docs/RECAPTURE.md`](RECAPTURE.md)) to check
-the live agent.
+## The three structural differences
 
-## What Hotato is for, precisely
+- **Price at scale.** Free and MIT at any volume. There is no per-seat, per-run,
+  or per-event meter anywhere in the loop.
+- **Verdicts you can gate on.** The same input scores the same way on every
+  machine, byte for byte, so an exit code can block a merge. A judged score
+  that varies run to run cannot.
+- **Your data stays yours.** Recordings, traces, prompts, and backend state
+  never leave your machine, and a contract or proof stays verifiable if you
+  stop using hotato, if the vendor changes, or if the service is down.
 
-- **Private.** Scoring, scanning, reports, fixtures, and verification run
-  offline -- audio stays on your machine unless you explicitly pull it
-  from your own stack. See [THREAT-MODEL.md](THREAT-MODEL.md).
-- **Deterministic under pinned inputs.** The reference backend is
-  rule-based end to end: the same hotato version, audio, channel map,
-  event onset, label, and scoring config always produce the same numbers
-  -- a changed result means a pinned input, policy, or scorer component
-  changed, most commonly the audio itself. Byte-identical re-runs are
-  verified in CI on Linux x86_64, Python 3.10, 3.11, and 3.12:
-  [VALIDATION.md](VALIDATION.md) Job 1.
-- **Portable.** A confirmed failure becomes a labelled fixture (audio,
-  human label, explicit policy) that travels with the repository and
-  verifies the same way anywhere with `hotato verify`, deterministic for
-  a fixed hotato version.
-- **Narrow on purpose.** Three timing signals, and only those: talking
-  over the caller, false-stopping on a backchannel, yielding too slowly.
+## The layer hotato is not
+
+A runtime voice layer (an orchestration platform's endpointing, a turn
+detector, barge-in suppression) acts *during* the call. hotato runs *after*,
+from the recording and the trace: it measures what happened, pins what must not
+happen again, and proves a candidate against it. Run the runtime layer that
+makes your median call good; run hotato so the failure a caller hit last week
+stays fixed on every push. The frozen moment a runtime layer got wrong is
+exactly what `hotato investigate label` pins and `hotato prove` re-verifies.
+
+## What the scoring claims, precisely
+
+- Timing and say-do, not intent: energy over time, tool spans, and post-call
+  state decide verdicts; no output claims emotion or meaning.
+- Two channels or a timestamped transcript in; a mono or mixed export is
+  refused as NOT SCORABLE, never guessed at.
+- Five dimensions (outcome, policy, conversation, speech, reliability), each
+  reported on its own evidence; there is no blended score anywhere.
+- Deterministic checks stay separate from the model-judged rubric lane, which
+  is advisory and local.
+- Determinism is verified in CI: byte-identical re-runs on Linux x86_64,
+  Python 3.10, 3.11, and 3.12 ([VALIDATION.md](VALIDATION.md) Job 1).
 
 ## Every example is scoped to one run
 
-A Hotato example that shows a call failing on a named stack is labelled a
+A hotato example that shows a call failing on a named stack is labelled a
 **provider-default** run: one assistant, one configuration, one date, one
-scripted caller, on that provider's out-of-the-box interruption settings.
-It demonstrates the threshold funnel -- a default config missing an
-interruption and false-stopping on a backchannel in the same battery --
-scoped to that one run. Any stack, tuned, can pass the same fixtures.
-Hotato publishes fixtures and reproduction steps: a record you can run
-yourself, not a scoreboard.
+scripted caller, on that provider's out-of-the-box interruption settings. It
+demonstrates the threshold funnel scoped to that one run. Any stack, tuned, can
+pass the same fixtures. hotato publishes fixtures and reproduction steps: a
+record you can run yourself, not a scoreboard.
 
-## The short version
-
-A QA platform grades the whole call. A runtime layer decides what the
-agent does live. Hotato proves, privately and portably, that a specific
-timing bug from a call is fixed, gates every push on the frozen evidence,
-and recaptures to confirm it still holds on your current agent.
+The full loop, command by command: [`docs/LIFECYCLE.md`](LIFECYCLE.md).
 
 
 ================================================================================
@@ -9802,6 +9782,143 @@ successful local method call.
 
 
 ================================================================================
+FILE: docs/LIFECYCLE.md
+================================================================================
+
+# The hotato lifecycle
+
+Every production failure becomes a portable test, every candidate runs against
+it, and every release carries evidence. That sentence is the whole product; this
+page maps every command onto it.
+
+The loop has five steps you drive, and one that feeds itself:
+
+```text
+OBSERVE -> CATCH -> PIN -> TEST -> PROVE
+   ^                                  |
+   +---------- production ----------- +
+```
+
+Eight nouns carry the loop: a **stack** (the platform your agent runs on), a
+**recording** (one two-channel call), a **trace** (the call's pipeline events,
+from your OTel spans), a **candidate** (a moment hotato flagged for judgment),
+a **label** (your one-word verdict on it), a **contract** (the labeled moment,
+packaged as a byte-reproducible check), a **suite** (a named set of tests run
+together), and a **proof** (every evidence lane composed into one fail-closed
+release verdict).
+
+## 1. Observe
+
+Your calls and traces, on your machine. Nothing leaves it.
+
+| What | Command |
+| :-- | :-- |
+| Store a stack credential once | `hotato connect --stack vapi` |
+| Pull recent recordings in bulk | `hotato pull --stack vapi --since 7d` |
+| Fetch and score one call | `hotato capture --stack vapi --call-id ID` |
+| Capture OTel spans from any process | `hotato observe capture -- <command>` |
+| Ingest an OTel export as a voice trace | `hotato trace ingest --otel spans.json` |
+| Run the durable production evidence store | `hotato production serve` |
+| Score a webhook's completed call | `hotato ingest --stack vapi --event call.json` |
+
+Cost, latency percentiles, and a self-contained dashboard come straight off the
+captured traces: `hotato observe cost`, `hotato observe percentiles`,
+`hotato observe report`.
+
+## 2. Catch
+
+Deterministic scoring finds what text evals miss: talk-over, dead air, slow
+yields, a tool the agent claimed it ran. Five dimensions (outcome, policy,
+conversation, speech, reliability), never one blended score, and every number
+reproduces byte for byte.
+
+| What | Command |
+| :-- | :-- |
+| One recording, ranked candidate moments | `hotato investigate call.wav` |
+| Every recent call on a stack, one sweep | `hotato sweep --stack vapi --since 7d` |
+| A folder of recordings, ranked dashboard | `hotato analyze recordings/` |
+| Is this recording scorable at all | `hotato trust --stereo call.wav` |
+| Why a failing event failed, by layer | `hotato explain result.json` |
+| Cluster failures across many runs | `hotato diagnose --fleet runs/` |
+
+A transcript works when there is no audio (`hotato investigate --transcript
+t.json`), and a chat agent is driven directly (`hotato simulate scenario.json
+--chat URL`). The scorer measures timing and say-do, not intent; a mono or
+mixed export is refused as NOT SCORABLE, never guessed at.
+
+## 3. Pin
+
+You make the one human decision the loop needs: is this candidate a failure the
+agent must never repeat? Your label turns it into a contract: clipped audio,
+frame evidence, the policy it was judged under, and a content address, packaged
+portable. It re-verifies on any machine, with or without hotato's help.
+
+| What | Command |
+| :-- | :-- |
+| Label a candidate, mint the contract | `hotato investigate label STATE#1 --expect yield` |
+| Pin a moment from a sweep | `hotato fixture promote SWEEP.json#2 --expect hold` |
+| File the confirm-or-ignore decision as a GitHub issue | `hotato issue create sweep.json` |
+| Build a contract directly from a moment | `hotato contract create call.wav --onset 2.0 --expect yield` |
+| Review and label at fleet scale | `hotato fleet review` / `hotato fleet label` |
+
+## 4. Test
+
+Run candidates against everything you have pinned, plus scripted callers,
+personas, robustness batteries, and the bundled stress suite. Simulation is
+deterministic: the same scenario and seed render the same bytes on every run.
+
+| What | Command |
+| :-- | :-- |
+| Render a scenario into a scored conversation | `hotato simulate scenario.json --out ./sim` |
+| Drive a live call at a candidate agent | `hotato drive contracts/ID.hotato --stack vapi` |
+| Stress one recording across noise and loss | `hotato battery robustness call.wav` |
+| The bundled turn-taking stress suite | `hotato gauntlet` |
+| A suite of conversation tests, per-dimension | `hotato suite run suite.json` |
+| Before/after across a whole battery | `hotato verify --before old/ --after new/` |
+
+## 5. Prove
+
+One command composes every evidence lane you have into one fail-closed release
+proof: contracts re-verified, suites re-run, before/after movement measured,
+the stress suite cleared. The proof is a content-addressed receipt; CI gates on
+the exit code, and the receipt stays verifiable anywhere.
+
+```bash
+hotato prove --contracts contracts/ --before before/ --after after/ --out .hotato/proofs/v42/
+```
+
+`pass` means every lane passed. Any failure fails the proof; a lane that could
+not support its claim is `inconclusive`, and CI never reads "could not tell" as
+green. The deeper machinery is there when you need it: `hotato fix trial` binds
+a specific patch to its before/after evidence, `hotato apply --clone` stages a
+candidate without touching production, and `hotato record render` turns any
+failure into a share-safe card.
+
+## ...and production feeds the next loop
+
+The deploy is not the end of the loop; it is the next input. The production
+evidence plane watches completed sessions, raises alerts on evidence gaps, and
+exports any session as an offline-verifiable regression candidate, which lands
+back in step 2.
+
+| What | Command |
+| :-- | :-- |
+| Continuous evidence intake | `hotato production serve` / `production ingest` |
+| Alert transitions on session evidence | `hotato production alerts` |
+| A session back into the loop as a test | `hotato production export-regression SESSION` |
+| Canary a config change, roll it back | `hotato fleet canary start` / `rollback` |
+| Team trends over releases | `hotato team` / `hotato release compare` |
+
+## Where the other commands sit
+
+`hotato start`, `demo`, `doctor`, and `init --auto` are onboarding: they walk
+the loop on bundled calls before you spend a minute of your own. `hotato bench`
+and `hotato gauntlet badge` prove the scorer itself. `hotato describe` emits
+the machine-readable manifest a coding agent drives the loop with, and the MCP
+server (`hotato-mcp`) exposes the same loop over stdio.
+
+
+================================================================================
 FILE: docs/LIVEKIT-CALLER-SESSION.md
 ================================================================================
 
@@ -10785,11 +10902,13 @@ FILE: docs/README.md
 
 # hotato docs
 
-The local-first AI engineering platform: trace, evaluate, test, and gate any AI
-agent on your machine. This index maps every doc to the plane it belongs to.
+Local-first testing and observability for AI agents: every production failure
+becomes a portable test, every candidate runs against it, and every release
+carries evidence. This index maps every doc to the step it belongs to.
 
 New here? Start with **[GETTING-STARTED.md](GETTING-STARTED.md)**, then run
-`uvx hotato start --demo`.
+`uvx hotato start --demo`. The whole loop on one page:
+**[LIFECYCLE.md](LIFECYCLE.md)**.
 
 ## Getting started
 
@@ -13011,7 +13130,7 @@ FILE: docs/TRUST-GALLERY.md
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.14.0, offline. The rows
+Every block below is verbatim CLI output from hotato 1.15.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean and echo cases use the bundled examples

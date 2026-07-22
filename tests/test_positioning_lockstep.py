@@ -4,12 +4,13 @@ The TOTAL-QA congruence audit (2026-07-13) found the canonical description split
 across surfaces. test_version_lockstep guards version NUMBERS; this guards the
 POSITIONING COPY so they can never drift apart again.
 
-The invariant (2026-07-21 repositioning, WAVE 1): every user-facing surface
-calls hotato "the local-first AI engineering platform" (trace, evaluate, test,
+The invariant (2026-07-22 repositioning): every user-facing surface calls hotato
+"local-first testing and observability for AI agents" (trace, evaluate, test,
 and gate any AI agent), and NONE of them still leads with a retired narrower
 product definition (turn-taking eval, flight recorder, conversation QA for
-voice agents, or regression testing for voice agents). The turn-taking wedge
-survives as a capability/example, not as the product's identity.
+voice agents, regression testing for voice agents, or the vague "AI engineering
+platform"). The turn-taking wedge survives as a capability/example, not as the
+product's identity.
 """
 import pathlib
 
@@ -28,7 +29,7 @@ _SURFACES = [
 ]
 
 # The canonical positioning phrase every surface must carry.
-_POSITIONING = "ai engineering platform"
+_POSITIONING = "testing and observability for ai agents"
 
 # Retired product DEFINITIONS that must not survive as the lead identity. These
 # are exact product-definition phrases, not the individual words -- "voice",
@@ -39,6 +40,7 @@ _RETIRED = [
     "Offline turn-taking analysis and regression evidence for dual-channel",
     "conversation QA for voice agents",
     "regression testing for voice agents",
+    "AI engineering platform",
 ]
 
 
@@ -53,8 +55,8 @@ def test_every_surface_says_the_platform():
         if _POSITIONING not in full:
             missing.append(rel)
     assert not missing, (
-        "these surfaces no longer call hotato the local-first AI engineering "
-        f"platform (positioning drift): {missing}")
+        "these surfaces no longer carry the positioning 'local-first testing "
+        f"and observability for AI agents' (positioning drift): {missing}")
 
 
 def test_no_surface_leads_with_a_retired_product_definition():
@@ -66,7 +68,7 @@ def test_no_surface_leads_with_a_retired_product_definition():
                 hits.append(f"{rel}: {phrase!r}")
     assert not hits, (
         "a surface still leads with a retired narrow product definition; "
-        f"reposition it to the AI engineering platform: {hits}")
+        f"reposition it to local-first testing and observability for AI agents: {hits}")
 
 
 def test_the_five_dimensions_are_named_consistently():
