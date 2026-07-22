@@ -38,6 +38,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from . import __version__
+from .errors import open_regular
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -105,7 +106,7 @@ def serialize(proof: Dict[str, Any]) -> str:
 
 def _file_sha256(path: str) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as fh:
+    with open_regular(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
     return "sha256:" + h.hexdigest()
