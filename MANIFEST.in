@@ -69,7 +69,7 @@ recursive-include deploy *
 # regenerated deterministically by tests/conftest.py (seed = sha256(id)) when
 # absent; tests that need genuinely-absent heavy real audio skip cleanly.
 recursive-include corpus *.json *.py *.md *.html
-recursive-include examples *.json *.py *.md *.sh *.yaml
+recursive-include examples *.json *.jsonl *.py *.md *.sh *.yaml
 
 # Generated-at-run-time output (gitignored, regenerates on demand) that the
 # include filters above would otherwise sweep up from a working tree where
