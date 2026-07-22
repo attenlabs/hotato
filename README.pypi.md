@@ -34,8 +34,6 @@ Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
 
 That transcript passed every text eval. The timing did not. hotato pins the catch as a CI contract that reproduces byte for byte, so a fixed bug stays fixed. It measures timing and say-do, not intent.
 
-If hotato caught something your evals missed, a [star](https://github.com/attenlabs/hotato) helps other teams find it.
-
 ## The loop
 
 Turn production failures into portable tests, run candidate releases against them, and carry evidence with every release. Five steps, one command each, nothing leaves your machine.
@@ -170,18 +168,10 @@ Timing is measurable only when the two voices arrive on separate channels; a mon
 
 Issues and PRs welcome: [`CONTRIBUTING.md`](https://github.com/attenlabs/hotato/blob/main/CONTRIBUTING.md) &#183; [`SECURITY.md`](https://github.com/attenlabs/hotato/blob/main/SECURITY.md) &#183; [`CHANGELOG`](https://github.com/attenlabs/hotato/blob/main/CHANGELOG.md) &#183; [`docs/`](https://github.com/attenlabs/hotato/blob/main/docs/)
 
-## Star history
-
-<a href="https://star-history.com/#attenlabs/hotato&Date"><img src="https://api.star-history.com/svg?repos=attenlabs/hotato&type=Date" alt="hotato star history" width="600" style="max-width:100%;height:auto;"></a>
-
 ## License
 
 MIT ([`LICENSE`](https://github.com/attenlabs/hotato/blob/main/LICENSE))
 
-<div align="center">
-<sub>If hotato caught something your evals missed, a <a href="https://github.com/attenlabs/hotato">star</a> helps other teams find it.</sub>
-<br>
-<sub>Know when to pass it on.</sub>
-</div>
+<div align="center"><sub>Know when to pass it on.</sub></div>
 
 mcp-name: io.github.attenlabs/hotato

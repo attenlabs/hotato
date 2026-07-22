@@ -848,11 +848,6 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
         event_wav_rel = (f"{contract_info['bundle_rel']}/audio/event.wav"
                          if contract_written else None)
         print(_next_commands_text(event_wav_rel))
-        # One quiet footer on the successful demo path only (never on errors or
-        # other subcommands): a star is how the next team finds this.
-        print("")
-        print("Useful? A star helps other teams find it:  "
-              "github.com/attenlabs/hotato")
     return 0
 
 
