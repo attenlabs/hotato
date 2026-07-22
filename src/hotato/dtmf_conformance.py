@@ -23,7 +23,7 @@ threshold reproduce every energy and every per-digit verdict on any machine.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 __all__ = [
     "DTMF_ROW_FREQS",
