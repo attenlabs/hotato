@@ -28,8 +28,8 @@ Expect exit code 1 (six scenarios fail by design), the `funnel` object
 ending in `battery decision: do_not_tune_single_threshold`. This is the exact
 output pasted in `RESULTS.md`, reproduced live, not retyped.
 
-The visual below is generated from the same real scored envelope (not hand
-drawn): `PYTHONPATH=src python3 corpus/vapi-defaults/render_funnel.py` rebuilds
+The visual below is generated from the same scored envelope:
+`PYTHONPATH=src python3 corpus/vapi-defaults/render_funnel.py` rebuilds
 it from `corpus/vapi-defaults/scenarios/` and `audio/` via the repo's own
 report-timeline renderer.
 

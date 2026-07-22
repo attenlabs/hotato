@@ -765,7 +765,7 @@ to "this is just energy VAD, rebuildable in a weekend."
 - **What it is.** Silero VAD (MIT), run locally/offline. The engine itself keeps
  zero third-party dependencies and never imports a model; the backend is injected
  behind one shared interface, so an open-weight turn-detector (e.g. LiveKit's
- Smart-Turn) can be plugged in the same way later. It returns the **identical**
+ Smart-Turn) can be plugged in the same way. It returns the **identical**
  `VADResult` shape as the energy backend, `active`, `hop_sec`, `threshold_db`,
  `noise_floor_db`, aligned to the same hop grid. A neural model has no dB
  threshold, so `threshold_db` / `noise_floor_db` are **synthesized**: they are the
