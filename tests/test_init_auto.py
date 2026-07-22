@@ -17,6 +17,7 @@ nothing global.
 """
 
 import json
+import sys
 
 import pytest
 
@@ -267,6 +268,13 @@ def test_scaffold_auto_no_recording_uses_demo_baseline(tmp_path):
     assert result["next"][0] == "hotato start --demo"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the printed next-command is a POSIX shell snippet (an `if ... fi` "
+    "guard) for the generated GitHub Actions bash step; cmd.exe cannot parse "
+    "it, and it is never intended to run there. Its exit-0 behaviour is "
+    "exercised on POSIX shells.",
+)
 def test_scaffold_auto_gate_next_command_runs_clean_on_fresh_scaffold(tmp_path):
     """M3: the printed CI-gate next-command must run exit 0 on the scaffold it
     just wrote. A bare ``hotato contract verify contracts`` on the freshly
