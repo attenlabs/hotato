@@ -245,6 +245,12 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build --sdist
 
+      # Crown-jewel packaging guard (2026-07-22 law): .gitignore does NOT keep a
+      # file out of a built sdist, so scan the built artifact fail-closed for any
+      # untracked or internal/secret file before it is trusted or extracted.
+      - name: Scan the built sdist for leaked internal files (fail closed)
+        run: python scripts/check_dist_no_leak.py dist/*.tar.gz
+
       - name: Extract the sdist to a clean directory
         run: |
           mkdir -p "$RUNNER_TEMP/sdist-extract"
