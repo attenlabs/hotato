@@ -1,8 +1,10 @@
 # AGENTS.md
 
-You are an agent evaluating or wiring up **hotato** for a voice agent. This file
-is written to be executed top to bottom. Every command below is offline,
-reversible, and needs no account or key. Prefer the CLI's own contract
+You are an agent evaluating or wiring up **hotato**, the local-first AI
+engineering platform, to trace, evaluate, test, and gate an AI agent (voice,
+chat, or LLM). This file is written to be executed top to bottom. Every command
+below is offline, reversible, and needs no account or key. Prefer the CLI's own
+contract
 (`hotato describe --format json`) over this prose when they disagree.
 
 ## The core loop (run this first)

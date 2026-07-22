@@ -5142,11 +5142,13 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             _get_started_block()
             + "\n\n"
-            "Hotato: self-hosted conversation QA for voice agents. Scores calls "
-            "across five dimensions (outcome, policy, conversation, speech, "
-            "reliability) with the evidence behind every result. Offline. MIT. "
-            "Deterministic checks stay separate from the model-judged rubric; there "
-            "is no blended score and no accuracy percentage."
+            "Hotato: the local-first AI engineering platform. Trace, evaluate, "
+            "test, and gate any AI agent on your machine, with nothing leaving "
+            "it. Scores turn timing and say-do across five dimensions (outcome, "
+            "policy, conversation, speech, reliability) with the evidence behind "
+            "every result. Offline. MIT. Deterministic checks stay separate from "
+            "the model-judged rubric; there is no blended score and no accuracy "
+            "percentage."
         ),
         epilog=(
             "Core commands (the loop above):\n"

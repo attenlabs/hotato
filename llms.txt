@@ -1,15 +1,20 @@
 # hotato
 
-> Deterministic regression testing for voice agents, self-hosted and
-> MIT. Give it a two-channel recording or a timestamped transcript and it
-> measures turn timing and say-do evidence: did the agent yield when the caller
-> took the floor, how fast, how many seconds both talked at once, and did what
-> the agent said match what the backend did. Measures timing and say-do, not
-> intent; a mono or bad export is NOT SCORABLE. Offline, zero-install,
-> deterministic exit 0 pass / 1 regression.
+> The local-first AI engineering platform: trace, evaluate, test, and gate any
+> AI agent on your machine, with nothing leaving it. Deterministic,
+> byte-reproducible, MIT, CI-native. Four planes over one install -- observe
+> (traces, tokens, cost, and latency from your OTel spans), evaluate
+> (deterministic assertions plus a separated local-judge lane), test (simulate,
+> the gauntlet stress suite, robustness), and gate (content-addressed CI
+> contracts). The wedge leads the demo: give it a two-channel recording or a
+> timestamped transcript and it measures turn timing and say-do evidence -- did
+> the agent yield when the caller took the floor, how fast, how many seconds
+> both talked at once, and did what the agent said match what the backend did.
+> Measures timing and say-do, not intent; a mono or bad export is NOT SCORABLE.
+> Offline, zero-install, deterministic exit 0 pass / 1 regression.
 >
-> Open-source, self-hosted conversation QA across five dimensions (outcome,
-> policy, conversation, speech, reliability), MIT and zero-install: catch from
+> Scores across five dimensions (outcome, policy, conversation, speech,
+> reliability), MIT and zero-install: catch from
 > recordings, transcripts, or traces; exercise with personas, chat simulation,
 > and robustness batteries; decide with deterministic assertions and policy
 > packs; gate every pull request. Each caught bug becomes a CI contract and a

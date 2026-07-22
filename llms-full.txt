@@ -12,15 +12,17 @@ FILE: README.md
 <a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=6f5d44" alt="Python versions"></a>
 <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg?branch=main" alt="CI status"></a></p>
 
-# hotato: regression testing for voice agents
+# hotato
+
+**The local-first AI engineering platform.**
+
+Trace, evaluate, test, and gate any AI agent. On your machine. Nothing leaves it.
 
 **[hotato.dev](https://hotato.dev)**
 
 </div>
 
-**Your voice agent is failing real calls. Your tests say it's fine.** Talk-over, dead air, a booking the agent confirmed and the backend never wrote. A text-level eval reads the words; it cannot see the timing.
-
-hotato scores those failures from a two-channel recording or a timestamped transcript, then pins each catch as a CI contract that fails the build until it's fixed. Deterministic, offline, free.
+Every observability, eval, and agent-testing tool ships your traces, prompts, and calls to someone else's cloud, billed per seat and per event, none of it reproducible. hotato does all of it locally: deterministic, byte-reproducible, free, MIT, CI-native.
 
 **Catch your first failure in seconds. One command, no account:**
 
@@ -30,18 +32,22 @@ Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
     talk-over     2.66s   the agent kept talking while the caller held the floor
 ```
 
-It measures turn timing and say-do, not intent.
+Your text eval read the words on that call and passed it. The timing failed. hotato scores what the transcript can't see, pins the catch as a CI contract, and reproduces the verdict byte for byte on every machine. It measures timing and say-do, not intent.
 
 ## What it does
 
-Conversation QA across five dimensions (speech, conversation, outcome, policy, reliability), on your machine. Four things you do with it:
+Four planes, one install, nothing leaves your machine.
 
 | | | |
 | :-- | :-- | :-- |
-| **Catch** | talk-over, dead air, and say-do gaps, from a recording or a transcript | `hotato investigate call.wav` |
+| **Observe** | traces, tokens, cost, and latency, from the OTel spans you already emit | `hotato observe report traces/` |
+| **Evaluate** | deterministic assertions plus a separated local-judge lane, no blended score | `hotato assert run` |
 | **Test** | simulate calls, stress-test turn-taking, pin any failure as a fixture | `hotato gauntlet` |
-| **Gate** | content-addressed contracts fail CI on a regression | `hotato contract verify` |
-| **Observe** | traces, tokens, cost, and latency, derived on your machine | `hotato observe report traces/` |
+| **Gate** | content-addressed contracts fail the build on a regression, in CI | `hotato contract verify` |
+
+Deterministic. Byte-reproducible. Free, MIT. Agent-native over MCP.
+
+Every verdict carries its evidence, scored across five dimensions: outcome, policy, conversation, speech, and reliability.
 
 ## From a bad call to a CI gate
 
@@ -112,6 +118,10 @@ Details: [`docs/CONNECT.md`](docs/CONNECT.md) &#183; [`docs/TRACE.md`](docs/TRAC
 
 Point Claude Code, Cursor, or any coding agent at this repo: it reads [`AGENTS.md`](AGENTS.md) and runs the loop end to end, offline, no key. The MCP server exposes the scorer plus read/verify/propose tools over local stdio ([`docs/MCP.md`](docs/MCP.md)).
 
+## Nothing leaves your machine
+
+hotato runs offline, on the machine that invokes it. The core is stdlib-only Python: no account, no key, no network call of its own. Your traces, prompts, and audio stay local, and the local-judge lane is opt-in and quality-gated, separate from the deterministic core.
+
 ## Specifications
 
 | Property | Value |
@@ -120,7 +130,7 @@ Point Claude Code, Cursor, or any coding agent at this repo: it reads [`AGENTS.m
 | Reproducibility | byte-for-byte, content-addressed contract |
 | Exit contract | `0` pass &#183; `1` fail &#183; `2` refuse |
 | Release integrity | OIDC Trusted Publishing + build-provenance attested |
-| Runtime | offline, off the production audio path |
+| Runtime | offline, off the production data path |
 
 <details>
 <summary><b>Verify the measurement yourself</b></summary>
@@ -143,6 +153,8 @@ Issues and PRs welcome: [`CONTRIBUTING.md`](CONTRIBUTING.md) &#183; [`SECURITY.m
 ## License
 
 MIT ([`LICENSE`](LICENSE))
+
+<div align="center"><sub>Know when to pass it on.</sub></div>
 
 mcp-name: io.github.attenlabs/hotato
 
