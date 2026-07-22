@@ -6,13 +6,17 @@
 <a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/v/hotato?style=flat-square&color=c23c07&label=pypi" alt="PyPI version"></a>
 <a href="https://pypistats.org/packages/hotato"><img src="https://img.shields.io/pypi/dm/hotato?style=flat-square&color=c23c07&label=downloads" alt="Downloads per month"></a>
 <a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=6f5d44" alt="Python versions"></a>
-<a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg?branch=main" alt="CI status"></a></p>
+<a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg?branch=main" alt="CI status"></a>
+<a href="https://github.com/attenlabs/hotato/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/hotato?style=flat-square&color=6f5d44" alt="MIT license"></a></p>
+<!-- Add a stars badge (shields.io github/stars/attenlabs/hotato) here once the repo reaches ~25 stars; below that it advertises the low number. -->
 
 # hotato
 
 **Local-first testing and observability for AI agents.**
 
 Your evals are green. Your agent still ships bugs they can't see: talk-over, dead air, a tool it swore it ran. hotato catches them on your machine and gates CI so they stay fixed.
+
+<img src="https://raw.githubusercontent.com/attenlabs/hotato/main/docs/assets/hotato-demo-cast.svg" alt="uvx hotato start --demo catches a 2.66s talk-over and returns exit 1" width="680" style="max-width:100%;height:auto;">
 
 **[hotato.dev](https://hotato.dev)**
 
@@ -29,6 +33,8 @@ Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
 ```
 
 That transcript passed every text eval. The timing did not. hotato pins the catch as a CI contract that reproduces byte for byte, so a fixed bug stays fixed. It measures timing and say-do, not intent.
+
+If hotato caught something your evals missed, a [star](https://github.com/attenlabs/hotato) helps other teams find it.
 
 ## The loop
 
@@ -164,10 +170,18 @@ Timing is measurable only when the two voices arrive on separate channels; a mon
 
 Issues and PRs welcome: [`CONTRIBUTING.md`](https://github.com/attenlabs/hotato/blob/main/CONTRIBUTING.md) &#183; [`SECURITY.md`](https://github.com/attenlabs/hotato/blob/main/SECURITY.md) &#183; [`CHANGELOG`](https://github.com/attenlabs/hotato/blob/main/CHANGELOG.md) &#183; [`docs/`](https://github.com/attenlabs/hotato/blob/main/docs/)
 
+## Star history
+
+<a href="https://star-history.com/#attenlabs/hotato&Date"><img src="https://api.star-history.com/svg?repos=attenlabs/hotato&type=Date" alt="hotato star history" width="600" style="max-width:100%;height:auto;"></a>
+
 ## License
 
 MIT ([`LICENSE`](https://github.com/attenlabs/hotato/blob/main/LICENSE))
 
-<div align="center"><sub>Know when to pass it on.</sub></div>
+<div align="center">
+<sub>If hotato caught something your evals missed, a <a href="https://github.com/attenlabs/hotato">star</a> helps other teams find it.</sub>
+<br>
+<sub>Know when to pass it on.</sub>
+</div>
 
 mcp-name: io.github.attenlabs/hotato
