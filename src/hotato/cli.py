@@ -612,6 +612,15 @@ _EXIT_CODES: dict = {
             "distinct code, shared with hotato apply, lets a script tell it "
             "apart from a usage error"),
     ),
+    "prove": (
+        (0, "every activated evidence lane passed (contracts, suite, "
+            "before/after, gauntlet -- whichever you activated)"),
+        (1, "fail-closed: at least one lane failed or regressed"),
+        (2, "usage error (zero lanes activated, an incomplete flag pair, "
+            "unusable input) or INCONCLUSIVE (a lane refused or came back "
+            "inconclusive and none failed) -- 'could not tell' is never "
+            "green"),
+    ),
     "loop": (
         (0, "advanced the loop and persisted state (or re-reported where it "
             "left off)"),
@@ -2112,6 +2121,31 @@ def _cmd_fix_trial(args) -> int:
     else:
         print(_fix_trial.render_text(result))
     return result["exit_code"]
+
+
+def _cmd_prove(args) -> int:
+    from . import prove as _prove
+
+    # run_prove raises ValueError (exit 2) BEFORE anything runs or is written
+    # when zero lanes are activated or a flag pair is incomplete.
+    proof = _prove.run_prove(
+        contracts=args.contracts, suite=args.suite, agent=args.agent,
+        before=args.before, after=args.after, min_n=args.min_n,
+        gauntlet=args.gauntlet, name=args.name,
+    )
+    out_dir = args.out or os.path.join(".hotato", "proofs", proof["name"])
+    os.makedirs(out_dir, exist_ok=True)
+    json_path = os.path.join(out_dir, "proof.json")
+    md_path = os.path.join(out_dir, "proof.md")
+    _atomic_write_text(json_path, _prove.serialize(proof))
+    _atomic_write_text(md_path, _prove.render_md(proof))
+    if args.format == "json":
+        print(_errors.safe_json_dumps(proof, indent=2))
+        print(f"wrote {json_path}", file=sys.stderr)
+        print(f"wrote {md_path}", file=sys.stderr)
+    else:
+        print(_prove.render_text(proof, proof_path=json_path), end="")
+    return proof["exit_code"]
 
 
 def _cmd_loop(args) -> int:
@@ -5142,7 +5176,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             _get_started_block()
             + "\n\n"
-            "Hotato: the local-first AI engineering platform. Trace, evaluate, "
+            "Hotato: local-first testing and observability for AI agents. Trace, evaluate, "
             "test, and gate any AI agent on your machine, with nothing leaving "
             "it. Scores turn timing and say-do across five dimensions (outcome, "
             "policy, conversation, speech, reliability) with the evidence behind "
@@ -8938,6 +8972,83 @@ def build_parser() -> argparse.ArgumentParser:
                          "report (verdict, verify proof, contract check, "
                          "and the attribution section)")
     ft.set_defaults(func=_cmd_fix_trial)
+
+    # --- prove: compose the evidence lanes into one release proof -----------
+    pv = sub.add_parser(
+        "prove",
+        help="compose every evidence lane you have (contracts, suite, "
+             "before/after, gauntlet) into one fail-closed, content-addressed "
+             "release proof; exit 0 only when every lane passed",
+        description=(
+            "hotato prove composes the evidence lanes you already ran into "
+            "ONE portable release proof. Each flag activates one lane: "
+            "--contracts re-scores a directory of hotato contracts through "
+            "contract verify's own logic; --suite runs a suite.v1 of "
+            "conversation-tests through the suite runner; --before/--after "
+            "scores the battery rollup through hotato verify (with its "
+            "--min-n refusal); --gauntlet runs the bundled deterministic "
+            "stress suite. It adds no new scoring engine: every number here "
+            "is one contract verify / suite run / verify / gauntlet already "
+            "measures. The verdict is FAIL-CLOSED: overall pass only when "
+            "EVERY activated lane passed; any failed or regressed lane is a "
+            "fail; a refused or inconclusive lane (with none failed) is "
+            "inconclusive and exits non-zero, so CI never reads 'could not "
+            "tell' as green. Zero activated lanes is a usage error: a proof "
+            "of nothing is refused, not an empty pass. It writes "
+            "proof.json (schema hotato.proof.v1) + proof.md; the proof "
+            "carries verdicts, counts, relative input names, and sha256 "
+            "digests only (no transcript text, no audio bytes, no absolute "
+            "paths), plus a content_id computed over the canonical JSON "
+            "without the content_id field, so the same inputs under a "
+            "pinned SOURCE_DATE_EPOCH regenerate the same address."
+        ),
+        epilog=(
+            _exit_codes_epilog("prove") + "\n\n"
+            "Examples:\n"
+            "  hotato prove --contracts contracts/ --gauntlet\n"
+            "  hotato prove --contracts contracts/ --suite ci.suite.yaml "
+            "--agent support-v3\n"
+            "  hotato prove --before before/ --after after/ --min-n 5 "
+            "--name support-v3-rc2 --format json\n"
+            "  hotato prove --contracts contracts/ --out proofs/rc2/"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pv.add_argument("--contracts", default=None, metavar="DIR",
+                    help="contracts lane: re-score a directory of hotato "
+                         "contracts (or one bundle) against each contract's "
+                         "recorded policy, exactly as hotato contract verify "
+                         "does")
+    pv.add_argument("--suite", default=None, metavar="SUITE.json",
+                    help="suite lane: run a suite.v1 of conversation-tests "
+                         "offline through the deterministic suite runner "
+                         "(requires --agent)")
+    pv.add_argument("--agent", default=None, metavar="NAME",
+                    help="agent id the suite lane runs against (required "
+                         "with --suite)")
+    pv.add_argument("--before", default=None, metavar="RUN.json|DIR",
+                    help="before/after lane: the OLD run envelope(s) "
+                         "(requires --after)")
+    pv.add_argument("--after", default=None, metavar="RUN.json|DIR",
+                    help="before/after lane: the NEW run envelope(s) "
+                         "(requires --before)")
+    pv.add_argument("--min-n", type=int, default=3,
+                    help="minimum previously-failing fixtures the "
+                         "before/after lane needs to support its claim "
+                         "(default 3); below it the lane is inconclusive, "
+                         "not a pass")
+    pv.add_argument("--gauntlet", action="store_true",
+                    help="gauntlet lane: run the bundled deterministic "
+                         "turn-taking stress suite")
+    pv.add_argument("--name", default=None, metavar="NAME",
+                    help="name the proof (letters, digits, dot, underscore, "
+                         "hyphen); also the default output directory name "
+                         "(default 'proof')")
+    pv.add_argument("--out", default=None, metavar="DIR",
+                    help="directory for proof.json + proof.md (default "
+                         ".hotato/proofs/<name>/)")
+    _add_format_arg(pv)
+    pv.set_defaults(func=_cmd_prove)
 
     # --- loop: one-command orchestration of the closed loop, with memory ----
     lp = sub.add_parser(

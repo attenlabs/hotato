@@ -50,7 +50,7 @@ _ALL_SUBCOMMANDS = [
     "simulate",
     "compare", "scan", "synth", "battery", "battery robustness",
     "gauntlet", "gauntlet badge", "trust",
-    "ingest", "analyze", "verify", "fix", "fix trial", "loop",
+    "ingest", "analyze", "verify", "fix", "fix trial", "prove", "loop",
     "investigate", "investigate label", "describe",
     "init", "init webhook", "init starter", "init ci",
     "issue", "issue create",

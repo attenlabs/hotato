@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: If you use hotato, please cite it as below.
-title: "hotato: the local-first AI engineering platform"
+title: "hotato: local-first testing and observability for AI agents"
 abstract: >-
   Trace, evaluate, test, and gate any AI agent on your machine, with nothing
   leaving it. Four planes over one install: observe (traces, tokens, cost, and
@@ -15,7 +15,7 @@ type: software
 authors:
   - name: "Attention Labs, Inc."
 license: MIT
-version: 1.14.0
+version: 1.15.0
 date-released: "2026-07-21"
 repository-code: "https://github.com/attenlabs/hotato"
 url: "https://hotato.dev"

@@ -1,10 +1,12 @@
 # hotato docs
 
-The local-first AI engineering platform: trace, evaluate, test, and gate any AI
-agent on your machine. This index maps every doc to the plane it belongs to.
+Local-first testing and observability for AI agents: every production failure
+becomes a portable test, every candidate runs against it, and every release
+carries evidence. This index maps every doc to the step it belongs to.
 
 New here? Start with **[GETTING-STARTED.md](GETTING-STARTED.md)**, then run
-`uvx hotato start --demo`.
+`uvx hotato start --demo`. The whole loop on one page:
+**[LIFECYCLE.md](LIFECYCLE.md)**.
 
 ## Getting started
 
