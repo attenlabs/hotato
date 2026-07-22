@@ -10,17 +10,17 @@
 
 # hotato
 
-**The local-first AI engineering platform.**
+**Local-first testing and observability for AI agents.**
 
-Everything you reach for a hosted platform to do: trace, evaluate, test, and gate your LLM and voice agents, on your own machine. Free at any scale. Byte-reproducible. Nothing leaves it.
+Your evals are green. Your agent still ships bugs they can't see: talk-over, dead air, a tool it swore it ran. hotato catches them on your machine and gates CI so they stay fixed.
 
 **[hotato.dev](https://hotato.dev)**
 
 </div>
 
-Hosted observability and eval platforms meter your traffic, keep your traces and prompts on their servers, and score your evals with a model, so the number drifts and cannot gate a build. hotato runs the same four jobs (tracing, evals, tests, and CI gates) on your own machine: free and MIT at any scale, byte-for-byte reproducible, and offline by default.
+Free, open-source, and deterministic: the same call scores the same way every run, so you can gate a build on it. Your traces and prompts never leave your machine, and there's no per-seat or per-event bill as you scale.
 
-**Catch your first failure in seconds. One command, no account:**
+**Your first catch in seconds. One command, no account:**
 
 ```console
 $ uvx hotato start --demo
@@ -28,7 +28,7 @@ Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
     talk-over     2.66s   the agent kept talking while the caller held the floor
 ```
 
-Your text eval read the words on that call and passed it. The timing failed. hotato scores what the transcript can't see, pins the catch as a CI contract, and reproduces the verdict byte for byte on every machine. It measures timing and say-do, not intent.
+That transcript passed every text eval. The timing did not. hotato pins the catch as a CI contract that reproduces byte for byte, so a fixed bug stays fixed. It measures timing and say-do, not intent.
 
 ## What it does
 

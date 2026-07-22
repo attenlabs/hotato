@@ -1,6 +1,6 @@
 # hotato docs
 
-The local-first AI engineering platform: trace, evaluate, test, and gate any AI
+Local-first testing and observability for AI agents: trace, evaluate, test, and gate any AI
 agent on your machine. This index maps every doc to the plane it belongs to.
 
 New here? Start with **[GETTING-STARTED.md](GETTING-STARTED.md)**, then run

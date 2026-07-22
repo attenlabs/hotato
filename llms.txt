@@ -1,6 +1,6 @@
 # hotato
 
-> The local-first AI engineering platform: everything you use a hosted
+> Local-first testing and observability for AI agents: everything you use a hosted
 > observability or eval platform for, running on your own machine. Trace,
 > evaluate, test, and gate your LLM and voice agents: free and MIT at any scale,
 > byte-reproducible so a verdict can gate a build, and offline by default with

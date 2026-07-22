@@ -1,6 +1,6 @@
 # Contributing to hotato
 
-Thanks for being here. hotato is the local-first AI engineering platform: it simulates,
+Thanks for being here. hotato is local-first testing and observability for AI agents: it simulates,
 evaluates, reviews, and tracks calls across five dimensions (outcome, policy,
 conversation, speech, reliability), with the evidence behind every result.
 Deterministic checks stay separate from the model-judged rubric, and no output is

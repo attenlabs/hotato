@@ -5142,7 +5142,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             _get_started_block()
             + "\n\n"
-            "Hotato: the local-first AI engineering platform. Trace, evaluate, "
+            "Hotato: local-first testing and observability for AI agents. Trace, evaluate, "
             "test, and gate any AI agent on your machine, with nothing leaving "
             "it. Scores turn timing and say-do across five dimensions (outcome, "
             "policy, conversation, speech, reliability) with the evidence behind "
