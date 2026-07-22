@@ -1,8 +1,10 @@
 # hotato
 
-> The local-first AI engineering platform: trace, evaluate, test, and gate any
-> AI agent on your machine, with nothing leaving it. Deterministic,
-> byte-reproducible, MIT, CI-native. Four planes over one install -- observe
+> The local-first AI engineering platform: everything you use a hosted
+> observability or eval platform for, running on your own machine. Trace,
+> evaluate, test, and gate your LLM and voice agents: free and MIT at any scale,
+> byte-reproducible so a verdict can gate a build, and offline by default with
+> nothing leaving your machine. Four planes over one install -- observe
 > (traces, tokens, cost, and latency from your OTel spans), evaluate
 > (deterministic assertions plus a separated local-judge lane), test (simulate,
 > the gauntlet stress suite, robustness), and gate (content-addressed CI
