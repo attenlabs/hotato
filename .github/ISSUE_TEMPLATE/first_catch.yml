@@ -32,10 +32,10 @@ body:
     id: command
     attributes:
       label: Command you ran
-      description: The exact invocation, credentials removed.
+      description: The exact invocation, credentials removed. Optional, but it helps us reproduce.
       placeholder: "hotato investigate --stack vapi --call-id <id>"
     validations:
-      required: true
+      required: false
   - type: textarea
     id: what_was_caught
     attributes:
@@ -68,19 +68,27 @@ body:
         - Gating a branch in CI (contract verify)
         - Still a candidate, deciding
     validations:
-      required: true
+      required: false
   - type: input
     id: version
     attributes:
       label: hotato version
-      description: Output of `hotato --version`.
+      description: Output of `hotato --version`. Optional.
       placeholder: "hotato x.y.z"
     validations:
-      required: true
+      required: false
   - type: checkboxes
     id: share_safe
     attributes:
       label: Share-safe
+      description: The card and the text report carry timings and measurements only. Keep it that way.
       options:
         - label: No audio is attached, and the paste carries no call id, phone number, or name of any call participant.
           required: true
+  - type: markdown
+    attributes:
+      value: >-
+        Thank you. A first catch from a stack we did not operate is the
+        clearest signal this tool works. If it earned a place in your loop,
+        a [star on the repo](https://github.com/attenlabs/hotato) helps the
+        next person find it.

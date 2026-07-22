@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Ask a question or share a catch
+    url: https://github.com/attenlabs/hotato/discussions
+    about: Questions, a moment hotato caught, an integration you wired up, or an idea. Lower friction than an issue, and others can chime in.
   - name: Documentation
     url: https://hotato.dev/docs/
     about: Guides for capture, scoring, CI gating, and the MCP server.

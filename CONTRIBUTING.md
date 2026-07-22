@@ -9,6 +9,20 @@ ever a single blended score.
 Every kind of contribution is welcome. This guide gets your first one merged with
 the least friction, then points you at the contribution that helps most.
 
+## The 30-second contribution
+
+The smallest useful change, start to finish:
+
+- **A one-line doc fix.** A typo, a stale flag, a command that reads wrong.
+  Edit the file on GitHub, open the PR. Done.
+- **A labeled synthetic fixture.** One JSON scenario that stresses a timing
+  edge the suites miss. Copy an existing label under
+  [`corpus/suites/`](corpus/suites/), change the timings, run
+  `python3 corpus/validate.py your_label.json` until it prints PASS.
+
+Both are reviewed quickly and merge without a release. If you have more time,
+read on.
+
 ## Ways to help
 
 Pick whatever fits the time you have:
