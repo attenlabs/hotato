@@ -46,7 +46,7 @@ Path to green: `hotato drive <bundle>` (vapi/twilio) or the manual path in
 ## What it is
 
 hotato turns a failed voice call into a deterministic regression test that lives
-in your repo and reproduces forever: self-hosted conversation QA that measures
+in your repo and reproduces forever: on your own machine it measures
 the timing between the two voices of a recorded call and locks each catch into a
 content-addressed CI contract with a stable pass/fail exit. Give it both channels
 of a recorded call (caller on one channel, agent on the other) and it measures the

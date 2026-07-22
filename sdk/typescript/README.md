@@ -1,6 +1,6 @@
 # @hotato/sdk
 
-Typed TypeScript client for [hotato](https://github.com/attenlabs/hotato) conversation QA. Each call spawns the `hotato` CLI with `--format json` and returns its document parsed into strict interfaces. The CLI's JSON output is the contract: one schema across your terminal, your CI logs, and this SDK. Scoring, reduction, and verification run inside the CLI; the SDK types what it says.
+Typed TypeScript client for [hotato](https://github.com/attenlabs/hotato), the local-first AI engineering platform. Each call spawns the `hotato` CLI with `--format json` and returns its document parsed into strict interfaces. The CLI's JSON output is the contract: one schema across your terminal, your CI logs, and this SDK. Scoring, reduction, and verification run inside the CLI; the SDK types what it says.
 
 ## Install
 

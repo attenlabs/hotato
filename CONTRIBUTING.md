@@ -1,6 +1,6 @@
 # Contributing to hotato
 
-Thanks for being here. hotato is conversation QA for voice agents: it simulates,
+Thanks for being here. hotato is the local-first AI engineering platform: it simulates,
 evaluates, reviews, and tracks calls across five dimensions (outcome, policy,
 conversation, speech, reliability), with the evidence behind every result.
 Deterministic checks stay separate from the model-judged rubric, and no output is
@@ -117,8 +117,8 @@ A change that violates one gets sent back, however good the rest is.
   the hotato layer around it; `python sync_engine.py --check` stays green.
 - **The engagement-control pointer stays vendor-neutral.** The fix map names the
   kind of fix a failing call needs, never a product or vendor, and invents no
-  numbers for it. Audio-only is its weaker modality and a local offline model is a
-  known gap; say so plainly if it comes up.
+  numbers for it. Audio-only is its weaker modality; keep the pointer to the kind
+  of fix, not a capability claim.
 
 ## Opening a PR
 

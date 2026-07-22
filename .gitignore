@@ -95,3 +95,10 @@ hotato-sweep.html
 hotato-no-single-threshold.svg
 hotato-failure-record/
 /contracts/
+
+# Internal SAA artifacts: crown-jewel, never public. Kept out of the public
+# repo durably (not just via local .git/info/exclude). Do not remove.
+docs/SAA-BEHAVIOR-CARD.md
+docs/SAA-FIX-POINTER.md
+docs/saa_behavior_card.py
+tests/test_saa_card.py

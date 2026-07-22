@@ -1,6 +1,6 @@
-# Reference agent — the complete Conversation-QA Foundation 1.3 example
+# Reference agent: the complete hotato example
 
-A self-contained, runnable example of the whole hotato conversation-QA loop,
+A self-contained, runnable example of the whole hotato loop,
 offline. It is a **reference voice agent under test**: 25 realistic jobs, most
 handled correctly and a handful with genuine defects, so the suite surfaces
 failures the way a working QA system does.
@@ -10,14 +10,14 @@ failures the way a working QA system does.
 environments (clean / cafe / street)  =  375 offline simulated runs
 ```
 
-Everything runs through the **deterministic scripted-caller simulator** — no
+Everything runs through the **deterministic scripted-caller simulator**: no
 live agent, no network, no model. Each scenario declares a scripted caller plus
 a deterministic `agent_mock` (tool calls + a post-call state sandbox), so the
 conversation-tests exercise the **outcome** and **policy** authorities offline:
 
-- **Authority 1 — the trace:** `agent_mock.tools` render as `tool_call` spans;
+- **Authority 1 - the trace:** `agent_mock.tools` render as `tool_call` spans;
   `tool_result` / `tool_error` / `sequence` read them, never the agent's words.
-- **Authority 2 — the state sandbox:** `agent_mock.state` is a `{resource: rows}`
+- **Authority 2 - the state sandbox:** `agent_mock.state` is a `{resource: rows}`
   post-call system of record; `state` / `state_change` query it.
 
 A mock is never a live agent: every produced conversation is `origin=simulated`,
@@ -71,37 +71,37 @@ There is no blended or overall score anywhere.
 
 ## The built-in defects
 
-Four jobs carry genuine agent bugs, so the suite reports real failures — the raw
+Four jobs carry genuine agent bugs, so the suite reports real failures - the raw
 material for the failure-cluster view and the production-to-regression flow:
 
-- `refund-claimed-not-issued` — the caller asks for a refund; the agent never calls
+- `refund-claimed-not-issued` - the caller asks for a refund; the agent never calls
   `issue_refund` and the order's `refund_status` stays `none` → **outcome** FAIL
   (`tool_result` + `state`).
-- `identity-skipped-before-lookup` — records looked up before identity is verified
+- `identity-skipped-before-lookup` - records looked up before identity is verified
   → **policy** FAIL (`sequence`).
-- `escalate-not-handed-off` — a manager was requested but no handoff occurred →
+- `escalate-not-handed-off` - a manager was requested but no handoff occurred →
   **policy** FAIL (`handoff`).
-- `payment-declined-handled-wrong` — the charge errored but the flow required no
+- `payment-declined-handled-wrong` - the charge errored but the flow required no
   error → **policy** FAIL (`tool_error`).
 
 The suite therefore exits non-zero, and `hotato serve` clusters these failures by
 observable signature.
 
-## Determinism — what is byte-identical, and what is not
+## Determinism - what is byte-identical, and what is not
 
 Two seeded runs of the reference procedure write **byte-identical conversation
 artifacts** under `./.out`: the `transcript.json` and `trace.jsonl` carry no
 timestamp, and the `conversation.json` manifest's `created_at` defaults to a
 reproducible instant rather than the wall clock. That default follows the
 reproducible-builds [`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
-convention — set `SOURCE_DATE_EPOCH` (integer seconds) to pin a specific instant;
+convention - set `SOURCE_DATE_EPOCH` (integer seconds) to pin a specific instant;
 unset, it is a fixed placeholder (`1970-01-01T00:00:00Z`), never `now()`.
 
 The fleet registry (`./.workspace/fleet.db`) is deliberately **outside** that
 byte-identical claim: it is mutable runtime index state, and its bookkeeping
 columns (every `*_at` timestamp, plus `last_watermark`) are wall-clock. The
 defined comparison for the registry is therefore its **deterministic content with
-those columns excluded** — two seeded runs agree on every id, edge, and
+those columns excluded** - two seeded runs agree on every id, edge, and
 per-dimension verdict, differing only on the excluded runtime clocks. The
 canonicalization and both claims are pinned by
 [`tests/test_determinism_reference.py`](../../tests/test_determinism_reference.py).
