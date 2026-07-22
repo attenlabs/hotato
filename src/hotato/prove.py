@@ -60,6 +60,119 @@ VERDICT_FAIL = "fail"
 VERDICT_INCONCLUSIVE = "inconclusive"
 VERDICT_REFUSED = "refused"
 
+# =========================================================================
+# claim scope + evidence authority: exactly what the proof establishes, and
+# on what strength of evidence. Both fail DOWN -- the proof may never claim
+# more than the activated lanes actually support.
+# =========================================================================
+
+# claim_scope, weakest -> strongest. The proof's scope is the STRONGEST scope
+# any activated lane supports, where each lane's own scope is already capped
+# by the evidence it holds (the before/after lane cannot reach a candidate or
+# deployed revision without the candidate identity bound alongside it).
+SCOPE_CAPTURED_EVIDENCE = "captured_evidence"   # re-measures stored evidence
+SCOPE_TEST_SUITE = "test_suite"                 # a suite/battery executed
+SCOPE_CANDIDATE_REVISION = "candidate_revision"  # bound candidate identity
+SCOPE_DEPLOYED_REVISION = "deployed_revision"    # bound + a deployment id
+CLAIM_SCOPES = (
+    SCOPE_CAPTURED_EVIDENCE,
+    SCOPE_TEST_SUITE,
+    SCOPE_CANDIDATE_REVISION,
+    SCOPE_DEPLOYED_REVISION,
+)
+
+# The base scope each lane can support on its own evidence. The before/after
+# (``verify``) lane is elevated above ``test_suite`` only when the caller also
+# grounds the candidate identity (see :func:`_lane_claim_scope`).
+_LANE_BASE_SCOPE = {
+    "contracts": SCOPE_CAPTURED_EVIDENCE,
+    "suite": SCOPE_TEST_SUITE,
+    "verify": SCOPE_TEST_SUITE,
+    "gauntlet": SCOPE_TEST_SUITE,
+}
+
+# evidence_authority, weakest -> strongest. This release ships only the two
+# lower rungs: every current lane scores deterministically, so it is
+# ``measured``; a future asserted-only lane would be ``asserted``. The upper
+# rungs (paired / runner_authenticated / organization_signed /
+# independently_attested) are NOT claimable yet and are never emitted.
+AUTHORITY_ASSERTED = "asserted"
+AUTHORITY_MEASURED = "measured"
+AUTHORITY_PAIRED = "paired"
+AUTHORITY_RUNNER_AUTHENTICATED = "runner_authenticated"
+AUTHORITY_ORGANIZATION_SIGNED = "organization_signed"
+AUTHORITY_INDEPENDENTLY_ATTESTED = "independently_attested"
+EVIDENCE_AUTHORITIES = (
+    AUTHORITY_ASSERTED,
+    AUTHORITY_MEASURED,
+    AUTHORITY_PAIRED,
+    AUTHORITY_RUNNER_AUTHENTICATED,
+    AUTHORITY_ORGANIZATION_SIGNED,
+    AUTHORITY_INDEPENDENTLY_ATTESTED,
+)
+
+# Every lane in this release scores deterministically -- it MEASURES its
+# verdict rather than asserting it.
+_MEASURING_LANES = frozenset(LANES)
+
+# Human-facing claim-scope titles for the rendered headline.
+SCOPE_TITLE = {
+    SCOPE_CAPTURED_EVIDENCE: "Captured Evidence",
+    SCOPE_TEST_SUITE: "Test Suite",
+    SCOPE_CANDIDATE_REVISION: "Candidate Revision",
+    SCOPE_DEPLOYED_REVISION: "Deployed Revision",
+}
+
+# The one-line description of what a PASS at each scope establishes.
+_SCOPE_PASS_SUBLINE = {
+    SCOPE_CAPTURED_EVIDENCE: "All stored contracts re-measured successfully "
+                             "under their pinned policies.",
+    SCOPE_TEST_SUITE: "A test suite executed and every activated lane passed.",
+    SCOPE_CANDIDATE_REVISION: "The bound candidate revision passed every "
+                              "activated lane.",
+    SCOPE_DEPLOYED_REVISION: "The deployed revision passed every activated "
+                             "lane.",
+}
+
+
+def _lane_claim_scope(lane_name: str, *, candidate_bound: bool,
+                      deployment_bound: bool) -> str:
+    """The scope a single activated lane supports, given whether the caller
+    grounded a candidate revision (config hash + provider) and, on top of
+    that, a deployment id. Only the before/after lane can be elevated; every
+    other lane keeps its base scope."""
+    if lane_name == "verify" and candidate_bound:
+        return SCOPE_DEPLOYED_REVISION if deployment_bound \
+            else SCOPE_CANDIDATE_REVISION
+    return _LANE_BASE_SCOPE[lane_name]
+
+
+def _derive_claim_scope(lanes: List[Dict[str, Any]], *,
+                        candidate_bound: bool,
+                        deployment_bound: bool) -> str:
+    """The proof's overall claim scope: the STRONGEST scope any activated lane
+    supports on its own capped evidence. Contracts-only stays
+    ``captured_evidence`` (adding nothing cannot elevate it); a suite or
+    gauntlet lane establishes that a ``test_suite`` ran; the before/after lane
+    reaches a candidate or deployed revision only with the identity bound."""
+    scopes = [
+        _lane_claim_scope(entry["lane"], candidate_bound=candidate_bound,
+                          deployment_bound=deployment_bound)
+        for entry in lanes
+    ]
+    return max(scopes, key=CLAIM_SCOPES.index)
+
+
+def _derive_evidence_authority(lanes: List[Dict[str, Any]]) -> str:
+    """The strength of the evidence under the claim. Every lane in this
+    release measures deterministically, so any activated lane yields
+    ``measured``; the paired / signed / attested rungs are not claimable yet
+    and a candidate binding does NOT raise this to ``runner_authenticated``
+    (the runner is not authenticated in this release)."""
+    if any(entry["lane"] in _MEASURING_LANES for entry in lanes):
+        return AUTHORITY_MEASURED
+    return AUTHORITY_ASSERTED
+
 EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_INCONCLUSIVE = 2
@@ -295,6 +408,9 @@ def run_prove(
     min_n: int = 3,
     gauntlet: bool = False,
     name: Optional[str] = None,
+    candidate_config_hash: Optional[str] = None,
+    provider: Optional[str] = None,
+    deployment_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run every activated evidence lane through its existing module function
     and compose the results into one ``hotato.proof.v1`` dict (including
@@ -338,6 +454,20 @@ def run_prove(
     overall = _overall(lanes)
     exit_code = {VERDICT_PASS: EXIT_PASS, VERDICT_FAIL: EXIT_FAIL,
                  VERDICT_INCONCLUSIVE: EXIT_INCONCLUSIVE}[overall]
+
+    # The candidate identity binds only when BOTH the config hash and the
+    # provider are supplied; a deployment id elevates only on top of that
+    # binding. Any of the three supplied WITHOUT the before/after lane are
+    # recorded as evidence below but never raise the scope (only the verify
+    # lane reads them).
+    candidate_bound = bool(candidate_config_hash and provider)
+    deployment_bound = candidate_bound and bool(deployment_id)
+    claim_scope = _derive_claim_scope(
+        lanes, candidate_bound=candidate_bound,
+        deployment_bound=deployment_bound,
+    )
+    evidence_authority = _derive_evidence_authority(lanes)
+
     proof = {
         "tool": "hotato",
         "schema_version": SCHEMA_VERSION,
@@ -345,9 +475,25 @@ def run_prove(
         "hotato_version": __version__,
         "created_at": _deterministic_created_at(),
         "lanes": lanes,
+        "claim_scope": claim_scope,
+        "evidence_authority": evidence_authority,
         "overall": overall,
         "exit_code": exit_code,
     }
+    # Share-safe, digest-stable record of any supplied candidate binding. These
+    # are opaque identifiers (a config digest, a provider name, a deployment
+    # id), never paths; they are stored verbatim so the content address covers
+    # them, and only present when at least one was given.
+    binding: Dict[str, Any] = {}
+    if candidate_config_hash is not None:
+        binding["candidate_config_hash"] = candidate_config_hash
+    if provider is not None:
+        binding["provider"] = provider
+    if deployment_id is not None:
+        binding["deployment_id"] = deployment_id
+    if binding:
+        proof["evidence"] = binding
+
     proof["content_id"] = compute_content_id(proof)
     return proof
 
@@ -373,13 +519,32 @@ def _table_rows(proof: Dict[str, Any]) -> List[Dict[str, str]]:
     return rows
 
 
+def _scope_subline(proof: Dict[str, Any]) -> str:
+    """The one line under the headline: what a PASS at this claim scope
+    establishes, or why a non-pass did not establish it."""
+    overall = proof["overall"]
+    if overall == VERDICT_FAIL:
+        return "A lane failed or regressed; see the table."
+    if overall == VERDICT_INCONCLUSIVE:
+        return "A lane refused or came back inconclusive; see the table."
+    return _SCOPE_PASS_SUBLINE[proof["claim_scope"]]
+
+
 def render_text(proof: Dict[str, Any],
                 proof_path: Optional[str] = None) -> str:
-    """The tight per-lane table + overall verdict + content address (+ where
-    the proof landed, when the caller wrote it)."""
+    """The claim-scope headline + one-line subhead, then the tight per-lane
+    table + overall verdict + content address (+ where the proof landed, when
+    the caller wrote it). The headline states exactly what the proof
+    establishes -- e.g. ``Captured Evidence: PASS`` for a contracts-only run,
+    never a bare 'release proof'."""
+    title = SCOPE_TITLE[proof["claim_scope"]]
     lines = [
+        f"{title}: {proof['overall'].upper()}",
+        f"  {_scope_subline(proof)}",
         f"hotato prove: {proof['name']} -- overall "
         f"{proof['overall'].upper()} (exit {proof['exit_code']})",
+        f"  claim_scope: {proof['claim_scope']}  "
+        f"evidence_authority: {proof['evidence_authority']}",
     ]
     rows = _table_rows(proof)
     lane_w = max(len("lane"), *(len(r["lane"]) for r in rows))
@@ -399,8 +564,13 @@ def render_text(proof: Dict[str, Any],
 def render_md(proof: Dict[str, Any]) -> str:
     """proof.md: the same per-lane table, overall verdict, and content
     address as the text rendering, in markdown."""
+    title = SCOPE_TITLE[proof["claim_scope"]]
     lines = [
         f"# hotato proof: {proof['name']}",
+        "",
+        f"## {title}: {proof['overall'].upper()}",
+        "",
+        _scope_subline(proof),
         "",
         f"Overall: **{proof['overall'].upper()}** "
         f"(exit {proof['exit_code']}). Pass requires every activated lane "
@@ -413,6 +583,8 @@ def render_md(proof: Dict[str, Any]) -> str:
         lines.append(f"| {r['lane']} | {r['verdict']} | {r['counts']} |")
     lines += [
         "",
+        f"- claim_scope: {proof['claim_scope']}",
+        f"- evidence_authority: {proof['evidence_authority']}",
         f"- hotato_version: {proof['hotato_version']}",
         f"- created_at: {proof['created_at']}",
         f"- content_id: `{proof['content_id']}`",

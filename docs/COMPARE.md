@@ -4,31 +4,45 @@ Local-first testing and observability for AI agents, next to the hosted
 platforms that run the same jobs as a service. The short version: the same
 lifecycle, three structural differences.
 
-## The lifecycle, side by side
+## Property by property
 
-Every step below runs on your machine, from the CLI, with an exit code CI can
-gate on. The right column is what the equivalent step costs on a hosted
-platform, structurally, whoever the vendor is.
+The hosted platforms (LangSmith, Langfuse, Phoenix, LangWatch, and the
+voice-specific tools) are capable products: many support deterministic code
+evaluators, datasets, experiments, human review, and self-hosting. This table
+compares default properties, not a caricature, and it is honest about where a
+managed platform is the stronger fit.
 
-| Lifecycle step | hotato | Hosted platforms |
+| Property | hotato default | Typical managed deployment |
 |---|---|---|
-| **Observe** traces, cost, latency | `hotato observe` on the OTel spans you already emit, locally | your traces live on their servers |
-| **Catch** the failures evals miss | `hotato investigate` / `sweep`: deterministic timing and say-do scoring | model-scored, so the number drifts run to run |
-| **Pin** a failure as a test | `hotato investigate label`: a portable, content-addressed contract | a dataset row inside their account |
-| **Test** candidates against it | `hotato simulate` / `drive` / `gauntlet`, seeded and byte-reproducible | simulation credits, metered per run |
-| **Prove** a release | `hotato prove`: every lane composed into one fail-closed receipt | a dashboard score you cannot re-derive |
-| **Confirm** in production | `hotato production` alerts, exported back into the loop as tests | alerts inside their service |
+| Raw evidence location | your local filesystem or VPC | the vendor's service |
+| Price at scale | free and MIT, any volume | metered per seat, run, or event |
+| Deterministic timing lane (turn-taking, say-do) | built in | varies by platform |
+| Content-addressed contracts + release proofs | built in | platform-specific |
+| Offline verification, no service dependency | built in | often service-dependent |
+| Model-judge lane | separate and advisory by default | commonly integrated into the score |
+| Hosted parallel execution at scale | you operate it | managed by the vendor |
+| Persistent trace search, datasets, prompt management | limited | commonly built in |
+| Team collaboration, roles, review queues | local workspace | mature hosted collaboration |
 
-## The three structural differences
+## Where hotato is the clear pick
 
-- **Price at scale.** Free and MIT at any volume. There is no per-seat, per-run,
-  or per-event meter anywhere in the loop.
-- **Verdicts you can gate on.** The same input scores the same way on every
-  machine, byte for byte, so an exit code can block a merge. A judged score
-  that varies run to run cannot.
 - **Your data stays yours.** Recordings, traces, prompts, and backend state
   never leave your machine, and a contract or proof stays verifiable if you
   stop using hotato, if the vendor changes, or if the service is down.
+- **Verdicts you can gate on.** The deterministic lanes score the same input
+  the same way on every machine, byte for byte, so an exit code can block a
+  merge. A model-judged score that varies run to run cannot.
+- **Free at any volume.** No per-seat, per-run, or per-event meter anywhere.
+
+## Where a managed platform may fit better
+
+A hosted platform is often the faster path if you need mature multi-user
+collaboration, a persistent searchable trace explorer with saved views,
+built-in dataset and prompt management, or vendor-operated execution at high
+concurrency. hotato is deliberately local and CLI-first; those surfaces are
+limited today. The two compose: point a hosted platform's OTel export at
+`hotato trace ingest` and keep the deterministic test and release-evidence
+layer on your own machine.
 
 ## The layer hotato is not
 
