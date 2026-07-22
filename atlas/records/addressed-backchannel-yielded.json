@@ -164,7 +164,7 @@
     "provenance": {
       "hotato": {
         "name": "hotato",
-        "version": "1.13.0"
+        "version": "1.13.1"
       },
       "inputs": [
         {
@@ -196,7 +196,7 @@
       ],
       "source_result_digest": "sha256:7a691d5993389b47f2b43b7afbe7316bbb0d662e703fa0f8a82e39b93b052c08"
     },
-    "record_id": "sha256:37be2d2c7f60fe0e74c5e905e1f085fececda7b6b4d6fb7fc26fdb4ea5e40869",
+    "record_id": "sha256:536baf90cbe194a773dbed50ef9350c310535b02e78230f3b82e0cdc65122a04",
     "reproduction": {
       "argv": [
         "hotato",
@@ -222,7 +222,7 @@
     "version": "1.0"
   },
   "reproduction_metadata": {
-    "hotato_version": "1.13.0",
+    "hotato_version": "1.13.1",
     "reviewer_principal": "hotato-examples",
     "working_directory": ".",
     "bundle": {
@@ -240,7 +240,7 @@
     "verify_output": "verify.json",
     "selector": "fd-02-backchannel-yielded",
     "record_out": "record",
-    "expected_record_id": "sha256:37be2d2c7f60fe0e74c5e905e1f085fececda7b6b4d6fb7fc26fdb4ea5e40869"
+    "expected_record_id": "sha256:536baf90cbe194a773dbed50ef9350c310535b02e78230f3b82e0cdc65122a04"
   },
   "supersedes": {
     "record_id": "sha256:6c5e0e6de73004d8683c0987812d849c46fa9f9f8f204eb4da71e600b636e3a0",
@@ -268,8 +268,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-02-backchannel-yielded --out record",
-      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:37be2d2c7f60fe0e74c5e905e1f085fececda7b6b4d6fb7fc26fdb4ea5e40869\n"
+      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:536baf90cbe194a773dbed50ef9350c310535b02e78230f3b82e0cdc65122a04\n"
     }
   ],
-  "content_digest": "sha256:837e65a72943f290d1a7b3967ffdbebc444ea897d214caeec7857a942d505697"
+  "content_digest": "sha256:b2c4b6246e32cfbc729fe45ff074880aa13adfd012c8c42c3a0b19168050e155"
 }

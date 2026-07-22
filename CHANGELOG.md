@@ -8,6 +8,39 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-07-21
+
+### Fixed
+- **`run --stereo` no longer fabricates a FAIL on byte-identical channels.** A
+  recording whose two channels carry the same signal (a channel compared to
+  itself) now routes through the same **NOT SCORABLE** refusal (exit 2) that
+  `trust` and `investigate` use, before any timing number is emitted. Eligible
+  recordings stay byte-identical.
+- **The transcript scorer refuses adversarial timestamps up front.** A negative
+  timestamp (which indexed before frame 0 and crashed the scorer) and a mistyped
+  huge `end` (e.g. `50000`s, which built an unbounded per-hop timeline) now each
+  return a clean usage error (exit 2) instead of a traceback or a runaway
+  allocation.
+- **`investigate label --expect yield` on a talk-over catch gates red, as the
+  docs promise.** A caught talk-over above the 1.0s prompt-yield ceiling
+  auto-pins `max_talk_over_sec`, so the contract fails the build (exit 1) on the
+  captured magnitude; prompt-scale yields stay green, and an explicit
+  `--max-talk-over` still wins.
+- **`init --auto` prints a verify command that works on its own scaffold.** The
+  suggested next command is now the same shell-guarded no-op the generated CI job
+  runs, so it succeeds on a freshly scaffolded, empty contracts directory.
+
+### Changed
+- **The bundled missed-interruption demo is an audible barge-in.** The `fd-01`
+  demo clip is a deterministically-synthesized two-channel barge-in in which the
+  caller takes the floor at 2.0s and the agent talks over them for a measured
+  2.65s. It is labeled as a synthesized fixture, and the demo report, SDK
+  fixtures, and docs report the same measured numbers.
+- **Voice-first README and docs; refreshed PyPI page.** The README is streamlined
+  to the voice-first identity (pain-led hero, a four-plane Catch / Test / Gate /
+  Observe table, a tight quickstart and CI block), and the PyPI long-description
+  and `llms` surfaces are regenerated to match.
+
 ## [1.13.0] - 2026-07-21
 
 ### Added
