@@ -1,0 +1,28 @@
+{
+  "scenarios": [
+    {
+      "id": "btp-clean-browser",
+      "title": "Clean browser-leg render: continuous turn-taking, no agent-side gaps (PASS)",
+      "category": "should_not_yield",
+      "family": "browser-telephony-parity",
+      "sample_rate": 16000,
+      "expected_yield": false,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/btp-clean-browser.example.wav",
+      "caller_wav": "audio/btp-clean-browser.caller.wav"
+    },
+    {
+      "id": "btp-telephony-gaps",
+      "title": "DEFECT RENDER: telephony-leg render with silence gaps on the agent channel (must FAIL)",
+      "category": "should_not_yield",
+      "family": "browser-telephony-parity",
+      "sample_rate": 8000,
+      "expected_yield": false,
+      "reference_verdict": "fail",
+      "failure_axis": "latency",
+      "example_wav": "audio/btp-telephony-gaps.example.wav",
+      "caller_wav": "audio/btp-telephony-gaps.caller.wav"
+    }
+  ]
+}

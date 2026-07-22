@@ -1,17 +1,21 @@
 cff-version: 1.2.0
 message: If you use hotato, please cite it as below.
-title: "hotato: open-source, self-hosted conversation QA for voice agents"
+title: "hotato: the local-first AI engineering platform"
 abstract: >-
-  Simulate, evaluate, review, and track voice-agent conversations across
-  five dimensions (outcome, policy, conversation, speech, reliability) with
-  the evidence behind every result. Self-hosted and offline by default;
-  deterministic checks stay separate from the model-judged rubric lane; no
-  blended score. Freeze any failing call into a CI-gating regression.
+  Trace, evaluate, test, and gate any AI agent on your machine, with nothing
+  leaving it. Four planes over one install: observe (traces, tokens, cost, and
+  latency from your OpenTelemetry spans), evaluate (deterministic assertions
+  plus a separated local-judge lane), test (simulation and a turn-taking stress
+  suite), and gate (content-addressed CI contracts). Turn-timing and say-do are
+  scored across five dimensions (outcome, policy, conversation, speech,
+  reliability) with the evidence behind every result. Self-hosted and offline
+  by default; deterministic checks stay separate from the model-judged rubric
+  lane; no blended score. Freeze any failing run into a CI-gating regression.
 type: software
 authors:
   - name: "Attention Labs, Inc."
 license: MIT
-version: 1.13.0
+version: 1.14.0
 date-released: "2026-07-21"
 repository-code: "https://github.com/attenlabs/hotato"
 url: "https://hotato.dev"

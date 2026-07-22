@@ -69,7 +69,7 @@ recursive-include deploy *
 # regenerated deterministically by tests/conftest.py (seed = sha256(id)) when
 # absent; tests that need genuinely-absent heavy real audio skip cleanly.
 recursive-include corpus *.json *.py *.md *.html
-recursive-include examples *.json *.py *.md *.sh *.yaml
+recursive-include examples *.json *.jsonl *.py *.md *.sh *.yaml
 
 # Generated-at-run-time output (gitignored, regenerates on demand) that the
 # include filters above would otherwise sweep up from a working tree where
@@ -96,3 +96,14 @@ include corpus/examples/sample-contribution.example.wav
 recursive-include atlas *.json
 
 global-exclude __pycache__ *.py[cod]
+
+# Internal SAA artifacts: crown-jewel, never public. They are on disk but
+# gitignored, and the broad `recursive-include docs *` above would otherwise
+# sweep them into the sdist (MANIFEST is independent of git). Exclude them
+# explicitly, plus a defensive pattern, so they can never ship to PyPI.
+exclude docs/SAA-BEHAVIOR-CARD.md
+exclude docs/SAA-FIX-POINTER.md
+exclude docs/saa_behavior_card.py
+exclude tests/test_saa_card.py
+recursive-exclude docs SAA-*.md saa_*.py
+recursive-exclude tests test_saa_*.py

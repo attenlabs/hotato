@@ -1,0 +1,46 @@
+{
+  "id": "leo-onset-sweep",
+  "title": "Leading burst shifted off the frame boundary; measurement stable (PASS)",
+  "category": "should_yield",
+  "tags": [
+    "interruption",
+    "leading-edge",
+    "onset",
+    "boundary-sweep"
+  ],
+  "family": "leading-edge-onset",
+  "source_type": "synthetic",
+  "sample_rate": 16000,
+  "duration_sec": 6.0,
+  "caller_onset_sec": 2.03,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.9,
+    "max_talk_over_sec": 1.05
+  },
+  "reference_render": {
+    "agent_segments_sec": [
+      [
+        0.2,
+        2.43
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        2.03,
+        2.07
+      ],
+      [
+        4.03,
+        5.53
+      ]
+    ]
+  },
+  "reference_verdict": "pass",
+  "why_it_matters": "The identical leading-burst shape as leo-onset-frame-edge, translated 0.03s so the burst starts off the frame boundary. The yield still measures from the labeled onset to the same value; onset position on the frame grid must not move the measurement.",
+  "related_signals": [
+    "did_yield",
+    "time_to_yield",
+    "talk_over"
+  ]
+}

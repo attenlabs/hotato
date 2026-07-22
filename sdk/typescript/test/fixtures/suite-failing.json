@@ -34,14 +34,14 @@
     {
       "event_id": "fd-01-missed-interruption",
       "scenario_id": "fd-01-missed-interruption",
-      "title": "Real call: half-volume 'sorry, one second' is ignored (Vapi defaults)",
+      "title": "Bad-agent demo: the agent talks straight over an addressed 2.0s interruption (should yield, did not)",
       "category": "should_yield",
       "expected_yield": true,
       "verdict": {
         "passed": false,
         "did_yield": false,
         "seconds_to_yield": null,
-        "talk_over_sec": 0.25,
+        "talk_over_sec": 2.65,
         "reasons": [
           "expected the agent to yield but it kept talking"
         ]
@@ -63,15 +63,15 @@
         "barge_in": {
           "did_yield": false,
           "time_to_yield_sec": null,
-          "talk_over_sec": 0.25
+          "talk_over_sec": 2.65
         },
         "latency": {
-          "response_gap_sec": 2.18,
-          "premature_start_sec": 0.0
+          "response_gap_sec": null,
+          "premature_start_sec": null
         },
         "echo": {
-          "coherence": 0.236,
-          "lag_sec": 0.08,
+          "coherence": 0.572,
+          "lag_sec": 0.31,
           "echo_suspected": false
         }
       },
@@ -89,16 +89,16 @@
       },
       "audio_provenance": {
         "schema_version": "1",
-        "sha256": "7aea3b66d214a79a57c439c79404398c999fb1c93e83543d11d17efa1210731f",
+        "sha256": "d492a51b53ff2c4f153db02753c89464e0c7f9c8525bab4132e507de651989b1",
         "sides": [
           {
             "role": "stereo",
             "path": "fd-01-missed-interruption.example.wav",
-            "sha256": "7aea3b66d214a79a57c439c79404398c999fb1c93e83543d11d17efa1210731f",
-            "pcm_sha256": "672179bb981cd772fe36ddcb1c27758984445e427298ebf9d2d5599621d0cfc9",
+            "sha256": "d492a51b53ff2c4f153db02753c89464e0c7f9c8525bab4132e507de651989b1",
+            "pcm_sha256": "4dd8595b90fb53de41985d597027728dc8b1e06f9946a6b88f631019cf875062",
             "sample_rate": 16000,
-            "num_samples": 128000,
-            "duration_sec": 8.0
+            "num_samples": 104000,
+            "duration_sec": 6.5
           }
         ]
       },

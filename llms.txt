@@ -1,15 +1,22 @@
 # hotato
 
-> Deterministic regression testing for voice and chat agents, self-hosted and
-> MIT. Give it a two-channel recording or a timestamped transcript and it
-> measures turn timing and say-do evidence: did the agent yield when the caller
-> took the floor, how fast, how many seconds both talked at once, and did what
-> the agent said match what the backend did. Measures timing and say-do, not
-> intent; a mono or bad export is NOT SCORABLE. Offline, zero-install,
-> deterministic exit 0 pass / 1 regression.
+> The local-first AI engineering platform: everything you use a hosted
+> observability or eval platform for, running on your own machine. Trace,
+> evaluate, test, and gate your LLM and voice agents: free and MIT at any scale,
+> byte-reproducible so a verdict can gate a build, and offline by default with
+> nothing leaving your machine. Four planes over one install -- observe
+> (traces, tokens, cost, and latency from your OTel spans), evaluate
+> (deterministic assertions plus a separated local-judge lane), test (simulate,
+> the gauntlet stress suite, robustness), and gate (content-addressed CI
+> contracts). The wedge leads the demo: give it a two-channel recording or a
+> timestamped transcript and it measures turn timing and say-do evidence -- did
+> the agent yield when the caller took the floor, how fast, how many seconds
+> both talked at once, and did what the agent said match what the backend did.
+> Measures timing and say-do, not intent; a mono or bad export is NOT SCORABLE.
+> Offline, zero-install, deterministic exit 0 pass / 1 regression.
 >
-> Open-source, self-hosted conversation QA across five dimensions (outcome,
-> policy, conversation, speech, reliability), MIT and zero-install: catch from
+> Scores across five dimensions (outcome, policy, conversation, speech,
+> reliability), MIT and zero-install: catch from
 > recordings, transcripts, or traces; exercise with personas, chat simulation,
 > and robustness batteries; decide with deterministic assertions and policy
 > packs; gate every pull request. Each caught bug becomes a CI contract and a
@@ -28,7 +35,7 @@
 > --format json` regenerates the same command data straight from the CLI's
 > argparse, so it never drifts from the real flags.
 >
-> Version 1.13.0
+> Version 1.14.0
 
 ## Start here
 
@@ -444,9 +451,10 @@ it, never whether the policy itself was right.
   labeled indicative below the confidence bar and never equal to a true
   dual-channel measurement.
 - The bundled barge-in SUITE fixtures are synthetic: a deterministic floor and
-  a regression guard. The `hotato demo` battery, by contrast, is two real
-  operator-recorded calls (MIT-licensed). Real validity comes from your own
-  labelled calls.
+  a regression guard. The `hotato demo` battery, by contrast, is two bundled
+  calls -- one deterministically-synthesized talk-over (fd-01) and one
+  operator-recorded Vapi-defaults call (fd-02), both MIT-licensed. Validity for
+  your agent comes from your own labelled calls.
 
 ## Links
 
@@ -477,7 +485,7 @@ it, never whether the policy itself was right.
   "eligible for scan" or "NOT SCORABLE" with the reason, never a turn-taking verdict.
 - docs/CONNECT.md: `hotato connect` / `pull` / `sweep`, the connect-once bulk
   pull-and-analyze recipe across your real calls, with per-stack credentials.
-- docs/ADAPTER-STATUS.md: the honest per-stack map -- auto-pull dual-channel,
+- docs/ADAPTER-STATUS.md: the per-stack map -- auto-pull dual-channel,
   mono-only (`--allow-mono`), capture-in-your-infra, not integrable, and
   unconfirmed -- each with the exact verified endpoint.
 - docs/STARTER.md: `hotato init starter`, the one-command CI gate +

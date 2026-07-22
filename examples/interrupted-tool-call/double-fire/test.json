@@ -1,0 +1,44 @@
+{
+  "kind": "hotato.conversation-test",
+  "version": 1,
+  "id": "interrupted-tool-call-double-fire",
+  "agent": "reservation-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "under Rivera",
+        "role": "caller",
+        "dimension": "conversation"
+      },
+      {
+        "id": "barge-in-landed",
+        "kind": "count",
+        "span_type": "tts_cancel_requested",
+        "count": {"min": 1},
+        "dimension": "speech"
+      },
+      {
+        "id": "booked-exactly-once",
+        "kind": "tool_call",
+        "name": "book_table",
+        "count": {"max": 1},
+        "dimension": "outcome"
+      },
+      {
+        "id": "reservation-committed-once",
+        "kind": "state",
+        "resource": "reservations",
+        "filters": {"guest": "rivera"},
+        "expect": {"status": "booked", "deposit": 20, "holds": 1, "active": true},
+        "dimension": "outcome"
+      }
+    ]
+  },
+  "repetitions": 1,
+  "success": {
+    "required": ["all_deterministic_assertions_pass"],
+    "report_dimensions": ["outcome", "conversation", "speech"]
+  }
+}

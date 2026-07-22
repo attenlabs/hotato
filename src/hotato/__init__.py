@@ -1,7 +1,9 @@
-"""hotato: open-source, self-hosted conversation QA for voice agents.
+"""hotato: the local-first AI engineering platform.
 
-Simulate, evaluate, review, and track calls across five dimensions (outcome,
-policy, conversation, speech, reliability) with the evidence behind every result.
+Trace, evaluate, test, and gate any AI agent on your machine: four planes
+(observe, evaluate, test, gate) over one install. Turn-timing and say-do are
+scored across five dimensions (outcome, policy, conversation, speech,
+reliability) with the evidence behind every result.
 Free (MIT), self-hostable, zero-install, and offline. Its primary consumer is an
 AI agent: grab it as a CLI (``uvx hotato ...``) or as a one-tool MCP server
 mid-task. Deterministic checks stay separate from the model-judged rubric lane;
@@ -62,6 +64,6 @@ _register_diarizer_backend("pyannoteai", _build_pyannoteai_backend)
 # absent or can describe a DIFFERENT installed copy than the code executing.
 # tests/test_version_lockstep.py enforces the match; 0.4.0 shipped
 # self-reporting 0.3.1 because nothing did.
-__version__ = "1.13.0"
+__version__ = "1.14.0"
 
 __all__ = ["run_single", "run_suite", "LIMITS", "SUITE_ID", "__version__"]

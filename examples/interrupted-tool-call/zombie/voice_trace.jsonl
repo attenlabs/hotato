@@ -1,0 +1,7 @@
+{"_meta": true, "schema": "hotato.voice_trace.v1", "created_at": "2026-07-21T00:00:00Z", "call_id": null, "deployment": {"stack": "generic", "agent_id": "reservation-agent-v1"}, "source": {"format": "handwritten-fixture", "span_count": 5}}
+{"type": "caller_audio_active", "start_sec": 0.6, "end_sec": 2.9}
+{"type": "agent_audio_active", "start_sec": 3.2, "end_sec": 4.4}
+{"type": "tool_call", "start_sec": 3.5, "end_sec": 8.5, "name": "book_table", "arguments": {"guest": "rivera", "party_size": 4, "idempotency_key": "book-rivera-7pm"}, "latency_ms": 5000, "attempt": 1}
+{"type": "tool_timeout", "start_sec": 8.5, "end_sec": 8.5, "name": "book_table", "latency_ms": 5000, "attempt": 1}
+{"type": "caller_audio_active", "start_sec": 8.0, "end_sec": 9.4}
+{"type": "agent_audio_active", "start_sec": 9.8, "end_sec": 13.5}

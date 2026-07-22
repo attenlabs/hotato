@@ -175,7 +175,7 @@ def test_bare_hotato_shows_the_first_run_screen(capsys):
     assert rc == 0
     out = capsys.readouterr().out
     low = out.lower()
-    assert "conversation qa for voice agents" in low
+    assert "the local-first ai engineering platform" in low
     assert "hotato start --demo" in out
     assert "hotato serve" in out
     assert "hotato.dev" in low

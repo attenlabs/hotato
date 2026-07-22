@@ -353,6 +353,103 @@ def test_investigate_label_creates_a_scorable_contract(call_wav, tmp_path):
     assert verified["results"][0]["id"] == label_result["id"]
 
 
+# --- M2: a headlined talk-over catch pins a RED gate, matching the docs -------
+
+
+def test_investigate_label_talk_over_catch_is_red_gate_matching_docs(tmp_path):
+    """M2: labeling a headlined TALK-OVER catch ``--expect yield`` (verbatim the
+    printed next-command, no ``--max-talk-over``) produces a RED contract -- the
+    README / GETTING-STARTED first-catch promise (passed False, verify exit_code
+    1), not a silent green on the bare did_yield. The bundled double-talk clip
+    holds the floor past the prompt-yield ceiling, so the pinned gate stays red
+    until the agent is fixed."""
+    call = _bundled_wav(str(tmp_path / "call.wav"),
+                        name="06-double-talk.example.wav")
+    state = str(tmp_path / "state.json")
+    result, _ = _investigate.run_investigate(call, state_path=state)
+
+    # investigate headlines a talk-over and prints the bare --expect yield cmd
+    # (no talk-over bound), which is exactly what the golden path follows.
+    top = result["next"][0]
+    top_cand = result["candidates"][top["rank"] - 1]
+    assert top_cand["kind"] == "overlap_while_agent_talking"
+    assert (top_cand["durations"]["overlap_sec"]
+            > _investigate.YIELD_TALK_OVER_CEILING_SEC)
+    assert top["command"].endswith("--expect yield")
+    assert "--max-talk-over" not in top["command"]
+
+    # Follow the printed command verbatim.
+    out_dir = str(tmp_path / "contracts")
+    label_result = _investigate.run_investigate_label(
+        top["ref"], expect="yield", out_dir=out_dir,
+    )
+
+    # The pin gates the talk-over: a derived bound (hotato, not the human), and
+    # the caught magnitude is a FAIL now.
+    bound = label_result["auto_talk_over_bound"]
+    assert bound["max_talk_over_sec"] == _investigate.YIELD_TALK_OVER_CEILING_SEC
+    pc = label_result["contract"]["policy"]["pass_conditions"]
+    assert pc["max_talk_over_sec"] == _investigate.YIELD_TALK_OVER_CEILING_SEC
+    assert label_result["contract"]["measurement"]["did_yield"] is True
+    assert label_result["contract"]["measurement"]["passed"] is False
+
+    # ... and `contract verify` is the RED gate the docs show: exit_code 1.
+    verified = _contract.verify_contracts(out_dir)
+    assert verified["count"] == 1
+    assert verified["exit_code"] == 1
+    assert verified["summary"]["failed"] == 1
+
+    # The derived bound is surfaced to the human, never silent.
+    text = _investigate.render_label_text(label_result)
+    assert "talk-over bound" in text
+    assert (_investigate.label_result_json(label_result)["auto_talk_over_bound"]
+            == bound)
+
+
+def test_investigate_label_prompt_yield_stays_green_no_fabricated_bound(tmp_path):
+    """M2 guardrail: a genuinely PROMPT yield (overlap within the ceiling)
+    labeled ``--expect yield`` is never turned red -- no bound is fabricated and
+    the contract passes (exit_code 0). The gate fires only on a real over-long
+    talk-over, so an eligible good-yield catch stays green."""
+    call = _bundled_wav(str(tmp_path / "call.wav"))  # 01-hard-interruption, 0.51s
+    state = str(tmp_path / "state.json")
+    result, _ = _investigate.run_investigate(call, state_path=state)
+    top = result["next"][0]
+    top_cand = result["candidates"][top["rank"] - 1]
+    assert top_cand["kind"] == "overlap_while_agent_talking"
+    assert (top_cand["durations"]["overlap_sec"]
+            <= _investigate.YIELD_TALK_OVER_CEILING_SEC)
+
+    out_dir = str(tmp_path / "contracts")
+    label_result = _investigate.run_investigate_label(
+        top["ref"], expect="yield", out_dir=out_dir,
+    )
+    assert label_result["auto_talk_over_bound"] is None
+    assert (label_result["contract"]["policy"]["pass_conditions"]
+            ["max_talk_over_sec"] is None)
+    assert label_result["contract"]["measurement"]["passed"] is True
+    assert _contract.verify_contracts(out_dir)["exit_code"] == 0
+
+
+def test_investigate_label_explicit_max_talk_over_wins(tmp_path):
+    """M2: an explicit ``--max-talk-over`` always wins over the auto ceiling --
+    the human's bound is honored, never silently overridden by the derived one."""
+    call = _bundled_wav(str(tmp_path / "call.wav"),
+                        name="06-double-talk.example.wav")
+    state = str(tmp_path / "state.json")
+    result, _ = _investigate.run_investigate(call, state_path=state)
+    ref = result["next"][0]["ref"]
+    out_dir = str(tmp_path / "contracts")
+    label_result = _investigate.run_investigate_label(
+        ref, expect="yield", out_dir=out_dir, max_talk_over_sec=5.0,
+    )
+    assert label_result["auto_talk_over_bound"] is None
+    assert (label_result["contract"]["policy"]["pass_conditions"]
+            ["max_talk_over_sec"] == 5.0)
+    # 1.06s < 5.0s bound, so the human's looser gate passes.
+    assert _contract.verify_contracts(out_dir)["exit_code"] == 0
+
+
 def test_investigate_label_honors_an_explicit_id(call_wav, tmp_path):
     state = str(tmp_path / "state.json")
     result, _ = _investigate.run_investigate(call_wav, state_path=state)

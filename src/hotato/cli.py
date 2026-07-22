@@ -4860,15 +4860,17 @@ def _cmd_pr_create(args) -> int:
     return 0
 
 
-_DEMO_HEADER = "hotato demo: recorded calls a provider's default agent fails"
-_DEMO_NOTE = ("these are two recorded calls on a provider's default "
-              "settings; run it to see what Hotato catches.")
+_DEMO_HEADER = "hotato demo: bundled calls an agent fails"
+_DEMO_NOTE = ("these are two bundled calls -- a synthesized talk-over and a "
+              "recorded provider-default call -- both failing; run it to see "
+              "what Hotato catches.")
 
 
 def _cmd_demo(args) -> int:
-    # The packaged demo battery: two REAL recorded probe calls against a voice
-    # agent on a provider's DEFAULT interruption settings (fd-01 misses a real
-    # interruption, fd-02 false-stops on a backchannel). Both fail, on both
+    # The packaged demo battery: a deterministically-synthesized talk-over
+    # (fd-01, the agent talks over an addressed interruption) and an
+    # operator-recorded probe call on a provider's DEFAULT interruption
+    # settings (fd-02 false-stops on a backchannel). Both fail, on both
     # axes, so a first-time user hears exactly what Hotato catches: the [FAIL]
     # verdicts, both fix classes (config and engagement-control), the report
     # timelines, and the exact scored audio embedded under each one. Same
@@ -5140,11 +5142,13 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             _get_started_block()
             + "\n\n"
-            "Hotato: self-hosted conversation QA for voice agents. Scores calls "
-            "across five dimensions (outcome, policy, conversation, speech, "
-            "reliability) with the evidence behind every result. Offline. MIT. "
-            "Deterministic checks stay separate from the model-judged rubric; there "
-            "is no blended score and no accuracy percentage."
+            "Hotato: the local-first AI engineering platform. Trace, evaluate, "
+            "test, and gate any AI agent on your machine, with nothing leaving "
+            "it. Scores turn timing and say-do across five dimensions (outcome, "
+            "policy, conversation, speech, reliability) with the evidence behind "
+            "every result. Offline. MIT. Deterministic checks stay separate from "
+            "the model-judged rubric; there is no blended score and no accuracy "
+            "percentage."
         ),
         epilog=(
             "Core commands (the loop above):\n"
@@ -6015,14 +6019,14 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--no-fail", action="store_true", help="always exit 0 (do not fail on a regression)")
     d.set_defaults(func=_cmd_doctor)
 
-    # --- demo: the packaged real-call failing battery -----------------------
+    # --- demo: the packaged failing battery ---------------------------------
     dm = sub.add_parser(
         "demo",
-        help="run the packaged battery of two real failing calls and open its report",
+        help="run the packaged battery of two failing calls and open its report",
         description=(
-            "Run the packaged two-scenario battery of REAL recorded calls "
-            "against a voice agent on a provider's DEFAULT interruption "
-            "settings: one where the agent talks straight over a real "
+            "Run the packaged two-scenario battery -- a synthesized talk-over "
+            "and a recorded call on a provider's DEFAULT interruption "
+            "settings: one where the agent talks straight over an addressed "
             "interruption, one where it false-stops on a backchannel. Both "
             "fail, so you hear what Hotato catches in under a minute: the "
             "[FAIL] verdicts, the fix classes (config and engagement-control), "

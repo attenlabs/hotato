@@ -64,7 +64,7 @@ test("suite fixture, exit 1: failing battery is decoded, never thrown", () => {
   assert.equal(first.verdict.passed, false);
   assert.equal(first.verdict.did_yield, false);
   assert.equal(first.verdict.seconds_to_yield, null);
-  assert.equal(first.verdict.talk_over_sec, 0.25);
+  assert.equal(first.verdict.talk_over_sec, 2.65);
   assert.ok(first.verdict.reasons.length > 0);
   assert.equal(suite.fix_map.length, 2);
   assert.equal(typeof suite.fix_map[0].event_id, "string");
@@ -86,7 +86,7 @@ test("contract-verify fixture, exit 1: per-contract results decode", () => {
   assert.equal(result.passed, false);
   assert.equal(result.scorable, true);
   assert.equal(result.measurement.did_yield, false);
-  assert.equal(result.measurement.talk_over_sec, 0.25);
+  assert.equal(result.measurement.talk_over_sec, 2.65);
   assert.equal(result.assertions, null);
 });
 

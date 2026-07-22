@@ -9,8 +9,9 @@ first when deciding how much to trust any single piece below.
 
 ## What's in the pack
 
-- **Bundled demo** -- two recorded calls a provider-default agent fails,
-  scored offline in under a minute, one command. `hotato demo` ·
+- **Bundled demo** -- two bundled calls an agent fails (a synthesized
+  talk-over and a recorded provider-default call), scored offline in under a
+  minute, one command. `hotato demo` ·
   [START.md](START.md)
 - **Recorded provider-default battery** -- 12 scripted calls against a
   live voice agent on default settings; a missed interruption and a false

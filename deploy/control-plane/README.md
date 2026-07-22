@@ -1,4 +1,4 @@
-# Self-hosted voice QA control plane
+# Self-hosted hotato control plane
 
 This deployment composes Hotato with LiveKit Server, LiveKit SIP, Valkey, and
 an OpenTelemetry Collector. Hotato owns caller programs, load schedules,

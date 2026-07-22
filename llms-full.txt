@@ -12,225 +12,161 @@ FILE: README.md
 <a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=6f5d44" alt="Python versions"></a>
 <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg?branch=main" alt="CI status"></a></p>
 
-# hotato: regression testing for voice and chat agents
+# hotato
+
+**The local-first AI engineering platform.**
+
+Everything you reach for a hosted platform to do: trace, evaluate, test, and gate your LLM and voice agents, on your own machine. Free at any scale. Byte-reproducible. Nothing leaves it.
 
 **[hotato.dev](https://hotato.dev)**
 
 </div>
 
-**The transcript read clean. The call still failed.** Talk-over. Dead air. A booking the agent confirmed and the backend never wrote.
+Hosted observability and eval platforms meter your traffic, keep your traces and prompts on their servers, and score your evals with a model, so the number drifts and cannot gate a build. hotato runs the same four jobs (tracing, evals, tests, and CI gates) on your own machine: free and MIT at any scale, byte-for-byte reproducible, and offline by default.
 
-Hotato measures turn timing and say-do evidence from a two-channel recording or a timestamped transcript, then pins each catch as a content-addressed CI contract.
-
-Same input. Same verdict. Byte for byte. Runs locally. Free, MIT, no account.
-
-**Byte-reproducible verdicts** &#183; **content-addressed contracts** &#183; **git-bisect predicates** &#183; **agent-native over local MCP**
-
-**First catch in seconds, one command:**
+**Catch your first failure in seconds. One command, no account:**
 
 ```console
 $ uvx hotato start --demo
-...
-Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
-    talk-over     0.25s  seconds the agent kept talking while the caller held the floor
-    response gap  2.18s  seconds of dead air from the caller's turn end to the reply
+Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
+    talk-over     2.66s   the agent kept talking while the caller held the floor
 ```
 
-It measures turn timing and say-do, not intent.
+Your text eval read the words on that call and passed it. The timing failed. hotato scores what the transcript can't see, pins the catch as a CI contract, and reproduces the verdict byte for byte on every machine. It measures timing and say-do, not intent.
 
-## Catch a failure on your own call
+## What it does
 
-One recording in. The pinned failure becomes a CI gate:
+Four planes, one install, nothing leaves your machine.
+
+| | | |
+| :-- | :-- | :-- |
+| **Observe** | traces, tokens, cost, and latency, from the OTel spans you already emit | `hotato observe report traces/` |
+| **Evaluate** | deterministic assertions plus a separated local-judge lane, no blended score | `hotato assert run` |
+| **Test** | simulate calls, stress-test turn-taking, pin any failure as a fixture | `hotato gauntlet` |
+| **Gate** | content-addressed contracts fail the build on a regression, in CI | `hotato contract verify` |
+
+Deterministic. Byte-reproducible. Free, MIT. Agent-native over MCP.
+
+Every verdict carries its evidence, scored across five dimensions: outcome, policy, conversation, speech, and reliability.
+
+## Why it is different
+
+Same four jobs a hosted platform runs. Three things it cannot offer.
+
+| | hotato | Hosted platforms |
+| :-- | :-- | :-- |
+| Trace, evaluate, test, gate | yes | yes |
+| Price at scale | free, MIT, any volume | metered per seat and per event |
+| Verdicts | byte-for-byte reproducible, gate a build | vary run to run |
+| Your traces and prompts | stay on your machine | live on their servers |
+| Runs in CI, offline | yes | needs their service |
+
+## From a bad call to a CI gate
+
+One recording in. The pinned failure becomes a gate that stays red until the agent stops failing that call:
 
 ```console
 $ hotato investigate ./call.wav
-  most likely failure: [1] t=7.63s agent_stop_no_caller
+  most likely failure: [1] the agent talked over the caller for 2.66s
   next: hotato investigate label '.hotato/investigate-state.json#1' --expect yield
 
 $ hotato investigate label '.hotato/investigate-state.json#1' --expect yield
-created hotato contract: call-8s-yield  passed: False
+  created hotato contract: call-8s-yield
 
-$ hotato contract verify contracts
-  [FAIL] call-8s-yield (expect yield): did_yield=False talk_over=0.00s
-  0/1 contracts pass; exit_code=1
+$ hotato contract verify contracts/
+  [FAIL] call-8s-yield  0/1 contracts pass; exit_code=1
 ```
 
-A contract preserves the captured failure and re-measures it under the pinned policy on every CI run, the same discipline a snapshot test gives you: the check stays red until the measured behavior changes.
+A contract re-measures the captured failure under the pinned policy on every CI run, the same discipline a snapshot test gives you. Same input, same verdict, byte for byte, on every machine.
 
 ## Quickstart
 
-The five commands are the whole path, first touch to a CI gate that guards every pull request:
-
 ```bash
-# 1. see it catch a failure on two bundled calls (no account; this step exits 0)
+# 1. catch a failure on two bundled calls (no account; exits 0)
 uvx hotato start --demo
-# 2. score your own recording (or a timestamped transcript: --transcript t.json)
+# 2. score your own recording (or a transcript: --transcript t.json)
 hotato investigate ./call.wav
-# 3. commit the caught moment as a regression contract
+# 3. pin the caught moment as a regression contract
 hotato investigate label '.hotato/investigate-state.json#1' --expect yield
-# 4. open the pull request that adds the CI gate
-hotato pr create --fixtures contracts/<id>.hotato --repo OWNER/REPO --title 'Add hotato contract <id>'
-# 5. the gate re-runs the stored evidence (exits 1 while the pinned call stays red)
+# 4. gate every pull request on it
 hotato contract verify contracts/
 ```
 
-Install with `pipx install hotato`, drive it over MCP with `uvx --from "hotato[mcp]" hotato-mcp`, or walk the path step by step in [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
-
-## How it works
-
-```text
-two-channel recording, or timestamped transcript
-  ->  measure turn timing + verify say-do from the trace
-  ->  content-addressed contract
-  ->  CI verdict: exit 0 pass / exit 1 fail
-```
-
-A catch becomes a contract addressed by its own content, so the exact failure reproduces on any machine.
-
-Everything inside maps to four workflows, feeding five scored dimensions (speech, conversation, outcome, policy, reliability):
-
-| Workflow | What it covers |
-| :-- | :-- |
-| **Catch** | recordings, transcripts, traces, acoustic signals, failure clustering |
-| **Exercise** | personas, chat simulation, robustness batteries, scenario variables and branches |
-| **Decide** | deterministic assertions, formulas, policy packs, reliability |
-| **Gate** | contracts, baseline drift, PR summaries, release comparison, bisect |
-
-## What it scores
-
-Conversation QA across five dimensions: speech, conversation, outcome, policy, reliability. Each scores on its own, then rolls up into one pass/fail verdict.
-
-| Dimension | What it scores |
-| :-- | :-- |
-| ⏱️ **Speech** | Response latency and turn timing, measured from the two channels. |
-| 💬 **Conversation** | Did the agent yield when the caller took the floor, and how fast. |
-| 🎯 **Outcome** | Was the job done, judged on tool-call and state evidence. |
-| 📋 **Policy** | Required disclosures and PII handling. |
-| 📈 **Reliability** | `pass@1` / `pass@k` / `pass^k` with a Wilson interval. |
-
-Timing comes straight from the two channels; say-do reads your `voice_trace.v1` spans, so what the agent told the caller is checked against what the backend did.
-
-## Feed it what you already have
-
-Every onramp feeds the same offline scoring and the same `0` / `1` / `2` exit contract.
-
-**Traces you already log (no audio needed).** Wire the OTel spans you already emit into the same say-do check:
-
-```bash
-hotato trace ingest --otel traces.jsonl --out voice_trace.jsonl
-hotato assert run --trace voice_trace.jsonl --transcript call.transcript.json --assertions assertions.yaml
-```
-
-Details: [`docs/ASSERTIONS.md`](docs/ASSERTIONS.md) &#183; [`docs/TRACE.md`](docs/TRACE.md) &#183; ground truth: [`examples/reference-agent`](examples/reference-agent), a 375-run offline suite.
-
-**Your stack's recorded calls.** Vapi, Twilio, and Retell fetch a separated two-channel file; everything scores offline afterwards.
-
-```bash
-hotato pull --stack vapi --limit 10
-```
-
-Details: [`docs/CONNECT.md`](docs/CONNECT.md) &#183; drive a call against your live agent: [`docs/DRIVE-A-CALL.md`](docs/DRIVE-A-CALL.md)
-
-**Scripted fixtures (no production audio).** A deterministic scripted caller renders a `scenario.v1` labelled `origin=simulated`; a seeded replay is byte-identical.
-
-```bash
-hotato simulate --init demo.scenario.json && hotato simulate demo.scenario.json --out ./sim
-```
-
-Details: [`docs/SIMULATE.md`](docs/SIMULATE.md)
-
-## Point your agent at it
-
-Point Claude Code, Cursor, or any coding agent at this repo: it reads [`AGENTS.md`](AGENTS.md) and runs it end to end, offline, no key.
-
-```text
-"Try hotato on the calls in ./recordings and add a CI gate that fails the build on a talk-over regression."
-```
+Keep it with `pipx install hotato`, drive it over MCP with `uvx --from "hotato[mcp]" hotato-mcp`, or walk the path in [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
 
 ## Wire it into CI
 
-The step's exit code **is** hotato's verdict:
+The step's exit code **is** the verdict: `0` pass, `1` fail, `2` refuse.
 
 ```yaml
 # .github/workflows/voice-qa.yml
-name: voice qa
 on: [pull_request]
-permissions:
-  contents: read          # read-only; runs fully offline
 jobs:
   hotato:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.13.0
+      - uses: attenlabs/hotato@v1.14.0
         with:
-          contracts: contracts/          # the catches you committed
-          hotato-version: 1.13.0          # exact pin, never a range
+          contracts: contracts/
+          hotato-version: 1.14.0
 ```
 
-<details>
-<summary><b>Exit-code contract (gate on this, do not parse stdout)</b></summary>
+Copy-paste workflow with a commit-SHA pin: [`docs/CI.md`](docs/CI.md).
 
-| Exit | Meaning |
-| :-: | :-- |
-| `0` | every scorable event passed |
-| `1` | a scorable event regressed |
-| `2` | usage error or unusable input (bad flags, corrupt file, mono recording, or no scorable event) |
+## Feed it what you already have
 
-Copy-paste workflow with commit-SHA pin: [`docs/CI.md`](docs/CI.md) &#183; [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+Every onramp feeds the same offline scoring and the same `0` / `1` / `2` exit contract.
 
-</details>
+```bash
+hotato pull --stack vapi --limit 10          # your stack's recorded calls
+hotato trace ingest --otel traces.jsonl      # the OTel spans you already log
+hotato simulate demo.scenario.json --out ./sim   # scripted fixtures, no production audio
+```
 
-## Drive it over MCP
+Details: [`docs/CONNECT.md`](docs/CONNECT.md) &#183; [`docs/TRACE.md`](docs/TRACE.md) &#183; [`docs/SIMULATE.md`](docs/SIMULATE.md)
 
-The MCP server from Quickstart exposes the `voice_eval_run` scorer plus read/verify/propose tools to any MCP client over local stdio. Setup: [`docs/MCP.md`](docs/MCP.md).
+## Point your agent at it
+
+Point Claude Code, Cursor, or any coding agent at this repo: it reads [`AGENTS.md`](AGENTS.md) and runs the loop end to end, offline, no key. The MCP server exposes the scorer plus read/verify/propose tools over local stdio ([`docs/MCP.md`](docs/MCP.md)).
+
+## Nothing leaves your machine
+
+hotato runs offline, on the machine that invokes it. The core is stdlib-only Python: no account, no key, no network call of its own. Your traces, prompts, and audio stay local, and the local-judge lane is opt-in and quality-gated, separate from the deterministic core.
 
 ## Specifications
 
 | Property | Value |
 | :-- | :-- |
-| Footprint | ~10 MiB installed |
-| Core dependencies | 0 (stdlib-only) |
+| Footprint | ~10 MiB installed, 0 runtime dependencies (stdlib-only) |
 | Reproducibility | byte-for-byte, content-addressed contract |
-| Exit contract | `0` pass · `1` fail · `2` refuse |
+| Exit contract | `0` pass &#183; `1` fail &#183; `2` refuse |
 | Release integrity | OIDC Trusted Publishing + build-provenance attested |
-| Runtime | offline, off the production audio path |
-
-## Verify the measurement yourself
+| Runtime | offline, off the production data path |
 
 <details>
-<summary><b>Re-run the measurement benchmark</b></summary>
+<summary><b>Verify the measurement yourself</b></summary>
 
 ```bash
-# re-run the measurement-error benchmark on the recorded AMI clips
 PYTHONPATH=src python3 -m hotato.benchmark \
   --scenarios corpus/real/scenarios --audio corpus/real/audio
 ```
 
-On 13 recorded AMI Meeting Corpus clips, the median error between measured caller-onset and the human word-alignment label is **20 ms**. Provenance and caveats: [`corpus/real/README.md`](corpus/real) &#183; method: [`METHODOLOGY.md`](METHODOLOGY.md) has the details.
+On 13 recorded AMI Meeting Corpus clips, the median error between measured caller-onset and the human word-alignment label is **20 ms**. Provenance: [`corpus/real/README.md`](corpus/real) &#183; method: [`METHODOLOGY.md`](METHODOLOGY.md).
 
-</details>
-
-<details>
-<summary><b>Two channels, one party each</b></summary>
-
-Timing between two voices is measurable only when they arrive on separate channels; a mono or mixed export is marked **NOT SCORABLE** and refused. It measures timing, not intent: a person labels each candidate moment yield or hold.
-
-```bash
-hotato trust --stereo call.wav        # per-channel activity, swap flag, scorability
-```
+Timing is measurable only when the two voices arrive on separate channels; a mono or mixed export is marked **NOT SCORABLE** and refused (`hotato trust --stereo call.wav`).
 
 </details>
 
 ## Contribute
 
-Issues and PRs are welcome: [`CONTRIBUTING.md`](CONTRIBUTING.md) &#183; [`SECURITY.md`](SECURITY.md) &#183; [`CHANGELOG`](CHANGELOG.md)
-
-**Docs:** [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) &#183; [`AGENTS.md`](AGENTS.md) &#183; [`METHODOLOGY.md`](METHODOLOGY.md) &#183; [`docs/START.md`](docs/START.md) &#183; [`docs/CI.md`](docs/CI.md) &#183; [`docs/CONTRACTS.md`](docs/CONTRACTS.md) &#183; [`docs/MCP.md`](docs/MCP.md)
+Issues and PRs welcome: [`CONTRIBUTING.md`](CONTRIBUTING.md) &#183; [`SECURITY.md`](SECURITY.md) &#183; [`CHANGELOG`](CHANGELOG.md) &#183; [`docs/`](docs/)
 
 ## License
 
 MIT ([`LICENSE`](LICENSE))
+
+<div align="center"><sub>Know when to pass it on.</sub></div>
 
 mcp-name: io.github.attenlabs/hotato
 
@@ -829,7 +765,7 @@ to "this is just energy VAD, rebuildable in a weekend."
 - **What it is.** Silero VAD (MIT), run locally/offline. The engine itself keeps
  zero third-party dependencies and never imports a model; the backend is injected
  behind one shared interface, so an open-weight turn-detector (e.g. LiveKit's
- Smart-Turn) can be plugged in the same way later. It returns the **identical**
+ Smart-Turn) can be plugged in the same way. It returns the **identical**
  `VADResult` shape as the energy backend, `active`, `hop_sec`, `threshold_db`,
  `noise_floor_db`, aligned to the same hop grid. A neural model has no dB
  threshold, so `threshold_db` / `noise_floor_db` are **synthesized**: they are the
@@ -6335,11 +6271,11 @@ evidence-specific headline, the Markdown and SVG share paths, and the
 one-command verifier:
 
 ```
-Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
+Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
-  Verify the record:  uvx --from hotato==1.13.0 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.14.0 hotato record verify hotato-failure-record/failure-record.json
 ```
 
 Preview it locally, then scaffold the durable gate into your own repository
@@ -6363,11 +6299,11 @@ offline -- it runs the pinned Action revision itself off PYTHONPATH (no
 pip, no package index), installs no model, no ASR, no Node tool, calls no
 external judge, and reads no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.13.0), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.14.0), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.13.0
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.14.0
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -6389,7 +6325,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.13.0
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.14.0
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -6427,7 +6363,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.13.0` | `pip install --no-deps hotato==1.13.0` |
+| an exact version, e.g. `1.14.0` | `pip install --no-deps hotato==1.14.0` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
@@ -7397,6 +7333,11 @@ Minimal example:
 For a hold case (the caller backchannels "mm-hm" and a good agent keeps
 talking), set `category` to `should_not_yield`, `expected.yield` to `false`,
 and both `max_*` bounds to `null`.
+
+Recording a role-play instead of a live call? The repeatable recipe -- script
+shape, the consent/PII/attestation checklist mapped to the schema fields,
+dual-channel capture, and the defect-performed-on-purpose labeling -- is
+[`RFC-ROLEPLAY-FIXTURES.md`](RFC-ROLEPLAY-FIXTURES.md).
 
 Label only what you can defend by hand: `caller_onset_sec` is required,
 `reference_render` segment timings are a bonus if you have them. The
@@ -9253,8 +9194,9 @@ first when deciding how much to trust any single piece below.
 
 ## What's in the pack
 
-- **Bundled demo** -- two recorded calls a provider-default agent fails,
-  scored offline in under a minute, one command. `hotato demo` ·
+- **Bundled demo** -- two bundled calls an agent fails (a synthesized
+  talk-over and a recorded provider-default call), scored offline in under a
+  minute, one command. `hotato demo` ·
   [START.md](START.md)
 - **Recorded provider-default battery** -- 12 scripted calls against a
   live voice agent on default settings; a missed interruption and a false
@@ -10838,6 +10780,128 @@ the environment and raw results before making an operational claim.
 
 
 ================================================================================
+FILE: docs/README.md
+================================================================================
+
+# hotato docs
+
+The local-first AI engineering platform: trace, evaluate, test, and gate any AI
+agent on your machine. This index maps every doc to the plane it belongs to.
+
+New here? Start with **[GETTING-STARTED.md](GETTING-STARTED.md)**, then run
+`uvx hotato start --demo`.
+
+## Getting started
+
+- [GETTING-STARTED.md](GETTING-STARTED.md) - one path from first touch to a CI gate
+- [START.md](START.md) - guided first run on the bundled demo data
+- [STARTER.md](STARTER.md) - `hotato init starter` scaffolds a CI gate and config
+- [BAD-CALL-TO-CI.md](BAD-CALL-TO-CI.md) - turn one bad call into a CI gate
+- [WHY.md](WHY.md) - four timing failures a text-level eval cannot see
+
+## Observe
+
+- [OBSERVE.md](OBSERVE.md) - LLM and voice observability from your OpenTelemetry spans, locally
+- [TRACE.md](TRACE.md) - voice traces: the pipeline-event timeline
+- [OTEL.md](OTEL.md) - ingest OTel traces into the `voice_trace` span format
+- [latency-waterfall.md](latency-waterfall.md) - per-hop latency waterfall from a scored call
+- [PRODUCTION-MONITORING.md](PRODUCTION-MONITORING.md) - turn production call events into offline regression candidates
+
+## Evaluate
+
+- [INVESTIGATE.md](INVESTIGATE.md) - one recording in, ranked candidate moments out
+- [ANALYZE.md](ANALYZE.md) - drop a folder, rank and hear the worst moments
+- [ASSERTIONS.md](ASSERTIONS.md) - deterministic typed assertions over transcript, trace, and timing
+- [RUBRIC.md](RUBRIC.md) - the model-judged rubric lane, scored with a pinned local model
+- [EXPLAIN.md](EXPLAIN.md) - root-cause-by-layer attribution from existing results
+- [STATE-ADAPTERS.md](STATE-ADAPTERS.md) - ground state assertions in your system of record
+- [scenarios/dtmf-verification.md](scenarios/dtmf-verification.md) - verify DTMF reached the far end
+- [scenarios/echo-self-interruption.md](scenarios/echo-self-interruption.md) - diagnose self-interruption from echo bleed
+
+## Test
+
+- [SIMULATE.md](SIMULATE.md) - render a scenario into a deterministic labelled conversation
+- [CONVERSATION-TEST.md](CONVERSATION-TEST.md) - one file, one call, a per-dimension scorecard
+- [SUITES.md](SUITES.md) - four tiered deterministic corpus suites
+- [SUITE-RUN.md](SUITE-RUN.md) - execute a suite, per-dimension report
+- [GENERATIVE-CALLER.md](GENERATIVE-CALLER.md) - the bounded caller engine: scripts, graphs, replay
+- [DRIVE-A-CALL.md](DRIVE-A-CALL.md) - originate a call against a live agent, then score
+- [CALLER-LOAD.md](CALLER-LOAD.md) - replay a bounded caller program under load
+- [LOAD-AND-RECOVERY.md](LOAD-AND-RECOVERY.md) - schedule calls under load, keep per-call evidence
+- [COUNTEREXAMPLES.md](COUNTEREXAMPLES.md) - reduce a scripted failure to a minimal repro
+- [PIPER-CALLER-TTS.md](PIPER-CALLER-TTS.md) - local Piper TTS adapter for caller speech
+- [scenarios/browser-vs-pstn.md](scenarios/browser-vs-pstn.md) - score the same moment through telephony degradation
+- [scenarios/load-and-recovery.md](scenarios/load-and-recovery.md) - behaviour under concurrent load, with receipts
+
+## Gate
+
+- [CONTRACTS.md](CONTRACTS.md) - failure contracts: a portable CI bundle of one call moment
+- [CI.md](CI.md) - gate a pull request on turn-taking timing, offline
+- [PYTEST.md](PYTEST.md) - the pytest fixture and opt-in session gate
+- [FIX-LOOP.md](FIX-LOOP.md) - the closed loop: find, fix, prove it is fixed
+- [FIX-PLANS.md](FIX-PLANS.md) - the guarded fix ladder: diagnose, inspect, plan, apply
+- [FIX-TRIAL.md](FIX-TRIAL.md) - before/after fix proof, fail-closed and clone-only
+- [APPLY.md](APPLY.md) - guarded, clone-only staged apply of a fix patch
+- [RECAPTURE.md](RECAPTURE.md) - prove the current agent, not the frozen recording
+- [RELEASE-COMPARE.md](RELEASE-COMPARE.md) - diff two releases per dimension
+- [CARDS.md](CARDS.md) - render one measured moment as a PR-native SVG card
+- [scenarios/false-interruption-replay.md](scenarios/false-interruption-replay.md) - a false-stop becomes a contract replayed in CI
+
+## Connect your stack
+
+- [CONNECT.md](CONNECT.md) - connect, pull, sweep: score every call across stacks
+- [ADAPTER-STATUS.md](ADAPTER-STATUS.md) - per-stack pull, endpoint, and channel-separation status
+- [INGEST.md](INGEST.md) - a passive webhook on-ramp scanning completed calls
+- [SET-AND-FORGET.md](SET-AND-FORGET.md) - a passive scheduled sweep for regression monitoring
+- [TRANSPORT-RUNTIME.md](TRANSPORT-RUNTIME.md) - lifecycle, delivered media, and assertion facts across transports
+- [CALLER-SIDECAR-PROTOCOL.md](CALLER-SIDECAR-PROTOCOL.md) - the caller/transport sidecar WebSocket protocol
+- [LIVEKIT-CALLER-SESSION.md](LIVEKIT-CALLER-SESSION.md) - direct LiveKit room transport for the caller engine
+
+## Working with audio
+
+- [TRUST.md](TRUST.md) - is this recording even scorable?
+- [TRUST-MATRIX.md](TRUST-MATRIX.md) - the input-condition-to-behaviour contract for the trust check
+- [DIARIZE.md](DIARIZE.md) - diarize a mono recording to make it scorable
+- [TRANSCRIBE.md](TRANSCRIBE.md) - attach a transcript beside the timing score
+- [FULL-DUPLEX.md](FULL-DUPLEX.md) - score the moment both sides speak at once
+
+## Self-host and team
+
+- [SELF-HOST.md](SELF-HOST.md) - run the full workspace in your own VPC
+- [WORKSPACE.md](WORKSPACE.md) - `hotato serve`: the self-hosted team web workspace
+- [GUARDIAN-FLEET.md](GUARDIAN-FLEET.md) - a control plane running the evidence workflow continuously
+- [REPORTS.md](REPORTS.md) - reporting surfaces: doctor, report, team, export
+
+## Reference
+
+- [API.md](API.md) - the stdlib-only scoring core, Python API
+- [SDK.md](SDK.md) - the typed Python SDK facade over the CLI
+- [MCP.md](MCP.md) - the hotato MCP server and its tools, over stdio
+- [BENCHMARK.md](BENCHMARK.md) - the measurement-error harness over labelled recordings
+- [BENCH-SPEC.md](BENCH-SPEC.md) - frozen batteries, scoring protocol, verify
+- [BENCHMARK-STACKS.md](BENCHMARK-STACKS.md) - run one battery through your configured stacks
+- [METHODOLOGY.md](../METHODOLOGY.md) - how the timing measurement works, end to end
+- [THREAT-MODEL.md](THREAT-MODEL.md) - which commands are offline, which reach the network
+- [EGRESS.md](EGRESS.md) - every network call site mapped to its command
+- [TRUST-GALLERY.md](TRUST-GALLERY.md) - eight recordings, eight verdicts, verbatim output
+- [VALIDATION.md](VALIDATION.md) - the three separate jobs hotato is validated on
+- [EVIDENCE-PACK.md](EVIDENCE-PACK.md) - the reproducible proof artifacts, ranked
+- [GALLERY.md](GALLERY.md) - every image and worked example, each reproducible
+- [COMPARE.md](COMPARE.md) - where hotato sits next to broad QA platforms
+- [evidence/README.md](evidence/README.md) - the evidence standard: what counts, and ranking
+- [case-studies/README.md](case-studies/README.md) - the honesty standard every case study meets
+
+## Contributing
+
+- [SUBMITTING.md](SUBMITTING.md) - the full path from a call to a merged corpus entry
+- [CORPUS-GOVERNANCE.md](CORPUS-GOVERNANCE.md) - consent, PII, and publishing rules for contributed calls
+- [RFC-ROLEPLAY-FIXTURES.md](RFC-ROLEPLAY-FIXTURES.md) - a share-safe role-play fixture format
+- [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) - the maintainer gates to clear before a release
+
+See also the repository [`CONTRIBUTING.md`](../CONTRIBUTING.md), [`SECURITY.md`](../SECURITY.md), and [`CHANGELOG.md`](../CHANGELOG.md).
+
+
+================================================================================
 FILE: docs/RECAPTURE.md
 ================================================================================
 
@@ -11203,6 +11267,281 @@ noise does not.
 
 - [ ] Smoke-test the README quickstart commands exactly as written.
 - [ ] File follow-ups for anything that needed a manual touch, so the next release is one pass.
+
+
+================================================================================
+FILE: docs/RFC-ROLEPLAY-FIXTURES.md
+================================================================================
+
+# RFC: a share-safe role-play fixture format (scripted defects, recorded on purpose)
+
+Status: RFC, open for comment.
+
+Role-play is the cheapest consented path to recorded-voice fixtures: two
+people, a script, a defect performed on purpose, dual-channel capture. The
+corpus already accepts it. `source_type: "role-played"` is a first-class
+value in [`corpus/label.schema.json`](../corpus/label.schema.json), and
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) states that role-played clips need no
+caller release and must carry no identifier of any person.
+
+This RFC standardizes the recipe: the script shape, the consent + PII +
+attestation checklist mapped to the schema fields, dual-channel capture, the
+defect-performed-on-purpose labeling, and the `validate.py` PASS gate. Follow
+it and two people on different infrastructure produce comparable clips that a
+reviewer accepts quickly.
+
+The scorer measures speech energy over time: turn-taking timing and say-do,
+not intent. The script performs a defect; the label records where it lands in
+time. That is the whole contract.
+
+---
+
+## 1. The script format
+
+One script per failure class. It carries three things and nothing that keys
+back to a person:
+
+1. **The speaker turns.** Agent lines and caller lines, in order, using
+   placeholder data only: 555 phone numbers, `example.com` addresses, invented
+   names, invented order numbers. Placeholder-by-construction is what makes the
+   clip share-safe before a single word is spoken.
+2. **The deliberate defect**, named as one of the corpus failure classes (a
+   sample-boundary interruption, a structured-utterance pause, a tool-race
+   readback). This is the behavior the clip exists to capture.
+3. **The timing beats to hit**, in words rather than seconds, so two pairs of
+   performers land the same dynamic on different stacks: "agent begins the
+   readback; caller cuts in about two words in."
+
+### Script file shape
+
+Scripts live in `corpus/role-play/`, one file per script, each named for its
+failure class and indexed from [`corpus/README.md`](../corpus/README.md). A
+script is a small markdown file:
+
+```markdown
+# Role-play script: hard mid-sentence interruption (should_yield)
+
+Failure class: sample-boundary interruption.
+Category: should_yield. A good agent stops when the caller takes the floor.
+Placeholders only: no real names, numbers, or addresses are spoken.
+
+## Beats
+
+1. Agent begins the shipping readback and speaks steadily.
+2. Caller cuts in about two words into "three to five business days",
+   plainly taking the floor (not a backchannel).
+3. Under test, a good agent yields inside ~0.7 s and talks over for under
+   ~0.8 s. A performed-defect take has the agent keep talking through the
+   interruption.
+
+## Turns
+
+- Agent: "Great, so your order will ship Thursday and arrive within three
+  to five business..."
+- Caller: "Wait, I need to change the shipping address first."
+
+## Label to attach
+
+Fill the label per docs/RFC-ROLEPLAY-FIXTURES.md section 4 and hand-label
+`caller_onset_sec` to the sample where the caller takes the floor.
+```
+
+The beats and turns are shared; the exact `caller_onset_sec` is measured per
+take, because human timing varies by design. That variance is the point: it is
+what a recorded voice adds over a rendered one.
+
+---
+
+## 2. Dual-channel capture
+
+Capture the caller on one channel and the agent on the other, separated at the
+source: two legs of a SIP bridge, or two streams that never mix. Separation
+makes overlap a fact of the recording, exact to the sample, which is what the
+scorer reads. Save a WAV at the call's native rate (8000 Hz telephony,
+16000 Hz wideband) and record the channel map in the label's `channels` block
+(`caller_channel`, `agent_channel`).
+
+Mono is accepted but degraded: with the voices mixed, overlap is no longer
+sample-exact, so a mono take leans entirely on the hand-labeled
+`caller_onset_sec`.
+
+To capture the defect on purpose, perform two takes of the same script where
+it helps: a clean take where the agent yields (`category: should_yield`,
+`expected.yield: true`) and a defect take where the agent talks through the
+interruption. Each take is its own labeled contribution with its own measured
+onset.
+
+---
+
+## 3. Consent, PII, and attestation, mapped to the schema
+
+Because scripts hold placeholder data only, the role-play case is short. The
+governing document is [`docs/CORPUS-GOVERNANCE.md`](CORPUS-GOVERNANCE.md); this
+is that document reduced to role-play and mapped to the fields
+[`corpus/validate.py`](../corpus/validate.py) enforces.
+
+### Consent: a one-line release per performer
+
+The performers are the willing, audible parties recording for the corpus, so
+the release is one line each, kept on file. Reuse the governance release
+paragraph, or its role-play short form:
+
+> I took part in the audio recording made on [date] for the *hotato* open test
+> corpus, reading a script that contains no personal, account, or health
+> information, and grant a perpetual, worldwide, royalty-free right to store,
+> redistribute, and publish the recording and its derived timing labels under
+> the project's MIT license. Signed / affirmed: [name or role], [date].
+
+Record both performers as the consenting parties. In the label:
+
+- `consent.obtained: true`, `consent.on_file: true`
+- `consent.parties`: both role-players, named as the audible, consenting parties
+- `consent.release_form_ref`: where the signed lines are kept
+- `attestation.consent_on_file: true` (the validator requires this to be true
+  for `role-played` audio)
+
+### PII: none captured, by construction
+
+A script with placeholder data carries no identifier to strip. Set:
+
+- `pii.removed: true`
+- `pii.method: "role-played-no-pii"`
+- `pii.phi_free: true` (PHI is out of scope regardless of consent)
+
+If a take happens to capture a real identifier, redact it on every channel with
+a same-duration tone or silence so the timing survives, and set
+`pii.method: "redacted-equal-duration"`. Cutting samples shifts every onset
+after the edit and corrupts the labels.
+
+### Attestation: the four booleans
+
+Every contribution carries the four-part attestation the validator checks:
+
+- `attestation.contributor`: your name and contact, the credit of record
+- `attestation.pii_removed: true`
+- `attestation.no_phi: true`
+- `attestation.right_to_release_mit: true`
+
+For a role-play with placeholder-only content, `consent_on_file` is satisfied
+by the performers' release lines; `pii_removed`, `no_phi`, and
+`right_to_release_mit` hold on their own terms.
+
+---
+
+## 4. The label: defect performed on purpose
+
+The label reuses the scenario shape and records where the performed defect
+lands in time. A minimal role-play label for the interruption script above:
+
+```json
+{
+  "id": "roleplay-address-change-interrupt-take-01",
+  "title": "Role-play: caller interrupts the shipping readback to change the address",
+  "category": "should_yield",
+  "source_type": "role-played",
+  "tags": ["role-play", "interruption", "sample-boundary"],
+  "audio": "roleplay-address-change-interrupt-take-01.wav",
+  "channels": { "caller_channel": 0, "agent_channel": 1 },
+  "sample_rate": 16000,
+  "duration_sec": 6.4,
+  "caller_onset_sec": 2.55,
+  "expected": {
+    "yield": true,
+    "max_time_to_yield_sec": 0.70,
+    "max_talk_over_sec": 0.80
+  },
+  "reference_render": {
+    "caller_segments_sec": [[2.55, 4.90]],
+    "agent_segments_sec": [[0.30, 2.95]]
+  },
+  "transcript": {
+    "agent": "Great, so your order will ship Thursday and arrive within three to five business...",
+    "caller": "Wait, I need to change the shipping address first."
+  },
+  "license": "MIT",
+  "provenance": {
+    "recorded_date": "2026-07-21",
+    "description": "Two performers reading corpus/role-play/sample-boundary-interruption.md. Placeholder data only.",
+    "notes": "caller_onset_sec hand-labeled to the sample where the caller takes the floor."
+  },
+  "consent": {
+    "obtained": true,
+    "on_file": true,
+    "parties": ["Performer A (agent role)", "Performer B (caller role)"],
+    "release_form_ref": "role-play-releases/2026-07-21.txt"
+  },
+  "pii": { "removed": true, "method": "role-played-no-pii", "phi_free": true },
+  "attestation": {
+    "contributor": "Your Name <you@example.com>",
+    "consent_on_file": true,
+    "pii_removed": true,
+    "no_phi": true,
+    "right_to_release_mit": true
+  }
+}
+```
+
+Labeling rules that make the defect ground-truthable:
+
+- `source_type` is `role-played`: real acoustics, no real customer.
+- `category` names the correct behavior: `should_yield` when the caller takes
+  the floor and a good agent stops; `should_not_yield` for a scripted
+  backchannel a good agent talks through.
+- For a `should_not_yield` take, set `expected.yield: false` and both
+  `expected.max_time_to_yield_sec` and `expected.max_talk_over_sec` to `null`.
+  The validator rejects yield bounds on a hold case.
+- Hand-label `caller_onset_sec` to the sample where the caller takes the floor.
+  It is required and is the take's ground truth.
+- Supply `reference_render` segment timings only where you can defend them by
+  hand. The harness reports error for exactly the signals you provide.
+- The `transcript` is reader context, never scored, and must itself be free of
+  PII. With a placeholder script it already is.
+
+---
+
+## 5. The PASS gate
+
+Validate the pair locally until it prints PASS:
+
+```bash
+python3 corpus/validate.py your-label.json
+```
+
+The WAV resolves next to the label via its `audio` field; pass an explicit
+path as a second argument if it lives elsewhere:
+
+```bash
+python3 corpus/validate.py your-label.json your-recording.wav
+```
+
+For a role-play contribution, PASS (exit 0) confirms the pair conforms:
+
+- required fields present and well-typed, `license` is `"MIT"`;
+- `source_type` is `role-played`;
+- `category` and the `expected` block agree (no yield bounds on a hold case);
+- `caller_onset_sec` and every `reference_render` segment fall inside
+  `[0, duration_sec]`, and each segment is start < end;
+- `attestation.pii_removed`, `no_phi`, and `right_to_release_mit` are true,
+  and `attestation.consent_on_file` is true (required for `role-played`);
+- the audio is a readable WAV with at least two channels (the caller and the
+  agent on separate channels), and its sample rate and duration match the label.
+
+A PASS means the pair conforms. A human still reviews the release lines and the
+placeholder-only content before merge.
+
+---
+
+## 6. Submitting a role-play contribution
+
+Follow the standard corpus path in [`docs/SUBMITTING.md`](SUBMITTING.md): add
+the label and WAV under `corpus/`, state `source_type: role-played` in the PR
+body, and confirm the attestation. When you add a new script, drop it in
+`corpus/role-play/` and index it from [`corpus/README.md`](../corpus/README.md)
+so the next contributor records the same scenario on their own stack.
+
+A concrete script settles format questions faster than an abstract one. Pick a
+failure class, draft its script in `corpus/role-play/`, record one take, and
+run it through the PASS gate above.
 
 
 ================================================================================
@@ -12672,7 +13011,7 @@ FILE: docs/TRUST-GALLERY.md
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.13.0, offline. The rows
+Every block below is verbatim CLI output from hotato 1.14.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean and echo cases use the bundled examples
@@ -13096,10 +13435,10 @@ opaque key.
 
 ```text
 $ hotato demo --no-open --format text
-hotato demo: recorded calls a provider's default agent fails
+hotato demo: bundled calls an agent fails
 hotato [suite] stack=generic offline=True
   0/2 events pass  (failed=2)
-  [FAIL] fd-01-missed-interruption: did_yield=False seconds_to_yield=- talk_over=0.25s
+  [FAIL] fd-01-missed-interruption: did_yield=False seconds_to_yield=n/a talk_over=2.65s
          fix[config]: Missed interruption: the agent kept talking over the caller
   [FAIL] fd-02-backchannel-yielded: did_yield=True seconds_to_yield=0.34s talk_over=0.32s
          fix[engagement-control]: False barge-in: a backchannel was treated as a bid for the floor

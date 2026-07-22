@@ -1,7 +1,7 @@
 """The committed README demo-report assets exist and are plausible.
 
 Regenerate with: ``python3 scripts/render_readme_assets.py`` (renders the
-packaged demo battery of two real failing calls, with embedded audio, to
+packaged demo battery of two bundled failing calls, with embedded audio, to
 docs/assets/ and screenshots it, verifying in-page that the failing summary, a
 timeline, and a fix card are inside the crop).
 """

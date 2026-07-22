@@ -1,0 +1,37 @@
+{
+  "kind": "hotato.conversation-test",
+  "version": 1,
+  "id": "interrupted-tool-call-zombie",
+  "agent": "reservation-agent-v1",
+  "assertions": {
+    "deterministic": [
+      {
+        "id": "caller-stated-need",
+        "kind": "phrase",
+        "regex": "under Rivera",
+        "role": "caller",
+        "dimension": "conversation"
+      },
+      {
+        "id": "agent-reported-failure",
+        "kind": "phrase",
+        "regex": "nothing was charged",
+        "role": "agent",
+        "dimension": "conversation"
+      },
+      {
+        "id": "said-failed-but-record-landed",
+        "kind": "state",
+        "resource": "reservations",
+        "filters": {"guest": "rivera"},
+        "expect": {"active": false, "holds": 0},
+        "dimension": "outcome"
+      }
+    ]
+  },
+  "repetitions": 1,
+  "success": {
+    "required": ["all_deterministic_assertions_pass"],
+    "report_dimensions": ["outcome", "conversation"]
+  }
+}

@@ -22,13 +22,12 @@ def _bundled(sid):
     )
 
 
-# The packaged demo pair: fd-01 is a REAL recorded call where the agent never
-# yields to a quiet interruption (caller onset 2.00, did_yield false, ~0.25 s
-# talk-over); 01-hard-interruption is the well-behaved take of the same kind of
-# moment (caller onset 2.40, yields in ~0.5 s). The fix here is the yield
-# appearing at all (FAIL -> PASS), not a talk-over reduction: on a quiet miss
-# the caller barely overlaps, so the louder well-behaved take actually shows
-# MORE talk-over before it correctly yields. Both are real measurements.
+# The packaged demo pair: fd-01 is the bundled bad-agent demo fixture where the
+# agent never yields to an addressed interruption (caller onset 2.00, did_yield
+# false, ~2.65 s talk-over); 01-hard-interruption is the well-behaved take of the
+# same kind of moment (caller onset 2.40, yields in ~0.5 s, ~0.5 s talk-over).
+# The fix here is proven by the yield appearing at all (did_yield false -> true,
+# FAIL -> PASS); the well-behaved take also overlaps far less. Both are measured.
 BAD = str(resources.files("hotato").joinpath(
     "data", "demo", "failing", "audio",
     "fd-01-missed-interruption.example.wav"))
@@ -101,11 +100,11 @@ def test_unchanged_when_both_fail_identically(capsys):
 
 def test_improved_when_both_fail_but_talk_over_drops(capsys):
     # An impossible 0.05 s yield bound makes both takes FAIL. The before is the
-    # well-behaved take (yields at ~0.5 s, ~0.5 s talk-over); the after is the
-    # real quiet miss (never yields, ~0.25 s talk-over). Talk-over dropped, so
-    # among two fails this reads as improved, not worse.
-    assert cli.main(["compare", "--before", GOOD, "--after", BAD,
-                     "--before-onset", "2.40", "--after-onset", "2.00",
+    # missed interruption (never yields, ~2.65 s talk-over); the after is the
+    # well-behaved take (yields at ~0.5 s, ~0.5 s talk-over). Talk-over dropped,
+    # so among two fails this reads as improved, not worse.
+    assert cli.main(["compare", "--before", BAD, "--after", GOOD,
+                     "--before-onset", "2.00", "--after-onset", "2.40",
                      "--expect", "yield",
                      "--max-time-to-yield", "0.05"]) == 0
     out = capsys.readouterr().out
@@ -114,11 +113,11 @@ def test_improved_when_both_fail_but_talk_over_drops(capsys):
 
 
 def test_worse_exits_1_only_with_fail_on_worse(capsys):
-    # Same impossible bound, reversed: the after take (the well-behaved one)
-    # overlaps MORE than the before quiet miss, so among two fails talk-over
-    # moved the wrong way: worse.
-    args = ["compare", "--before", BAD, "--after", GOOD,
-            "--before-onset", "2.00", "--after-onset", "2.40",
+    # Same impossible bound, reversed: the after take (the missed interruption)
+    # overlaps far MORE than the before well-behaved take, so among two fails
+    # talk-over moved the wrong way: worse.
+    args = ["compare", "--before", GOOD, "--after", BAD,
+            "--before-onset", "2.40", "--after-onset", "2.00",
             "--expect", "yield", "--max-time-to-yield", "0.05"]
     assert cli.main(args) == 0
     assert "result: worse" in capsys.readouterr().out
