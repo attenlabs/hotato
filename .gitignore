@@ -102,3 +102,6 @@ docs/SAA-BEHAVIOR-CARD.md
 docs/SAA-FIX-POINTER.md
 docs/saa_behavior_card.py
 tests/test_saa_card.py
+
+# hotato start writes its demo saydo/ output to CWD; ignore it at repo root
+/saydo/
