@@ -105,6 +105,13 @@ jobs:
         with:
           output-directory: dist
 
+      # Crown-jewel packaging guard (2026-07-22 law): before this build is
+      # attested, uploaded as an artifact, or published, scan it fail-closed for
+      # any untracked or internal/crown-jewel/secret file. .gitignore alone does
+      # NOT keep a file out of a built sdist. A hit aborts the whole publish.
+      - name: Refuse to publish if the distribution leaks internal files (fail closed)
+        run: python3 scripts/check_dist_no_leak.py
+
       # Reproducible-build check: rebuild the wheel + sdist a SECOND time into a
       # clean directory with the same SOURCE_DATE_EPOCH and pinned backend, then
       # compare. FAIL on any real drift. dist-verify/ is scratch, never
