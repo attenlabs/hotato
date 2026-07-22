@@ -1,6 +1,6 @@
 # hotato
 
-> Deterministic regression testing for voice and chat agents, self-hosted and
+> Deterministic regression testing for voice agents, self-hosted and
 > MIT. Give it a two-channel recording or a timestamped transcript and it
 > measures turn timing and say-do evidence: did the agent yield when the caller
 > took the floor, how fast, how many seconds both talked at once, and did what
