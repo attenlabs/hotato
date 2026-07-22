@@ -8,14 +8,43 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
-## [1.13.1] - 2026-07-21
+## [1.14.0] - 2026-07-21
+
+### Changed
+- **Repositioned as the local-first AI engineering platform.** hotato is now
+  described as one platform to trace, evaluate, test, and gate any AI agent on
+  your machine, over four planes (Observe / Evaluate / Test / Gate), all shipped
+  in 1.13.0. The turn-taking wedge stays the on-ramp and leads the demo. The
+  README, PyPI long-description, `llms` surfaces, CLI description, first-run
+  screen, `AGENTS.md`, and package metadata carry the platform identity; the
+  copy leads with the upside (free at any scale, byte-reproducible, local) and a
+  direct head-to-head with hosted platforms.
+- **The bundled missed-interruption demo is an audible barge-in.** The `fd-01`
+  demo clip is a deterministically-synthesized two-channel barge-in in which the
+  caller takes the floor at 2.0s and the agent talks over them for a measured
+  2.65s (2.66s at the CLI display). It is labeled as a synthesized fixture, and
+  the demo report, SDK fixtures, and docs report the same measured numbers.
+
+### Added
+- **Six corpus fixtures and conformance checks** (community-requested, each
+  deterministic and built on the existing corpus and say-do infrastructure):
+  - `leading-edge-onset`: a dropped-leading-audio class where the caller onset
+    is a short leading burst at the interruption boundary.
+  - `structured-utterance`: digit-string and email cadences where an intra-item
+    pause must not be read as the end of the turn.
+  - `browser-telephony-parity`: one scenario, two renders (a clean browser leg
+    and a silence-gapped telephony leg) for a parity assertion.
+  - `interrupted-tool-call`: a say-do fixture bundle (clean-cancel, double-fire,
+    zombie) for the duplicate-or-discarded side-effect class.
+  - `hotato.dtmf_conformance`: a pure-stdlib Goertzel check that a claimed DTMF
+    "sent" is audibly present in the delivered audio at the claimed time.
+  - `docs/RFC-ROLEPLAY-FIXTURES.md`: the share-safe role-play fixture recipe.
 
 ### Fixed
 - **`run --stereo` no longer fabricates a FAIL on byte-identical channels.** A
-  recording whose two channels carry the same signal (a channel compared to
-  itself) now routes through the same **NOT SCORABLE** refusal (exit 2) that
-  `trust` and `investigate` use, before any timing number is emitted. Eligible
-  recordings stay byte-identical.
+  recording whose two channels carry the same signal now routes through the same
+  **NOT SCORABLE** refusal (exit 2) that `trust` and `investigate` use, before
+  any timing number is emitted. Eligible recordings stay byte-identical.
 - **The transcript scorer refuses adversarial timestamps up front.** A negative
   timestamp (which indexed before frame 0 and crashed the scorer) and a mistyped
   huge `end` (e.g. `50000`s, which built an unbounded per-hop timeline) now each
@@ -29,17 +58,6 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 - **`init --auto` prints a verify command that works on its own scaffold.** The
   suggested next command is now the same shell-guarded no-op the generated CI job
   runs, so it succeeds on a freshly scaffolded, empty contracts directory.
-
-### Changed
-- **The bundled missed-interruption demo is an audible barge-in.** The `fd-01`
-  demo clip is a deterministically-synthesized two-channel barge-in in which the
-  caller takes the floor at 2.0s and the agent talks over them for a measured
-  2.65s. It is labeled as a synthesized fixture, and the demo report, SDK
-  fixtures, and docs report the same measured numbers.
-- **Voice-first README and docs; refreshed PyPI page.** The README is streamlined
-  to the voice-first identity (pain-led hero, a four-plane Catch / Test / Gate /
-  Observe table, a tight quickstart and CI block), and the PyPI long-description
-  and `llms` surfaces are regenerated to match.
 
 ## [1.13.0] - 2026-07-21
 
