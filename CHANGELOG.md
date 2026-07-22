@@ -8,6 +8,36 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-07-22
+
+### Added
+- **`hotato prove`: one command, one release proof.** Composes the evidence
+  lanes you already ran into a single fail-closed verdict with a portable
+  receipt: `--contracts` re-scores contracts through contract verify's own
+  logic, `--suite` runs a conversation-test suite, `--before/--after` scores
+  the battery rollup through `hotato verify` (with its min-n refusal), and
+  `--gauntlet` runs the bundled stress suite. It adds no new scoring engine.
+  Overall is pass only when every activated lane passed; any failure fails the
+  proof, and a lane that could not support its claim is inconclusive and exits
+  non-zero, so CI never reads "could not tell" as green. Writes
+  `proof.json` (schema `hotato.proof.v1`) plus `proof.md`: verdicts, counts,
+  relative names, and sha256 digests only, with a content address that
+  regenerates identically under a pinned `SOURCE_DATE_EPOCH`.
+- **`docs/LIFECYCLE.md`: the whole loop on one page.** Observe, catch, pin,
+  test, prove, and the production edge that feeds the next loop, with every
+  command mapped to its step.
+
+### Changed
+- **The story is the loop.** README, the docs index, and `docs/COMPARE.md` are
+  restructured around one sentence: every production failure becomes a portable
+  test, every candidate runs against it, and every release carries evidence.
+  The comparison page now walks the lifecycle side by side with hosted
+  platforms and states the three structural differences (free at any scale,
+  verdicts reproducible enough to gate a build, data that stays yours).
+- **Concrete positioning.** Every surface leads with "Local-first testing and
+  observability for AI agents"; the positioning-lockstep test enforces the new
+  line and retires the vague platform noun.
+
 ## [1.14.0] - 2026-07-21
 
 ### Changed
