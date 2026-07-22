@@ -268,3 +268,130 @@ def test_gauntlet_lane_passes_and_counts_the_bundled_suite(tmp_path, capsys):
     assert lane["verdict"] == "pass"
     assert lane["counts"]["total"] == 10
     assert lane["counts"]["passed"] == 10
+
+
+# --- claim scope + evidence authority: the artifact states exactly what it
+#     establishes, and never claims more than its evidence supports ----------
+
+def _empty_dir(tmp_path, name):
+    d = tmp_path / name
+    d.mkdir()
+    return d
+
+
+def test_contracts_only_is_captured_evidence_not_a_release_proof(
+        tmp_path, capsys):
+    # A contracts-only run re-measures stored evidence; it binds no candidate
+    # and no deployment, so the strongest thing it can say is "Captured
+    # Evidence" -- never a bare "release proof".
+    cdir = _passing_contracts_dir(tmp_path)
+    out = tmp_path / "proofout"
+    rc = cli.main(["prove", "--contracts", str(cdir), "--out", str(out)])
+    assert rc == 0
+    proof = _read_proof(out)
+    assert proof["claim_scope"] == "captured_evidence"
+    assert proof["evidence_authority"] == "measured"
+
+    text = capsys.readouterr().out
+    assert "Captured Evidence" in text
+    assert "release proof" not in text.lower()
+    # the JSON "headline" is the claim_scope field itself
+    assert proof["claim_scope"] == "captured_evidence"
+    assert "release proof" not in (out / "proof.md").read_text(
+        encoding="utf-8").lower()
+
+
+def test_gauntlet_lane_is_test_suite_scope(tmp_path, capsys):
+    out = tmp_path / "proofout"
+    assert cli.main(["prove", "--gauntlet", "--out", str(out)]) == 0
+    capsys.readouterr()
+    proof = _read_proof(out)
+    assert proof["claim_scope"] == "test_suite"
+    assert proof["evidence_authority"] == "measured"
+
+
+def test_contracts_plus_gauntlet_is_test_suite_scope(tmp_path, capsys):
+    # contracts (captured_evidence) + gauntlet (test_suite): the whole
+    # evidence set establishes that a test suite ran AND stored evidence held,
+    # so the proof reads as the stronger "Test Suite".
+    cdir = _passing_contracts_dir(tmp_path)
+    out = tmp_path / "proofout"
+    assert cli.main(["prove", "--contracts", str(cdir), "--gauntlet",
+                     "--out", str(out)]) == 0
+    capsys.readouterr()
+    proof = _read_proof(out)
+    assert {lane["lane"] for lane in proof["lanes"]} == {"contracts",
+                                                         "gauntlet"}
+    assert proof["claim_scope"] == "test_suite"
+
+
+def test_before_after_without_binding_stays_test_suite(tmp_path):
+    # The anti-over-elevation case: a before/after lane on its own re-runs a
+    # battery -- it does NOT identify a candidate revision, so it may not be
+    # elevated above "Test Suite".
+    before = _empty_dir(tmp_path, "before")
+    after = _empty_dir(tmp_path, "after")
+    out = tmp_path / "proofout"
+    cli.main(["prove", "--before", str(before), "--after", str(after),
+              "--out", str(out)])
+    proof = _read_proof(out)
+    assert any(lane["lane"] == "verify" for lane in proof["lanes"])
+    assert proof["claim_scope"] == "test_suite"
+    assert proof["claim_scope"] != "candidate_revision"
+
+
+def test_before_after_with_candidate_binding_is_candidate_revision(tmp_path):
+    before = _empty_dir(tmp_path, "before")
+    after = _empty_dir(tmp_path, "after")
+    out = tmp_path / "proofout"
+    cli.main(["prove", "--before", str(before), "--after", str(after),
+              "--candidate-config-hash", "sha256:cfg-abc123",
+              "--provider", "acme-runner", "--out", str(out)])
+    proof = _read_proof(out)
+    assert proof["claim_scope"] == "candidate_revision"
+    # the binding is recorded, share-safely, in the proof's evidence block
+    assert proof["evidence"]["candidate_config_hash"] == "sha256:cfg-abc123"
+    assert proof["evidence"]["provider"] == "acme-runner"
+    # this release does not authenticate the runner, so authority stays measured
+    assert proof["evidence_authority"] == "measured"
+
+
+def test_deployment_id_without_candidate_binding_never_deployed_revision(
+        tmp_path):
+    # A deployment id alone cannot reach "Deployed Revision": without the
+    # candidate identity (config hash + provider) bound, there is nothing to
+    # attach the deployment to.
+    before = _empty_dir(tmp_path, "before")
+    after = _empty_dir(tmp_path, "after")
+    out = tmp_path / "proofout"
+    cli.main(["prove", "--before", str(before), "--after", str(after),
+              "--deployment-id", "deploy-77", "--out", str(out)])
+    proof = _read_proof(out)
+    assert proof["claim_scope"] != "deployed_revision"
+    assert proof["claim_scope"] == "test_suite"
+    # supplied without raising the scope, it is still recorded as evidence
+    assert proof["evidence"]["deployment_id"] == "deploy-77"
+
+
+def test_new_flags_stay_deterministic_and_leak_no_absolute_path(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+    before = _empty_dir(tmp_path, "before")
+    after = _empty_dir(tmp_path, "after")
+    args = [
+        "prove", "--before", str(before), "--after", str(after),
+        "--candidate-config-hash", "sha256:cfg-abc123",
+        "--provider", "acme-runner", "--deployment-id", "deploy-77",
+    ]
+    out_a = tmp_path / "proof-a"
+    out_b = tmp_path / "proof-b"
+    cli.main(args + ["--out", str(out_a)])
+    cli.main(args + ["--out", str(out_b)])
+    a = (out_a / "proof.json").read_bytes()
+    b = (out_b / "proof.json").read_bytes()
+    assert a == b
+    # the content address covers the new fields, and no caller path leaks
+    raw = a.decode("utf-8")
+    assert str(tmp_path) not in raw
+    assert _prove.compute_content_id(json.loads(a)) == json.loads(a)[
+        "content_id"]

@@ -1,7 +1,7 @@
 # The hotato lifecycle
 
-Every production failure becomes a portable test, every candidate runs against
-it, and every release carries evidence. That sentence is the whole product; this
+Turn production failures into portable tests, run candidate releases against
+them, and carry evidence with every release. That is the whole product; this
 page maps every command onto it.
 
 The loop has five steps you drive, and one that feeds itself:
