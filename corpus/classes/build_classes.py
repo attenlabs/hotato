@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the four corpus scenario CLASSES under corpus/classes/.
+"""Build the seven corpus scenario CLASSES under corpus/classes/.
 
 Every scenario here is SYNTHETIC and says so, exactly like corpus/suites/:
 deterministic shaped noise rendered from the exact segment timings in its own
@@ -11,7 +11,7 @@ re-inventing it: the scenario-builder helpers (``_sc``, ``_seg``, ``yield_case``
 ``hold_case``, ``latency_case``, ...) are loaded straight from
 ``corpus/suites/build_suites.py``, and the audio itself is rendered by the
 same ``examples/render_examples.py`` used by every other fixture in this
-repository. The only NEW code here is (a) the four scenario shapes below and
+repository. The only NEW code here is (a) the seven scenario shapes below and
 (b) the deterministic telephony degradation used by ``telephony-degraded``
 (``telephony_codec.py``), applied as an explicit, labeled POST-processing
 step so the shared render path stays untouched.
@@ -769,7 +769,7 @@ def check(root=HERE) -> int:
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Build or verify the four corpus scenario classes.")
+    p = argparse.ArgumentParser(description="Build or verify the seven corpus scenario classes.")
     p.add_argument("--check", action="store_true",
                    help="regenerate to a temp dir and byte-compare against disk")
     args = p.parse_args(argv)
