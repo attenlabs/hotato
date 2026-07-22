@@ -22,9 +22,8 @@ hotato scores those failures from a two-channel recording or a timestamped trans
 
 ```console
 $ uvx hotato start --demo
-Conversation failed: Agent did not yield; measured talk-over was 0.25 s.
-    talk-over     0.25s   the agent kept talking while the caller held the floor
-    response gap  2.18s   dead air from the caller's turn end to the reply
+Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
+    talk-over     2.66s   the agent kept talking while the caller held the floor
 ```
 
 It measures turn timing and say-do, not intent.
@@ -85,10 +84,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.13.0
+      - uses: attenlabs/hotato@v1.13.1
         with:
           contracts: contracts/
-          hotato-version: 1.13.0
+          hotato-version: 1.13.1
 ```
 
 Copy-paste workflow with a commit-SHA pin: [`docs/CI.md`](docs/CI.md).

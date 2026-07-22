@@ -18,7 +18,7 @@
       "measurement": {
         "did_yield": false,
         "seconds_to_yield": null,
-        "talk_over_sec": 0.25
+        "talk_over_sec": 2.65
       },
       "authenticity": "unsigned",
       "authenticated": false,

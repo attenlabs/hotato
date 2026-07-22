@@ -159,7 +159,11 @@ def test_direct_onnx_is_deterministic_on_a_fixture():
     from hotato import neural
     from hotato._engine.audio import read_wav
 
-    sig = read_wav(_bundled_path("data/demo/failing/audio/fd-01-missed-interruption.example.wav"))
+    # fd-02 is a recorded call whose agent channel carries a real speech track
+    # (a non-empty determinism check). fd-01 is a synthesized speech-envelope
+    # render (band-limited noise), which the speech-trained model scores as no
+    # speech, so it would exercise only the trivial empty==empty path here.
+    sig = read_wav(_bundled_path("data/demo/failing/audio/fd-02-backchannel-yielded.example.wav"))
     wav = np.asarray(sig.get(1), dtype=np.float32)
     session = neural._load_session()
     a = neural._get_speech_timestamps(wav, sig.sample_rate, session)
@@ -223,7 +227,10 @@ def test_neural_run_needs_no_torch_or_silero():
     saved_factory = _vad._NEURAL_FACTORY
     _vad.register_neural_backend(build_silero_backend)
     try:
-        sig = read_wav(_bundled_path("data/demo/failing/audio/fd-01-missed-interruption.example.wav"))
+        # fd-02's agent channel is a recorded speech track (non-empty neural
+        # result); fd-01 is a synthesized speech-envelope render the speech
+        # model scores as no speech, so it cannot prove the path ran.
+        sig = read_wav(_bundled_path("data/demo/failing/audio/fd-02-backchannel-yielded.example.wav"))
         samples = sig.get(1)
         rms, hop = frame_rms(samples, sig.sample_rate, 20.0, 10.0)
         r = neural_vad(samples, sig.sample_rate, rms, hop, VADParams(backend="neural"))

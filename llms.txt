@@ -28,7 +28,7 @@
 > --format json` regenerates the same command data straight from the CLI's
 > argparse, so it never drifts from the real flags.
 >
-> Version 1.13.0
+> Version 1.13.1
 
 ## Start here
 
@@ -444,9 +444,10 @@ it, never whether the policy itself was right.
   labeled indicative below the confidence bar and never equal to a true
   dual-channel measurement.
 - The bundled barge-in SUITE fixtures are synthetic: a deterministic floor and
-  a regression guard. The `hotato demo` battery, by contrast, is two real
-  operator-recorded calls (MIT-licensed). Real validity comes from your own
-  labelled calls.
+  a regression guard. The `hotato demo` battery, by contrast, is two bundled
+  calls -- one deterministically-synthesized talk-over (fd-01) and one
+  operator-recorded Vapi-defaults call (fd-02), both MIT-licensed. Validity for
+  your agent comes from your own labelled calls.
 
 ## Links
 
@@ -477,7 +478,7 @@ it, never whether the policy itself was right.
   "eligible for scan" or "NOT SCORABLE" with the reason, never a turn-taking verdict.
 - docs/CONNECT.md: `hotato connect` / `pull` / `sweep`, the connect-once bulk
   pull-and-analyze recipe across your real calls, with per-stack credentials.
-- docs/ADAPTER-STATUS.md: the honest per-stack map -- auto-pull dual-channel,
+- docs/ADAPTER-STATUS.md: the per-stack map -- auto-pull dual-channel,
   mono-only (`--allow-mono`), capture-in-your-infra, not integrable, and
   unconfirmed -- each with the exact verified endpoint.
 - docs/STARTER.md: `hotato init starter`, the one-command CI gate +
