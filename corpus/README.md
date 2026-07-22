@@ -123,6 +123,11 @@ When real recordings arrive, they live beside their labels here with `source_typ
 set to `real-call` or `role-played` and a complete consent trail, and the
 synthetic examples keep their honest label next to them.
 
+For role-played clips, the repeatable recipe -- script shape, the
+consent/PII/attestation checklist mapped to the schema fields, dual-channel
+capture, and the defect-performed-on-purpose labeling -- is
+[`docs/RFC-ROLEPLAY-FIXTURES.md`](../docs/RFC-ROLEPLAY-FIXTURES.md).
+
 ## Submit end to end
 
 The complete walkthrough, from recording through the issue form or PR to

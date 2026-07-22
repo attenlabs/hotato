@@ -98,8 +98,10 @@ def test_start_demo_prints_the_next_commands(tmp_path, capsys):
     assert "hotato card hotato-sweep.json" not in out
 
     # The evidence-selected-rank invariant still holds where the promote command
-    # now lives (the machine payload): never present the backchannel #1 as a
-    # --expect yield regression (on the bundled demo #1 is a hold moment).
+    # now lives (the machine payload): the promote line targets the rank the
+    # scenario's declaration selects -- an overlap_while_agent_talking (yield)
+    # moment -- and no hold/backchannel candidate is ever presented as a
+    # --expect yield regression.
     json_dir = tmp_path / "json_run"
     assert cli.main(["start", "--demo", "--dir", str(json_dir),
                      "--format", "json"]) == 0
@@ -109,8 +111,11 @@ def test_start_demo_prints_the_next_commands(tmp_path, capsys):
     joined = " ".join(payload["next_commands"])
     assert (f"hotato fixture promote hotato-sweep.json#{rank} --expect yield"
             in joined)
-    assert ("hotato fixture promote hotato-sweep.json#1 --expect yield"
-            not in joined)
+    assert sweep["candidates"][rank - 1]["kind"] == "overlap_while_agent_talking"
+    for i, cand in enumerate(sweep["candidates"], 1):
+        if cand.get("kind") != "overlap_while_agent_talking":
+            assert (f"hotato fixture promote hotato-sweep.json#{i} --expect yield"
+                    not in joined)
 
 
 def test_start_demo_json_format(tmp_path, capsys):

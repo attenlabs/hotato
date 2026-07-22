@@ -1,0 +1,59 @@
+{
+  "agent_channel": 1,
+  "amplitude_per_sine": 0.25,
+  "caller_channel": 0,
+  "digits": "1234",
+  "files": {
+    "conformant": {
+      "expect": "every claimed digit present",
+      "file": "conformant.wav"
+    },
+    "defect": {
+      "claimed_digits": "1234",
+      "expect": "digit at silenced_index fails; the others pass",
+      "file": "defect.wav",
+      "silenced_digit": "3",
+      "silenced_index": 2
+    }
+  },
+  "id": "dtmf-conformance-fixture",
+  "note": "Synthetic rendered DTMF tones. Not a recording of a call.",
+  "per_digit": [
+    {
+      "col_freq_hz": 1209,
+      "digit": "1",
+      "duration_sec": 0.15,
+      "index": 0,
+      "offset_sec": 0.2,
+      "row_freq_hz": 697
+    },
+    {
+      "col_freq_hz": 1336,
+      "digit": "2",
+      "duration_sec": 0.15,
+      "index": 1,
+      "offset_sec": 0.35,
+      "row_freq_hz": 697
+    },
+    {
+      "col_freq_hz": 1477,
+      "digit": "3",
+      "duration_sec": 0.15,
+      "index": 2,
+      "offset_sec": 0.5,
+      "row_freq_hz": 697
+    },
+    {
+      "col_freq_hz": 1209,
+      "digit": "4",
+      "duration_sec": 0.15,
+      "index": 3,
+      "offset_sec": 0.65,
+      "row_freq_hz": 770
+    }
+  ],
+  "sample_rate": 8000,
+  "source_type": "synthetic",
+  "window_end_sec": 0.8,
+  "window_start_sec": 0.2
+}

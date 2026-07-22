@@ -60,6 +60,11 @@ For a hold case (the caller backchannels "mm-hm" and a good agent keeps
 talking), set `category` to `should_not_yield`, `expected.yield` to `false`,
 and both `max_*` bounds to `null`.
 
+Recording a role-play instead of a live call? The repeatable recipe -- script
+shape, the consent/PII/attestation checklist mapped to the schema fields,
+dual-channel capture, and the defect-performed-on-purpose labeling -- is
+[`RFC-ROLEPLAY-FIXTURES.md`](RFC-ROLEPLAY-FIXTURES.md).
+
 Label only what you can defend by hand: `caller_onset_sec` is required,
 `reference_render` segment timings are a bonus if you have them. The
 harness reports error only for the signals you supply.

@@ -1,0 +1,26 @@
+[
+  {
+    "role": "caller",
+    "text": "table for four tonight under Rivera",
+    "start": 0.6,
+    "end": 2.9
+  },
+  {
+    "role": "agent",
+    "text": "one moment, booking that",
+    "start": 3.2,
+    "end": 4.4
+  },
+  {
+    "role": "caller",
+    "text": "hello? did that go through?",
+    "start": 8.0,
+    "end": 9.4
+  },
+  {
+    "role": "agent",
+    "text": "sorry, that booking did not complete and nothing was charged. want me to try again?",
+    "start": 9.8,
+    "end": 13.5
+  }
+]

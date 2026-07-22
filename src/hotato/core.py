@@ -1388,6 +1388,18 @@ def run_single(
                     verdict_ineligible_reason = _trust.CROSSTALK_VERDICT_REASON
                 else:
                     channel_mapping_caveat = _trust_rep.get("channel_mapping_caveat")
+            elif _trust_rep.get("scorability", {}).get("separated_tracks") is False:
+                # SAME-SIGNAL refusal: the two channels carry the byte-identical
+                # signal (a mono recording duplicated into two channels), so caller
+                # and agent are not separated and comparing one channel to the other
+                # would fabricate a talk-over out of a channel measured against
+                # itself. trust/investigate already refuse this exact input as
+                # not-scorable; route `run` through the SAME refusal (fail-closed,
+                # process exit 2) with trust's own reason, BEFORE any verdict or
+                # number is emitted. Narrowed to the separated_tracks gate only: an
+                # eligible recording keeps separated_tracks True (its channels are
+                # not byte-identical), so its event stays byte-identical to before.
+                verdict_ineligible_reason = _trust_rep.get("not_scorable_reason")
     elif caller and agent:
         c = _read_wav(caller)
         a = _read_wav(agent)

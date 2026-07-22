@@ -1,0 +1,12 @@
+{
+  "reservations": [
+    {
+      "guest": "rivera",
+      "status": "booked",
+      "party_size": 4,
+      "deposit": 40,
+      "holds": 2,
+      "active": true
+    }
+  ]
+}

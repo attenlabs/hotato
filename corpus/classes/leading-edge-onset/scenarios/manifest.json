@@ -1,0 +1,40 @@
+{
+  "scenarios": [
+    {
+      "id": "leo-onset-frame-edge",
+      "title": "Leading burst on a frame boundary, then the sustained utterance; agent yields (PASS)",
+      "category": "should_yield",
+      "family": "leading-edge-onset",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/leo-onset-frame-edge.example.wav",
+      "caller_wav": "audio/leo-onset-frame-edge.caller.wav"
+    },
+    {
+      "id": "leo-onset-sweep",
+      "title": "Leading burst shifted off the frame boundary; measurement stable (PASS)",
+      "category": "should_yield",
+      "family": "leading-edge-onset",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "pass",
+      "failure_axis": null,
+      "example_wav": "audio/leo-onset-sweep.example.wav",
+      "caller_wav": "audio/leo-onset-sweep.caller.wav"
+    },
+    {
+      "id": "leo-dropped-burst",
+      "title": "DEFECT RENDER: the leading burst is dropped from the caller channel (must FAIL)",
+      "category": "should_yield",
+      "family": "leading-edge-onset",
+      "sample_rate": 16000,
+      "expected_yield": true,
+      "reference_verdict": "fail",
+      "failure_axis": "barge_in",
+      "example_wav": "audio/leo-dropped-burst.example.wav",
+      "caller_wav": "audio/leo-dropped-burst.caller.wav"
+    }
+  ]
+}

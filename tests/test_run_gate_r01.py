@@ -198,3 +198,101 @@ def test_cli_run_confirm_channels_suppresses_caveat(tmp_path, capsys):
     event = json.loads(capsys.readouterr().out)["events"][0]
     assert event.get("scorable") is not False
     assert "channel_mapping_caveat" not in event
+
+
+# --- C1: byte-identical channels are NOT SCORABLE on `run` (no fabricated verdict)
+
+
+def _write_duplicated_mono(path, segments, *, duration_sec=6.0, sr=16000,
+                           amp=0.35):
+    """A two-channel WAV whose two channels carry the BYTE-IDENTICAL signal (a
+    mono recording duplicated into stereo): decodable, two channels, but the
+    tracks are not separated, so caller and agent cannot be told apart. Mirrors
+    tests/test_trust.py::_write_duplicated_mono."""
+    n = int(duration_sec * sr)
+
+    def _on(t):
+        return any(start <= t < end for start, end in segments)
+
+    frames = bytearray()
+    for i in range(n):
+        t = i / sr
+        v = int(amp * 32767 * math.sin(2 * math.pi * 220.0 * i / sr)) if _on(t) else 0
+        frames += struct.pack("<hh", v, v)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(bytes(frames))
+    return str(path)
+
+
+def test_identical_channels_run_is_not_scorable_not_a_fabricated_talk_over(tmp_path):
+    """C1: `hotato run --stereo` on a duplicated-channel WAV refuses as NOT
+    SCORABLE (process exit 2), with trust's own same-signal reason, instead of
+    comparing a channel to ITSELF and fabricating a talk-over FAIL. trust and
+    investigate already refuse this exact input; run must match them."""
+    p = _write_duplicated_mono(tmp_path / "dup.wav", segments=[(0.2, 5.8)])
+
+    # trust already refuses it (the behavior run must match).
+    tr = trust_mod.trust_report(p)
+    assert tr["scorable"] is False
+    assert tr["scorability"]["separated_tracks"] is False
+    assert "same signal" in tr["not_scorable_reason"]
+
+    # run, with the verdict-eligibility gate on (the `hotato run` COMMAND path):
+    env = core.run_single(stereo=p, expect="yield", onset_sec=1.0,
+                          gate_verdict_eligibility=True)
+    event = env["events"][0]
+    # Refused, not scored: the same same-signal reason, and NO fabricated number.
+    assert event.get("scorable") is False
+    assert event["not_scorable_reason"] == tr["not_scorable_reason"]
+    assert "same signal" in event["not_scorable_reason"]
+    assert event["verdict"]["passed"] is False
+    # A talk-over was NOT invented: the not-scorable verdict carries only the
+    # refusal reason, never a talked-over-for-N-seconds fail.
+    assert event["verdict"]["reasons"] == [event["not_scorable_reason"]]
+    # Process exit is 2 (usage / unusable input), never 1 (a scored regression).
+    assert core.process_exit_code(env) == 2
+
+
+def test_cli_run_identical_channels_exits_2_like_trust_and_investigate(tmp_path, capsys):
+    """C1 end-to-end: `hotato run --stereo dup.wav` prints [NOT SCORABLE] and
+    exits 2 -- the SAME outcome as `hotato trust`/`hotato investigate` on the
+    same file -- with no [FAIL] talk-over line."""
+    p = _write_duplicated_mono(tmp_path / "dup.wav", segments=[(0.2, 5.8)])
+
+    rc_run = cli.main(["run", "--stereo", p, "--expect", "yield",
+                       "--onset", "1.0", "--format", "text"])
+    out = capsys.readouterr().out
+    assert rc_run == 2
+    assert "[NOT SCORABLE]" in out
+    assert "same signal" in out
+    assert "[FAIL]" not in out
+    assert "talk_over" not in out
+
+    # Parity with the other two commands on the same input: both refuse it as
+    # NOT SCORABLE (exit 2), the outcome `run` must match.
+    assert cli.main(["trust", "--stereo", p]) == 2
+    capsys.readouterr()
+    assert cli.main(["investigate", p]) == 2
+    capsys.readouterr()
+
+
+def test_run_eligible_stereo_stays_byte_identical_with_c1_gate(tmp_path):
+    """C1 guardrail: the same-signal refusal fires ONLY on byte-identical
+    channels. A clean, normally-mapped recording (two DISTINCT tones) still
+    returns its real scored verdict, byte-identical to the pre-gate output --
+    the gate never touches an eligible recording."""
+    p = _clean_fixture(tmp_path)
+    tr = trust_mod.trust_report(p)
+    assert tr["scorability"]["separated_tracks"] is True
+
+    gated = core.run_single(stereo=p, expect="yield", onset_sec=3.0,
+                            gate_verdict_eligibility=True)
+    ungated = core.run_single(stereo=p, expect="yield", onset_sec=3.0)
+    event = gated["events"][0]
+    assert "scorable" not in event
+    assert "not_scorable_reason" not in event
+    assert core.process_exit_code(gated) != 2
+    assert json.dumps(gated, sort_keys=True) == json.dumps(ungated, sort_keys=True)

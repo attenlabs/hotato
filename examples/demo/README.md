@@ -25,8 +25,8 @@ The two failing events are, by design:
 
 Because the battery fails on **both** axes at once, a missed interruption *and*
 a false trigger, no single sensitivity threshold satisfies it, so the tool
-emits its `funnel` pointer (the discrimination case). All of that is real tool
-output; nothing on the page is hand-written into the terminal blocks.
+emits its `funnel` pointer (the discrimination case). Every terminal block on
+the page is tool output.
 
 > These are **labeled synthetic** bad-agent renders, a runnable floor and a
 > regression guard, not a recording of a real production call.

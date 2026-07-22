@@ -108,10 +108,10 @@ opaque key.
 
 ```text
 $ hotato demo --no-open --format text
-hotato demo: recorded calls a provider's default agent fails
+hotato demo: bundled calls an agent fails
 hotato [suite] stack=generic offline=True
   0/2 events pass  (failed=2)
-  [FAIL] fd-01-missed-interruption: did_yield=False seconds_to_yield=- talk_over=0.25s
+  [FAIL] fd-01-missed-interruption: did_yield=False seconds_to_yield=n/a talk_over=2.65s
          fix[config]: Missed interruption: the agent kept talking over the caller
   [FAIL] fd-02-backchannel-yielded: did_yield=True seconds_to_yield=0.34s talk_over=0.32s
          fix[engagement-control]: False barge-in: a backchannel was treated as a bid for the floor

@@ -1,0 +1,117 @@
+{
+  "id": "btp-telephony-gaps",
+  "title": "DEFECT RENDER: telephony-leg render with silence gaps on the agent channel (must FAIL)",
+  "category": "should_not_yield",
+  "tags": [
+    "parity",
+    "telephony",
+    "silence-gap",
+    "scan",
+    "codec",
+    "packet-loss",
+    "bad-line"
+  ],
+  "family": "browser-telephony-parity",
+  "source_type": "synthetic",
+  "sample_rate": 8000,
+  "duration_sec": 23.3,
+  "caller_onset_sec": 1.0,
+  "expected": {
+    "yield": false,
+    "max_time_to_yield_sec": null,
+    "max_talk_over_sec": null
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [
+      [
+        3.1,
+        5.1
+      ],
+      [
+        7.3,
+        9.3
+      ],
+      [
+        9.9,
+        11.9
+      ],
+      [
+        14.1,
+        16.1
+      ],
+      [
+        16.7,
+        18.7
+      ],
+      [
+        20.9,
+        22.9
+      ]
+    ],
+    "caller_segments_sec": [
+      [
+        1.0,
+        2.8
+      ],
+      [
+        5.4,
+        7.0
+      ],
+      [
+        12.2,
+        13.8
+      ],
+      [
+        19.0,
+        20.6
+      ]
+    ]
+  },
+  "reference_verdict": "fail",
+  "failure_axis": "latency",
+  "why_it_matters": "DEFECT RENDER. The identical reference_render timings on the telephony leg: G.711 mu-law companding plus packet loss, plus a fixed schedule that silences the agent channel over two windows. A whole-call scan surfaces exactly those two windows as long_response_gap candidates, while the browser leg surfaced none; same scenario, same scan, the divergence is the finding. Passes in the browser, fails on the phone line.",
+  "related_signals": [
+    "long_response_gap",
+    "did_yield"
+  ],
+  "parity": {
+    "leg": "telephony",
+    "min_gap_sec": 2.0,
+    "expected_long_response_gaps": [
+      {
+        "t_sec": 7.15,
+        "gap_sec": 2.75
+      },
+      {
+        "t_sec": 13.94,
+        "gap_sec": 2.75
+      }
+    ],
+    "agent_silence_windows_sec": [
+      [
+        7.0,
+        9.9
+      ],
+      [
+        13.8,
+        16.7
+      ]
+    ]
+  },
+  "telephony_degradation": {
+    "codec": "mu-law",
+    "packet_loss": true,
+    "note": "Post-processed by corpus/classes/telephony_codec.py (degrade_telephony) after the standard deterministic render, applied identically to both channels."
+  },
+  "agent_silence_windows_sec": [
+    [
+      7.0,
+      9.9
+    ],
+    [
+      13.8,
+      16.7
+    ]
+  ]
+}
