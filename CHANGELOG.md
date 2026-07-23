@@ -9,6 +9,16 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **`--junit` on `hotato suite run` and `hotato prove`.** Both commands also
+  write a JUnit XML report any standard CI test widget ingests, mirroring
+  each command's existing grouping: one `<testsuite>` per dimension (suite
+  run) or per evidence lane (prove), one `<testcase>` per test or lane. A
+  scored FAIL is a `<failure>` carrying the measured reason; an INCONCLUSIVE
+  dimension, a `SIMULATOR_INVALID` run, or a refused/inconclusive lane is an
+  `<error>` with the refusal reason preserved -- never a `<failure>` and
+  never a silent pass, so the dashboard shows red exactly when the exit code
+  gates. The XML carries no timestamp and renders byte-identically on a
+  repeat run.
 - **`hotato candidate`: a measured candidate-identity binding.** `candidate
   hash --provider vapi --assistant <id>` fetches the candidate's configuration,
   canonicalizes it (dropping volatile fields like ids and timestamps), and

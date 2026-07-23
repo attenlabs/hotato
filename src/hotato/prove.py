@@ -48,6 +48,7 @@ __all__ = [
     "serialize",
     "render_text",
     "render_md",
+    "render_junit",
 ]
 
 SCHEMA_VERSION = "hotato.proof.v1"
@@ -594,3 +595,62 @@ def render_md(proof: Dict[str, Any]) -> str:
         "verdicts, counts, relative input names, and sha256 digests only.",
     ]
     return "\n".join(lines) + "\n"
+
+
+_JUNIT_ESCAPE = str.maketrans({"&": "&amp;", "<": "&lt;", ">": "&gt;",
+                               '"': "&quot;"})
+
+
+def _jesc(s) -> str:
+    return str(s if s is not None else "").translate(_JUNIT_ESCAPE)
+
+
+def render_junit(proof: Dict[str, Any]) -> str:
+    """JUnit XML for CI: the proof is the ``<testsuites>`` root, one
+    ``<testsuite>`` per activated evidence lane, one ``<testcase>`` for the
+    lane's fail-closed verdict. A failed lane is a ``<failure>`` carrying
+    the lane's measured counts; a refused or inconclusive lane is an
+    ``<error>`` preserving the refusal reason -- never a ``<failure>`` and
+    never a silent pass, so a CI dashboard shows red for "could not tell".
+    Deterministic given the proof dict (no timestamp attribute), sharing
+    the proof's own share-safety: verdicts, counts, and fixed reasons
+    only."""
+    suites = []
+    for entry in proof["lanes"]:
+        lane = entry["lane"]
+        verdict = entry["verdict"]
+        counts_body = _jesc(json.dumps(entry["counts"], sort_keys=True))
+        failures = errors = 0
+        case = f'    <testcase classname="hotato.prove" name="{_jesc(lane)}">'
+        if verdict == VERDICT_FAIL:
+            failures = 1
+            reason = (f"the {lane} lane failed: "
+                      f"{_counts_cell(entry['counts'])}")
+            case += (f'\n      <failure message="{_jesc(reason)}">'
+                     f"{counts_body}</failure>\n    ")
+        elif verdict != VERDICT_PASS:
+            errors = 1
+            reason = entry.get("refusal") or (
+                f"the {lane} lane came back inconclusive: it could not "
+                f"support its claim ({_counts_cell(entry['counts'])}); "
+                "never read as green"
+            )
+            case += (f'\n      <error message="{_jesc(reason)}">'
+                     f"{counts_body}</error>\n    ")
+        case += "</testcase>"
+        suites.append((lane, case, failures, errors))
+    total_failures = sum(f for _, _, f, _ in suites)
+    total_errors = sum(e for _, _, _, e in suites)
+    out = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        f'<testsuites name="hotato prove: {_jesc(proof["name"])}" '
+        f'tests="{len(suites)}" failures="{total_failures}" '
+        f'errors="{total_errors}">',
+    ]
+    for lane, case, failures, errors in suites:
+        out.append(f'  <testsuite name="{_jesc(lane)}" tests="1" '
+                   f'failures="{failures}" errors="{errors}">')
+        out.append(case)
+        out.append("  </testsuite>")
+    out.append("</testsuites>")
+    return "\n".join(out) + "\n"

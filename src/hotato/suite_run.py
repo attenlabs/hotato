@@ -50,6 +50,7 @@ __all__ = [
     "render_summary_text",
     "render_report_md",
     "render_report_html",
+    "render_report_junit",
 ]
 
 KIND = "hotato.suite-run"
@@ -621,6 +622,102 @@ def render_report_md(result: Dict[str, Any]) -> str:
 
 def _esc(x: Any) -> str:
     return (str(x).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+_JUNIT_ESCAPE = str.maketrans({"&": "&amp;", "<": "&lt;", ">": "&gt;",
+                               '"': "&quot;"})
+
+
+def _jesc(s) -> str:
+    return str(s if s is not None else "").translate(_JUNIT_ESCAPE)
+
+
+_JUNIT_INCONCLUSIVE_REASON = (
+    "INCONCLUSIVE: the dimension's checks could not be scored (absent "
+    "required input); under the suite's inconclusive_policy this is never "
+    "read as a pass"
+)
+
+
+def render_report_junit(result: Dict[str, Any]) -> str:
+    """JUnit XML for CI (byte-reproducible given the envelope): the run is
+    the ``<testsuites>`` root, one ``<testsuite>`` per dimension (the
+    existing per-dimension grouping, never blended), one ``<testcase>`` per
+    test inside it. A FAILed dimension is a ``<failure>`` carrying the
+    measured reason; an INCONCLUSIVE one is an ``<error>`` -- never a
+    ``<failure>`` and never a silent pass, so a CI dashboard shows red for
+    "could not tell". SIMULATOR_INVALID runs (broken fixtures, never an
+    agent PASS/FAIL) land in their own ``<testsuite>`` as ``<error>``
+    entries; a non-zero suite exit that projected no red entry appends a
+    fail-closed ``suite-verdict`` ``<error>``, so the XML can never read
+    green while the exit code gates. No timestamp attribute anywhere, so
+    the same envelope always renders the same bytes."""
+    suites: List[Tuple[str, List[str], int, int]] = []
+    for d in _DIMS:
+        cases: List[str] = []
+        failures = errors = 0
+        for t in result["tests"]:
+            status = t["dimensions"].get(d)
+            if status is None:
+                continue
+            counts_body = _jesc(json.dumps(t["dim_counts"].get(d) or {},
+                                           sort_keys=True))
+            case = (f'    <testcase classname="hotato.suite.{d}" '
+                    f'name="{_jesc(t["test_id"])}">')
+            if status == "FAIL":
+                failures += 1
+                reason = (t.get("dim_reason", {}).get(d)
+                          or t.get("dim_public_reason", {}).get(d)
+                          or "a deterministic assertion in this dimension "
+                             "FAILed; see suite-run.json")
+                case += (f'\n      <failure message="{_jesc(reason)}">'
+                         f"{counts_body}</failure>\n    ")
+            elif status == "INCONCLUSIVE":
+                errors += 1
+                case += (f'\n      <error message='
+                         f'"{_jesc(_JUNIT_INCONCLUSIVE_REASON)}">'
+                         f"{counts_body}</error>\n    ")
+            case += "</testcase>"
+            cases.append(case)
+        suites.append((d, cases, failures, errors))
+    if result["simulator_invalid"]:
+        inv_cases = []
+        for inv in result["simulator_invalid"]:
+            inv_cases.append(
+                f'    <testcase classname="hotato.suite.simulator-invalid" '
+                f'name="{_jesc(inv.get("test_id"))}:{_jesc(inv["run_id"])}">\n'
+                f'      <error message="{_jesc(inv["reason"])}">'
+                "SIMULATOR_INVALID: a broken fixture, never an agent "
+                "PASS/FAIL</error>\n    </testcase>"
+            )
+        suites.append(("simulator-invalid", inv_cases, 0, len(inv_cases)))
+    if result["exit_code"] != 0 and not any(f or e for _, _, f, e in suites):
+        reason = (
+            f"suite exit_code={result['exit_code']}: a non-pass verdict "
+            "none of the per-dimension entries carries (for example a "
+            "gating success.required condition); see suite-run.json"
+        )
+        suites.append(("suite-verdict", [
+            '    <testcase classname="hotato.suite" name="suite-verdict">\n'
+            f'      <error message="{_jesc(reason)}"></error>\n'
+            "    </testcase>"
+        ], 0, 1))
+    total = sum(len(cases) for _, cases, _, _ in suites)
+    total_failures = sum(f for _, _, f, _ in suites)
+    total_errors = sum(e for _, _, _, e in suites)
+    out = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        f'<testsuites name="hotato suite run: {_jesc(result["suite_id"])}" '
+        f'tests="{total}" failures="{total_failures}" '
+        f'errors="{total_errors}">',
+    ]
+    for name, cases, failures, errors in suites:
+        out.append(f'  <testsuite name="{_jesc(name)}" tests="{len(cases)}" '
+                   f'failures="{failures}" errors="{errors}">')
+        out.extend(cases)
+        out.append("  </testsuite>")
+    out.append("</testsuites>")
+    return "\n".join(out) + "\n"
 
 
 def render_report_html(result: Dict[str, Any]) -> str:

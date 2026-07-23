@@ -63,7 +63,11 @@ hotato suite run examples/reference-agent/suite.json \
 writes the per-test simulated conversation artifacts plus
 `suite-report.md`, `suite-report.html`, and `suite-run.json`. `--parallel N`
 caps worker threads per scenario's matrix; the worker count never changes
-the byte-identical result.
+the byte-identical result. `--junit PATH` also writes a JUnit XML report
+for a CI test widget (one `<testsuite>` per dimension, one `<testcase>`
+per test; a FAILed dimension is a `<failure>` with the measured reason, an
+INCONCLUSIVE dimension or a `SIMULATOR_INVALID` run is an `<error>`, never
+a silent pass); see [CI.md](CI.md).
 
 Runs are recorded into the fleet registry (`--registry`, default
 `~/.hotato/fleet`; `--workspace`/`-w`, default `default`) as Release / Suite
