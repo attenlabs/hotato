@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sqlite3
 import stat
 from collections import OrderedDict
@@ -746,7 +747,7 @@ def build_failure_clusters(reg: Registry, ws: str, *, dimension: Optional[str] =
 
 
 # =========================================================================
-# View 5 -- Production health
+# View 5 -- Suite health (CI-suite history from the fleet registry)
 # =========================================================================
 
 def _health_series_for(reg: Registry, ws: str, convs: List[dict]) -> dict:
@@ -823,7 +824,7 @@ def build_production_health(
                            if c.get("created_at") is not None})
 
     model = {
-        "view": "production_health",
+        "view": "suite_health",
         "workspace": ws,
         "ingested_total": len(convs),
         "origins": per_origin,           # real / simulated separated
@@ -1189,6 +1190,7 @@ def _calls_feed_shell(ws: str, filters: Dict[str, Any]) -> Dict[str, Any]:
         "configured": False,
         "source": None,
         "sidecar": {"path": None, "present": False},
+        "contracts": None,
         "filters": filters,
         "trends": None,
         "rows": [],
@@ -1198,7 +1200,26 @@ def _calls_feed_shell(ws: str, filters: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _contracts_protecting(reg: Optional[Registry], ws: str) -> Optional[Dict[str, Any]]:
+    """The feed header's "N contracts protecting this agent" count (R9): a
+    read-only ``COUNT(*)`` over the fleet registry's EXISTING ``contracts``
+    table for this workspace -- the same table ``hotato fleet`` registration
+    and the pin route write through, so the number is the store of record, not
+    a parallel tally. ``None`` when the caller supplied no registry handle."""
+    if reg is None:
+        return None
+    row = reg._one(
+        "SELECT COUNT(*) AS c FROM contracts WHERE workspace_id=?", (ws,))
+    count = int(dict(row)["c"]) if row is not None else 0
+    return {
+        "count": count,
+        "source": "fleet-registry:contracts",
+        "scope": "workspace",
+    }
+
+
 def build_calls_feed(ws: str, production_db: Optional[str], *,
+                     reg: Optional[Registry] = None,
                      state: Optional[str] = None,
                      scorability: Optional[str] = None,
                      since: Optional[str] = None,
@@ -1234,6 +1255,7 @@ def build_calls_feed(ws: str, production_db: Optional[str], *,
         return model
     production_path, console_path = _console_paths(production_db)
     model["configured"] = True
+    model["contracts"] = _contracts_protecting(reg, ws)
     model["source"] = {
         "production_db": production_path,
         "console_db": console_path,
@@ -1468,6 +1490,19 @@ def build_call_detail(ws: str, production_db: Optional[str],
             "completeness": _lane_completeness(
                 sess["evidence_json"], sess["required_evidence_json"]),
         }
+        if sess["state"] in ("COMPLETE", "DEGRADED"):
+            # R11: a finalized session is exportable as an offline-verifiable
+            # regression candidate through the EXISTING production CLI path
+            # (`ProductionStore.export_regression_candidate`, which itself
+            # refuses a non-finalized session); the exact command for THIS
+            # session and database is surfaced only where that path holds.
+            session["export_regression"] = {
+                "command": ("hotato production export-regression %s --out "
+                            "regression/%s --db %s"
+                            % (shlex.quote(subject), shlex.quote(subject),
+                               shlex.quote(production_path))),
+                "source": "production.export_regression_candidate",
+            }
         from .production_bridge import ProductionBridgeError, _evidence, _required_lanes
 
         try:

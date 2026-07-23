@@ -248,7 +248,7 @@ See [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md) and the drive-a-call rows in
 ## Team workspace (`hotato serve`): a new local listening socket
 
 `hotato serve` (`src/hotato/serve/`, wired into the CLI) opens a new local
-HTTP listening socket to serve the five conversation-QA views over the
+HTTP listening socket to serve the conversation-QA views over the
 fleet registry and evidence store. Its threat surface, and the controls on
 it:
 
@@ -264,13 +264,21 @@ it:
   printed `/?token=…` URL, then the token is stripped from the address bar
   via a redirect; it stays out of every response body. An unauthenticated
   request gets `401` before it's routed anywhere.
-- **Read-only.** The server issues only `SELECT`s against the registry and
-  reads evidence blobs by digest: no write endpoint, no workspace
-  mutation. Reviews and labels stay CLI-driven. The only file it writes is
-  the append-only audit log (`…/serve/<workspace>/audit.jsonl`, `0600`),
-  recording who (token/session prefix, the secret stays out of it), what
-  (method + path, token stripped from the query), when, and the response
-  status of every request.
+- **Reads everywhere; one fenced write route.** Every view issues only
+  `SELECT`s against the registry and reads evidence blobs by digest. The
+  single write endpoint, `POST /calls/<id>/pin`, delegates to the same
+  fleet label/contract machinery the CLI drives, and is fenced beyond the
+  bearer/cookie auth above: the session cookie is `SameSite=Strict`, and a
+  cookie-authenticated POST must carry a same-origin `Origin`/`Referer`
+  header matching the request's own `Host` -- a forged cross-site form is
+  refused `403` before any handler runs (a bearer-authenticated request
+  needs no origin header; a cross-site attacker cannot set one). The
+  delegated mint is atomic, so a refused pin (4xx with reason) leaves no
+  artifact. The serve layer's own file stays the append-only audit log
+  (`…/serve/<workspace>/audit.jsonl`, `0600`), recording who
+  (token/session prefix, the secret stays out of it), what (method + path,
+  token stripped from the query), when, and the response status of every
+  request -- pin attempts included, accepted or refused.
 - **Zero egress.** The server only binds a listening socket: no outbound
   connection, nothing that phones home. Audio, traces, and evaluations
   stay on the machine. A test allowlists loopback and fails if any view

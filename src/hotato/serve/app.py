@@ -1,5 +1,5 @@
-"""The ``hotato serve`` HTTP server: a threaded, token-authenticated, read-only
-local web app over the fleet registry + conversation artifacts (GOAL §6).
+"""The ``hotato serve`` HTTP server: a threaded, token-authenticated local web
+app over the fleet registry + conversation artifacts (GOAL §6).
 
 Stdlib only -- ``http.server.ThreadingHTTPServer`` + ``sqlite3`` -- no framework
 dependency. Design points:
@@ -14,13 +14,17 @@ dependency. Design points:
   an unauthenticated request gets 401 and is never routed.
 * **Append-only audit.** Every request (authenticated or not) appends one JSONL
   line -- who (token/session prefix), what (method + path, token stripped from
-  the query), when, and the response status. It is the ONLY thing the server
-  writes.
+  the query), when, and the response status. It is the ONLY file the server
+  itself writes.
 * **Zero egress.** The server only binds a listening socket; it never opens an
   outbound connection and imports nothing that phones home. Evidence stays local.
-* **Read-only.** Each request opens its own :class:`Registry` connection (the
-  registry is single-thread per connection) and only ``SELECT``s. Reviews and
-  labels remain CLI-driven; there are no write endpoints.
+* **Reads everywhere, one write route.** Each GET opens its own
+  :class:`Registry` connection (the registry is single-thread per connection)
+  and only ``SELECT``s. The single write route is ``POST /calls/<id>/pin``
+  (:mod:`hotato.serve.pin`): it delegates to the EXISTING fleet
+  label/contract machinery, is CSRF-fenced (same-origin check on cookie auth)
+  and audit-logged, and refuses -- with its reason, HTTP 4xx, no artifact --
+  exactly where the CLI would.
 
 Every view has a ``?format=json`` machine mirror built from the SAME model dict
 the HTML renderer formats, so the two can never diverge.
@@ -66,6 +70,8 @@ _LOOPBACK = {"127.0.0.1", "::1", "localhost", ""}
 # are small JSON/text. Audio is stored separately and never linked here.
 _EVIDENCE_MAX_BYTES = 5 * 1024 * 1024
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+# The one write route (R9): pin a scored candidate moment to a contract.
+_PIN_PATH = re.compile(r"^/calls/(.+)/pin$")
 
 
 def _safe_dirname(workspace: str) -> str:
@@ -282,6 +288,141 @@ class _Handler(BaseHTTPRequestHandler):
                          query=clean_qs, status=status, remote=remote)
         self._send(status, body, ctype, extra)
 
+    def do_POST(self):  # noqa: N802 - http.server dispatch name
+        """The server's ONE write route: ``POST /calls/<subject>/pin`` (R9).
+
+        Auth is the same bearer/cookie check every GET runs -- an
+        unauthenticated POST is a 401 and is never routed (no courtesy landing
+        on a write). On top of it sits a CSRF fence for the browser path: the
+        session cookie is already ``SameSite=Strict``, and a cookie-
+        authenticated POST must ALSO present a same-origin ``Origin`` (or
+        ``Referer``) header matching the request's own ``Host`` -- a forged
+        cross-site form carries a foreign or absent Origin and is refused 403
+        before any handler runs. A request that authenticates by presenting
+        the bearer secret itself (header or ``?token=``) needs no origin
+        check: a cross-site attacker cannot set an ``Authorization`` header or
+        know the token. Every attempt -- accepted or refused -- lands in the
+        same append-only audit log as every read."""
+        ctx: ServeContext = self.server.context  # type: ignore[attr-defined]
+        parsed = urlsplit(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        fmt = ((query.get("format") or ["text"])[0] or "text").lower()
+        remote = self.client_address[0] if self.client_address else ""
+        clean_qs = _strip_token_qs(parsed.query)
+
+        ok, who, cookie, via = ctx.authenticate(self.headers, query)
+        if not ok:
+            ctx.audit.record(who="-", method=self.command, path=path,
+                             query=clean_qs, status=401, remote=remote)
+            if fmt == "json":
+                self._send(401, _json_bytes({
+                    "error": "unauthenticated",
+                    "hint": "send Authorization: Bearer <token>",
+                }), "application/json; charset=utf-8",
+                    {"WWW-Authenticate": "Bearer"})
+            else:
+                self._send(401, _render.render_401_html(
+                    host_display=self._display_host()).encode("utf-8"),
+                    "text/html; charset=utf-8", {"WWW-Authenticate": "Bearer"})
+            return
+        extra = {}
+        if cookie:
+            extra["Set-Cookie"] = cookie
+
+        if via == "cookie" and not self._post_same_origin():
+            status, body, ctype, rextra = self._pin_refused(
+                ctx, fmt, 403,
+                "cross-origin write refused: this POST authenticated with a "
+                "session cookie but carried no same-origin Origin/Referer "
+                "header. Use the workspace page's own form, or send "
+                "Authorization: Bearer <token>.")
+        else:
+            try:
+                status, body, ctype, rextra = self._route_post(ctx, path, fmt)
+            except Exception as exc:  # never leak a stack trace to the client
+                status, body, ctype, rextra = self._server_error(exc, fmt)
+        extra.update(rextra or {})
+        ctx.audit.record(who=who, method=self.command, path=path,
+                         query=clean_qs, status=status, remote=remote)
+        self._send(status, body, ctype, extra)
+
+    def _post_same_origin(self) -> bool:
+        """True when the POST's ``Origin`` (or, absent that, ``Referer``)
+        names this server itself. The comparison is host:port against the
+        request's own ``Host`` header -- the value the browser used to reach
+        us -- so the check holds on any bind address without configuration.
+        Absent both headers the answer is ``False`` (fail closed)."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        if not host:
+            return False
+        origin = (self.headers.get("Origin") or "").strip()
+        if origin:
+            return urlsplit(origin).netloc.lower() == host
+        referer = (self.headers.get("Referer") or "").strip()
+        if referer:
+            return urlsplit(referer).netloc.lower() == host
+        return False
+
+    def _route_post(self, ctx, path, fmt):
+        match = _PIN_PATH.match(path)
+        if not match:
+            return self._not_found(ctx, fmt, "No such write route: " + path)
+        subject = unquote(match.group(1))
+        from .pin import PinRefused, pin_candidate
+        try:
+            form = self._read_form()
+        except ValueError as exc:
+            return self._pin_refused(ctx, fmt, 400, str(exc))
+        try:
+            result = pin_candidate(
+                home=ctx.home, workspace=ctx.workspace,
+                production_db=ctx.production_db, subject=subject,
+                candidate=form.get("candidate"), expect=form.get("expect"),
+                evidence_sha256=form.get("evidence_sha256"),
+                rationale=form.get("rationale"),
+                reviewer=form.get("reviewer"))
+        except PinRefused as refusal:
+            return self._pin_refused(ctx, fmt, refusal.status, refusal.reason)
+        if fmt == "json":
+            return 200, _json_bytes(result), "application/json; charset=utf-8", {}
+        doc = _render.page("Pinned to contract", "/calls",
+                           _render.render_pin_result(result),
+                           workspace=ctx.workspace)
+        return 200, doc.encode("utf-8"), "text/html; charset=utf-8", {}
+
+    def _read_form(self, limit: int = 64 * 1024) -> dict:
+        """The POST body as a flat form dict. Only
+        ``application/x-www-form-urlencoded`` is accepted (the plain-HTML form
+        and the fetch enhancement both send it), the size is bounded, and a
+        malformed body raises ``ValueError`` (-> 400)."""
+        ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0]
+        if ctype.strip().lower() != "application/x-www-form-urlencoded":
+            raise ValueError(
+                "the pin form posts application/x-www-form-urlencoded; got "
+                + repr(ctype or None))
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            raise ValueError("Content-Length must be an integer") from None
+        if not 0 <= length <= limit:
+            raise ValueError("request body must be 0..%d bytes" % limit)
+        raw = self.rfile.read(length).decode("utf-8", "replace")
+        return {key: values[0]
+                for key, values in parse_qs(raw, keep_blank_values=True).items()}
+
+    def _pin_refused(self, ctx, fmt, status, reason):
+        """A refused pin: the status + reason, and NO artifact exists. One
+        shape for both surfaces, mirroring the CLI's refuse-with-reason exit."""
+        if fmt == "json":
+            return status, _json_bytes({"error": "pin refused",
+                                        "message": reason}), \
+                "application/json; charset=utf-8", {}
+        doc = _render.page("Pin refused", "/calls",
+                           _render.render_pin_refused(reason),
+                           workspace=ctx.workspace)
+        return status, doc.encode("utf-8"), "text/html; charset=utf-8", {}
+
     # -- routing ----------------------------------------------------------
 
     def _route(self, ctx, path, query, fmt):
@@ -335,7 +476,7 @@ class _Handler(BaseHTTPRequestHandler):
                     ws,
                     production_evidence=ctx.read_production_evidence(),
                 )
-                title, active = "Production health", "/health"
+                title, active = "Suite health", "/health"
                 html = _render.render_production_health(model)
         finally:
             reg.close()
@@ -372,14 +513,17 @@ class _Handler(BaseHTTPRequestHandler):
         poll costs one bounded read and no transfer while nothing changed. A
         malformed filter/cursor/limit is a 400, never a silently dropped
         filter."""
+        reg = ctx.open_registry()
         try:
             model = _data.build_calls_feed(
-                ctx.workspace, ctx.production_db,
+                ctx.workspace, ctx.production_db, reg=reg,
                 state=_q(query, "state"), scorability=_q(query, "scorability"),
                 since=_q(query, "since"), until=_q(query, "until"),
                 cursor=_q(query, "cursor"), limit=_q(query, "limit"))
         except ValueError as exc:
             return self._bad_request(ctx, fmt, str(exc))
+        finally:
+            reg.close()
         body = _json_bytes(model)
         etag = '"%s"' % hashlib.sha256(body).hexdigest()[:32]
         if self.headers.get("If-None-Match") == etag:
@@ -719,7 +863,7 @@ def _print_banner(ctx, host, port, *, source, generated, state_dir, url,
     out = sys.stderr
     bar = "  " + "-" * 60
     print("", file=out)
-    print("  hotato workspace  ·  %r  ·  self-hosted, read-only" % ctx.workspace,
+    print("  hotato workspace  ·  %r  ·  self-hosted" % ctx.workspace,
           file=out)
     print(bar, file=out)
     print("  Open this in your browser:", file=out)
@@ -741,6 +885,7 @@ def _print_banner(ctx, host, port, *, source, generated, state_dir, url,
         print("  token:     %s   (%s)" % (ctx.token, source), file=out)
     print("  audit log: %s   (append-only)"
           % os.path.join(state_dir, "audit.jsonl"), file=out)
-    print("  read-only: the server issues only SELECTs; reviews and labels stay "
-          "CLI-driven. No telemetry, no external calls.", file=out)
+    print("  writes:    one route -- pin-to-contract (POST /calls/<id>/pin, "
+          "CSRF-fenced, audited); every view reads with SELECTs. No "
+          "telemetry, no external calls.", file=out)
     out.flush()
