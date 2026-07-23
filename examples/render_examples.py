@@ -51,6 +51,7 @@ SETS = [
     (os.path.join(HERE, "scenarios"), os.path.join(HERE, "audio")),
     (os.path.join(HERE, "funnel-demo", "scenarios"), os.path.join(HERE, "funnel-demo", "audio")),
     (os.path.join(HERE, "full-duplex", "scenarios"), os.path.join(HERE, "full-duplex", "audio")),
+    (os.path.join(HERE, "autopsy", "scenarios"), os.path.join(HERE, "autopsy", "audio")),
 ]
 
 
