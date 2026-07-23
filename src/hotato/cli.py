@@ -9283,7 +9283,7 @@ def build_parser() -> argparse.ArgumentParser:
             _exit_codes_epilog("candidate verify") + "\n\n"
             "Examples:\n"
             "  hotato candidate verify --provider vapi --assistant asst_123 "
-            "--expect sha256:<hash>"
+            "--expect 'sha256:THE_HASH'"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
