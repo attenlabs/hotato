@@ -39,8 +39,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ._engine.score import ScoreConfig
-from .core import _config_block
 from .console_store import ConsoleStore
+from .core import _config_block
 from .production import _canonical, _parse_rfc3339, _sha
 from .scan import DEFAULT_MIN_GAP_SEC, KINDS, candidate_plain_english, scan_recording
 

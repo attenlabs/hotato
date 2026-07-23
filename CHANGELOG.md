@@ -53,7 +53,8 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   The sidecar is derived data with a versioned schema: `--rebuild-scores`
   regenerates it entirely from the evidence database and exits, and the same
   evidence database always rebuilds to identical content. Bind, auth, and the
-  server's read-only route surface are unchanged. Both commands also
+  server's read-only route surface are unchanged.
+- **`--junit` on `hotato suite run` and `hotato prove`.** Both commands also
   write a JUnit XML report any standard CI test widget ingests, mirroring
   each command's existing grouping: one `<testsuite>` per dimension (suite
   run) or per evidence lane (prove), one `<testcase>` per test or lane. A
