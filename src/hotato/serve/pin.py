@@ -70,8 +70,11 @@ def _persisted_decision(bundle_dir: str) -> Optional[str]:
     """
     import json
 
+    from ..errors import open_regular
+
     try:
-        with open(os.path.join(bundle_dir, "contract.json"), encoding="utf-8") as fh:
+        with open_regular(os.path.join(bundle_dir, "contract.json"), "r",
+                          encoding="utf-8") as fh:
             cjson = json.load(fh)
     except (OSError, ValueError):
         return None
