@@ -60,7 +60,7 @@ _ALL_SUBCOMMANDS = [
     "fleet ingest", "fleet discover", "fleet review", "fleet label", "fleet status",
     "fleet benchmark", "fleet experiment", "fleet experiment create", "fleet experiment run", "fleet experiment propose", "fleet experiment approve", "fleet run", "fleet contract", "fleet contract create", "fleet retention", "fleet delete", "fleet redact", "fleet canary", "fleet canary start",
     "fleet canary rollback", "fleet export", "fleet trend",
-    "serve",
+    "serve", "console",
     "telephony", "telephony capabilities", "telephony create",
     "telephony status", "telephony cancel", "telephony export",
     "caller", "caller run", "caller verify",

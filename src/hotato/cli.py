@@ -155,6 +155,11 @@ _EXIT_CODES: dict = {
         (2, "usage error: an unusable registry/token, or the port was "
             "unavailable"),
     ),
+    "console": (
+        (0, "the console served and shut down cleanly (Ctrl-C)"),
+        (2, "usage error: an unusable production database, registry, or "
+            "token, or the port was unavailable"),
+    ),
     "report": (
         (0, "report written, every scorable event passed"),
         (1, "a scorable event failed"),
@@ -5294,6 +5299,21 @@ def _cmd_serve(args) -> int:
     )
 
 
+def _cmd_console(args) -> int:
+    # console = serve with the production evidence db wired and the score-on-
+    # arrival worker on, landing on the live call feed. One command, one
+    # process, one browser tab; every serve behavior (bind, auth, audit, JSON
+    # mirrors) is identical.
+    from . import serve as _serve
+
+    return _serve.run_serve(
+        workspace=args.workspace, host=args.host, port=args.port,
+        registry=args.registry, token=args.token, token_file=args.token_file,
+        open_browser=not args.no_open, production_db=args.production_db,
+        score_production=True, landing="/calls",
+    )
+
+
 # The canonical core loop: one linear path, first touch to a CI gate. This is the
 # single source of truth rendered identically everywhere a newcomer meets hotato:
 # the GET STARTED block atop `hotato --help`, `hotato describe`'s core_loop, the
@@ -10349,6 +10369,55 @@ def build_parser() -> argparse.ArgumentParser:
                           "skipped when stdout is not a TTY, in CI, or when "
                           "$HOTATO_NO_BROWSER is set)")
     srv.set_defaults(func=_cmd_serve)
+
+    con = sub.add_parser(
+        "console",
+        help="the call console: serve + score-on-arrival over the production "
+             "evidence database, landing on the live call feed",
+        description=(
+            "One command, one process, one browser tab: run the workspace "
+            "server with the production evidence database wired (read-only, "
+            "mode=ro) and the score-on-arrival worker on, opening on the live "
+            "call feed at /calls. Completed sessions are scored one at a time "
+            "with the deterministic scorer into a console.sqlite3 sidecar "
+            "beside the evidence database; SCORED, NOT_SCORABLE (with its "
+            "reason), and ERROR are all first-class visible states. Every "
+            "serve behavior is identical: loopback bind by default, "
+            "bearer-token auth on every request, append-only audit, and a "
+            "?format=json mirror on every view."),
+        epilog=_exit_codes_epilog("console"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    con.add_argument(
+        "--production-db",
+        required=True,
+        metavar="PATH",
+        help=(
+            "the production evidence SQLite database to read (mode=ro) and "
+            "score; the console.sqlite3 sidecar of derived score records "
+            "lives beside it"
+        ),
+    )
+    con.add_argument("--workspace", "-w", default="default", metavar="ID",
+                     help="workspace id to serve (default 'default')")
+    con.add_argument("--host", default="127.0.0.1", metavar="HOST",
+                     help="bind address (default 127.0.0.1; a non-loopback "
+                          "host exposes the workspace to your network and "
+                          "prints a warning)")
+    con.add_argument("--port", type=int, default=8321, metavar="PORT",
+                     help="listen port (default 8321)")
+    con.add_argument("--registry", default=None, metavar="PATH",
+                     help="registry home directory (default ~/.hotato/fleet)")
+    con.add_argument("--token", default=None, metavar="TOKEN",
+                     help="bearer token (default: reuse the stored one, else "
+                          "generate + store 0600 under the workspace state dir)")
+    con.add_argument("--token-file", default=None, metavar="PATH",
+                     help="read the bearer token from PATH instead of --token")
+    con.add_argument("--no-open", action="store_true",
+                     help="do not open a browser on start (auto-open is also "
+                          "skipped when stdout is not a TTY, in CI, or when "
+                          "$HOTATO_NO_BROWSER is set)")
+    con.set_defaults(func=_cmd_console)
 
     # Operational families live in a standalone registrar so this integration
     # remains a one-line semantic merge as the main CLI evolves.

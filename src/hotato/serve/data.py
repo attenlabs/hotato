@@ -29,9 +29,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
+import stat
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
+from .._stats import nearest_rank as _nearest_rank
 from ..errors import open_regular as _open_regular
 from ..failure_record import KIND as _FR_KIND
 from ..failure_record import LANES as _FR_LANES
@@ -52,6 +56,8 @@ __all__ = [
     "build_production_health",
     "build_records_list",
     "build_record_detail",
+    "build_calls_feed",
+    "build_call_detail",
 ]
 
 # The five conversation-QA dimensions (GPT Pro §2; never blended into one score).
@@ -960,6 +966,558 @@ def build_records_list(home: str, ws: str) -> Dict[str, Any]:
     records.sort(key=lambda r: r["record_id_ref"])
     return {"view": "failure_records", "workspace": ws,
             "records": records, "record_count": len(records)}
+
+
+# =========================================================================
+# View 7 -- Calls (the console feed over the derived score sidecar)
+# =========================================================================
+
+# The feed page is keyset-paginated from day one (I3): every page is one
+# LIMIT-bounded query ordered by (last_event DESC, subject ASC); there is no
+# OFFSET anywhere on this path.
+_CALLS_DEFAULT_LIMIT = 50
+_CALLS_MAX_LIMIT = 200
+# The two evidence-clock provenance labels every feed timestamp carries (I5):
+# a session's arrival stamp is the receiver's clock, never an evidence
+# measurement; the per-hop ``at`` values come from evidence event timestamps.
+_ARRIVAL_AUTHORITY = "received:arrival_clock"
+_EVENT_AUTHORITY = "derived:event_timestamps"
+
+
+def _console_paths(production_db: str) -> Tuple[str, str]:
+    """``(production_path, console_path)`` for a selected evidence database."""
+    from ..console_worker import default_console_path
+
+    resolved = os.path.abspath(os.path.expanduser(production_db))
+    return resolved, default_console_path(resolved)
+
+
+def _open_console_ro(console_path: str, production_path: str) -> sqlite3.Connection:
+    """Open the console sidecar READ-ONLY with the production evidence database
+    ATTACHed read-only, so the calls feed is one SQL join across the two local
+    sources with zero write capability.
+
+    Discipline mirrors :mod:`hotato.serve.production_bridge`: both files must be
+    regular files, both are opened ``mode=ro``, ``query_only`` is set, and the
+    bridge's metadata-only authorizer is installed AFTER the attach -- it denies
+    every write action (including any further ``ATTACH``) and refuses to read
+    the production ``events.payload_json`` column, so this view can never touch
+    payloads even by a future query mistake.  A sidecar or evidence database
+    with a different schema version is refused (``ValueError``) with the
+    rebuild instruction rather than rendered wrong.
+    """
+    from .production_bridge import _metadata_only_authorizer
+
+    for label, path in (("console sidecar", console_path),
+                        ("production database", production_path)):
+        try:
+            mode = os.lstat(path).st_mode
+        except OSError as exc:
+            raise ValueError(f"{label} is not readable: {path!r} ({exc})") from exc
+        if not stat.S_ISREG(mode):
+            raise ValueError(f"{label} must be a regular file: {path!r}")
+    uri = Path(console_path).as_uri() + "?mode=ro"
+    try:
+        db = sqlite3.connect(uri, uri=True, timeout=5, isolation_level=None)
+    except sqlite3.Error as exc:
+        raise ValueError(f"could not open console sidecar read-only: {exc}") from exc
+    db.row_factory = sqlite3.Row
+    try:
+        db.execute(
+            "ATTACH DATABASE ? AS evidence",
+            (Path(production_path).as_uri() + "?mode=ro",),
+        )
+        db.execute("PRAGMA query_only=ON")
+        db.execute("PRAGMA busy_timeout=5000")
+        db.set_authorizer(_metadata_only_authorizer)
+        _verify_console_schema(db)
+    except BaseException:
+        db.close()
+        raise
+    return db
+
+
+def _verify_console_schema(db: sqlite3.Connection) -> None:
+    from ..console_store import SCHEMA_VERSION as _CONSOLE_SCHEMA_VERSION
+
+    try:
+        row = db.execute(
+            "SELECT value FROM metadata WHERE key='console_schema_version'"
+        ).fetchone()
+    except sqlite3.Error as exc:
+        raise ValueError("selected file is not a hotato console sidecar") from exc
+    if row is None or row[0] != _CONSOLE_SCHEMA_VERSION:
+        observed = None if row is None else row[0]
+        raise ValueError(
+            "console sidecar schema version " + repr(observed) + " does not "
+            "match " + repr(_CONSOLE_SCHEMA_VERSION) + "; the sidecar is "
+            "derived data -- regenerate it with hotato serve --production-db "
+            "DB --rebuild-scores"
+        )
+    try:
+        row = db.execute(
+            "SELECT value FROM evidence.metadata "
+            "WHERE key='production_schema_version'"
+        ).fetchone()
+    except sqlite3.Error as exc:
+        raise ValueError(
+            "selected database is not a hotato production evidence store"
+        ) from exc
+    if row is None or row[0] != "1":
+        observed = None if row is None else row[0]
+        raise ValueError(
+            "unsupported production database schema version: " + repr(observed)
+        )
+
+
+def _window_epoch(value: Optional[str], label: str) -> Optional[float]:
+    """A time-window bound as epoch seconds. Accepts epoch seconds or an
+    RFC3339 timestamp; anything else is a refused usage error (400), never a
+    silently ignored filter."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+    from ..production import _parse_rfc3339
+
+    try:
+        return _parse_rfc3339(value).timestamp()
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{label} must be epoch seconds or an RFC3339 timestamp, "
+            f"got {value!r}"
+        ) from None
+
+
+def _decode_calls_cursor(cursor: Optional[str]) -> Optional[Tuple[float, str]]:
+    if cursor is None:
+        return None
+    head, sep, subject = cursor.partition("~")
+    if not sep:
+        raise ValueError("invalid cursor: expected '<last_event>~<subject>'")
+    try:
+        return float(head), subject
+    except ValueError:
+        raise ValueError("invalid cursor: expected '<last_event>~<subject>'") from None
+
+
+def _encode_calls_cursor(last_event: float, subject: str) -> str:
+    return f"{last_event!r}~{subject}"
+
+
+def _worst_dimension(dimensions: Any) -> Optional[Dict[str, Any]]:
+    """The dimension with the largest measured magnitude -- a per-call worst
+    case for the feed headline, NOT a blended score (each dimension keeps its
+    own observation; nothing is averaged or weighted)."""
+    best = None
+    for kind in sorted(dimensions or {}):
+        item = dimensions[kind]
+        if not isinstance(item, dict):
+            continue
+        worst = item.get("worst_sec")
+        if isinstance(worst, bool) or not isinstance(worst, (int, float)):
+            continue
+        if best is None or worst > best["worst_sec"]:
+            best = {"dimension": kind, "worst_sec": worst}
+    return best
+
+
+def _candidate_total(dimensions: Any) -> int:
+    total = 0
+    for item in (dimensions or {}).values():
+        if isinstance(item, dict) and isinstance(item.get("candidate_count"), int):
+            total += item["candidate_count"]
+    return total
+
+
+def _round3(value: Optional[float]) -> Optional[float]:
+    return None if value is None else round(value, 3)
+
+
+def _call_latency(db: sqlite3.Connection, subject: str) -> Dict[str, Any]:
+    """This call's per-hop latency summary from the sidecar's hop rows (PK-
+    indexed by subject): nearest-rank p50/p95 over the hops that carry a
+    latency, the evidence-clock timestamp of the first hop, and the set of
+    declared authorities so a vendor-reported figure never hides behind the
+    percentile (I5)."""
+    rows = db.execute(
+        "SELECT at,latency_ms,authority FROM latency_hops WHERE subject=? "
+        "ORDER BY seq",
+        (subject,),
+    ).fetchall()
+    values = [
+        float(r["latency_ms"]) for r in rows if r["latency_ms"] is not None
+    ]
+    return {
+        "hop_count": len(values),
+        "p50_ms": _round3(_nearest_rank(values, 0.50)),
+        "p95_ms": _round3(_nearest_rank(values, 0.95)),
+        "authorities": sorted({r["authority"] for r in rows}),
+        "first_event_at": rows[0]["at"] if rows else None,
+        "method": "nearest-rank",
+    }
+
+
+def _lane_completeness(evidence_json: Any, required_json: Any) -> Dict[str, Any]:
+    """Evidence-lane completeness for one session, through the bridge's own
+    strict lane parser. A malformed manifest is a visible ``invalid`` marker on
+    that row -- refused loudly, never smoothed into a completeness number."""
+    from .production_bridge import ProductionBridgeError, _evidence, _required_lanes
+
+    try:
+        lanes = _evidence(evidence_json)
+        required = _required_lanes(required_json)
+    except ProductionBridgeError as exc:
+        return {"status": "invalid", "detail": str(exc)}
+    missing = [
+        lane for lane in required if lanes[lane]["availability"] != "available"
+    ]
+    return {
+        "status": "complete" if not missing else "incomplete",
+        "required": len(required),
+        "available_required": len(required) - len(missing),
+        "missing": missing,
+    }
+
+
+def _calls_feed_shell(ws: str, filters: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "view": "calls_feed",
+        "workspace": ws,
+        "configured": False,
+        "source": None,
+        "sidecar": {"path": None, "present": False},
+        "filters": filters,
+        "trends": None,
+        "rows": [],
+        "row_count": 0,
+        "page": {"limit": filters["limit"], "cursor": filters["cursor"],
+                 "next_cursor": None},
+    }
+
+
+def build_calls_feed(ws: str, production_db: Optional[str], *,
+                     state: Optional[str] = None,
+                     scorability: Optional[str] = None,
+                     since: Optional[str] = None,
+                     until: Optional[str] = None,
+                     cursor: Optional[str] = None,
+                     limit: Optional[str] = None) -> Dict[str, Any]:
+    """The console call feed: the derived score sidecar (read-only) joined with
+    the production evidence plane's session metadata, newest arrival first.
+
+    SCORED, NOT_SCORABLE, and ERROR are all first-class rows -- a refused or
+    errored session is never hidden and never shown as OK (I2). Filters (session
+    ``state``, ``scorability``, ``since``/``until`` window) and the keyset
+    ``cursor`` come from query params; a malformed filter or cursor raises
+    ``ValueError`` (a 400, never a silently ignored filter). The trends block is
+    computed over the whole filtered window with the same bounded queries.
+    """
+    try:
+        page_limit = int(limit) if limit is not None else _CALLS_DEFAULT_LIMIT
+    except (TypeError, ValueError):
+        raise ValueError(f"limit must be an integer, got {limit!r}") from None
+    if not 1 <= page_limit <= _CALLS_MAX_LIMIT:
+        raise ValueError(f"limit must be 1..{_CALLS_MAX_LIMIT}")
+    state = state.upper() if state else None
+    scorability = scorability.upper() if scorability else None
+    since_epoch = _window_epoch(since, "since")
+    until_epoch = _window_epoch(until, "until")
+    after = _decode_calls_cursor(cursor)
+    filters = {"state": state, "scorability": scorability, "since": since,
+               "until": until, "cursor": cursor, "limit": page_limit}
+
+    model = _calls_feed_shell(ws, filters)
+    if not production_db:
+        return model
+    production_path, console_path = _console_paths(production_db)
+    model["configured"] = True
+    model["source"] = {
+        "production_db": production_path,
+        "console_db": console_path,
+        "access": "sqlite-mode-ro",
+    }
+    model["sidecar"] = {"path": console_path,
+                        "present": os.path.isfile(console_path)}
+    if not model["sidecar"]["present"]:
+        return model
+
+    where = ["e.state != 'DELETED'"]
+    params: List[Any] = []
+    if state:
+        where.append("e.state = ?")
+        params.append(state)
+    if scorability:
+        where.append("s.state = ?")
+        params.append(scorability)
+    if since_epoch is not None:
+        where.append("e.last_event >= ?")
+        params.append(since_epoch)
+    if until_epoch is not None:
+        where.append("e.last_event <= ?")
+        params.append(until_epoch)
+    window_where, window_params = list(where), list(params)
+    if after is not None:
+        where.append(
+            "(e.last_event < ? OR (e.last_event = ? AND s.subject > ?))"
+        )
+        params.extend([after[0], after[0], after[1]])
+
+    db = _open_console_ro(console_path, production_path)
+    try:
+        picked = db.execute(
+            "SELECT s.subject AS subject, s.state AS score_state, s.reason AS "
+            "reason, s.session_state AS scored_session_state, s.event_count AS "
+            "event_count, s.scorer_version AS scorer_version, s.config_sha256 "
+            "AS config_sha256, s.dimensions_json AS dimensions_json, "
+            "s.timing_json AS timing_json, e.state AS live_state, e.started AS "
+            "started, e.ended AS ended, e.last_event AS last_event, "
+            "e.evidence_json AS evidence_json, e.required_evidence_json AS "
+            "required_evidence_json FROM scores s JOIN evidence.sessions e ON "
+            "e.subject = s.subject WHERE " + " AND ".join(where) +
+            " ORDER BY e.last_event DESC, s.subject ASC LIMIT ?",
+            (*params, page_limit + 1),
+        ).fetchall()
+        has_more = len(picked) > page_limit
+        picked = picked[:page_limit]
+        model["rows"] = [_calls_feed_row(db, row) for row in picked]
+        model["row_count"] = len(model["rows"])
+        if has_more and picked:
+            tail = picked[-1]
+            model["page"]["next_cursor"] = _encode_calls_cursor(
+                float(tail["last_event"]), tail["subject"])
+        model["trends"] = _calls_trends(db, window_where, window_params)
+    finally:
+        db.close()
+    return model
+
+
+def _calls_feed_row(db: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]:
+    dimensions = _parse_json_field(row["dimensions_json"])
+    timing = _parse_json_field(row["timing_json"])
+    duration_ms = None
+    if isinstance(timing, dict):
+        end_to_end = timing.get("end_to_end_ms")
+        if isinstance(end_to_end, (int, float)) and not isinstance(end_to_end, bool):
+            duration_ms = float(end_to_end)
+    latency = _call_latency(db, row["subject"])
+    return {
+        "subject": row["subject"],
+        "score_state": row["score_state"],
+        "reason": row["reason"],
+        "session_state": row["live_state"],
+        "scored_session_state": row["scored_session_state"],
+        "event_count": row["event_count"],
+        "scorer_version": row["scorer_version"],
+        "config_sha256": row["config_sha256"],
+        # evidence-clock anchor (first hop timestamp) beside the arrival stamp,
+        # each labeled with its clock so neither masquerades as the other (I5)
+        "evidence_time_at": latency["first_event_at"],
+        "evidence_time_authority": _EVENT_AUTHORITY,
+        "received_at": row["last_event"],
+        "received_authority": _ARRIVAL_AUTHORITY,
+        "duration_ms": duration_ms,
+        "duration_authority": _EVENT_AUTHORITY if duration_ms is not None else None,
+        "worst": _worst_dimension(dimensions),
+        "candidate_total": _candidate_total(dimensions),
+        "latency": latency,
+        "evidence": _lane_completeness(row["evidence_json"],
+                                       row["required_evidence_json"]),
+    }
+
+
+def _calls_trends(db: sqlite3.Connection, window_where: List[str],
+                  window_params: List[Any]) -> Dict[str, Any]:
+    """R8: volume, score-state split, candidate-moment share, and per-kind hop
+    latency p50/p95 over the FILTERED window. Kinds are never pooled into one
+    number (a model-hop latency and a turn duration are different measurements)
+    and each kind states the declared authorities behind its values (I5)."""
+    from ..console_store import SCORE_STATES
+
+    joined = " AND ".join(window_where)
+    states = {s: 0 for s in SCORE_STATES}
+    for state_row in db.execute(
+        "SELECT s.state, COUNT(*) FROM scores s JOIN evidence.sessions e ON "
+        "e.subject = s.subject WHERE " + joined + " GROUP BY s.state",
+        window_params,
+    ):
+        states[state_row[0]] = int(state_row[1])
+    volume = sum(states.values())
+    with_candidates = int(db.execute(
+        "SELECT COUNT(*) FROM scores s JOIN evidence.sessions e ON "
+        "e.subject = s.subject WHERE " + joined +
+        " AND s.state = 'SCORED' AND s.reason IS NOT NULL",
+        window_params,
+    ).fetchone()[0])
+    by_kind: Dict[str, Dict[str, Any]] = {}
+    for hop in db.execute(
+        "SELECT h.kind, h.latency_ms, h.authority FROM latency_hops h "
+        "JOIN scores s ON s.subject = h.subject "
+        "JOIN evidence.sessions e ON e.subject = h.subject "
+        "WHERE " + joined + " AND h.latency_ms IS NOT NULL",
+        window_params,
+    ):
+        slot = by_kind.setdefault(hop[0], {"values": [], "authorities": set()})
+        slot["values"].append(float(hop[1]))
+        slot["authorities"].add(hop[2])
+    hop_latency = {
+        kind: {
+            "count": len(slot["values"]),
+            "p50_ms": _round3(_nearest_rank(slot["values"], 0.50)),
+            "p95_ms": _round3(_nearest_rank(slot["values"], 0.95)),
+            "authorities": sorted(slot["authorities"]),
+        }
+        for kind, slot in sorted(by_kind.items())
+    }
+    scored = states.get("SCORED", 0)
+    return {
+        "volume": volume,
+        "states": states,
+        "with_candidate_moments": with_candidates,
+        "candidate_share": (with_candidates / scored) if scored else None,
+        "hop_latency_ms": hop_latency,
+        "method": "nearest-rank",
+        "provenance": (
+            "computed over the filtered window from the sidecar's evidence-"
+            "derived rows; each hop kind keeps its own percentile and states "
+            "its declared authorities"
+        ),
+    }
+
+
+def build_call_detail(ws: str, production_db: Optional[str],
+                      subject: str) -> Optional[Dict[str, Any]]:
+    """One call's full derived record: per-dimension observations (never
+    blended), the ranked candidate moments with their measured magnitudes, the
+    timing waterfall (turn spans + per-hop rows, each carrying its declared
+    authority -- derived vs reported is rendered, never flattened), scorer
+    version + config hash, the session's evidence-lane completeness, and the
+    local audio reference when the evidence names one. Returns ``None`` (a 404)
+    when the console is not configured, the sidecar is absent, or the subject
+    has no derived record."""
+    if not production_db or not subject:
+        return None
+    production_path, console_path = _console_paths(production_db)
+    if not os.path.isfile(console_path):
+        return None
+    db = _open_console_ro(console_path, production_path)
+    try:
+        row = db.execute(
+            "SELECT * FROM scores WHERE subject=?", (subject,)
+        ).fetchone()
+        if row is None:
+            return None
+        hops = db.execute(
+            "SELECT seq,kind,at,latency_ms,authority,source,event_id "
+            "FROM latency_hops WHERE subject=? ORDER BY seq",
+            (subject,),
+        ).fetchall()
+        sess = db.execute(
+            "SELECT state,started,ended,last_event,finalized_at,"
+            "finalization_reason,event_count,evidence_json,"
+            "required_evidence_json FROM evidence.sessions WHERE subject=?",
+            (subject,),
+        ).fetchone()
+        latency = _call_latency(db, subject)
+    finally:
+        db.close()
+
+    dimensions = _parse_json_field(row["dimensions_json"])
+    candidates = _parse_json_field(row["candidates_json"])
+    score = {
+        "subject": row["subject"],
+        "state": row["state"],
+        "reason": row["reason"],
+        "session_state": row["session_state"],
+        "evidence_sha256": row["evidence_sha256"],
+        "event_count": row["event_count"],
+        "scorer_version": row["scorer_version"],
+        "config_sha256": row["config_sha256"],
+        "config": _parse_json_field(row["config_json"]),
+        "dimensions": dimensions,
+        "candidates": _ranked_candidates(candidates),
+        "timing": _parse_json_field(row["timing_json"]),
+        "audio": _parse_json_field(row["audio_json"]),
+        "hops": [
+            {
+                "seq": hop["seq"],
+                "kind": hop["kind"],
+                "at": hop["at"],
+                "latency_ms": hop["latency_ms"],
+                "authority": hop["authority"],
+                "source": hop["source"],
+                "event_id": hop["event_id"],
+            }
+            for hop in hops
+        ],
+    }
+
+    session = None
+    if sess is not None:
+        session = {
+            "state": sess["state"],
+            "started": sess["started"],
+            "ended": sess["ended"],
+            "last_event": sess["last_event"],
+            "received_authority": _ARRIVAL_AUTHORITY,
+            "finalized_at": sess["finalized_at"],
+            "finalization_reason": sess["finalization_reason"],
+            "event_count": sess["event_count"],
+            "completeness": _lane_completeness(
+                sess["evidence_json"], sess["required_evidence_json"]),
+        }
+        from .production_bridge import ProductionBridgeError, _evidence, _required_lanes
+
+        try:
+            session["evidence"] = _evidence(sess["evidence_json"])
+            session["required_evidence_lanes"] = _required_lanes(
+                sess["required_evidence_json"])
+        except ProductionBridgeError:
+            session["evidence"] = None
+            session["required_evidence_lanes"] = None
+
+    return {
+        "view": "call_detail",
+        "workspace": ws,
+        "subject": subject,
+        "worst": _worst_dimension(dimensions),
+        "score": score,
+        "session": session,
+        "latency": latency,
+        "source": {
+            "production_db": production_path,
+            "console_db": console_path,
+            "access": "sqlite-mode-ro",
+        },
+    }
+
+
+def _ranked_candidates(candidates: Any) -> List[Dict[str, Any]]:
+    """The stored candidate list (already salience-ranked by the scorer) with a
+    plain-English timing sentence added per candidate -- built only from the
+    measured numbers the candidate already carries."""
+    if not isinstance(candidates, list):
+        return []
+    from ..scan import candidate_plain_english
+
+    out = []
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        enriched = dict(item)
+        try:
+            enriched["plain_english"] = candidate_plain_english(item)
+        except Exception:
+            enriched["plain_english"] = None
+        out.append(enriched)
+    return out
+
+
+# =========================================================================
+# View 6 (continued) -- one Failure Record by id
+# =========================================================================
 
 
 def build_record_detail(home: str, record_id: str) -> Optional[Dict[str, Any]]:

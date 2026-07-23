@@ -36,6 +36,34 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   reported.
 
 ### Added
+- **`hotato console` + `/calls`: the daily surface over scored production
+  calls.** `hotato console --production-db DB` is serve + the production
+  evidence database + the score-on-arrival worker in one command, one process,
+  one browser tab, opening on the new `/calls` view (every serve flag and
+  behavior -- loopback bind, bearer-token auth, append-only audit -- is
+  identical, and every `hotato serve` flag keeps working). `/calls` is a
+  browsable feed of the derived score sidecar joined read-only with the
+  session metadata: evidence time and arrival stamp (each labeled with its
+  clock), evidence-derived duration, session state, score state, the worst
+  dimension with the measured failure-reason sentence, per-call hop-latency
+  p50/p95 with the declared authorities behind it, and evidence-lane
+  completeness. `SCORED`, `NOT_SCORABLE` (with its reason), and `ERROR` are
+  first-class rows -- a refusal or crash is shown, never hidden and never
+  rendered as OK. Filters (session state, scorability, since/until window)
+  are query params; pagination is keyset from the first page (no OFFSET); a
+  trends strip reports volume, the score-state split, the candidate-moment
+  share, and per-kind hop-latency p50/p95 over the filtered window (kinds are
+  never pooled into one number). `/calls/<id>` renders one call: per-dimension
+  observations (never blended), the ranked candidate moments with their
+  measured magnitudes and plain-English timing sentences, the timing
+  waterfall with derived-vs-event-reported values kept apart, every hop row
+  with its declared authority, scorer version + config hash, the session's
+  evidence lanes, and the local audio path exactly as the evidence recorded
+  it. Both views have `?format=json` mirrors built from the same model; the
+  feed's mirror carries an ETag, answers a matching `If-None-Match` with a
+  body-less 304, and the page's small inline script polls it every few
+  seconds to show "updated Ns ago" and re-render rows only on change -- no
+  external code, and the page is complete as served with JavaScript off.
 - **`hotato serve --score-production`: score-on-arrival for the production
   evidence plane.** A background worker in the serve process polls the
   evidence database (read-only, `mode=ro`) for sessions reaching

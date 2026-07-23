@@ -4589,11 +4589,11 @@ all per-scenario status changes:
 FILE: docs/WORKSPACE.md
 ================================================================================
 
-# The team workspace: `hotato serve`
+# The team workspace: `hotato serve` and `hotato console`
 
 A self-hosted, local web app for a team to read a voice agent's
-conversation-QA state: release readiness, the scenario matrix, a
-conversation inspector, failure clusters, and production health.
+conversation-QA state: the live call feed, release readiness, the scenario
+matrix, a conversation inspector, failure clusters, and production health.
 Stdlib-only (`http.server` + `sqlite3`) -- no framework, no build step,
 nothing that phones home. It serves the same fleet registry and evidence
 store the CLI writes, reading that data directly instead of passing a
@@ -4636,13 +4636,30 @@ redirects to strip the token from the address bar (see [Auth](#auth)).
 Exit codes: `0` clean shutdown (Ctrl-C); `2` usage error (unusable registry or
 token, or the port was unavailable).
 
-## The five views
+## `hotato console`: the call console in one command
+
+```
+hotato console --production-db .hotato/production.sqlite3
+```
+
+One command, one process, one browser tab: `serve` with the production
+evidence database wired (read-only, `mode=ro`), the score-on-arrival worker
+on, and the printed URL landing on the live call feed at `/calls`. Every
+serve behavior is identical -- loopback bind by default, bearer-token auth on
+every request, the append-only audit log, a `?format=json` mirror on every
+view -- and `--workspace`, `--host`, `--port`, `--registry`, `--token`,
+`--token-file`, and `--no-open` work exactly as they do on `serve`. The same
+exit codes apply.
+
+## The views
 
 Every view has a machine mirror at `?format=json` (same auth, same data) so
 agents and scripts can drive the workspace without scraping HTML.
 
 | View | URL | Shows |
 |---|---|---|
+| **Calls** | `/calls` | The console feed over scored production calls (see [The call feed](#the-call-feed-calls)). |
+| **One call** | `/calls/<id>` | One call's derived score record: per-dimension observations, ranked candidate moments, the timing waterfall, evidence lanes, and the audio path as recorded. |
 | **Release readiness** | `/` | Pre-ship home screen: per-release rollup of suites/runs/evaluations -- required-suite completion, scenario/run counts, **failures by dimension** (outcome / policy / conversation / speech / reliability), inconclusive count, real-vs-simulated split, and **new-vs-fixed since the previous release**. Small samples flagged (`low sample, N=3`), never smoothed. |
 | **Scenario matrix** | `/scenarios` | Rows are scenarios, columns are the current and previous release, with a per-dimension status and **reliability** (`pass^k` where a scenario has repetitions). Filterable by `agent`, `release`, `suite`, `status`. |
 | **Conversation inspector** | `/conversation/<id>` | One conversation: evidence manifest, transcript, trace spans, per-dimension evaluations with rationale and citations (deterministic checks and model-judged/advisory results in **separate lanes**), reviewer decisions. Every digest links to the raw evidence (`/evidence/<digest>`); redacted transcript segments and trace spans render `[redacted]`, in both HTML and JSON. |
@@ -4714,6 +4731,42 @@ database and exits; the same evidence database always rebuilds to identical
 content (the one wall-clock column, `created_at`, is excluded from the
 canonical comparison). A sidecar written by a different schema version is
 refused with that rebuild instruction.
+
+### The call feed (`/calls`)
+
+`/calls` renders the score sidecar joined read-only with the evidence
+database's session metadata, newest arrival first. Each row shows the
+evidence-clock timestamp beside the arrival stamp (each labeled with its
+clock), the evidence-derived duration, the session state, the score state,
+the worst dimension with the measured failure-reason sentence, per-call
+hop-latency p50/p95 with the declared authorities behind it, and
+evidence-lane completeness (missing required lanes named). `SCORED`,
+`NOT_SCORABLE` (with its reason), and `ERROR` are all first-class rows: a
+refused or crashed session is shown, never hidden and never rendered as OK.
+
+Filters are query params -- `state` (session state), `scorability`
+(`SCORED`/`NOT_SCORABLE`/`ERROR`), and a `since`/`until` window (epoch
+seconds or RFC3339); a malformed filter or cursor is a 400, never a silently
+dropped filter. Pagination is keyset (`cursor`, `limit`) -- every page is one
+bounded query, and the trends strip above the table reports call volume, the
+score-state split, the candidate-moment share, and per-kind hop-latency
+p50/p95 (nearest-rank) over the whole filtered window; hop kinds keep their
+own percentiles and state their authorities.
+
+The feed's JSON mirror carries an `ETag` and answers a matching
+`If-None-Match` with a body-less 304. The page's small inline script polls
+that mirror every few seconds, shows an "updated Ns ago" indicator, and
+re-renders the rows only when the ETag changes -- no external code, and with
+JavaScript off the page is complete as served (reload for the latest).
+
+`/calls/<id>` is one call: per-dimension observations (candidate counts and
+worst measured magnitude per scan kind, each on its own), the ranked
+candidate moments with their measured magnitudes and plain-English timing
+sentences, the timing waterfall (turn spans with derived durations kept apart
+from event-reported values; every hop row with its timestamp, latency, and
+declared authority), scorer version + config hash, the session's evidence
+lanes, a link to the production evidence plane, and the local audio path
+exactly as the evidence recorded it -- the recording stays on this machine.
 
 ## Auth
 
