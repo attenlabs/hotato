@@ -9910,8 +9910,25 @@ hotato prove --contracts contracts/ --before before/ --after after/ --out .hotat
 
 `pass` means every lane passed. Any failure fails the proof; a lane that could
 not support its claim is `inconclusive`, and CI never reads "could not tell" as
-green. The deeper machinery is there when you need it: `hotato fix trial` binds
-a specific patch to its before/after evidence, `hotato apply --clone` stages a
+green.
+
+The Candidate Revision binding is measured, not asserted. `hotato candidate
+hash --provider vapi --assistant <id>` fetches the candidate's configuration,
+canonicalizes it (dropping volatile fields like timestamps and ids), and prints
+its content hash. Re-run `hotato candidate verify --provider vapi --assistant
+<id> --expect <hash>` after the before/after calls: it refuses (exit 1) if the
+configuration drifted mid-run, so a Candidate Revision proof cannot survive a
+swapped candidate. The end to end flow:
+
+```bash
+hotato candidate hash --provider vapi --assistant asst_123    # -> sha256:...
+hotato drive contracts/ID.hotato --stack vapi --assistant asst_123 --out after/
+hotato candidate verify --provider vapi --assistant asst_123 --expect sha256:...  # exit 1 = drifted, void
+hotato prove --before before/ --after after/ --candidate-config-hash sha256:... --provider vapi
+```
+
+The deeper machinery is there when you need it: `hotato fix trial` binds a
+specific patch to its before/after evidence, `hotato apply --clone` stages a
 candidate without touching production, and `hotato record render` turns any
 failure into a share-safe card.
 
