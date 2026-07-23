@@ -419,10 +419,12 @@ def test_failure_clusters_render_real_content(live):
     assert "/conversation/conv-a1" in body     # drill-through link
 
 
-def test_production_health_renders_real_content(live):
+def test_suite_health_renders_real_content(live):
+    # R10 naming honesty: the CI-suite history view is labeled Suite health.
     code, body, _h = _req(live.base, "/health", token=live.token)
     assert code == 200
-    assert "Production health" in body
+    assert "Suite health" in body
+    assert "Production health" not in body
     assert "real" in body and "simulated" in body
 
 
@@ -440,7 +442,7 @@ def test_json_mirror_for_every_view(live):
         "/?format=json": "release_readiness",
         "/scenarios?format=json": "scenario_matrix",
         "/clusters?format=json": "failure_clusters",
-        "/health?format=json": "production_health",
+        "/health?format=json": "suite_health",
         "/conversation/conv-a1?format=json": "conversation_inspector",
     }
     for path, view in expect.items():

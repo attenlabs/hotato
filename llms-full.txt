@@ -4591,9 +4591,10 @@ FILE: docs/WORKSPACE.md
 
 # The team workspace: `hotato serve` and `hotato console`
 
-A self-hosted, local web app for a team to read a voice agent's
-conversation-QA state: the live call feed, release readiness, the scenario
-matrix, a conversation inspector, failure clusters, and production health.
+A self-hosted, local web app for a team's voice-agent conversation QA:
+the live call feed (with pin-to-contract on every scored moment), suite
+health, failure clusters, failure records, release readiness, plus the
+scenario-matrix and conversation-inspector drill-ins.
 Stdlib-only (`http.server` + `sqlite3`) -- no framework, no build step,
 nothing that phones home. It serves the same fleet registry and evidence
 store the CLI writes, reading that data directly instead of passing a
@@ -4613,7 +4614,7 @@ hotato serve: workspace 'default'
   token:     Ab3xQ_p1…                 (generated, stored 0600 at …/serve/default/token)
   open:      http://127.0.0.1:8321/?token=Ab3xQ_p1…
   audit log: /home/you/.hotato/fleet/serve/default/audit.jsonl   (append-only)
-  read-only: the server issues only SELECTs; reviews/labels stay CLI-driven. No telemetry, no external calls.
+  writes:    one route -- pin-to-contract (POST /calls/<id>/pin, CSRF-fenced, audited); every view reads with SELECTs. No telemetry, no external calls.
 ```
 
 Open the `open:` URL in a browser; the server sets a session cookie and
@@ -4656,15 +4657,20 @@ exit codes apply.
 Every view has a machine mirror at `?format=json` (same auth, same data) so
 agents and scripts can drive the workspace without scraping HTML.
 
+The nav reads as one product: **Calls · Suite health · Failure clusters ·
+Failure records · Release readiness**; the scenario matrix, one call, one
+conversation, and one record are drill-ins.
+
 | View | URL | Shows |
 |---|---|---|
-| **Calls** | `/calls` | The console feed over scored production calls (see [The call feed](#the-call-feed-calls)). |
-| **One call** | `/calls/<id>` | One call's derived score record: per-dimension observations, ranked candidate moments, the timing waterfall, evidence lanes, and the audio path as recorded. |
+| **Calls** | `/calls` | The console feed over scored production calls, with the "contracts protecting this agent" count in its header (see [The call feed](#the-call-feed-calls)). |
+| **One call** | `/calls/<id>` | One call's derived score record: per-dimension observations, ranked candidate moments **each with a pin-to-contract form**, the timing waterfall, evidence lanes, and the audio path as recorded. |
+| **Suite health** | `/health` | Your CI suite's history from the fleet registry: ingest counts, evaluated coverage, and per-dimension failure rate over time, **separated for real and simulated** conversations. Sparse days/dimensions read *not enough history* rather than a misleading point. No single combined quality score -- each dimension keeps its own number. (`/production` serves the same view for URL compatibility.) |
+| **Failure clusters** | `/clusters` | Failed evaluations and assertions grouped by **observable signature** (dimension + assertion kind + reason-class), with counts and drill-through into the inspector -- it groups what was observed; the cause stays yours to determine. |
+| **Failure records** | `/records` | The read-only Failure Record viewer over `hotato.failure-record.v1`. |
 | **Release readiness** | `/` | Pre-ship home screen: per-release rollup of suites/runs/evaluations -- required-suite completion, scenario/run counts, **failures by dimension** (outcome / policy / conversation / speech / reliability), inconclusive count, real-vs-simulated split, and **new-vs-fixed since the previous release**. Small samples flagged (`low sample, N=3`), never smoothed. |
 | **Scenario matrix** | `/scenarios` | Rows are scenarios, columns are the current and previous release, with a per-dimension status and **reliability** (`pass^k` where a scenario has repetitions). Filterable by `agent`, `release`, `suite`, `status`. |
 | **Conversation inspector** | `/conversation/<id>` | One conversation: evidence manifest, transcript, trace spans, per-dimension evaluations with rationale and citations (deterministic checks and model-judged/advisory results in **separate lanes**), reviewer decisions. Every digest links to the raw evidence (`/evidence/<digest>`); redacted transcript segments and trace spans render `[redacted]`, in both HTML and JSON. |
-| **Failure clusters** | `/clusters` | Failed evaluations and assertions grouped by **observable signature** (dimension + assertion kind + reason-class), with counts and drill-through into the inspector -- it groups what was observed; the cause stays yours to determine. |
-| **Production health** | `/health` | Ingest counts, evaluated coverage, and per-dimension failure rate over time, **separated for real and simulated** conversations. Sparse days/dimensions read *not enough history* rather than a misleading point. No single combined quality score -- each dimension keeps its own number. |
 
 ### Optional production-evidence bridge
 
@@ -4759,6 +4765,11 @@ that mirror every few seconds, shows an "updated Ns ago" indicator, and
 re-renders the rows only when the ETag changes -- no external code, and with
 JavaScript off the page is complete as served (reload for the latest).
 
+The feed header shows **"N contracts protecting this agent"** -- a read-only
+`COUNT(*)` over the fleet registry's existing `contracts` table for the serve
+workspace, the same table `hotato fleet` registration and the pin route
+write through.
+
 `/calls/<id>` is one call: per-dimension observations (candidate counts and
 worst measured magnitude per scan kind, each on its own), the ranked
 candidate moments with their measured magnitudes and plain-English timing
@@ -4767,6 +4778,39 @@ from event-reported values; every hop row with its timestamp, latency, and
 declared authority), scorer version + config hash, the session's evidence
 lanes, a link to the production evidence plane, and the local audio path
 exactly as the evidence recorded it -- the recording stays on this machine.
+Where the session has finalized (`COMPLETE`/`DEGRADED`), the view also shows
+the exact `hotato production export-regression <id> --out DIR --db FILE`
+command that exports it as an offline-verifiable regression candidate.
+
+### Pin-to-contract (`POST /calls/<id>/pin`)
+
+Each top-ranked candidate moment on a SCORED call carries a small form:
+choose `expect yield` or `expect hold` and pin. The POST delegates to the
+same fleet machinery the CLI drives -- ingest the recorded audio
+(content-addressed), re-scan it, then
+`fleet contract create --from-candidate` semantics
+(`FleetAPI.contract_from_candidate`): the human label, the sealed portable
+`.hotato` contract bundle, and the registry registration land in one atomic
+step, under agent id `production` in the serve workspace. On success the
+page shows the contract id and bundle path (with JavaScript on, inline; with
+it off, as a result page), and the feed's contract count moves.
+
+A pin **refuses with its reason -- HTTP 4xx, no artifact** -- exactly where
+the CLI would: a NOT_SCORABLE/ERROR call, a candidate reference that does
+not exist, a recording that changed on disk since scoring (the re-scan must
+reproduce the chosen moment's onset), a stale page (the form binds the score
+record's `evidence_sha256`; a rebuilt sidecar refuses), or a trust-preflight
+refusal. The mint + label + registration step is atomic, so a refused pin
+leaves no contract, no label, and no registry row.
+
+The route is the server's one write action and is fenced three ways: the
+same bearer/cookie auth as every view (an unauthenticated POST is 401), the
+session cookie's `SameSite=Strict`, and a same-origin check -- a
+cookie-authenticated POST must carry an `Origin` (or `Referer`) header
+matching the request's own `Host`, so a forged cross-site form is refused
+403 before any handler runs; a request presenting the bearer secret itself
+needs no origin header. Every attempt, accepted or refused, appends one
+line to the audit log.
 
 ## Auth
 
@@ -4780,7 +4824,10 @@ The token is compared in constant time (`hmac.compare_digest`). Without
 `--token`/`--token-file`, one is generated with `secrets.token_urlsafe` on
 first start and stored `0600` at `<registry>/serve/<workspace>/token`, so
 a restart keeps the same URL. Sessions live only in memory, never
-persisted, never cross-tenant.
+persisted, never cross-tenant. The session cookie is `HttpOnly` +
+`SameSite=Strict`, and the one write route adds a same-origin check on
+cookie-authenticated POSTs (see
+[Pin-to-contract](#pin-to-contract-post-callsidpin)).
 
 ## Audit log
 
@@ -4792,8 +4839,10 @@ Every request appends one JSONL line to
 ```
 
 `who` is a token/session **prefix**, never the secret; the `token`
-parameter is stripped from the recorded query. The audit log is the
-**only** file the server writes.
+parameter is stripped from the recorded query. The audit log is the only
+file the serve layer itself writes; a pin-to-contract POST additionally
+writes its contract bundle and registry rows through the fleet machinery,
+and each attempt is one audit line.
 
 ## Binding 127.0.0.1 by default
 
@@ -11851,9 +11900,10 @@ The stack is small on purpose:
 - **hotato**: the `pip`-installable package. Stdlib-only core (zero runtime
   dependencies) keeps the default image offline at run time, with zero
   added supply-chain surface.
-- **`hotato serve`**: the read-only, token-authenticated team workspace (five
-  views: release readiness, scenario matrix, conversation inspector, failure
-  clusters, production health). See [`docs/WORKSPACE.md`](WORKSPACE.md).
+- **`hotato serve`**: the token-authenticated team workspace (calls, suite
+  health, failure clusters, failure records, release readiness, plus the
+  scenario-matrix and conversation-inspector drill-ins; one write route,
+  pin-to-contract). See [`docs/WORKSPACE.md`](WORKSPACE.md).
 - **Ollama** (optional): a local model judge for the rubric lane, opt-in
   behind a compose profile. The default path stays local end to end.
 
@@ -12192,7 +12242,9 @@ judge), the whole stack runs fully offline.
 - This covers the default stack's run-time behaviour: the workspace server
   binds a listening socket and stops there, imports nothing that phones
   home, and keeps audio, traces, and evaluations on the machine. The
-  workspace is read-only, writing only its own append-only audit log.
+  workspace's own writes stay local too: its append-only audit log, plus
+  the contract bundles and registry rows a pin-to-contract POST creates
+  through the fleet machinery.
 - The default workspace runs on a normal Docker bridge so its port can
   publish; the guarantee rests on the server's own behaviour. Verify it
   directly on your own machine, independent of any firewall:
@@ -12819,7 +12871,7 @@ See [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md) and the drive-a-call rows in
 ## Team workspace (`hotato serve`): a new local listening socket
 
 `hotato serve` (`src/hotato/serve/`, wired into the CLI) opens a new local
-HTTP listening socket to serve the five conversation-QA views over the
+HTTP listening socket to serve the conversation-QA views over the
 fleet registry and evidence store. Its threat surface, and the controls on
 it:
 
@@ -12835,13 +12887,21 @@ it:
   printed `/?token=…` URL, then the token is stripped from the address bar
   via a redirect; it stays out of every response body. An unauthenticated
   request gets `401` before it's routed anywhere.
-- **Read-only.** The server issues only `SELECT`s against the registry and
-  reads evidence blobs by digest: no write endpoint, no workspace
-  mutation. Reviews and labels stay CLI-driven. The only file it writes is
-  the append-only audit log (`…/serve/<workspace>/audit.jsonl`, `0600`),
-  recording who (token/session prefix, the secret stays out of it), what
-  (method + path, token stripped from the query), when, and the response
-  status of every request.
+- **Reads everywhere; one fenced write route.** Every view issues only
+  `SELECT`s against the registry and reads evidence blobs by digest. The
+  single write endpoint, `POST /calls/<id>/pin`, delegates to the same
+  fleet label/contract machinery the CLI drives, and is fenced beyond the
+  bearer/cookie auth above: the session cookie is `SameSite=Strict`, and a
+  cookie-authenticated POST must carry a same-origin `Origin`/`Referer`
+  header matching the request's own `Host` -- a forged cross-site form is
+  refused `403` before any handler runs (a bearer-authenticated request
+  needs no origin header; a cross-site attacker cannot set one). The
+  delegated mint is atomic, so a refused pin (4xx with reason) leaves no
+  artifact. The serve layer's own file stays the append-only audit log
+  (`…/serve/<workspace>/audit.jsonl`, `0600`), recording who
+  (token/session prefix, the secret stays out of it), what (method + path,
+  token stripped from the query), when, and the response status of every
+  request -- pin attempts included, accepted or refused.
 - **Zero egress.** The server only binds a listening socket: no outbound
   connection, nothing that phones home. Audio, traces, and evaluations
   stay on the machine. A test allowlists loopback and fails if any view

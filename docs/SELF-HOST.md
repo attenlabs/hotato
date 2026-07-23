@@ -11,9 +11,10 @@ The stack is small on purpose:
 - **hotato**: the `pip`-installable package. Stdlib-only core (zero runtime
   dependencies) keeps the default image offline at run time, with zero
   added supply-chain surface.
-- **`hotato serve`**: the read-only, token-authenticated team workspace (five
-  views: release readiness, scenario matrix, conversation inspector, failure
-  clusters, production health). See [`docs/WORKSPACE.md`](WORKSPACE.md).
+- **`hotato serve`**: the token-authenticated team workspace (calls, suite
+  health, failure clusters, failure records, release readiness, plus the
+  scenario-matrix and conversation-inspector drill-ins; one write route,
+  pin-to-contract). See [`docs/WORKSPACE.md`](WORKSPACE.md).
 - **Ollama** (optional): a local model judge for the rubric lane, opt-in
   behind a compose profile. The default path stays local end to end.
 
@@ -352,7 +353,9 @@ judge), the whole stack runs fully offline.
 - This covers the default stack's run-time behaviour: the workspace server
   binds a listening socket and stops there, imports nothing that phones
   home, and keeps audio, traces, and evaluations on the machine. The
-  workspace is read-only, writing only its own append-only audit log.
+  workspace's own writes stay local too: its append-only audit log, plus
+  the contract bundles and registry rows a pin-to-contract POST creates
+  through the fleet machinery.
 - The default workspace runs on a normal Docker bridge so its port can
   publish; the guarantee rests on the server's own behaviour. Verify it
   directly on your own machine, independent of any firewall:

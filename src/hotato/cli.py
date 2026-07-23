@@ -10306,16 +10306,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     srv = sub.add_parser(
         "serve",
-        help="run the self-hosted local team workspace (five conversation-QA views)",
+        help="run the self-hosted local team workspace (the conversation-QA views)",
         description=(
-            "Serve an authenticated, read-only local web app over the fleet "
-            "registry + conversation artifacts: release readiness, scenario "
-            "matrix, conversation inspector, failure clusters, and production "
-            "health (each with a ?format=json mirror). Stdlib-only "
-            "(http.server + sqlite3); binds 127.0.0.1 by default; a bearer "
-            "token is generated + stored 0600 on first start if not supplied; "
-            "every request is authenticated and audited; nothing leaves the "
-            "machine. Read-only: reviews and labels stay CLI-driven."),
+            "Serve an authenticated local web app over the fleet registry + "
+            "conversation artifacts: calls, suite health, failure clusters, "
+            "failure records, release readiness, plus scenario-matrix and "
+            "conversation-inspector drill-ins (each with a ?format=json "
+            "mirror). Stdlib-only (http.server + sqlite3); binds 127.0.0.1 by "
+            "default; a bearer token is generated + stored 0600 on first "
+            "start if not supplied; every request is authenticated and "
+            "audited; nothing leaves the machine. Every view reads with "
+            "SELECTs; the one write route is pin-to-contract on a call's "
+            "candidate moments (CSRF-fenced, audited, refuses with reason)."),
         epilog=_exit_codes_epilog("serve"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

@@ -345,11 +345,14 @@
   auto-deploys. Zero-dependency local mode (a SQLite registry + a
   content-addressed store under ~/.hotato/fleet). Detail: `docs/GUARDIAN-FLEET.md`.
 - `hotato serve [--workspace ID] [--host H] [--port P] [--token-file F]` --
-  serve an authenticated, read-only local web app over the fleet registry +
-  conversation artifacts (release readiness, scenario matrix, conversation
-  inspector, failure clusters, production health; each with a ?format=json
-  mirror). Stdlib-only (http.server + sqlite3); binds 127.0.0.1; a bearer token
-  is generated + stored 0600 on first start; nothing leaves the machine.
+  serve an authenticated local web app over the fleet registry + conversation
+  artifacts (calls, suite health, failure clusters, failure records, release
+  readiness, plus scenario-matrix and conversation-inspector drill-ins; each
+  with a ?format=json mirror). Every view reads with SELECTs; the one write
+  route is pin-to-contract (POST /calls/<id>/pin -- CSRF-fenced, audited,
+  refuses with reason). Stdlib-only (http.server + sqlite3); binds 127.0.0.1;
+  a bearer token is generated + stored 0600 on first start; nothing leaves
+  the machine.
   Reviews and labels stay CLI-driven. Detail: `docs/WORKSPACE.md`.
 - `hotato describe [--format json]` -- generated capability manifest of the
   whole CLI: every subcommand's name, purpose, argument list, and documented
@@ -525,8 +528,8 @@ it, never whether the policy itself was right.
 - docs/RELEASE-COMPARE.md: `hotato release compare`, the per-dimension,
   per-scenario, digest-exact diff of two recorded releases (new failures /
   fixed-since; never one blended delta).
-- docs/WORKSPACE.md: `hotato serve`, the self-hosted, read-only local web app
-  over the fleet registry.
+- docs/WORKSPACE.md: `hotato serve`, the self-hosted local web app over the
+  fleet registry, with pin-to-contract as its one write route.
 - docs/GUARDIAN-FLEET.md: `hotato fleet`, the private control plane: ingest,
   discover, human-label, and run manifest-bound before/after experiments that
   recommend, never auto-deploy.
