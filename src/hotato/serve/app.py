@@ -27,6 +27,7 @@ the HTML renderer formats, so the two can never diverge.
 """
 from __future__ import annotations
 
+import hashlib
 import http.cookies
 import json
 import os
@@ -292,6 +293,11 @@ class _Handler(BaseHTTPRequestHandler):
             return self._view(ctx, "clusters", query, fmt)
         if path in ("/health", "/production"):
             return self._view(ctx, "health", query, fmt)
+        if path == "/calls":
+            return self._calls_feed(ctx, query, fmt)
+        if path.startswith("/calls/"):
+            subject = unquote(path.split("/", 2)[2]) if path.count("/") >= 2 else ""
+            return self._call_detail(ctx, subject, fmt)
         if path == "/records":
             return self._records_list(ctx, fmt)
         if path.startswith("/records/"):
@@ -357,6 +363,63 @@ class _Handler(BaseHTTPRequestHandler):
                            _render.render_conversation_inspector(model),
                            workspace=ctx.workspace)
         return 200, doc.encode("utf-8"), "text/html; charset=utf-8", {}
+
+    def _calls_feed(self, ctx, query, fmt):
+        """The console call feed (R5) with its trends strip (R8) and the cheap
+        content hash the polling refresh revalidates against (R7): the model's
+        canonical JSON bytes are hashed into an ETag; a request presenting the
+        same ``If-None-Match`` gets a body-less 304, so the every-few-seconds
+        poll costs one bounded read and no transfer while nothing changed. A
+        malformed filter/cursor/limit is a 400, never a silently dropped
+        filter."""
+        try:
+            model = _data.build_calls_feed(
+                ctx.workspace, ctx.production_db,
+                state=_q(query, "state"), scorability=_q(query, "scorability"),
+                since=_q(query, "since"), until=_q(query, "until"),
+                cursor=_q(query, "cursor"), limit=_q(query, "limit"))
+        except ValueError as exc:
+            return self._bad_request(ctx, fmt, str(exc))
+        body = _json_bytes(model)
+        etag = '"%s"' % hashlib.sha256(body).hexdigest()[:32]
+        if self.headers.get("If-None-Match") == etag:
+            return 304, b"", "text/plain; charset=utf-8", {"ETag": etag}
+        if fmt == "json":
+            return 200, body, "application/json; charset=utf-8", {"ETag": etag}
+        doc = _render.page("Calls", "/calls",
+                           _render.render_calls_feed(model, etag=etag),
+                           workspace=ctx.workspace)
+        return 200, doc.encode("utf-8"), "text/html; charset=utf-8", {"ETag": etag}
+
+    def _call_detail(self, ctx, subject, fmt):
+        """One call's derived record (R6). The JSON mirror returns the same
+        model the HTML renders; an unknown subject (or a console that is not
+        wired) is a 404, and an unusable sidecar (schema mismatch) is a 400
+        carrying the rebuild instruction -- fail closed, never render wrong
+        derived data."""
+        try:
+            model = _data.build_call_detail(ctx.workspace, ctx.production_db,
+                                            subject)
+        except ValueError as exc:
+            return self._bad_request(ctx, fmt, str(exc))
+        if model is None:
+            return self._not_found(
+                ctx, fmt, "No scored call %r in the console sidecar." % subject,
+                extra_json={"subject": subject})
+        if fmt == "json":
+            return 200, _json_bytes(model), "application/json; charset=utf-8", {}
+        doc = _render.page("Call", "/calls",
+                           _render.render_call_detail(model),
+                           workspace=ctx.workspace)
+        return 200, doc.encode("utf-8"), "text/html; charset=utf-8", {}
+
+    def _bad_request(self, ctx, fmt, message):
+        if fmt == "json":
+            return 400, _json_bytes({"error": "bad request", "message": message}), \
+                "application/json; charset=utf-8", {}
+        doc = _render.page("Bad request", "/calls",
+                           _render.render_400(message), workspace=ctx.workspace)
+        return 400, doc.encode("utf-8"), "text/html; charset=utf-8", {}
 
     def _records_list(self, ctx, fmt):
         """The read-only Failure Record index. Reads ``<home>/records`` fresh
@@ -523,7 +586,8 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
               registry: Optional[str] = None, token: Optional[str] = None,
               token_file: Optional[str] = None, open_browser: bool = True,
               production_db: Optional[str] = None,
-              score_production: bool = False) -> int:
+              score_production: bool = False,
+              landing: str = "/") -> int:
     """Start the workspace server and serve until interrupted. Returns 0 on a
     clean shutdown. Raises ``ValueError``/``OSError`` (HANDLED -> exit 2) on a bad
     registry, an unusable token, or an unavailable port.
@@ -531,7 +595,8 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
     On start, unless ``open_browser`` is false (or the environment says not to;
     see :func:`_maybe_open_browser`), the default browser is pointed at the
     tokenised URL so the first thing a new user sees is a working workspace, not
-    an auth wall."""
+    an auth wall. ``landing`` is the path that tokenised URL opens (every view
+    stays reachable either way): ``hotato console`` lands on ``/calls``."""
     home = os.path.abspath(os.path.expanduser(registry)) if registry else DEFAULT_HOME
 
     # Validate the registry opens (schema-version gate); read-only thereafter.
@@ -576,10 +641,14 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
         score_store = ConsoleStore(default_console_path(resolved_production_db))
         score_worker = ConsoleScoreWorker(resolved_production_db, score_store)
 
+    if not landing.startswith("/"):
+        raise ValueError("landing must be an absolute path like '/calls'")
+
     display_host = "127.0.0.1" if host in ("", "0.0.0.0", "::") else host
     # The one line that carries the secret: the tokenised URL a browser can open
     # directly. It is printed once (below) and never written to the audit log.
-    url = "http://%s:%d/?token=%s" % (display_host, port, quote(tok, safe=""))
+    url = "http://%s:%d%s?token=%s" % (display_host, port, landing,
+                                       quote(tok, safe=""))
 
     _print_banner(ctx, host, port, source=source, generated=generated,
                   state_dir=state_dir, url=url, display_host=display_host)
