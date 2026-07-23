@@ -46,6 +46,31 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   readiness.
 
 ### Added
+- **`hotato autopsy <recording>`: the zero-config forensics front door.** Drop
+  one call recording in and get the incident list out -- BARGE-IN, TALK-OVER,
+  DEAD AIR, LATENCY SPIKE -- each with a timestamp, the measured magnitudes,
+  and the scanner's plain-English sentence, plus ONE self-contained HTML
+  report (per-channel waveform with a labeled marker per incident, then a
+  card per incident) written to a content-addressed path under
+  `hotato-output/`. A two-channel recording runs the existing deterministic
+  whole-call scanner unchanged: same file in, byte-identical CLI text and
+  report out, every run. A mono recording is analyzed best-effort with the
+  same energy VAD: silence-timing findings (dead air, latency gaps) each
+  carry a measured confidence with its derivation printed beside it, and the
+  one-line functional scope states that talk-over/barge-in attribution comes
+  from a two-channel export -- nothing guessed, no confidence invented, and
+  the stricter commands (`run`/`scan`/`trust`/contracts) keep refusing mono.
+  WAV reads natively; mp3/m4a convert through ffmpeg when on PATH (a one-line
+  actionable message when absent); an unreadable input is refused with the
+  reason (exit 2). The autopsy id is content-derived (`apx-` + 12 hex of
+  sha256 of the file bytes) and each incident is addressed `<id>#<rank>` --
+  printed on the `pin:` line. `est. cost` lines render ONLY with
+  `--cost-config` (your own per-incident figures; no default dollar amount
+  exists anywhere). `hotato autopsy` with no arguments prints the quick
+  start on the bundled examples; `examples/autopsy/` ships three
+  deterministic rendered example calls (seeded renderer, seed = sha256(id)),
+  one per pattern: barge-in-say-do, latency-dead-air, talk-over. See
+  `docs/AUTOPSY.md`.
 - **`hotato console` + `/calls`: the daily surface over scored production
   calls.** `hotato console --production-db DB` is serve + the production
   evidence database + the score-on-arrival worker in one command, one process,

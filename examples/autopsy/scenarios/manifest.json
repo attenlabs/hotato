@@ -1,0 +1,31 @@
+{
+  "scenarios": [
+    {
+      "id": "autopsy-01-barge-in-say-do",
+      "title": "Autopsy example: barge-in with a say-do gap (the agent keeps talking over the caller)",
+      "category": "autopsy-example",
+      "sample_rate": 16000,
+      "expected_yield": null,
+      "example_wav": "audio/autopsy-01-barge-in-say-do.example.wav",
+      "caller_wav": "audio/autopsy-01-barge-in-say-do.caller.wav"
+    },
+    {
+      "id": "autopsy-02-latency-dead-air",
+      "title": "Autopsy example: dead air (the caller finishes and the agent answers seconds late)",
+      "category": "autopsy-example",
+      "sample_rate": 16000,
+      "expected_yield": null,
+      "example_wav": "audio/autopsy-02-latency-dead-air.example.wav",
+      "caller_wav": "audio/autopsy-02-latency-dead-air.caller.wav"
+    },
+    {
+      "id": "autopsy-03-talk-over",
+      "title": "Autopsy example: talk-over (the agent starts answering while the caller is mid-sentence)",
+      "category": "autopsy-example",
+      "sample_rate": 16000,
+      "expected_yield": null,
+      "example_wav": "audio/autopsy-03-talk-over.example.wav",
+      "caller_wav": "audio/autopsy-03-talk-over.caller.wav"
+    }
+  ]
+}

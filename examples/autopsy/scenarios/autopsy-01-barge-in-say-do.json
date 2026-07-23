@@ -1,0 +1,19 @@
+{
+  "id": "autopsy-01-barge-in-say-do",
+  "title": "Autopsy example: barge-in with a say-do gap (the agent keeps talking over the caller)",
+  "category": "autopsy-example",
+  "tags": ["autopsy", "barge-in", "talk-over", "example"],
+  "sample_rate": 16000,
+  "duration_sec": 12.0,
+  "note": "A deterministic rendered example call (seeded renderer, seed = sha256(id)) demonstrating the barge-in failure pattern for hotato autopsy: the caller takes the floor mid-utterance and the agent keeps talking over them past the search window, then stops on its own with no caller energy nearby.",
+  "transcript": {
+    "agent": "Our premium plan includes unlimited minutes, priority routing, and...",
+    "caller": "wait, I just need to cancel my appointment",
+    "agent_response": "I can cancel that appointment for you right now."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [[0.30, 6.50], [8.60, 12.0]],
+    "caller_segments_sec": [[3.00, 4.80], [7.40, 8.40]]
+  }
+}

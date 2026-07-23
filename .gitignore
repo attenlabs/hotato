@@ -64,6 +64,7 @@ _atlas_site/
 
 # local QA/scratch artifacts
 .hotato/
+hotato-output/
 hotato-analyze*.html
 hotato-fixplan*.json
 hotato-pull-*/

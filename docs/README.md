@@ -26,6 +26,7 @@ New here? Start with **[GETTING-STARTED.md](GETTING-STARTED.md)**, then run
 
 ## Evaluate
 
+- [AUTOPSY.md](AUTOPSY.md) - one recording, zero config: the incident list and report
 - [INVESTIGATE.md](INVESTIGATE.md) - one recording in, ranked candidate moments out
 - [ANALYZE.md](ANALYZE.md) - drop a folder, rank and hear the worst moments
 - [ASSERTIONS.md](ASSERTIONS.md) - deterministic typed assertions over transcript, trace, and timing

@@ -1,0 +1,18 @@
+{
+  "id": "autopsy-03-talk-over",
+  "title": "Autopsy example: talk-over (the agent starts answering while the caller is mid-sentence)",
+  "category": "autopsy-example",
+  "tags": ["autopsy", "talk-over", "premature-start", "example"],
+  "sample_rate": 16000,
+  "duration_sec": 10.0,
+  "note": "A deterministic rendered example call (seeded renderer, seed = sha256(id)) demonstrating the talk-over failure pattern for hotato autopsy: the agent starts a fresh utterance while the caller still holds the floor and overlaps them well past a prompt-yield ceiling.",
+  "transcript": {
+    "caller": "I'd like to move my reservation to Friday at seven, and also...",
+    "agent": "Your reservation is confirmed for Thursday at six."
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [[2.80, 10.0]],
+    "caller_segments_sec": [[1.00, 4.50]]
+  }
+}
