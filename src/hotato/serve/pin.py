@@ -62,6 +62,23 @@ def _refuse(status: int, reason: str) -> "PinRefused":
     return PinRefused(status, reason)
 
 
+def _persisted_decision(bundle_dir: str) -> Optional[str]:
+    """The decision sealed inside a minted bundle (``label.expected_behavior``).
+
+    ``None`` when the bundle cannot be read -- the caller then has no basis to
+    dispute the mint, so the requested decision stands.
+    """
+    import json
+
+    try:
+        with open(os.path.join(bundle_dir, "contract.json"), encoding="utf-8") as fh:
+            cjson = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    sealed = (cjson.get("label") or {}).get("expected_behavior")
+    return str(sealed).strip().lower() if isinstance(sealed, str) else None
+
+
 def pin_candidate(
     *,
     home: str,
@@ -176,6 +193,19 @@ def pin_candidate(
                 decision=expect, rationale=(rationale or "").strip() or None)
         except ValueError as exc:
             raise _refuse(409, str(exc)) from exc
+        # The fleet API reconciles a re-pin of the same candidate by reusing its
+        # sealed bundle; the sealed decision, not the requested one, is what
+        # exists. A changed decision must refuse -- returning 200 with the
+        # requested value would confirm a write that never happened.
+        sealed = _persisted_decision(minted["dir"])
+        if sealed is not None and sealed != expect:
+            raise _refuse(409, "candidate #%d already has a sealed contract "
+                               "%s recording decision %r; a pin cannot change "
+                               "a sealed decision. Mint a fresh contract "
+                               "deliberately: hotato fleet contract create "
+                               "--from-candidate %s --contract-id <new-id>"
+                               % (index, minted["contract_id"], sealed,
+                                  fleet_cand["candidate_id"]))
     finally:
         api.close()
 

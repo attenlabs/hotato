@@ -404,6 +404,31 @@ def test_pin_is_idempotent_on_the_same_candidate(live):
     assert len(rows) == 1 and len(labels) == 1
 
 
+def test_pin_refuses_a_changed_decision_on_the_same_candidate(live):
+    # A re-pin with a DIFFERENT decision must refuse: the first pin sealed the
+    # decision into the bundle, and a 200 echoing the new decision would
+    # confirm a write that never happened.
+    first = _req(live.base, "/calls/call-pin/pin?format=json", method="POST",
+                 token=live.token, form=_pin_form(live, "call-pin"))
+    assert first[0] == 200
+    sealed_bundles = _bundles(live)
+
+    code, body, _h = _req(live.base, "/calls/call-pin/pin?format=json",
+                          method="POST", token=live.token,
+                          form=_pin_form(live, "call-pin", expect="hold"))
+    assert code == 409
+    assert "sealed" in body and "'yield'" in body
+
+    # the sealed bundle is untouched and still records the original decision
+    assert _bundles(live) == sealed_bundles
+    with open(os.path.join(sealed_bundles[0], "contract.json"),
+              encoding="utf-8") as fh:
+        cjson = json.load(fh)
+    assert cjson["label"]["expected_behavior"] == "yield"
+    rows, labels = _contract_rows(live)
+    assert len(rows) == 1 and len(labels) == 1
+
+
 def test_pin_form_and_result_work_without_javascript(live):
     # the per-call page carries a plain HTML form per top-ranked moment
     code, body, _h = _req(live.base, "/calls/call-pin", token=live.token)
