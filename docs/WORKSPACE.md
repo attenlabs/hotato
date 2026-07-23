@@ -37,6 +37,8 @@ redirects to strip the token from the address bar (see [Auth](#auth)).
 | `--port` | `8321` | listen port |
 | `--registry` | `~/.hotato/fleet` | registry home directory |
 | `--production-db` | none | read session manifests and alerts from this separate Hotato production SQLite database in `/health` (mode=ro; see below) |
+| `--score-production` | off | with `--production-db`: score completed sessions in the background into a `console.sqlite3` sidecar beside the evidence database (see below) |
+| `--rebuild-scores` | off | with `--production-db`: deterministically regenerate the entire `console.sqlite3` sidecar from the evidence database, then exit |
 | `--token` | none | supply the bearer token yourself |
 | `--token-file` | none | read the bearer token from a file (first line) |
 
@@ -80,6 +82,47 @@ the real/simulated buckets, and release trends. The production schema does not
 carry a fleet workspace id, so the UI states `workspace_scope =
 not_encoded_by_production_schema` instead of silently assigning those sessions
 to the workspace being served.
+
+### Score-on-arrival (`--score-production`)
+
+```bash
+hotato serve --workspace default \
+  --production-db .hotato/production.sqlite3 --score-production
+```
+
+A background worker in the same process polls the evidence database (same
+`mode=ro` read-only discipline) for sessions that reached
+`COMPLETE`/`QUIESCENT` and scores each one with the deterministic scorer over
+the session's recorded two-channel audio (the path named by the
+`media.asset.available` event's `data.path`). Bind and auth are unchanged;
+the server gains no new routes or write endpoints from this flag.
+
+Each session becomes one durable record in `console.sqlite3` beside the
+evidence database:
+
+- **`SCORED`** -- per-dimension observations (candidate counts and worst
+  measured magnitude per scan kind, never blended), the ranked candidate
+  moments, and one plain-English failure-reason sentence built only from
+  measured numbers;
+- **`NOT_SCORABLE`** -- the scorer's refusal with its reason (audio lane
+  unavailable, no recorded path, a one-channel or unreadable recording);
+- **`ERROR`** -- a scorer crash or persist failure on that session, with its
+  reason; the worker records it and continues to the next session.
+
+Every record carries the scorer version and a config hash, and every timing
+figure derives from evidence event timestamps: per-hop latency rows keep the
+reporting event's declared `authority`, turn spans and the end-to-end figure
+are labeled `derived:event_timestamps`, and reported turn fields
+(`yield_latency_ms`, `overlap_ms`, `duration_ms`) stay in a separate
+`reported` block. Sessions are scored one at a time and a record is claimed
+only after its sidecar write commits.
+
+The sidecar is derived data -- the evidence database stays the only
+authority. `--rebuild-scores` regenerates the whole sidecar from the evidence
+database and exits; the same evidence database always rebuilds to identical
+content (the one wall-clock column, `created_at`, is excluded from the
+canonical comparison). A sidecar written by a different schema version is
+refused with that rebuild instruction.
 
 ## Auth
 

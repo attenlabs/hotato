@@ -5268,12 +5268,29 @@ def _cmd_start(args) -> int:
 
 
 def _cmd_serve(args) -> int:
+    if args.rebuild_scores:
+        # One-shot: deterministically regenerate the console sidecar from the
+        # evidence database and exit; no server is started.
+        if not args.production_db:
+            raise ValueError(
+                "--rebuild-scores needs --production-db (the evidence database "
+                "the sidecar is derived from)"
+            )
+        from . import console_worker as _console
+
+        result = _console.run_rebuild(args.production_db)
+        print("hotato serve --rebuild-scores: regenerated %s" % result["sidecar"])
+        print("  scored: %d   not scorable: %d   errors: %d"
+              % (result["scored"], result["not_scorable"], result["errors"]))
+        return 0
+
     from . import serve as _serve  # lazy: the workspace server + its stdlib deps
 
     return _serve.run_serve(
         workspace=args.workspace, host=args.host, port=args.port,
         registry=args.registry, token=args.token, token_file=args.token_file,
         open_browser=not args.no_open, production_db=args.production_db,
+        score_production=args.score_production,
     )
 
 
@@ -10299,6 +10316,27 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "project manifests and alerts from a separate production SQLite "
             "database into /health; opened read-only without payload access"
+        ),
+    )
+    srv.add_argument(
+        "--score-production",
+        action="store_true",
+        help=(
+            "with --production-db: run the score-on-arrival worker alongside "
+            "the server -- completed sessions are scored one at a time with "
+            "the deterministic scorer and recorded (SCORED / NOT_SCORABLE "
+            "with reason / ERROR) in a console.sqlite3 sidecar beside the "
+            "evidence database"
+        ),
+    )
+    srv.add_argument(
+        "--rebuild-scores",
+        action="store_true",
+        help=(
+            "with --production-db: deterministically regenerate the entire "
+            "console.sqlite3 sidecar from the evidence database, then exit "
+            "(the sidecar is derived data; the same evidence database always "
+            "rebuilds to identical content)"
         ),
     )
     srv.add_argument("--token", default=None, metavar="TOKEN",

@@ -522,7 +522,8 @@ def build_server(context: ServeContext, host: str, port: int) -> _WorkspaceServe
 def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
               registry: Optional[str] = None, token: Optional[str] = None,
               token_file: Optional[str] = None, open_browser: bool = True,
-              production_db: Optional[str] = None) -> int:
+              production_db: Optional[str] = None,
+              score_production: bool = False) -> int:
     """Start the workspace server and serve until interrupted. Returns 0 on a
     clean shutdown. Raises ``ValueError``/``OSError`` (HANDLED -> exit 2) on a bad
     registry, an unusable token, or an unavailable port.
@@ -545,6 +546,12 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
         snapshot = read_production_snapshot(production_db)
         resolved_production_db = snapshot["source"]["path"]
 
+    if score_production and resolved_production_db is None:
+        raise ValueError(
+            "--score-production needs --production-db (the evidence database "
+            "the scoring worker reads)"
+        )
+
     state_dir = os.path.join(home, "serve", _safe_dirname(workspace))
     os.makedirs(state_dir, mode=0o700, exist_ok=True)
 
@@ -557,6 +564,18 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
     )
     server = build_server(ctx, host, port)
 
+    # Optional score-on-arrival: a background worker (never a second server;
+    # the bind and auth above are unchanged) reads the evidence db mode=ro and
+    # writes derived score records to the console sidecar beside it.
+    score_worker = None
+    score_store = None
+    if score_production:
+        from ..console_store import ConsoleStore
+        from ..console_worker import ConsoleScoreWorker, default_console_path
+
+        score_store = ConsoleStore(default_console_path(resolved_production_db))
+        score_worker = ConsoleScoreWorker(resolved_production_db, score_store)
+
     display_host = "127.0.0.1" if host in ("", "0.0.0.0", "::") else host
     # The one line that carries the secret: the tokenised URL a browser can open
     # directly. It is printed once (below) and never written to the audit log.
@@ -564,6 +583,11 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
 
     _print_banner(ctx, host, port, source=source, generated=generated,
                   state_dir=state_dir, url=url, display_host=display_host)
+    if score_store is not None:
+        print("  scoring:   %s   (derived sidecar, rebuildable from the "
+              "evidence db with --rebuild-scores; completed sessions are "
+              "scored one at a time in the background)"
+              % score_store.path, file=sys.stderr)
 
     # The listening socket is already bound; a browser opened now queues onto the
     # accept backlog and is served the moment `serve_forever` runs.
@@ -582,6 +606,11 @@ def run_serve(*, workspace: str, host: str = "127.0.0.1", port: int = 8321,
         print("\nhotato serve: shutting down.", file=sys.stderr)
     finally:
         server.server_close()
+        if score_worker is not None:
+            try:
+                score_worker.close()
+            finally:
+                score_store.close()
     return 0
 
 
