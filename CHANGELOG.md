@@ -8,6 +8,17 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **`hotato candidate`: a measured candidate-identity binding.** `candidate
+  hash --provider vapi --assistant <id>` fetches the candidate's configuration,
+  canonicalizes it (dropping volatile fields like ids and timestamps), and
+  prints a deterministic content hash to pass to `prove --candidate-config-hash`.
+  `candidate verify --expect <hash>` re-fetches after the run and refuses
+  (exit 1) if the configuration drifted, so a Candidate Revision proof cannot
+  survive a swapped candidate. This makes the strongest proof scope produced by
+  a real, drift-checked flow rather than an operator-asserted string; the hash
+  is a measured binding of the configuration, not authentication of the runner.
+
 ## [1.15.1] - 2026-07-22
 
 ### Changed
