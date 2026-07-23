@@ -36,7 +36,24 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   reported.
 
 ### Added
-- **`--junit` on `hotato suite run` and `hotato prove`.** Both commands also
+- **`hotato serve --score-production`: score-on-arrival for the production
+  evidence plane.** A background worker in the serve process polls the
+  evidence database (read-only, `mode=ro`) for sessions reaching
+  `COMPLETE`/`QUIESCENT` and scores each one -- one at a time -- with the
+  deterministic scorer over the session's recorded two-channel audio, writing
+  durable records to a `console.sqlite3` sidecar beside the evidence
+  database: per-dimension observations (never blended), ranked candidate
+  moments, one measured failure-reason sentence, and timing derived from
+  evidence event timestamps (per-hop latency keeps the reporting event's
+  declared authority; turn spans and end-to-end are labeled
+  `derived:event_timestamps`). Refusal is a first-class `NOT_SCORABLE` record
+  with its reason; a scorer crash or persist failure on one session becomes a
+  visible `ERROR` record -- never a silent skip, never a claimed score before
+  the sidecar write commits -- and the worker continues to the next session.
+  The sidecar is derived data with a versioned schema: `--rebuild-scores`
+  regenerates it entirely from the evidence database and exits, and the same
+  evidence database always rebuilds to identical content. Bind, auth, and the
+  server's read-only route surface are unchanged. Both commands also
   write a JUnit XML report any standard CI test widget ingests, mirroring
   each command's existing grouping: one `<testsuite>` per dimension (suite
   run) or per evidence lane (prove), one `<testcase>` per test or lane. A
