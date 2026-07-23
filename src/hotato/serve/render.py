@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import html as _html
 import json
+import time as _time
 from typing import Any, List, Optional
+from urllib.parse import quote as _quote
+from urllib.parse import urlencode as _urlencode
 
 # --- house style, imported from the report with a same-look fallback ---------
 try:
@@ -154,10 +157,15 @@ a.drill{color:%(agent)s;text-decoration:none}a.drill:hover{text-decoration:under
 
 
 _STATUS_COLOR = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember",
-                 "ERROR": "red", "NOT_RUN": "muted", "UNAVAILABLE": "muted"}
+                 "ERROR": "red", "NOT_RUN": "muted", "UNAVAILABLE": "muted",
+                 # console score states: SCORED means the scorer ran, ember for
+                 # a first-class refusal -- NOT_SCORABLE never reads as OK
+                 "SCORED": "green", "NOT_SCORABLE": "ember"}
 
-# The top tabs. The conversation inspector + a single record are drill-ins.
+# The top tabs. The conversation inspector, a single call, and a single record
+# are drill-ins.
 _TABS = (
+    ("/calls", "Calls"),
     ("/", "Release readiness"),
     ("/scenarios", "Scenario matrix"),
     ("/clusters", "Failure clusters"),
@@ -1230,11 +1238,489 @@ def render_record_detail(record: dict) -> str:
 
 
 # =========================================================================
+# View 7 -- Calls (the console feed + one call)
+# =========================================================================
+
+def _utc_stamp(epoch: Any) -> str:
+    """An arrival-clock epoch as a compact UTC stamp; a dash when absent."""
+    if isinstance(epoch, bool) or not isinstance(epoch, (int, float)):
+        return "-"
+    return _time.strftime("%Y-%m-%d %H:%M:%SZ", _time.gmtime(epoch))
+
+
+def _fmt_ms(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "-"
+    return f"{value:.0f} ms"
+
+
+def _fmt_sec(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "-"
+    return f"{value:.3f}s"
+
+
+def _call_link(subject: str) -> str:
+    href = "/calls/" + _quote(str(subject), safe="")
+    return f'<a class="drill" href="{_esc(href)}">{_esc(subject)}</a>'
+
+
+def _latency_cell(latency: Optional[dict]) -> str:
+    if not latency or not latency.get("hop_count"):
+        return '<span class="dash">-</span>'
+    auth = ", ".join(latency.get("authorities") or [])
+    return (f'<span class="mono">p50 {_fmt_ms(latency.get("p50_ms"))} &middot; '
+            f'p95 {_fmt_ms(latency.get("p95_ms"))} '
+            f'({latency["hop_count"]} hops)</span>'
+            f'<div class="cldim">authority: <span class="mono">{_esc(auth)}</span></div>')
+
+
+def _evidence_cell(evidence: Optional[dict]) -> str:
+    if not evidence:
+        return '<span class="dash">-</span>'
+    if evidence.get("status") == "invalid":
+        return '<span class="flag">invalid manifest</span>'
+    have = evidence.get("available_required", 0)
+    need = evidence.get("required", 0)
+    missing = evidence.get("missing") or []
+    cell = f'<span class="mono">{have}/{need} lanes</span>'
+    if missing:
+        cell += ('<div class="cldim">missing: <span class="mono">'
+                 f'{_esc(", ".join(missing))}</span></div>')
+    return cell
+
+
+def _worst_cell(row: dict) -> str:
+    parts = []
+    worst = row.get("worst")
+    if worst:
+        parts.append(f'<span class="rel">{_esc(worst["dimension"])}</span> '
+                     f'<span class="mono">{_fmt_sec(worst.get("worst_sec"))}</span>')
+    if row.get("reason"):
+        parts.append(f'<div class="cldim">{_esc(row["reason"])}</div>')
+    return "".join(parts) or '<span class="dash">-</span>'
+
+
+def _calls_filters_form(f: dict) -> str:
+    state_opts = "".join(_opt(v, f.get("state")) for v in
+                         ("", "COMPLETE", "QUIESCENT"))
+    scor_opts = "".join(_opt(v, f.get("scorability")) for v in
+                        ("", "SCORED", "NOT_SCORABLE", "ERROR"))
+    return (
+        '<form class="filters" method="get" action="/calls">'
+        f'<label>session state<select name="state">{state_opts}</select></label>'
+        f'<label>scorability<select name="scorability">{scor_opts}</select></label>'
+        f'<label>since<input name="since" value="{_esc(f.get("since") or "")}" '
+        'placeholder="epoch or RFC3339"></label>'
+        f'<label>until<input name="until" value="{_esc(f.get("until") or "")}" '
+        'placeholder="epoch or RFC3339"></label>'
+        '<button type="submit">filter</button></form>'
+    )
+
+
+def _calls_trends_html(trends: Optional[dict]) -> str:
+    if not trends:
+        return ""
+    states = trends.get("states") or {}
+    share = trends.get("candidate_share")
+    share_txt = "-" if share is None else f"{share * 100:.0f}%"
+    parts = ['<section class="card"><div class="cvsub">window trends</div>',
+             '<div class="grid" style="margin-top:8px">',
+             _kv("calls", str(trends.get("volume", 0))),
+             _kv("scored", str(states.get("SCORED", 0))),
+             _kv("not scorable", str(states.get("NOT_SCORABLE", 0))),
+             _kv("errors", str(states.get("ERROR", 0))),
+             _kv("with candidate moments",
+                 f'{trends.get("with_candidate_moments", 0)} ({share_txt} of scored)'),
+             '</div>']
+    hop_latency = trends.get("hop_latency_ms") or {}
+    if hop_latency:
+        parts.append('<div class="cvsub" style="margin-top:14px">hop latency by '
+                     'kind (nearest-rank, never pooled across kinds)</div>'
+                     '<div class="dimrow">')
+        for kind, item in hop_latency.items():
+            auth = ", ".join(item.get("authorities") or [])
+            parts.append(
+                f'<span class="dimtag"><span class="rel">{_esc(kind)}</span> '
+                f'<span class="mono">n={item.get("count", 0)} &middot; '
+                f'p50 {_fmt_ms(item.get("p50_ms"))} &middot; '
+                f'p95 {_fmt_ms(item.get("p95_ms"))}</span>'
+                f'<div class="cldim">authority: <span class="mono">{_esc(auth)}'
+                '</span></div></span>')
+        parts.append('</div>')
+    parts.append(f'<div class="cldim" style="margin-top:8px">{_esc(trends.get("provenance") or "")}</div>')
+    parts.append('</section>')
+    return "".join(parts)
+
+
+def _calls_next_link(m: dict) -> str:
+    page = m.get("page") or {}
+    nxt = page.get("next_cursor")
+    if not nxt:
+        return ""
+    f = m.get("filters") or {}
+    pairs = [(k, f[k]) for k in ("state", "scorability", "since", "until")
+             if f.get(k)]
+    if page.get("limit") is not None:  # keep the page size stable across pages
+        pairs.append(("limit", page["limit"]))
+    pairs.append(("cursor", nxt))
+    href = "/calls?" + _urlencode(pairs)
+    return (f'<div style="margin-top:10px"><a class="drill" '
+            f'href="{_esc(href)}">older calls &rarr;</a></div>')
+
+
+# Auto-refresh (R7): poll the view's JSON mirror with If-None-Match every few
+# seconds; a 304 costs nothing, a changed ETag re-fetches the server-rendered
+# page and swaps only the feed region. No external code, no websocket; with
+# JavaScript off the page is complete as served and a manual reload refreshes.
+_CALLS_POLL_JS = """
+<script>
+(function () {
+  "use strict";
+  var updated = document.getElementById("calls-updated");
+  var live = document.getElementById("calls-live");
+  if (!updated || !live || !window.fetch || !window.DOMParser) { return; }
+  var etag = live.getAttribute("data-etag") || null;
+  var freshAt = Date.now();
+  updated.hidden = false;
+  function tick() {
+    var s = Math.max(0, Math.round((Date.now() - freshAt) / 1000));
+    updated.textContent = "updated " + s + "s ago";
+  }
+  function swap(html) {
+    var doc = new DOMParser().parseFromString(html, "text/html");
+    var next = doc.getElementById("calls-live");
+    if (next) { live.replaceWith(next); live = next; }
+  }
+  function poll() {
+    var url = new URL(window.location.href);
+    url.searchParams.set("format", "json");
+    var headers = etag ? {"If-None-Match": etag} : {};
+    fetch(url.toString(), {headers: headers}).then(function (r) {
+      if (r.status === 304) { freshAt = Date.now(); tick(); return; }
+      if (!r.ok) { return; }
+      var next = r.headers.get("ETag");
+      var changed = next !== null && next !== etag;
+      etag = next;
+      freshAt = Date.now();
+      tick();
+      if (changed) {
+        fetch(window.location.href)
+          .then(function (page) { return page.text(); })
+          .then(swap)
+          .catch(function () {});
+      }
+    }).catch(function () {});
+  }
+  setInterval(tick, 1000);
+  setInterval(poll, 5000);
+  tick();
+}());
+</script>
+"""
+
+
+def render_calls_feed(m: dict, *, etag: Optional[str] = None) -> str:
+    parts = ['<h2 class="vh">Calls '
+             '<span class="pill mono" id="calls-updated" hidden></span></h2>',
+             '<p class="vsub">Production call sessions with their derived score '
+             'records: per-dimension observations, the measured failure-reason '
+             'sentence, per-hop latency, and evidence completeness. SCORED, '
+             'NOT_SCORABLE, and ERROR are all shown -- a refusal is a state, '
+             'not a gap.</p>']
+
+    if not m.get("configured"):
+        parts.append('<div class="notice">Point the workspace at a production '
+                     'evidence database to see calls here: <span class="mono">'
+                     'hotato console --production-db DB</span> (or '
+                     '<span class="mono">hotato serve --production-db DB '
+                     '--score-production</span>).</div>')
+        return "".join(parts)
+
+    src = m.get("source") or {}
+    parts.append('<div class="cldim" style="margin-bottom:10px">evidence '
+                 f'<span class="mono">{_esc(src.get("production_db"))}</span> '
+                 '&middot; sidecar '
+                 f'<span class="mono">{_esc(src.get("console_db"))}</span> '
+                 '&middot; <span class="mono">sqlite-mode-ro</span></div>')
+
+    if not (m.get("sidecar") or {}).get("present"):
+        parts.append('<div class="notice">No score sidecar beside this evidence '
+                     'database yet. Start scoring with <span class="mono">hotato '
+                     'console --production-db DB</span>, or build it once with '
+                     '<span class="mono">hotato serve --production-db DB '
+                     '--rebuild-scores</span>.</div>')
+        return "".join(parts)
+
+    parts.append(_calls_filters_form(m.get("filters") or {}))
+
+    data_etag = f' data-etag="{_esc(etag)}"' if etag else ""
+    parts.append(f'<div id="calls-live"{data_etag}>')
+    parts.append(_calls_trends_html(m.get("trends")))
+
+    rows = m.get("rows") or []
+    parts.append(f'<div class="cldim" style="margin-bottom:10px">'
+                 f'<span class="mono">{m.get("row_count", len(rows))}</span> '
+                 'calls on this page (newest arrival first).</div>')
+    if not rows:
+        parts.append('<div class="notice">No scored calls in this window. '
+                     'Clear the filters, or wait for the next scoring cycle '
+                     'to pick up completed sessions.</div>')
+    else:
+        parts.append('<div class="tablewrap"><table class="ws"><thead><tr>'
+                     '<th>time</th><th>call</th><th>duration</th>'
+                     '<th>session</th><th>score</th>'
+                     '<th>worst dimension &middot; measured reason</th>'
+                     '<th>latency</th><th>evidence</th></tr></thead><tbody>')
+        for row in rows:
+            when = row.get("evidence_time_at")
+            if when:
+                time_cell = (f'<span class="mono">{_esc(when)}</span>'
+                             '<div class="cldim">evidence clock</div>')
+            else:
+                time_cell = (f'<span class="mono">{_utc_stamp(row.get("received_at"))}'
+                             '</span><div class="cldim">arrival clock</div>')
+            duration = row.get("duration_ms")
+            if duration is None:
+                dur_cell = '<span class="dash">-</span>'
+            else:
+                dur_cell = (f'<span class="mono">{_fmt_ms(duration)}</span>'
+                            '<div class="cldim">derived</div>')
+            parts.append(
+                f'<tr><td>{time_cell}</td>'
+                f'<td class="mono">{_call_link(row["subject"])}</td>'
+                f'<td>{dur_cell}</td>'
+                f'<td>{_production_state_chip(str(row.get("session_state")))}</td>'
+                f'<td>{_status_chip(row.get("score_state"))}</td>'
+                f'<td>{_worst_cell(row)}</td>'
+                f'<td>{_latency_cell(row.get("latency"))}</td>'
+                f'<td>{_evidence_cell(row.get("evidence"))}</td></tr>')
+        parts.append('</tbody></table></div>')
+    parts.append(_calls_next_link(m))
+    parts.append('</div>')  # /calls-live
+    parts.append(_CALLS_POLL_JS)
+    return "".join(parts)
+
+
+def render_call_detail(m: dict) -> str:
+    score = m.get("score") or {}
+    session = m.get("session")
+    parts = [f'<h2 class="vh">Call <span class="mono">{_esc(m.get("subject"))}</span></h2>',
+             '<p class="vsub">One call\'s derived score record: per-dimension '
+             'observations, ranked candidate moments, the timing waterfall, and '
+             'the evidence behind each number. Every figure states where it '
+             'came from.</p>']
+
+    # summary: score state, reason, session state, provenance (I5)
+    parts.append('<section class="card">')
+    parts.append('<div class="fcrow"><span>'
+                 f'{_status_chip(score.get("state"))} ')
+    if session is not None:
+        parts.append(_production_state_chip(str(session.get("state"))))
+    parts.append('</span><span class="mono">%s events</span></div>'
+                 % _esc(score.get("event_count")))
+    if score.get("reason"):
+        parts.append(f'<div class="notice">{_esc(score["reason"])}</div>')
+    parts.append('<div class="grid" style="margin-top:10px">')
+    parts.append(_kv("scorer version", str(score.get("scorer_version")), mono=True))
+    timing = score.get("timing") or {}
+    if isinstance(timing.get("end_to_end_ms"), (int, float)):
+        parts.append(_kv("end to end", _fmt_ms(timing["end_to_end_ms"]) +
+                         " (derived)", mono=True))
+    if session is not None:
+        parts.append(_kv("received", _utc_stamp(session.get("last_event")) +
+                         " (arrival clock)", mono=True))
+    parts.append('</div>')
+    parts.append('<div class="dg" style="margin-top:10px">config '
+                 f'{_esc(score.get("config_sha256"))}</div>')
+    parts.append('<div class="dg">evidence log '
+                 f'{_esc(score.get("evidence_sha256"))}</div>')
+    parts.append('<div class="cldim" style="margin-top:8px">raw session: '
+                 '<a class="drill" href="/health">production evidence plane</a>'
+                 '</div>')
+    parts.append('</section>')
+
+    # per-dimension observations -- each stands on its own, nothing combined
+    dims = score.get("dimensions") or {}
+    parts.append('<section class="card"><div class="cvsub">Per-dimension '
+                 'observations (each on its own, never combined)</div>')
+    if not dims:
+        parts.append('<div class="cldim">No dimension observations on this '
+                     'record.</div>')
+    else:
+        parts.append('<div class="tablewrap"><table class="ws"><thead><tr>'
+                     '<th>dimension</th><th>candidate moments</th>'
+                     '<th>worst measured magnitude</th></tr></thead><tbody>')
+        for kind in sorted(dims):
+            item = dims.get(kind) or {}
+            parts.append(
+                f'<tr><td class="rel">{_esc(kind)}</td>'
+                f'<td class="mono">{_esc(item.get("candidate_count", 0))}</td>'
+                f'<td class="mono">{_fmt_sec(item.get("worst_sec"))}</td></tr>')
+        parts.append('</tbody></table></div>')
+    parts.append('</section>')
+
+    # ranked candidate moments with measured magnitudes
+    candidates = score.get("candidates") or []
+    parts.append('<section class="card"><div class="cvsub">Ranked candidate '
+                 'moments</div>')
+    if not candidates:
+        parts.append('<div class="cldim">No candidate moments on this record.'
+                     '</div>')
+    else:
+        parts.append('<div class="tablewrap"><table class="ws"><thead><tr>'
+                     '<th>#</th><th>kind</th><th>at</th><th>measured</th>'
+                     '<th>what was measured</th></tr></thead><tbody>')
+        for rank, cand in enumerate(candidates, start=1):
+            durations = cand.get("durations") or {}
+            measured = " &middot; ".join(
+                f'{_esc(k)} <span class="mono">{_fmt_sec(v)}</span>'
+                for k, v in durations.items()) or '<span class="dash">-</span>'
+            sentence = cand.get("plain_english")
+            sentence_html = (_esc(sentence) if sentence
+                             else '<span class="dash">-</span>')
+            parts.append(
+                f'<tr><td class="mono">{rank}</td>'
+                f'<td class="rel">{_esc(cand.get("kind"))}</td>'
+                f'<td class="mono">{_fmt_sec(cand.get("t_sec"))}</td>'
+                f'<td>{measured}</td>'
+                f'<td>{sentence_html}</td></tr>')
+        parts.append('</tbody></table></div>')
+    parts.append('</section>')
+
+    # timing waterfall: turn spans (derived vs reported kept apart) + hops
+    parts.append(_call_timing_waterfall(timing, score.get("hops") or [],
+                                        m.get("latency")))
+
+    # evidence lanes for this session
+    parts.append(_call_evidence_section(session))
+
+    # local audio reference -- a path in the evidence, shown as recorded
+    audio = score.get("audio")
+    parts.append('<section class="card"><div class="cvsub">Audio</div>')
+    if not audio:
+        parts.append('<div class="cldim">This record carries no audio '
+                     'reference.</div>')
+    else:
+        parts.append(f'<div class="dg">{_esc(audio.get("path"))}</div>')
+        parts.append('<div class="cldim" style="margin-top:6px">'
+                     f'source <span class="mono">{_esc(audio.get("source"))}</span> '
+                     f'&middot; duration <span class="mono">{_fmt_sec(audio.get("duration_sec"))}</span> '
+                     f'&middot; sample rate <span class="mono">{_esc(audio.get("sample_rate"))}</span> '
+                     '&middot; the recording stays on this machine; the path is '
+                     'shown exactly as the evidence recorded it.</div>')
+    parts.append('</section>')
+
+    # scorer config snapshot (the hashed block, expandable)
+    config = score.get("config")
+    if config:
+        parts.append('<details class="card"><summary>scorer config '
+                     f'(<span class="mono">{_esc(score.get("config_sha256"))}</span>)'
+                     '</summary><div class="dg" style="margin-top:8px">'
+                     f'{_esc(json.dumps(config, sort_keys=True, indent=2))}'
+                     '</div></details>')
+    return "".join(parts)
+
+
+def _call_timing_waterfall(timing: dict, hops: List[dict],
+                           latency: Optional[dict]) -> str:
+    spans = timing.get("turn_spans") if isinstance(timing, dict) else None
+    spans = spans if isinstance(spans, list) else []
+    parts = ['<section class="card"><div class="cvsub">Timing waterfall</div>']
+    if isinstance(timing, dict) and timing.get("provenance"):
+        parts.append(f'<div class="cldim">{_esc(timing["provenance"])}</div>')
+    if spans:
+        durations = [s.get("duration_ms") for s in spans
+                     if isinstance(s.get("duration_ms"), (int, float))]
+        scale = max(durations) if durations else 0
+        parts.append('<div class="tablewrap"><table class="ws"><thead><tr>'
+                     '<th>turn</th><th>started</th><th>ended</th>'
+                     '<th>duration (derived)</th><th></th>'
+                     '<th>event-reported</th></tr></thead><tbody>')
+        for index, span in enumerate(spans, start=1):
+            duration = span.get("duration_ms")
+            width = 0
+            if isinstance(duration, (int, float)) and scale:
+                width = int(round(200 * duration / scale))
+            reported = span.get("reported") or {}
+            reported_html = " &middot; ".join(
+                f'{_esc(k)} <span class="mono">{_fmt_ms(v)}</span>'
+                for k, v in reported.items()) or '<span class="dash">-</span>'
+            parts.append(
+                f'<tr><td class="mono">{index}</td>'
+                f'<td class="mono">{_esc(span.get("started_at") or "-")}</td>'
+                f'<td class="mono">{_esc(span.get("ended_at") or "-")}</td>'
+                f'<td class="mono">{_fmt_ms(duration)}</td>'
+                f'<td><span class="clbar" style="width:{width}px"></span></td>'
+                f'<td>{reported_html}</td></tr>')
+        parts.append('</tbody></table></div>')
+        parts.append('<div class="cldim">derived durations come from evidence '
+                     'event timestamps; event-reported values are what the '
+                     'reporting event submitted and are kept apart.</div>')
+    else:
+        parts.append('<div class="cldim">No turn spans on this record.</div>')
+
+    parts.append('<div class="cvsub" style="margin-top:14px">Per-hop latency'
+                 '</div>')
+    if latency and latency.get("hop_count"):
+        parts.append(f'<div class="cldim">{_latency_cell(latency)}</div>')
+    if hops:
+        parts.append('<div class="tablewrap"><table class="ws"><thead><tr>'
+                     '<th>#</th><th>kind</th><th>at</th><th>latency</th>'
+                     '<th>authority</th><th>source</th><th>event</th>'
+                     '</tr></thead><tbody>')
+        for hop in hops:
+            parts.append(
+                f'<tr><td class="mono">{_esc(hop.get("seq"))}</td>'
+                f'<td class="rel">{_esc(hop.get("kind"))}</td>'
+                f'<td class="mono">{_esc(hop.get("at"))}</td>'
+                f'<td class="mono">{_fmt_ms(hop.get("latency_ms"))}</td>'
+                f'<td class="mono">{_esc(hop.get("authority"))}</td>'
+                f'<td class="mono">{_esc(hop.get("source"))}</td>'
+                f'<td class="mono">{_esc(hop.get("event_id"))}</td></tr>')
+        parts.append('</tbody></table></div>')
+    else:
+        parts.append('<div class="cldim">No hop rows on this record.</div>')
+    parts.append('</section>')
+    return "".join(parts)
+
+
+def _call_evidence_section(session: Optional[dict]) -> str:
+    parts = ['<section class="card"><div class="cvsub">Evidence lanes</div>']
+    if session is None:
+        parts.append('<div class="notice">This session is no longer present in '
+                     'the evidence database; the derived record above is what '
+                     'was scored.</div></section>')
+        return "".join(parts)
+    completeness = session.get("completeness") or {}
+    if completeness.get("status") == "invalid":
+        parts.append('<div class="notice">The session\'s evidence manifest did '
+                     'not validate: <span class="mono">'
+                     f'{_esc(completeness.get("detail"))}</span></div></section>')
+        return "".join(parts)
+    lanes = session.get("evidence") or {}
+    required = set(session.get("required_evidence_lanes") or [])
+    missing = completeness.get("missing") or []
+    if missing:
+        parts.append('<div class="notice">missing required lanes: '
+                     f'<span class="mono">{_esc(", ".join(missing))}</span></div>')
+    parts.append('<div class="dimrow">')
+    for lane, item in lanes.items():
+        parts.append(_production_lane(lane, item, required=lane in required))
+    parts.append('</div></section>')
+    return "".join(parts)
+
+
+# =========================================================================
 # error pages
 # =========================================================================
 
 def render_404(what: str) -> str:
     return (f'<h2 class="vh">Not found</h2><div class="notice">{_esc(what)}</div>')
+
+
+def render_400(what: str) -> str:
+    return (f'<h2 class="vh">Bad request</h2><div class="notice">{_esc(what)}</div>')
 
 
 _GATE_CSS = ("""
