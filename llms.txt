@@ -68,6 +68,8 @@
 ## Core commands (start here; the rest are advanced)
 
 - `hotato demo [--fail]` -- see a catch on the bundled battery, offline.
+- `hotato autopsy call.wav` -- one recording, zero config: the incident list
+  (barge-in, talk-over, dead air, latency) plus a self-contained report.
 - `hotato trust --stereo call.wav` -- is this recording scorable? (mono = no)
 - `hotato scan --stereo call.wav` -- list candidate turn-taking moments to label.
 - `hotato run --stereo call.wav --format json` -- score one recording.
@@ -113,6 +115,14 @@
 - `hotato demo [--fail]` -- run the packaged intentionally failing
   two-scenario battery (a talk-over and a false-stop-on-backchannel) and open
   its report; exits 0 by design unless `--fail` is passed.
+- `hotato autopsy RECORDING` -- one call recording, zero config: the incident
+  list (BARGE-IN, TALK-OVER, DEAD AIR, LATENCY SPIKE) with timestamps and
+  measured magnitudes, plus one self-contained HTML report (waveform +
+  incident markers + per-incident cards) at a content-addressed path. Stereo
+  runs the deterministic scanner byte-for-byte; mono is best-effort silence
+  timing with a measured confidence per finding and the functional scope
+  stated. WAV native; mp3/m4a through ffmpeg. est. cost only with
+  `--cost-config` (your figures). Detail: `docs/AUTOPSY.md`.
 - `hotato scan --stereo call.wav` -- list candidate turn-taking moments across
   a whole recording as timing facts only (overlap onsets, agent-starts-during
   caller-activity, long response gaps); you supply the yield/hold label. Long
@@ -485,6 +495,9 @@ it, never whether the policy itself was right.
 - docs/APPLY.md: `hotato apply --clone`, the guarded clone-only staged apply.
 - docs/FIX-TRIAL.md: `hotato fix trial`, the fail-closed before/after report
   (improved / regressed / inconclusive; inconclusive is not a pass).
+- docs/AUTOPSY.md: `hotato autopsy RECORDING`, one call to the incident list
+  (deterministic on stereo, best-effort with measured confidence on mono) and
+  the self-contained incident report.
 - docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
   dashboard with the hear-the-bug audio playhead.
 - docs/TRUST.md: `hotato trust`, the input-health "trust doctor" pre-scan:

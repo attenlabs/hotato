@@ -553,6 +553,12 @@ _EXIT_CODES: dict = {
         (1, "with --fail-on-worse, the result is regressed or worse"),
         (2, "usage error, unusable input, or a not-scorable side"),
     ),
+    "autopsy": (
+        (0, "the recording was analyzed (incidents listed, possibly zero, and "
+            "the report written), or the no-argument quick start was printed"),
+        (2, "usage error or unusable input (an unreadable file, a bad "
+            "--cost-config, or an mp3/m4a with no ffmpeg on PATH)"),
+    ),
     "scan": (
         (0, "scanned (with or without candidates; the count is reported)"),
         (2, "usage error or unreadable input"),
@@ -4697,6 +4703,29 @@ def _cmd_compare(args) -> int:
     return 0
 
 
+def _cmd_autopsy(args) -> int:
+    from . import autopsy as _autopsy
+
+    if not args.recording:
+        # The zero-config greeting, not an error: the usage line plus the one
+        # command to try on the bundled rendered example call.
+        print(_autopsy.quick_start_text())
+        return 0
+    cost_config = (_autopsy.load_cost_config(args.cost_config)
+                   if args.cost_config else None)
+    result, html_str = _autopsy.run_autopsy(
+        args.recording, cost_config=cost_config)
+    report_dir = os.path.dirname(result["report_path"])
+    if report_dir:
+        os.makedirs(report_dir, exist_ok=True)
+    _atomic_write_text(result["report_path"], html_str)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_autopsy.render_text(result))
+    return 0
+
+
 def _cmd_scan(args) -> int:
     from . import scan as _scan
 
@@ -8488,6 +8517,51 @@ def build_parser() -> argparse.ArgumentParser:
                     help="exit 1 when the result is regressed or worse "
                          "(default: exit 0; compare measures, it does not gate)")
     cp.set_defaults(func=_cmd_compare)
+
+    # --- autopsy: the zero-config forensics front door ----------------------
+    au = sub.add_parser(
+        "autopsy",
+        help="drop one call recording in, get the incidents out: barge-in, "
+             "talk-over, dead air, latency spikes, plus a self-contained "
+             "HTML report",
+        description=(
+            "Analyze ONE call recording with zero config. A two-channel "
+            "recording (caller on one channel, agent on the other) runs the "
+            "deterministic whole-call scanner: barge-in, talk-over, dead "
+            "air, and latency incidents with timestamps and measured "
+            "magnitudes, byte-identical on every run. A mono recording is "
+            "analyzed best-effort: silence timing (dead air, latency gaps) "
+            "with a measured confidence per finding; talk-over and barge-in "
+            "attribution comes from a two-channel export. WAV reads "
+            "natively; mp3/m4a convert through ffmpeg when it is on PATH. "
+            "Writes one self-contained HTML report (waveform + incident "
+            "markers + per-incident cards) under hotato-output/, named by "
+            "the content-derived autopsy id. est. cost lines render only "
+            "with --cost-config; hotato ships no default dollar figure. "
+            "Offline; no audio leaves the machine."
+        ),
+        epilog=(
+            _exit_codes_epilog("autopsy") + "\n\n"
+            "Examples:\n"
+            "  hotato autopsy call.wav\n"
+            "  hotato autopsy call.mp3\n"
+            "  hotato autopsy call.wav --cost-config costs.json\n"
+            "  hotato autopsy "
+            "examples/autopsy/audio/autopsy-01-barge-in-say-do.example.wav"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    au.add_argument("recording", nargs="?", default=None, metavar="RECORDING",
+                    help="the call recording to analyze (WAV natively; "
+                         "mp3/m4a through ffmpeg). With no RECORDING the "
+                         "quick start is printed.")
+    au.add_argument("--cost-config", default=None, metavar="FILE",
+                    help="JSON mapping incident kinds to YOUR per-incident "
+                         "figures; only then do est. cost lines render. "
+                         'Shape: {"currency": "USD", "per_incident": '
+                         '{"dead-air": 3.0, "barge-in": 2.0}}')
+    _add_format_arg(au, choices=("text", "json"))
+    au.set_defaults(func=_cmd_autopsy)
 
     # --- scan: candidate turn-taking moments across a whole call ------------
     sc = sub.add_parser(

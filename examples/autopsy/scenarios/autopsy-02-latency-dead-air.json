@@ -1,0 +1,19 @@
+{
+  "id": "autopsy-02-latency-dead-air",
+  "title": "Autopsy example: dead air (the caller finishes and the agent answers seconds late)",
+  "category": "autopsy-example",
+  "tags": ["autopsy", "dead-air", "latency", "example"],
+  "sample_rate": 16000,
+  "duration_sec": 14.0,
+  "note": "A deterministic rendered example call (seeded renderer, seed = sha256(id)) demonstrating the dead-air failure pattern for hotato autopsy: the caller finishes a question and more than five seconds of silence pass before the agent's answer begins.",
+  "transcript": {
+    "agent": "Thanks for calling, how can I help?",
+    "caller": "what time does the pharmacy close on Sunday?",
+    "agent_response": "the pharmacy closes at six on Sunday"
+  },
+  "reference_render": {
+    "continuous": true,
+    "agent_segments_sec": [[0.30, 2.00], [9.50, 14.0]],
+    "caller_segments_sec": [[2.40, 4.20]]
+  }
+}

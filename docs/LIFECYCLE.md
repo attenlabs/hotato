@@ -47,6 +47,7 @@ reproduces byte for byte.
 
 | What | Command |
 | :-- | :-- |
+| One recording, zero config, the incident list | `hotato autopsy call.wav` |
 | One recording, ranked candidate moments | `hotato investigate call.wav` |
 | Every recent call on a stack, one sweep | `hotato sweep --stack vapi --since 7d` |
 | A folder of recordings, ranked dashboard | `hotato analyze recordings/` |
