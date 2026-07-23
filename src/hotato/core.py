@@ -666,23 +666,22 @@ def process_exit_code(envelope: dict) -> int:
 
     The envelope's own ``exit_code`` is frozen by the schema to 0 or 1
     (1 exactly when a SCORABLE event failed). The CLI already reserves exit 2
-    for unusable input (a corrupt WAV, a bad flag), and a single recording
-    that is not scorable is precisely that: an input problem, not an agent
-    verdict. So a mode=single run whose every event is not scorable maps to
-    process exit 2. Suite runs never map to 2 here: their not-scorable events
-    are listed with a reason and do not fail the suite by themselves.
-
-    Not yet wired into cli.py (owned separately). The wiring is one line per
-    entry point: replace ``return env["exit_code"]`` with
-    ``return process_exit_code(env)``.
+    for unusable input (a corrupt WAV, a bad flag), and a run whose EVERY
+    event is not scorable is precisely that: an input problem, not an agent
+    verdict. So a run -- single or suite -- with events but not one scorable
+    one maps to process exit 2, mirroring prove's inconclusive-never-green.
+    A suite envelope with zero events measured nothing and maps to 2 the same
+    way (``run_suite`` already refuses an empty user scenarios dir with a
+    clean ValueError; this is the fail-closed backstop for any envelope that
+    arrives by another path). A suite that scored at least one event keeps
+    its scored verdict: its remaining not-scorable events are listed with a
+    reason and do not fail the suite by themselves.
     """
     summary = envelope.get("summary", {})
     n_events = summary.get("events", 0)
-    if (
-        envelope.get("mode") == "single"
-        and n_events > 0
-        and summary.get("not_scorable", 0) == n_events
-    ):
+    if n_events > 0 and summary.get("not_scorable", 0) == n_events:
+        return 2
+    if envelope.get("mode") == "suite" and n_events == 0:
         return 2
     return int(envelope.get("exit_code", 0))
 
@@ -1665,6 +1664,17 @@ def run_suite(
                         raise ValueError(
                             f"{path!r} is not valid JSON: {exc}"
                         ) from exc
+        if not scenarios:
+            # A battery of nothing measures nothing: refuse, exactly like
+            # prove's "a proof of nothing is refused, not an empty pass". An
+            # emptied scenarios dir (or a wrong --scenarios path that still
+            # exists) must read red in CI, never "0/0 events pass".
+            raise ValueError(
+                f"no scenario files (*.json) in {scenarios_dir!r}; a battery "
+                "with zero scenarios scores nothing and is refused. Point "
+                "--scenarios at the directory your labelled scenario JSON "
+                "files live in (see docs/BAD-CALL-TO-CI.md)."
+            )
     else:
         scenarios = _load_bundled_scenarios()
 

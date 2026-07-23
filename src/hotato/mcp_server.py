@@ -533,9 +533,10 @@ def _run_tool(
             )
     except _errors.HANDLED as exc:
         return _control_error(_errors.mcp_error(exc))
-    # Unusable-input parity with the CLI: an all-not-scorable single recording is
-    # the CLI's exit-2 case. Surface it to the model as the shared structured
-    # error (its actionable reason) instead of an envelope reading exit_code 0.
+    # Unusable-input parity with the CLI: a recording or battery whose every
+    # event is not scorable is the CLI's exit-2 case. Surface it to the model as
+    # the shared structured error (its actionable reason) instead of an envelope
+    # reading exit_code 0.
     if process_exit_code(env) == 2:
         reason = "the recording carries no scorable event."
         events = env.get("events") or []

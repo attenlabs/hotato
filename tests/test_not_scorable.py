@@ -16,8 +16,10 @@ Both are input problems, not agent verdicts. The contract pinned here:
     pass or fail;
   * summary.not_scorable appears ONLY when at least one event is not
     scorable; the envelope exit_code stays 0 or 1 and reflects scorable
-    failures only; process_exit_code maps an all-not-scorable single run to
-    the CLI's existing exit-2 (unusable input) convention;
+    failures only; process_exit_code maps a run whose EVERY event is not
+    scorable (single or suite) to the CLI's existing exit-2 (unusable input)
+    convention, while a suite with at least one scored event keeps its
+    scored verdict;
   * every valid recording is byte-identical to before: no scorable key
     anywhere, and the checked-in golden still matches.
 """
@@ -207,9 +209,11 @@ def test_suite_lists_not_scorable_without_failing(tmp_path):
         "regression": False,
         "not_scorable": 1,
     }
-    # a not-scorable event does not fail the suite by itself
+    # a not-scorable event does not fail the suite by itself: a suite with at
+    # least one SCORED event keeps its scored verdict (only a suite whose
+    # every event is not scorable maps to the exit-2 refuse convention)
     assert env["exit_code"] == 0
-    assert process_exit_code(env) == 0  # exit-2 mapping is single mode only
+    assert process_exit_code(env) == 0
 
 
 def test_missing_scenario_audio_is_not_scorable_not_a_missed_interruption(tmp_path):

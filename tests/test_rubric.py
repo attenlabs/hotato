@@ -8,12 +8,14 @@ a daemon is reachable, and is skipped where it is not.
 What is pinned here:
   * rubric.v1 result carries deterministic:false + full provenance, no overall_score;
   * the SEPARATE-schema invariant: assert.v1's kinds keep deterministic:const:true;
-  * categorical parse + one repair retry; a second miss is an honest inconclusive;
+  * categorical parse + one repair retry; a second miss is a judge that could
+    not judge -> ERROR (never a quiet abstention vote);
   * a cache hit is byte-identical; --no-cache re-queries and DIFFS (drift);
   * missing/insufficient evidence -> INCONCLUSIVE (no model call); human_rubric
     is never model-scored; a judge-backend failure -> ERROR (advisory);
   * the report judge shelf populates with real counts and NEVER blends;
-  * --gate flips the exit code; a rubric FAIL is advisory by default;
+  * --gate flips the exit code (FAIL -> 1, ERROR with no FAIL -> 2); a rubric
+    FAIL is advisory by default;
   * calibration produces a reproducible agreement artifact.
 """
 import json
@@ -139,11 +141,17 @@ def test_repair_retry_recovers_a_verdict():
     assert judge.calls == 2  # one real call + one repair call
 
 
-def test_two_misses_is_an_honest_inconclusive_not_a_guess():
+def test_two_misses_is_a_judge_error_not_a_guess():
+    # A response that never parses (garbage, or an empty body -- a dying
+    # backend's 200) even after the repair retry is a judge that could not
+    # judge: ERROR, never a coin-flip and never a quiet "inconclusive" vote
+    # (INCONCLUSIVE is reserved for a well-formed abstention the model
+    # returned). Under --gate an ERROR blocks.
     judge = FakeJudge(["garbage", "still garbage"])
     res = R.evaluate_rubric(_rubric(), transcript=_TX, judge=judge)
-    assert res["status"] == "INCONCLUSIVE"
-    assert res["judge"]["votes"] == ["inconclusive"]
+    assert judge.calls == 2  # the repair retry still ran
+    assert res["status"] == "ERROR"
+    assert "parseable" in res["rationale"]
 
 
 # =========================================================================
@@ -267,16 +275,20 @@ def test_inconclusive_never_gates_but_a_judge_error_does_under_gate():
     inconc = R.evaluate_rubric(_rubric(), transcript=None, judge=FakeJudge([_pass()]))
     assert R.rubric_envelope([inconc], gate=True)["exit_code"] == 0
     # A judge ERROR (backend down/unreachable) is NOT a pass: it gates under
-    # --gate (exit 1) so a broken judge can't masquerade as a clean pass, while
-    # staying advisory (exit 0) without --gate.
+    # --gate -- with exit 2 (refuse: the check withheld a verdict), distinct
+    # from a scored FAIL's exit 1 -- so a broken judge can't masquerade as a
+    # clean pass, while staying advisory (exit 0) without --gate.
     err = R.evaluate_rubric(
         _rubric(), transcript=_TX,
         judge=FakeJudge([], raise_on_call=R.JudgeError("endpoint unreachable")))
     assert err["status"] == "ERROR"
     assert R.rubric_envelope([err], gate=False)["exit_code"] == 0
     gated = R.rubric_envelope([err], gate=True)
-    assert gated["exit_code"] == 1
+    assert gated["exit_code"] == 2
     assert gated["summary"]["error"] == 1
+    # a scored FAIL beside an ERROR keeps the scored verdict's exit 1
+    fail = R.evaluate_rubric(_rubric(), transcript=_TX, judge=FakeJudge([_fail()]))
+    assert R.rubric_envelope([fail, err], gate=True)["exit_code"] == 1
 
 
 # =========================================================================

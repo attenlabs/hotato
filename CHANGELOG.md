@@ -8,6 +8,33 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Changed
+- **"Could not tell at all" now exits non-zero on every lane.** Exit codes
+  tighten toward red, mirroring `prove`'s inconclusive-never-green: a
+  `hotato run --scenarios/--audio` battery whose every event is not scorable
+  (a wrong `--audio` path, un-fetched CI artifacts) exits 2, and a
+  `--scenarios` directory with zero scenario files is refused (exit 2) instead
+  of scoring "0/0 events pass"; `hotato pull --score` exits 2 when not one
+  pulled recording produced a scorable event; `hotato drive` maps a fresh call
+  with no scorable moment to exit 2 (unusable fresh evidence, still red),
+  keeping exit 1 for a scored invariant FAIL; and `hotato pull` / `hotato
+  sweep` exit 2 when every listed recording failed to fetch -- an outage, not
+  a completed pull. A run with at least one scored result keeps its scored
+  verdict semantics: not-scorable events and per-file skips beside scored
+  results are reported per item and do not flip a scored exit code. CI that
+  read an all-unscorable battery or a total-fetch-failure pull as exit 0 now
+  sees red -- that signal is the point. The MCP `run` tool surfaces the same
+  battery case as its structured `not_scorable` error.
+- **A judge that could not judge gates.** A judge response that never parses
+  into a categorical verdict even after the repair retry (an empty or garbage
+  body -- a dying backend's 200) is now a judge `ERROR`, never an
+  "inconclusive" abstention vote; `INCONCLUSIVE` is reserved for a well-formed
+  abstention the model returned. Under `--gate` / `--gate-judge` a
+  rubric FAIL exits 1 and a judge ERROR with no rubric FAIL exits 2 (the
+  refuse convention), so exit-code-only CI separates "fix the agent" from
+  "fix the judge". Ungated runs stay advisory (exit 0) with the ERROR
+  reported.
+
 ### Added
 - **`--junit` on `hotato suite run` and `hotato prove`.** Both commands also
   write a JUnit XML report any standard CI test widget ingests, mirroring

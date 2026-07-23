@@ -101,9 +101,9 @@ _EXIT_CODES: dict = {
     "run": (
         (0, "every scorable event passed"),
         (1, "a scorable event failed (regression)"),
-        (2, "usage error or unusable input (bad flags, a corrupt file, or a "
-            "single recording with no scorable events); --no-fail always "
-            "exits 0"),
+        (2, "usage error or unusable input (bad flags, a corrupt file, a "
+            "recording or battery with no scorable events, or a --scenarios "
+            "directory with no scenario files); --no-fail always exits 0"),
     ),
     "capture": (
         (0, "captured and scored, every scorable event passed"),
@@ -114,11 +114,13 @@ _EXIT_CODES: dict = {
     "drive": (
         (0, "the live agent met the declared invariant on the fresh call; the "
             "recaptured contract can go green"),
-        (1, "the live agent still violates the invariant on the fresh call (the "
-            "gate stays red), or the fresh call produced no scorable moment"),
-        (2, "usage error, a stack drive does not originate against (vapi/twilio "
-            "only; see docs/RECAPTURE.md), missing credentials, the missing "
-            "--yes egress opt-in, or a missing drive target"),
+        (1, "the live agent still violates the invariant on the fresh call "
+            "(the gate stays red; fix the agent)"),
+        (2, "the fresh call produced no scorable moment (unusable fresh "
+            "evidence; still red -- re-drive the call), a usage error, a stack "
+            "drive does not originate against (vapi/twilio only; see "
+            "docs/RECAPTURE.md), missing credentials, the missing --yes egress "
+            "opt-in, or a missing drive target"),
     ),
     "setup": (
         (0, "the recording scaffold was printed"),
@@ -130,19 +132,23 @@ _EXIT_CODES: dict = {
             "stored)"),
     ),
     "pull": (
-        (0, "listed and fetched recent recordings; per-call fetch failures are "
-            "reported as skips, never a crash; with --score, every scorable "
-            "event in the pulled set also passed"),
+        (0, "listed and fetched recent recordings; per-call fetch failures "
+            "inside a partly successful pull are reported as skips, never a "
+            "crash; with --score, every scorable event in the pulled set also "
+            "passed"),
         (1, "with --score, a scorable event in the pulled set failed"),
-        (2, "usage error, missing credentials, --allow-mono required, a stack "
-            "with no list endpoint and no explicit ids, or --score on a pulled "
-            "set with no dual-channel recording to score"),
+        (2, "every listed recording failed to fetch (a vendor outage, not a "
+            "completed pull), a usage error, missing credentials, --allow-mono "
+            "required, a stack with no list endpoint and no explicit ids, or "
+            "--score on a pulled set with no dual-channel recording to score "
+            "or in which no recording produced a scorable event"),
     ),
     "sweep": (
         (0, "pulled recent recordings then analyzed them (candidate moments "
             "listed, possibly zero; never a pass/fail and never a verdict)"),
-        (2, "usage error, missing credentials, --allow-mono required, or a stack "
-            "with no list endpoint and no explicit ids"),
+        (2, "every listed recording failed to fetch (a vendor outage, not a "
+            "sweep), a usage error, missing credentials, --allow-mono "
+            "required, or a stack with no list endpoint and no explicit ids"),
     ),
     "serve": (
         (0, "the workspace server ran and shut down cleanly (Ctrl-C)"),
@@ -411,12 +417,15 @@ _EXIT_CODES: dict = {
             "report, at most INCONCLUSIVE) AND every success.required condition "
             "held"),
         (1, "a success.required condition failed, a deterministic assertion "
-            "FAILed, or -- under --inconclusive-policy fail -- an INCONCLUSIVE "
-            "(missing required input) result gated"),
+            "FAILed, a rubric FAIL gated under --gate-judge, or -- under "
+            "--inconclusive-policy fail -- an INCONCLUSIVE (missing required "
+            "input) result gated"),
         (2, "under --inconclusive-policy refuse an INCONCLUSIVE result withheld "
-            "the verdict (takes precedence over a FAIL); OR a usage error / "
-            "unusable input: a malformed conversation-test file, an "
-            "unreadable --transcript/--trace/--state file, an unscorable "
+            "the verdict (takes precedence over a FAIL); under --gate-judge a "
+            "judge ERROR with no rubric FAIL withheld the verdict (the judge "
+            "could not run, distinct from a scored failure's exit 1); OR a "
+            "usage error / unusable input: a malformed conversation-test file, "
+            "an unreadable --transcript/--trace/--state file, an unscorable "
             "--audio recording, or html/md without --out and --audio"),
     ),
     "suite": (
@@ -485,9 +494,12 @@ _EXIT_CODES: dict = {
         (0, "the rubric lane ran; ADVISORY by default, so verdicts never gate "
             "(a rubric FAIL is reported, exit stays 0)"),
         (1, "only with --gate: at least one rubric result is FAIL"),
-        (2, "a usage error / unusable input: a malformed rubrics file, an "
-            "unreadable --transcript/--trace, or a refused off-box judge "
-            "(hosted or non-local endpoint without --judge-egress-opt-in)"),
+        (2, "with --gate, a judge ERROR with no rubric FAIL (the judge could "
+            "not run -- backend down, or an empty/unparseable response after "
+            "the repair retry -- which is never a pass); OR a usage error / "
+            "unusable input: a malformed rubrics file, an unreadable "
+            "--transcript/--trace, or a refused off-box judge (hosted or "
+            "non-local endpoint without --judge-egress-opt-in)"),
     ),
     "rubric calibrate": (
         (0, "a reproducible agreement + selective-accuracy artifact was written"),
@@ -1072,11 +1084,11 @@ def _emit(env: dict, fmt: str) -> None:
     if env.get("transcript"):
         _print_transcript_panel(env["transcript"])
     # The envelope exit_code is schema-frozen to 0|1 and reflects scorable
-    # failures only. When the process-level code differs (a single run whose
-    # every event is not scorable maps to the CLI's exit-2 unusable-input
-    # convention), printing the envelope code would mislead; print the code
-    # the process actually returns instead. Fully-scorable runs keep the
-    # exact `exit_code=` line.
+    # failures only. When the process-level code differs (a run -- single or
+    # battery -- whose every event is not scorable maps to the CLI's exit-2
+    # unusable-input convention), printing the envelope code would mislead;
+    # print the code the process actually returns instead. Runs with at least
+    # one scorable event keep the exact `exit_code=` line.
     pec = process_exit_code(env)
     if pec != env["exit_code"]:
         print(f"  process_exit_code={pec}")
