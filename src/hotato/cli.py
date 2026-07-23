@@ -621,6 +621,26 @@ _EXIT_CODES: dict = {
             "inconclusive and none failed) -- 'could not tell' is never "
             "green"),
     ),
+    "candidate": (
+        (2, "no subcommand given (see hotato candidate hash/verify --help)"),
+    ),
+    "candidate hash": (
+        (0, "computed the candidate config hash (printed; optionally saved the "
+            "canonicalized config); pass it to hotato prove "
+            "--candidate-config-hash"),
+        (2, "usage error (neither --config nor --provider/--assistant, an "
+            "unknown provider, a missing API key, an unreadable config file) or "
+            "a network/HTTP error fetching the live config"),
+    ),
+    "candidate verify": (
+        (0, "the candidate configuration is unchanged: its recomputed hash "
+            "matches --expect, so a candidate_revision proof over this run "
+            "holds"),
+        (1, "drift: the recomputed hash does not match --expect; a "
+            "candidate_revision proof over this run is void"),
+        (2, "usage error (an unknown provider, a missing API key, a missing "
+            "--expect) or a network/HTTP error fetching the live config"),
+    ),
     "loop": (
         (0, "advanced the loop and persisted state (or re-reported where it "
             "left off)"),
@@ -2148,6 +2168,97 @@ def _cmd_prove(args) -> int:
     else:
         print(_prove.render_text(proof, proof_path=json_path), end="")
     return proof["exit_code"]
+
+
+def _cmd_candidate_hash(args) -> int:
+    from . import candidate as _candidate
+
+    if args.config:
+        # Local path: hash a config FILE, no network, no provider, no key.
+        if args.assistant or args.provider or args.api_key:
+            raise ValueError(
+                "candidate hash --config hashes a LOCAL config file and takes no "
+                "--provider / --assistant / --api-key (those fetch a live config "
+                "instead). Pass either --config FILE or "
+                "--provider NAME --assistant ID."
+            )
+        chash, canonical = _candidate.hash_from_config_file(args.config)
+        provider = None
+    else:
+        if not args.provider:
+            raise ValueError(
+                "candidate hash needs either --config FILE (hash a local config) "
+                "or --provider NAME --assistant ID (fetch and hash a live config)"
+            )
+        if not args.assistant:
+            raise ValueError(
+                "candidate hash --provider NAME needs --assistant ID to fetch"
+            )
+        chash, canonical = _candidate.hash_from_provider(
+            args.provider, args.assistant, args.api_key, base_url=args.base_url,
+        )
+        provider = args.provider.strip().lower()
+    if args.out:
+        # The canonicalized config (volatile keys stripped), written
+        # deterministically. It is share-safe: the API key is never in the
+        # provider's config response, and no absolute path is embedded.
+        _atomic_write_text(
+            args.out,
+            json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=True)
+            + "\n",
+        )
+        print(f"wrote canonical config -> {args.out}", file=sys.stderr)
+    if args.format == "json":
+        result = {"tool": "hotato", "command": "candidate hash",
+                  "config_hash": chash}
+        if provider:
+            result["provider"] = provider
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print("hotato [candidate hash]")
+        if provider:
+            print(f"  provider: {provider}")
+        print(f"  config_hash: {chash}")
+        prov_txt = provider or "vapi"
+        print(
+            "  pass to prove: hotato prove --before ... --after ... "
+            f"--candidate-config-hash {chash} --provider {prov_txt}"
+        )
+        print(
+            "  note: a MEASURED binding of the candidate's configuration, not an "
+            "authentication of the runner (evidence_authority stays 'measured')"
+        )
+    return 0
+
+
+def _cmd_candidate_verify(args) -> int:
+    from . import candidate as _candidate
+
+    result = _candidate.verify_from_provider(
+        args.provider, args.assistant, args.expect, args.api_key,
+        base_url=args.base_url,
+    )
+    held = result["held"]
+    if args.format == "json":
+        print(_errors.safe_json_dumps({
+            "tool": "hotato", "command": "candidate verify",
+            "provider": result["provider"],
+            "expected": result["expected"], "actual": result["actual"],
+            "held": held, "exit_code": 0 if held else 1,
+        }, indent=2))
+    else:
+        print("hotato [candidate verify]")
+        print(f"  provider: {result['provider']}")
+        if held:
+            print(f"  config_hash: {result['actual']}")
+            print("  HELD: the candidate configuration is unchanged; a "
+                  "candidate_revision proof over this run is valid")
+        else:
+            print(f"  expected (before): {result['expected']}")
+            print(f"  actual   (after):  {result['actual']}")
+            print("  DRIFTED: the candidate configuration changed; a "
+                  "candidate_revision proof over this run is void")
+    return 0 if held else 1
 
 
 def _cmd_loop(args) -> int:
@@ -9078,6 +9189,119 @@ def build_parser() -> argparse.ArgumentParser:
                          ".hotato/proofs/<name>/)")
     _add_format_arg(pv)
     pv.set_defaults(func=_cmd_prove)
+
+    # --- candidate: compute + verify the candidate-config binding hash ------
+    cand = sub.add_parser(
+        "candidate",
+        help="compute and verify the candidate-config binding hash that raises "
+             "a before/after proof to Candidate Revision "
+             "(hotato candidate hash/verify)",
+        description=(
+            "Candidate-identity binding: the hermetic half of the "
+            "candidate-bound proof path. `candidate hash` fetches a provider's "
+            "live assistant config, strips the volatile identity noise that "
+            "changes without a semantic change (id, orgId, createdAt, "
+            "updatedAt, isServerUrlSecretSet), and prints a deterministic "
+            "sha256 over the remaining semantic fields (model, voice, "
+            "firstMessage, transcriber, the start/stopSpeakingPlan interruption "
+            "settings, the system prompt, tools). `candidate verify` "
+            "re-fetches, recomputes, and REFUSES on drift. The flow: "
+            "candidate hash (before the change) -> drive the before/after "
+            "calls -> candidate verify --expect <hash> (after) -> hotato prove "
+            "--before ... --after ... --candidate-config-hash <hash> --provider "
+            "vapi. The hash is a MEASURED binding of the candidate's "
+            "configuration, not an authentication of the runner: "
+            "evidence_authority stays 'measured' and the proof never claims "
+            "runner_authenticated."
+        ),
+        epilog=_exit_codes_epilog("candidate"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    candsub = cand.add_subparsers(dest="candidate_command", required=True,
+                                  metavar="hash|verify")
+
+    ch = candsub.add_parser(
+        "hash",
+        help="compute the candidate config hash from a live provider config "
+             "(or a local --config file)",
+        description=(
+            "Fetch a provider's live assistant config, strip the volatile "
+            "identity noise, and print a deterministic config hash to pass to "
+            "hotato prove --candidate-config-hash. With --config it hashes a "
+            "LOCAL config file instead (no network, no key), so the pure hashing "
+            "path is usable without a provider account. --out saves the "
+            "canonicalized config (volatile keys stripped) for inspection; it "
+            "carries no API key (the key is never in the provider's config "
+            "response). The hash is a MEASURED binding of the configuration, not "
+            "an authentication of the runner."
+        ),
+        epilog=(
+            _exit_codes_epilog("candidate hash") + "\n\n"
+            "Examples:\n"
+            "  hotato candidate hash --provider vapi --assistant asst_123\n"
+            "  VAPI_API_KEY=... hotato candidate hash --provider vapi "
+            "--assistant asst_123 --out candidate-config.json\n"
+            "  hotato candidate hash --config candidate-config.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ch.add_argument("--provider", default=None, metavar="NAME",
+                    help="the candidate's provider/runner (vapi); with "
+                         "--assistant it fetches and hashes the live config")
+    ch.add_argument("--assistant", default=None, metavar="ID",
+                    help="the assistant id to fetch (with --provider)")
+    ch.add_argument("--api-key", dest="api_key", default=None, metavar="KEY",
+                    help="the provider API key; falls back to VAPI_API_KEY "
+                         "(vapi) in the environment")
+    ch.add_argument("--config", default=None, metavar="FILE",
+                    help="hash a LOCAL config file instead of fetching (no "
+                         "network, no key); mutually exclusive with "
+                         "--provider/--assistant")
+    ch.add_argument("--base-url", dest="base_url", default=None, metavar="URL",
+                    help="override the provider API base URL (default "
+                         "https://api.vapi.ai for vapi)")
+    ch.add_argument("--out", default=None, metavar="FILE",
+                    help="also save the canonicalized config (volatile keys "
+                         "stripped) as JSON")
+    _add_format_arg(ch)
+    ch.set_defaults(func=_cmd_candidate_hash)
+
+    cvf = candsub.add_parser(
+        "verify",
+        help="re-fetch the live config, recompute its hash, and REFUSE on drift "
+             "from --expect",
+        description=(
+            "The refuse-on-drift gate. Re-fetch the provider's live assistant "
+            "config, recompute its hash, and compare it to --expect (the hash "
+            "you recorded with `candidate hash` before the change). Exit 0 when "
+            "the config is unchanged (the candidate held), exit 1 when it "
+            "DRIFTED (the candidate_revision claim over this run is void), exit 2 "
+            "on a usage or network error. Run it after the before/after calls: "
+            "if it fails, the proof cannot honestly claim candidate_revision."
+        ),
+        epilog=(
+            _exit_codes_epilog("candidate verify") + "\n\n"
+            "Examples:\n"
+            "  hotato candidate verify --provider vapi --assistant asst_123 "
+            "--expect 'sha256:THE_HASH'"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cvf.add_argument("--provider", default=None, metavar="NAME",
+                     help="the candidate's provider/runner (vapi)")
+    cvf.add_argument("--assistant", default=None, metavar="ID",
+                     help="the assistant id to re-fetch")
+    cvf.add_argument("--expect", required=True, metavar="HASH",
+                     help="the config hash recorded before the change (from "
+                          "hotato candidate hash); drift from it is refused")
+    cvf.add_argument("--api-key", dest="api_key", default=None, metavar="KEY",
+                     help="the provider API key; falls back to VAPI_API_KEY "
+                          "(vapi) in the environment")
+    cvf.add_argument("--base-url", dest="base_url", default=None, metavar="URL",
+                     help="override the provider API base URL (default "
+                          "https://api.vapi.ai for vapi)")
+    _add_format_arg(cvf)
+    cvf.set_defaults(func=_cmd_candidate_verify)
 
     # --- loop: one-command orchestration of the closed loop, with memory ----
     lp = sub.add_parser(
