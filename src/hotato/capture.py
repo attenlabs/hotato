@@ -238,8 +238,8 @@ def report(env: dict, fmt: str = "text") -> int:
     """Print the scored verdict (the three timing signals + PASS/FAIL + any fix)
     and return the process exit code for the envelope. ``fmt`` is 'text' or
     'json'. The JSON envelope itself is printed untouched; the return value is
-    ``core.process_exit_code(env)``, which maps a single run whose every event
-    is not scorable to the CLI's exit-2 unusable-input convention."""
+    ``core.process_exit_code(env)``, which maps a run whose every event is not
+    scorable to the CLI's exit-2 unusable-input convention."""
     pec = process_exit_code(env)
     if fmt == "json":
         print(_errors.safe_json_dumps(env, indent=2))
@@ -2302,10 +2302,20 @@ def _score_pulled(res: dict, *, stack: str) -> dict:
     set holds no dual-channel recording to score: nothing was pulled, or every
     pulled recording is mono (--allow-mono stacks; separated scoring needs one
     channel per party). One unscoreable file inside an otherwise scoreable set
-    is reported as a skip with its reason, mirroring the pull loop."""
+    is reported as a skip with its reason, mirroring the pull loop.
+
+    The aggregate exit code follows ``core.process_exit_code`` per recording:
+    a set with at least one scorable event keeps its scored verdict (1 when a
+    scorable event failed anywhere, else 0; skips and wholly-not-scorable
+    recordings are reported per file and do not gate a scored set), while a
+    set in which NOT ONE recording produced a scorable event (every file
+    wholly not scorable -- silent channel, low SNR -- or a scoring skip)
+    could not tell anything and exits 2, the same code the same file gets
+    from ``hotato run --stereo``."""
     rows = []
     worst = 0
     scored = 0
+    any_scorable = False
     for item in res["pulled"]:
         path = item["path"]
         try:
@@ -2324,6 +2334,11 @@ def _score_pulled(res: dict, *, stack: str) -> dict:
             "not_scorable": summary.get("not_scorable", 0),
             "exit_code": int(env["exit_code"]),
         })
+        if process_exit_code(env) == 2:
+            # Wholly not scorable: never a pass, never a scored fail. It
+            # gates only when the WHOLE set turns out this way (below).
+            continue
+        any_scorable = True
         worst = max(worst, int(env["exit_code"]))
     if not scored:
         raise ValueError(
@@ -2333,6 +2348,12 @@ def _score_pulled(res: dict, *, stack: str) -> dict:
             "with --call-id) and re-run, or score one file directly: "
             "hotato run --stereo <file>."
         )
+    if not any_scorable:
+        # Every recording that scored was wholly not scorable (and any
+        # remainder failed to score): the set could not tell anything, which
+        # is never green -- the CLI's exit-2 unusable-input convention,
+        # mirroring `hotato run --stereo` on the same files.
+        worst = 2
     return {
         "expect": "yield",
         "recordings": rows,
@@ -2348,10 +2369,17 @@ def run_pull(stack=None, *, ids=None, since=None, limit=50, out=None,
              fmt="text") -> int:
     """`hotato pull`: bulk-fetch recent recordings into a local directory.
 
+    A pull that listed recordings but fetched NONE of them (every call
+    skipped: a vendor outage, expired credentials mid-list, dead media URLs)
+    exits 2 -- an outage is not a completed pull, and an exit-code-only CI
+    consumer must see it red. Per-call fetch failures inside a partly
+    successful pull stay skips (exit 0 without --score).
+
     With ``score=True`` (`--score`) the pulled dual-channel set is then scored
     offline in the same invocation (see :func:`_score_pulled`), and the exit
     code follows the run contract: 1 when a scorable event failed, 2 when the
-    set holds nothing scoreable."""
+    set holds nothing scoreable or not one recording produced a scorable
+    event."""
     overrides = _overrides_from(api_key, account_sid, auth_token, model_id,
                                 agent_id, base_url)
     stack, creds = _resolve_for_pull(stack, overrides)
@@ -2384,9 +2412,20 @@ def run_pull(stack=None, *, ids=None, since=None, limit=50, out=None,
                     if r["not_scorable"]:
                         line += f", {r['not_scorable']} not scorable"
                     print(line)
+        if score_res is not None and score_res["exit_code"] == 2:
+            print("  no recording in the pulled set produced a scorable "
+                  "event; exit 2 (never a pass)")
         if res["pulled"]:
             print(f"  next: hotato analyze {res['out_dir']}  "
                   f"(or use `hotato sweep --stack {stack}` to pull + analyze in one)")
+    if res["listed"] and not res["pulled"]:
+        # Every listed call failed to fetch: an outage, not a completed pull.
+        # The per-call reasons are in the skip lines / JSON above; the exit
+        # code must read red to a consumer that sees nothing else.
+        if fmt != "json":
+            print(f"  every listed recording failed to fetch "
+                  f"({res['listed']} listed, 0 pulled); exit 2")
+        return 2
     return score_res["exit_code"] if score_res is not None else 0
 
 
@@ -2489,6 +2528,17 @@ def run_sweep(stack=None, *, ids=None, since=None, limit=50, dir=None, out=None,
             f"[sweep] {stack}: pulled {len(res['pulled'])} of {res['listed']} "
             f"listed ({len(res['skipped'])} skipped) into {res['out_dir']}\n"
         )
+        if res["listed"] and not res["pulled"]:
+            # Every listed call failed to fetch (per-call reasons are in the
+            # skip lines above): an outage, not a sweep. Refuse before the
+            # analyze step so the run reads red instead of producing a
+            # dashboard over zero fresh recordings.
+            raise ValueError(
+                f"every listed {stack} recording failed to fetch "
+                f"({res['listed']} listed, 0 pulled). Check the credentials "
+                "and the vendor's status, then re-run; the per-call reasons "
+                "are in the skip lines above."
+            )
 
     aggregate, per_file = _analyze.analyze_folder(
         pull_dir, caller_channel=caller_channel, agent_channel=agent_channel,

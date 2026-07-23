@@ -237,7 +237,9 @@ def run_drive(
 ) -> dict:
     """Originate ONE fresh call against the live agent and score it against the
     declared invariant. Returns a result dict carrying ``outcome`` (``pass`` /
-    ``fail`` / ``not_scorable`` / ``unsupported_stack``) and ``exit_code``.
+    ``fail`` / ``not_scorable`` / ``unsupported_stack``) and ``exit_code``:
+    0 pass, 1 a scored invariant FAIL (fix the agent), 2 a fresh call with no
+    scorable moment (unusable fresh evidence -- still red, re-drive the call).
     Raises ``ValueError``/``OSError`` (CLI exit 2) for a usage error, missing
     credentials, a missing egress opt-in, or a missing drive target; no call is
     placed on any of those paths.
@@ -352,8 +354,12 @@ def run_drive(
         "contracts_out_dir": contracts_out,
     }
     if not scorable:
+        # The fresh call produced no scorable moment: unusable fresh evidence,
+        # the CLI's exit-2 refuse convention -- still red (never a pass), and
+        # distinct from a scored invariant FAIL's exit 1 so exit-code-only CI
+        # can separate "re-drive the call" from "fix the agent".
         out["outcome"] = "not_scorable"
-        out["exit_code"] = 1
+        out["exit_code"] = 2
         out["next"] = None
     elif passed:
         out["outcome"] = "pass"

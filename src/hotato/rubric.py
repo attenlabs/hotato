@@ -32,10 +32,15 @@ it. A cached verdict may optionally be signed with the ``sign.py`` /
 
 Honesty invariants enforced here: ``deterministic:false`` + full provenance on
 every result; missing/insufficient evidence -> INCONCLUSIVE (no model call);
-a ``human_rubric`` item is NEVER scored by a model (stays INCONCLUSIVE with
-``human_required``); no ``overall_score`` anywhere; ADVISORY by default
-(``exit_code`` stays 0 unless the caller opts into ``--gate``). Core hotato
-stays zero-dependency: only ``urllib`` from the stdlib is touched, lazily.
+a response that never parses into a categorical verdict (an empty or garbage
+body, even after the repair retry) -> ERROR, a judge that could not run --
+INCONCLUSIVE is reserved for a well-formed abstention the model returned;
+a ``human_rubric`` item is NEVER scored by a model (stays
+INCONCLUSIVE with ``human_required``); no ``overall_score`` anywhere; ADVISORY
+by default (``exit_code`` stays 0 unless the caller opts into ``--gate``; a
+gated FAIL exits 1, a gated could-not-run ERROR with no FAIL exits 2). Core
+hotato stays zero-dependency: only ``urllib`` from the stdlib is touched,
+lazily.
 """
 from __future__ import annotations
 
@@ -108,11 +113,13 @@ _SYSTEM_PROMPT = (
 
 
 class JudgeError(RuntimeError):
-    """A judge backend failed at the transport level (unreachable endpoint,
-    timeout, HTTP error, unparseable envelope). Distinct from a model that
-    simply could not decide (that is an honest INCONCLUSIVE, not an error):
-    a :class:`JudgeError` becomes an ERROR status -- advisory, never a fake
-    verdict."""
+    """A judge that could not judge: a backend transport failure (unreachable
+    endpoint, timeout, HTTP error, unparseable envelope) or a response that
+    never parsed into a categorical verdict even after the repair retry (an
+    empty or garbage body -- a dying backend's 200). Distinct from a model
+    that RESPONDED with a well-formed abstention (that is an honest
+    INCONCLUSIVE, not an error): a :class:`JudgeError` becomes an ERROR
+    status -- never a fake verdict, and under ``--gate`` it blocks."""
 
 
 class EgressRefused(ValueError):
@@ -544,7 +551,8 @@ def parse_verdict(text: str) -> Dict[str, Any]:
     """Parse one model response into ``{"verdict", "rationale", "citations"}``.
     Raises :class:`ParseMiss` if it is not JSON with a recognizable categorical
     verdict -- the caller retries once with a repair prompt, then treats a
-    second miss as an honest ``inconclusive`` vote (never a coin-flip)."""
+    second miss as a :class:`JudgeError` (a judge that could not judge; never
+    a coin-flip and never a quiet abstention)."""
     if not isinstance(text, str):
         raise ParseMiss("response is not text")
     obj = _extract_json(text)
@@ -622,7 +630,13 @@ _REPAIR_SUFFIX = (
 
 def _one_vote(judge: Judge, system: str, user: str) -> Dict[str, Any]:
     """One repetition: call the model, parse; on a parse miss retry ONCE with a
-    repair prompt; a second miss is an honest 'inconclusive' vote."""
+    repair prompt; a second miss is a :class:`JudgeError` (-> status ERROR).
+
+    An empty or garbage body twice in a row -- one of the classic dying-backend
+    shapes, a 200 with nothing in it -- is a judge that could not judge, not a
+    model that abstained. Routing it to ERROR keeps the abstention channel
+    honest (INCONCLUSIVE is reserved for a well-formed ``inconclusive``
+    verdict) and lets ``--gate`` block on it like every other could-not-run."""
     raw = judge.complete(system, user)
     try:
         return parse_verdict(raw)
@@ -630,11 +644,11 @@ def _one_vote(judge: Judge, system: str, user: str) -> Dict[str, Any]:
         repaired = judge.complete(system, user + _REPAIR_SUFFIX)
         try:
             return parse_verdict(repaired)
-        except ParseMiss:
-            return {"verdict": "inconclusive",
-                    "rationale": "the model did not return a parseable categorical "
-                                 "verdict after a repair retry",
-                    "citations": []}
+        except ParseMiss as exc:
+            raise JudgeError(
+                "the model did not return a parseable categorical verdict "
+                f"after a repair retry ({exc})"
+            ) from exc
 
 
 # =========================================================================
@@ -983,9 +997,10 @@ def evaluate_rubric_lane(
 ) -> Dict[str, Any]:
     """Evaluate a whole rubric lane and return a ``rubric.v1`` envelope. ADVISORY
     by default (``exit_code`` 0 regardless of verdicts); ``gate=True`` makes any
-    FAIL or judge ERROR gate (exit 1) -- a judge that could not run is not a
-    pass. Never merges into a deterministic count and never emits an
-    ``overall_score``."""
+    FAIL gate (exit 1) and any judge ERROR with no FAIL refuse (exit 2) -- a
+    judge that could not run is not a pass, and the two exit codes keep "fix
+    the agent" and "fix the judge" separable by exit code alone. Never merges
+    into a deterministic count and never emits an ``overall_score``."""
     results = [
         evaluate_rubric(r, transcript=transcript, trace=trace, judge=judge,
                         cache=cache, no_cache=no_cache, sign=sign)
@@ -1008,21 +1023,34 @@ def rubric_envelope(results: List[Dict[str, Any]], *, gate: bool = False) -> Dic
             counts["inconclusive"] += 1
     # Advisory by default: verdicts are reported but never gate. With --gate, a
     # FAIL gates (exit 1) AND a judge ERROR gates -- a judge that could not run
-    # (backend down/unreachable, or an exception) is NOT a pass, and exit 0 must
-    # never quietly mean "the check you gated on did not actually run".
-    # INCONCLUSIVE (the model ran but abstained) stays advisory even under
-    # --gate; a suite that wants to gate on that uses inconclusive_policy.
-    exit_code = 1 if (gate and (counts["fail"] > 0 or counts["error"] > 0)) else 0
+    # (backend down/unreachable, an exception, or an unparseable/empty
+    # response) is NOT a pass, and exit 0 must never quietly mean "the check
+    # you gated on did not actually run". A scored FAIL keeps the run contract's
+    # exit 1; an ERROR with no FAIL is the check withholding a verdict, the
+    # CLI's exit-2 refuse convention -- so exit-code-only CI can separate "fix
+    # the agent" (1) from "fix the judge" (2). INCONCLUSIVE (the model ran and
+    # returned a well-formed abstention) stays advisory even under --gate; a
+    # suite that wants to gate on that uses inconclusive_policy.
+    if gate and counts["fail"] > 0:
+        exit_code = 1
+    elif gate and counts["error"] > 0:
+        exit_code = 2
+    else:
+        exit_code = 0
     if not gate:
         gate_note = "ADVISORY: no verdict gates CI."
+    elif counts["fail"] > 0:
+        gate_note = "GATED: a rubric FAIL gates CI (exit 1)."
+        if counts["error"] > 0:
+            gate_note += (f" {counts['error']} judge error(s) also occurred; "
+                          "the judge could not run those rubrics.")
     elif counts["error"] > 0:
         gate_note = (f"GATED and BLOCKED: {counts['error']} judge error(s) -- the "
-                     "judge could not run, which is not a pass. Fix the judge "
-                     "backend, or drop --gate to keep the rubric advisory.")
-    elif counts["fail"] > 0:
-        gate_note = "GATED: a rubric FAIL gates CI."
+                     "judge could not run, which is not a pass (exit 2, distinct "
+                     "from a scored FAIL's exit 1). Fix the judge backend, or "
+                     "drop --gate to keep the rubric advisory.")
     else:
-        gate_note = "GATED: a FAIL or a judge ERROR would gate CI."
+        gate_note = "GATED: a FAIL gates CI (exit 1); a judge ERROR refuses (exit 2)."
     note = (
         f"{counts['pass']} pass, {counts['fail']} fail, "
         f"{counts['inconclusive']} inconclusive, {counts['error']} error across "

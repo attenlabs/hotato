@@ -122,8 +122,12 @@ jobs:
       - run: hotato run --scenarios tests/hotato/scenarios --audio tests/hotato/audio --format json
 ```
 
-`hotato run` exits 1 on a regression, failing the job. Already running
-pytest? `pytest --hotato-suite --hotato-suite-scenarios
+`hotato run` exits 1 on a regression, failing the job, and exits 2 when the
+battery could not tell anything: an empty `--scenarios` directory, or a
+battery whose every event is not scorable (a wrong `--audio` path, audio
+artifacts the job never fetched). Both read red -- a battery that scored
+nothing gates exactly like `hotato prove`'s "a proof of nothing is refused".
+Already running pytest? `pytest --hotato-suite --hotato-suite-scenarios
 tests/hotato/scenarios --hotato-suite-audio tests/hotato/audio` adds the
 same gate (see [PYTEST.md](PYTEST.md)). The richer PR check with a sticky
 results comment is in [CI.md](CI.md).
