@@ -232,6 +232,27 @@ measurements on a side refuses (exit 2) rather than passing silently.
 verify --junit`. Exit codes: 0 within tolerance, 1 drift beyond tolerance,
 2 usage error.
 
+## Feed the CI test widget: `--junit`
+
+`hotato suite run --junit suite.xml` and `hotato prove --junit proof.xml`
+write the same JUnit XML the contract and baseline gates emit, so one
+upload feeds GitLab's `artifacts.reports.junit`, Jenkins `junit`, Azure
+`PublishTestResults@2`, or CircleCI `store_test_results`:
+
+```bash
+hotato suite run ci.suite.yaml --agent support-v3 --junit suite.xml
+hotato prove --contracts contracts/ --gauntlet --junit proof.xml
+```
+
+The file mirrors each command's grouping: one `<testsuite>` per dimension
+(suite run) or per evidence lane (prove), one `<testcase>` per test or
+lane. A scored FAIL is a `<failure>` carrying the measured reason; an
+INCONCLUSIVE dimension, a `SIMULATOR_INVALID` run, or a refused lane is an
+`<error>` with the refusal reason preserved -- never a `<failure>` and
+never a silent pass, so the dashboard shows red exactly when the exit code
+gates. The XML carries no timestamp and renders byte-identically on a
+repeat run.
+
 ## Render a comment yourself
 
 `scripts/pr_comment.py` is stdlib only and reads the same JSON the CLI

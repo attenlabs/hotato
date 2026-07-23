@@ -2161,6 +2161,9 @@ def _cmd_prove(args) -> int:
     md_path = os.path.join(out_dir, "proof.md")
     _atomic_write_text(json_path, _prove.serialize(proof))
     _atomic_write_text(md_path, _prove.render_md(proof))
+    if args.junit:
+        _atomic_write_text(args.junit, _prove.render_junit(proof))
+        print(f"wrote {args.junit}", file=sys.stderr)
     if args.format == "json":
         print(_errors.safe_json_dumps(proof, indent=2))
         print(f"wrote {json_path}", file=sys.stderr)
@@ -3894,6 +3897,9 @@ def _cmd_suite_run(args) -> int:
         _atomic_write_text(html_path, SR.render_report_html(result))
         _atomic_write_text(json_path, _errors.safe_json_dumps(result, indent=2) + "\n")
         report_paths = [md_path, html_path, json_path]
+    if args.junit:
+        _atomic_write_text(args.junit, SR.render_report_junit(result))
+        print(f"wrote {args.junit}", file=sys.stderr)
 
     if args.format == "json":
         payload = {"tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
@@ -7797,6 +7803,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="write the per-test simulated conversation artifacts + "
                           "suite-report.md / suite-report.html / suite-run.json "
                           "here")
+    sur.add_argument("--junit", default=None, metavar="PATH",
+                     help="also write a JUnit XML report (one testsuite per "
+                          "dimension, one testcase per test; an INCONCLUSIVE "
+                          "dimension or SIMULATOR_INVALID run is an <error>, "
+                          "never a silent pass) for a CI dashboard")
     sur.add_argument("--workspace", "-w", default="default", metavar="ID",
                      help="fleet-registry workspace to record into (default "
                           "'default'); browse it with `hotato serve -w ID`")
@@ -9187,6 +9198,11 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--out", default=None, metavar="DIR",
                     help="directory for proof.json + proof.md (default "
                          ".hotato/proofs/<name>/)")
+    pv.add_argument("--junit", default=None, metavar="PATH",
+                    help="also write a JUnit XML report (one testsuite per "
+                         "evidence lane; a refused or inconclusive lane is "
+                         "an <error>, never a silent pass) for a CI "
+                         "dashboard")
     _add_format_arg(pv)
     pv.set_defaults(func=_cmd_prove)
 
