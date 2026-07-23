@@ -24,6 +24,8 @@ from typing import Any, List, Optional
 from urllib.parse import quote as _quote
 from urllib.parse import urlencode as _urlencode
 
+from .pin import PIN_REVIEW_DEPTH as _PIN_DEPTH
+
 # --- house style, imported from the report with a same-look fallback ---------
 try:
     from ..report import (
@@ -162,15 +164,16 @@ _STATUS_COLOR = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember",
                  # a first-class refusal -- NOT_SCORABLE never reads as OK
                  "SCORED": "green", "NOT_SCORABLE": "ember"}
 
-# The top tabs. The conversation inspector, a single call, and a single record
-# are drill-ins.
+# The top tabs, ordered as one product: live calls first, then the suite's CI
+# history, the failure groupings, the shareable records, and the ship gate
+# (R10). The scenario matrix, the conversation inspector, a single call, and a
+# single record are drill-ins.
 _TABS = (
     ("/calls", "Calls"),
-    ("/", "Release readiness"),
-    ("/scenarios", "Scenario matrix"),
+    ("/health", "Suite health"),
     ("/clusters", "Failure clusters"),
-    ("/health", "Production health"),
     ("/records", "Failure records"),
+    ("/", "Release readiness"),
 )
 
 
@@ -278,11 +281,12 @@ def page(title: str, active: str, body: str, *, workspace: str) -> str:
 def _footer() -> str:
     return (
         '<div class="foot">'
-        '<div class="fline"><b>Read-only v1.</b> This server issues only SELECTs '
-        'against your workspace; reviews and labels stay CLI-driven '
-        '(<span class="mono">hotato fleet review</span> / '
-        '<span class="mono">hotato label</span>). The only file it writes is the '
-        'append-only audit log.</div>'
+        '<div class="fline"><b>Self-hosted.</b> Every view reads your workspace '
+        'with SELECTs; the one write action is pin-to-contract on a call\'s '
+        'candidate moments, which runs the same fleet review machinery as '
+        '<span class="mono">hotato fleet review</span> / '
+        '<span class="mono">hotato label</span> and lands in the append-only '
+        'audit log.</div>'
         '<div class="fline" style="color:%s">No telemetry, no external calls. '
         'Evidence (audio, traces, evaluations) stays on this machine. Every '
         'dimension is scored separately; there is no combined number.</div>'
@@ -300,7 +304,9 @@ def render_release_readiness(m: dict) -> str:
     parts = ['<h2 class="vh">Release readiness</h2>',
              '<p class="vsub">The pre-ship home screen: does the current release '
              'clear its required suites, and what changed since the last one? '
-             'Each dimension is scored on its own.</p>']
+             'Each dimension is scored on its own. Drill into the per-scenario '
+             'grid on the <a class="drill" href="/scenarios">scenario matrix'
+             '</a>.</p>']
 
     if not cur_rel:
         parts.append('<div class="notice">No releases recorded yet in this '
@@ -858,12 +864,13 @@ def _cluster_member(mem: dict) -> str:
 
 
 # =========================================================================
-# View 5 -- Production health
+# View 5 -- Suite health (CI-suite history from the fleet registry)
 # =========================================================================
 
 def render_production_health(m: dict) -> str:
-    parts = ['<h2 class="vh">Production health</h2>',
-             '<p class="vsub">Ingest volume, evaluated coverage, and per-dimension '
+    parts = ['<h2 class="vh">Suite health</h2>',
+             '<p class="vsub">Your CI suite\'s history from the fleet registry: '
+             'ingest volume, evaluated coverage, and per-dimension '
              'failure rate over time; real and simulated kept strictly '
              'apart, no combined number.</p>']
 
@@ -1456,6 +1463,15 @@ def render_calls_feed(m: dict, *, etag: Optional[str] = None) -> str:
 
     data_etag = f' data-etag="{_esc(etag)}"' if etag else ""
     parts.append(f'<div id="calls-live"{data_etag}>')
+    contracts = m.get("contracts")
+    if contracts is not None:
+        parts.append(
+            '<div class="wsbar" style="margin-bottom:10px"><span class="pill">'
+            f'<b class="mono">{_esc(contracts.get("count", 0))}</b> contracts '
+            'protecting this agent</span>'
+            '<span class="cldim">counted from the fleet registry\'s contracts '
+            'table for this workspace &middot; pin a candidate moment on any '
+            'call to add one</span></div>')
     parts.append(_calls_trends_html(m.get("trends")))
 
     rows = m.get("rows") or []
@@ -1538,6 +1554,13 @@ def render_call_detail(m: dict) -> str:
     parts.append('<div class="cldim" style="margin-top:8px">raw session: '
                  '<a class="drill" href="/health">production evidence plane</a>'
                  '</div>')
+    export = (session or {}).get("export_regression")
+    if export:
+        # R11: the finalized session's offline-verifiable regression bundle,
+        # through the existing production CLI path -- the exact command.
+        parts.append('<div class="cldim" style="margin-top:4px">regression '
+                     'bundle: <span class="mono">'
+                     f'{_esc(export.get("command"))}</span></div>')
     parts.append('</section>')
 
     # per-dimension observations -- each stands on its own, nothing combined
@@ -1560,17 +1583,22 @@ def render_call_detail(m: dict) -> str:
         parts.append('</tbody></table></div>')
     parts.append('</section>')
 
-    # ranked candidate moments with measured magnitudes
+    # ranked candidate moments with measured magnitudes; a SCORED call with a
+    # recorded audio reference gets a pin form per top-ranked moment (R9) --
+    # a plain HTML POST that works without JavaScript, enhanced by _PIN_JS.
     candidates = score.get("candidates") or []
+    audio = score.get("audio")
+    pinnable = bool(score.get("state") == "SCORED" and (audio or {}).get("path"))
     parts.append('<section class="card"><div class="cvsub">Ranked candidate '
                  'moments</div>')
     if not candidates:
         parts.append('<div class="cldim">No candidate moments on this record.'
                      '</div>')
     else:
+        pin_head = '<th>pin</th>' if pinnable else ''
         parts.append('<div class="tablewrap"><table class="ws"><thead><tr>'
                      '<th>#</th><th>kind</th><th>at</th><th>measured</th>'
-                     '<th>what was measured</th></tr></thead><tbody>')
+                     f'<th>what was measured</th>{pin_head}</tr></thead><tbody>')
         for rank, cand in enumerate(candidates, start=1):
             durations = cand.get("durations") or {}
             measured = " &middot; ".join(
@@ -1579,13 +1607,30 @@ def render_call_detail(m: dict) -> str:
             sentence = cand.get("plain_english")
             sentence_html = (_esc(sentence) if sentence
                              else '<span class="dash">-</span>')
+            pin_cell = ''
+            if pinnable:
+                if rank <= _PIN_DEPTH:
+                    pin_cell = '<td>%s</td>' % _pin_form(
+                        m.get("subject"), rank - 1,
+                        score.get("evidence_sha256"))
+                else:
+                    pin_cell = '<td><span class="dash">-</span></td>'
             parts.append(
                 f'<tr><td class="mono">{rank}</td>'
                 f'<td class="rel">{_esc(cand.get("kind"))}</td>'
                 f'<td class="mono">{_fmt_sec(cand.get("t_sec"))}</td>'
                 f'<td>{measured}</td>'
-                f'<td>{sentence_html}</td></tr>')
+                f'<td>{sentence_html}</td>{pin_cell}</tr>')
         parts.append('</tbody></table></div>')
+        if pinnable:
+            parts.append(
+                '<div class="cldim" style="margin-top:6px">Pinning mints a '
+                'portable <span class="mono">.hotato</span> failure contract '
+                'from that exact moment through the fleet review machinery '
+                '(label + contract + registration, one atomic step) and it '
+                'counts toward the contracts protecting this agent. The top '
+                'five ranked moments -- the fleet review-queue depth -- carry '
+                'a pin form.</div>')
     parts.append('</section>')
 
     # timing waterfall: turn spans (derived vs reported kept apart) + hops
@@ -1619,6 +1664,8 @@ def render_call_detail(m: dict) -> str:
                      '</summary><div class="dg" style="margin-top:8px">'
                      f'{_esc(json.dumps(config, sort_keys=True, indent=2))}'
                      '</div></details>')
+    if pinnable:
+        parts.append(_PIN_JS)
     return "".join(parts)
 
 
@@ -1709,6 +1756,97 @@ def _call_evidence_section(session: Optional[dict]) -> str:
         parts.append(_production_lane(lane, item, required=lane in required))
     parts.append('</div></section>')
     return "".join(parts)
+
+
+# =========================================================================
+# pin-to-contract (R9): the per-call pin form + result surfaces
+# =========================================================================
+
+def _pin_form(subject: Any, index: int, evidence_sha256: Any) -> str:
+    """One candidate moment's pin form: a plain HTML POST to
+    ``/calls/<subject>/pin`` that works with JavaScript off. The hidden
+    ``evidence_sha256`` binds the pin to the exact evidence log this page
+    rendered from, so a pin against a rebuilt sidecar refuses instead of
+    pinning a different moment."""
+    action = "/calls/%s/pin" % _quote(str(subject or ""), safe="")
+    return (
+        f'<form class="pinform" method="post" action="{_esc(action)}">'
+        f'<input type="hidden" name="candidate" value="{int(index)}">'
+        '<input type="hidden" name="evidence_sha256" '
+        f'value="{_esc(evidence_sha256)}">'
+        '<select name="expect">'
+        '<option value="yield">expect yield</option>'
+        '<option value="hold">expect hold</option></select> '
+        '<button type="submit">Pin to contract</button>'
+        '<span class="pinout mono" hidden></span></form>')
+
+
+# Fetch enhancement for the pin forms: with JavaScript on, the form posts to
+# the same route's JSON mirror and shows the contract id (or the refusal
+# reason) inline; with JavaScript off, the form's own POST renders the full
+# result page. Same-origin fetch carries the session cookie and the Origin
+# header the CSRF fence checks.
+_PIN_JS = """
+<script>
+(function () {
+  "use strict";
+  if (!window.fetch || !window.URLSearchParams || !window.FormData) { return; }
+  document.addEventListener("submit", function (ev) {
+    var form = ev.target;
+    if (!form.classList || !form.classList.contains("pinform")) { return; }
+    ev.preventDefault();
+    var out = form.querySelector(".pinout");
+    var button = form.querySelector("button");
+    function show(text) {
+      if (out) { out.hidden = false; out.textContent = " " + text; }
+    }
+    if (button) { button.disabled = true; }
+    fetch(form.action + "?format=json", {
+      method: "POST",
+      body: new URLSearchParams(new FormData(form))
+    }).then(function (r) {
+      return r.json().then(function (m) { return {ok: r.ok, m: m}; });
+    }).then(function (res) {
+      show(res.ok ? "contract " + res.m.contract_id + " \\u00b7 " + res.m.dir
+                  : (res.m.message || "pin refused"));
+    }).catch(function () {
+      show("the pin request did not complete; reload and retry");
+    }).then(function () { if (button) { button.disabled = false; } });
+  });
+}());
+</script>
+"""
+
+
+def render_pin_result(m: dict) -> str:
+    """The no-JavaScript success page: the minted contract's id and bundle
+    path, plus the way back to the call and the feed."""
+    call_href = "/calls/%s" % _quote(str(m.get("subject") or ""), safe="")
+    return (
+        '<h2 class="vh">Pinned to contract</h2>'
+        '<section class="card">'
+        '<div class="grid">'
+        + _kv("contract", str(m.get("contract_id")), mono=True)
+        + _kv("bundle", str(m.get("dir")), mono=True)
+        + _kv("label", str(m.get("label_id")), mono=True)
+        + _kv("expect", str(m.get("expect")), mono=True)
+        + '</div>'
+        '<div class="cldim" style="margin-top:10px">Minted from candidate '
+        f'moment <span class="mono">#{_esc(m.get("candidate"))}</span> of call '
+        f'<span class="mono">{_esc(m.get("subject"))}</span> through the fleet '
+        'label/contract machinery; verify it any time with <span class="mono">'
+        f'{_esc(m.get("verify"))}</span>.</div>'
+        '<div class="cldim" style="margin-top:6px">'
+        f'<a class="drill" href="{_esc(call_href)}">back to this call</a> '
+        '&middot; <a class="drill" href="/calls">back to the feed</a></div>'
+        '</section>')
+
+
+def render_pin_refused(reason: str) -> str:
+    return ('<h2 class="vh">Pin refused</h2>'
+            f'<div class="notice">{_esc(reason)}</div>'
+            '<div class="cldim">Nothing was written: a refused pin leaves no '
+            'contract, no label, and no registry row.</div>')
 
 
 # =========================================================================

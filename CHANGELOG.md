@@ -34,6 +34,16 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   refuse convention), so exit-code-only CI separates "fix the agent" from
   "fix the judge". Ungated runs stay advisory (exit 0) with the ERROR
   reported.
+- **Naming honesty in the workspace: "Suite health", and a nav that reads as
+  one product.** The serve view that renders CI-suite history from the fleet
+  registry -- ingest volume, evaluated coverage, per-dimension failure rate
+  over time -- is now labeled **Suite health** everywhere it surfaces (page
+  title, heading, nav, docs, and the JSON mirror's `view: "suite_health"`);
+  "production" in the console means live call sessions, one coherent
+  picture. The `/health` route keeps working (as does `/production`). The
+  nav now reads Calls · Suite health · Failure clusters · Failure records ·
+  Release readiness, with the scenario matrix as a drill-in from Release
+  readiness.
 
 ### Added
 - **`hotato console` + `/calls`: the daily surface over scored production
@@ -101,6 +111,33 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   survive a swapped candidate. This makes the strongest proof scope produced by
   a drift-checked flow rather than an operator-asserted string; the hash
   is a measured binding of the configuration, not authentication of the runner.
+- **Pin-to-contract from the per-call view -- the console closes the loop.**
+  Every top-ranked candidate moment on a SCORED call at `/calls/<id>` now
+  carries a pin form (plain HTML POST, works with JavaScript off; with it
+  on, the result shows inline): choose expect-yield or expect-hold and the
+  new `POST /calls/<id>/pin` route mints a portable `.hotato` failure
+  contract from that exact moment by delegating to the existing fleet
+  machinery (`FleetAPI.contract_from_candidate` -- human label, sealed
+  bundle, and registry registration in one atomic step, under agent id
+  `production`). Refusals mirror the CLI, fail closed: a NOT_SCORABLE/ERROR
+  call, a bad candidate reference, a stale page (the form binds the score's
+  `evidence_sha256`), a recording that changed on disk (the re-scan must
+  reproduce the pinned moment's onset), or a trust-preflight refusal each
+  answer 4xx with the reason and leave no artifact. This is serve's one
+  write route, and it is fenced accordingly: the same bearer/cookie auth as
+  every view, a `SameSite=Strict` session cookie, a same-origin
+  `Origin`/`Referer` check on cookie-authenticated POSTs (a forged
+  cross-site form is 403 before any handler runs), and one append-only
+  audit line per attempt, accepted or refused. The `/calls` feed header now
+  shows **"N contracts protecting this agent"**, counted from the fleet
+  registry's contracts table for the workspace, so every pin visibly grows
+  the net. Success shows the contract id, the bundle path, and the exact
+  `hotato contract verify` command that proves it.
+- **The per-call view surfaces the regression-export path.** Where a call's
+  session has finalized (`COMPLETE`/`DEGRADED` -- the states
+  `hotato production export-regression` accepts), `/calls/<id>` and its JSON
+  mirror carry the exact `hotato production export-regression <id> --out DIR
+  --db FILE` command for that session, wired to the existing export path.
 
 ## [1.15.1] - 2026-07-22
 
