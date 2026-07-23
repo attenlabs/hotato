@@ -14,9 +14,11 @@ documented-and-hoped:
   assertion is scored by a pinned LOCAL model into a ``rubric.v1`` result
   (``deterministic: false`` + full provenance), never folded into the
   deterministic summary. It is ADVISORY by default (a rubric FAIL does NOT gate
-  the exit code); ``gate_judge=True`` opts a team into failing on a rubric FAIL.
-  When the judge backend is unreachable, or a rubric's required evidence is
-  absent, the result is ERROR/INCONCLUSIVE -- never a silent gate.
+  the exit code); ``gate_judge=True`` opts a team into failing on a rubric FAIL
+  (exit 1) and into refusing (exit 2) when the judge could not run at all (a
+  judge ERROR with no rubric FAIL) -- gated, "the judge never ran" is never
+  green. When the judge backend is unreachable, or a rubric's required evidence
+  is absent, the result is ERROR/INCONCLUSIVE -- never a silent gate.
 * Success is a BOOLEAN over the closed :data:`hotato.conversation_test.SUCCESS_CONDITIONS`
   vocabulary -- a conjunction of named conditions, NEVER a weight or a blended
   ``overall_score``. The per-dimension breakdown groups the SAME deterministic
@@ -34,7 +36,9 @@ documented-and-hoped:
 
 The exit code is the deterministic envelope's own ``exit_code`` (which already
 honors ``inconclusive_policy``), raised to a non-zero when the file's
-``success.required`` conjunction fails -- a refuse (exit 2) is never downgraded.
+``success.required`` conjunction fails -- a refuse (exit 2) is never downgraded,
+and under ``gate_judge`` a judge that could not run (ERROR, no rubric FAIL)
+refuses with exit 2 while any scored failure keeps exit 1.
 """
 
 from __future__ import annotations
@@ -210,9 +214,11 @@ def evaluate_conversation_test(
     ``rubric.v1`` envelope (``deterministic: false`` + provenance), ADVISORY by
     default. ``judge`` defaults to a LOCAL Ollama judge (zero egress); tests
     inject a fake. ``gate_judge`` opts into failing the exit code on a rubric
-    FAIL. The returned dict never contains an ``overall_score`` or any blended
-    number; the exit code honors the doc's ``inconclusive_policy`` and is raised
-    to non-zero only when a GATING ``success.required`` condition fails."""
+    FAIL (exit 1) and into refusing (exit 2) on a judge that could not run at
+    all (ERROR with no rubric FAIL). The returned dict never contains an
+    ``overall_score`` or any blended number; the exit code honors the doc's
+    ``inconclusive_policy`` and is raised to non-zero only when a GATING
+    ``success.required`` condition fails or a gated judge could not run."""
     policy = doc["inconclusive_policy"]
     reps = repetitions if repetitions is not None else doc.get("repetitions", 1)
     if isinstance(reps, bool) or not isinstance(reps, int) or reps < 1:
@@ -236,13 +242,25 @@ def evaluate_conversation_test(
     # Exit code: start from the deterministic envelope's own code (which honors
     # inconclusive_policy -- report/fail/refuse -- exactly as Phase 0). A GATING
     # success.required failure raises a passing (0) run to 1; a refuse (2) or an
-    # already-failing (1) run is never downgraded. A rubric FAIL only gates when
-    # gate_judge=True (rubric_env's own advisory exit_code encodes that).
+    # already-failing (1) run is never downgraded. The rubric lane only gates
+    # when gate_judge=True (rubric_env's own exit_code encodes that): a rubric
+    # FAIL raises a passing run to 1, while a judge ERROR with no rubric FAIL
+    # (rubric_env exit 2: the judge could not run AT ALL) refuses with exit 2 --
+    # distinct from a scored failure's 1, and never green. A deterministic
+    # scored failure keeps its exit 1: the scored verdict governs; only
+    # could-not-tell-only runs map to the refuse code.
     exit_code = det_env["exit_code"]
-    if not success["passed"] and exit_code == 0:
+    rubric_exit = rubric_env["exit_code"] if gate_judge else 0
+    det_success_ok = all(
+        ok for name, ok in success["conditions"].items()
+        if name not in _RUBRIC_SUCCESS_CONDITIONS
+    )
+    if not det_success_ok and exit_code == 0:
         exit_code = 1
-    if gate_judge and rubric_env["exit_code"] == 1 and exit_code == 0:
+    if rubric_exit == 1 and exit_code == 0:
         exit_code = 1
+    if rubric_exit == 2 and exit_code == 0:
+        exit_code = 2
 
     breakdown = dimension_breakdown(det_env["results"])
 

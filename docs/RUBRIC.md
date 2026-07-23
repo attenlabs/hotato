@@ -11,10 +11,15 @@ provenance, on its own report shelf, apart from any overall number.
   reached with only the stdlib. Zero egress; a hosted judge is opt-in.
 - **Advisory by default**: deterministic checks set the gate, and a
   rubric FAIL is reported while the model's read stays advisory. `--gate`
-  (or `--gate-judge` on `test run`) opts into gating on a rubric FAIL too.
+  (or `--gate-judge` on `test run`) opts into gating: a rubric FAIL exits 1,
+  and a judge that could not run -- backend down, or an empty/unparseable
+  response even after the repair retry -- is an `ERROR` that exits 2 with no
+  FAIL beside it, so "fix the agent" and "fix the judge" stay separable by
+  exit code alone.
 - Missing or insufficient evidence resolves to `INCONCLUSIVE`, always
-  labeled plainly. A `human_rubric` stays `INCONCLUSIVE` and human-required,
-  by design.
+  labeled plainly -- as does a well-formed `inconclusive` verdict the model
+  returned. A `human_rubric` stays `INCONCLUSIVE` and human-required, by
+  design.
 
 ## The rubric object
 
@@ -42,7 +47,7 @@ rubrics:
 # advisory (exit 0 regardless of verdicts)
 hotato rubric run --rubrics rubrics.yaml --transcript call.json --trace trace.jsonl
 
-# opt into CI gating on a rubric FAIL
+# opt into CI gating: a rubric FAIL exits 1; a judge ERROR with no FAIL exits 2
 hotato rubric run --rubrics rubrics.yaml --transcript call.json --gate
 
 # re-query the model and DIFF against the cached verdict (surface drift)

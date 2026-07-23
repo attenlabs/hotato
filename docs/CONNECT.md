@@ -58,7 +58,9 @@ hotato pull                                   # the only connected stack
 Lists recent recordings via the vendor's verified endpoint, then downloads
 each into `hotato-pull-<stack>/` (override `--out DIR`). `--since` accepts
 `7d`, `12h`, `30m`, `2w`. A recording that fails to fetch is a clean skip
-with its reason; the pull continues.
+with its reason; the pull continues. A pull in which **every** listed
+recording failed to fetch exits 2 -- an outage, not a completed pull -- so
+a cron or CI wrapper reading only the exit code sees it red.
 
 **Retell has no verified list endpoint.** Pull it from explicit ids
 instead:
