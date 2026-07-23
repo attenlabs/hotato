@@ -32,13 +32,12 @@ from importlib import resources
 
 import pytest
 
-from hotato import cli
+from hotato import assert_ as A
 from hotato import capture as cap
+from hotato import cli
 from hotato import rubric as R
 from hotato import test_run as TR
-from hotato import assert_ as A
 from hotato.core import process_exit_code, run_suite
-
 
 # --- deterministic synthetic fixtures (same shape as test_not_scorable.py) ---
 
@@ -330,7 +329,7 @@ def test_test_run_gate_judge_fail_still_exits_1():
 # =========================================================================
 
 def test_drive_not_scorable_fresh_call_exits_2(tmp_path, monkeypatch, capsys):
-    from tests.test_drive_cmd import _Spy, _make_bundle
+    from tests.test_drive_cmd import _make_bundle, _Spy
 
     for var in ("HOTATO_DRIVE_OPT_IN", "VAPI_API_KEY", "VAPI_PHONE_NUMBER_ID",
                 "HOTATO_DRIVE_CUSTOMER_NUMBER", "VAPI_BASE_URL"):
