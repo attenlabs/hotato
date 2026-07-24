@@ -48,7 +48,6 @@ here:
 import json
 import os
 import re
-import shutil
 import time
 import urllib.request
 from importlib import resources
@@ -56,8 +55,7 @@ from importlib import resources
 import pytest
 
 from hotato import capture as cap
-from hotato import cli
-from hotato import healthcmd
+from hotato import cli, healthcmd
 from hotato import scanfolder as scanfolder_mod
 
 EXAMPLES = os.path.join(
