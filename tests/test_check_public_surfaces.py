@@ -171,7 +171,7 @@ def test_check_release_json_and_llms_and_site_helpers():
 
 def test_check_site_html_positioning_markers():
     good = ("<title>hotato</title>"
-            "<h1>Local-first testing and observability for AI agents</h1>"
+            "<h1>Hotato: call forensics and regression guards for AI agents</h1>"
             "<p>changelog: 1.6.0, 1.7.0 released earlier</p>")
     assert cps.check_site_html(good, VERSION) == []
 
@@ -182,6 +182,6 @@ def test_check_site_html_positioning_markers():
     assert cps.check_site_html(missing_marker, VERSION) != []
 
     stale_title = ("<title>hotato -- regression testing for voice agents</title>"
-                   "<h1>Local-first testing and observability for AI agents</h1>")
+                   "<h1>Hotato: call forensics and regression guards for AI agents</h1>")
     problems = cps.check_site_html(stale_title, VERSION)
     assert any("<title>" in p for p in problems)
