@@ -80,7 +80,7 @@ conversation, speech, reliability).
 [Read more →](https://github.com/attenlabs/hotato/blob/main/docs/CI.md)
 
 For continuous use: run `hotato vapi health` on a schedule, and open
-`hotato console` to inspect stored runs locally.
+`hotato console --production-db DB` to inspect stored runs locally.
 
 ## Wire it into CI
 
