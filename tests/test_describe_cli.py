@@ -49,6 +49,8 @@ _ALL_SUBCOMMANDS = [
     "conversation", "conversation verify",
     "simulate",
     "autopsy", "pin",
+    "vapi", "vapi health", "retell", "retell health", "bland", "bland health",
+    "synthflow", "synthflow health", "millis", "millis health",
     "compare", "scan", "synth", "battery", "battery robustness",
     "gauntlet", "gauntlet badge", "trust",
     "ingest", "analyze", "verify", "fix", "fix trial", "prove",

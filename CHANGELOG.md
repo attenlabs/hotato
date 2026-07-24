@@ -9,12 +9,69 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- **`hotato vapi|retell|bland|synthflow|millis health` -- one command from
+  API key to the fleet health report.** Thin entries over ONE
+  implementation: list your recent calls on the platform, download each
+  recording with the existing pull machinery (the same adapters, the same
+  credential resolution -- an explicit `--api-key`, then the `hotato
+  connect` store, then the stack's env var: `VAPI_API_KEY` /
+  `RETELL_API_KEY` / `BLAND_API_KEY` / `SYNTHFLOW_API_KEY` /
+  `MILLIS_API_KEY`), check every one through the folder aggregate, and
+  print the health output led by the Voice Stability Score. You never
+  touch a WAV. Flags: `--last WINDOW` (default 7d), `--limit N` (default
+  100), `--dir PATH` (download dir, default `hotato-output/<stack>-calls`),
+  `--output PATH` (an extra copy of the HTML report), `--call-id ID`
+  (repeatable; required for Retell, whose list-recent-calls endpoint is
+  unconfirmed -- hotato never guesses one), `--format text|json`. A
+  missing key is one actionable line; a window with no calls, an
+  all-fetch-failed pull, or zero analyzable calls refuses with the reason
+  (exit 2). Bland, Synthflow, and Millis export one mixed channel, so
+  each of their calls runs the measured-confidence mono path with its
+  scope line stated once per run, and their reports carry the best-effort
+  mono observations block without a stability score. Zero new
+  platform-API logic anywhere; the analysis runs on this machine and
+  recordings go nowhere else. See `docs/AUTOPSY.md`.
+- **Voice Stability Score -- dual-channel denominator, sample size, and
+  policy sha.** The folder health surfaces (`hotato scan DIR` and the
+  platform health commands, CLI text and HTML report) lead with `Voice
+  Stability Score: NN/100`, where NN is `round(share x 100)` over
+  **dual-channel deterministic-timing calls ONLY** -- a mono call never
+  enters the rate. The machine field is `critical_free_call_rate`. The
+  share line prints directly beneath the score as the formula (with a
+  one-line "How this is calculated" note in the report pointing at it),
+  the eligible sample size and the analysis-policy sha print beside the
+  score, and a `SMALL SAMPLE` label renders under 20 dual-channel calls.
+  Mono-analyzed calls report into a separate **Best-effort mono
+  observations** block with their own counts and an authority label. No
+  weights, no other arithmetic, no blended composite anywhere; with zero
+  dual-channel calls no score renders and the report states why (zero
+  analyzable calls still refuse with the reason instead of reporting
+  over 0/0).
+- **Evidence coverage block.** Every folder health surface (CLI text and
+  HTML) lists per-lane measured counts from what the run actually had:
+  dual-channel timing, mono best-effort, refused with reasons. A lane
+  whose evidence was absent from the run never renders as assessed.
+- **Recurrence states.** When stored summary envelopes for the same
+  directory exist, `hotato scan DIR` and the platform health commands
+  print a recurrence line for every incident kind measured in both the
+  current run and prior runs, each carrying a measured state: `observed`
+  (1-2 calls with the kind across this run plus the stored window),
+  `RECURRING` (3+), `RECURRING, LOW SAMPLE` (3+ but under 20 eligible
+  dual-channel calls), `ELEVATED` (20+ eligible dual-channel calls in
+  both compared runs, same policy and coverage, and Wilson 95% intervals
+  on the kind's per-call rate that do not overlap -- the repository's
+  existing Wilson helper). Lines keep the counts and each prior run's
+  stored `recorded_at` dates, derive only from the stored envelopes --
+  measured facts, never extrapolation -- so the same directory and the
+  same store always print the same lines. The run-over-run trend strip
+  is unchanged beside them.
 - **`hotato scan <directory>` -- the folder health report.** `hotato scan`
   now also takes a directory and runs the autopsy engine over every
   recording in it (stereo through the existing deterministic scanner, mono
   best-effort with measured confidences; an unreadable file is listed as
   refused with its reason, never skipped silently). The headline is a
-  measured share -- "N of M calls had no critical incidents (X%)" -- never
+  measured share -- "N of M dual-channel calls had no critical incidents
+  (X%)" -- never
   a blended 0-100 quality score, beside a per-category breakdown with worst
   measured magnitudes and a worst-calls ranking whose rows link to per-call
   autopsy reports generated alongside. Outputs are content-addressed and
