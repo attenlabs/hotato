@@ -90,6 +90,7 @@ __all__ = [
     "autopsy_id",
     "load_cost_config",
     "run_autopsy",
+    "envelope_dict",
     "build_report_html",
     "render_text",
     "quick_start_text",
@@ -526,6 +527,11 @@ def run_autopsy(
         "schema_version": "1",
         "id": apx,
         "source": os.path.basename(path),
+        # The absolute source path, so `hotato pin apx-...#N` can resolve the
+        # recording from the persisted envelope alone and re-check its bytes
+        # against the content-derived id. Machine-local by construction, like
+        # every path in a result envelope (analyze's folder_path precedent).
+        "source_path": os.path.abspath(path),
         "duration_sec": duration,
         "channels": channels,
         "mode": mode,
@@ -535,9 +541,26 @@ def run_autopsy(
         "incidents": incidents,
         "cost": cost_summary,
         "report_path": report_path,
+        "envelope_path": os.path.join(OUT_DIR, f"autopsy-{apx}.json"),
     }
     html_str = build_report_html(result, tracks)
     return result, html_str
+
+
+def envelope_dict(result: dict) -> dict:
+    """The persisted autopsy envelope (``hotato-output/autopsy-<id>.json``):
+    the measured result minus the cost-rendering layer. est. cost figures
+    exist only on surfaces rendered under ``--cost-config``; the stored
+    envelope is the measured facts -- source path, incidents with onset /
+    kind / scan_kind -- so its bytes are the same whatever flags rendered
+    the run: content-addressed and deterministic, the offline store a later
+    ``hotato pin <id>`` resolves without re-running the analysis."""
+    env = {k: v for k, v in result.items() if k != "cost"}
+    env["incidents"] = [
+        {k: v for k, v in inc.items() if k != "est_cost"}
+        for inc in result["incidents"]
+    ]
+    return env
 
 
 # --- CLI text ----------------------------------------------------------------

@@ -8,6 +8,40 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **`hotato scan <directory>` -- the folder health report.** `hotato scan`
+  now also takes a directory and runs the autopsy engine over every
+  recording in it (stereo through the existing deterministic scanner, mono
+  best-effort with measured confidences; an unreadable file is listed as
+  refused with its reason, never skipped silently). The headline is a
+  measured share -- "N of M calls had no critical incidents (X%)" -- never
+  a blended 0-100 quality score, beside a per-category breakdown with worst
+  measured magnitudes and a worst-calls ranking whose rows link to per-call
+  autopsy reports generated alongside. Outputs are content-addressed and
+  deterministic (same directory + same flags = byte-identical CLI text and
+  HTML), with a machine-readable summary envelope (`scan-<id>.json`) next
+  to the report; prior envelopes for the same directory render a
+  run-over-run trend strip, each prior run under its stored `recorded_at`
+  provenance. est. cost totals render only under `--cost-config`. Every
+  existing `hotato scan --stereo` invocation form is byte-identical to
+  before (pinned by test).
+- **`hotato pin <autopsy-ref>` -- the graduation bridge.** One autopsy
+  incident (`apx-<12hex>#<rank>`, or `apx-<12hex>` for the call's top
+  critical) becomes a portable `.hotato` failure contract through the
+  existing `contract create` machinery -- no new minting logic. Resolution
+  is offline from the persisted autopsy envelope (`autopsy-<id>.json`,
+  which `hotato autopsy` and the folder scan now write next to the HTML,
+  content-addressed and deterministic, measured facts only); before
+  delegating, pin re-hashes the source recording and refuses when the
+  current bytes no longer match the pinned id. BARGE-IN and TALK-OVER map
+  to the contract's expect decision (default yield; `--expect hold` stays
+  the human's override); a mono-derived incident refuses because contracts
+  require the two-channel deterministic path, and DEAD AIR / LATENCY SPIKE
+  / ECHO SUSPECTED refuse with the reason (no yield/hold floor-holding
+  decision to pin). Every refusal exits 2 with the reason and leaves no
+  artifact; success prints the bundle dir and the
+  `hotato prove --contracts` step.
+
 ### Changed
 - **"Could not tell at all" now exits non-zero on every lane.** Exit codes
   tighten toward red, mirroring `prove`'s inconclusive-never-green: a
