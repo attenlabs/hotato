@@ -74,9 +74,10 @@ mixed channel; talk-over attribution comes from a two-channel recording
 -- the scope line states this once per run). Mono calls report into the
 best-effort mono observations block with their own counts and never
 enter the Voice Stability denominator, so the mono stacks' reports carry
-observations without a stability score. The analysis runs on this
-machine; recordings download straight from the platform and go nowhere
-else.
+observations without a stability score
+([EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md) states the whole tier
+policy). The analysis runs on this machine; recordings download straight
+from the platform and go nowhere else.
 
 A window with no calls, a pull in which every recording failed to fetch,
 or a pulled set with zero analyzable calls refuses with the reason (exit
@@ -120,7 +121,10 @@ nothing is guessed and no confidence is invented.
 
 The stricter commands keep their bar: `run`, `scan`, `trust`, and the
 contract path still refuse mono as NOT SCORABLE. Autopsy is discovery;
-the CI gate stays deterministic and dual-channel.
+the CI gate stays deterministic and dual-channel. The full four-tier
+policy behind this split -- dual-channel deterministic, mono with
+provider metadata, raw mixed mono, refused -- is stated once in
+[EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md).
 
 An unreadable input -- a text file, a truncated header, a non-audio blob
 -- is refused with the reason (exit 2), never scored.

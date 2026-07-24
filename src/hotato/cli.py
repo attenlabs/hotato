@@ -5350,6 +5350,20 @@ def _describe_subcommand(name: str, parser: argparse.ArgumentParser, prefix: str
         "purpose": parser.description or parser.format_usage().strip(),
         "args": args,
     }
+    if not prefix:
+        # Top-level commands carry their surface classification: the canonical
+        # spelling (public commands at the top level, everything else under
+        # ``hotato lab``) and, for lab commands, the pre-1.17 top-level
+        # spelling that keeps working as a compat alias. Nested subcommands
+        # inherit the surface of their top-level parent.
+        if name in _PUBLIC_SURFACE:
+            out["surface"] = "public"
+            out["canonical"] = name
+            out["compat_alias"] = None
+        else:
+            out["surface"] = "lab"
+            out["canonical"] = f"lab {name}"
+            out["compat_alias"] = name
     if full_name in _EXIT_CODES:
         out["exit_codes"] = [
             {"code": code, "meaning": meaning}
@@ -5391,6 +5405,7 @@ def build_capability_manifest() -> dict:
         "tool": _errors.TOOL,
         "schema_version": _errors.SCHEMA_VERSION,
         "version": __version__,
+        "stability": " ".join(_STABILITY_STATEMENT.split()),
         "core_loop": [
             {"step": i, "command": cmd, "purpose": blurb}
             for i, (cmd, blurb) in enumerate(_CORE_LOOP_STEPS, 1)
@@ -5411,6 +5426,8 @@ def _render_describe_text(manifest: dict) -> str:
     lines.append("schemas: " + " ".join(
         f"{name}={url}" for name, url in manifest["schemas"].items()
     ))
+    if manifest.get("stability"):
+        lines.append(manifest["stability"])
     lines.append("")
     if manifest.get("core_loop"):
         lines.append("core loop (start here; every other command is advanced):")
@@ -5420,9 +5437,16 @@ def _render_describe_text(manifest: dict) -> str:
             )
         lines.append("")
 
-    def _walk(cmds, indent=""):
+    def _walk(cmds, indent="", lab=False):
         for c in cmds:
-            lines.append(f"{indent}hotato {c['name']}")
+            # A lab command renders under its canonical `hotato lab` spelling
+            # (nested subcommand names embed the parent's, so the prefix
+            # composes), with the still-working top-level spelling beside it.
+            lab_here = lab or c.get("surface") == "lab"
+            path = f"lab {c['name']}" if lab_here else c["name"]
+            lines.append(f"{indent}hotato {path}")
+            if c.get("compat_alias"):
+                lines.append(f"{indent}  (also invocable as: hotato {c['compat_alias']})")
             if c.get("purpose"):
                 lines.append(f"{indent}  {c['purpose']}")
             for a in c["args"]:
@@ -5432,7 +5456,7 @@ def _render_describe_text(manifest: dict) -> str:
                 codes = ", ".join(f"{e['code']}={e['meaning']}" for e in c["exit_codes"])
                 lines.append(f"{indent}    exit codes: {codes}")
             if c.get("subcommands"):
-                _walk(c["subcommands"], indent + "  ")
+                _walk(c["subcommands"], indent + "  ", lab_here)
 
     _walk(manifest["subcommands"])
     return "\n".join(lines) + "\n"
@@ -5550,6 +5574,104 @@ def _get_started_block() -> str:
     return "\n".join(lines)
 
 
+# --- the public / lab surface split (1.17.0, "The Narrowing") ---------------
+#
+# ONE registration layer decides every command's visibility. `hotato --help`
+# lists ONLY the durable public surface below. Every other command registers
+# exactly as before -- same name, same parser object, same flags, same
+# behavior -- but WITHOUT a help line: an argparse subparser is listed in the
+# parent's help only when ``add_parser`` received a ``help=`` kwarg, so
+# dropping it hides the entry while keeping the command fully callable. That
+# unlisted registration IS the back-compat alias: a pre-1.17 invocation
+# parses through the identical parser and stays byte-identical.
+#
+# ``hotato lab <cmd>`` is the canonical spelling for every hidden command.
+# The ``lab`` prefix is pure dispatch: main() strips the leading ``lab``
+# token before parsing (the same argv-rewrite technique
+# :func:`_route_bare_folder` and :func:`_route_investigate_label` already
+# use), so both spellings run one parser. ``hotato lab --help`` renders the
+# lab listing from the help lines this layer collects at registration time,
+# and ``hotato describe`` records both spellings per command.
+_PUBLIC_SURFACE = frozenset({
+    # Start here
+    "autopsy", "scan", "pin", "prove", "connect",
+    # <stack> health (five stacks)
+    "vapi", "retell", "bland", "synthflow", "millis",
+    # Onboarding
+    "start", "demo", "doctor",
+    # Continuous use
+    "console", "production", "serve",
+    # Checks
+    "contract",
+    # Agent-native
+    "describe",
+})
+
+# The stability statement, stated once and rendered on every surface that
+# names the split: the --help epilog tail, `hotato lab --help`, README's
+# Go-deeper section, CONTRIBUTING.md, and the describe manifest.
+_STABILITY_STATEMENT = (
+    "The public commands are durable. hotato lab evolves faster, and every\n"
+    "pre-1.17 top-level spelling keeps working unchanged."
+)
+
+
+class _SurfaceRouter:
+    """The single registration layer for the public/lab split.
+
+    Wraps the top-level subparsers action. A public command registers
+    untouched (and so is listed in ``hotato --help``). Any other command has
+    its ``help=`` recorded for the ``hotato lab`` listing and then stripped,
+    so argparse registers the parser without listing it -- the hidden
+    back-compat spelling and the ``hotato lab`` spelling are one parser.
+    Everything else (``choices`` for :func:`ops_cli.register`'s collision
+    check, the manifest walk) delegates to the wrapped action.
+    """
+
+    def __init__(self, action: argparse._SubParsersAction):
+        self._action = action
+        self.lab_commands = []  # (name, one-line help) in registration order
+
+    def add_parser(self, name: str, **kwargs) -> argparse.ArgumentParser:
+        if name not in _PUBLIC_SURFACE:
+            help_line = kwargs.pop("help", None) or ""
+            self.lab_commands.append((name, " ".join(help_line.split())))
+        return self._action.add_parser(name, **kwargs)
+
+    def __getattr__(self, attr):
+        return getattr(self._action, attr)
+
+
+def _render_lab_help(parser: argparse.ArgumentParser) -> str:
+    """The ``hotato lab --help`` screen: every lab command with its one-line
+    description, from the help lines :class:`_SurfaceRouter` collected."""
+    import textwrap
+
+    lines = [
+        "usage: hotato lab <command> ...",
+        "",
+        "hotato lab: the deep toolkit behind the public surface -- capture,",
+        "simulation, load, benchmarking, the fix ladder, the fleet control",
+        "plane, and every other specialist command.",
+        "",
+    ]
+    lines.extend(textwrap.wrap(_STABILITY_STATEMENT, width=76))
+    lines.append("")
+    lines.append("commands:")
+    for name, help_line in sorted(getattr(parser, "_lab_commands", ())):
+        if not help_line:
+            lines.append(f"  {name}")
+            continue
+        wrapped = textwrap.wrap(help_line, width=58) or [""]
+        lines.append(f"  {name.ljust(19)} {wrapped[0]}")
+        lines.extend(f"{' ' * 22}{cont}" for cont in wrapped[1:])
+    lines.append("")
+    lines.append("Full machine-readable list of every command: "
+                 "hotato describe --format json")
+    lines.append("Exit codes: 0 pass, 1 regression, 2 refuse.")
+    return "\n".join(lines) + "\n"
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hotato",
@@ -5570,20 +5692,25 @@ def build_parser() -> argparse.ArgumentParser:
             "  scan         the folder health report over a directory of recordings\n"
             "  vapi health  pull recent Vapi calls and write the health report\n"
             "               (same shape: retell, bland, synthflow, millis)\n"
-            "  pin          pin one autopsy incident as a portable failure check\n\n"
+            "  pin          pin one autopsy incident as a portable failure check\n"
+            "  prove        the CI check: every evidence lane composed, fail-closed\n"
+            "  connect      store a stack's credentials once (0600, local only)\n\n"
+            "Onboarding:\n"
+            "  start        guided, credential-less first run on the bundled demo calls\n"
+            "  demo         run the packaged battery of two failing calls, open its report\n"
+            "  doctor       score a recording (or self-test), render the report, open it\n\n"
             "Continuous use:\n"
             "  vapi health  run it on a schedule and watch the trend\n"
             "  console      the call console over the production evidence store\n"
             "  production   the durable production evidence plane\n"
             "  serve        the self-hosted local team workspace\n\n"
-            "CI and checks:\n"
-            "  prove        the CI check: every evidence lane composed, fail-closed\n"
+            "Checks:\n"
             "  contract     create, verify, and pack pinned failure checks\n"
-            "  suite        run a suite of conversation-tests, per-dimension report\n"
-            "  verify       re-execute a bench result's pinned battery, hash-compare\n"
-            "  gauntlet     the bundled turn-taking stress suite\n\n"
-            "Everything else is advanced. Full machine-readable list of every "
-            "command: hotato describe --format json\n"
+            "               (pin's artifacts verify through it)\n\n"
+            "Agent-native:\n"
+            "  describe     the generated machine-readable manifest of every command\n\n"
+            "Everything else lives under hotato lab (see: hotato lab --help).\n"
+            + _STABILITY_STATEMENT + "\n"
             "Exit codes: 0 pass, 1 regression, 2 refuse."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -5591,10 +5718,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"hotato {__version__}")
     # Not required: bare `hotato` prints the first-run guide (score your OWN call),
     # rather than an argparse usage error.
-    # metavar collapses the 50+ command names into one token in the usage line and
+    # metavar collapses the command names into one token in the usage line and
     # the positional-arguments header, so a newcomer reads the GET STARTED loop
-    # first; each command still lists (with its help) below, and all stay callable.
-    sub = p.add_subparsers(dest="command", required=False, metavar="<command>")
+    # first. The router narrows the listing below it to the public surface;
+    # every other command registers unlisted and stays callable (see
+    # _SurfaceRouter above).
+    sub = _SurfaceRouter(
+        p.add_subparsers(dest="command", required=False, metavar="<command>")
+    )
 
     r = sub.add_parser(
         "run",
@@ -10927,6 +11058,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     _ops_cli.register(sub, epilog_factory=_exit_codes_epilog)
 
+    # The lab listing (`hotato lab --help`) renders from the (name, help)
+    # pairs the router collected while the commands above registered.
+    p._lab_commands = tuple(sub.lab_commands)
+
     return p
 
 
@@ -10966,9 +11101,40 @@ def _route_investigate_label(argv) -> "list | None":
     return None
 
 
+def _route_lab(argv, parser) -> "list | int | None":
+    """``hotato lab <cmd> ...``: the canonical spelling for every command the
+    top-level help no longer lists. The ``lab`` prefix is pure dispatch --
+    strip it and parse the remainder through the same registered command, so
+    ``hotato lab simulate`` and the pre-1.17 ``hotato simulate`` run one
+    parser and stay byte-identical (the same argv-rewrite technique
+    :func:`_route_bare_folder` uses). Returns the rewritten argv; an int exit
+    code when ``lab`` itself handled the invocation (its --help listing, or
+    an unknown-command refusal); None to leave the argv untouched."""
+    if not argv or argv[0] != "lab":
+        return None
+    rest = argv[1:]
+    if not rest or rest[0] in ("-h", "--help"):
+        print(_render_lab_help(parser), end="")
+        return 0
+    known = set()
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            known = set(action.choices)
+            break
+    if rest[0] not in known:
+        print(f"error: unknown lab command {rest[0]!r} "
+              "(see: hotato lab --help)", file=sys.stderr)
+        return 2
+    return list(rest)
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     raw = sys.argv[1:] if argv is None else list(argv)
+    lab = _route_lab(raw, parser)
+    if isinstance(lab, int):
+        return lab
+    raw = lab if lab is not None else raw
     raw = _route_investigate_label(raw) or raw
     rerouted = _route_bare_folder(raw, parser)
     args = parser.parse_args(rerouted if rerouted is not None else raw)

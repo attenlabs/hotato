@@ -8,6 +8,49 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+### Added
+- **`hotato lab` -- the deep toolkit gets its own front door.** The
+  top-level `--help` now shows only the public surface (`autopsy`, `scan`,
+  `pin`, `prove`, `connect`, the five `<stack> health` commands, `start`,
+  `demo`, `doctor`, `console`, `production`, `serve`, `contract`,
+  `describe`); every other command lives under `hotato lab <cmd>`, and
+  `hotato lab --help` lists each one with its one-line description. One
+  registration layer (`_SurfaceRouter`) decides visibility: a lab command
+  registers exactly as before -- same name, same parser, same behavior --
+  but without a parent help line, so every pre-1.17 top-level spelling
+  keeps working unchanged as a compat alias, and the `lab` prefix is pure
+  argv dispatch onto the same parser. The stability statement (public
+  commands durable; lab evolves faster; old spellings keep working)
+  renders in the `--help` epilog tail, `hotato lab --help`, README,
+  CONTRIBUTING (with the monthly-stable release cadence), and the
+  `describe` manifest.
+- **`hotato describe` records both spellings per command.** Every
+  top-level manifest entry now carries `surface` (`public` or `lab`), its
+  `canonical` spelling, and `compat_alias` (the still-working pre-1.17
+  top-level name; `null` for public commands), plus a top-level
+  `stability` field. The text rendering shows lab commands under
+  `hotato lab ...` with the alias beside them. Exit codes, args, and the
+  command set itself are unchanged.
+- **`docs/EVIDENCE-CONTRACT.md` -- the four-tier evidence policy, stated
+  once.** Tier 1 dual-channel audio (deterministic, the only
+  verdict-eligible tier), tier 2 mono plus provider metadata (attributable
+  findings, each carrying its source's declared authority), tier 3 raw
+  mixed mono (symptom detection with a measured confidence), tier 4
+  insufficient evidence (refused, exit 2, with the remediation). README,
+  AUTOPSY.md, the trust docs, and the docs index link to it instead of
+  restating it; `tests/test_evidence_contract.py` holds the page and its
+  referencing surfaces in lockstep.
+
+### Changed
+- **docs index restructured to the loop.** `docs/README.md` now leads with
+  the loop (autopsy -> scan -> pin -> prove -> `<stack> health`), then
+  continuous use, then a Lab section grouping the moved commands' docs.
+  Every doc stays listed.
+- **Superlative sweep.** Unsupported superlatives replaced with measured
+  framing: the README say-do bullet now reads "a bug that fires actions
+  the caller canceled", and `docs/STARTER.md` opens with what the one
+  command does.
+
 ## [1.16.0] - 2026-07-24
 
 ### Added
