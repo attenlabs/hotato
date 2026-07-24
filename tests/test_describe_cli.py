@@ -206,6 +206,36 @@ def test_describe_json_exit_codes_present_for_every_command_that_has_them(capsys
         assert [(e["code"], e["meaning"]) for e in manifest_codes] == list(codes)
 
 
+def test_describe_json_classifies_every_top_level_command_by_surface(capsys):
+    """Every top-level command carries its surface (public or lab), its
+    canonical spelling, and -- for lab commands -- the pre-1.17 top-level
+    spelling that keeps working as a compat alias. The registry stays
+    truthful about BOTH paths (1.17.0 narrowing)."""
+    cli.main(["describe", "--format", "json"])
+    manifest = json.loads(capsys.readouterr().out)
+
+    surfaces = {c["name"]: c for c in manifest["subcommands"]}
+    assert {c["surface"] for c in surfaces.values()} == {"public", "lab"}
+    for name, c in surfaces.items():
+        if c["surface"] == "public":
+            assert name in cli._PUBLIC_SURFACE
+            assert c["canonical"] == name
+            assert c["compat_alias"] is None
+        else:
+            assert name not in cli._PUBLIC_SURFACE
+            assert c["canonical"] == f"lab {name}"
+            assert c["compat_alias"] == name
+    # The split covers the whole registered top level.
+    assert {n for n, c in surfaces.items() if c["surface"] == "public"} \
+        == cli._PUBLIC_SURFACE
+
+
+def test_describe_json_carries_the_stability_statement(capsys):
+    cli.main(["describe", "--format", "json"])
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["stability"] == " ".join(cli._STABILITY_STATEMENT.split())
+
+
 def test_describe_json_is_deterministic(capsys):
     cli.main(["describe", "--format", "json"])
     first = capsys.readouterr().out
@@ -221,9 +251,14 @@ def test_describe_text_is_readable_and_deterministic(capsys):
     assert code == 0
     first = capsys.readouterr().out
     assert "hotato" in first
-    assert "hotato run" in first
-    assert "hotato benchmark compare" in first
-    assert "hotato fixture create" in first
+    # Lab commands render under their canonical `hotato lab` spelling, with
+    # the still-working top-level spelling stated beside them.
+    assert "hotato lab run" in first
+    assert "hotato lab benchmark compare" in first
+    assert "hotato lab fixture create" in first
+    assert "(also invocable as: hotato run)" in first
+    # Public commands render at the top level, unprefixed.
+    assert "hotato autopsy" in first
     assert "exit codes:" in first
 
     cli.main(["describe", "--format", "text"])

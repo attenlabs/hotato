@@ -1,8 +1,8 @@
 # The starter kit: `hotato init starter`
 
-The fastest way to add hotato to an existing voice-agent repo: one command
-scaffolds the CI gate, a stack-tuned config file, and the three directories
-the rest of the docs assume already exist.
+One command adds hotato to an existing voice-agent repo: it scaffolds the
+CI gate, a stack-tuned config file, and the three directories the rest of
+the docs assume already exist.
 
 ```bash
 hotato init starter --stack vapi --out .

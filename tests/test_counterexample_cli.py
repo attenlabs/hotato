@@ -82,8 +82,11 @@ def test_cli_budget_exhaustion_writes_capsule_and_exits_one(tmp_path, capsys):
     assert output.is_dir()
 
 
-def test_parent_help_promises_explicit_proof_status_not_unconditional_minimality():
-    help_text = " ".join(cli.build_parser().format_help().split())
+def test_lab_listing_promises_explicit_proof_status_not_unconditional_minimality():
+    # counterexample lives on the lab surface (1.17.0 narrowing), so its
+    # one-line description renders in `hotato lab --help` rather than the
+    # top-level listing.
+    help_text = " ".join(cli._render_lab_help(cli.build_parser()).split())
     assert "offline regression capsule with explicit proof status" in help_text
     assert "into a minimal, portable regression capsule" not in help_text
 

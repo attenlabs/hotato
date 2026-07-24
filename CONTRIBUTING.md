@@ -1,10 +1,11 @@
 # Contributing to hotato
 
-Thanks for being here. hotato is local-first testing and observability for AI agents: it simulates,
-evaluates, reviews, and tracks calls across five dimensions (outcome, policy,
-conversation, speech, reliability), with the evidence behind every result.
-Deterministic checks stay separate from the model-judged rubric, and no output is
-ever a single blended score.
+Thanks for being here. hotato finds what broke in your agent calls and pins
+it so it never ships again: it simulates, evaluates, reviews, and tracks
+calls across five dimensions (outcome, policy, conversation, speech,
+reliability), with the evidence behind every result. Deterministic checks
+stay separate from the model-judged rubric, and no output is ever a single
+blended score.
 
 Every kind of contribution is welcome. This guide gets your first one merged with
 the least friction, then points you at the contribution that helps most.
@@ -63,10 +64,31 @@ Try the tool end to end with no account, keys, or network:
 
 ```bash
 hotato start --demo               # sweep two bundled calls, write a dashboard, verify a contract
-hotato --help                     # every subcommand
+hotato --help                     # the public surface
+hotato lab --help                 # the deep toolkit behind it
 ```
 
 Then keep the diff small: one scenario, one fix, or one recording per PR.
+
+## Surface stability and release cadence
+
+The CLI has two surfaces, and they carry different stability promises:
+
+- **Public** (everything `hotato --help` lists: `autopsy`, `scan`, `pin`,
+  `prove`, `connect`, the `<stack> health` commands, `start`, `demo`,
+  `doctor`, `console`, `production`, `serve`, `contract`, `describe`).
+  These commands, their flags, and their exit codes are durable: a script
+  or CI job written against them keeps working across releases.
+- **Lab** (everything `hotato lab --help` lists). The lab surface evolves
+  faster between releases. Every pre-1.17 top-level spelling keeps working
+  unchanged as a compat alias, and `hotato describe` records both
+  spellings for every command.
+
+Releases follow a **monthly-stable cadence**: a versioned release ships
+about once a month, carries the full CHANGELOG entry for everything that
+landed, and is the unit the stability promise attaches to. Any change to a
+public command's flags or exit codes is called out in the CHANGELOG at
+that release.
 
 ## The highest-value contribution: a labeled call recording
 
