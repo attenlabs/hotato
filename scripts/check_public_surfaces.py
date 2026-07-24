@@ -71,10 +71,11 @@ _SITE_URL = "https://hotato.dev/"
 
 # Positioning markers the public surfaces MUST carry (the current identity) and
 # MUST NOT carry (retired overclaim / stale product identity). Kept in lockstep
-# with the 1.15.1 public-copy correction (CHANGELOG) and the operator-set
-# positioning "Local-first testing and observability for AI agents".
+# with the 2026-07-24 front-door repositioning and the operator-set promise
+# "Find what broke in your agent calls. Pin it so it never ships again."
+# (tests/test_positioning_lockstep.py pins the same line across the repo).
 _RETIRED_OVERCLAIM = "everything you use a hosted platform for"
-_REQUIRED_PYPI_SUMMARY = "testing and observability for ai agents"
+_REQUIRED_PYPI_SUMMARY = "find what broke in your agent calls"
 _REQUIRED_SITE_MARKER = "Local-first testing and observability for AI agents"
 _STALE_TITLE_MARKER = "regression testing for voice agents"
 

@@ -5514,11 +5514,13 @@ def _cmd_console(args) -> int:
     )
 
 
-# The canonical core loop: one linear path, first touch to a CI gate. This is the
-# single source of truth rendered identically everywhere a newcomer meets hotato:
-# the GET STARTED block atop `hotato --help`, `hotato describe`'s core_loop, the
-# README's first screenful, and docs/GETTING-STARTED.md. Keep the commands byte
-# identical across those surfaces.
+# The canonical deep loop: one linear path, first touch to a CI gate. It is the
+# single source of truth for `hotato describe`'s core_loop and the AGENTS.md
+# scaffold (src/hotato/initcmd.py); docs/GETTING-STARTED.md walks the same
+# commands. Keep the commands byte identical across those surfaces. The block
+# atop `hotato --help` renders _START_HERE_STEPS instead: the first-run funnel
+# (autopsy -> scan -> health -> pin -> prove) that matches the README's first
+# screenful.
 _CORE_LOOP_STEPS = (
     ("hotato start --demo", "see it catch a failure on two bundled calls"),
     ("hotato investigate ./call.wav", "score your own two-channel recording"),
@@ -5527,14 +5529,24 @@ _CORE_LOOP_STEPS = (
     ("hotato contract verify contracts/", "the gate re-runs the stored evidence"),
 )
 
+# The first-run funnel rendered atop `hotato --help`, in lockstep with the
+# README's first screenful: find what broke, then pin it.
+_START_HERE_STEPS = (
+    ("hotato autopsy ./call.wav", "drop one recording in, get the incidents out"),
+    ("hotato scan ./calls", "the folder health report over a directory"),
+    ("hotato vapi health", "pull recent Vapi calls and write the health report"),
+    ("hotato pin apx-<id>", "pin one incident as a portable failure check"),
+    ("hotato prove --contracts contracts", "the CI check re-runs the stored evidence"),
+)
+
 
 def _get_started_block() -> str:
-    """The GET STARTED block: the core loop, numbered, one command per step."""
-    lines = ["GET STARTED -- the core loop, first touch to a CI gate:"]
-    for i, (cmd, blurb) in enumerate(_CORE_LOOP_STEPS, 1):
+    """The START HERE block: the first-run funnel, numbered, one command per step."""
+    lines = ["START HERE -- find what broke, then pin it:"]
+    for i, (cmd, blurb) in enumerate(_START_HERE_STEPS, 1):
         lines.append(f"  {i}  {cmd.ljust(38)} {blurb}")
     lines.append("")
-    lines.append("Each step prints the next command. New here? Run step 1 and follow along.")
+    lines.append("New here? Run step 1 on one call recording and follow along.")
     return "\n".join(lines)
 
 
@@ -5544,20 +5556,32 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             _get_started_block()
             + "\n\n"
-            "Hotato: local-first testing and observability for AI agents. Trace, evaluate, "
-            "test, and gate any AI agent on your machine, with nothing leaving "
-            "it. Scores turn timing and say-do across five dimensions (outcome, "
-            "policy, conversation, speech, reliability) with the evidence behind "
-            "every result. Offline. MIT. Deterministic checks stay separate from "
-            "the model-judged rubric; there is no blended score and no accuracy "
-            "percentage."
+            "Hotato: find what broke in your agent calls. Pin it so it never ships again.\n"
+            "Local call forensics and regression guards for AI agents, on your\n"
+            "machine, with nothing leaving it. Scores turn timing and say-do\n"
+            "across five dimensions (outcome, policy, conversation, speech,\n"
+            "reliability) with the evidence behind every result. Offline. MIT.\n"
+            "Deterministic checks stay separate from the model-judged rubric;\n"
+            "there is no blended score and no accuracy percentage."
         ),
         epilog=(
-            "Core commands (the loop above):\n"
-            "  start        guided first run on the bundled demo calls\n"
-            "  investigate  score your own recording and rank its timing moments\n"
-            "  contract     pin a caught moment as a CI contract (verify is the gate)\n"
-            "  pr           open the pull request that adds the contract to CI\n\n"
+            "Start here (one recording to a CI gate):\n"
+            "  autopsy      drop one call recording in, get the incidents out\n"
+            "  scan         the folder health report over a directory of recordings\n"
+            "  vapi health  pull recent Vapi calls and write the health report\n"
+            "               (same shape: retell, bland, synthflow, millis)\n"
+            "  pin          pin one autopsy incident as a portable failure check\n\n"
+            "Continuous use:\n"
+            "  vapi health  run it on a schedule and watch the trend\n"
+            "  console      the call console over the production evidence store\n"
+            "  production   the durable production evidence plane\n"
+            "  serve        the self-hosted local team workspace\n\n"
+            "CI and checks:\n"
+            "  prove        the CI check: every evidence lane composed, fail-closed\n"
+            "  contract     create, verify, and pack pinned failure checks\n"
+            "  suite        run a suite of conversation-tests, per-dimension report\n"
+            "  verify       re-execute a bench result's pinned battery, hash-compare\n"
+            "  gauntlet     the bundled turn-taking stress suite\n\n"
             "Everything else is advanced. Full machine-readable list of every "
             "command: hotato describe --format json\n"
             "Exit codes: 0 pass, 1 regression, 2 refuse."
