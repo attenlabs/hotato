@@ -100,6 +100,27 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   `hotato prove --contracts` step.
 
 ### Changed
+- **The front door: README and top-level `--help` lead with the promise
+  and the first-run funnel.** The README's first screenful is the promise
+  ("Find what broke in your agent calls. Pin it so it never ships again."),
+  the two commands that deliver it (`hotato vapi health`, `hotato autopsy
+  ./call.wav`), the five platforms that ship (`vapi` / `retell` / `bland` /
+  `synthflow` / `millis`, plus local audio), what it finds, and per-platform
+  quickstarts (Retell's `--call-id` requirement stated where its quickstart
+  appears). The loop, comparison, and onramp detail lives on in
+  `docs/LIFECYCLE.md`, `docs/COMPARE.md`, `docs/GETTING-STARTED.md`, and
+  `docs/CONNECT.md`, linked from the README's Go deeper section. `hotato
+  --help` now opens with the same funnel (START HERE: `autopsy`, `scan`,
+  `vapi health`, `pin`, `prove`) and groups the command directory into
+  Start here / Continuous use (`health`, `console`, `production`, `serve`)
+  / CI and checks (`prove`, `contract`, `suite`, `verify`, `gauntlet`),
+  with everything else staying listed and callable. The one-line
+  description on every public surface (PyPI summary, `server.json`,
+  `CITATION.cff`, `llms.txt`, the package docstring) carries the same
+  promise, held in lockstep by `tests/test_positioning_lockstep.py` and
+  `scripts/check_public_surfaces.py`. Command names, schema names, and doc
+  filenames are unchanged; prose describes a pinned incident as a failure
+  check and `prove` as the CI check.
 - **"Could not tell at all" now exits non-zero on every lane.** Exit codes
   tighten toward red, mirroring `prove`'s inconclusive-never-green: a
   `hotato run --scenarios/--audio` battery whose every event is not scorable

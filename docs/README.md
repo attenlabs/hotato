@@ -1,11 +1,13 @@
 # hotato docs
 
-Local-first testing and observability for AI agents: every production failure
-becomes a portable test, every candidate runs against it, and every release
-carries evidence. This index maps every doc to the step it belongs to.
+Find what broke in your agent calls. Pin it so it never ships again. Every
+production failure becomes a portable test, every candidate runs against it,
+and every release carries evidence. This index maps every doc to the step it
+belongs to.
 
-New here? Start with **[GETTING-STARTED.md](GETTING-STARTED.md)**, then run
-`uvx hotato start --demo`. The whole loop on one page:
+New here? Run `hotato autopsy ./call.wav` on one recording
+(**[AUTOPSY.md](AUTOPSY.md)**), or start with
+**[GETTING-STARTED.md](GETTING-STARTED.md)**. The whole loop on one page:
 **[LIFECYCLE.md](LIFECYCLE.md)**.
 
 ## Getting started

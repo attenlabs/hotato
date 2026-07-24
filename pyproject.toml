@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hotato"
 version = "1.15.1"
-description = "Local-first testing and observability for AI agents. Trace, evaluate, simulate, and gate agents on your own infrastructure: deterministic, byte-reproducible, free, MIT, CI-native. Nothing leaves your machine."
+description = "Find what broke in your agent calls. Pin it so it never ships again. Local call forensics and regression guards for AI agents: deterministic, byte-reproducible, free, MIT, CI-native. Nothing leaves your machine."
 readme = "README.pypi.md"
 # Support policy: requires-python is lower-bounded only. There is no upper cap
 # on purpose -- an upper pin (e.g. <3.14) locks installs out of new interpreters
