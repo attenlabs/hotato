@@ -2105,6 +2105,103 @@ independent of the local ffmpeg build). Incidents are addressed as
 `<autopsy-id>#<rank>` -- the `pin:` line prints both -- and the report is
 `hotato-output/autopsy-<id>.html`.
 
+## The persisted envelope
+
+Every autopsy also writes `hotato-output/autopsy-<id>.json` next to the
+HTML: the machine-readable result envelope -- the source path, the mode,
+and the incidents with their onset, kind, and (on the stereo path) the
+underlying scan candidate kind. Like the report it is content-addressed
+and deterministic: the same recording writes the same bytes on every run.
+The envelope carries the measured facts only; est. cost figures live on
+the rendered surfaces (they exist only under `--cost-config`), never in
+the stored envelope. This is the offline store `hotato pin` resolves an
+`apx-...#N` ref from without re-running the analysis.
+
+## `hotato scan <directory>`: the folder health report
+
+Point `hotato scan` at a folder and it runs the autopsy engine over every
+recording in it -- stereo through the deterministic scanner, mono
+best-effort, exactly the rules above; an unreadable file is listed as
+refused with the reason, never skipped silently:
+
+```bash
+hotato scan ./calls
+```
+
+```
+hotato scan: calls  (5 recordings: 4 analyzed, 1 refused)
+  health: 1 of 4 calls had no critical incidents (25%)
+  ...
+  worst calls (critical count, then worst measured magnitude):
+     1. late-followup.wav  apx-6836885bd877  1 critical, 0 warning  worst 5.14s gap
+  ...
+  report:   hotato-output/scan-scn-46a5af300d6b.html
+  envelope: hotato-output/scan-scn-46a5af300d6b.json
+```
+
+The HEALTH headline is a measured share -- calls with zero critical
+incidents over calls analyzed. It is deliberately **never a blended 0-100
+quality score**: one blended number hides exactly the distinction the
+tool exists to draw (see [METHODOLOGY.md](../METHODOLOGY.md)), so the
+share sits beside a per-category breakdown (counts plus the worst
+measured magnitude in each category) and the worst-calls ranking, each
+call linking to its own per-call autopsy report, generated alongside with
+its envelope -- so `hotato pin` works straight from a folder scan.
+
+The scan is deterministic end to end: the same directory with the same
+flags produces byte-identical CLI text and a byte-identical HTML report,
+and the outputs are content-addressed (`scn-` + 12 hex over the sorted
+file-content manifest plus the analysis flags). The summary envelope
+(`scan-<id>.json`) stores the aggregate with a `recorded_at` provenance
+stamp written once, when that content is first seen; a re-run of
+unchanged content resolves to the same file and leaves it untouched.
+
+**Trend.** When prior summary envelopes for the same directory sit in the
+output dir, the report renders a run-over-run strip from them -- each
+prior run's share and critical count under its stored provenance
+timestamp, with the current run beside them. The page stays
+byte-identical given the same directory and the same prior-run store.
+
+`--cost-config` renders est. cost totals across the analyzed calls, from
+your own per-incident figures, exactly as above. The single-recording
+mode is unchanged: `hotato scan --stereo call.wav` lists one recording's
+candidate turn-taking moments, byte-for-byte as before.
+
+## `hotato pin <autopsy-ref>`: incident to contract
+
+`hotato pin` turns one autopsy incident into a portable `.hotato` failure
+contract through the existing contract machinery
+(`hotato contract create` on the recording at the incident's onset -- no
+separate minting logic):
+
+```bash
+hotato pin apx-cc33f46fad58        # the call's top critical incident
+hotato pin apx-cc33f46fad58#1      # one specific incident
+```
+
+Resolution is offline, from the persisted envelope under
+`./hotato-output/` (or `--from DIR`). Before delegating, pin re-hashes
+the source recording: the CURRENT bytes must still hash to the pinned
+autopsy id, so a file that changed on disk refuses rather than binding a
+different call.
+
+The incident kind maps to the contract's expect decision: BARGE-IN and
+TALK-OVER -- the floor-holding events the yield/hold contract vocabulary
+expresses -- default to `--expect yield` (the caller held the floor), and
+`--expect hold` records the human's call that the agent was right to keep
+talking. A mono-derived incident refuses (contracts require the
+two-channel deterministic path); DEAD AIR and LATENCY SPIKE are
+silence-timing measurements with no caller onset to pin, and ECHO
+SUSPECTED is a caveat, so those refuse with the reason too. Every refusal
+-- malformed ref, unknown id, rank out of range, missing or changed
+source, mono -- exits 2 and leaves no artifact.
+
+Success prints the bundle dir and the CI step:
+
+```bash
+hotato prove --contracts contracts
+```
+
 ## est. cost, only from your figures
 
 Cost lines render only when you supply your own per-incident figures;
@@ -2138,7 +2235,14 @@ hotato autopsy examples/autopsy/audio/autopsy-03-talk-over.example.wav
 
 ## From an incident to a regression gate
 
-An incident worth keeping fixed graduates through the existing path:
+An incident worth keeping fixed graduates in one step:
+
+```bash
+hotato pin apx-cc33f46fad58#1                # incident -> portable contract
+hotato prove --contracts contracts           # the CI gate
+```
+
+The labeled-review path does the same through `hotato investigate`:
 
 ```bash
 hotato investigate call.wav                  # ranked candidates + the label command
@@ -11289,7 +11393,7 @@ New here? Start with **[GETTING-STARTED.md](GETTING-STARTED.md)**, then run
 
 ## Evaluate
 
-- [AUTOPSY.md](AUTOPSY.md) - one recording, zero config: the incident list and report
+- [AUTOPSY.md](AUTOPSY.md) - one recording, zero config: the incident list and report; the folder health report (`scan DIR`) and `pin` to a contract
 - [INVESTIGATE.md](INVESTIGATE.md) - one recording in, ranked candidate moments out
 - [ANALYZE.md](ANALYZE.md) - drop a folder, rank and hear the worst moments
 - [ASSERTIONS.md](ASSERTIONS.md) - deterministic typed assertions over transcript, trace, and timing

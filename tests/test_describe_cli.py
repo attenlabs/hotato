@@ -48,7 +48,7 @@ _ALL_SUBCOMMANDS = [
     "scenario", "scenario init", "scenario validate",
     "conversation", "conversation verify",
     "simulate",
-    "autopsy",
+    "autopsy", "pin",
     "compare", "scan", "synth", "battery", "battery robustness",
     "gauntlet", "gauntlet badge", "trust",
     "ingest", "analyze", "verify", "fix", "fix trial", "prove",
