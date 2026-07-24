@@ -164,7 +164,7 @@
     "provenance": {
       "hotato": {
         "name": "hotato",
-        "version": "1.15.1"
+        "version": "1.16.0"
       },
       "inputs": [
         {
@@ -196,7 +196,7 @@
       ],
       "source_result_digest": "sha256:d3ec5aa5bbbdac05ef1ee7ad6d2612afd3916504e313e16df56ea3c334cb1346"
     },
-    "record_id": "sha256:25f01ea209620cbd36b6ec662dfce124eb989f53f303be808c65f2f6d90ed674",
+    "record_id": "sha256:9dd904467fc84fa46d32def69d073da9110528a055ea094397d60be34120309a",
     "reproduction": {
       "argv": [
         "hotato",
@@ -222,7 +222,7 @@
     "version": "1.0"
   },
   "reproduction_metadata": {
-    "hotato_version": "1.15.1",
+    "hotato_version": "1.16.0",
     "reviewer_principal": "hotato-examples",
     "working_directory": ".",
     "bundle": {
@@ -242,7 +242,7 @@
     "verify_output": "verify.json",
     "selector": "fd-01-missed-interruption",
     "record_out": "record",
-    "expected_record_id": "sha256:25f01ea209620cbd36b6ec662dfce124eb989f53f303be808c65f2f6d90ed674"
+    "expected_record_id": "sha256:9dd904467fc84fa46d32def69d073da9110528a055ea094397d60be34120309a"
   },
   "supersedes": {
     "record_id": "sha256:772fbb2a13addeb5cfbfb82d3c1652b15cb547d004e2db3db4341779c99c4336",
@@ -270,8 +270,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-01-missed-interruption --out record",
-      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:25f01ea209620cbd36b6ec662dfce124eb989f53f303be808c65f2f6d90ed674\n"
+      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:9dd904467fc84fa46d32def69d073da9110528a055ea094397d60be34120309a\n"
     }
   ],
-  "content_digest": "sha256:d38d9900d7e3265b62b96fb05bdcb8189717b239ce5796d35a1cd06bee246967"
+  "content_digest": "sha256:8e573dac31160650b48580acc78608a61c911dbefb9068f0f9080b5277badfd9"
 }
