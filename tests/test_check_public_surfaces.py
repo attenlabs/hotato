@@ -118,8 +118,9 @@ def _pypi_fixture(**over):
     doc = {
         "info": {
             "version": VERSION,
-            "summary": "Local-first testing and observability for AI agents. "
-                       "Trace, evaluate, simulate, and gate agents.",
+            "summary": "Find what broke in your agent calls. Pin it so it "
+                       "never ships again. Local call forensics and "
+                       "regression guards for AI agents.",
         },
         "urls": [{"filename": "hotato-1.15.1.tar.gz"}],
     }
@@ -148,7 +149,7 @@ def test_check_pypi_doc_flags_empty_urls():
 def test_check_pypi_doc_flags_retired_overclaim():
     doc = _pypi_fixture(info={
         "summary": "everything you use a hosted platform for, on your machine. "
-                   "testing and observability for AI agents",
+                   "find what broke in your agent calls",
     })
     problems = cps.check_pypi_doc(doc, VERSION)
     assert any("retired overclaim" in p for p in problems)
