@@ -560,8 +560,22 @@ _EXIT_CODES: dict = {
             "--cost-config, or an mp3/m4a with no ffmpeg on PATH)"),
     ),
     "scan": (
-        (0, "scanned (with or without candidates; the count is reported)"),
-        (2, "usage error or unreadable input"),
+        (0, "scanned: one recording's candidate moments were listed (with or "
+            "without candidates; the count is reported), or a directory's "
+            "folder health report was written (refused files listed with "
+            "their reasons, never scored)"),
+        (2, "usage error, unreadable input (--stereo mode), or a directory "
+            "with no call recordings"),
+    ),
+    "pin": (
+        (0, "pinned: the incident became a portable .hotato contract bundle "
+            "(the bundle dir and the prove command are printed)"),
+        (2, "refused with the reason and no artifact: a malformed ref, an "
+            "unknown autopsy id (no stored envelope), a rank out of range, "
+            "a missing or changed source recording, a mono-derived incident "
+            "(contracts require the two-channel deterministic path), an "
+            "incident kind with no yield/hold decision to pin, or a moment "
+            "that is not scorable"),
     ),
     "trust": (
         (0, "the recording is eligible for scan (the input-health report is printed; "
@@ -4719,6 +4733,10 @@ def _cmd_autopsy(args) -> int:
     if report_dir:
         os.makedirs(report_dir, exist_ok=True)
     _atomic_write_text(result["report_path"], html_str)
+    # The persisted envelope next to the HTML: content-addressed and
+    # deterministic (the measured facts, minus the cost-rendering layer), the
+    # offline store `hotato pin apx-...#N` resolves.
+    _atomic_write_json(result["envelope_path"], _autopsy.envelope_dict(result))
     if args.format == "json":
         print(_errors.safe_json_dumps(result, indent=2))
     else:
@@ -4726,9 +4744,100 @@ def _cmd_autopsy(args) -> int:
     return 0
 
 
+def _cmd_pin(args) -> int:
+    from . import pincmd as _pincmd
+
+    result = _pincmd.run_pin(
+        args.ref,
+        from_dir=args.from_dir,
+        out_dir=args.out,
+        expect=args.expect,
+        contract_id=args.contract_id,
+        reviewer=args.reviewer,
+        force=args.force,
+    )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_pincmd.render_text(result))
+    return 0
+
+
+def _cmd_scan_folder(args) -> int:
+    from . import autopsy as _autopsy
+    from . import scanfolder as _scanfolder
+
+    cost_config = (_autopsy.load_cost_config(args.cost_config)
+                   if args.cost_config else None)
+    result, calls_raw = _scanfolder.run_scan_folder(
+        args.directory, cost_config=cost_config, min_gap_sec=args.min_gap)
+    out_dir = os.path.dirname(result["report_path"])
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    # The per-call autopsy artifacts the worst-calls ranking links to (and the
+    # envelopes `hotato pin` resolves): the same content-addressed files
+    # `hotato autopsy` writes for each recording.
+    for call_result, call_html in calls_raw:
+        _atomic_write_text(call_result["report_path"], call_html)
+        _atomic_write_json(call_result["envelope_path"],
+                           _autopsy.envelope_dict(call_result))
+    prior_runs = _scanfolder.load_prior_runs(
+        out_dir, result["dir_key"], result["id"])
+    result["prior_runs"] = prior_runs
+    _atomic_write_text(
+        result["report_path"],
+        _scanfolder.build_scan_report_html(result, prior_runs))
+    # The summary envelope is content-addressed: unchanged content resolves
+    # to the same path, and the stored file -- including its recorded_at
+    # provenance stamp -- stays untouched, so a re-run is byte-identical.
+    if not os.path.exists(result["envelope_path"]):
+        import datetime as _dt
+
+        recorded_at = _dt.datetime.now(_dt.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        _atomic_write_json(result["envelope_path"],
+                           _scanfolder.build_envelope(result, recorded_at))
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_scanfolder.render_text(result, prior_runs))
+    return 0
+
+
 def _cmd_scan(args) -> int:
     from . import scan as _scan
 
+    if args.directory is not None and args.stereo:
+        raise ValueError(
+            "pass either a directory (the folder health report) or "
+            "--stereo WAV (one recording's candidate moments), not both."
+        )
+    if args.directory is not None:
+        if args.out:
+            raise ValueError(
+                "--out names the single-recording candidates file; the "
+                "folder health report writes its content-addressed report "
+                "and envelope under hotato-output/."
+            )
+        if args.caller_channel != 0 or args.agent_channel != 1:
+            raise ValueError(
+                "--caller-channel/--agent-channel apply to hotato scan "
+                "--stereo; the folder health report reads caller on channel "
+                "0 and agent on channel 1 (the autopsy engine's mapping)."
+            )
+        return _cmd_scan_folder(args)
+    if not args.stereo:
+        raise ValueError(
+            "hotato scan needs a directory (hotato scan ./calls -- the "
+            "folder health report) or --stereo WAV (one recording's "
+            "candidate moments)."
+        )
+    if args.cost_config:
+        raise ValueError(
+            "--cost-config applies to the folder health report "
+            "(hotato scan DIR); for one recording's est. cost lines use "
+            "hotato autopsy RECORDING --cost-config FILE."
+        )
     result = _scan.scan_recording(
         args.stereo,
         caller_channel=args.caller_channel,
@@ -8563,26 +8672,98 @@ def build_parser() -> argparse.ArgumentParser:
     _add_format_arg(au, choices=("text", "json"))
     au.set_defaults(func=_cmd_autopsy)
 
-    # --- scan: candidate turn-taking moments across a whole call ------------
+    # --- pin: one autopsy incident -> the portable contract -----------------
+    pn = sub.add_parser(
+        "pin",
+        help="pin one autopsy incident as a portable failure contract "
+             "(apx-<id>#<rank>, or apx-<id> for the top critical)",
+        description=(
+            "Turn one autopsy incident into a portable .hotato failure "
+            "contract through the existing contract machinery. The ref is "
+            "the id hotato autopsy prints: apx-<12hex>#<rank> for one "
+            "incident, or apx-<12hex> for the call's top critical incident. "
+            "Resolution is offline, from the persisted autopsy envelope "
+            "(autopsy-<id>.json under ./hotato-output/, or --from DIR), and "
+            "the source recording's CURRENT bytes must still hash to the "
+            "pinned id -- a changed file refuses rather than pinning a "
+            "different call. BARGE-IN and TALK-OVER incidents pin (default "
+            "--expect yield: the caller held the floor; pass --expect hold "
+            "when the agent was right to keep talking); a mono-derived "
+            "incident refuses because contracts require the two-channel "
+            "deterministic path. Every refusal exits 2 with the reason and "
+            "leaves no artifact."
+        ),
+        epilog=(
+            _exit_codes_epilog("pin") + "\n\n"
+            "Examples (the bare ref pins the top critical incident; #N pins "
+            "one specific incident; prove is the CI gate on the result):\n"
+            "  hotato pin apx-cc33f46fad58\n"
+            "  hotato pin apx-cc33f46fad58#1\n"
+            "  hotato pin apx-cc33f46fad58#1 --expect hold --id mhm-was-fine-001\n"
+            "  hotato prove --contracts contracts"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pn.add_argument("ref", metavar="AUTOPSY_REF",
+                    help="apx-<12hex>#<rank> for one incident, or apx-<12hex> "
+                         "for the call's top critical incident (the ids "
+                         "hotato autopsy prints on its pin: line)")
+    pn.add_argument("--from", dest="from_dir", default="hotato-output",
+                    metavar="DIR",
+                    help="directory holding the autopsy-<id>.json envelopes "
+                         "(default hotato-output)")
+    pn.add_argument("--out", default="contracts", metavar="DIR",
+                    help="directory to create the contract bundle under "
+                         "(default contracts)")
+    pn.add_argument("--expect", choices=("yield", "hold"), default=None,
+                    help="override the expect decision mapped from the "
+                         "incident kind (BARGE-IN/TALK-OVER default to "
+                         "yield; hold records that the agent was right to "
+                         "keep talking)")
+    pn.add_argument("--id", dest="contract_id", default=None,
+                    help="contract id (default: pin-<hex>-<rank>-<kind>)")
+    pn.add_argument("--reviewer", default=None,
+                    help="the accountable human reviewer's name, bound into "
+                         "the contract identity (falls back to "
+                         "HOTATO_REVIEWER/USER)")
+    pn.add_argument("--force", action="store_true",
+                    help="overwrite an existing bundle with the same id")
+    _add_format_arg(pn, choices=("text", "json"))
+    pn.set_defaults(func=_cmd_pin)
+
+    # --- scan: candidate turn-taking moments across a whole call, or the
+    # --- folder health report over a directory ------------------------------
     sc = sub.add_parser(
         "scan",
-        help="list candidate turn-taking moments in a whole recording "
-             "(timing facts only; you label them)",
+        help="one recording's candidate turn-taking moments (--stereo), or "
+             "the folder health report over a directory of recordings",
         description=(
-            "Walk the caller and agent VAD activity tracks across the WHOLE "
-            "recording and list candidate turn-taking moments as timing "
-            "facts: overlap onsets (the caller became active while the agent "
-            "was active, with the overlap length and whether the agent went "
-            "silent), agent starts during caller activity, and long response "
-            "gaps after the caller finished. Candidates are timing events, "
-            "not intent: this tool cannot know whether a caller sound was "
-            "'mhm' or 'stop'. You decide the expected behavior and label the "
-            "moment with hotato fixture create. Long files are read in a "
-            "windowed pass. Offline; no accuracy percentage anywhere."
+            "Two modes. hotato scan --stereo WAV walks the caller and agent "
+            "VAD activity tracks across the WHOLE recording and lists "
+            "candidate turn-taking moments as timing facts: overlap onsets "
+            "(the caller became active while the agent was active, with the "
+            "overlap length and whether the agent went silent), agent "
+            "starts during caller activity, and long response gaps after "
+            "the caller finished. Candidates are timing events, not intent: "
+            "this tool cannot know whether a caller sound was 'mhm' or "
+            "'stop'. You decide the expected behavior and label the moment "
+            "with hotato fixture create. Long files are read in a windowed "
+            "pass. hotato scan DIRECTORY runs the autopsy engine over every "
+            "recording in the folder (stereo deterministic, mono "
+            "best-effort, unreadable files refused with the reason) and "
+            "writes the folder health report: the measured share of calls "
+            "with no critical incidents -- never a blended quality score -- "
+            "the per-category breakdown with worst measured magnitudes, and "
+            "the worst-calls ranking linking to each call's own autopsy "
+            "report, plus a machine-readable summary envelope and a "
+            "run-over-run trend strip when prior envelopes exist. Offline; "
+            "no accuracy percentage anywhere."
         ),
         epilog=(
             _exit_codes_epilog("scan") + "\n\n"
             "Examples:\n"
+            "  hotato scan ./calls\n"
+            "  hotato scan ./calls --cost-config costs.json\n"
             "  hotato scan --stereo full-call.wav\n"
             "  hotato scan --stereo full-call.wav --top 5\n"
             "  hotato scan --stereo full-call.wav --format json --out candidates.json\n"
@@ -8591,8 +8772,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sc.add_argument("--stereo", required=True, metavar="WAV",
+    sc.add_argument("directory", nargs="?", default=None, metavar="DIRECTORY",
+                    help="a folder of call recordings: the folder health "
+                         "report (aggregate autopsy) mode")
+    sc.add_argument("--stereo", default=None, metavar="WAV",
                     help="two-channel WAV (caller on one channel, agent on the other)")
+    sc.add_argument("--cost-config", default=None, metavar="FILE",
+                    help="folder mode only: JSON mapping incident kinds to "
+                         "YOUR per-incident figures; only then do est. cost "
+                         "totals render")
     sc.add_argument("--caller-channel", type=int, default=0)
     sc.add_argument("--agent-channel", type=int, default=1)
     sc.add_argument("--top", type=int, default=20,

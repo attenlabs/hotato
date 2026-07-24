@@ -70,6 +70,10 @@
 - `hotato demo [--fail]` -- see a catch on the bundled battery, offline.
 - `hotato autopsy call.wav` -- one recording, zero config: the incident list
   (barge-in, talk-over, dead air, latency) plus a self-contained report.
+- `hotato scan ./calls` -- the folder health report: the measured share of
+  calls with no critical incidents, worst calls, per-call reports.
+- `hotato pin apx-<id>#<rank>` -- one autopsy incident into a portable
+  failure contract (then `hotato prove --contracts contracts`).
 - `hotato trust --stereo call.wav` -- is this recording scorable? (mono = no)
 - `hotato scan --stereo call.wav` -- list candidate turn-taking moments to label.
 - `hotato run --stereo call.wav --format json` -- score one recording.
@@ -122,7 +126,22 @@
   runs the deterministic scanner byte-for-byte; mono is best-effort silence
   timing with a measured confidence per finding and the functional scope
   stated. WAV native; mp3/m4a through ffmpeg. est. cost only with
-  `--cost-config` (your figures). Detail: `docs/AUTOPSY.md`.
+  `--cost-config` (your figures). Persists the machine-readable envelope
+  (`autopsy-<id>.json`) `hotato pin` resolves. Detail: `docs/AUTOPSY.md`.
+- `hotato pin AUTOPSY_REF` -- one autopsy incident (`apx-<12hex>#<rank>`, or
+  `apx-<12hex>` for the top critical) into a portable `.hotato` failure
+  contract through the existing contract machinery, offline from the stored
+  envelope; the source file's current bytes must still hash to the pinned id.
+  BARGE-IN/TALK-OVER pin (default `--expect yield`); mono-derived incidents
+  refuse (contracts require the two-channel deterministic path). Success
+  prints the `hotato prove --contracts` step. Detail: `docs/AUTOPSY.md`.
+- `hotato scan DIRECTORY` -- the folder health report: the autopsy engine
+  over every recording (unreadable files refused with the reason), the
+  measured share of calls with no critical incidents as the headline (never
+  a blended 0-100 score), per-category worst magnitudes, the worst-calls
+  ranking linking to per-call autopsy reports, a summary envelope, and a
+  run-over-run trend strip from prior envelopes. Deterministic,
+  content-addressed outputs. Detail: `docs/AUTOPSY.md`.
 - `hotato scan --stereo call.wav` -- list candidate turn-taking moments across
   a whole recording as timing facts only (overlap onsets, agent-starts-during
   caller-activity, long response gaps); you supply the yield/hold label. Long
@@ -497,7 +516,9 @@ it, never whether the policy itself was right.
   (improved / regressed / inconclusive; inconclusive is not a pass).
 - docs/AUTOPSY.md: `hotato autopsy RECORDING`, one call to the incident list
   (deterministic on stereo, best-effort with measured confidence on mono) and
-  the self-contained incident report.
+  the self-contained incident report; `hotato scan DIRECTORY`, the folder
+  health report (measured share, worst calls, trend); `hotato pin`, one
+  incident into a portable contract.
 - docs/ANALYZE.md: `hotato analyze FOLDER`, the zero-config drop-a-folder
   dashboard with the hear-the-bug audio playhead.
 - docs/TRUST.md: `hotato trust`, the input-health "trust doctor" pre-scan:
