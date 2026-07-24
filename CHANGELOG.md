@@ -8,6 +8,8 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-07-24
+
 ### Added
 - **`hotato vapi|retell|bland|synthflow|millis health` -- one command from
   API key to the fleet health report.** Thin entries over ONE
