@@ -4,7 +4,8 @@ The input-health check: inspect one recording and learn whether the audio is
 good enough to score, before you scan or run it. `trust` catches a bad
 export -- mono file, silent channel, swapped channel map, hot capture -- up
 front, before it becomes a confident-looking but meaningless verdict
-downstream.
+downstream. What each input tier supports downstream is the four-tier
+policy in [EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md).
 
 ```bash
 hotato trust --stereo your-call.wav

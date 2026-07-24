@@ -29,7 +29,7 @@ No judges. No cloud. No bill. MIT.
 
 ## What it finds
 
-- **Barge-in → Say-do gaps**: Caller interrupts to cancel; agent says "canceled" but the booking tool still fires. The most expensive voice AI bug. (Timing from the audio; the tool-fire check reads your call's tool log: hotato ingests Vapi/OTel traces.)
+- **Barge-in → Say-do gaps**: Caller interrupts to cancel; agent says "canceled" but the booking tool still fires: a bug that fires actions the caller canceled. (Timing from the audio; the tool-fire check reads your call's tool log: hotato ingests Vapi/OTel traces.)
 - **Latency spikes**: 800ms → 5s unpredictability that makes users hang up.
 - **Dead air**: Long silences that kill conversation flow.
 - **Talk-over**: Agent speaks over the caller; never yields.
@@ -122,7 +122,13 @@ The whole loop, command by command: [`docs/LIFECYCLE.md`](docs/LIFECYCLE.md).
 First touch to a CI gate: [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
 Feed it what you already have: [`docs/CONNECT.md`](docs/CONNECT.md) &#183;
 [`docs/TRACE.md`](docs/TRACE.md) &#183; [`docs/SIMULATE.md`](docs/SIMULATE.md).
+What every verdict stands on: [`docs/EVIDENCE-CONTRACT.md`](docs/EVIDENCE-CONTRACT.md).
 Next to the hosted alternatives: [`docs/COMPARE.md`](docs/COMPARE.md).
+
+The deep toolkit -- capture, simulation, load, benchmarking, the fix ladder,
+the fleet control plane -- lives under `hotato lab` (`hotato lab --help`).
+The public commands are durable; `hotato lab` evolves faster; every pre-1.17
+top-level spelling keeps working unchanged.
 
 ## Specifications
 
@@ -144,7 +150,7 @@ PYTHONPATH=src python3 -m hotato.benchmark \
 
 On 13 recorded AMI Meeting Corpus clips, the median error between measured caller-onset and the human word-alignment label is **20 ms**. Provenance: [`corpus/real/README.md`](corpus/real) &#183; method: [`METHODOLOGY.md`](METHODOLOGY.md).
 
-Timing is measurable only when the two voices arrive on separate channels; a mono or mixed export is marked **NOT SCORABLE** and refused (`hotato trust --stereo call.wav`).
+Timing is measurable only when the two voices arrive on separate channels; a mono or mixed export is marked **NOT SCORABLE** and refused (`hotato trust --stereo call.wav`). The full four-tier evidence policy (what each verdict stands on, per input) is [`docs/EVIDENCE-CONTRACT.md`](docs/EVIDENCE-CONTRACT.md).
 
 </details>
 

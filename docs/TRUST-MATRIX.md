@@ -7,7 +7,9 @@ contract: input condition on the left, Hotato's behavior on the right. It
 covers input health only; a turn-taking verdict is `scan`'s and `run`'s job.
 
 Worked examples with CLI output for every row are in
-[TRUST-GALLERY.md](TRUST-GALLERY.md).
+[TRUST-GALLERY.md](TRUST-GALLERY.md). The four-tier evidence policy the
+rows below implement is stated once in
+[EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md).
 
 ## The contract
 
