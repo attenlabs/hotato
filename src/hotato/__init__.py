@@ -1,5 +1,6 @@
-"""hotato: local-first testing and observability for AI agents.
+"""hotato: find what broke in your agent calls. Pin it so it never ships again.
 
+Local call forensics and regression guards for AI agents.
 Trace, evaluate, test, and gate any AI agent on your machine: four planes
 (observe, evaluate, test, gate) over one install. Turn-timing and say-do are
 scored across five dimensions (outcome, policy, conversation, speech,
