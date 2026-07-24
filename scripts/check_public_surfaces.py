@@ -76,7 +76,7 @@ _SITE_URL = "https://hotato.dev/"
 # (tests/test_positioning_lockstep.py pins the same line across the repo).
 _RETIRED_OVERCLAIM = "everything you use a hosted platform for"
 _REQUIRED_PYPI_SUMMARY = "find what broke in your agent calls"
-_REQUIRED_SITE_MARKER = "Local-first testing and observability for AI agents"
+_REQUIRED_SITE_MARKER = "call forensics and regression guards for AI agents"
 _STALE_TITLE_MARKER = "regression testing for voice agents"
 
 
