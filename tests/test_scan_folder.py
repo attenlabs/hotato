@@ -139,9 +139,25 @@ def test_folder_health_share_arithmetic_and_refused_visibility(
     assert "5 recordings: 4 analyzed, 1 refused" in out
     # The measured share: exactly one of the four analyzed calls (the
     # yielding call) has zero critical incidents.
-    assert "health: 1 of 4 calls had no critical incidents (25%)" in out
-    # never a blended 0-100 quality score
-    assert re.search(r"\b\d+\s*/\s*100\b", out) is None
+    assert ("health: 1 of 4 dual-channel calls had no critical incidents "
+            "(25%)") in out
+    # The Voice Stability Score IS that share, times 100 (assessment delta
+    # 3: the branded number restates the measured share; no weights, no
+    # other arithmetic), with the share line beneath it as the formula and
+    # the eligible sample size + the analysis-policy sha beside the score.
+    lines = out.splitlines()
+    idx = next(n for n, ln in enumerate(lines)
+               if "Voice Stability Score" in ln)
+    assert re.match(
+        r"Voice Stability Score: 25/100  "
+        r"\(4 dual-channel calls; policy [0-9a-f]{12}\)$",
+        lines[idx].strip())
+    # 4 dual-channel calls is under the 20-call bar: the small-sample label
+    # renders, then the share line.
+    assert lines[idx + 1].strip() == (
+        "SMALL SAMPLE: 4 dual-channel calls, under the 20-call bar")
+    assert ("1 of 4 dual-channel calls had no critical incidents (25%)"
+            in lines[idx + 2])
     assert "never a blended quality score" in out
     # the refused file is visible with its reason, not silently skipped
     assert "broken.wav" in out
@@ -338,6 +354,11 @@ def test_mono_calls_are_analyzed_best_effort_not_refused(
     assert result["counts"] == {"scanned": 2, "analyzed": 2, "refused": 0}
     modes = {c["source"]: c["mode"] for c in result["calls"]}
     assert modes == {"mono-call.wav": "mono", "clean.wav": "stereo"}
+    # The score denominator counts ONLY the dual-channel call; the mono
+    # call reports into its own best-effort observations block.
+    assert result["health"]["calls_analyzed"] == 1
+    assert result["health"]["critical_free_call_rate"] == 100
+    assert result["mono"]["calls_analyzed"] == 1
 
 
 def test_scan_id_is_content_derived(tmp_path):

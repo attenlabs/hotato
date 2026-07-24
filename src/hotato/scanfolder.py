@@ -6,11 +6,38 @@ through the existing deterministic whole-call scanner, mono best-effort with
 measured confidences, exactly autopsy's own rules -- then aggregates the
 incidents into one folder report:
 
-  * the HEALTH headline is a measured share: "N of M calls had no critical
-    incidents (X%)". It is never a blended 0-100 quality score --
-    METHODOLOGY.md's rule (one blended number hides exactly the distinction
-    the tool exists to draw) applies to the folder view too. Every category
-    and every call keeps its own measured numbers beside the share.
+  * the HEALTH headline is a measured share: "N of M dual-channel calls had
+    no critical incidents (X%)". The denominator is DUAL-CHANNEL
+    deterministic-timing calls ONLY -- a mono call never enters this rate;
+    mono-analyzed calls are reported in their own "Best-effort mono
+    observations" block with their own counts and an authority label. It is
+    never a blended 0-100 quality score -- METHODOLOGY.md's rule (one
+    blended number hides exactly the distinction the tool exists to draw)
+    applies to the folder view too. Every category and every call keeps its
+    own measured numbers beside the share.
+  * the VOICE STABILITY SCORE is that same share, times 100 -- nothing
+    blended, no weights, no other arithmetic: ``round(share x 100)``. The
+    machine field is ``critical_free_call_rate``. It is printed with the
+    measured share line directly beneath it as the formula, with the
+    eligible sample size and the analysis-policy sha beside it, and a
+    small-sample label when the eligible sample is under 20 dual-channel
+    calls. With zero dual-channel calls no score renders and the report
+    states why (no 0/0 theater).
+  * an EVIDENCE COVERAGE block lists per-lane measured counts from what the
+    run actually had -- dual-channel timing, mono best-effort, refused with
+    reasons. A lane never renders as assessed when its evidence was absent
+    from the run.
+  * RECURRENCE lines carry a measured state: an incident kind present in
+    THIS run that also appears in stored prior runs of the same directory
+    prints as ``observed`` (1-2 calls in the stored window), ``RECURRING``
+    (3+), ``RECURRING, LOW SAMPLE`` (3+ but the eligible dual-channel
+    sample is under 20), or ``ELEVATED`` (20+ eligible dual-channel calls
+    in both compared runs, same policy and coverage, and Wilson 95%
+    intervals on the kind's per-call rate that do not overlap). Lines
+    derive only from the stored summary envelopes (measured facts, with
+    each prior run's ``recorded_at`` provenance), never extrapolation, so
+    the same directory + the same prior-run store always prints the same
+    lines.
   * a per-category incident breakdown: counts plus the worst measured
     magnitude in each category (overlap seconds, gap seconds, silence
     seconds -- the scanner's own numbers, restated, never combined).
@@ -54,9 +81,17 @@ from .errors import open_regular as _open_regular
 __all__ = [
     "AUDIO_EXTS",
     "SCAN_FOLDER_NOTE",
+    "SCORE_HOW_NOTE",
+    "MONO_OBSERVATIONS_LABEL",
+    "MONO_OBSERVATIONS_NOTE",
+    "SMALL_SAMPLE_MIN_CALLS",
+    "policy_sha",
     "run_scan_folder",
     "build_envelope",
     "load_prior_runs",
+    "persist_run",
+    "fleet_alerts",
+    "fleet_alert_text",
     "build_scan_report_html",
     "render_text",
 ]
@@ -67,9 +102,35 @@ __all__ = [
 AUDIO_EXTS = (".wav", ".mp3", ".m4a")
 
 SCAN_FOLDER_NOTE = (
-    "The health figure is a measured share -- calls with zero critical "
-    "incidents over calls analyzed -- never a blended quality score; every "
-    "category and every call keeps its own measured numbers."
+    "The health figure is a measured share -- dual-channel calls with zero "
+    "critical incidents over dual-channel calls analyzed -- never a blended "
+    "quality score; every category and every call keeps its own measured "
+    "numbers."
+)
+
+# The one-line derivation printed beside the Voice Stability Score in the
+# HTML report, pointing at the measured share line it restates.
+SCORE_HOW_NOTE = (
+    "How this is calculated: the score is the measured share line above, "
+    "times 100 -- dual-channel calls with zero critical incidents over "
+    "dual-channel calls analyzed (deterministic timing). No weights, no "
+    "other arithmetic; mono calls are separate best-effort observations."
+)
+
+# The dual-channel eligible-sample bar: under this many dual-channel calls
+# the score renders with a small-sample label, and a 3+ recurrence reads
+# RECURRING, LOW SAMPLE instead of RECURRING.
+SMALL_SAMPLE_MIN_CALLS = 20
+
+# The separate block a mono-analyzed call reports into: its own counts under
+# an authority label. A mono call never enters the Voice Stability
+# denominator.
+MONO_OBSERVATIONS_LABEL = "Best-effort mono observations"
+MONO_OBSERVATIONS_NOTE = (
+    "Measured silence timing from one mixed channel, each finding with its "
+    "measured confidence; talk-over and barge-in attribution comes from a "
+    "two-channel recording. These calls carry their own counts and never "
+    "enter the Voice Stability denominator."
 )
 
 # incident kind key -> the measurement field that carries its magnitude, in
@@ -121,6 +182,20 @@ def _scan_id(entries: List[Tuple[str, str]], min_gap_sec: float) -> str:
     lines.append(f"min_gap_sec={min_gap_sec}")
     h = hashlib.sha256("\n".join(lines).encode("utf-8"))
     return "scn-" + h.hexdigest()[:12]
+
+
+def policy_sha(min_gap_sec: float) -> str:
+    """12 hex chars identifying the analysis policy behind a run: the flags
+    plus the severity bars that decide what counts as critical. Printed
+    beside the score, stored in the summary envelope, and required to match
+    before two runs are compared for the ELEVATED recurrence state."""
+    doc = {
+        "min_gap_sec": float(min_gap_sec),
+        "talk_over_critical_sec": _autopsy.TALK_OVER_CRITICAL_SEC,
+        "dead_air_critical_sec": _autopsy.DEAD_AIR_CRITICAL_SEC,
+    }
+    return hashlib.sha256(
+        json.dumps(doc, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
 def _dir_key(folder: str) -> str:
@@ -244,6 +319,11 @@ def run_scan_folder(
             "critical": n_crit,
             "warning": n_warn,
             "incidents": call_result["total_incidents"],
+            # The distinct incident kinds THIS call carries (sorted for
+            # determinism): what the recurrence-state check counts
+            # ("<kind> in N of M calls this run").
+            "kinds": sorted({inc["kind_key"]
+                             for inc in call_result["incidents"]}),
             "worst": worst,
             "report_path": call_result["report_path"],
         })
@@ -259,16 +339,74 @@ def run_scan_folder(
     categories = [by_kind[k] for k in _autopsy.COST_KIND_KEYS if k in by_kind]
 
     n_analyzed = len(calls)
-    n_clean = sum(1 for c in calls if c["critical"] == 0)
-    if n_analyzed:
-        pct = f"{100.0 * n_clean / n_analyzed:.0f}"
-        headline = (f"{n_clean} of {n_analyzed} calls had no critical "
-                    f"incidents ({pct}%)")
-        share = round(n_clean / n_analyzed, 4)
+    # The Voice Stability denominator is dual-channel deterministic-timing
+    # calls ONLY: a mono call never enters the rate. Mono calls report into
+    # their own best-effort observations block below.
+    dual_calls = [c for c in calls if c["mode"] != "mono"]
+    mono_calls = [c for c in calls if c["mode"] == "mono"]
+    n_dual = len(dual_calls)
+    n_dual_clean = sum(1 for c in dual_calls if c["critical"] == 0)
+    if n_dual:
+        pct = f"{100.0 * n_dual_clean / n_dual:.0f}"
+        headline = (f"{n_dual_clean} of {n_dual} dual-channel calls had no "
+                    f"critical incidents ({pct}%)")
+        share = round(n_dual_clean / n_dual, 4)
+        # The Voice Stability Score IS the share, times 100 -- the branded
+        # number restates the measured share, with no weights and no other
+        # arithmetic; the share line renders directly beneath it as the
+        # formula. The machine field is critical_free_call_rate.
+        critical_free_call_rate = int(round(100.0 * n_dual_clean / n_dual))
+    elif mono_calls:
+        # No 0/0 theater, and no score over a denominator the run did not
+        # have: with zero dual-channel calls the report states why instead.
+        headline = (
+            f"no score: 0 dual-channel calls analyzed -- the Voice "
+            f"Stability denominator counts dual-channel deterministic-"
+            f"timing calls only; {len(mono_calls)} mono call"
+            f"{'s' if len(mono_calls) != 1 else ''} reported below as "
+            "best-effort observations")
+        share = None
+        critical_free_call_rate = None
     else:
         headline = (f"0 calls analyzed ({len(refused)} refused; the reasons "
                     "are listed)")
         share = None
+        # No 0/0 theater: with zero analyzed calls no score exists.
+        critical_free_call_rate = None
+
+    mono_block = None
+    if mono_calls:
+        mono_block = {
+            "label": MONO_OBSERVATIONS_LABEL,
+            "note": MONO_OBSERVATIONS_NOTE,
+            "calls_analyzed": len(mono_calls),
+            "calls_no_critical": sum(
+                1 for c in mono_calls if c["critical"] == 0),
+            "critical": sum(c["critical"] for c in mono_calls),
+            "warning": sum(c["warning"] for c in mono_calls),
+        }
+
+    # Evidence coverage: per-lane measured counts from what THIS run
+    # actually had. A lane with no evidence in the run never renders, so
+    # nothing reads as assessed on absent evidence.
+    coverage = []
+    if n_dual:
+        coverage.append({
+            "lane": "dual-channel timing", "calls": n_dual,
+            "detail": "deterministic two-channel timing walk",
+        })
+    if mono_calls:
+        coverage.append({
+            "lane": "mono best-effort", "calls": len(mono_calls),
+            "detail": ("measured-confidence silence timing from one mixed "
+                       "channel"),
+        })
+    if refused:
+        coverage.append({
+            "lane": "refused", "calls": len(refused),
+            "detail": ("unreadable as call audio; every file listed with "
+                       "its reason, never scored"),
+        })
 
     cost_summary = None
     if cost_config:
@@ -302,12 +440,18 @@ def run_scan_folder(
             "analyzed": n_analyzed,
             "refused": len(refused),
         },
+        "policy_sha": policy_sha(min_gap_sec),
         "health": {
-            "calls_no_critical": n_clean,
-            "calls_analyzed": n_analyzed,
+            "calls_no_critical": n_dual_clean,
+            "calls_analyzed": n_dual,
             "share": share,
+            "critical_free_call_rate": critical_free_call_rate,
+            "small_sample": bool(n_dual and n_dual < SMALL_SAMPLE_MIN_CALLS),
             "headline": headline,
+            "no_score_reason": None if n_dual else headline,
         },
+        "mono": mono_block,
+        "coverage": coverage,
         "incidents": {"critical": total_crit, "warning": total_warn},
         "categories": categories,
         "calls": calls,
@@ -340,8 +484,11 @@ def build_envelope(result: dict, recorded_at: str) -> dict:
         "recorded_at": recorded_at,
         "note": result["note"],
         "config": result["config"],
+        "policy_sha": result["policy_sha"],
         "counts": result["counts"],
         "health": result["health"],
+        "mono": result["mono"],
+        "coverage": result["coverage"],
         "incidents": result["incidents"],
         "categories": result["categories"],
         "calls": result["calls"],
@@ -373,18 +520,195 @@ def load_prior_runs(out_dir: str, dir_key: str, current_id: str) -> List[dict]:
         if doc.get("dir_key") != dir_key or doc.get("id") == current_id:
             continue
         health = doc.get("health") or {}
-        counts = doc.get("counts") or {}
         incidents = doc.get("incidents") or {}
+        categories = doc.get("categories") or []
+        # Per-call stored facts: what the recurrence states count. Every
+        # number here is read from the stored envelope, never recomputed
+        # from audio.
+        calls_list = [c for c in (doc.get("calls") or [])
+                      if isinstance(c, dict)]
+        kind_call_counts: dict = {}
+        dual_kind_call_counts: dict = {}
+        eligible = 0
+        for c in calls_list:
+            kinds = c.get("kinds") or []
+            dual = bool(c.get("mode")) and c.get("mode") != "mono"
+            if dual:
+                eligible += 1
+            for k in kinds:
+                kind_call_counts[k] = kind_call_counts.get(k, 0) + 1
+                if dual:
+                    dual_kind_call_counts[k] = (
+                        dual_kind_call_counts.get(k, 0) + 1)
+        lanes = sorted({"mono" if c.get("mode") == "mono" else "dual"
+                        for c in calls_list if c.get("mode")})
+        config = doc.get("config") or {}
+        stored_policy = doc.get("policy_sha")
+        if not stored_policy:
+            try:
+                stored_policy = policy_sha(float(config["min_gap_sec"]))
+            except (KeyError, TypeError, ValueError):
+                stored_policy = None
         rows.append({
             "id": doc.get("id"),
             "recorded_at": str(doc.get("recorded_at") or ""),
-            "analyzed": counts.get("analyzed"),
+            "analyzed": health.get("calls_analyzed"),
             "calls_no_critical": health.get("calls_no_critical"),
             "share": health.get("share"),
             "critical_incidents": incidents.get("critical"),
+            # The incident kinds that run measured (from its stored
+            # per-category counts): what the recurrence check reads.
+            # Stored facts only, never recomputed.
+            "kind_keys": sorted({
+                c["kind_key"] for c in categories
+                if isinstance(c, dict) and c.get("kind_key")
+                and (c.get("count") or 0) > 0
+            }),
+            "kind_call_counts": kind_call_counts,
+            "dual_kind_call_counts": dual_kind_call_counts,
+            "eligible": eligible,
+            "lanes": lanes,
+            "policy_sha": stored_policy,
         })
     rows.sort(key=lambda r: (r["recorded_at"], str(r["id"])))
     return rows
+
+
+def persist_run(result: dict, calls_raw: List[Tuple[dict, str]]) -> List[dict]:
+    """Write one folder run's artifacts exactly as ``hotato scan DIR`` does:
+    the per-call autopsy reports and envelopes the worst-calls ranking links
+    to, the folder report HTML, and -- only when this content was not stored
+    before -- the summary envelope with its ``recorded_at`` provenance
+    stamped once (a re-run of unchanged content resolves to the same
+    content-addressed path and leaves the stored file untouched). Returns
+    the prior runs of the same directory, loaded BEFORE this run's envelope
+    lands so the current run never lists itself."""
+    from . import autopsy as _autopsy
+    from .cli import _atomic_write_json, _atomic_write_text
+
+    out_dir = os.path.dirname(result["report_path"])
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    for call_result, call_html in calls_raw:
+        _atomic_write_text(call_result["report_path"], call_html)
+        _atomic_write_json(call_result["envelope_path"],
+                           _autopsy.envelope_dict(call_result))
+    prior_runs = load_prior_runs(out_dir, result["dir_key"], result["id"])
+    _atomic_write_text(result["report_path"],
+                       build_scan_report_html(result, prior_runs))
+    if not os.path.exists(result["envelope_path"]):
+        import datetime as _dt
+
+        recorded_at = _dt.datetime.now(_dt.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        _atomic_write_json(result["envelope_path"],
+                           build_envelope(result, recorded_at))
+    return prior_runs
+
+
+# --- recurrence states (stored envelopes only, never extrapolation) -----------
+
+def fleet_alerts(result: dict, prior_runs: List[dict]) -> List[dict]:
+    """Recurrence lines with a measured state, for every incident kind
+    present in THIS run that also appears in at least one stored prior run
+    of the same directory. Every number is a stored or freshly measured
+    fact -- the current run's per-call kinds and the prior envelopes'
+    per-call counts with their ``recorded_at`` provenance -- so the same
+    store always yields the same lines, in the category order the report
+    already uses.
+
+    States (the occurrence count is calls carrying the kind across this
+    run plus the stored prior runs; the eligible sample is dual-channel
+    calls, the same denominator the score uses):
+
+      * ``observed`` -- 1-2 occurrences in the stored window;
+      * ``RECURRING`` -- 3+ occurrences;
+      * ``RECURRING, LOW SAMPLE`` -- 3+ occurrences but this run's eligible
+        sample is under :data:`SMALL_SAMPLE_MIN_CALLS`;
+      * ``ELEVATED`` -- this run and the most recent comparable prior run
+        (same policy sha, same evidence lanes, both with 20+ eligible
+        dual-channel calls) have Wilson 95% intervals on the kind's
+        per-call rate that do not overlap, this run higher. Reuses the
+        repository's Wilson helper (``simulate._wilson_ci``)."""
+    alerts = []
+    calls = result["calls"]
+    analyzed = result["counts"]["analyzed"]
+    eligible = result["health"]["calls_analyzed"]
+    this_lanes = sorted({"mono" if c.get("mode") == "mono" else "dual"
+                         for c in calls})
+    this_policy = result.get("policy_sha")
+    for cat in result["categories"]:
+        kind_key = cat["kind_key"]
+        in_calls = sum(1 for c in calls if kind_key in (c.get("kinds") or ()))
+        in_dual = sum(1 for c in calls
+                      if c.get("mode") != "mono"
+                      and kind_key in (c.get("kinds") or ()))
+        prior_with = [r for r in prior_runs
+                      if kind_key in (r.get("kind_keys") or ())]
+        if not (in_calls and prior_with):
+            continue
+        prior_dates = [r["recorded_at"] for r in prior_with]
+        occurrences = in_calls + sum(
+            (r.get("kind_call_counts") or {}).get(kind_key, 0)
+            for r in prior_with)
+        state = "observed"
+        elevated_vs = None
+        if occurrences >= 3:
+            if eligible < SMALL_SAMPLE_MIN_CALLS:
+                state = "RECURRING, LOW SAMPLE"
+            else:
+                state = "RECURRING"
+                comparable = [
+                    r for r in prior_runs
+                    if (r.get("eligible") or 0) >= SMALL_SAMPLE_MIN_CALLS
+                    and this_policy
+                    and r.get("policy_sha") == this_policy
+                    and (r.get("lanes") or []) == this_lanes
+                ]
+                if comparable:
+                    from .simulate import _wilson_ci
+
+                    prior = comparable[-1]  # rows are oldest first
+                    ci_now = _wilson_ci(in_dual, eligible)
+                    ci_prior = _wilson_ci(
+                        (prior.get("dual_kind_call_counts") or {})
+                        .get(kind_key, 0),
+                        prior["eligible"])
+                    if (ci_now and ci_prior
+                            and ci_now["low"] > ci_prior["high"]):
+                        state = "ELEVATED"
+                        elevated_vs = prior["recorded_at"]
+        alerts.append({
+            "kind_key": kind_key,
+            "kind": cat["kind"],
+            "state": state,
+            "calls_this_run": in_calls,
+            "calls_analyzed": analyzed,
+            "occurrences": occurrences,
+            "eligible": eligible,
+            "prior_runs": len(prior_with),
+            "prior_dates": prior_dates,
+            "elevated_vs": elevated_vs,
+        })
+    return alerts
+
+
+def fleet_alert_text(alert: dict) -> str:
+    dates = ", ".join(alert["prior_dates"])
+    line = (f"{alert['state']}: {alert['kind']} in "
+            f"{alert['calls_this_run']} of {alert['calls_analyzed']} calls "
+            f"this run ({alert['occurrences']} in the stored window). Also "
+            f"present in {alert['prior_runs']} prior run(s): {dates}.")
+    if alert["state"] == "RECURRING, LOW SAMPLE":
+        line += (f" Eligible sample: {alert['eligible']} dual-channel call"
+                 f"{'s' if alert['eligible'] != 1 else ''}, under "
+                 f"{SMALL_SAMPLE_MIN_CALLS}.")
+    if alert.get("elevated_vs"):
+        line += (f" Wilson 95% intervals do not overlap with the run "
+                 f"recorded {alert['elevated_vs']} "
+                 f"({SMALL_SAMPLE_MIN_CALLS}+ eligible dual-channel calls "
+                 "in both runs, same policy and coverage).")
+    return line
 
 
 # --- CLI text ------------------------------------------------------------------
@@ -395,9 +719,45 @@ def render_text(result: dict, prior_runs: List[dict]) -> str:
         f"hotato scan: {result['directory']}  ({counts['scanned']} recording"
         f"{'s' if counts['scanned'] != 1 else ''}: {counts['analyzed']} "
         f"analyzed, {counts['refused']} refused)",
-        f"  health: {result['health']['headline']}",
-        f"  {SCAN_FOLDER_NOTE}",
     ]
+    health = result["health"]
+    score = health.get("critical_free_call_rate")
+    if score is not None:
+        # The branded number IS the measured share, times 100; the share
+        # line renders directly beneath it as the formula, with the
+        # eligible sample size and the analysis-policy sha beside the
+        # score. With zero dual-channel calls no score line exists (the
+        # headline states why instead; no 0/0 theater).
+        n_dual = health["calls_analyzed"]
+        lines.append(
+            f"  Voice Stability Score: {score}/100  "
+            f"({n_dual} dual-channel call{'s' if n_dual != 1 else ''}; "
+            f"policy {result['policy_sha']})")
+        if health.get("small_sample"):
+            lines.append(
+                f"  SMALL SAMPLE: {n_dual} dual-channel call"
+                f"{'s' if n_dual != 1 else ''}, under the "
+                f"{SMALL_SAMPLE_MIN_CALLS}-call bar")
+    lines.append(f"  health: {health['headline']}")
+    lines.append(f"  {SCAN_FOLDER_NOTE}")
+    mono = result.get("mono")
+    if mono:
+        n_mono = mono["calls_analyzed"]
+        lines.append(
+            f"  {mono['label']}: {n_mono} call"
+            f"{'s' if n_mono != 1 else ''}, {mono['calls_no_critical']} "
+            f"with no critical findings ({mono['critical']} critical, "
+            f"{mono['warning']} warning)")
+        lines.append(f"    {mono['note']}")
+    if result.get("coverage"):
+        lines.append("  evidence coverage (measured from this run):")
+        for lane in result["coverage"]:
+            unit = "file" if lane["lane"] == "refused" else "call"
+            lines.append(
+                f"    {lane['lane']}: {lane['calls']} {unit}"
+                f"{'s' if lane['calls'] != 1 else ''} -- {lane['detail']}")
+    for alert in fleet_alerts(result, prior_runs):
+        lines.append("  " + fleet_alert_text(alert))
     if result["categories"]:
         lines.append("  incidents by category:")
         for cat in result["categories"]:
@@ -454,8 +814,10 @@ def render_text(result: dict, prior_runs: List[dict]) -> str:
 # --- the self-contained HTML report --------------------------------------------
 
 _EXTRA_CSS = """
+.scoreline{font-size:27px;font-weight:800;margin:2px 0 4px}
 .healthline{font-size:22px;font-weight:750;margin:2px 0 6px}
 .healthnote{color:%(muted)s;font-size:12.5px}
+.alertrow{color:%(red)s;font-weight:700;font-size:13px;margin:6px 0}
 .trow{display:flex;gap:12px;align-items:baseline;margin:5px 0}
 .tstamp{min-width:180px;color:%(muted)s;font-size:12.5px;
  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -518,11 +880,82 @@ def build_scan_report_html(result: dict, prior_runs: List[dict]) -> str:
         '</div></div></header>',
     ]
 
-    body.append(
-        '<section class="card"><div class="ctitle">Health</div>'
-        f'<div class="healthline">{esc(health["headline"])}</div>'
-        f'<div class="healthnote">{esc(SCAN_FOLDER_NOTE)}</div></section>'
-    )
+    score = health.get("critical_free_call_rate")
+    health_bits = ['<section class="card"><div class="ctitle">Health</div>']
+    if score is not None:
+        # The score IS the measured share, times 100; the share line sits
+        # directly beneath it as the formula, the eligible sample size and
+        # the analysis-policy sha beside the score, and the derivation note
+        # points at the share line. Zero dual-channel calls render no score
+        # (the headline states why; no 0/0 theater).
+        n_dual = health["calls_analyzed"]
+        health_bits.append(
+            f'<div class="scoreline">Voice Stability Score: {score}/100</div>'
+        )
+        health_bits.append(
+            f'<div class="healthnote">{n_dual} dual-channel call'
+            f'{"s" if n_dual != 1 else ""} &middot; policy '
+            f'{esc(result["policy_sha"])}</div>')
+        if health.get("small_sample"):
+            health_bits.append(
+                f'<div class="alertrow">SMALL SAMPLE: {n_dual} dual-channel '
+                f'call{"s" if n_dual != 1 else ""}, under the '
+                f'{SMALL_SAMPLE_MIN_CALLS}-call bar</div>')
+    health_bits.append(
+        f'<div class="healthline">{esc(health["headline"])}</div>')
+    if score is not None:
+        health_bits.append(
+            f'<div class="healthnote">{esc(SCORE_HOW_NOTE)}</div>')
+    health_bits.append(
+        f'<div class="healthnote">{esc(SCAN_FOLDER_NOTE)}</div></section>')
+    body.append("".join(health_bits))
+
+    mono = result.get("mono")
+    if mono:
+        n_mono = mono["calls_analyzed"]
+        body.append(
+            '<section class="card"><div class="ctitle">'
+            f'{esc(mono["label"])}</div>'
+            f'<div class="healthline">{n_mono} call'
+            f'{"s" if n_mono != 1 else ""}, {mono["calls_no_critical"]} '
+            f'with no critical findings ({mono["critical"]} critical, '
+            f'{mono["warning"]} warning)</div>'
+            f'<div class="scopenote">{esc(mono["note"])}</div></section>'
+        )
+
+    if result.get("coverage"):
+        rows = "".join(
+            '<div class="catrow">'
+            f'<span class="catk">{esc(lane["lane"])}</span>'
+            f'<span class="catn">{lane["calls"]} '
+            f'{"file" if lane["lane"] == "refused" else "call"}'
+            f'{"s" if lane["calls"] != 1 else ""}</span>'
+            f'<span class="catw">{esc(lane["detail"])}</span>'
+            '</div>'
+            for lane in result["coverage"]
+        )
+        body.append(
+            '<section class="card"><div class="ctitle">Evidence coverage'
+            '</div><div class="scopenote">Per-lane measured counts from '
+            'what this run actually had; a lane with no evidence in the '
+            'run never renders as assessed.</div>' + rows + '</section>'
+        )
+
+    alerts = fleet_alerts(result, prior_runs)
+    if alerts:
+        rows = "".join(
+            f'<div class="alertrow">{esc(fleet_alert_text(a))}</div>'
+            for a in alerts
+        )
+        body.append(
+            '<section class="card"><div class="ctitle">Recurrence</div>'
+            '<div class="scopenote">Incident kinds present in this run that '
+            'also appear in stored prior runs of this directory, each with '
+            'its measured state (observed / RECURRING / RECURRING, LOW '
+            'SAMPLE / ELEVATED); every count and date comes from a measured '
+            'aggregate or a stored summary envelope.</div>'
+            + rows + '</section>'
+        )
 
     if prior_runs:
         rows = "".join(
@@ -638,9 +1071,13 @@ def build_scan_report_html(result: dict, prior_runs: List[dict]) -> str:
     )
     body.append('</main>')
 
-    title = (f"hotato scan: {result['directory']}, "
-             f"{health['calls_no_critical']} of {health['calls_analyzed']} "
-             "calls with no critical incidents")
+    if health.get("share") is not None:
+        title = (f"hotato scan: {result['directory']}, "
+                 f"{health['calls_no_critical']} of "
+                 f"{health['calls_analyzed']} dual-channel calls with no "
+                 "critical incidents")
+    else:
+        title = f"hotato scan: {result['directory']}"
     return (
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"

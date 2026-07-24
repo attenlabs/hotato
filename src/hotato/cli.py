@@ -150,6 +150,72 @@ _EXIT_CODES: dict = {
             "sweep), a usage error, missing credentials, --allow-mono "
             "required, or a stack with no list endpoint and no explicit ids"),
     ),
+    "vapi": (
+        (2, "no subcommand given (see hotato vapi health --help)"),
+    ),
+    "vapi health": (
+        (0, "pulled recent calls and wrote the health report; the Voice "
+            "Stability Score is the measured share of dual-channel calls "
+            "with zero critical incidents, times 100"),
+        (2, "usage error, a missing API key (VAPI_API_KEY or hotato connect "
+            "vapi), a malformed --last window, no calls in the window, every "
+            "listed recording failed to fetch, or zero analyzable calls (no "
+            "score is reported over zero calls)"),
+    ),
+    "retell": (
+        (2, "no subcommand given (see hotato retell health --help)"),
+    ),
+    "retell health": (
+        (0, "pulled the given calls and wrote the health report; the Voice "
+            "Stability Score is the measured share of dual-channel calls "
+            "with zero critical incidents, times 100"),
+        (2, "usage error, a missing API key (RETELL_API_KEY or hotato "
+            "connect retell), missing --call-id (Retell has no verified "
+            "list-recent-calls endpoint, so hotato never guesses one), every "
+            "given recording failed to fetch, or zero analyzable calls (no "
+            "score is reported over zero calls)"),
+    ),
+    "bland": (
+        (2, "no subcommand given (see hotato bland health --help)"),
+    ),
+    "bland health": (
+        (0, "pulled recent calls and wrote the health report (Bland exports "
+            "one mixed channel, so every call runs the measured-confidence "
+            "mono path and reports into the best-effort mono observations "
+            "block with its own counts)"),
+        (2, "usage error, a missing API key (BLAND_API_KEY or hotato connect "
+            "bland), a malformed --last window, no calls in the window, "
+            "every listed recording failed to fetch, or zero analyzable "
+            "calls (no score is reported over zero calls)"),
+    ),
+    "synthflow": (
+        (2, "no subcommand given (see hotato synthflow health --help)"),
+    ),
+    "synthflow health": (
+        (0, "pulled recent calls and wrote the health report (Synthflow "
+            "exports one mixed channel, so every call runs the "
+            "measured-confidence mono path and reports into the best-effort "
+            "mono observations block with its own counts)"),
+        (2, "usage error, a missing API key (SYNTHFLOW_API_KEY or hotato "
+            "connect synthflow), a missing model_id for the list step "
+            "(SYNTHFLOW_MODEL_ID or hotato connect synthflow), a malformed "
+            "--last window, no calls in the window, every listed recording "
+            "failed to fetch, or zero analyzable calls (no score is "
+            "reported over zero calls)"),
+    ),
+    "millis": (
+        (2, "no subcommand given (see hotato millis health --help)"),
+    ),
+    "millis health": (
+        (0, "pulled recent calls and wrote the health report (Millis "
+            "exports one mixed channel, so every call runs the "
+            "measured-confidence mono path and reports into the best-effort "
+            "mono observations block with its own counts)"),
+        (2, "usage error, a missing API key (MILLIS_API_KEY or hotato "
+            "connect millis), a malformed --last window, no calls in the "
+            "window, every listed recording failed to fetch, or zero "
+            "analyzable calls (no score is reported over zero calls)"),
+    ),
     "serve": (
         (0, "the workspace server ran and shut down cleanly (Ctrl-C)"),
         (2, "usage error: an unusable registry/token, or the port was "
@@ -4771,37 +4837,33 @@ def _cmd_scan_folder(args) -> int:
                    if args.cost_config else None)
     result, calls_raw = _scanfolder.run_scan_folder(
         args.directory, cost_config=cost_config, min_gap_sec=args.min_gap)
-    out_dir = os.path.dirname(result["report_path"])
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-    # The per-call autopsy artifacts the worst-calls ranking links to (and the
-    # envelopes `hotato pin` resolves): the same content-addressed files
-    # `hotato autopsy` writes for each recording.
-    for call_result, call_html in calls_raw:
-        _atomic_write_text(call_result["report_path"], call_html)
-        _atomic_write_json(call_result["envelope_path"],
-                           _autopsy.envelope_dict(call_result))
-    prior_runs = _scanfolder.load_prior_runs(
-        out_dir, result["dir_key"], result["id"])
+    # The per-call autopsy artifacts the worst-calls ranking links to (and
+    # the envelopes `hotato pin` resolves), the folder report, and the
+    # content-addressed summary envelope (its recorded_at provenance stamped
+    # once; a re-run of unchanged content leaves the stored file untouched)
+    # -- the same persistence the platform health commands reuse.
+    prior_runs = _scanfolder.persist_run(result, calls_raw)
     result["prior_runs"] = prior_runs
-    _atomic_write_text(
-        result["report_path"],
-        _scanfolder.build_scan_report_html(result, prior_runs))
-    # The summary envelope is content-addressed: unchanged content resolves
-    # to the same path, and the stored file -- including its recorded_at
-    # provenance stamp -- stays untouched, so a re-run is byte-identical.
-    if not os.path.exists(result["envelope_path"]):
-        import datetime as _dt
-
-        recorded_at = _dt.datetime.now(_dt.timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ")
-        _atomic_write_json(result["envelope_path"],
-                           _scanfolder.build_envelope(result, recorded_at))
     if args.format == "json":
         print(_errors.safe_json_dumps(result, indent=2))
     else:
         print(_scanfolder.render_text(result, prior_runs))
     return 0
+
+
+def _cmd_platform_health(args) -> int:
+    from . import healthcmd as _healthcmd
+
+    return _healthcmd.run_health(
+        args.stack,
+        last=args.last,
+        limit=args.limit,
+        output=args.output,
+        dir=args.dir,
+        ids=args.call_id,
+        api_key=args.api_key,
+        fmt=args.format,
+    )
 
 
 def _cmd_scan(args) -> int:
@@ -8794,6 +8856,158 @@ def build_parser() -> argparse.ArgumentParser:
                     help="write EVERY candidate as JSON here (--top caps only "
                          "the stdout listing)")
     sc.set_defaults(func=_cmd_scan)
+
+    # --- <platform> health: pull recent calls + the folder health report ----
+    # Three thin entries over ONE implementation (hotato.healthcmd): the
+    # existing pull machinery fetches the recordings, the folder aggregate
+    # checks every one, and the output leads with the Voice Stability Score.
+    _HEALTH_MONO_DESCRIPTION = (
+        "ONE command from API key to the health report: list your recent "
+        "{label} calls, download each recording straight from {label}'s "
+        "own API, check every one, and write the folder health report. "
+        "{label} exports one mixed channel, so every call runs the "
+        "measured-confidence mono path: silence timing (dead air, latency "
+        "gaps) is measured from the mixed channel, and talk-over "
+        "attribution comes from a two-channel recording -- the scope line "
+        "states this once per run. The report carries the best-effort "
+        "mono observations block with its own counts (the Voice Stability "
+        "denominator counts dual-channel calls only), the evidence "
+        "coverage block, and recurrence-state lines across stored runs. "
+        "The analysis runs on this machine; recordings go nowhere else. "
+        "Credentials come from --api-key, hotato connect {stack}, or "
+        "{env}."
+    )
+    _HEALTH_DESCRIPTIONS = {
+        "vapi": (
+            "ONE command from API key to the health report: list your "
+            "recent Vapi calls, download each two-channel recording "
+            "straight from Vapi's own API, check every one, and write the "
+            "folder health report led by the Voice Stability Score -- the "
+            "measured share of dual-channel calls with zero critical "
+            "incidents, times 100, with the formula printed directly "
+            "beneath it and the sample size and policy sha beside it. The "
+            "evidence coverage block lists the per-lane measured counts, "
+            "and incident kinds recurring across stored runs print "
+            "recurrence-state lines (observed / RECURRING / RECURRING, "
+            "LOW SAMPLE / ELEVATED). The analysis runs on this machine; "
+            "recordings go nowhere else. Credentials come from --api-key, "
+            "hotato connect vapi, or VAPI_API_KEY."
+        ),
+        "retell": (
+            "ONE command from API key to the health report: download the "
+            "given Retell calls' two-channel recordings straight from "
+            "Retell's own API, check every one, and write the folder "
+            "health report led by the Voice Stability Score -- the "
+            "measured share of dual-channel calls with zero critical "
+            "incidents, times 100, with the formula printed directly "
+            "beneath it and the sample size and policy sha beside it. "
+            "Retell has no verified list-recent-calls endpoint, so hotato "
+            "never guesses one: pass the calls with --call-id "
+            "(repeatable). The evidence coverage block lists the per-lane "
+            "measured counts, and incident kinds recurring across stored "
+            "runs print recurrence-state lines. The analysis runs on this "
+            "machine; recordings go nowhere else. Credentials come from "
+            "--api-key, hotato connect retell, or RETELL_API_KEY."
+        ),
+        "bland": _HEALTH_MONO_DESCRIPTION.format(
+            label="Bland", stack="bland", env="BLAND_API_KEY"),
+        "synthflow": _HEALTH_MONO_DESCRIPTION.format(
+            label="Synthflow", stack="synthflow", env="SYNTHFLOW_API_KEY")
+            + " The list step needs a model_id (hotato connect synthflow "
+              "or SYNTHFLOW_MODEL_ID).",
+        "millis": _HEALTH_MONO_DESCRIPTION.format(
+            label="Millis", stack="millis", env="MILLIS_API_KEY"),
+    }
+    _HEALTH_EXAMPLES = {
+        "vapi": (
+            "Examples:\n"
+            "  hotato vapi health\n"
+            "  hotato vapi health --last 30d --limit 200\n"
+            "  hotato vapi health --dir ./vapi-calls --output health.html"
+        ),
+        "retell": (
+            "Examples:\n"
+            "  hotato retell health --call-id CALL_ID\n"
+            "  hotato retell health --call-id CALL_1 --call-id CALL_2\n"
+            "  hotato retell health --call-id CALL_ID --output health.html"
+        ),
+        "bland": (
+            "Examples:\n"
+            "  hotato bland health\n"
+            "  hotato bland health --last 30d --limit 200\n"
+            "  hotato bland health --dir ./bland-calls --output health.html"
+        ),
+        "synthflow": (
+            "Examples:\n"
+            "  hotato synthflow health\n"
+            "  hotato synthflow health --last 30d --limit 200\n"
+            "  hotato synthflow health --output health.html"
+        ),
+        "millis": (
+            "Examples:\n"
+            "  hotato millis health\n"
+            "  hotato millis health --last 30d --limit 200\n"
+            "  hotato millis health --output health.html"
+        ),
+    }
+    for _health_stack, _health_label in (("vapi", "Vapi"),
+                                         ("retell", "Retell"),
+                                         ("bland", "Bland"),
+                                         ("synthflow", "Synthflow"),
+                                         ("millis", "Millis")):
+        _health_mono = _health_stack in _capture.MONO_STACKS
+        _health_led = ("with the best-effort mono observations block"
+                       if _health_mono else "with the Voice Stability Score")
+        hp = sub.add_parser(
+            _health_stack,
+            help=f"{_health_label}: pull recent calls and write the health "
+                 f"report {_health_led} "
+                 f"(hotato {_health_stack} health)",
+            description=(
+                f"{_health_label} platform commands. `hotato {_health_stack} "
+                "health` pulls recent calls and writes the health report."
+            ),
+            epilog=_exit_codes_epilog(_health_stack),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        hpsub = hp.add_subparsers(dest="health_command", required=True,
+                                  metavar="health")
+        hh = hpsub.add_parser(
+            "health",
+            help="pull recent calls, check every recording, and write the "
+                 f"health report {_health_led}",
+            description=_HEALTH_DESCRIPTIONS[_health_stack],
+            epilog=(
+                _exit_codes_epilog(f"{_health_stack} health") + "\n\n"
+                + _HEALTH_EXAMPLES[_health_stack]
+            ),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        hh.add_argument("--last", default="7d", metavar="WINDOW",
+                        help="how far back to pull (e.g. 7d, 12h, 2w; "
+                             "default 7d)")
+        hh.add_argument("--limit", type=int, default=100, metavar="N",
+                        help="maximum calls to pull (default 100)")
+        hh.add_argument("--dir", default=None, metavar="PATH",
+                        help="download directory for the recordings "
+                             f"(default hotato-output/{_health_stack}-calls)")
+        hh.add_argument("--output", default=None, metavar="PATH",
+                        help="also write the HTML health report to PATH "
+                             "(the content-addressed report under "
+                             "hotato-output/ is written either way)")
+        hh.add_argument("--call-id", action="append", dest="call_id",
+                        default=None, metavar="ID",
+                        help="check this call id (repeatable; skips the "
+                             "list step)"
+                             + (". Required: Retell has no verified "
+                                "list-recent-calls endpoint"
+                                if _health_stack == "retell" else ""))
+        hh.add_argument("--api-key", default=None,
+                        help="vendor API key (else the connection store or "
+                             + _capture.CONNECT_SPECS[_health_stack]["env"]["api_key"]
+                             + ")")
+        _add_format_arg(hh, choices=("text", "json"))
+        hh.set_defaults(func=_cmd_platform_health, stack=_health_stack)
 
     syn = sub.add_parser(
         "synth",

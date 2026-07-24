@@ -24,6 +24,64 @@ WAV reads natively; mp3/m4a convert through `ffmpeg` when it is on PATH
 Everything runs offline; no audio leaves the machine. `hotato autopsy`
 with no recording prints the quick start on the bundled rendered example.
 
+## Quick start from your platform (Vapi, Retell, Bland, Synthflow, Millis)
+
+You never touch a WAV: one command pulls your recent calls straight from
+the platform's own API, checks every recording, and writes the health
+report led by the Voice Stability Score.
+
+```bash
+export VAPI_API_KEY=YOUR_KEY          # or: hotato connect vapi
+hotato vapi health
+```
+
+```
+hotato vapi health: pulled 38 of 38 listed calls (0 skipped, last 7d) -> hotato-output/vapi-calls
+hotato scan: vapi-calls  (38 recordings: 38 analyzed, 0 refused)
+  Voice Stability Score: 74/100  (38 dual-channel calls; policy 9412d82c1328)
+  health: 28 of 38 dual-channel calls had no critical incidents (74%)
+  ...
+```
+
+The entries share one implementation and the exact same flags:
+
+```bash
+hotato vapi health                    # VAPI_API_KEY / hotato connect vapi
+hotato retell health --call-id ID     # RETELL_API_KEY / hotato connect retell
+hotato bland health                   # BLAND_API_KEY / hotato connect bland
+hotato synthflow health               # SYNTHFLOW_API_KEY / hotato connect synthflow
+hotato millis health                  # MILLIS_API_KEY / hotato connect millis
+```
+
+| Flag | Meaning |
+| :-- | :-- |
+| `--last WINDOW` | how far back to pull (e.g. `7d`, `12h`, `2w`; default `7d`) |
+| `--limit N` | maximum calls to pull (default 100) |
+| `--dir PATH` | download directory (default `hotato-output/<stack>-calls`) |
+| `--output PATH` | also write the HTML health report to PATH (the content-addressed report under `hotato-output/` is written either way) |
+| `--call-id ID` | check this call id (repeatable; skips the list step). Required for Retell, which has no verified list-recent-calls endpoint -- hotato never guesses one |
+| `--api-key KEY` | vendor API key (else the `hotato connect` store, else the stack's env var) |
+| `--format text\|json` | output format (default text) |
+
+Credentials resolve exactly as `hotato pull` does -- an explicit flag,
+then the `hotato connect` store, then the stack's env var (`VAPI_API_KEY`
+/ `RETELL_API_KEY` / `BLAND_API_KEY` / `SYNTHFLOW_API_KEY` /
+`MILLIS_API_KEY`) -- and a missing key is one actionable line. Vapi and
+Retell fetch the separated two-channel recording; Bland, Synthflow, and
+Millis export one mixed channel, so each of their calls runs the
+measured-confidence mono path below (silence timing measured from the
+mixed channel; talk-over attribution comes from a two-channel recording
+-- the scope line states this once per run). Mono calls report into the
+best-effort mono observations block with their own counts and never
+enter the Voice Stability denominator, so the mono stacks' reports carry
+observations without a stability score. The analysis runs on this
+machine; recordings download straight from the platform and go nowhere
+else.
+
+A window with no calls, a pull in which every recording failed to fetch,
+or a pulled set with zero analyzable calls refuses with the reason (exit
+2) -- no score is reported over zero calls.
+
 ## Stereo: the deterministic path
 
 A two-channel recording (caller on one channel, agent on the other) runs
@@ -110,7 +168,13 @@ hotato scan ./calls
 
 ```
 hotato scan: calls  (5 recordings: 4 analyzed, 1 refused)
-  health: 1 of 4 calls had no critical incidents (25%)
+  Voice Stability Score: 25/100  (4 dual-channel calls; policy 9412d82c1328)
+  SMALL SAMPLE: 4 dual-channel calls, under the 20-call bar
+  health: 1 of 4 dual-channel calls had no critical incidents (25%)
+  ...
+  evidence coverage (measured from this run):
+    dual-channel timing: 4 calls -- deterministic two-channel timing walk
+    refused: 1 file -- unreadable as call audio; every file listed with its reason, never scored
   ...
   worst calls (critical count, then worst measured magnitude):
      1. late-followup.wav  apx-6836885bd877  1 critical, 0 warning  worst 5.14s gap
@@ -119,14 +183,30 @@ hotato scan: calls  (5 recordings: 4 analyzed, 1 refused)
   envelope: hotato-output/scan-scn-46a5af300d6b.json
 ```
 
-The HEALTH headline is a measured share -- calls with zero critical
-incidents over calls analyzed. It is deliberately **never a blended 0-100
-quality score**: one blended number hides exactly the distinction the
-tool exists to draw (see [METHODOLOGY.md](../METHODOLOGY.md)), so the
-share sits beside a per-category breakdown (counts plus the worst
-measured magnitude in each category) and the worst-calls ranking, each
-call linking to its own per-call autopsy report, generated alongside with
-its envelope -- so `hotato pin` works straight from a folder scan.
+The HEALTH headline is a measured share -- **dual-channel calls** with
+zero critical incidents over dual-channel calls analyzed. The **Voice
+Stability Score** is that same share, times 100: `round(share x 100)`,
+nothing else (the machine field is `critical_free_call_rate`). The share
+line prints directly beneath the score as its formula, the eligible
+sample size and the analysis-policy sha print beside the score, a
+`SMALL SAMPLE` label renders under 20 dual-channel calls, and the HTML
+report carries a one-line "How this is calculated" note pointing at the
+share line. A mono call **never enters the denominator**: mono-analyzed
+calls report into the *Best-effort mono observations* block with their
+own counts (measured silence timing from one mixed channel; talk-over
+and barge-in attribution comes from a two-channel recording). With zero
+dual-channel calls no score renders and the report states why. There is
+deliberately **no blended quality score anywhere**: one blended number
+hides exactly the distinction the tool exists to draw (see
+[METHODOLOGY.md](../METHODOLOGY.md)), so the branded number restates the
+measured share -- no weights, no other arithmetic. The share sits beside
+the **evidence coverage** block (per-lane measured counts from what the
+run actually had -- dual-channel timing, mono best-effort, refused with
+reasons; a lane whose evidence was absent from the run never renders as
+assessed), a per-category breakdown (counts plus the worst measured
+magnitude in each category), and the worst-calls ranking, each call
+linking to its own per-call autopsy report, generated alongside with its
+envelope -- so `hotato pin` works straight from a folder scan.
 
 The scan is deterministic end to end: the same directory with the same
 flags produces byte-identical CLI text and a byte-identical HTML report,
@@ -141,6 +221,29 @@ output dir, the report renders a run-over-run strip from them -- each
 prior run's share and critical count under its stored provenance
 timestamp, with the current run beside them. The page stays
 byte-identical given the same directory and the same prior-run store.
+
+**Recurrence states.** An incident kind present in the current run that
+also appears in stored prior runs of the same directory prints a
+recurrence line, in the CLI text and in the report, each line carrying a
+measured state:
+
+```
+RECURRING: DEAD AIR in 7 of 38 calls this run (23 in the stored window). Also present in 3 prior run(s): 2026-07-08T09:00:00Z, 2026-07-15T09:00:00Z, 2026-07-22T09:00:00Z.
+```
+
+The states, all derived from stored facts: `observed` (1-2 calls carry
+the kind across this run plus the stored prior runs), `RECURRING` (3+),
+`RECURRING, LOW SAMPLE` (3+ but the eligible dual-channel sample is
+under 20 calls), and `ELEVATED` (this run and the most recent comparable
+prior run -- same analysis policy, same evidence lanes, 20+ eligible
+dual-channel calls in both -- have Wilson 95% intervals on the kind's
+per-call rate that do not overlap, this run higher). Every count and
+date is a measured aggregate or a stored envelope's `recorded_at`
+provenance -- never extrapolation -- so the same directory and the same
+prior-run store always print the same lines. The platform health
+commands run the same aggregate over their download directory, so
+re-running `hotato vapi health` week over week builds the store the
+recurrence lines read from.
 
 `--cost-config` renders est. cost totals across the analyzed calls, from
 your own per-incident figures, exactly as above. The single-recording
