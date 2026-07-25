@@ -76,8 +76,12 @@ def test_no_surface_leads_with_a_retired_product_definition():
 
 
 def test_the_five_dimensions_are_named_consistently():
-    # the canonical dimension vocabulary appears wherever scoring is described
-    for rel, n in [("README.md", 4000), ("llms.txt", 2000),
+    # The canonical dimension vocabulary appears wherever the SCORING MODEL is
+    # described. llms.txt is deliberately excluded: since the 2026-07-25 front-door
+    # cut it leads with the shipped loop (autopsy / scan / <stack> health / pin /
+    # prove) and the four-tier evidence contract, and names the dimensions nowhere,
+    # so pinning them there would re-introduce the retired testing-platform frame.
+    for rel, n in [("README.md", 4000),
                    ("src/hotato/__init__.py", 1200)]:
         head = _head(rel, n).lower()
         for dim in ("outcome", "policy", "conversation", "speech", "reliability"):
