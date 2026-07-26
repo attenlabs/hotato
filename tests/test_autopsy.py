@@ -191,10 +191,38 @@ def test_mp3_without_ffmpeg_gets_the_actionable_message(
 # --- no args: usage + quick start -------------------------------------------
 
 def test_no_args_prints_usage_and_quick_start(capsys):
+    """The quick start used to name examples/autopsy/audio/... , a repo path
+    that is NOT in the wheel, so the tool's own suggestion failed for everyone
+    who installed it. This test asserted that string and passed the whole
+    time. It names a command that works from a bare pip install now."""
     assert cli.main(["autopsy"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("usage: hotato autopsy")
-    assert "Quick start: hotato autopsy examples/" in out
+    assert "hotato autopsy --demo" in out
+    assert "examples/" not in out
+
+
+def test_demo_analyzes_the_call_bundled_in_the_wheel(tmp_path, monkeypatch,
+                                                     capsys):
+    """`hotato autopsy ./call.wav` is the third line of the README and the
+    homepage command, and in an empty directory it exits 2. Most evaluators
+    have no stereo recording to hand, so the documented path ended the session.
+    --demo resolves the call shipped inside the package."""
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["autopsy", "--demo"]) == 0
+    out = capsys.readouterr().out
+    assert "BARGE-IN" in out
+    assert "report:" in out
+
+
+def test_a_missing_recording_names_a_command_that_works(tmp_path, monkeypatch,
+                                                        capsys):
+    """A tool that says the file is missing and stops has ended the session."""
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["autopsy", "./call.wav"]) == 2
+    err = capsys.readouterr().err
+    assert "no such file" in err
+    assert "hotato autopsy --demo" in err
 
 
 # --- est. cost: only with a config, never a default -------------------------

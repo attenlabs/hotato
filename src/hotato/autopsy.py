@@ -158,7 +158,9 @@ def _resolve_input(path: str, workdir: str) -> str:
     reason), or an ffmpeg conversion into ``workdir`` for mp3/m4a. A missing
     ffmpeg is a clean, one-line actionable refusal, never a traceback."""
     if not os.path.isfile(path):
-        raise ValueError(f"{path!r}: no such file.")
+        raise ValueError(
+            f"{path!r}: no such file. No recording yet? The call "
+            "bundled in this install runs with:  hotato autopsy --demo")
     ext = os.path.splitext(path)[1].lower()
     if ext not in _FFMPEG_EXTS:
         return path
@@ -481,7 +483,9 @@ def run_autopsy(
     from . import scan as _scan
 
     if not os.path.isfile(path):
-        raise ValueError(f"{path!r}: no such file.")
+        raise ValueError(
+            f"{path!r}: no such file. No recording yet? The call "
+            "bundled in this install runs with:  hotato autopsy --demo")
     apx = autopsy_id(path)
     cfg = ScoreConfig()
     workdir = tempfile.mkdtemp(prefix="hotato-autopsy-")
@@ -631,8 +635,7 @@ def quick_start_text() -> str:
         "convert\n"
         "through ffmpeg. Offline; no audio leaves the machine.\n"
         "\n"
-        "Quick start: hotato autopsy "
-        "examples/autopsy/audio/autopsy-01-barge-in-say-do.example.wav"
+        "Quick start, no recording needed: hotato autopsy --demo"
     )
 
 

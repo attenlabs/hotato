@@ -4786,6 +4786,15 @@ def _cmd_compare(args) -> int:
 def _cmd_autopsy(args) -> int:
     from . import autopsy as _autopsy
 
+    if getattr(args, "demo", False) and not args.recording:
+        # The stereo call shipped inside the wheel. Resolved through the
+        # existing helper rather than a second path of our own: one resolver
+        # for the bundled audio, so it cannot drift from `investigate --demo`.
+        from . import investigate as _investigate
+
+        args.recording = _investigate.demo_recording_path()
+        print(f"autopsy --demo: the call bundled in this install\n"
+              f"  {args.recording}", file=sys.stderr)
     if not args.recording:
         # The zero-config greeting, not an error: the usage line plus the one
         # command to try on the bundled rendered example call.
@@ -8872,8 +8881,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  hotato autopsy call.wav\n"
             "  hotato autopsy call.mp3\n"
             "  hotato autopsy call.wav --cost-config costs.json\n"
-            "  hotato autopsy "
-            "examples/autopsy/audio/autopsy-01-barge-in-say-do.example.wav"
+            "  hotato autopsy --demo            # the call bundled in this install"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -8881,6 +8889,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="the call recording to analyze (WAV natively; "
                          "mp3/m4a through ffmpeg). With no RECORDING the "
                          "quick start is printed.")
+    au.add_argument("--demo", action="store_true",
+                    help="analyze the stereo call bundled in this "
+                         "install, so the command works before you have "
+                         "a recording of your own.")
     au.add_argument("--cost-config", default=None, metavar="FILE",
                     help="JSON mapping incident kinds to YOUR per-incident "
                          "figures; only then do est. cost lines render. "

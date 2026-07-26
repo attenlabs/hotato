@@ -16,8 +16,9 @@
 
 ```bash
 pip install hotato
-hotato vapi health              # analyze your last 100 Vapi calls
-hotato autopsy ./call.wav       # or analyze one local file
+hotato autopsy --demo           # a failing call ships with the install
+hotato autopsy ./call.wav       # then your own recording
+hotato vapi health              # or your last 100 Vapi calls
 ```
 
 Zero config. Works with Vapi, Retell, Bland, Synthflow, Millis, or local audio.
