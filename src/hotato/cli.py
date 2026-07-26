@@ -8877,11 +8877,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             _exit_codes_epilog("autopsy") + "\n\n"
-            "Examples:\n"
+            "Examples (--demo needs no recording; it reads the call "
+            "bundled in this install):\n"
             "  hotato autopsy call.wav\n"
             "  hotato autopsy call.mp3\n"
             "  hotato autopsy call.wav --cost-config costs.json\n"
-            "  hotato autopsy --demo            # the call bundled in this install"
+            "  hotato autopsy --demo"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
