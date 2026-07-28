@@ -20,7 +20,7 @@
 > command surface, run `hotato describe --format json`: it regenerates straight
 > from the CLI's argparse, so it never drifts from the real flags.
 >
-> Version 1.17.0
+> Version 1.17.1
 
 ## Start here
 

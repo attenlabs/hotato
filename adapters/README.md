@@ -63,7 +63,7 @@ mix cannot attribute talk-over to caller vs agent; `--allow-mono` (adapter) or
 ### Twilio: turn on dual-channel first
 
 ```bash
-# 1) record dual-channel:  <Record recordingChannels="dual"> / record-from-answer-dual
+# 1) record dual-channel:  record-from-answer-dual / RecordingChannels=dual
 # 2) then:
 export TWILIO_ACCOUNT_SID=AC...  TWILIO_AUTH_TOKEN=...
 hotato capture --stack twilio --recording-sid RE... --expect yield

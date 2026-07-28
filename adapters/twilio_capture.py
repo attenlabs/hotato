@@ -9,8 +9,8 @@ Score a REAL Twilio DUAL-CHANNEL recording's turn-taking with one command:
 
 Record dual-channel so caller and agent land on SEPARATE channels
 --------------------------------------------------------------------
-Request dual-channel when the recording is created:
-    <Record recordingChannels="dual" .../>          (TwiML)
+Two-party recordings are stored dual-channel by default, and these are the
+paths that request it explicitly (<Record> records one channel only):
     <Dial record="record-from-answer-dual">         (TwiML Dial)
     RecordingChannels=dual                          (REST create-recording)
 

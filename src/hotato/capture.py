@@ -1107,9 +1107,10 @@ def capture_twilio(
     participant to join, second channel = everyone else); if caller and agent
     look swapped, pass different --caller-channel/--agent-channel.
 
-    Record dual-channel when the recording is CREATED (``RecordingChannels=dual``
-    on the REST API / ``<Dial record="record-from-answer-dual">`` /
-    ``<Record recordingChannels="dual">``) so a 2-channel file exists to fetch.
+    Two-party recordings are stored dual-channel by default; the create-time
+    paths that request it explicitly are ``RecordingChannels=dual`` on the REST
+    API and ``<Dial record="record-from-answer-dual">``. The ``<Record>`` verb
+    records one channel only, so it never yields a 2-channel file.
     """
     token = base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode()
     auth = {"Authorization": f"Basic {token}"}
@@ -1136,9 +1137,9 @@ def capture_twilio(
                 f"Twilio returned 400 for recording {recording_sid} with "
                 "RequestedChannels=2: the dual-channel format is not available, "
                 f"so this recording is a mono mix and {_MONO_WHY}. Re-record "
-                "with RecordingChannels=dual (REST) / "
-                '<Dial record="record-from-answer-dual"> / '
-                '<Record recordingChannels="dual"> (TwiML) for a valid score. '
+                "with RecordingChannels=dual (REST) or "
+                '<Dial record="record-from-answer-dual"> (TwiML) for a valid '
+                "score; the <Record> verb records one channel only. "
                 "To score the mono mix anyway (degraded, indicative only), pass "
                 "--allow-mono (adapter) or set HOTATO_ALLOW_MONO=1 (hotato "
                 "capture)."
@@ -1298,8 +1299,8 @@ API basis verified against docs.vapi.ai, 2026-07-06.
 _TWILIO_SETUP_TEMPLATE = '''\
 Twilio -- record DUAL-CHANNEL so caller and agent land on separate channels.
 
-    1. Request dual-channel when the recording is CREATED:
-         <Record recordingChannels="dual" .../>          (TwiML)
+    1. Two-party recordings are stored dual-channel by default; to request it
+       explicitly at creation (<Record> records one channel only):
          <Dial record="record-from-answer-dual">         (TwiML Dial)
          RecordingChannels=dual                          (REST create-recording)
     2. After the recording completes, grab its Recording SID (RE...).
@@ -1706,7 +1707,7 @@ def _list_vapi(creds, since, limit):
 
 
 def _list_twilio(creds, since, limit):
-    # GET .../Accounts/{Sid}/Recordings.json  (PageSize, DateCreatedAfter) ->
+    # GET .../Accounts/{Sid}/Recordings.json  (PageSize, DateCreated>) ->
     # {"recordings": [{"sid": "RE...", "date_created": ...}]}. (spec: Twilio list)
     from urllib.parse import urlencode
 
@@ -1715,7 +1716,10 @@ def _list_twilio(creds, since, limit):
     ).decode()
     params = {"PageSize": str(limit)}
     if since is not None:
-        params["DateCreatedAfter"] = _ymd(since)
+        # Twilio documents the range filters as DateCreated>/DateCreated<;
+        # an undocumented name is ignored and silently returns the newest
+        # PageSize recordings instead of the window.
+        params["DateCreated>"] = _ymd(since)
     url = (
         f"https://api.twilio.com/2010-04-01/Accounts/{creds['account_sid']}"
         f"/Recordings.json?{urlencode(params)}"

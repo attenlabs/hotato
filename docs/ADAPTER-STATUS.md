@@ -23,7 +23,7 @@ none**, Hotato falls back to explicit call ids and documents the gap here.
 
 ## Dual-channel: auto-pull, separated scoring
 
-One entry per stack, verified 2026-07-07 unless noted otherwise. Each
+One entry per stack, verified 2026-07-28 against each vendor's current public API documentation unless noted otherwise. Each
 auto-pulls a recording with per-party channels, so Hotato scores full
 separated turn-taking without `--allow-mono`.
 
@@ -32,11 +32,11 @@ separated turn-taking without `--allow-mono`.
   - Fetch recording: `GET /call/{id}` → `artifact.recording.stereoUrl` (current); deprecated fallbacks `artifact.stereoRecordingUrl`, `call.stereoRecordingUrl`
   - Channel basis: `stereoUrl` is a distinct 2-channel file (customer ch0, assistant ch1)
 - **Twilio**
-  - List recent calls: `GET .../Accounts/{Sid}/Recordings.json` (params `PageSize`, `DateCreatedAfter/Before`, `callSid`) → `recordings[].sid`
+  - List recent calls: `GET .../Accounts/{Sid}/Recordings.json` (params `PageSize`, `DateCreated>`/`DateCreated<`, `CallSid`) → `recordings[].sid`
   - Fetch recording: `GET .../Recordings/{RE...}.wav?RequestedChannels=2` (HTTP Basic)
-  - Channel basis: dual-channel only if the recording was created `RecordingChannels=dual`; 400 → clean stop or `--allow-mono` → `RequestedChannels=1`. Two-party order: ch0 = caller, ch1 = agent; conference: ch0 = first participant
+  - Channel basis: two-party recordings are stored dual-channel by default, so `RequestedChannels=2` returns per-leg audio (ch0 = caller, ch1 = agent); the download format with the parameter omitted follows what was requested at creation. 400 → clean stop or `--allow-mono` → `RequestedChannels=1`. Accounts on Encryption with Public Key or External Storage receive mono regardless. Conference recordings are NOT per-party: ch0 is the first participant that joined with recording enabled and ch1 mixes everyone else, so a conference pull carries two channels without carrying two parties
 - **Retell**
-  - List recent calls: **none confirmed** -- the spec marks list-calls unconfirmed; do not fabricate one. Pull from explicit `--call-id`
+  - List recent calls: Retell documents `POST https://api.retellai.com/v3/list-calls` (Bearer, body `limit`/`pagination_key`/`filter_criteria`, items carry `call_id`); hotato pulls from an explicit `--call-id` until that lister is wired (issue #58)
   - Fetch recording: `GET https://api.retellai.com/v2/get-call/{id}` (Bearer) → `scrubbed_recording_multi_channel_url` preferred, then `recording_multi_channel_url`; plain mono `recording_url` rejected unless `--allow-mono`
   - Channel basis: per-party channels on the `*_multi_channel_url` fields
 - **LiveKit**

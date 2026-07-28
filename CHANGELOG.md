@@ -8,6 +8,37 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-07-28
+
+### Fixed
+- **Twilio setup no longer points at a verb that cannot do it.** The
+  dual-channel instructions listed `<Record recordingChannels="dual">`
+  alongside the two paths that work. Twilio's `<Record>` verb has no such
+  attribute and records one channel only, so following that line produced a
+  mono file that then failed the `RequestedChannels=2` fetch -- and the
+  failure message repeated the same instruction. `<Dial
+  record="record-from-answer-dual">` and REST `RecordingChannels=dual` are
+  what the docs support, and they are what hotato now says.
+- **`--since` covers the window it names on Twilio.** The recordings lister
+  sent `DateCreatedAfter`, which Twilio does not document and therefore
+  ignores; the account returned its newest `PageSize` recordings and the
+  client-side cutoff then trimmed them, so a busy week silently came back as
+  a slice of itself. It sends the documented `DateCreated>` filter now.
+- **The Twilio channel rows say what Twilio says.** Two-party recordings are
+  stored dual-channel by default -- `RequestedChannels=2` returns per-leg
+  audio without a creation-time opt-in -- and conference recordings are not
+  per-party: channel 0 is the first participant that joined with recording
+  enabled and channel 1 mixes everyone else, which is two channels without
+  two parties. `docs/ADAPTER-STATUS.md` also notes the account settings
+  (Encryption with Public Key, External Storage) that return mono anyway.
+- **Retell's published lister is on the record.** `docs/ADAPTER-STATUS.md`
+  carried "none confirmed" for Retell list-calls; Retell documents
+  `POST /v3/list-calls`. The row names the endpoint and points at #58, which
+  tracks wiring it.
+
+Every adapter row was re-verified against the vendor's current public API
+documentation on 2026-07-28. Vapi and Pipecat needed no change.
+
 ## [1.17.0] - 2026-07-28
 
 ### Fixed

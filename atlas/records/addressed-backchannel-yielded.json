@@ -164,7 +164,7 @@
     "provenance": {
       "hotato": {
         "name": "hotato",
-        "version": "1.17.0"
+        "version": "1.17.1"
       },
       "inputs": [
         {
@@ -196,7 +196,7 @@
       ],
       "source_result_digest": "sha256:7a691d5993389b47f2b43b7afbe7316bbb0d662e703fa0f8a82e39b93b052c08"
     },
-    "record_id": "sha256:8b29402ab4a56e7229a36f40e3d092bab03a8127ba70d626bfab9583f9762643",
+    "record_id": "sha256:1b409544aec58b2082d4cd3a6c355bcd7f23c26e617b5bfee45b87b94c31717a",
     "reproduction": {
       "argv": [
         "hotato",
@@ -222,7 +222,7 @@
     "version": "1.0"
   },
   "reproduction_metadata": {
-    "hotato_version": "1.17.0",
+    "hotato_version": "1.17.1",
     "reviewer_principal": "hotato-examples",
     "working_directory": ".",
     "bundle": {
@@ -240,7 +240,7 @@
     "verify_output": "verify.json",
     "selector": "fd-02-backchannel-yielded",
     "record_out": "record",
-    "expected_record_id": "sha256:8b29402ab4a56e7229a36f40e3d092bab03a8127ba70d626bfab9583f9762643"
+    "expected_record_id": "sha256:1b409544aec58b2082d4cd3a6c355bcd7f23c26e617b5bfee45b87b94c31717a"
   },
   "supersedes": {
     "record_id": "sha256:6c5e0e6de73004d8683c0987812d849c46fa9f9f8f204eb4da71e600b636e3a0",
@@ -268,8 +268,8 @@
     },
     {
       "command": "hotato record render verify.json#fd-02-backchannel-yielded --out record",
-      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:8b29402ab4a56e7229a36f40e3d092bab03a8127ba70d626bfab9583f9762643\n"
+      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:1b409544aec58b2082d4cd3a6c355bcd7f23c26e617b5bfee45b87b94c31717a\n"
     }
   ],
-  "content_digest": "sha256:e866008b90eb3f8ba5c0bbc6be96d21e391e84e7e81c7f8cc6d5924a239b6ab4"
+  "content_digest": "sha256:e8071f7851a55e6647028425929597dad795a6df7f9226e3ca902669ae234788"
 }
