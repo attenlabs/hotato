@@ -5415,7 +5415,15 @@ def build_capability_manifest() -> dict:
         "schema_version": _errors.SCHEMA_VERSION,
         "version": __version__,
         "stability": " ".join(_STABILITY_STATEMENT.split()),
+        # core_loop is the first-run funnel every other surface documents
+        # (README first screenful, `hotato --help`, llms.txt); deep_loop is the
+        # longer path from first touch to a CI gate, the same tuple AGENTS.md
+        # renders. An agent reading describe gets the same start as a human.
         "core_loop": [
+            {"step": i, "command": cmd, "purpose": blurb}
+            for i, (cmd, blurb) in enumerate(_START_HERE_STEPS, 1)
+        ],
+        "deep_loop": [
             {"step": i, "command": cmd, "purpose": blurb}
             for i, (cmd, blurb) in enumerate(_CORE_LOOP_STEPS, 1)
         ],
@@ -5438,13 +5446,17 @@ def _render_describe_text(manifest: dict) -> str:
     if manifest.get("stability"):
         lines.append(manifest["stability"])
     lines.append("")
-    if manifest.get("core_loop"):
-        lines.append("core loop (start here; every other command is advanced):")
-        for step in manifest["core_loop"]:
-            lines.append(
-                f"  {step['step']}  {step['command'].ljust(38)} {step['purpose']}"
-            )
-        lines.append("")
+    for key, heading in (
+        ("core_loop", "core loop (start here; every other command is advanced):"),
+        ("deep_loop", "deep loop (first touch to a CI gate):"),
+    ):
+        if manifest.get(key):
+            lines.append(heading)
+            for step in manifest[key]:
+                lines.append(
+                    f"  {step['step']}  {step['command'].ljust(38)} {step['purpose']}"
+                )
+            lines.append("")
 
     def _walk(cmds, indent="", lab=False):
         for c in cmds:
@@ -5548,10 +5560,11 @@ def _cmd_console(args) -> int:
 
 
 # The canonical deep loop: one linear path, first touch to a CI gate. It is the
-# single source of truth for `hotato describe`'s core_loop and the AGENTS.md
+# single source of truth for `hotato describe`'s deep_loop and the AGENTS.md
 # scaffold (src/hotato/initcmd.py); docs/GETTING-STARTED.md walks the same
 # commands. Keep the commands byte identical across those surfaces. The block
-# atop `hotato --help` renders _START_HERE_STEPS instead: the first-run funnel
+# atop `hotato --help` and describe's core_loop render _START_HERE_STEPS: the
+# first-run funnel
 # (autopsy -> scan -> health -> pin -> prove) that matches the README's first
 # screenful.
 _CORE_LOOP_STEPS = (

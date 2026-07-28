@@ -5,9 +5,20 @@ tools. The envelope-parity check needs no MCP SDK (``_run_tool`` does not import
 mcp); the registration check is skipped if the SDK is absent.
 """
 
+import importlib.util
 import json
 
 import pytest
+
+
+def _fastmcp_available() -> bool:
+    """The registration checks need ``mcp.server.fastmcp`` specifically: mcp 2.x
+    imports fine but dropped that module, so guarding on ``import mcp`` alone
+    turns an SDK incompatibility into a raw SystemExit instead of a skip."""
+    try:
+        return importlib.util.find_spec("mcp.server.fastmcp") is not None
+    except (ImportError, ValueError):
+        return False
 
 from hotato import mcp_server
 from hotato.core import run_suite
@@ -33,9 +44,7 @@ def test_run_tool_envelope_matches_core():
 
 
 def test_expected_tools_registered():
-    try:
-        import mcp  # noqa: F401
-    except Exception:
+    if not _fastmcp_available():
         pytest.skip("MCP SDK not installed; tool-registration check skipped")
 
     server = mcp_server.build_server()
@@ -72,9 +81,7 @@ def test_initialize_reports_hotato_version():
     an app version to its low-level Server, so ``build_server`` pins it; the
     server_version on the initialization options is exactly what populates
     serverInfo.version, at the floor SDK (mcp>=1.2.0) and current."""
-    try:
-        import mcp  # noqa: F401
-    except Exception:
+    if not _fastmcp_available():
         pytest.skip("MCP SDK not installed; version check skipped")
 
     from hotato import __version__ as hotato_version

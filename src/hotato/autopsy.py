@@ -52,7 +52,10 @@ WAV, so it is independent of the local ffmpeg build). Incidents are addressed
 as ``<autopsy-id>#<rank>`` -- the id shape a later ``hotato pin <id>`` can
 resolve without re-running the analysis. The HTML report is content-addressed
 too (``hotato-output/autopsy-<id>.html``), so its path -- and, with no wall
-clock anywhere on the page, its bytes -- are stable across runs.
+clock anywhere on the page, its bytes -- are stable across runs of the same
+file. The page carries the source file's name, so the same recording under two
+names renders two reports at that one content-addressed path: the later run
+wins.
 
 est. cost lines render ONLY when the operator supplies a cost config
 (``--cost-config FILE``); with no config there is no dollar figure anywhere.
@@ -172,11 +175,25 @@ def _resolve_input(path: str, workdir: str) -> str:
             f"ffmpeg -i {os.path.basename(path)} call.wav"
         )
     converted = os.path.join(workdir, "autopsy-input.wav")
-    proc = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-i", path, "-acodec", "pcm_s16le", converted],
-        capture_output=True, text=True,
-    )
+    # A pathological or truncated container can make ffmpeg spin forever; the
+    # ceiling scales with the file so long recordings still convert, and a
+    # timeout lands in the same refusal shape as a decode failure (exit 2).
+    try:
+        size_mb = os.path.getsize(path) / (1024 * 1024)
+    except OSError:
+        size_mb = 0.0
+    ffmpeg_timeout = min(900.0, max(60.0, size_mb * 10.0))
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-i", path, "-acodec", "pcm_s16le", converted],
+            capture_output=True, text=True, timeout=ffmpeg_timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise ValueError(
+            f"ffmpeg did not finish decoding {path!r} within "
+            f"{int(ffmpeg_timeout)}s. Export a PCM WAV and pass that instead."
+        ) from None
     if proc.returncode != 0 or not os.path.isfile(converted):
         detail = (proc.stderr or "").strip().splitlines()
         raise ValueError(

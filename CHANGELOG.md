@@ -8,6 +8,32 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-07-28
+
+### Fixed
+- **`pip install 'hotato[mcp]'` works again.** The MCP extra was pinned
+  `mcp>=1.2.0` with no ceiling, so a fresh install resolved mcp 2.0.0, which
+  removed `mcp.server.fastmcp` -- `hotato-mcp` then exited reporting the SDK
+  was not installed while it was. The extra now reads `mcp>=1.2.0,<2`, the
+  range whose API the server consumes, in both `[mcp]` and `[all]`. The
+  parity tests skip on `mcp.server.fastmcp` rather than on `import mcp`, so
+  an SDK shape change reads as a skip with a reason instead of a SystemExit.
+- **`hotato describe` starts an agent where the docs start a human.** Its
+  `core_loop` rendered the five deep-toolkit commands, not the funnel the
+  README, `--help` and `llms.txt` all document. `core_loop` is now the
+  first-run funnel (autopsy -> scan -> `<stack>` health -> pin -> prove) and
+  the longer first-touch-to-CI-gate path is published beside it as
+  `deep_loop`, each under its own heading in the text render.
+- **A stalled `ffmpeg` can no longer hang an autopsy.** Converting a
+  non-WAV input now runs under a size-scaled ceiling (60s floor, 900s cap),
+  and a timeout raises the same refusal an undecodable file does (exit 2)
+  instead of blocking forever.
+- **Report byte-stability documented as it behaves.** The autopsy page
+  carries the source file's name, so the same recording under two names
+  renders two pages at one content-addressed path; the docstring said the
+  bytes were stable across runs without that qualification.
+
+
 ### Added
 - **`hotato lab` -- the deep toolkit gets its own front door.** The
   top-level `--help` now shows only the public surface (`autopsy`, `scan`,

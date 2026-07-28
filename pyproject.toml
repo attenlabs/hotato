@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.16.0"
+version = "1.17.0"
 description = "Find what broke in your agent calls. Pin it so it never ships again. Local call forensics and regression guards for AI agents: deterministic, byte-reproducible, free, MIT, CI-native. Nothing leaves your machine."
 readme = "README.pypi.md"
 # Support policy: requires-python is lower-bounded only. There is no upper cap
@@ -54,7 +54,7 @@ dependencies = []
 [project.optional-dependencies]
 # The one-tool MCP server needs the MCP SDK. Kept optional so the CLI stays
 # dependency-free and zero-install.
-mcp = ["mcp>=1.2.0"]
+mcp = ["mcp>=1.2.0,<2"]
 dev = ["pytest>=7", "jsonschema>=4", "setuptools>=77"]
 
 # Per-stack capture extras. Vapi and Twilio capture use only stdlib (urllib +
@@ -124,7 +124,7 @@ transcribe = ["faster-whisper>=1.0"]
 # unsigned verdict is used -- never a hollow signature.
 judge = []
 # Everything a contributor might want to exercise the live capture paths locally.
-all = ["mcp>=1.2.0", "livekit", "livekit-agents", "pipecat-ai", "onnxruntime>=1.16", "numpy>=1.21", "cryptography>=41", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "faster-whisper>=1.0"]
+all = ["mcp>=1.2.0,<2", "livekit", "livekit-agents", "pipecat-ai", "onnxruntime>=1.16", "numpy>=1.21", "cryptography>=41", "pyannote.audio>=4.0", "torch>=2.8", "torchaudio>=2.8", "faster-whisper>=1.0"]
 
 [project.scripts]
 hotato = "hotato.cli:main"
