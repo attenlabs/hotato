@@ -112,6 +112,7 @@ from .core import (
     run_suite,
 )
 from .errors import open_regular as _open_regular
+from .theme import REPORT as _PALETTE
 
 __all__ = ["build_report_html", "build_report_md", "write_report",
            "AUDIO_NONE", "AUDIO_SELF_CONTAINED", "AUDIO_REFERENCE"]
@@ -140,22 +141,11 @@ def _resolve_audio_mode(embed_audio: bool, audio_mode: Optional[str]) -> str:
         return audio_mode
     return AUDIO_SELF_CONTAINED if embed_audio else AUDIO_NONE
 
-# --- warm charcoal / cream / ember theme ----------------------------------
-_C = {
-    "bg": "#1b1714",        # warm charcoal ground
-    "card": "#241f1a",
-    "card2": "#2b241d",
-    "line": "#3a3128",
-    "cream": "#f1e8d7",     # primary text
-    "muted": "#b7ab97",
-    "mono": "#f6eddd",
-    "caller": "#ead9a6",    # human track (warm cream)
-    "agent": "#7fb2c4",     # machine track (calm blue)
-    "ember": "#f0663a",     # accent + onset marker + talk-over
-    "green": "#74c98a",     # PASS + yield marker
-    "red": "#e0664f",       # FAIL
-    "grid": "#463b30",
-}
+# --- palette --------------------------------------------------------------
+# Defined once in ``theme`` (which mirrors the site's tokens); re-exported here
+# under its historical name so every consumer and test that reads ``_C[key]``
+# is unchanged.
+_C = _PALETTE
 
 
 # --- span + model helpers -------------------------------------------------
@@ -2574,7 +2564,7 @@ body{margin:0;background:%(bg)s;color:%(cream)s;
 header.top{display:flex;align-items:flex-start;gap:14px;
  border-bottom:1px solid %(line)s;padding-bottom:18px;margin-bottom:20px}
 .logo{width:30px;height:30px;border-radius:9px;background:%(ember)s;flex:none;
- margin-top:2px;box-shadow:0 0 0 4px rgba(240,102,58,0.14)}
+ margin-top:2px;box-shadow:0 0 0 4px %(ember_halo)s}
 .h1{font-size:26px;font-weight:700;letter-spacing:-0.01em;margin:0}
 .tagline{color:%(muted)s;margin:2px 0 8px}
 .subtle{color:%(cream)s;font-size:13.5px}
@@ -2590,14 +2580,14 @@ header.top{display:flex;align-items:flex-start;gap:14px;
 .sw{display:inline-block;width:12px;height:12px;border-radius:3px;
  vertical-align:-1px;margin-right:6px}
 .card{background:%(card)s;border:1px solid %(line)s;border-radius:16px;
- padding:18px 20px;margin-bottom:18px;box-shadow:0 1px 0 rgba(0,0,0,0.25)}
+ padding:18px 20px;margin-bottom:18px}
 .chead{display:flex;align-items:flex-start;gap:12px}
 .ctitle{font-size:16.5px;font-weight:650}
 .cmeta{display:flex;gap:10px;align-items:center;margin-top:3px;
  color:%(muted)s;font-size:12.5px}
 .tag{background:%(card2)s;border:1px solid %(line)s;border-radius:6px;
  padding:1px 8px;font-size:11.5px}
-.chip{margin-left:auto;color:#15110d;font-weight:800;font-size:12.5px;
+.chip{margin-left:auto;color:%(on_accent)s;font-weight:800;font-size:12.5px;
  letter-spacing:0.06em;padding:5px 12px;border-radius:8px}
 .cmp{display:flex;align-items:center;gap:12px;margin:12px 0 6px;
  color:%(muted)s;font-size:13.5px}
@@ -2672,12 +2662,12 @@ table.frames td{text-align:right;padding:1px 12px;color:%(mono)s;
 .basetab th{color:%(muted)s;font-size:12px;font-weight:600}
 .basetab .dimcell{color:%(muted)s;font-style:italic}
 .mark{font-weight:700;font-size:11px;letter-spacing:0.05em;
- padding:2px 8px;border-radius:6px;color:#15110d}
+ padding:2px 8px;border-radius:6px;color:%(on_accent)s}
 @media print{
- body{background:#ffffff;color:#1b1714}
- .card,.summary{background:#ffffff;border-color:#d8d2c6;box-shadow:none;
+ body{background:%(paper)s;color:%(paper_ink)s}
+ .card,.summary{background:%(paper)s;border-color:%(paper_line)s;box-shadow:none;
   break-inside:avoid}
- .pill,.tag,.fix{background:#f4efe4;color:#3a3128}
+ .pill,.tag,.fix{background:%(paper_surface)s;color:%(paper_ink2)s}
  details.inspector{display:none}
  .audio{display:none}
 }
@@ -2804,7 +2794,7 @@ _SCORECARD_CSS = """
 _CONVERSATION_CSS = """
 section.card.conversation .cvorigin{font-size:14px;margin:6px 0 4px;
  color:%(cream)s}
-.cvchip{color:#15110d;font-weight:800;font-size:11px;letter-spacing:0.06em;
+.cvchip{color:%(on_accent)s;font-weight:800;font-size:11px;letter-spacing:0.06em;
  padding:2px 9px;border-radius:6px;margin-left:4px;text-transform:uppercase}
 .cvline{color:%(muted)s;font-size:12px;margin:4px 0;word-break:break-all}
 .cvsub{font-size:12px;font-weight:650;color:%(muted)s;text-transform:uppercase;

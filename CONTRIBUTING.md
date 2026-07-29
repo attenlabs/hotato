@@ -79,8 +79,8 @@ The CLI has two surfaces, and they carry different stability promises:
   `doctor`, `console`, `production`, `serve`, `contract`, `describe`).
   These commands, their flags, and their exit codes are durable: a script
   or CI job written against them keeps working across releases.
-- **Lab** (everything `hotato lab --help` lists). The lab surface evolves
-  faster between releases. Every pre-1.17 top-level spelling keeps working
+- **Lab** (everything `hotato lab --help` lists). `hotato lab` moves faster
+  between releases. Every command name that worked before 1.17 still runs
   unchanged as a compat alias, and `hotato describe` records both
   spellings for every command.
 

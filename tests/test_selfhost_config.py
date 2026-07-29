@@ -272,9 +272,20 @@ def test_selfhost_scopes_zero_egress_and_names_the_pull(selfhost_text):
 
 
 def test_selfhost_states_zero_migration_same_schemas(selfhost_text):
+    """The promise is that a /data volume moves hosts and opens unchanged.
+
+    This used to grep for the literal phrase "same schema", which the page
+    carried as "the same schemas the managed cloud uses" -- a comparison to a
+    product that does not exist. The property is what matters, so assert the
+    property: one versioned schema, and the volume opens unchanged elsewhere.
+    """
     low = re.sub(r"\s+", " ", selfhost_text.lower())  # tolerate line wraps
-    assert "same schema" in low, \
-        "SELF-HOST.md must state the same-schemas (zero-migration) promise"
+    assert "zero-migration" in low, \
+        "SELF-HOST.md must carry the zero-migration promise"
+    assert "versioned schema" in low or "same schema" in low, \
+        "SELF-HOST.md must say the store uses hotato's own versioned schemas"
+    assert "unchanged" in low, \
+        "SELF-HOST.md must state that the moved /data volume opens unchanged"
 
 
 # =========================================================================

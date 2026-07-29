@@ -1,8 +1,8 @@
 # Adapter status
 
 Which stack Hotato pulls recordings from, which endpoint it calls, and how
-it separates caller/agent channels for each one -- every entry checked
-verbatim against the vendor's live documentation on the date shown.
+it separates caller/agent channels for each one -- each entry read off that
+vendor's own API documentation on the date shown.
 
 Terms:
 
@@ -17,9 +17,9 @@ Terms:
   opt-in, labeled indicative only. Separated turn-taking analysis needs a
   dual-channel file.
 
-Each adapter ships only the endpoints confirmed verbatim in the spec;
-where it marks a list-calls endpoint or channel layout **unconfirmed /
-none**, Hotato falls back to explicit call ids and documents the gap here.
+Each adapter ships only the endpoints its vendor's spec confirms. Where a
+list-calls endpoint or channel layout reads **unconfirmed / none**, Hotato
+takes explicit call ids instead, and this page names which and why.
 
 ## Dual-channel: auto-pull, separated scoring
 
@@ -92,12 +92,12 @@ the EU region. Single-call `capture`/`pull` by explicit id needs none of these.
   `docs.play.ai` returns `DEPLOYMENT_NOT_FOUND`. The only live domain,
   `docs.play.ht`, is TTS-only, no calls/recordings API.
 
-## Needs credentials or a live probe before shipping
+## Fallback routes and open checks
 
-Documented weakly or behind a login/SPA, the spec could not verify a
-recording field-path or channel layout for these, so they ship as
-fallbacks (explicit call ids or the vendor's own webhook URL), not full
-adapters -- listed here so the supported set stays exact.
+Where the public docs pin down no recording field-path or channel layout,
+the stack ships as a fallback route -- explicit call ids, or the vendor's
+own webhook URL. The last three are open checks on stacks shipped above.
+All of it is listed here so the supported set stays exact.
 
 - **Regal.ai**: no list-calls, no REST fetch-recording endpoint. The
   recording arrives only via the `call.recording.available` webhook's
@@ -115,8 +115,8 @@ adapters -- listed here so the supported set stays exact.
 - **Cartesia dual-channel**: the `/agents/calls/{id}/audio` WAV's channel count
   was not confirmable in docs; treated as mono here pending a live check.
 - **Twilio dual-channel edge behaviour**: the exact 400-on-unavailable and
-  conference channel-ordering guarantees were carried forward from prior notes,
-  not re-verified verbatim this pass.
+  conference channel-ordering guarantees stand on prior notes, carried forward
+  rather than re-read from the spec this pass.
 - **Synthflow / Regal Twilio-URL dual-channel trick**: because their
   `recording_url` is a Twilio URL, `?RequestedChannels=2` *might* yield stereo,
   but neither vendor documents or guarantees it; unconfirmed until tested against

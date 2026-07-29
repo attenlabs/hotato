@@ -428,8 +428,8 @@ header.top{display:flex;align-items:flex-start;gap:14px;
 .vadtab th{color:%(muted)s;font-weight:600;font-size:12px}
 .foot{margin-top:26px;border-top:1px solid %(line)s;padding-top:18px;
  color:%(muted)s;font-size:13px}
-@media print{body{background:#ffffff;color:#1b1714}
- .card{background:#ffffff;border-color:#d8d2c6}}
+@media print{body{background:%(paper)s;color:%(paper_ink)s}
+ .card{background:%(paper)s;border-color:%(paper_line)s}}
 """ % _C
 
 

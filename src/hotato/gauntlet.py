@@ -30,6 +30,8 @@ import os
 import tempfile
 from typing import Any, Dict, List, Optional
 
+from .theme import GREEN, GROUND, INK, ON_ACCENT, RED
+
 __all__ = [
     "SUITE_NAME",
     "SUITE_DIR",
@@ -249,11 +251,12 @@ _BADGE_PAD = 13
 _BADGE_ADV = _BADGE_SIZE * 0.62   # monospace advance -> deterministic box width
 _BADGE_R = 6
 _BADGE_FONT = "ui-monospace,'SF Mono',Menlo,Consolas,monospace"
-_BADGE_INK = "#f6efe4"            # cream, on the dark label segment
-_BADGE_BG = "#16110d"            # hotato ink background
-_BADGE_OK = "#3ecf8e"           # every case cleared
-_BADGE_PARTIAL = "#ff5a1f"      # some case did not clear
-_BADGE_OK_INK = "#0e1a1b"       # dark ink reads on the bright cleared segment
+_BADGE_INK = INK                # body ink, on the dark label segment
+_BADGE_BG = GROUND              # the label segment's ground
+_BADGE_OK = GREEN               # every case cleared
+_BADGE_PARTIAL = RED            # some case did not clear
+_BADGE_OK_INK = ON_ACCENT       # dark ink reads on the bright cleared segment
+_BADGE_PARTIAL_INK = ON_ACCENT  # and on the bright partial segment
 
 
 def _badge_esc(s: object) -> str:
@@ -284,7 +287,7 @@ def render_badge(result: Dict[str, Any]) -> str:
 
     all_passed = passed == total
     status = _BADGE_OK if all_passed else _BADGE_PARTIAL
-    score_ink = _BADGE_OK_INK if all_passed else _BADGE_INK
+    score_ink = _BADGE_OK_INK if all_passed else _BADGE_PARTIAL_INK
 
     label = "hotato gauntlet"
     score = f"{passed}/{total}"

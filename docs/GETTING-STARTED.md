@@ -7,7 +7,7 @@ you can chain the whole loop from what hotato tells you.
 The transcript passed and the call still failed: the agent talked over the caller,
 ran through the interruption, or left a beat of dead air handing the floor back.
 None of that is in the words. Hotato scores the turn timing between the two voices
-of a recording, pins a caught moment as a contract, and re-runs it in CI forever.
+of a recording, freezes one caught moment as a contract, and re-runs it in CI.
 
 ## Install
 
@@ -24,8 +24,8 @@ pipx install hotato        # or: uv tool install hotato, or: pip install hotato
 ```
 
 Scoring needs two separate channels (caller on one, agent on the other). A mono
-or mixed export is marked NOT SCORABLE and refused, exit 2. Confirm a file is
-scorable before scoring it with `hotato trust --stereo call.wav`.
+or mixed export is refused: marked NOT SCORABLE, exit 2. Check a file before
+you score it with `hotato trust --stereo call.wav`.
 
 ## The five steps
 
@@ -36,8 +36,8 @@ hotato start --demo
 ```
 
 Sweeps the two bundled demo calls, builds one failure contract, and runs one
-say-do conversation check. It exits 0 because setup finished. The gate command it
-points at, `hotato contract verify contracts/`, exits 1 by design.
+say-do check: the agent said the refund was sent; the trace decides. Exits 0
+because setup finished; `hotato contract verify contracts/` exits 1 by design.
 
 ### 2. Score your own recording
 
@@ -48,7 +48,7 @@ hotato investigate ./call.wav
 ```console
 hotato investigate [run 1]: call.wav
   input health: eligible for scan
-  verdict path: eligible (a labeled event here can carry a real yield/hold verdict)
+  verdict path: eligible (a labeled event here can carry a yield/hold verdict)
   most likely failure (top-ranked candidate):
     [1] t=7.63s agent_stop_no_caller  trailing_silence_sec=0.37, caller_proximity_sec=0.5
   next: label it (use --expect hold instead if the agent was right to keep talking):
@@ -56,14 +56,14 @@ hotato investigate [run 1]: call.wav
 ```
 
 Hotato ranks the timing moments, marks the top one `most likely failure`, and
-hands you one command to pin it. It infers no intent. Have a provider call id
-instead of a WAV? `hotato investigate --stack vapi --call-id <id>` pulls it first,
-then ranks the same way.
+hands you one command to label it. It reads timing, not intent. Have a provider
+call id instead of a WAV? `hotato investigate --stack vapi --call-id <id>` pulls
+it first, then ranks the same way.
 
 ### 3. Commit the catch as a regression
 
-Yield means the agent should have stopped for the caller. Hold means it should
-have kept the floor through a backchannel or noise. The label is your decision;
+Yield means the agent should have stopped for the caller. Hold means it was
+right to keep talking through a backchannel or noise. The label is yours;
 hotato measures whether the timing matched it.
 
 ```bash
@@ -84,7 +84,7 @@ open the pull request that adds it to your repo's CI gate:
 ```
 
 The contract bundle is content-addressed: the clipped audio, the frame-level
-evidence, the policy, and its own manifest, committed byte-identical.
+evidence, the policy, and its own attestation, committed byte-identical.
 
 ### 4. Open the pull request
 
@@ -114,10 +114,10 @@ pass, exit 1 fail.
 
 ## When the gate is red
 
-A committed contract is a pinned bad call, so it is *meant* to stay exit 1, the
-way a snapshot test stays red until you update the snapshot. The frozen audio
-never changes, so the gate goes green only after you fix the agent and recapture
-the call. That still-red state is a review checkpoint, not a broken test.
+A committed contract holds a call that already failed, so exit 1 is the correct
+reading, the way a snapshot test stays red until you update the snapshot. The
+audio is frozen, so the gate turns green once you fix the agent and recapture the
+call. Until then the red names one moment on one call, waiting for review.
 
 To get to green, fix the agent, then recapture:
 
@@ -130,8 +130,8 @@ after verdict. For every other stack, or by hand, follow [`RECAPTURE.md`](RECAPT
 
 ## Reference
 
-The five steps are the whole loop. When you need more depth, follow these one at
-a time; none of them is required to complete the loop above.
+The five steps are the whole loop. The pages below go deeper on it; take them
+one at a time, in whatever order the work calls for.
 
 - [`START.md`](START.md): the guided demo, both acts (timing and say-do), in detail.
 - [`INVESTIGATE.md`](INVESTIGATE.md): capture-origin authentication and candidate ranking.

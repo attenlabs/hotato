@@ -1,12 +1,12 @@
 # Connect, pull, sweep: score every call across your stack
 
-`hotato sweep` connects once and surfaces every turn-taking problem across
-your calls, in three steps you can also run alone:
+`hotato sweep` connects once and ranks the turn-taking moments across your
+recent calls, in three steps you can also run alone:
 
-1. **`hotato connect <stack>`** -- store a stack's credentials once, locally.
+1. **`hotato connect <stack>`** -- store one stack's credentials, locally.
 2. **`hotato pull`** -- bulk-fetch your recent recordings into a folder.
-3. **`hotato sweep`** -- pull, then run zero-config `analyze` and write one
-   offline dashboard of the ranked turn-taking moments.
+3. **`hotato sweep`** -- pull, then score every pulled call and write one
+   offline dashboard ranking the turn-taking moments it measured.
 
 Everything scores offline; the only network call is the direct recording
 download from vendor to machine. Your audio and keys stay between you and
@@ -87,26 +87,26 @@ hotato sweep                                  # the only connected stack
 ```
 
 Pulls (as above) into `hotato-sweep-<stack>/` (override `--dir`), runs the
-same zero-config `analyze`, and writes one self-contained, offline HTML
-dashboard (`hotato-sweep-<stack>.html`, override `--out`): the ranked
-candidate moments across every call, with a hear-the-bug player on the top
-ones. `--format json` emits the candidates plus a pull summary instead.
+same `analyze` scoring with nothing to configure, and writes one
+self-contained offline HTML dashboard (`hotato-sweep-<stack>.html`, override
+`--out`): every call's candidate moments ranked, with an inline player on the
+top ones. `--format json` emits the candidates plus a pull summary instead.
 
 Dual-channel stacks get separated scoring. Mono/mixed stacks need
 `--allow-mono`; without per-party separation their calls land in the
 dashboard's Skipped section.
 
-Candidates are MEASURED timing moments you review and label with `hotato
-fixture create`: a timestamp and a number, not a verdict on intent.
+A candidate is one measured timing moment you review and label with `hotato
+fixture create`: a timestamp and a magnitude, not a verdict on intent.
 
-## What is and isn't pullable
+## Which stacks pull, and how
 
 See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full map: which
-stacks auto-pull dual-channel, which are mono-only, which capture in your
-own infra, and which endpoint each uses.
+stacks auto-pull dual-channel, which arrive as one mixed channel, which
+capture in your own infra, and which endpoint each uses.
 
 ## After the first catch
 
-You have seen a catch on a recorded call. The second move is driving one
-against your live agent on demand, fed into this same pull -> score
-pipeline: [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md).
+You have caught a timing moment on a recorded call. The next move is
+originating one against your live agent on demand, into this same
+pull -> score path: [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md).

@@ -1,8 +1,8 @@
 # `hotato autopsy <recording>`: one call in, the incidents out
 
 Drop one call recording in with zero config and get the incident list:
-barge-in, talk-over, dead air, latency spikes, each with a timestamp and
-the measured magnitude, plus one self-contained HTML report.
+each moment -- barge-in, talk-over, dead air, a latency spike -- with its
+timestamp and magnitude, one HTML report, and an `apx-` id from its bytes.
 
 ```bash
 hotato autopsy call.wav
@@ -26,9 +26,9 @@ with no recording prints the quick start on the bundled rendered example.
 
 ## Quick start from your platform (Vapi, Retell, Bland, Synthflow, Millis)
 
-You never touch a WAV: one command pulls your recent calls straight from
-the platform's own API, checks every recording, and writes the health
-report led by the Voice Stability Score.
+You never touch a WAV: one command pulls your recent calls from the
+platform's API, checks each, and leads the health report with the Voice
+Stability Score: your dual-channel calls' critical-free share x 100.
 
 ```bash
 export VAPI_API_KEY=YOUR_KEY          # or: hotato connect vapi
@@ -73,11 +73,11 @@ measured-confidence mono path below (silence timing measured from the
 mixed channel; talk-over attribution comes from a two-channel recording
 -- the scope line states this once per run). Mono calls report into the
 best-effort mono observations block with their own counts and never
-enter the Voice Stability denominator, so the mono stacks' reports carry
-observations without a stability score
-([EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md) states the whole tier
-policy). The analysis runs on this machine; recordings download straight
-from the platform and go nowhere else.
+enter the Voice Stability denominator, so a mono stack's report carries
+its observations and no stability score
+([EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md) states the tier policy, a
+tier being what a recording can prove). The analysis runs on this machine;
+recordings download straight from the platform and go nowhere else.
 
 A window with no calls, a pull in which every recording failed to fetch,
 or a pulled set with zero analyzable calls refuses with the reason (exit
@@ -109,15 +109,15 @@ magnitudes (`candidate_detail`), and the scanner's plain-English sentence
 ## Mono: best-effort, confidence-scored
 
 A one-channel (mixed) recording is analyzed best-effort with the same
-energy VAD. One mixed channel measures silence timing -- dead air and
-latency gaps -- and every mono finding carries a **measured confidence**
-with its derivation printed beside it: how far the gap's mean energy sits
-below the speech-activity threshold the VAD measured for this recording
-(a 20 dB margin or more scores 1.00). Talk-over and barge-in attribution
-comes from a two-channel recording, where the caller and the agent are
-physically separated; that functional scope is stated once, on one line,
-in the output. A mono gap says everything stopped, not who stopped --
-nothing is guessed and no confidence is invented.
+energy VAD, the voice-activity detector that marks each frame loud or
+quiet. One mixed channel measures silence timing -- dead air and latency
+gaps -- and every mono finding carries a **measured confidence** with its
+derivation printed beside it: how far the gap's mean energy sits below the
+speech-activity threshold the VAD measured for this recording (a 20 dB
+margin or more scores 1.00). Talk-over and barge-in attribution comes from
+a two-channel recording, where the caller and the agent are physically
+separated; that scope is stated once, on one line, in the output. A mono
+gap says everything stopped, not who stopped.
 
 The stricter commands keep their bar: `run`, `scan`, `trust`, and the
 contract path still refuse mono as NOT SCORABLE. Autopsy is discovery;
@@ -150,14 +150,14 @@ independent of the local ffmpeg build). Incidents are addressed as
 ## The persisted envelope
 
 Every autopsy also writes `hotato-output/autopsy-<id>.json` next to the
-HTML: the machine-readable result envelope -- the source path, the mode,
-and the incidents with their onset, kind, and (on the stereo path) the
-underlying scan candidate kind. Like the report it is content-addressed
-and deterministic: the same recording writes the same bytes on every run.
-The envelope carries the measured facts only; est. cost figures live on
-the rendered surfaces (they exist only under `--cost-config`), never in
-the stored envelope. This is the offline store `hotato pin` resolves an
-`apx-...#N` ref from without re-running the analysis.
+HTML: the machine-readable result envelope -- the source path, the mode
+(stereo or mono), and the incidents with their onset, kind, and (on the
+stereo path) the underlying scan candidate kind. Like the report it is
+content-addressed and deterministic: the same recording writes the same
+bytes on every run. The envelope carries the measured facts only; est.
+cost figures live on the rendered surfaces (only under `--cost-config`),
+never in the stored envelope. This is the offline store `hotato pin`
+resolves an `apx-...#N` ref from without re-running the analysis.
 
 ## `hotato scan <directory>`: the folder health report
 
@@ -189,28 +189,27 @@ hotato scan: calls  (5 recordings: 4 analyzed, 1 refused)
 
 The HEALTH headline is a measured share -- **dual-channel calls** with
 zero critical incidents over dual-channel calls analyzed. The **Voice
-Stability Score** is that same share, times 100: `round(share x 100)`,
-nothing else (the machine field is `critical_free_call_rate`). The share
-line prints directly beneath the score as its formula, the eligible
-sample size and the analysis-policy sha print beside the score, a
-`SMALL SAMPLE` label renders under 20 dual-channel calls, and the HTML
+Stability Score** is that same share, times 100: `round(share x 100)` and
+no second arithmetic (the machine field is `critical_free_call_rate`).
+The share line prints directly beneath the score as its formula, the
+eligible sample size and the analysis-policy sha print beside the score,
+a `SMALL SAMPLE` label renders under 20 dual-channel calls, and the HTML
 report carries a one-line "How this is calculated" note pointing at the
 share line. A mono call **never enters the denominator**: mono-analyzed
 calls report into the *Best-effort mono observations* block with their
 own counts (measured silence timing from one mixed channel; talk-over
 and barge-in attribution comes from a two-channel recording). With zero
-dual-channel calls no score renders and the report states why. There is
-deliberately **no blended quality score anywhere**: one blended number
-hides exactly the distinction the tool exists to draw (see
-[METHODOLOGY.md](../METHODOLOGY.md)), so the branded number restates the
-measured share -- no weights, no other arithmetic. The share sits beside
-the **evidence coverage** block (per-lane measured counts from what the
-run actually had -- dual-channel timing, mono best-effort, refused with
-reasons; a lane whose evidence was absent from the run never renders as
-assessed), a per-category breakdown (counts plus the worst measured
-magnitude in each category), and the worst-calls ranking, each call
-linking to its own per-call autopsy report, generated alongside with its
-envelope -- so `hotato pin` works straight from a folder scan.
+dual-channel calls no score renders: the report states why and shows the
+mono observations alone. Every number keeps its own denominator, because
+one blended score would hide exactly the distinction the tool exists to
+draw (see [METHODOLOGY.md](../METHODOLOGY.md)). The share sits beside
+the **evidence coverage** block (a lane is one evidence path --
+dual-channel timing, mono best-effort, refused with its reason -- each
+carrying the count this run measured, so a lane reads as assessed only
+when it carried evidence), a per-category breakdown (counts plus the
+worst measured magnitude in each category), and the worst-calls ranking,
+each call linking to its own per-call autopsy report, generated alongside
+its envelope -- so `hotato pin` works straight from a folder scan.
 
 The scan is deterministic end to end: the same directory with the same
 flags produces byte-identical CLI text and a byte-identical HTML report,
@@ -250,16 +249,16 @@ re-running `hotato vapi health` week over week builds the store the
 recurrence lines read from.
 
 `--cost-config` renders est. cost totals across the analyzed calls, from
-your own per-incident figures, exactly as above. The single-recording
-mode is unchanged: `hotato scan --stereo call.wav` lists one recording's
-candidate turn-taking moments, byte-for-byte as before.
+your own per-incident figures, exactly as above. For one recording,
+`hotato scan --stereo call.wav` lists that call's candidate turn-taking
+moments, byte-for-byte on every run.
 
 ## `hotato pin <autopsy-ref>`: incident to contract
 
 `hotato pin` turns one autopsy incident into a portable `.hotato` failure
-contract through the existing contract machinery
-(`hotato contract create` on the recording at the incident's onset -- no
-separate minting logic):
+contract -- that clip, its frame evidence, its thresholds, frozen --
+through the same contract machinery (`hotato contract create` on the
+recording at the incident's onset):
 
 ```bash
 hotato pin apx-cc33f46fad58        # the call's top critical incident
@@ -322,7 +321,7 @@ hotato autopsy examples/autopsy/audio/autopsy-03-talk-over.example.wav
 
 ## From an incident to a regression gate
 
-An incident worth keeping fixed graduates in one step:
+Turn one incident into a standing CI gate:
 
 ```bash
 hotato pin apx-cc33f46fad58#1                # incident -> portable contract
@@ -342,5 +341,5 @@ hotato contract verify contracts/ --junit hotato.xml   # the CI gate
 Deterministic energy measurement over time: per-frame RMS, a transparent
 activity threshold, and the timing walk between the tracks. Timing and
 floor-holding, not intent or transcription -- the scanner cannot know
-whether a caller sound was "mhm" or "stop", and no accuracy percentage
-appears anywhere. See [METHODOLOGY.md](../METHODOLOGY.md).
+whether a caller sound was "mhm" or "stop", so what it reports is measured
+timing, not an accuracy score. See [METHODOLOGY.md](../METHODOLOGY.md).

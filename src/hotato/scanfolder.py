@@ -828,7 +828,7 @@ _EXTRA_CSS = """
 .catn{color:%(cream)s;font-size:13px}
 .catw{color:%(muted)s;font-size:12.5px}
 .crow{display:flex;gap:12px;align-items:baseline;margin:6px 0;flex-wrap:wrap}
-.crank{font-weight:800;font-size:12.5px;color:#15110d;background:%(caller)s;
+.crank{font-weight:800;font-size:12.5px;color:%(on_accent)s;background:%(caller)s;
  border-radius:7px;padding:2px 9px}
 .cfile{min-width:240px;font-size:12.5px;
  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}

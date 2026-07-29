@@ -61,6 +61,7 @@ from . import fixture as _fixture
 from . import labelrecord as _labelrecord
 from . import report as _report
 from . import trust as _trust
+from .theme import REPORT as _C
 from ._engine.score import ScoreConfig
 from .core import dump_frames_for_input, run_single
 from .errors import open_regular as _open_regular
@@ -546,7 +547,8 @@ def _after_report_placeholder(contract_id: str) -> str:
     return (
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         f"<title>hotato contract {contract_id}: after (pending)</title></head>"
-        "<body style=\"font:15px system-ui;background:#1b1714;color:#f1e8d7;"
+        "<body style=\"font:15px system-ui;"
+        f"background:{_C['bg']};color:{_C['cream']};"
         "padding:32px\">"
         f"<h1>{contract_id}: no fix verified yet</h1>"
         "<p>This contract has not been re-verified after a fix. Re-capture "
@@ -622,20 +624,20 @@ def _provenance(*, contract_id, created_by, candidate_ref, source_sha256,
 # --- evidence rendering (reuses report.py's model + SVG, never redraws) ----
 
 _TIMELINE_CSS = """
-body{margin:0;background:#1b1714;color:#f1e8d7;
+body{margin:0;background:%(bg)s;color:%(cream)s;
  font:15px/1.5 -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif}
 .wrap{max-width:760px;margin:0 auto;padding:28px 20px}
 h1{font-size:19px;margin:0 0 4px}
-.sub{color:#b7ab97;font-size:13px;margin:0 0 18px}
-.tl{background:#241f1a;border:1px solid #3a3128;border-radius:10px;
+.sub{color:%(muted)s;font-size:13px;margin:0 0 18px}
+.tl{background:%(card)s;border:1px solid %(line)s;border-radius:10px;
  padding:14px 16px;margin-bottom:16px}
 .stats{display:flex;flex-wrap:wrap;gap:14px 26px}
 .stat{display:flex;flex-direction:column;gap:2px}
-.stat .k{color:#b7ab97;font-size:11.5px;text-transform:uppercase;
+.stat .k{color:%(muted)s;font-size:11.5px;text-transform:uppercase;
  letter-spacing:.04em}
 .stat .v{font:600 15px/1 'SFMono-Regular',Menlo,Consolas,monospace}
-.note{color:#b7ab97;font-size:12.5px;margin-top:18px}
-"""
+.note{color:%(muted)s;font-size:12.5px;margin-top:18px}
+""" % _C
 
 
 def _render_timeline_html(model: dict, *, contract_id: str, expect: str) -> str:
@@ -1992,35 +1994,36 @@ def render_verify_junit(v: dict, *, suite_name: str = "hotato contracts") -> str
 
 def render_verify_html(v: dict) -> str:
     """A minimal, self-contained HTML rollup, reusing report.py's escape
-    helper and warm-charcoal palette so it reads as the same family as every
+    helper and the shared palette so it reads as the same family as every
     other hotato report."""
     esc = _report._esc
     rows = []
     for r in v["results"]:
         if not r["scorable"]:
-            mark, color, detail = "NOT SCORABLE", "#b7ab97", r["not_scorable_reason"]
+            mark, color, detail = ("NOT SCORABLE", _C["muted"],
+                                   r["not_scorable_reason"])
         elif not r.get("verdict_eligible", True):
-            mark, color, detail = ("REFUSED", "#e0664f",
+            mark, color, detail = ("REFUSED", _C["red"],
                                    r.get("verdict_ineligible_reason"))
         else:
             m = r["measurement"]
             mark = "PASS" if r["passed"] else "FAIL"
-            color = "#74c98a" if r["passed"] else "#e0664f"
+            color = _C["green"] if r["passed"] else _C["red"]
             detail = (f"did_yield={m['did_yield']} "
                      f"seconds_to_yield={_report._s(m['seconds_to_yield'])} "
                      f"talk_over={_report._s(m['talk_over_sec'])}")
         auth = r.get("authenticity", "unattested")
-        acolor = "#e0664f" if auth == "tampered" else (
-            "#74c98a" if auth == "authenticated" else "#b7ab97")
+        acolor = _C["red"] if auth == "tampered" else (
+            _C["green"] if auth == "authenticated" else _C["muted"])
         # Assertions: a SEPARATE column, never blended into `mark`/`color`
         # above (the timing verdict). "-" when this contract carries no
         # embedded `assertions` block at all.
         aenv = r.get("assertions")
         if aenv is None:
-            amark, acolor2 = "-", "#b7ab97"
+            amark, acolor2 = "-", _C["muted"]
         else:
             amark = "FAIL" if aenv["exit_code"] else "PASS"
-            acolor2 = "#e0664f" if aenv["exit_code"] else "#74c98a"
+            acolor2 = _C["red"] if aenv["exit_code"] else _C["green"]
         rows.append(
             f'<tr><td class="mono">{esc(r["id"])}</td>'
             f'<td>{esc(r["expect"])}</td>'
@@ -2031,27 +2034,28 @@ def render_verify_html(v: dict) -> str:
         )
     s = v["summary"]
     verdict = "PASSED" if v["exit_code"] == 0 else "FAILED"
-    vcolor = "#74c98a" if v["exit_code"] == 0 else "#e0664f"
+    vcolor = _C["green"] if v["exit_code"] == 0 else _C["red"]
     return (
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
         f"<title>hotato contract verify: {verdict}</title>"
-        "<style>body{margin:0;background:#1b1714;color:#f1e8d7;"
+        f"<style>body{{margin:0;background:{_C['bg']};color:{_C['cream']};"
         "font:15px system-ui,sans-serif}"
         ".wrap{max-width:900px;margin:0 auto;padding:28px 20px}"
         "table{width:100%;border-collapse:collapse;margin-top:14px}"
         "th,td{text-align:left;padding:7px 10px;border-bottom:"
-        "1px solid #3a3128;font-size:13.5px}"
+        f"1px solid {_C['line']};font-size:13.5px}}"
         ".mono{font-family:'SFMono-Regular',Menlo,Consolas,monospace}"
         "</style></head><body><div class=\"wrap\">"
         f'<h1>hotato contract verify <span style="color:{vcolor}">'
         f'{verdict}</span></h1>'
         f'<p>{esc(v["dir"])}: {s["passed"]}/{v["count"]} contracts pass.</p>'
-        f'<p style="color:#e8c547;font-weight:600">{esc(_STORED_EVIDENCE_CAVEAT)}</p>'
+        f'<p style="color:{_C["attention"]};font-weight:600">'
+        f'{esc(_STORED_EVIDENCE_CAVEAT)}</p>'
         '<table><thead><tr><th>id</th><th>expect</th><th>result</th>'
         '<th>measured</th><th>integrity</th><th>assertions</th></tr></thead><tbody>'
         + "".join(rows)
         + "</tbody></table>"
-        f'<p style="color:#b7ab97;font-size:12.5px;margin-top:18px">'
+        f'<p style="color:{_C["muted"]};font-size:12.5px;margin-top:18px">'
         f"{esc(_NOT_PROVED)} Hotato reports coincidence, not causation."
         "</p></div></body></html>\n"
     )

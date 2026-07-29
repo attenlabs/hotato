@@ -20,13 +20,13 @@ FILE: README.md
 
 ```bash
 pip install hotato
-hotato autopsy --demo           # a failing call ships with the install
+hotato autopsy --demo           # a bundled failing call: what broke, and when
 hotato autopsy ./call.wav       # then your own recording
 hotato vapi health              # or your last 100 Vapi calls
 ```
 
-Zero config. Works with Vapi, Retell, Bland, Synthflow, Millis, or local audio.
-No judges. No cloud. No bill. MIT.
+Zero config. Vapi, Retell, Bland, Synthflow, Millis, or local audio.
+Timing math, not a judge. Offline. Free. MIT.
 
 **[hotato.dev](https://hotato.dev)**
 
@@ -34,10 +34,10 @@ No judges. No cloud. No bill. MIT.
 
 ## What it finds
 
-- **Barge-in → Say-do gaps**: Caller interrupts to cancel; agent says "canceled" but the booking tool still fires: a bug that fires actions the caller canceled. (Timing from the audio; the tool-fire check reads your call's tool log: hotato ingests Vapi/OTel traces.)
-- **Latency spikes**: 800ms → 5s unpredictability that makes users hang up.
-- **Dead air**: Long silences that kill conversation flow.
-- **Talk-over**: Agent speaks over the caller; never yields.
+- **Say-do gaps**: the caller interrupts to cancel (a barge-in), the agent says "canceled", the booking tool fires anyway. hotato takes the turn timing from the audio and the tool call from your OTel trace.
+- **Latency spikes**: the pause before a reply going from 800 ms to over 2 s.
+- **Dead air**: that pause reaching 5 s, or the line going quiet.
+- **Talk-over**: the agent starts a fresh utterance over the caller.
 
 ## Quickstart
 
@@ -49,7 +49,7 @@ export VAPI_API_KEY=...
 hotato vapi health --last 7d --output report.html
 ```
 
-Open `report.html`. See your Voice Stability Score and every critical incident.
+Open `report.html`: every critical incident, timestamped, and your Voice Stability Score.
 
 ### Retell
 
@@ -58,11 +58,11 @@ export RETELL_API_KEY=...
 hotato retell health --call-id CALL_ID
 ```
 
-`--call-id` is required and repeatable: Retell has no verified
-list-recent-calls endpoint, so hotato never guesses one. `hotato bland health`,
-`hotato synthflow health`, and `hotato millis health` follow the Vapi shape;
-those stacks export one mixed channel, so their reports carry the
-measured-confidence mono observations block.
+`--call-id` is required and repeatable: you name the Retell calls to pull.
+`hotato bland health`, `hotato synthflow health`, and `hotato millis health`
+follow the Vapi shape. Those stacks mix both voices onto one channel, so
+they measure silence timing, dead air and latency gaps, each finding with
+its measured confidence; barge-in and talk-over need two channels.
 
 ### Local audio
 
@@ -70,26 +70,26 @@ measured-confidence mono observations block.
 hotato autopsy ./call.wav
 ```
 
-Writes a detailed, self-contained HTML incident report under `hotato-output/`;
-open it in your browser.
+Writes a self-contained HTML report to `hotato-output/`, plus the JSON
+`pin` reads. Open the HTML in your browser.
 
 ## From finding bugs to preventing them
 
-`autopsy` finds bugs. `scan` tracks trends across a folder of calls. When you
-are ready, pin incidents to your CI so they never ship again: `hotato pin`
-turns one incident into a portable failure check, and `hotato prove` is the CI
-check that re-runs every stored piece of evidence and fails closed. Every
-verdict carries its evidence across five dimensions (outcome, policy,
-conversation, speech, reliability).
+`autopsy` turns one recording into timestamped incidents. `scan` reads a
+folder and tracks the trend. When you are ready, move a finding into CI:
+`hotato pin` turns one incident into a portable failure check, and `hotato
+prove` re-runs every stored check and fails the build rather than pass on
+evidence it cannot re-read. Every verdict carries its own evidence across
+five dimensions: outcome, policy, conversation, speech, reliability.
 
-[Read more →](docs/CI.md)
+[Pin a bug →](docs/CI.md)
 
 For continuous use: run `hotato vapi health` on a schedule, and open
-`hotato console --production-db DB` to inspect stored runs locally.
+`hotato console --production-db evidence.db` to watch calls land live.
 
 ## Wire it into CI
 
-The step's exit code **is** the verdict: `0` pass, `1` fail, `2` refuse.
+The exit code **is** the verdict: `0` pass, `1` fail, `2` refuse (could not tell).
 
 ```yaml
 # .github/workflows/voice-qa.yml
@@ -99,27 +99,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.17.1
+      - uses: attenlabs/hotato@v1.18.0
         with:
           contracts: contracts/
-          hotato-version: 1.17.1
+          hotato-version: 1.18.0
 ```
 
-Copy-paste workflow with a commit-SHA pin: [`docs/CI.md`](docs/CI.md).
+`contracts/` holds what `pin` wrote. Full workflow: [`docs/CI.md`](docs/CI.md).
 
 ## Point your agent at it
 
 Point Claude Code, Cursor, or any coding agent at this repo: it reads
-[`AGENTS.md`](AGENTS.md) and runs the loop end to end, offline, no key. The MCP
-server exposes the scorer plus read/verify/propose tools over local stdio:
-`uvx --from "hotato[mcp]" hotato-mcp` ([`docs/MCP.md`](docs/MCP.md)).
+[`AGENTS.md`](AGENTS.md) and runs the loop end to end offline, no key. Over local
+stdio the MCP server adds the scorer plus read/verify/propose tools:
+`uvx --from "hotato[mcp]" hotato-mcp` ([`docs/MCP.md`](docs/MCP.md)). Deploying is yours.
 
 ## Nothing leaves your machine
 
 hotato runs offline, on the machine that invokes it. The core is stdlib-only
 Python: no account, no key, no network call of its own. Your traces, prompts,
-and audio stay local, and the local-judge lane is opt-in and quality-gated,
-separate from the deterministic core.
+and audio stay on your disk. Scoring with a language model you host yourself
+is a separate opt-in add-on, outside that core.
 
 ## Go deeper
 
@@ -132,15 +132,15 @@ Next to the hosted alternatives: [`docs/COMPARE.md`](docs/COMPARE.md).
 
 The deep toolkit -- capture, simulation, load, benchmarking, the fix ladder,
 the fleet control plane -- lives under `hotato lab` (`hotato lab --help`).
-The public commands are durable; `hotato lab` evolves faster; every pre-1.17
-top-level spelling keeps working unchanged.
+The public commands are durable. hotato lab moves faster, and every
+command name that worked before 1.17 still runs unchanged.
 
 ## Specifications
 
 | Property | Value |
 | :-- | :-- |
 | Footprint | ~10 MiB installed, 0 runtime dependencies (stdlib-only) |
-| Reproducibility | byte-for-byte, content-addressed checks |
+| Reproducibility | byte-for-byte: the same recording, the same report |
 | Exit codes | `0` pass &#183; `1` fail &#183; `2` refuse |
 | Release integrity | OIDC Trusted Publishing + build-provenance attested |
 | Runtime | offline, off the production data path |
@@ -153,7 +153,7 @@ PYTHONPATH=src python3 -m hotato.benchmark \
   --scenarios corpus/real/scenarios --audio corpus/real/audio
 ```
 
-On 13 recorded AMI Meeting Corpus clips, the median error between measured caller-onset and the human word-alignment label is **20 ms**. Provenance: [`corpus/real/README.md`](corpus/real) &#183; method: [`METHODOLOGY.md`](METHODOLOGY.md).
+On 13 recorded AMI Meeting Corpus clips, the median error between measured caller-onset and the human word-alignment label is **20 ms**. Provenance: [`corpus/real/README.md`](corpus/real/README.md) &#183; method: [`METHODOLOGY.md`](METHODOLOGY.md).
 
 Timing is measurable only when the two voices arrive on separate channels; a mono or mixed export is marked **NOT SCORABLE** and refused (`hotato trust --stereo call.wav`). The full four-tier evidence policy (what each verdict stands on, per input) is [`docs/EVIDENCE-CONTRACT.md`](docs/EVIDENCE-CONTRACT.md).
 
@@ -185,7 +185,7 @@ you can chain the whole loop from what hotato tells you.
 The transcript passed and the call still failed: the agent talked over the caller,
 ran through the interruption, or left a beat of dead air handing the floor back.
 None of that is in the words. Hotato scores the turn timing between the two voices
-of a recording, pins a caught moment as a contract, and re-runs it in CI forever.
+of a recording, freezes one caught moment as a contract, and re-runs it in CI.
 
 ## Install
 
@@ -202,8 +202,8 @@ pipx install hotato        # or: uv tool install hotato, or: pip install hotato
 ```
 
 Scoring needs two separate channels (caller on one, agent on the other). A mono
-or mixed export is marked NOT SCORABLE and refused, exit 2. Confirm a file is
-scorable before scoring it with `hotato trust --stereo call.wav`.
+or mixed export is refused: marked NOT SCORABLE, exit 2. Check a file before
+you score it with `hotato trust --stereo call.wav`.
 
 ## The five steps
 
@@ -214,8 +214,8 @@ hotato start --demo
 ```
 
 Sweeps the two bundled demo calls, builds one failure contract, and runs one
-say-do conversation check. It exits 0 because setup finished. The gate command it
-points at, `hotato contract verify contracts/`, exits 1 by design.
+say-do check: the agent said the refund was sent; the trace decides. Exits 0
+because setup finished; `hotato contract verify contracts/` exits 1 by design.
 
 ### 2. Score your own recording
 
@@ -226,7 +226,7 @@ hotato investigate ./call.wav
 ```console
 hotato investigate [run 1]: call.wav
   input health: eligible for scan
-  verdict path: eligible (a labeled event here can carry a real yield/hold verdict)
+  verdict path: eligible (a labeled event here can carry a yield/hold verdict)
   most likely failure (top-ranked candidate):
     [1] t=7.63s agent_stop_no_caller  trailing_silence_sec=0.37, caller_proximity_sec=0.5
   next: label it (use --expect hold instead if the agent was right to keep talking):
@@ -234,14 +234,14 @@ hotato investigate [run 1]: call.wav
 ```
 
 Hotato ranks the timing moments, marks the top one `most likely failure`, and
-hands you one command to pin it. It infers no intent. Have a provider call id
-instead of a WAV? `hotato investigate --stack vapi --call-id <id>` pulls it first,
-then ranks the same way.
+hands you one command to label it. It reads timing, not intent. Have a provider
+call id instead of a WAV? `hotato investigate --stack vapi --call-id <id>` pulls
+it first, then ranks the same way.
 
 ### 3. Commit the catch as a regression
 
-Yield means the agent should have stopped for the caller. Hold means it should
-have kept the floor through a backchannel or noise. The label is your decision;
+Yield means the agent should have stopped for the caller. Hold means it was
+right to keep talking through a backchannel or noise. The label is yours;
 hotato measures whether the timing matched it.
 
 ```bash
@@ -262,7 +262,7 @@ open the pull request that adds it to your repo's CI gate:
 ```
 
 The contract bundle is content-addressed: the clipped audio, the frame-level
-evidence, the policy, and its own manifest, committed byte-identical.
+evidence, the policy, and its own attestation, committed byte-identical.
 
 ### 4. Open the pull request
 
@@ -292,10 +292,10 @@ pass, exit 1 fail.
 
 ## When the gate is red
 
-A committed contract is a pinned bad call, so it is *meant* to stay exit 1, the
-way a snapshot test stays red until you update the snapshot. The frozen audio
-never changes, so the gate goes green only after you fix the agent and recapture
-the call. That still-red state is a review checkpoint, not a broken test.
+A committed contract holds a call that already failed, so exit 1 is the correct
+reading, the way a snapshot test stays red until you update the snapshot. The
+audio is frozen, so the gate turns green once you fix the agent and recapture the
+call. Until then the red names one moment on one call, waiting for review.
 
 To get to green, fix the agent, then recapture:
 
@@ -308,8 +308,8 @@ after verdict. For every other stack, or by hand, follow [`RECAPTURE.md`](RECAPT
 
 ## Reference
 
-The five steps are the whole loop. When you need more depth, follow these one at
-a time; none of them is required to complete the loop above.
+The five steps are the whole loop. The pages below go deeper on it; take them
+one at a time, in whatever order the work calls for.
 
 - [`START.md`](START.md): the guided demo, both acts (timing and say-do), in detail.
 - [`INVESTIGATE.md`](INVESTIGATE.md): capture-origin authentication and candidate ranking.
@@ -338,8 +338,8 @@ FILE: docs/AUTOPSY.md
 # `hotato autopsy <recording>`: one call in, the incidents out
 
 Drop one call recording in with zero config and get the incident list:
-barge-in, talk-over, dead air, latency spikes, each with a timestamp and
-the measured magnitude, plus one self-contained HTML report.
+each moment -- barge-in, talk-over, dead air, a latency spike -- with its
+timestamp and magnitude, one HTML report, and an `apx-` id from its bytes.
 
 ```bash
 hotato autopsy call.wav
@@ -363,9 +363,9 @@ with no recording prints the quick start on the bundled rendered example.
 
 ## Quick start from your platform (Vapi, Retell, Bland, Synthflow, Millis)
 
-You never touch a WAV: one command pulls your recent calls straight from
-the platform's own API, checks every recording, and writes the health
-report led by the Voice Stability Score.
+You never touch a WAV: one command pulls your recent calls from the
+platform's API, checks each, and leads the health report with the Voice
+Stability Score: your dual-channel calls' critical-free share x 100.
 
 ```bash
 export VAPI_API_KEY=YOUR_KEY          # or: hotato connect vapi
@@ -410,11 +410,11 @@ measured-confidence mono path below (silence timing measured from the
 mixed channel; talk-over attribution comes from a two-channel recording
 -- the scope line states this once per run). Mono calls report into the
 best-effort mono observations block with their own counts and never
-enter the Voice Stability denominator, so the mono stacks' reports carry
-observations without a stability score
-([EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md) states the whole tier
-policy). The analysis runs on this machine; recordings download straight
-from the platform and go nowhere else.
+enter the Voice Stability denominator, so a mono stack's report carries
+its observations and no stability score
+([EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md) states the tier policy, a
+tier being what a recording can prove). The analysis runs on this machine;
+recordings download straight from the platform and go nowhere else.
 
 A window with no calls, a pull in which every recording failed to fetch,
 or a pulled set with zero analyzable calls refuses with the reason (exit
@@ -446,15 +446,15 @@ magnitudes (`candidate_detail`), and the scanner's plain-English sentence
 ## Mono: best-effort, confidence-scored
 
 A one-channel (mixed) recording is analyzed best-effort with the same
-energy VAD. One mixed channel measures silence timing -- dead air and
-latency gaps -- and every mono finding carries a **measured confidence**
-with its derivation printed beside it: how far the gap's mean energy sits
-below the speech-activity threshold the VAD measured for this recording
-(a 20 dB margin or more scores 1.00). Talk-over and barge-in attribution
-comes from a two-channel recording, where the caller and the agent are
-physically separated; that functional scope is stated once, on one line,
-in the output. A mono gap says everything stopped, not who stopped --
-nothing is guessed and no confidence is invented.
+energy VAD, the voice-activity detector that marks each frame loud or
+quiet. One mixed channel measures silence timing -- dead air and latency
+gaps -- and every mono finding carries a **measured confidence** with its
+derivation printed beside it: how far the gap's mean energy sits below the
+speech-activity threshold the VAD measured for this recording (a 20 dB
+margin or more scores 1.00). Talk-over and barge-in attribution comes from
+a two-channel recording, where the caller and the agent are physically
+separated; that scope is stated once, on one line, in the output. A mono
+gap says everything stopped, not who stopped.
 
 The stricter commands keep their bar: `run`, `scan`, `trust`, and the
 contract path still refuse mono as NOT SCORABLE. Autopsy is discovery;
@@ -487,14 +487,14 @@ independent of the local ffmpeg build). Incidents are addressed as
 ## The persisted envelope
 
 Every autopsy also writes `hotato-output/autopsy-<id>.json` next to the
-HTML: the machine-readable result envelope -- the source path, the mode,
-and the incidents with their onset, kind, and (on the stereo path) the
-underlying scan candidate kind. Like the report it is content-addressed
-and deterministic: the same recording writes the same bytes on every run.
-The envelope carries the measured facts only; est. cost figures live on
-the rendered surfaces (they exist only under `--cost-config`), never in
-the stored envelope. This is the offline store `hotato pin` resolves an
-`apx-...#N` ref from without re-running the analysis.
+HTML: the machine-readable result envelope -- the source path, the mode
+(stereo or mono), and the incidents with their onset, kind, and (on the
+stereo path) the underlying scan candidate kind. Like the report it is
+content-addressed and deterministic: the same recording writes the same
+bytes on every run. The envelope carries the measured facts only; est.
+cost figures live on the rendered surfaces (only under `--cost-config`),
+never in the stored envelope. This is the offline store `hotato pin`
+resolves an `apx-...#N` ref from without re-running the analysis.
 
 ## `hotato scan <directory>`: the folder health report
 
@@ -526,28 +526,27 @@ hotato scan: calls  (5 recordings: 4 analyzed, 1 refused)
 
 The HEALTH headline is a measured share -- **dual-channel calls** with
 zero critical incidents over dual-channel calls analyzed. The **Voice
-Stability Score** is that same share, times 100: `round(share x 100)`,
-nothing else (the machine field is `critical_free_call_rate`). The share
-line prints directly beneath the score as its formula, the eligible
-sample size and the analysis-policy sha print beside the score, a
-`SMALL SAMPLE` label renders under 20 dual-channel calls, and the HTML
+Stability Score** is that same share, times 100: `round(share x 100)` and
+no second arithmetic (the machine field is `critical_free_call_rate`).
+The share line prints directly beneath the score as its formula, the
+eligible sample size and the analysis-policy sha print beside the score,
+a `SMALL SAMPLE` label renders under 20 dual-channel calls, and the HTML
 report carries a one-line "How this is calculated" note pointing at the
 share line. A mono call **never enters the denominator**: mono-analyzed
 calls report into the *Best-effort mono observations* block with their
 own counts (measured silence timing from one mixed channel; talk-over
 and barge-in attribution comes from a two-channel recording). With zero
-dual-channel calls no score renders and the report states why. There is
-deliberately **no blended quality score anywhere**: one blended number
-hides exactly the distinction the tool exists to draw (see
-[METHODOLOGY.md](../METHODOLOGY.md)), so the branded number restates the
-measured share -- no weights, no other arithmetic. The share sits beside
-the **evidence coverage** block (per-lane measured counts from what the
-run actually had -- dual-channel timing, mono best-effort, refused with
-reasons; a lane whose evidence was absent from the run never renders as
-assessed), a per-category breakdown (counts plus the worst measured
-magnitude in each category), and the worst-calls ranking, each call
-linking to its own per-call autopsy report, generated alongside with its
-envelope -- so `hotato pin` works straight from a folder scan.
+dual-channel calls no score renders: the report states why and shows the
+mono observations alone. Every number keeps its own denominator, because
+one blended score would hide exactly the distinction the tool exists to
+draw (see [METHODOLOGY.md](../METHODOLOGY.md)). The share sits beside
+the **evidence coverage** block (a lane is one evidence path --
+dual-channel timing, mono best-effort, refused with its reason -- each
+carrying the count this run measured, so a lane reads as assessed only
+when it carried evidence), a per-category breakdown (counts plus the
+worst measured magnitude in each category), and the worst-calls ranking,
+each call linking to its own per-call autopsy report, generated alongside
+its envelope -- so `hotato pin` works straight from a folder scan.
 
 The scan is deterministic end to end: the same directory with the same
 flags produces byte-identical CLI text and a byte-identical HTML report,
@@ -587,16 +586,16 @@ re-running `hotato vapi health` week over week builds the store the
 recurrence lines read from.
 
 `--cost-config` renders est. cost totals across the analyzed calls, from
-your own per-incident figures, exactly as above. The single-recording
-mode is unchanged: `hotato scan --stereo call.wav` lists one recording's
-candidate turn-taking moments, byte-for-byte as before.
+your own per-incident figures, exactly as above. For one recording,
+`hotato scan --stereo call.wav` lists that call's candidate turn-taking
+moments, byte-for-byte on every run.
 
 ## `hotato pin <autopsy-ref>`: incident to contract
 
 `hotato pin` turns one autopsy incident into a portable `.hotato` failure
-contract through the existing contract machinery
-(`hotato contract create` on the recording at the incident's onset -- no
-separate minting logic):
+contract -- that clip, its frame evidence, its thresholds, frozen --
+through the same contract machinery (`hotato contract create` on the
+recording at the incident's onset):
 
 ```bash
 hotato pin apx-cc33f46fad58        # the call's top critical incident
@@ -659,7 +658,7 @@ hotato autopsy examples/autopsy/audio/autopsy-03-talk-over.example.wav
 
 ## From an incident to a regression gate
 
-An incident worth keeping fixed graduates in one step:
+Turn one incident into a standing CI gate:
 
 ```bash
 hotato pin apx-cc33f46fad58#1                # incident -> portable contract
@@ -679,8 +678,8 @@ hotato contract verify contracts/ --junit hotato.xml   # the CI gate
 Deterministic energy measurement over time: per-frame RMS, a transparent
 activity threshold, and the timing walk between the tracks. Timing and
 floor-holding, not intent or transcription -- the scanner cannot know
-whether a caller sound was "mhm" or "stop", and no accuracy percentage
-appears anywhere. See [METHODOLOGY.md](../METHODOLOGY.md).
+whether a caller sound was "mhm" or "stop", so what it reports is measured
+timing, not an accuracy score. See [METHODOLOGY.md](../METHODOLOGY.md).
 
 
 ================================================================================
@@ -695,16 +694,16 @@ the platform health reports, and the trust docs
 ([TRUST.md](TRUST.md) &#183; [TRUST-MATRIX.md](TRUST-MATRIX.md)) all apply it
 and link back here.
 
-The four tiers, from strongest evidence to none:
+Four tiers, by what the recording itself can prove:
 
 ## Tier 1 -- dual-channel audio: deterministic
 
 Caller on one channel, agent on the other, separated at capture. Overlap and
 timing are facts of the recording, exact to the sample, so the deterministic
 timing walk runs end to end: byte-identical output for the same input, every
-threshold exposed, every frame inspectable. This is the only tier that is
-**verdict-eligible**: contracts, `hotato pin`, `hotato prove`, and the CI
-gate all stand on it, and it alone enters the Voice Stability denominator.
+threshold and frame inspectable. Only this tier is **verdict-eligible** --
+`hotato pin` freezes a caught moment as a contract, `hotato prove` and the CI
+gate re-run it, and it alone enters the Voice Stability denominator.
 
 ## Tier 2 -- mono plus provider metadata: attributable, with declared authority
 
@@ -712,35 +711,35 @@ A mixed single channel cannot attribute energy to a speaker by itself, but
 metadata a provider or pipeline supplies alongside it can: a
 speaker-attributed transcript, a voice-pipeline trace, tool-call logs, or a
 diarizer's turn labels (`hotato run --mono call.wav --diarize`,
-[DIARIZE.md](DIARIZE.md)). Findings on this tier are **attributable**, and
-each one carries the **declared authority** of the source that attributed it
--- the production evidence plane records it explicitly (`submitted`,
-`adapter_reported`, `provider_export`, `signed_attestation`, `measured`),
-and a diarized verdict is tiered and stamped (`diarized-mono`;
-`indicative_only` below the confidence bar). Attribution is only as strong
-as its source, so the authority prints with the finding and this tier never
-merges into Tier 1's deterministic counts.
+[DIARIZE.md](DIARIZE.md)). A finding here is **attributable**: something
+assigned the speech to a speaker, and the finding names that source. The
+production evidence plane records it, weakest claim first -- `submitted`,
+`adapter_reported`, `provider_export`, `signed_attestation`, `measured`.
+A verdict a diarizer attributed is stamped `diarized-mono`, and
+`indicative_only` when that diarizer's own confidence sits below the bar.
+Attribution is only as strong as its source, so the authority prints with
+the finding and this tier never merges into Tier 1's deterministic counts.
 
 ## Tier 3 -- raw mixed mono: symptom detection, with measured confidence
 
 One mixed channel with no metadata still measures what silence shows:
-dead air and latency gaps. `hotato autopsy` and the mono-stack health
-reports run this path best-effort, and every finding carries a **measured
-confidence** with its derivation printed beside it. A mono gap says
-everything stopped, not who stopped -- talk-over and barge-in attribution
-comes from the tiers above, that scope is stated once per run, and Tier 3
-findings report in their own block, outside the Voice Stability
-denominator.
+dead air and latency gaps. `hotato autopsy` (one recording in, the incident
+list out) and the mono-stack health reports run this path best-effort, and
+every finding carries a **measured confidence** with its derivation printed
+beside it. A mono gap says everything stopped, not who stopped -- talk-over
+and barge-in attribution comes from the tiers above, that scope is stated once
+per run, and Tier 3 findings report in their own block, outside the Voice
+Stability denominator.
 
 ## Tier 4 -- insufficient evidence: refused, with the remediation
 
 An input that supports none of the above -- an unreadable file, a silent
 required channel, a mixed export where a deterministic verdict was asked
-for -- is **refused** (exit `2`) with the reason and the next step: the
-recording scaffold for your stack (`hotato setup`), the input health check
-(`hotato trust --stereo call.wav`), or the mono escapes above. A refusal
-leaves no artifact and never becomes a number; a green or red build always
-means something.
+for -- is **refused** (exit `2`): hotato scores nothing and prints the reason
+and the next step -- the recording scaffold for your stack (`hotato setup`),
+the input health check (`hotato trust --stereo call.wav`), or the mono escapes
+above. A refusal leaves no artifact and never becomes a number, so a green or
+red build only ever reports calls that were scored.
 
 ## Reading a report against the tiers
 
@@ -748,9 +747,9 @@ The health and scan reports render the split directly: the Voice Stability
 Score and the `health:` share count **dual-channel calls only** (Tier 1);
 mono findings sit in the *Best-effort mono observations* block with their
 own counts (Tier 3, or Tier 2 where metadata attributed them); refused
-files are listed with their reasons (Tier 4), never scored. The per-lane
-**evidence coverage** block states which tiers this run actually had --
-a lane whose evidence was absent never renders as assessed.
+files are listed with their reasons (Tier 4), never scored. The **evidence
+coverage** block prints each lane's measured count (dual-channel timing, mono
+best-effort, refused), so a lane reads as assessed only when it had evidence.
 
 
 ================================================================================
@@ -1043,21 +1042,20 @@ carries a running score and fails when the agent gets slower to stop
 talking for an interrupting caller. The workflow runs offline with zero
 extra dependencies.
 
-## One command to the same record CI renders
+## One command writes the record CI renders
 
-`hotato start --demo` runs the whole loop offline and leaves the canonical
-share-safe Failure Record under `hotato-failure-record/` --
-`failure-record.{json,md,html,svg}`, the same primitive this Action renders
-per non-passing unit (the `records` output below). The demo prints its
-evidence-specific headline, the Markdown and SVG share paths, and the
-one-command verifier:
+`hotato start --demo` runs the whole loop offline and writes a Failure Record
+under `hotato-failure-record/` -- `failure-record.{json,md,html,svg}`: one
+caught failure with its evidence, in four paste-safe shapes. The Action below
+renders it per non-passing unit (its `records` output). The demo prints the
+headline, the Markdown and SVG share paths, and the verifier:
 
 ```
 Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
-  Verify the record:  uvx --from hotato==1.17.1 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.18.0 hotato record verify hotato-failure-record/failure-record.json
 ```
 
 Preview it locally, then scaffold the durable gate into your own repository
@@ -1076,16 +1074,16 @@ stack-tuned `hotato.yaml`, `contracts/`, and `fixtures/`.
 
 The repository root ships a composite GitHub Action: a repository with no
 hotato source can run a committed suite, conversation test, or contract
-verification and gate on hotato's exit status. The default run is
-offline -- it runs the pinned Action revision itself off PYTHONPATH (no
-pip, no package index), installs no model, no ASR, no Node tool, calls no
-external judge, and reads no secret.
+verification and gate on hotato's exit status. The default run is offline --
+the pinned Action revision executes straight off PYTHONPATH on the standard
+library alone, reaching no package index, no model, no ASR, no Node tool, no
+external judge, and no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.17.1), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.18.0), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.17.1
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.18.0
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -1107,7 +1105,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.17.1
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.18.0
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -1145,7 +1143,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.17.1` | `pip install --no-deps hotato==1.17.1` |
+| an exact version, e.g. `1.18.0` | `pip install --no-deps hotato==1.18.0` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
@@ -1176,13 +1174,12 @@ The machine JSON stays primary:
 | `hotato-version` | The executed package version |
 
 The five-lane summary (Outcome, Policy, Conversation, Speech, Reliability)
-appends to the job page on pass AND failure, with the reproduce command
-and evaluated check ids. A lane with no evaluated check renders NOT_RUN; a
-lane whose checks lack required evidence renders INCONCLUSIVE, never
-PASS. The model-judged rubric lane reports in its own advisory section
-with `gate enabled: true|false` and changes the exit only when
-`gate-advisory: true` was set; with no local judge reachable it reports
-ERROR instead of guessing.
+appends to the job page on pass and on failure, with the reproduce command
+and the evaluated check ids. A lane with no evaluated check renders NOT_RUN;
+a lane whose checks lack the evidence they require renders INCONCLUSIVE,
+never PASS. The model-judged rubric lane reports in its own advisory section
+with `gate enabled: true|false`, changes the exit only when
+`gate-advisory: true` was set, and reports ERROR when no local judge answers.
 
 The conformance fixture:
 [`tests/fixtures/action-consumer/`](../tests/fixtures/action-consumer/);
@@ -1329,7 +1326,7 @@ hotato release (the version that generated the file), verify `contracts/`
 with `hotato contract verify`, re-score `fixtures/` with `hotato run`, and
 publish the JSON reports plus the JUnit file. A regression exits non-zero
 and fails the pipeline; an empty `contracts/` or `fixtures/` directory is
-a normal starting state, and each gate stays a no-op until the first one
+a normal starting state, and each gate is a no-op until your first one
 lands.
 
 - **GitLab CI**: one `hotato` job on `python:3.12`;
@@ -1359,11 +1356,11 @@ FILE: docs/MCP.md
 
 hotato ships an MCP server, `hotato-mcp`, over stdio, with fifteen tools:
 one scoring tool, `voice_eval_run` (returns the identical JSON envelope,
-`schema_version` "1", the CLI emits); three proof-preserving counterexample
-tools that compile and check offline regression capsules; and eleven fleet
-tools -- eight read/verify/propose over a local fleet workspace, three
-clone-scoped actions that recompute and hand the deploy decision back to
-you. Everything, including audio, runs and stays on your machine.
+`schema_version` "1", the CLI emits); three counterexample tools that reduce
+a failing scenario to a smaller case that still fails, then re-check it
+offline; and eleven fleet tools -- eight that read and propose over a local
+workspace, three that recompute inside a throwaway clone and hand the deploy
+decision back to you. Everything, audio included, stays on your machine.
 
 Every tool response carries a uniform control envelope: four keys, pure
 reads included, so an autonomous caller parses one shape: `evidence_status`
@@ -1465,11 +1462,11 @@ error with a stable `error_code` and message; see below.
 
 ## The counterexample tools
 
-These three tools call the same stdlib-only core as
-`hotato counterexample ...`. `HOTATO_MCP_INPUT_DIR` confines scenario, test,
-and capsule reads; `HOTATO_MCP_REPORT_DIR` confines new capsule writes; with
-neither set, reads and writes stay under the working directory or the OS
-temp directory. Compilation never overwrites an existing path.
+These three tools call the same stdlib-only core as `hotato counterexample
+...`. A capsule is one reduced failing case on disk. `HOTATO_MCP_INPUT_DIR`
+confines scenario, test, and capsule reads; `HOTATO_MCP_REPORT_DIR` confines
+new capsule writes; with neither set, both stay under the working directory
+or the OS temp directory. Compilation never overwrites an existing path.
 
 | Tool | Scope | Does |
 | --- | --- | --- |
@@ -1505,9 +1502,9 @@ parses one contract across both surfaces.
 
 ## The fleet tools
 
-Eleven tools drive the local, self-hosted fleet control plane
-([`GUARDIAN-FLEET.md`](GUARDIAN-FLEET.md)): they read and reason over a
-workspace, surfacing findings for a human to label and deploy.
+Eleven tools drive the fleet workspace
+([`GUARDIAN-FLEET.md`](GUARDIAN-FLEET.md)): your local store of agents, calls,
+contracts, and before/after trials; a person labels the findings and deploys.
 
 | Tool | Scope | Does |
 | --- | --- | --- |
@@ -1537,13 +1534,13 @@ FILE: docs/CONNECT.md
 
 # Connect, pull, sweep: score every call across your stack
 
-`hotato sweep` connects once and surfaces every turn-taking problem across
-your calls, in three steps you can also run alone:
+`hotato sweep` connects once and ranks the turn-taking moments across your
+recent calls, in three steps you can also run alone:
 
-1. **`hotato connect <stack>`** -- store a stack's credentials once, locally.
+1. **`hotato connect <stack>`** -- store one stack's credentials, locally.
 2. **`hotato pull`** -- bulk-fetch your recent recordings into a folder.
-3. **`hotato sweep`** -- pull, then run zero-config `analyze` and write one
-   offline dashboard of the ranked turn-taking moments.
+3. **`hotato sweep`** -- pull, then score every pulled call and write one
+   offline dashboard ranking the turn-taking moments it measured.
 
 Everything scores offline; the only network call is the direct recording
 download from vendor to machine. Your audio and keys stay between you and
@@ -1624,29 +1621,29 @@ hotato sweep                                  # the only connected stack
 ```
 
 Pulls (as above) into `hotato-sweep-<stack>/` (override `--dir`), runs the
-same zero-config `analyze`, and writes one self-contained, offline HTML
-dashboard (`hotato-sweep-<stack>.html`, override `--out`): the ranked
-candidate moments across every call, with a hear-the-bug player on the top
-ones. `--format json` emits the candidates plus a pull summary instead.
+same `analyze` scoring with nothing to configure, and writes one
+self-contained offline HTML dashboard (`hotato-sweep-<stack>.html`, override
+`--out`): every call's candidate moments ranked, with an inline player on the
+top ones. `--format json` emits the candidates plus a pull summary instead.
 
 Dual-channel stacks get separated scoring. Mono/mixed stacks need
 `--allow-mono`; without per-party separation their calls land in the
 dashboard's Skipped section.
 
-Candidates are MEASURED timing moments you review and label with `hotato
-fixture create`: a timestamp and a number, not a verdict on intent.
+A candidate is one measured timing moment you review and label with `hotato
+fixture create`: a timestamp and a magnitude, not a verdict on intent.
 
-## What is and isn't pullable
+## Which stacks pull, and how
 
 See [`docs/ADAPTER-STATUS.md`](ADAPTER-STATUS.md) for the full map: which
-stacks auto-pull dual-channel, which are mono-only, which capture in your
-own infra, and which endpoint each uses.
+stacks auto-pull dual-channel, which arrive as one mixed channel, which
+capture in your own infra, and which endpoint each uses.
 
 ## After the first catch
 
-You have seen a catch on a recorded call. The second move is driving one
-against your live agent on demand, fed into this same pull -> score
-pipeline: [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md).
+You have caught a timing moment on a recorded call. The next move is
+originating one against your live agent on demand, into this same
+pull -> score path: [`docs/DRIVE-A-CALL.md`](DRIVE-A-CALL.md).
 
 
 ================================================================================
@@ -1656,8 +1653,8 @@ FILE: docs/ADAPTER-STATUS.md
 # Adapter status
 
 Which stack Hotato pulls recordings from, which endpoint it calls, and how
-it separates caller/agent channels for each one -- every entry checked
-verbatim against the vendor's live documentation on the date shown.
+it separates caller/agent channels for each one -- each entry read off that
+vendor's own API documentation on the date shown.
 
 Terms:
 
@@ -1672,9 +1669,9 @@ Terms:
   opt-in, labeled indicative only. Separated turn-taking analysis needs a
   dual-channel file.
 
-Each adapter ships only the endpoints confirmed verbatim in the spec;
-where it marks a list-calls endpoint or channel layout **unconfirmed /
-none**, Hotato falls back to explicit call ids and documents the gap here.
+Each adapter ships only the endpoints its vendor's spec confirms. Where a
+list-calls endpoint or channel layout reads **unconfirmed / none**, Hotato
+takes explicit call ids instead, and this page names which and why.
 
 ## Dual-channel: auto-pull, separated scoring
 
@@ -1747,12 +1744,12 @@ the EU region. Single-call `capture`/`pull` by explicit id needs none of these.
   `docs.play.ai` returns `DEPLOYMENT_NOT_FOUND`. The only live domain,
   `docs.play.ht`, is TTS-only, no calls/recordings API.
 
-## Needs credentials or a live probe before shipping
+## Fallback routes and open checks
 
-Documented weakly or behind a login/SPA, the spec could not verify a
-recording field-path or channel layout for these, so they ship as
-fallbacks (explicit call ids or the vendor's own webhook URL), not full
-adapters -- listed here so the supported set stays exact.
+Where the public docs pin down no recording field-path or channel layout,
+the stack ships as a fallback route -- explicit call ids, or the vendor's
+own webhook URL. The last three are open checks on stacks shipped above.
+All of it is listed here so the supported set stays exact.
 
 - **Regal.ai**: no list-calls, no REST fetch-recording endpoint. The
   recording arrives only via the `call.recording.available` webhook's
@@ -1770,8 +1767,8 @@ adapters -- listed here so the supported set stays exact.
 - **Cartesia dual-channel**: the `/agents/calls/{id}/audio` WAV's channel count
   was not confirmable in docs; treated as mono here pending a live check.
 - **Twilio dual-channel edge behaviour**: the exact 400-on-unavailable and
-  conference channel-ordering guarantees were carried forward from prior notes,
-  not re-verified verbatim this pass.
+  conference channel-ordering guarantees stand on prior notes, carried forward
+  rather than re-read from the spec this pass.
 - **Synthflow / Regal Twilio-URL dual-channel trick**: because their
   `recording_url` is a Twilio URL, `?RequestedChannels=2` *might* yield stereo,
   but neither vendor documents or guarantees it; unconfirmed until tested against
@@ -9321,8 +9318,8 @@ New here? Run `hotato autopsy ./call.wav` on one recording
 ## Lab: the deep toolkit
 
 Every command in this section lives under `hotato lab` (`hotato lab --help`).
-The public commands above are durable; the lab surface evolves faster, and
-every pre-1.17 top-level spelling keeps working unchanged.
+The public commands are durable. hotato lab moves faster, and every command
+name that worked before 1.17 still runs unchanged.
 
 ### Investigate and evaluate
 
@@ -9885,8 +9882,8 @@ FILE: docs/REPORTS.md
 
 # Reports: doctor, report, team, export
 
-Four surfaces, one scorer: reproducible timing measurements read straight
-from the envelope, with the method exposed at every layer.
+Four surfaces, one scorer: reproducible timing measurements read from the
+envelope a scoring run emits, with the method exposed at every layer.
 
 ## `hotato doctor`: the 5-minute path
 
@@ -9937,21 +9934,21 @@ Per event it draws a to-scale caller/agent activity timeline from the
 frame data -- overlap shaded, caller-onset and yield markers, measured
 talk-over seconds, expected vs. measured, and a PASS or FAIL chip.
 
-Once the page has at least three event cards, an analytics rollup follows,
-computed from the same measurements (fewer events skips it):
+Three or more event cards add an analytics rollup, computed from the same
+measurements:
 
 | Chart | Shows |
 |---|---|
 | Time-to-yield distribution | One dot per measured yield, with mean, median, and p90 (definitions in `METHODOLOGY.md`) |
 | Talk-over histogram | Per-event seconds, bucketed on a fixed grid |
-| Failure clustering by fix class | A batch of failures reads as "these five share one config setting" instead of five separate mysteries |
+| Failure clustering by fix class | Failures grouped by the setting each one points at, so five failures read as one config change |
 
 Every timeline carries a collapsible **frame inspector**: the full frame
 dump behind that event as a table (`t_sec`, per-channel dBFS, active
 flags, thresholds) -- any pixel on the page can be re-derived by hand.
-The `ScoreConfig` thresholds sit in one collapsed "Thresholds used" panel
-at the end, reproducible without stamping the parameter table above every
-render.
+Every threshold the run used sits in one collapsed "Thresholds used" panel
+at the end, so the numbers stay reproducible without a parameter table
+above every render.
 
 ### Voice-trace context with `--trace`
 
@@ -9969,8 +9966,8 @@ the trace's discrete voice-pipeline events -- TTS cancel/stop, ASR
 partials, tool calls -- as a mono span table. It stays scoped to context:
 `did_yield`, `talk_over_sec`, `seconds_to_yield`, and the PASS/FAIL
 verdict come from the scorer alone; the trace folds into the envelope as
-an additive `trace_context` key. Without `--trace`, the report is
-byte-identical to one built before the flag existed. Redaction carries
+an additive `trace_context` key. The trace changes nothing else: leave
+`--trace` off and the report renders byte-identical. Redaction carries
 through: a span ingested without `--include-text` shows `[redacted]`
 instead of its text, so a shared report carries only what the trace
 already chose to keep. Same `trace=` parameter on `build_report_html` /
@@ -9998,15 +9995,15 @@ html, _ = report.build_report_html(stereo="call.wav",
 **pass@1**, **pass@k**, **pass^k**, `n`, `k`, `passes`, a **Wilson 95% CI**
 on pass@1, a **per-variation-cell** breakdown when the summary carries
 one, and a **SIMULATOR_INVALID** bucket for broken fixtures, excluded
-from `n`. pass^k stays its own number, its own lane -- no `overall_score`
-field to blend into. Runs from simulation are labeled
+from `n`. pass^k keeps its own number in its own lane: the schema carries no
+`overall_score` field to blend it into. Runs from simulation are labeled
 **origin=simulated**, scoped apart from production reliability.
 
 `hotato test run --repetitions N` (`N > 1`) computes this aggregate over
 the N deterministic runs and threads it into `report.{html,md}`
-automatically. With no repetition data, the dimension shows the
-empty-state -- "not measured: no repeated runs in this report" --
-byte-identical to a report built without the parameter.
+automatically. From a single run the dimension prints "not measured: no
+repeated runs in this report", and the page stays byte-identical to one
+built without the parameter.
 
 ### Regression deltas with `--base`
 
@@ -10050,8 +10047,8 @@ same pass/fail contract as a talk-over or time-to-yield regression
 (`--no-fail` always exits `0`). Percentile definitions: `METHODOLOGY.md`;
 pooling shape: `dist_summary` in `src/hotato/_stats.py`.
 
-Fewer than two runs is stated plainly, and exits `0`; a trend line renders
-once there are enough points to mean something.
+Fewer than two run envelopes prints the count and why each file was
+skipped, then exits `0`; the trend line draws from two envelopes on.
 
 ## `hotato export`: research-grade CSVs
 
@@ -10482,15 +10479,15 @@ upgrade.
 
 The stack is small on purpose:
 
-- **hotato**: the `pip`-installable package. Stdlib-only core (zero runtime
-  dependencies) keeps the default image offline at run time, with zero
-  added supply-chain surface.
-- **`hotato serve`**: the token-authenticated team workspace (calls, suite
-  health, failure clusters, failure records, release readiness, plus the
-  scenario-matrix and conversation-inspector drill-ins; one write route,
-  pin-to-contract). See [`docs/WORKSPACE.md`](WORKSPACE.md).
-- **Ollama** (optional): a local model judge for the rubric lane, opt-in
-  behind a compose profile. The default path stays local end to end.
+- **hotato**: the `pip`-installable package. A stdlib-only core, runtime
+  dependency list empty, so the default image needs no network and no
+  third-party package to run it.
+- **`hotato serve`**: the token-authenticated workspace (calls, suite health,
+  failure clusters, failure records, release readiness, plus scenario-matrix
+  and conversation-inspector drill-ins; one write route, pinning a call to a
+  contract). See [`docs/WORKSPACE.md`](WORKSPACE.md).
+- **Ollama** (optional): a local model judge scoring a transcript against
+  criteria you write, opt-in behind a compose profile; the default stays local.
 
 ---
 
@@ -10578,10 +10575,10 @@ loopback and checks a view returns `200`; `docker compose ps` shows
 
 ## First boot: example data
 
-A brand-new workspace starts empty. To populate the five views with a
-small, labelled **example** dataset (two releases, three scenarios,
-pass/fail/inconclusive across the five dimensions, both direct and
-simulated origins), run the one-shot seeder:
+Fill the five views with a small, labelled **example** dataset (two
+releases, three scenarios, pass/fail/inconclusive across the five
+dimensions, both direct and simulated origins) by running the one-shot
+seeder:
 
 ```bash
 docker compose --profile demo run --rm hotato-init
@@ -10792,11 +10789,10 @@ open. Back up `/data` before a major upgrade, like any stateful service.
 
 ## Zero-migration promise
 
-The `/data` registry and content-addressed evidence store use the same
-schemas the managed cloud uses. Conversation artifacts, conversation tests,
-and dashboards move between self-hosted and cloud without changing a line.
-Self-host is the same platform, on your own infrastructure -- the whole QA
-platform, no hosted login required.
+The `/data` registry and content-addressed evidence store use hotato's own
+versioned schemas, so conversation artifacts, conversation tests, and
+dashboards move with the `/data` volume to a new host and open unchanged.
+Self-host is the whole QA platform, running on infrastructure you own.
 
 ---
 
@@ -13152,7 +13148,7 @@ FILE: docs/TRUST-GALLERY.md
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.17.1, offline. The rows
+Every block below is verbatim CLI output from hotato 1.18.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean and echo cases use the bundled examples

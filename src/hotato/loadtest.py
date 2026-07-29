@@ -25,6 +25,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from .errors import safe_json_dumps
 from .telephony import SUCCESS_STATUSES, TelephonyClient, validate_spec
+from .theme import ATTENTION, BORDER, GREEN, GROUND, INK, RED
 
 _MAX_CALLS = 100_000
 _MAX_CONCURRENCY = 1_000
@@ -954,7 +955,7 @@ def _html(summary: Dict[str, Any]) -> bytes:
         for stage in summary["stages"]
     )
     slos = "".join(f"<tr><td>{escape(row['id'])}</td><td>{escape(str(row['observed']))}</td><td>{row['operator']} {row['threshold']}</td><td class={row['status']}>{row['status']}</td></tr>" for row in summary["slos"])
-    return f"""<!doctype html><html><head><meta charset=utf-8><meta http-equiv=Content-Security-Policy content="default-src 'none'; style-src 'unsafe-inline'"><meta name=viewport content="width=device-width"><title>Hotato load result</title><style>body{{font:14px ui-monospace,monospace;max-width:1100px;margin:40px auto;background:#0b0d10;color:#e7edf4}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid #28303a;text-align:left}}.PASS{{color:#66d9a5}}.FAIL{{color:#ff6b6b}}.INCONCLUSIVE{{color:#ffd166}}</style></head><body><h1>Load and recovery · {escape(summary['plan_id'])}</h1><p>Lifecycle completion and evidence completeness are separate.</p><table><tr><th>Stage</th><th>Model</th><th>Scheduled</th><th>Lifecycle</th><th>Evidence</th><th>Dropped</th></tr>{rows}</table><h2>SLOs</h2><table>{slos or '<tr><td>No SLOs declared; result is inconclusive.</td></tr>'}</table></body></html>""".encode()
+    return f"""<!doctype html><html><head><meta charset=utf-8><meta http-equiv=Content-Security-Policy content="default-src 'none'; style-src 'unsafe-inline'"><meta name=viewport content="width=device-width"><title>Hotato load result</title><style>body{{font:14px ui-monospace,monospace;max-width:1100px;margin:40px auto;background:{GROUND};color:{INK}}}table{{width:100%;border-collapse:collapse}}td,th{{padding:10px;border-bottom:1px solid {BORDER};text-align:left}}.PASS{{color:{GREEN}}}.FAIL{{color:{RED}}}.INCONCLUSIVE{{color:{ATTENTION}}}</style></head><body><h1>Load and recovery · {escape(summary['plan_id'])}</h1><p>Lifecycle completion and evidence completeness are separate.</p><table><tr><th>Stage</th><th>Model</th><th>Scheduled</th><th>Lifecycle</th><th>Evidence</th><th>Dropped</th></tr>{rows}</table><h2>SLOs</h2><table>{slos or '<tr><td>No SLOs declared; result is inconclusive.</td></tr>'}</table></body></html>""".encode()
 
 
 def run(plan_path: str, output_dir: str, *, client: Optional[TelephonyClient] = None, clock=time.monotonic, sleeper=time.sleep) -> LoadResult:

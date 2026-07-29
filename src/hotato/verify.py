@@ -480,7 +480,7 @@ _EXTRA_CSS = """
 td.delta.good{color:%(green)s} td.delta.bad{color:%(red)s}
 td.delta.flat{color:%(muted)s}
 .gtag{font-weight:700;font-size:11px;letter-spacing:0.04em;padding:2px 8px;
- border-radius:6px;color:#15110d}
+ border-radius:6px;color:%(on_accent)s}
 .concl{margin-top:18px;background:%(card2)s;border:1px solid %(line)s;
  border-left:3px solid %(ember)s;border-radius:10px;padding:13px 16px;
  font-size:14px;line-height:1.55}

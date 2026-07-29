@@ -8,15 +8,15 @@ upgrade.
 
 The stack is small on purpose:
 
-- **hotato**: the `pip`-installable package. Stdlib-only core (zero runtime
-  dependencies) keeps the default image offline at run time, with zero
-  added supply-chain surface.
-- **`hotato serve`**: the token-authenticated team workspace (calls, suite
-  health, failure clusters, failure records, release readiness, plus the
-  scenario-matrix and conversation-inspector drill-ins; one write route,
-  pin-to-contract). See [`docs/WORKSPACE.md`](WORKSPACE.md).
-- **Ollama** (optional): a local model judge for the rubric lane, opt-in
-  behind a compose profile. The default path stays local end to end.
+- **hotato**: the `pip`-installable package. A stdlib-only core, runtime
+  dependency list empty, so the default image needs no network and no
+  third-party package to run it.
+- **`hotato serve`**: the token-authenticated workspace (calls, suite health,
+  failure clusters, failure records, release readiness, plus scenario-matrix
+  and conversation-inspector drill-ins; one write route, pinning a call to a
+  contract). See [`docs/WORKSPACE.md`](WORKSPACE.md).
+- **Ollama** (optional): a local model judge scoring a transcript against
+  criteria you write, opt-in behind a compose profile; the default stays local.
 
 ---
 
@@ -104,10 +104,10 @@ loopback and checks a view returns `200`; `docker compose ps` shows
 
 ## First boot: example data
 
-A brand-new workspace starts empty. To populate the five views with a
-small, labelled **example** dataset (two releases, three scenarios,
-pass/fail/inconclusive across the five dimensions, both direct and
-simulated origins), run the one-shot seeder:
+Fill the five views with a small, labelled **example** dataset (two
+releases, three scenarios, pass/fail/inconclusive across the five
+dimensions, both direct and simulated origins) by running the one-shot
+seeder:
 
 ```bash
 docker compose --profile demo run --rm hotato-init
@@ -318,11 +318,10 @@ open. Back up `/data` before a major upgrade, like any stateful service.
 
 ## Zero-migration promise
 
-The `/data` registry and content-addressed evidence store use the same
-schemas the managed cloud uses. Conversation artifacts, conversation tests,
-and dashboards move between self-hosted and cloud without changing a line.
-Self-host is the same platform, on your own infrastructure -- the whole QA
-platform, no hosted login required.
+The `/data` registry and content-addressed evidence store use hotato's own
+versioned schemas, so conversation artifacts, conversation tests, and
+dashboards move with the `/data` volume to a new host and open unchanged.
+Self-host is the whole QA platform, running on infrastructure you own.
 
 ---
 

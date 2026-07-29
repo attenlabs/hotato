@@ -55,12 +55,10 @@ try:
     _HAVE_REPORT = True
 except Exception:  # pragma: no cover - report is a hard sibling; fallback is belt-and-braces
     _HAVE_REPORT = False
-    _C = {
-        "bg": "#1b1714", "card": "#241f1a", "card2": "#2b241d", "line": "#3a3128",
-        "cream": "#f1e8d7", "muted": "#b7ab97", "mono": "#f6eddd",
-        "caller": "#ead9a6", "agent": "#7fb2c4", "ember": "#f0663a",
-        "green": "#74c98a", "red": "#e0664f", "grid": "#463b30",
-    }
+    # ``report`` is the usual source; the palette itself lives one level
+    # further down in ``theme``, so the fallback reads the same values rather
+    # than restating them.
+    from ..theme import REPORT as _C
 
     def _esc(x) -> str:
         return _html.escape("" if x is None else str(x))
@@ -76,7 +74,7 @@ except Exception:  # pragma: no cover - report is a hard sibling; fallback is be
         "padding:18px 20px;margin-bottom:18px}"
         ".pill{background:%(card2)s;border:1px solid %(line)s;border-radius:999px;"
         "padding:3px 11px;font-size:12px;color:%(muted)s}"
-        ".chip{color:#15110d;font-weight:800;font-size:12.5px;letter-spacing:0.06em;"
+        ".chip{color:%(on_accent)s;font-weight:800;font-size:12.5px;letter-spacing:0.06em;"
         "padding:5px 12px;border-radius:8px}.chip.small{padding:2px 9px;font-size:11px;border-radius:6px}"
         ".foot{margin-top:26px;border-top:1px solid %(line)s;padding-top:18px;"
         "color:%(cream)s;font-size:13px}"
@@ -129,7 +127,7 @@ form.filters label{display:flex;flex-direction:column;gap:3px;font-size:11px;
 form.filters input,form.filters select{background:%(card2)s;color:%(cream)s;
  border:1px solid %(line)s;border-radius:7px;padding:5px 8px;font-size:12.5px;
  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-form.filters button{background:%(ember)s;color:#15110d;border:none;border-radius:7px;
+form.filters button{background:%(ember)s;color:%(on_accent)s;border:none;border-radius:7px;
  padding:6px 14px;font-size:12.5px;font-weight:700;cursor:pointer}
 .clbar{display:inline-block;height:12px;border-radius:4px;background:%(ember)s;
  opacity:0.85;vertical-align:-1px}
@@ -151,8 +149,8 @@ form.filters button{background:%(ember)s;color:#15110d;border:none;border-radius
 /* origin badge: inline-block so the padded pill always wraps its label (no clip),
    real and simulated carry distinct track colours and always dark, legible text */
 .cvchip{display:inline-block;line-height:1.5;vertical-align:1px;white-space:nowrap;
- color:#15110d;font-weight:800;margin-left:6px}
-.cvchip.origin.real,.cvchip.origin.simulated,.cvchip.origin.muted{color:#15110d}
+ color:%(on_accent)s;font-weight:800;margin-left:6px}
+.cvchip.origin.real,.cvchip.origin.simulated,.cvchip.origin.muted{color:%(on_accent)s}
 section.card.conversation .cvorigin{display:flex;align-items:center;gap:2px}
 a.drill{color:%(agent)s;text-decoration:none}a.drill:hover{text-decoration:underline}
 """) % _C

@@ -121,9 +121,11 @@ def test_lab_help_lists_every_lab_command_with_a_description(capsys):
             # the one-line description survives (wrapped, so match its head)
             assert help_line.split()[0] in out
     for line in cli._STABILITY_STATEMENT.splitlines():
-        # the statement is re-wrapped in the listing; match word-wise
-        for word in ("durable", "pre-1.17"):
-            assert word in out
+        # the statement is re-wrapped in the listing, so match word-wise --
+        # but EVERY word, so a reworded statement cannot silently drop half of
+        # itself and a bare version banner cannot satisfy the check.
+        for word in line.split():
+            assert word in out, f"stability statement lost {word!r}"
 
 
 def test_bare_lab_prints_the_listing_too(capsys):

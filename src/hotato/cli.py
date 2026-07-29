@@ -716,11 +716,11 @@ _EXIT_CODES: dict = {
             "apart from a usage error"),
     ),
     "prove": (
-        (0, "every activated evidence lane passed (contracts, suite, "
-            "before/after, gauntlet -- whichever you activated)"),
-        (1, "fail-closed: at least one lane failed or regressed"),
-        (2, "usage error (zero lanes activated, an incomplete flag pair, "
-            "unusable input) or INCONCLUSIVE (a lane refused or came back "
+        (0, "every check you activated passed (contracts, suite, "
+            "before/after, gauntlet -- whichever flags you passed)"),
+        (1, "at least one check failed or regressed"),
+        (2, "usage error (no check activated, an incomplete flag pair, "
+            "unusable input) or INCONCLUSIVE (a check refused or came back "
             "inconclusive and none failed) -- 'could not tell' is never "
             "green"),
     ),
@@ -5447,8 +5447,8 @@ def _render_describe_text(manifest: dict) -> str:
         lines.append(manifest["stability"])
     lines.append("")
     for key, heading in (
-        ("core_loop", "core loop (start here; every other command is advanced):"),
-        ("deep_loop", "deep loop (first touch to a CI gate):"),
+        ("core_loop", "core loop -- five steps, on your own calls:"),
+        ("deep_loop", "deep loop -- the demo-first path to a CI gate:"),
     ):
         if manifest.get(key):
             lines.append(heading)
@@ -5581,7 +5581,7 @@ _START_HERE_STEPS = (
     ("hotato autopsy ./call.wav", "drop one recording in, get the incidents out"),
     ("hotato scan ./calls", "the folder health report over a directory"),
     ("hotato vapi health", "pull recent Vapi calls and write the health report"),
-    ("hotato pin apx-<id>", "pin one incident as a portable failure check"),
+    ("hotato pin apx-<id>", "pin an incident from step 1 as a portable check"),
     ("hotato prove --contracts contracts", "the CI check re-runs the stored evidence"),
 )
 
@@ -5633,8 +5633,8 @@ _PUBLIC_SURFACE = frozenset({
 # names the split: the --help epilog tail, `hotato lab --help`, README's
 # Go-deeper section, CONTRIBUTING.md, and the describe manifest.
 _STABILITY_STATEMENT = (
-    "The public commands are durable. hotato lab evolves faster, and every\n"
-    "pre-1.17 top-level spelling keeps working unchanged."
+    "The public commands are durable. hotato lab moves faster, and every\n"
+    "command name that worked before 1.17 still runs unchanged."
 )
 
 
@@ -5702,11 +5702,11 @@ def build_parser() -> argparse.ArgumentParser:
             + "\n\n"
             "Hotato: find what broke in your agent calls. Pin it so it never ships again.\n"
             "Local call forensics and regression guards for AI agents, on your\n"
-            "machine, with nothing leaving it. Scores turn timing and say-do\n"
-            "across five dimensions (outcome, policy, conversation, speech,\n"
-            "reliability) with the evidence behind every result. Offline. MIT.\n"
-            "Deterministic checks stay separate from the model-judged rubric;\n"
-            "there is no blended score and no accuracy percentage."
+            "machine, with nothing leaving it. It measures turn timing (who\n"
+            "spoke when, and whether the agent stopped for the caller) and say-do\n"
+            "(what the agent said it would do against what your trace shows it did).\n"
+            "The deterministic checks and the model judge report separately, each\n"
+            "with its evidence and no accuracy percentage. MIT."
         ),
         epilog=(
             "Start here (one recording to a CI gate):\n"
@@ -5715,17 +5715,17 @@ def build_parser() -> argparse.ArgumentParser:
             "  vapi health  pull recent Vapi calls and write the health report\n"
             "               (same shape: retell, bland, synthflow, millis)\n"
             "  pin          pin one autopsy incident as a portable failure check\n"
-            "  prove        the CI check: every evidence lane composed, fail-closed\n"
-            "  connect      store a stack's credentials once (0600, local only)\n\n"
+            "  prove        the CI check: it passes only if every check you ran passed\n"
+            "  connect      store a stack's API key once, on this machine, mode 0600\n\n"
             "Onboarding:\n"
-            "  start        guided, credential-less first run on the bundled demo calls\n"
+            "  start        a guided first run on the demo calls that ship in the package\n"
             "  demo         run the packaged battery of two failing calls, open its report\n"
             "  doctor       score a recording (or self-test), render the report, open it\n\n"
             "Continuous use:\n"
             "  vapi health  run it on a schedule and watch the trend\n"
-            "  console      the call console over the production evidence store\n"
-            "  production   the durable production evidence plane\n"
-            "  serve        the self-hosted local team workspace\n\n"
+            "  console      browse and score your live calls in a local browser tab\n"
+            "  production   the on-disk store your live calls report into\n"
+            "  serve        the local workspace your team reviews calls in\n\n"
             "Checks:\n"
             "  contract     create, verify, and pack pinned failure checks\n"
             "               (pin's artifacts verify through it)\n\n"
@@ -6047,8 +6047,8 @@ def build_parser() -> argparse.ArgumentParser:
     # --- connect: one-time credential capture for pull/sweep --------------
     cn = sub.add_parser(
         "connect",
-        help="store a stack's credentials once (0600, local only) so pull/sweep "
-             "need no keys",
+        help="store a stack's API key once (file mode 0600, this machine only), "
+             "so every later command finds it",
         description=(
             "Capture a voice stack's API credentials ONCE, run a lightweight live "
             "auth check (list one recent call, unless --no-verify), and store them "
@@ -9806,15 +9806,16 @@ def build_parser() -> argparse.ArgumentParser:
     # --- prove: compose the evidence lanes into one release proof -----------
     pv = sub.add_parser(
         "prove",
-        help="compose every evidence lane you have (contracts, suite, "
-             "before/after, gauntlet) into one fail-closed, content-addressed "
-             "proof whose CLAIM SCOPE reflects the evidence given; contracts "
-             "alone is Captured Evidence, not a release proof; exit 0 only "
-             "when every lane passed",
+        help="compose the checks you already ran (contracts, suite, "
+             "before/after, gauntlet) into one proof, headlined by the claim "
+             "its evidence supports: contracts alone reads 'Captured "
+             "Evidence', not a release proof. Exit 0 only when every check "
+             "passed; a check that cannot back its claim exits non-zero",
         description=(
-            "hotato prove composes the evidence lanes you already ran into "
-            "ONE portable proof, headlined by the CLAIM SCOPE the evidence "
-            "actually supports -- contracts alone re-measures stored evidence "
+            "hotato prove composes the checks you already ran -- one lane per "
+            "flag -- into ONE portable proof, headlined by the CLAIM SCOPE "
+            "the evidence actually supports: "
+            "contracts alone re-measures stored evidence "
             "and reads as 'Captured Evidence', a suite/gauntlet run as 'Test "
             "Suite', and a before/after lane reaches 'Candidate Revision' "
             "(or 'Deployed Revision') only when you also bind the candidate "
@@ -10963,7 +10964,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     srv = sub.add_parser(
         "serve",
-        help="run the self-hosted local team workspace (the conversation-QA views)",
+        help="run the local team workspace: calls, suite health, failure clusters",
         description=(
             "Serve an authenticated local web app over the fleet registry + "
             "conversation artifacts: calls, suite health, failure clusters, "
@@ -11031,8 +11032,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     con = sub.add_parser(
         "console",
-        help="the call console: serve + score-on-arrival over the production "
-             "evidence database, landing on the live call feed",
+        help="browse and score your live calls in a local browser tab: the "
+             "team workspace plus a worker that scores each call as it lands",
         description=(
             "One command, one process, one browser tab: run the workspace "
             "server with the production evidence database wired (read-only, "

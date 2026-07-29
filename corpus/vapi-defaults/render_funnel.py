@@ -19,6 +19,10 @@ Usage:
     PYTHONPATH=src python3 corpus/vapi-defaults/render_funnel.py \
         --out corpus/vapi-defaults/both-directions-fail.svg
 
+``--png`` additionally rasterizes the SVG to its committed ``.png`` sibling
+(the form that renders inline in places that will not display an SVG), using
+the same puppeteer/playwright lookup as ``scripts/render_banner.py``.
+
 Does not touch src/hotato/_engine or any scoring/golden output; it only
 calls the already-shipped, already-tested report renderer on the already-
 committed battery audio and scenarios.
@@ -27,11 +31,16 @@ committed battery audio and scenarios.
 from __future__ import annotations
 
 import argparse
+import json
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from hotato.report import _score_and_model, _svg_timeline, _C  # noqa: E402
 
@@ -133,9 +142,81 @@ def build_svg(models_by_id: dict) -> str:
     return "".join(parts)
 
 
+_PNG_NODE_SCRIPT = """
+const puppeteer = require(%(puppeteer)s);
+(async () => {
+  const browser = await puppeteer.launch({args: ['--no-sandbox', '--disable-dev-shm-usage']});
+  const page = await browser.newPage();
+  await page.setViewport({width: %(w)d, height: %(h)d, deviceScaleFactor: 2});
+  await page.goto('file://' + %(svg)s, {waitUntil: 'networkidle0'});
+  await page.screenshot({path: %(png)s, clip: {x: 0, y: 0, width: %(w)d, height: %(h)d}});
+  await browser.close();
+})().catch((e) => { console.error(e && e.stack || String(e)); process.exit(2); });
+"""
+
+
+_PNG_HTML_SHELL = """<!doctype html>
+<meta charset="utf-8">
+<style>html,body{margin:0;padding:0;background:%(bg)s}svg{display:block}</style>
+%(svg)s
+"""
+
+
+def rasterize(svg_text: str, png_path: Path, width: int, height: int) -> int:
+    """Rasterize the rendered SVG to its PNG sibling. 0 on success.
+
+    The SVG is inlined into a zero-margin HTML shell so the raster is the SVG's
+    own box, with no browser page chrome around it.
+    """
+    shell = Path(png_path).with_name(".funnel-raster.html")
+    shell.write_text(_PNG_HTML_SHELL % {"bg": _C["bg"], "svg": svg_text},
+                     encoding="utf-8")
+    try:
+        return _rasterize_shell(shell, png_path, width, height)
+    finally:
+        shell.unlink(missing_ok=True)
+
+
+def _rasterize_shell(shell: Path, png_path: Path, width: int, height: int) -> int:
+    from render_banner import puppeteer_dir  # scripts/ is on sys.path
+
+    node = shutil.which("node")
+    pdir = puppeteer_dir()
+    if node and pdir:
+        script = _PNG_NODE_SCRIPT % {
+            "puppeteer": json.dumps(pdir), "svg": json.dumps(str(shell.resolve())),
+            "png": json.dumps(str(png_path.resolve())), "w": width, "h": height,
+        }
+        proc = subprocess.run([node, "-e", script], capture_output=True, text=True,
+                              timeout=180)
+        if proc.returncode != 0:
+            print(f"puppeteer rasterize failed:\n{proc.stderr}", file=sys.stderr)
+            return 1
+        print(f"wrote {png_path} ({png_path.stat().st_size} bytes, {width}x{height} @2x)")
+        return 0
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("no rasterizer available for --png (need puppeteer or playwright)",
+              file=sys.stderr)
+        return 1
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": width, "height": height},
+                                device_scale_factor=2)
+        page.goto("file://" + str(shell.resolve()))
+        page.screenshot(path=str(png_path.resolve()),
+                        clip={"x": 0, "y": 0, "width": width, "height": height})
+        browser.close()
+    print(f"wrote {png_path} ({png_path.stat().st_size} bytes, {width}x{height} @2x)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default=str(CORPUS_DIR / "both-directions-fail.svg"))
+    ap.add_argument("--png", action="store_true",
+                    help="also rasterize the SVG to its .png sibling")
     args = ap.parse_args()
 
     env, models, cfg = _score_and_model(
@@ -155,6 +236,13 @@ def main() -> int:
     out_path = Path(args.out)
     out_path.write_text(svg, encoding="utf-8")
     print(f"wrote {out_path} ({len(svg)} bytes)")
+    if args.png:
+        m = re.search(r'width="(\d+)" height="(\d+)"', svg)
+        if not m:
+            print("render_funnel: could not read the SVG's own size", file=sys.stderr)
+            return 1
+        return rasterize(svg, out_path.with_suffix(".png"),
+                         int(m.group(1)), int(m.group(2)))
     return 0
 
 

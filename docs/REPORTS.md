@@ -1,7 +1,7 @@
 # Reports: doctor, report, team, export
 
-Four surfaces, one scorer: reproducible timing measurements read straight
-from the envelope, with the method exposed at every layer.
+Four surfaces, one scorer: reproducible timing measurements read from the
+envelope a scoring run emits, with the method exposed at every layer.
 
 ## `hotato doctor`: the 5-minute path
 
@@ -52,21 +52,21 @@ Per event it draws a to-scale caller/agent activity timeline from the
 frame data -- overlap shaded, caller-onset and yield markers, measured
 talk-over seconds, expected vs. measured, and a PASS or FAIL chip.
 
-Once the page has at least three event cards, an analytics rollup follows,
-computed from the same measurements (fewer events skips it):
+Three or more event cards add an analytics rollup, computed from the same
+measurements:
 
 | Chart | Shows |
 |---|---|
 | Time-to-yield distribution | One dot per measured yield, with mean, median, and p90 (definitions in `METHODOLOGY.md`) |
 | Talk-over histogram | Per-event seconds, bucketed on a fixed grid |
-| Failure clustering by fix class | A batch of failures reads as "these five share one config setting" instead of five separate mysteries |
+| Failure clustering by fix class | Failures grouped by the setting each one points at, so five failures read as one config change |
 
 Every timeline carries a collapsible **frame inspector**: the full frame
 dump behind that event as a table (`t_sec`, per-channel dBFS, active
 flags, thresholds) -- any pixel on the page can be re-derived by hand.
-The `ScoreConfig` thresholds sit in one collapsed "Thresholds used" panel
-at the end, reproducible without stamping the parameter table above every
-render.
+Every threshold the run used sits in one collapsed "Thresholds used" panel
+at the end, so the numbers stay reproducible without a parameter table
+above every render.
 
 ### Voice-trace context with `--trace`
 
@@ -84,8 +84,8 @@ the trace's discrete voice-pipeline events -- TTS cancel/stop, ASR
 partials, tool calls -- as a mono span table. It stays scoped to context:
 `did_yield`, `talk_over_sec`, `seconds_to_yield`, and the PASS/FAIL
 verdict come from the scorer alone; the trace folds into the envelope as
-an additive `trace_context` key. Without `--trace`, the report is
-byte-identical to one built before the flag existed. Redaction carries
+an additive `trace_context` key. The trace changes nothing else: leave
+`--trace` off and the report renders byte-identical. Redaction carries
 through: a span ingested without `--include-text` shows `[redacted]`
 instead of its text, so a shared report carries only what the trace
 already chose to keep. Same `trace=` parameter on `build_report_html` /
@@ -113,15 +113,15 @@ html, _ = report.build_report_html(stereo="call.wav",
 **pass@1**, **pass@k**, **pass^k**, `n`, `k`, `passes`, a **Wilson 95% CI**
 on pass@1, a **per-variation-cell** breakdown when the summary carries
 one, and a **SIMULATOR_INVALID** bucket for broken fixtures, excluded
-from `n`. pass^k stays its own number, its own lane -- no `overall_score`
-field to blend into. Runs from simulation are labeled
+from `n`. pass^k keeps its own number in its own lane: the schema carries no
+`overall_score` field to blend it into. Runs from simulation are labeled
 **origin=simulated**, scoped apart from production reliability.
 
 `hotato test run --repetitions N` (`N > 1`) computes this aggregate over
 the N deterministic runs and threads it into `report.{html,md}`
-automatically. With no repetition data, the dimension shows the
-empty-state -- "not measured: no repeated runs in this report" --
-byte-identical to a report built without the parameter.
+automatically. From a single run the dimension prints "not measured: no
+repeated runs in this report", and the page stays byte-identical to one
+built without the parameter.
 
 ### Regression deltas with `--base`
 
@@ -165,8 +165,8 @@ same pass/fail contract as a talk-over or time-to-yield regression
 (`--no-fail` always exits `0`). Percentile definitions: `METHODOLOGY.md`;
 pooling shape: `dist_summary` in `src/hotato/_stats.py`.
 
-Fewer than two runs is stated plainly, and exits `0`; a trend line renders
-once there are enough points to mean something.
+Fewer than two run envelopes prints the count and why each file was
+skipped, then exits `0`; the trend line draws from two envelopes on.
 
 ## `hotato export`: research-grade CSVs
 

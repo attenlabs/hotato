@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from .errors import safe_json_dumps
 from .failure_record import LANES, validate_record
+from .theme import AGENT, BORDER, CALLER, GREEN, GROUND, INK, MUTED, RED, SURFACE
 
 __all__ = [
     "render_json",
@@ -37,16 +38,17 @@ __all__ = [
 INDEX_KIND = "hotato.failure-record-index.v1"
 INDEX_VERSION = "1.0"
 
-# The ember design-system dark tokens. Status colors are kept OFF the ember
-# accent hue (#ff5a1f): FAIL is a distinct alarm red, never a red-orange, so a
+# The shared design-system tokens (``hotato.theme``), so a record renders as the
+# same surface as the sweep report and hotato.dev. Status colors are kept OFF
+# the ember accent hue: FAIL is a distinct alarm red, never a red-orange, so a
 # failing lane can never be mistaken for the brand accent.
-_BG = "#16110d"
-_SURFACE = "#1f1712"
-_BORDER = "rgba(246,239,228,0.12)"
-_TEXT = "#f6efe4"
-_MUTED = "#b9a892"
-_PASS = "#3ecf8e"
-_FAIL = "#ff5c5c"
+_BG = GROUND
+_SURFACE = SURFACE
+_BORDER = BORDER
+_TEXT = INK
+_MUTED = MUTED
+_PASS = GREEN
+_FAIL = RED
 
 _STATUS_COLOR = {
     "PASS": _PASS, "FAIL": _FAIL, "ERROR": _FAIL,
@@ -54,11 +56,11 @@ _STATUS_COLOR = {
 }
 
 _SVG_FONT = "'Spline Sans Mono',ui-monospace,SFMono-Regular,monospace"
-# Two distinct track hues for the caller/agent activity strip, and the FAIL red
-# for the both-active overlap band -- so the overlap that IS the caught failure
+# The two call tracks for the caller/agent activity strip, and the FAIL red for
+# the both-active overlap band -- so the overlap that IS the caught failure
 # reads in the same alarm color as the failing lane above it.
-_TL_CALLER = "#e0b15e"
-_TL_AGENT = "#7fb2c4"
+_TL_CALLER = CALLER
+_TL_AGENT = AGENT
 
 # The measured-timing stat row, in the SAME order + labels the sweep report's
 # event card uses (report._event_card): the barge-in and endpointing signals

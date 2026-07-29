@@ -5,6 +5,17 @@ from __future__ import annotations
 import html
 from typing import Any, Dict
 
+from ..theme import BORDER, EMBER, EMBER_GLOW, GROUND, INK, MUTED, SURFACE
+
+# The capsule pages read their colours from the shared design-system tokens
+# (``hotato.theme``), so a counterexample looks like the same product as the
+# sweep report and the failure record.
+_ROOT_VARS = (
+    ":root{color-scheme:dark"
+    ";--bg:" + GROUND + ";--panel:" + SURFACE + ";--ink:" + INK
+    + ";--muted:" + MUTED + ";--ember:" + EMBER + ";--line:" + BORDER + "}"
+)
+
 
 def _pct(before: int, after: int) -> str:
     if before <= 0:
@@ -113,12 +124,12 @@ def render_html(capsule: Dict[str, Any]) -> str:
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hotato counterexample</title><style>
-:root{color-scheme:dark;--bg:#0b0d10;--panel:#13171c;--ink:#f5f1e8;--muted:#9da6af;--ember:#ff6b2c;--line:#2a3139}
+""" + _ROOT_VARS + """
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
 main{max-width:920px;margin:0 auto;padding:56px 24px}.eyebrow{color:var(--ember);text-transform:uppercase;letter-spacing:.12em;font-size:12px}
 h1{font:700 clamp(28px,5vw,52px)/1.04 system-ui,sans-serif;margin:.3em 0}.fingerprint{overflow-wrap:anywhere;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:28px 0}.card,table{background:var(--panel);border:1px solid var(--line);border-radius:12px}.card{padding:18px}.label{color:var(--muted);font-size:12px}.value{font-size:18px;margin-top:5px}
-table{border-collapse:separate;border-spacing:0;width:100%;overflow:hidden}th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line)}tr:last-child th,tr:last-child td{border-bottom:0}code{color:#ff9b70}
+table{border-collapse:separate;border-spacing:0;width:100%;overflow:hidden}th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line)}tr:last-child th,tr:last-child td{border-bottom:0}code{color:var(--ember)}
 </style></head><body><main>""" + f"""
 <div class="eyebrow">Hotato · proof-preserving counterexample</div>
 <h1>{html.escape(_visible(target['assertion_id']))}</h1>
@@ -147,13 +158,13 @@ def render_svg(capsule: Dict[str, Any]) -> str:
     spans = f"{initial.get('trace_spans', 0)} -> {final.get('trace_spans', 0)} spans"
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="t d">
 <title id="t">Hotato counterexample: {title}</title><desc id="d">Same deterministic failure, reduced under {status}</desc>
-<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff6b2c"/><stop offset="1" stop-color="#ffb36b"/></linearGradient></defs>
-<rect width="1200" height="630" fill="#0b0d10"/><rect x="58" y="56" width="1084" height="518" rx="26" fill="#13171c" stroke="#2a3139"/>
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="{EMBER}"/><stop offset="1" stop-color="{EMBER_GLOW}"/></linearGradient></defs>
+<rect width="1200" height="630" fill="{GROUND}"/><rect x="58" y="56" width="1084" height="518" rx="26" fill="{SURFACE}" stroke="{BORDER}"/>
 <text x="96" y="116" fill="url(#g)" font-family="ui-monospace,monospace" font-size="22" font-weight="700">HOTATO · COUNTEREXAMPLE</text>
-<text x="96" y="210" fill="#f5f1e8" font-family="system-ui,sans-serif" font-size="54" font-weight="750">{title}</text>
-<text x="96" y="264" fill="#9da6af" font-family="ui-monospace,monospace" font-size="18">{html.escape(_visible(target.get('dimension') or 'ungrouped'))} · {html.escape(_visible(target['kind']))} · {failure_code}</text>
-<rect x="96" y="318" width="300" height="112" rx="14" fill="#0b0d10"/><text x="120" y="354" fill="#9da6af" font-family="ui-monospace,monospace" font-size="16">INPUT</text><text x="120" y="394" fill="#f5f1e8" font-family="ui-monospace,monospace" font-size="24">{html.escape(turns)}</text>
-<rect x="420" y="318" width="300" height="112" rx="14" fill="#0b0d10"/><text x="444" y="354" fill="#9da6af" font-family="ui-monospace,monospace" font-size="16">EVIDENCE</text><text x="444" y="394" fill="#f5f1e8" font-family="ui-monospace,monospace" font-size="24">{html.escape(spans)}</text>
-<rect x="744" y="318" width="360" height="112" rx="14" fill="#0b0d10"/><text x="768" y="354" fill="#9da6af" font-family="ui-monospace,monospace" font-size="16">MINIMALITY</text><text x="768" y="394" fill="#ff9b70" font-family="ui-monospace,monospace" font-size="24">{status}</text>
-<text x="96" y="494" fill="#707b86" font-family="ui-monospace,monospace" font-size="14">{fingerprint}</text>
-<text x="96" y="536" fill="#f5f1e8" font-family="ui-monospace,monospace" font-size="18">Selected failure branch preserved. Every accepted deletion re-evaluated.</text></svg>"""
+<text x="96" y="210" fill="{INK}" font-family="system-ui,sans-serif" font-size="54" font-weight="750">{title}</text>
+<text x="96" y="264" fill="{MUTED}" font-family="ui-monospace,monospace" font-size="18">{html.escape(_visible(target.get('dimension') or 'ungrouped'))} · {html.escape(_visible(target['kind']))} · {failure_code}</text>
+<rect x="96" y="318" width="300" height="112" rx="14" fill="{GROUND}"/><text x="120" y="354" fill="{MUTED}" font-family="ui-monospace,monospace" font-size="16">INPUT</text><text x="120" y="394" fill="{INK}" font-family="ui-monospace,monospace" font-size="24">{html.escape(turns)}</text>
+<rect x="420" y="318" width="300" height="112" rx="14" fill="{GROUND}"/><text x="444" y="354" fill="{MUTED}" font-family="ui-monospace,monospace" font-size="16">EVIDENCE</text><text x="444" y="394" fill="{INK}" font-family="ui-monospace,monospace" font-size="24">{html.escape(spans)}</text>
+<rect x="744" y="318" width="360" height="112" rx="14" fill="{GROUND}"/><text x="768" y="354" fill="{MUTED}" font-family="ui-monospace,monospace" font-size="16">MINIMALITY</text><text x="768" y="394" fill="{EMBER}" font-family="ui-monospace,monospace" font-size="24">{status}</text>
+<text x="96" y="494" fill="{MUTED}" font-family="ui-monospace,monospace" font-size="14">{fingerprint}</text>
+<text x="96" y="536" fill="{INK}" font-family="ui-monospace,monospace" font-size="18">Selected failure branch preserved. Every accepted deletion re-evaluated.</text></svg>"""

@@ -10,8 +10,9 @@ Writes two files under docs/assets/:
   from the top of the page to the first fix card, so it shows the failing
   summary, at least one per-event timeline, and at least one fix card.
 
-Rendering uses puppeteer from /tmp/node_modules via ``node -e`` when present,
-and falls back to playwright if that is importable. The crop is verified by
+Rendering uses puppeteer via ``node -e`` when an install can be found (see
+``PUPPETEER_DIRS`` / ``$HOTATO_PUPPETEER_DIR``), and falls back to playwright if
+that is importable. The crop is verified by
 measuring, inside the rendered page, that the summary, a timeline SVG, and a
 fix card all sit inside the cropped region; the script exits nonzero if any of
 them do not.
@@ -38,7 +39,11 @@ ASSETS = os.path.join(ROOT, "docs", "assets")
 HTML_PATH = os.path.join(ASSETS, "hotato-demo-report.html")
 PNG_PATH = os.path.join(ASSETS, "hotato-demo-report.png")
 
-PUPPETEER_DIR = "/tmp/node_modules/puppeteer"
+PUPPETEER_DIRS = (
+    "/tmp/node_modules/puppeteer",
+    os.path.join(ROOT, "node_modules", "puppeteer"),
+    os.path.expanduser("~/node_modules/puppeteer"),
+)
 PNG_WIDTH = 1200
 CROP_PAD_PX = 16
 MIN_PNG_BYTES = 10 * 1024
@@ -124,12 +129,26 @@ def _verify(measured: dict) -> None:
     print(f"wrote {PNG_PATH} ({size} bytes, {crop['width']}x{crop['height']})")
 
 
+def puppeteer_dir() -> str | None:
+    """The first puppeteer install that exists, or None.
+
+    ``$HOTATO_PUPPETEER_DIR`` wins, then ``PUPPETEER_DIRS`` in order, so a plain
+    ``npm install puppeteer`` in the home directory or the repo is enough.
+    """
+    env = os.environ.get("HOTATO_PUPPETEER_DIR")
+    for candidate in ((env,) if env else ()) + PUPPETEER_DIRS:
+        if candidate and os.path.isdir(candidate):
+            return candidate
+    return None
+
+
 def render_png_puppeteer() -> bool:
     node = shutil.which("node")
-    if not node or not os.path.isdir(PUPPETEER_DIR):
+    pdir = puppeteer_dir()
+    if not node or not pdir:
         return False
     script = _NODE_SCRIPT % {
-        "puppeteer": json.dumps(PUPPETEER_DIR),
+        "puppeteer": json.dumps(pdir),
         "html": json.dumps(HTML_PATH),
         "png": json.dumps(PNG_PATH),
         "width": PNG_WIDTH,

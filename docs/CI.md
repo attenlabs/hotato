@@ -5,21 +5,20 @@ carries a running score and fails when the agent gets slower to stop
 talking for an interrupting caller. The workflow runs offline with zero
 extra dependencies.
 
-## One command to the same record CI renders
+## One command writes the record CI renders
 
-`hotato start --demo` runs the whole loop offline and leaves the canonical
-share-safe Failure Record under `hotato-failure-record/` --
-`failure-record.{json,md,html,svg}`, the same primitive this Action renders
-per non-passing unit (the `records` output below). The demo prints its
-evidence-specific headline, the Markdown and SVG share paths, and the
-one-command verifier:
+`hotato start --demo` runs the whole loop offline and writes a Failure Record
+under `hotato-failure-record/` -- `failure-record.{json,md,html,svg}`: one
+caught failure with its evidence, in four paste-safe shapes. The Action below
+renders it per non-passing unit (its `records` output). The demo prints the
+headline, the Markdown and SVG share paths, and the verifier:
 
 ```
 Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
-  Verify the record:  uvx --from hotato==1.17.1 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.18.0 hotato record verify hotato-failure-record/failure-record.json
 ```
 
 Preview it locally, then scaffold the durable gate into your own repository
@@ -38,16 +37,16 @@ stack-tuned `hotato.yaml`, `contracts/`, and `fixtures/`.
 
 The repository root ships a composite GitHub Action: a repository with no
 hotato source can run a committed suite, conversation test, or contract
-verification and gate on hotato's exit status. The default run is
-offline -- it runs the pinned Action revision itself off PYTHONPATH (no
-pip, no package index), installs no model, no ASR, no Node tool, calls no
-external judge, and reads no secret.
+verification and gate on hotato's exit status. The default run is offline --
+the pinned Action revision executes straight off PYTHONPATH on the standard
+library alone, reaching no package index, no model, no ASR, no Node tool, no
+external judge, and no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.17.1), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.18.0), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.17.1
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.18.0
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -69,7 +68,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.17.1
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.18.0
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -107,7 +106,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.17.1` | `pip install --no-deps hotato==1.17.1` |
+| an exact version, e.g. `1.18.0` | `pip install --no-deps hotato==1.18.0` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
@@ -138,13 +137,12 @@ The machine JSON stays primary:
 | `hotato-version` | The executed package version |
 
 The five-lane summary (Outcome, Policy, Conversation, Speech, Reliability)
-appends to the job page on pass AND failure, with the reproduce command
-and evaluated check ids. A lane with no evaluated check renders NOT_RUN; a
-lane whose checks lack required evidence renders INCONCLUSIVE, never
-PASS. The model-judged rubric lane reports in its own advisory section
-with `gate enabled: true|false` and changes the exit only when
-`gate-advisory: true` was set; with no local judge reachable it reports
-ERROR instead of guessing.
+appends to the job page on pass and on failure, with the reproduce command
+and the evaluated check ids. A lane with no evaluated check renders NOT_RUN;
+a lane whose checks lack the evidence they require renders INCONCLUSIVE,
+never PASS. The model-judged rubric lane reports in its own advisory section
+with `gate enabled: true|false`, changes the exit only when
+`gate-advisory: true` was set, and reports ERROR when no local judge answers.
 
 The conformance fixture:
 [`tests/fixtures/action-consumer/`](../tests/fixtures/action-consumer/);
@@ -291,7 +289,7 @@ hotato release (the version that generated the file), verify `contracts/`
 with `hotato contract verify`, re-score `fixtures/` with `hotato run`, and
 publish the JSON reports plus the JUnit file. A regression exits non-zero
 and fails the pipeline; an empty `contracts/` or `fixtures/` directory is
-a normal starting state, and each gate stays a no-op until the first one
+a normal starting state, and each gate is a no-op until your first one
 lands.
 
 - **GitLab CI**: one `hotato` job on `python:3.12`;

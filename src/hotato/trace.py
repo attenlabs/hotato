@@ -51,6 +51,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from . import contract as _contract
+from . import theme as _theme
 from . import report as _report
 from ._engine.score import ScoreConfig
 from .errors import open_regular as _open_regular
@@ -667,7 +668,7 @@ def _render_timeline_with_trace_html(
         f"<title>hotato contract {esc(contract_id)}: timeline evidence "
         "(trace-attached)</title>"
         f"<style>{_contract._TIMELINE_CSS}"
-        ".finding{color:#ead9a6;font-size:12.5px;margin:2px 0}"
+        ".finding{color:" + _theme.REPORT["caller"] + ";font-size:12.5px;margin:2px 0}"
         "</style></head><body><div class=\"wrap\">"
         f"<h1>{esc(contract_id)}: timeline evidence</h1>"
         f'<p class="sub">expect {esc(expect)} &middot; frame-level evidence '

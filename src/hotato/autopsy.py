@@ -665,7 +665,7 @@ _WAVE_BUCKETS = 312
 
 _EXTRA_CSS = """
 .ihead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
-.sev{font-weight:800;font-size:12px;letter-spacing:0.05em;color:#15110d;
+.sev{font-weight:800;font-size:12px;letter-spacing:0.05em;color:%(on_accent)s;
  border-radius:7px;padding:3px 10px}
 .sev-critical{background:%(red)s}
 .sev-warning{background:%(caller)s}

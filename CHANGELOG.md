@@ -8,6 +8,37 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-07-29
+
+### Changed
+- **Every artifact hotato writes now uses one palette.** The report, the
+  shareable card, the failure record, the counterexample card, the gauntlet
+  badge, the load-test page, the suite report and the served console each
+  carried their own colours -- five separate copies of a warm charcoal theme,
+  plus one renderer that shipped browser defaults. They all read
+  `src/hotato/theme.py` now: neutral surfaces, ember for the brand, and colour
+  that carries meaning (green passed, red failed, yellow open, blue
+  informational). Every text pair in the new palette clears 4.5:1, which two
+  did not before: the gauntlet badge's score ink sat at 2.73:1 and the
+  counterexample fingerprint at 4.17:1.
+- **The copy answers to a first read.** Every user-facing line in the README,
+  the docs, `llms.txt` and the strings the CLI prints was read cold by someone
+  who had never seen hotato, and rewritten where it assumed context the reader
+  does not have: terms used before they were defined, claims that described a
+  mechanism instead of what the reader gets, and a stability statement that
+  existed in three different wordings across the CLI, the README and the site.
+  The structure is unchanged -- no page gained a line.
+- The banner, the social preview, the README screenshot and the committed
+  sample reports were re-rendered from their own generators, so what a visitor
+  sees on GitHub and PyPI is what the tool produces today. `render_banner.py`
+  now builds the social card as well, and `render_funnel.py` writes the `.png`
+  its own README always said it did.
+
+### Fixed
+- `docs/SELF-HOST.md` no longer compares the self-hosted store to a managed
+  cloud that does not exist. It states the property directly, and its test now
+  asserts that property rather than one phrase.
+
 ## [1.17.1] - 2026-07-28
 
 ### Fixed

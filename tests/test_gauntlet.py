@@ -172,7 +172,7 @@ def test_badge_reflects_the_result_it_is_given_never_invented():
                "total": 10, "passed": 7, "all_passed": False, "cases": []}
     svg = G.render_badge(partial)
     assert "7/10" in svg
-    assert G._BADGE_PARTIAL in svg          # ember, not the all-clear green
+    assert G._BADGE_PARTIAL in svg          # the fail red, not the all-clear green
     assert G._BADGE_OK not in svg
     # a perfect result renders the all-clear green instead
     perfect = {**partial, "passed": 10, "all_passed": True}

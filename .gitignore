@@ -65,6 +65,11 @@ _atlas_site/
 # local QA/scratch artifacts
 .hotato/
 hotato-output/
+# the CLI's default report filename: `hotato report` with no --out drops these
+# in the working directory, so a run at the repo root must not become a commit.
+# The published sample reports live in docs/assets/ and corpus/*/ instead.
+hotato-report.html
+hotato-report.md
 hotato-analyze*.html
 hotato-fixplan*.json
 hotato-pull-*/

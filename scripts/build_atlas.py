@@ -48,12 +48,8 @@ from hotato import failure_record as FR  # noqa: E402
 try:
     from hotato.report import _C as _C  # noqa: E402
 except Exception:  # pragma: no cover - same fallback discipline as serve/render.py
-    _C = {
-        "bg": "#1b1714", "card": "#241f1a", "card2": "#2b241d", "line": "#3a3128",
-        "cream": "#f1e8d7", "muted": "#b7ab97", "mono": "#f6eddd",
-        "caller": "#ead9a6", "agent": "#7fb2c4", "ember": "#f0663a",
-        "green": "#74c98a", "red": "#e0664f", "grid": "#463b30",
-    }
+    # The palette itself lives in hotato.theme, one level below report.
+    from hotato.theme import REPORT as _C  # noqa: E402
 
 ATLAS_SRC = os.path.join(REPO, "atlas")
 DEFAULT_OUT = os.path.join(REPO, "_atlas_site")
@@ -713,7 +709,7 @@ body{margin:0;background:%(bg)s;color:%(cream)s;
 a{color:%(agent)s}
 .card{background:%(card)s;border:1px solid %(line)s;border-radius:14px;
  padding:16px 18px;margin-bottom:16px}
-.chip{color:#15110d;font-weight:800;font-size:12px;letter-spacing:0.05em;
+.chip{color:%(on_accent)s;font-weight:800;font-size:12px;letter-spacing:0.05em;
  padding:3px 10px;border-radius:7px;display:inline-block}
 .dash{color:%(muted)s}
 .pill{background:%(card2)s;border:1px solid %(line)s;border-radius:999px;

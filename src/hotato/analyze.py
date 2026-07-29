@@ -528,12 +528,12 @@ _ACTIONS_JS = """
 
 _EXTRA_CSS = """
 .moment .mhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
-.rank{font-weight:800;font-size:12.5px;color:#15110d;background:%(caller)s;
+.rank{font-weight:800;font-size:12.5px;color:%(on_accent)s;background:%(caller)s;
  border-radius:7px;padding:2px 9px;letter-spacing:0.03em}
 .mkind{font-size:15px;font-weight:650}
 .msrc{color:%(muted)s;font-size:12.5px;
  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-.mnum{margin-left:auto;color:#15110d;font-weight:800;font-size:12.5px;
+.mnum{margin-left:auto;color:%(on_accent)s;font-weight:800;font-size:12.5px;
  background:%(ember)s;border-radius:8px;padding:4px 11px;letter-spacing:0.02em}
 .mdetail{color:%(muted)s;font-size:12.5px;margin:6px 0 2px}
 .ph{pointer-events:none}

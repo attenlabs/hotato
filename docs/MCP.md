@@ -2,11 +2,11 @@
 
 hotato ships an MCP server, `hotato-mcp`, over stdio, with fifteen tools:
 one scoring tool, `voice_eval_run` (returns the identical JSON envelope,
-`schema_version` "1", the CLI emits); three proof-preserving counterexample
-tools that compile and check offline regression capsules; and eleven fleet
-tools -- eight read/verify/propose over a local fleet workspace, three
-clone-scoped actions that recompute and hand the deploy decision back to
-you. Everything, including audio, runs and stays on your machine.
+`schema_version` "1", the CLI emits); three counterexample tools that reduce
+a failing scenario to a smaller case that still fails, then re-check it
+offline; and eleven fleet tools -- eight that read and propose over a local
+workspace, three that recompute inside a throwaway clone and hand the deploy
+decision back to you. Everything, audio included, stays on your machine.
 
 Every tool response carries a uniform control envelope: four keys, pure
 reads included, so an autonomous caller parses one shape: `evidence_status`
@@ -108,11 +108,11 @@ error with a stable `error_code` and message; see below.
 
 ## The counterexample tools
 
-These three tools call the same stdlib-only core as
-`hotato counterexample ...`. `HOTATO_MCP_INPUT_DIR` confines scenario, test,
-and capsule reads; `HOTATO_MCP_REPORT_DIR` confines new capsule writes; with
-neither set, reads and writes stay under the working directory or the OS
-temp directory. Compilation never overwrites an existing path.
+These three tools call the same stdlib-only core as `hotato counterexample
+...`. A capsule is one reduced failing case on disk. `HOTATO_MCP_INPUT_DIR`
+confines scenario, test, and capsule reads; `HOTATO_MCP_REPORT_DIR` confines
+new capsule writes; with neither set, both stay under the working directory
+or the OS temp directory. Compilation never overwrites an existing path.
 
 | Tool | Scope | Does |
 | --- | --- | --- |
@@ -148,9 +148,9 @@ parses one contract across both surfaces.
 
 ## The fleet tools
 
-Eleven tools drive the local, self-hosted fleet control plane
-([`GUARDIAN-FLEET.md`](GUARDIAN-FLEET.md)): they read and reason over a
-workspace, surfacing findings for a human to label and deploy.
+Eleven tools drive the fleet workspace
+([`GUARDIAN-FLEET.md`](GUARDIAN-FLEET.md)): your local store of agents, calls,
+contracts, and before/after trials; a person labels the findings and deploys.
 
 | Tool | Scope | Does |
 | --- | --- | --- |

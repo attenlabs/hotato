@@ -4,23 +4,23 @@
 > call forensics and regression guards for AI agents, on your own machine.
 > Point it at a recording and it prints the incidents it measured -- barge-in,
 > talk-over, dead air, latency -- each with a timestamp, an id, and a
-> self-contained HTML report. Pin one incident and it becomes a portable,
-> content-addressed check; `hotato prove` re-runs the stored evidence in CI and
-> fails closed.
+> self-contained HTML report. Pin one incident and it becomes a portable
+> `.hotato` bundle -- the audio, the frames, the check; `hotato prove` re-runs
+> that evidence in CI and fails the build when it stops holding.
 >
-> Timing comes from audio energy over time, one lane per party; completed
-> actions come from your own trace and system of record. It measures turn
-> timing and say-do, not intent. Runs offline, MIT, free at any scale, zero
-> required dependencies, and nothing leaves the machine that invokes it. Built
-> to be called by an AI agent mid-task, as a CLI or an MCP server: `--format
-> json` on every scoring command, exit codes 0 pass / 1 regression / 2 refuse,
-> one error shape.
+> Timing comes from audio energy over time, one channel per party; say-do reads
+> the transcript for what the agent said it would do, your trace and system of
+> record for what it did. It measures turn timing and say-do, not intent.
+> Runs offline, MIT, free at any scale, zero required dependencies, and nothing
+> leaves the machine that invokes it. Built to be called by an AI agent
+> mid-task, as a CLI or MCP server: `--format json` on every scoring command,
+> exit codes 0 pass / 1 regression / 2 refuse to guess, one error shape.
 >
-> This file is the machine-readable index of the narrow story. For the full
-> command surface, run `hotato describe --format json`: it regenerates straight
-> from the CLI's argparse, so it never drifts from the real flags.
+> This file is the machine-readable index: what hotato measures, what it
+> returns, and where the docs are. For the full command surface, run `hotato
+> describe --format json`, generated from your own install's argparse tree.
 >
-> Version 1.17.1
+> Version 1.18.0
 
 ## Start here
 
@@ -37,23 +37,23 @@
   report. Deterministic on dual-channel audio; best-effort with a measured
   confidence on mono. docs/AUTOPSY.md
 - `hotato scan DIRECTORY` -- the folder health report: the Voice Stability
-  Score over dual-channel calls, per-category counts, worst calls, recurrence
-  states, and per-call reports. docs/AUTOPSY.md
+  Score out of 100 (dual-channel calls with no critical incident), counts by
+  category, worst calls, recurrence states, per-call reports. docs/AUTOPSY.md
 - `hotato <stack> health` -- `vapi`, `retell`, `bland`, `synthflow`, or
   `millis`: list your recent calls on the platform, pull each recording, check
   every one, print the health report. You never touch a WAV. Credentials
   resolve from `--api-key`, then the `hotato connect` store, then the stack's
   env var. docs/AUTOPSY.md, docs/CONNECT.md, docs/ADAPTER-STATUS.md
-- `hotato pin apx-<id>#<rank>` -- one incident becomes a portable,
-  content-addressed failure check. docs/CONTRACTS.md
-- `hotato prove --contracts contracts/` -- composes every evidence lane you ran
-  into one fail-closed proof: overall is pass only when every activated lane
-  passed, and a lane that could not support its claim is inconclusive and exits
-  non-zero, so CI never reads "could not tell" as green.
+- `hotato pin apx-<id>#<rank>` -- the incident id autopsy printed becomes a
+  portable `.hotato` failure contract: audio, frames, check. docs/CONTRACTS.md
+- `hotato prove --contracts contracts/` -- composes everything you already ran
+  (pinned checks, suites, before/after runs) into one proof: it passes only
+  when every one passed, and a check whose evidence cannot back its claim exits
+  non-zero as inconclusive, so CI never reads "could not tell" as green.
 
-The deeper toolkit (run, trust, capture, connect, assert, contract, trace,
-simulate, suite, rubric, fleet, serve) is listed in full by
-`hotato describe --format json`.
+The deep toolkit lives under `hotato lab`, by job: check the audio, then score
+the call (trust, run), grade a transcript (assert, rubric), add trace evidence
+(trace), run scripted tests (simulate, suite), run the control plane (fleet).
 
 ## The evidence contract: four tiers, one policy
 
@@ -61,13 +61,13 @@ Every verdict states what evidence it stands on. Full text:
 docs/EVIDENCE-CONTRACT.md.
 
 - Tier 1, dual-channel audio (caller and agent separated at capture):
-  deterministic. Overlap and timing are facts of the recording. The only
-  verdict-eligible tier; contracts, `pin`, `prove`, and the CI gate stand here,
-  and it alone enters the Voice Stability denominator.
+  deterministic. Overlap and timing are facts of the recording. The only tier a
+  verdict may stand on; failure contracts, `pin`, `prove`, and the CI gate rest
+  here, and only these calls count toward the Voice Stability Score.
 - Tier 2, mono plus provider metadata (speaker-attributed transcript, pipeline
   trace, tool-call logs, diarizer turn labels): attributable. Each finding
-  carries the declared authority of the source that attributed it and never
-  merges into tier 1's counts.
+  names the source that attributed it and how far that source is trusted, and
+  never merges into tier 1's counts.
 - Tier 3, raw mixed mono: symptom detection. Dead air and latency gaps, each
   with a measured confidence and its derivation printed beside it. A mono gap
   says everything stopped, not who stopped.
@@ -82,8 +82,8 @@ median, not the mean, is the summary, because the errors have a long tail. One
 `PYTHONPATH=src python3 -m hotato.benchmark --scenarios corpus/real/scenarios --audio corpus/real/audio`.
 Method: docs/BENCHMARK.md. Provenance and caveats: corpus/real/README.md.
 
-The model judge is advisory: it rides its own lane, is labelled as such in
-every report, and cannot certify an outcome or change an exit code.
+The model judge is advisory: it reports in its own section, labelled as such in
+every report, and gates an exit code only when you ask (`rubric run --gate`).
 
 ## What it returns
 
@@ -113,9 +113,9 @@ carries a `fix`:
 - `fix_class: "config"`: a named setting in your stack (livekit, pipecat, vapi,
   generic), which direction to move it, and what that trades away.
 - `fix_class: "engagement-control"`: no timing threshold separates a
-  backchannel ("mhm") from a one-word command ("stop"). The fix points,
-  vendor-neutral, at a learned layer that decides whether the caller is asking
-  to take the turn (engagement control / addressee detection).
+  backchannel ("mhm", not a bid for the turn) from a one-word command ("stop").
+  The fix names the layer to add, vendor-neutral: one that decides whether the
+  caller is asking for the turn (engagement control, or addressee detection).
 
 You label the expected behavior for the event: `yield` means the agent should
 stop for the caller, `hold` means it should keep speaking through a
@@ -167,8 +167,8 @@ build an outreach list.
 - docs/CONTRACTS.md: the portable, CI-enforced `<id>.hotato` failure contract.
 - docs/CI.md: the GitHub PR check and the `hotato init ci` gate configs.
 - docs/MCP.md: the hotato MCP server and copy-paste client configs. Start it
-  with `uvx --from "hotato[mcp]" hotato-mcp`; a bare `uvx hotato-mcp` is a
-  footgun that fails, because the entry point ships in the `[mcp]` extra.
+  with `uvx --from "hotato[mcp]" hotato-mcp`: `--from` names the package that
+  provides the command, and the `[mcp]` extra adds the MCP SDK it imports.
 - docs/CONNECT.md: connect-once bulk pull across your own calls, per-stack
   credentials.
 - docs/ADAPTER-STATUS.md: the per-stack map, each with its verified endpoint.
@@ -176,7 +176,7 @@ build an outreach list.
 - docs/BENCHMARK.md: the AMI benchmark method; corpus/real/README.md: its
   provenance and caveats.
 - docs/API.md and docs/SDK.md: the Python API and the typed SDK.
-- llms-full.txt: this index plus the full text of every doc above, for a
+- llms-full.txt: the full text of every doc above, concatenated, for a
   single-fetch agent context dump. Built by `scripts/build_llms_full.py`.
 - CITATION.cff: how to cite hotato.
 - LICENSE: MIT. The open core is never relicensed.

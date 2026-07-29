@@ -39,6 +39,7 @@ from . import conversation_test as CT
 from . import scenario as SCN
 from . import simulate as SIM
 from . import test_run as TR
+from . import theme as _T
 from .errors import open_regular as _open_regular
 
 __all__ = [
@@ -742,9 +743,19 @@ def render_report_html(result: Dict[str, Any]) -> str:
         )
     return (
         "<section class=\"suite-report\">"
-        "<style>.suite-report table{border-collapse:collapse}"
-        ".suite-report td,.suite-report th{border:1px solid #ccc;padding:4px 8px}"
-        ".st-fail{color:#b00}.st-refuse{color:#b00}.st-pass{color:#080}</style>"
+        # The one renderer that never joined the palette: it shipped browser
+        # defaults (a white serif page with #ccc rules), so a suite report
+        # looked like a different product from every other artifact.
+        "<style>.suite-report{background:" + _T.GROUND + ";color:" + _T.INK + ";"
+        "font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;"
+        "font-size:15px;line-height:1.5;padding:20px}"
+        ".suite-report table{border-collapse:collapse;font-size:14px}"
+        ".suite-report td,.suite-report th{border:1px solid " + _T.BORDER + ";padding:4px 8px}"
+        ".suite-report th{color:" + _T.MUTED + ";text-align:left;font-size:12px;"
+        "text-transform:uppercase;letter-spacing:.04em}"
+        ".suite-report code{color:" + _T.MUTED + "}"
+        ".st-fail{color:" + _T.RED + "}.st-refuse{color:" + _T.RED + "}"
+        ".st-pass{color:" + _T.GREEN + "}</style>"
         f"<h1>Suite report: {_esc(result['suite_id'])}</h1>"
         f"<p>Agent <code>{_esc(result['agent'])}</code>, release "
         f"<code>{_esc(result['release_id'])}</code>. inconclusive_policy "

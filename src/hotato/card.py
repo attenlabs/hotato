@@ -45,6 +45,7 @@ from typing import List
 from . import evidence as _evidence
 from . import fixture as _fixture
 from .errors import open_regular as _open_regular
+from .theme import CARD as _CARD_PALETTE
 
 # --- claim-language contract (src/hotato/data/evidence_language.json) ------
 #
@@ -107,25 +108,14 @@ def _assert_claim_within_evidence(headline: str, tier: int) -> None:
             "to ship an over-claim"
         )
 
-# --- canonical ember-dark theme (the exact brand tokens the home page and the
-#     failure record use, so a card reads as the same surface). One ember accent
-#     carries measured values; status meaning is carried by teal / crimson /
-#     amber, never by the ember hue. Color is inline; when the illustrative
-#     assets are built the brand fonts ride in as embedded woff2 data so the
-#     card is still a single self-contained file. -----------------------------
-_C = {
-    "bg": "#16110d",
-    "surface": "#1f1712",
-    "panel": "#241a13",    # card
-    "line": "rgba(246,239,228,0.10)",
-    "cream": "#f6efe4",    # ink
-    "muted": "#b9a892",
-    "ember": "#ff5a1f",    # single accent + the measured timing number
-    "ember_glow": "#ff7a3c",
-    "green": "#3ecf8e",    # PASS / good
-    "crimson": "#ff5c5c",  # FAIL / talk-over
-    "amber": "#f5b942",    # warn / inconclusive
-}
+# --- palette (the brand tokens the home page and the failure record use, so a
+#     card reads as the same surface). One ember accent carries measured
+#     values; status meaning is carried by green / crimson / amber, never by
+#     the ember hue. The values live in ``theme``; the keys are the card's own.
+#     Colour is inline in the SVG; when the illustrative assets are built the
+#     brand fonts ride in as embedded woff2 data so the card is still a single
+#     self-contained file. -------------------------------------------------
+_C = _CARD_PALETTE
 
 _W = 1200
 _H = 630
@@ -367,7 +357,7 @@ def _waveform(mode: str) -> List[str]:
     parts.append(
         f'<rect x="{hx0:g}" y="{y_agent - amp - 16:g}" width="{hx1 - hx0:g}" '
         f'height="{(y_caller + amp + 16) - (y_agent - amp - 16):g}" rx="10" '
-        f'fill="rgba(255,92,92,0.10)" stroke="{_C["crimson"]}" '
+        f'fill="rgba(248,81,73,0.10)" stroke="{_C["crimson"]}" '
         f'stroke-width="1.4" stroke-dasharray="6 5"/>')
     parts.append(_text(x0, y_agent - amp - 22, "agent", size=15,
                        fill=_C["muted"], weight="600", family=_MONO,
@@ -854,7 +844,7 @@ def _saydo_panel(evidence_line: str, assertion_line: str) -> List[str]:
     y_did, h_did = 350, 96
     parts.append(
         f'<rect x="{x0:g}" y="{y_did:g}" width="{w:g}" height="{h_did:g}" '
-        f'rx="12" fill="rgba(255,92,92,0.06)" stroke="{_C["crimson"]}" '
+        f'rx="12" fill="rgba(248,81,73,0.06)" stroke="{_C["crimson"]}" '
         f'stroke-width="1.4"/>')
     parts.append(_text(x0 + 22, y_did + 28, "did", size=15,
                        fill=_C["muted"], weight="600", family=_MONO,

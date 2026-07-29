@@ -56,8 +56,8 @@ New here? Run `hotato autopsy ./call.wav` on one recording
 ## Lab: the deep toolkit
 
 Every command in this section lives under `hotato lab` (`hotato lab --help`).
-The public commands above are durable; the lab surface evolves faster, and
-every pre-1.17 top-level spelling keeps working unchanged.
+The public commands are durable. hotato lab moves faster, and every command
+name that worked before 1.17 still runs unchanged.
 
 ### Investigate and evaluate
 
