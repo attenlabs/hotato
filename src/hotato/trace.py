@@ -51,8 +51,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from . import contract as _contract
-from . import theme as _theme
 from . import report as _report
+from . import theme as _theme
 from ._engine.score import ScoreConfig
 from .errors import open_regular as _open_regular
 

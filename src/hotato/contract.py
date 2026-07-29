@@ -61,12 +61,12 @@ from . import fixture as _fixture
 from . import labelrecord as _labelrecord
 from . import report as _report
 from . import trust as _trust
-from .theme import REPORT as _C
 from ._engine.score import ScoreConfig
 from .core import dump_frames_for_input, run_single
 from .errors import open_regular as _open_regular
 from .errors import require_regular_file as _require_regular_file
 from .errors import wav_read as _wav_read
+from .theme import REPORT as _C
 
 __all__ = [
     "SCHEMA",
