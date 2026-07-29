@@ -593,3 +593,46 @@ def test_concrete_driver_timeout_is_bounded_and_does_not_leak_sdk_details():
     assert summary["outgoing_successful_submissions"] == 0
     assert summary["outgoing_pcm_bytes"] == 0
     session.close()
+
+def test_connect_waits_for_a_loop_that_starts_slowly():
+    """The RTC driver used to set its ready flag BEFORE run_forever().
+
+    A thread scheduled late therefore let connect() proceed against a loop that
+    was not running yet, and ``_submit`` refused it outright with "LiveKit
+    connect refused because the event loop is stopped". Windows CI hit that race
+    repeatedly, and a loaded machine would hit it for a user. Readiness is
+    signalled from inside the loop now, so a slow start costs latency instead of
+    failing.
+
+    The race is forced here by delaying run_forever() well past the point where
+    the old code released the caller.
+    """
+    import asyncio as _asyncio
+    import threading
+    import time
+
+    real_new_event_loop = _asyncio.new_event_loop
+    started_running = threading.Event()
+
+    def slow_new_event_loop():
+        loop = real_new_event_loop()
+        original_run_forever = loop.run_forever
+
+        def run_forever_late():
+            time.sleep(0.3)
+            started_running.set()
+            original_run_forever()
+
+        loop.run_forever = run_forever_late   # a real loop, just a late start
+        return loop
+
+    _asyncio.new_event_loop = slow_new_event_loop
+    try:
+        rtc = _FakeRTC()
+        driver = LiveKitRTCDriver(rtc_module=rtc)
+        session, _ = _session(driver=driver)   # raised before the fix
+        _drain_connected(session)
+        assert started_running.is_set(), "connect returned before the loop ran"
+        assert rtc.rooms, "the fake SDK never saw a connect"
+    finally:
+        _asyncio.new_event_loop = real_new_event_loop

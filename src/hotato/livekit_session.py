@@ -923,7 +923,12 @@ class LiveKitRTCDriver:
 
         def run() -> None:
             asyncio.set_event_loop(loop)
-            ready.set()
+            # Signal readiness from INSIDE the loop. Setting it here, before
+            # run_forever(), let the caller proceed while the loop was still
+            # starting: _submit then saw is_running() False and refused the
+            # connect outright. Windows CI hit that race repeatedly, and a
+            # loaded machine would hit it for a user.
+            loop.call_soon(ready.set)
             loop.run_forever()
             pending = asyncio.all_tasks(loop)
             for task in pending:
