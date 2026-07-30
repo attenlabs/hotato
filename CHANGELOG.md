@@ -8,6 +8,19 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-07-29
+
+### Fixed
+- **A slow-starting event loop no longer refuses the LiveKit connect.** The RTC
+  driver started its loop thread and set the ready flag from the thread body,
+  before `run_forever()`. A thread scheduled late therefore released
+  `connect()` against a loop that was not running yet, and the submit path
+  refused it outright: "LiveKit connect refused because the event loop is
+  stopped". Readiness is signalled with `loop.call_soon(ready.set)` now, which
+  cannot fire until the loop is actually running, so a slow start costs latency
+  instead of an error. The regression test forces the race by delaying
+  `run_forever()` past the point where the old code released the caller.
+
 ## [1.18.0] - 2026-07-29
 
 ### Changed
