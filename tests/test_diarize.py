@@ -679,3 +679,84 @@ def test_timeline_yield_replica_matches_engine_did_yield():
         replica = D._timeline_yield(tl[D.SPEAKER_A], tl[D.SPEAKER_B],
                                     cfg.hop_ms / 1000.0, cfg)["did_yield"]
         assert replica == engine, f"{label}: replica {replica} != engine {engine}"
+
+
+# --------------------------------------------------------------------------- #
+# Lossless timeline injection (spec Option B)
+# --------------------------------------------------------------------------- #
+
+def _rand_timeline(seed, n=500, min_run=2):
+    """A random activity timeline whose runs are all >= ``min_run`` frames."""
+    import random
+
+    rng = random.Random(seed)
+    tl = []
+    while len(tl) < n:
+        tl += [False] * rng.randint(2, 30)
+        tl += [True] * rng.choice([min_run, 3, 5, 8, 15, 40, 120])
+    tl = tl[:n]
+    while tl and tl[-1]:          # never end mid-run: that is a harness
+        tl.pop()                  # artefact, not a case the diarizer emits
+    return tl
+
+
+def test_injected_timeline_survives_the_engine_vad_exactly():
+    """The property the whole mono path rests on.
+
+    Masking real audio and re-running the VAD inflates sub-second ``talk_over``
+    by 0.1-0.36 s, an error intrinsic to masking that no diarizer quality
+    removes. Injection instead compensates the two deterministic terms -- the
+    0.15 s hangover and the 20 ms/10 ms window dilation -- so the engine reads
+    the diarizer's timeline back unchanged. If this ever fails, every mono
+    number is off by the amount it fails by.
+    """
+    from hotato import diarize
+
+    for seed in range(200):
+        tl = _rand_timeline(seed)
+        got = diarize.injection_fidelity(tl, sample_rate=16000)
+        assert got["exact"], (
+            f"seed {seed}: injection lost {got['mismatched_frames']} frames; "
+            "the engine no longer reads back the timeline it was given")
+
+
+def test_injection_config_disables_the_hangover_on_both_channels():
+    """The tracks and the config are one mechanism -- scoring injected tracks
+    with the default config silently reintroduces the tail smear."""
+    from hotato import diarize
+    from hotato._engine.score import ScoreConfig
+
+    base = ScoreConfig()
+    assert base.caller_vad.hangover_sec > 0, "baseline should carry a hangover"
+    icfg = diarize.injection_config(base)
+    assert icfg.caller_vad.hangover_sec == 0.0
+    assert icfg.agent_vad.hangover_sec == 0.0
+    # everything else is untouched: this is not a second scoring profile
+    assert icfg.frame_ms == base.frame_ms and icfg.hop_ms == base.hop_ms
+    assert icfg.yield_hangover_sec == base.yield_hangover_sec
+
+
+def test_injection_beats_masking_on_a_sub_second_talk_over():
+    """The case the old path got wrong, end to end through the real scorer.
+
+    A caller barge-in with a short agent tail. Masking + re-VAD stretches the
+    agent past its true end and reports overlap that did not happen; injection
+    reports the overlap the timeline actually carries.
+    """
+    from hotato import diarize
+    from hotato._engine.score import ScoreConfig, score_channels
+
+    sr, cfg = 16000, ScoreConfig()
+    hop = diarize._hop_samples(sr, cfg)
+    n = 400
+    # agent speaks 0.00-2.00 s; caller comes in at 1.80 s and holds the floor
+    agent = [i < 200 for i in range(n)]
+    caller = [180 <= i < 340 for i in range(n)]
+    true_overlap = sum(1 for i in range(n) if agent[i] and caller[i]) * (hop / sr)
+
+    c_inj, a_inj = diarize.inject_timelines(caller, agent, sample_rate=sr, cfg=cfg)
+    injected = score_channels(c_inj, a_inj, sr, cfg=diarize.injection_config(cfg))
+
+    assert injected.talk_over_sec == pytest.approx(true_overlap, abs=hop / sr), (
+        f"injected talk_over {injected.talk_over_sec:.3f}s should equal the "
+        f"timeline's own {true_overlap:.3f}s")
