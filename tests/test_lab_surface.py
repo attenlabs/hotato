@@ -41,9 +41,23 @@ def _lab_names(parser):
 
 # --- top-level help = exactly the public surface ---------------------------
 
+#: Public commands that share another command's help line because they are a
+#: second spelling of it, not a second command. argparse gives an alias its own
+#: entry in ``choices`` but no line of its own in ``--help``, which is what we
+#: want: one command, one line, either spelling accepted.
+_PUBLIC_ALIASES = {"check": "autopsy"}
+
+
 def test_top_level_help_lists_exactly_the_public_surface():
     parser = cli.build_parser()
-    assert _listed_commands(parser) == cli._PUBLIC_SURFACE
+    listed = _listed_commands(parser)
+    # every public command is reachable, and an alias is reachable through the
+    # line its canonical spelling owns
+    assert listed == cli._PUBLIC_SURFACE - set(_PUBLIC_ALIASES)
+    registered = set(_top_subparsers(parser).choices)
+    for alias, canonical in _PUBLIC_ALIASES.items():
+        assert alias in registered, f"{alias!r} is public but not registered"
+        assert canonical in listed, f"{alias!r} has no canonical line to share"
 
 
 def test_every_registered_command_is_public_or_lab_never_both():

@@ -24,6 +24,9 @@ from hotato import cli
 # (top-level, plus the two nested ones). Kept explicit so a test failure
 # names exactly what went missing, rather than just a count mismatch.
 _ALL_SUBCOMMANDS = [
+    # `check` is the front-door spelling of `autopsy`; both resolve to the same
+    # parser, so the inventory carries both.
+    "check",
     "run", "capture", "drive", "setup", "connect", "pull", "sweep", "report", "team",
     "export", "benchmark", "benchmark compare",
     "bench", "bench run", "bench verify", "doctor", "demo", "start",

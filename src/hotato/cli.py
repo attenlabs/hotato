@@ -1071,6 +1071,10 @@ _EXIT_CODES: dict = {
     ),
 }
 
+# `check` and `autopsy` are one command under two spellings, so the exit-code
+# table, the help epilog and `hotato describe` report them identically.
+_EXIT_CODES["check"] = _EXIT_CODES["autopsy"]
+
 
 def _exit_codes_epilog(key: str) -> str:
     """Render the ``Exit codes:`` line for subcommand ``key`` from the single
@@ -5578,7 +5582,7 @@ _CORE_LOOP_STEPS = (
 # The first-run funnel rendered atop `hotato --help`, in lockstep with the
 # README's first screenful: find what broke, then pin it.
 _START_HERE_STEPS = (
-    ("hotato autopsy ./call.wav", "drop one recording in, get the incidents out"),
+    ("hotato check ./call.wav", "drop one recording in, get the incidents out"),
     ("hotato scan ./calls", "the folder health report over a directory"),
     ("hotato vapi health", "pull recent Vapi calls and write the health report"),
     ("hotato pin apx-<id>", "pin an incident from step 1 as a portable check"),
@@ -5616,7 +5620,7 @@ def _get_started_block() -> str:
 # and ``hotato describe`` records both spellings per command.
 _PUBLIC_SURFACE = frozenset({
     # Start here
-    "autopsy", "scan", "pin", "prove", "connect",
+    "autopsy", "check", "scan", "pin", "prove", "connect",
     # <stack> health (five stacks)
     "vapi", "retell", "bland", "synthflow", "millis",
     # Onboarding
@@ -8869,6 +8873,12 @@ def build_parser() -> argparse.ArgumentParser:
     # --- autopsy: the zero-config forensics front door ----------------------
     au = sub.add_parser(
         "autopsy",
+        # `check` is the front door: the verb a developer reaches for when they
+        # want to know whether the thing they just built is alright. `autopsy`
+        # is what the command has always been called and every existing script,
+        # doc and habit keeps working, exactly as the pre-1.17 spellings did
+        # when the lab surface landed.
+        aliases=["check"],
         help="drop one call recording in, get the incidents out: barge-in, "
              "talk-over, dead air, latency spikes, plus a self-contained "
              "HTML report",
