@@ -10,7 +10,9 @@
 >
 > Timing comes from audio energy over time, one channel per party; say-do reads
 > the transcript for what the agent said it would do, your trace and system of
-> record for what it did. It measures turn timing and say-do, not intent.
+> record for what it did. It measures turn timing and say-do, not intent. Any
+> recording works: a mixed channel measures silence timing and says so, while
+> barge-in and talk-over need the two parties on separate channels.
 > Runs offline, MIT, free at any scale, zero required dependencies, and nothing
 > leaves the machine that invokes it. Built to be called by an AI agent
 > mid-task, as a CLI or MCP server: `--format json` on every scoring command,

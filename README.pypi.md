@@ -16,13 +16,13 @@
 
 ```bash
 pip install hotato
-hotato autopsy --demo           # a bundled failing call: what broke, and when
-hotato autopsy ./call.wav       # then your own recording
+hotato check --demo             # a bundled failing call: what broke, and when
+hotato check ./call.wav         # then your own recording
 hotato vapi health              # or your last 100 Vapi calls
 ```
 
 Zero config. Vapi, Retell, Bland, Synthflow, Millis, or local audio.
-Timing math, not a judge. Offline. Free. MIT.
+Works with any recording: mono, dual-channel, or a transcript. Timing math, not a judge. Offline. Free. MIT.
 
 **[hotato.dev](https://hotato.dev)**
 
