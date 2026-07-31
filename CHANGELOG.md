@@ -8,7 +8,13 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
-## [1.19.0] - 2026-07-31
+## [1.19.1] - 2026-07-31
+
+Everything below was prepared as 1.19.0. That tag was cut but never
+published: its tree still carried Atlas reproduction records minted by
+1.18.1, and the publish workflow's reproduction gate refused it. The
+records are re-minted here. No 1.19.0 artifact was ever distributed, so
+1.19.1 is the first release carrying this work.
 
 ### Added
 - **`hotato check` is the front door.** `autopsy` signals that something died,
