@@ -8,6 +8,57 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-07-31
+
+### Added
+- **`hotato check` is the front door.** `autopsy` signals that something died,
+  and developers do not autopsy their code -- they check it. The verb someone
+  reaches for when they want to know whether the thing they just built is
+  alright is `check`, and that is what the first line of `--help` teaches now:
+
+      hotato check ./call.wav
+
+  It is a second spelling, not a second command: both resolve to one parser,
+  one exit-code table, one help line. Every existing script, doc and habit
+  keeps working, exactly as the pre-1.17 spellings did when the lab surface
+  landed. The surface tests gain the invariant that makes that true rather
+  than incidental -- a public alias must be registered, and must share the help
+  line its canonical spelling owns, so a future alias cannot quietly become an
+  unlisted second command. `autopsy` remains canonical and is not deprecated.
+
+### Fixed
+- **Single-channel recordings no longer inflate talk-over.** The diarized mono
+  path masked the audio by each speaker's frames and re-ran the energy VAD over
+  the result, which overstated sub-second talk_over by 0.1-0.36s and could
+  bridge a backchannel gap and flip `did_yield`. The spike that found it used a
+  *perfect* diarizer, so no amount of diarizer quality removed it: the error
+  was in the re-read, not in the speaker labels.
+
+  Both terms of that error are deterministic, so they invert. The VAD's 0.15s
+  hangover extends every run's tail, and a 20ms window on a 10ms hop lights the
+  frame before an active one. The path now disables the hangover (a diarizer
+  timeline is already truth, so bridging gaps between words is unwanted),
+  shrinks each run's start by exactly one frame, and synthesizes a carrier in
+  the compensated frames instead of masking real audio. The vendored engine
+  reads that timeline back unchanged. There is still exactly one scoring
+  implementation and no fork of the engine.
+
+### Changed
+- **The docs name the category a developer actually searches, and answer the
+  mono objection.** "Observability" is Langfuse's and Helicone's term; the job
+  this is hired for is a regression check that fails CI before a bad call
+  ships, so the docs say regression tests and call health.
+
+  "I only have a mixed recording, so this probably cannot work" was the
+  likeliest reason to bounce, and no surface answered it -- while the tool had
+  always handled it correctly. A mono file exits 0, returns a report, and
+  prints its own scope line naming what one channel can and cannot measure. So
+  the fix was words, not code: the README fold and both `llms.txt` copies now
+  say a recording of any shape is accepted, each keeping the boundary attached.
+  A mixed channel measures silence timing and says so; barge-in and talk-over
+  need the parties on separate channels. No surface claims mono measures
+  barge-in.
+
 ## [1.18.1] - 2026-07-29
 
 ### Fixed

@@ -95,10 +95,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.18.1
+      - uses: attenlabs/hotato@v1.19.0
         with:
           contracts: contracts/
-          hotato-version: 1.18.1
+          hotato-version: 1.19.0
 ```
 
 `contracts/` holds what `pin` wrote. Full workflow: [`docs/CI.md`](https://github.com/attenlabs/hotato/blob/main/docs/CI.md).

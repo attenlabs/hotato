@@ -22,7 +22,7 @@
 > returns, and where the docs are. For the full command surface, run `hotato
 > describe --format json`, generated from your own install's argparse tree.
 >
-> Version 1.18.1
+> Version 1.19.0
 
 ## Start here
 
