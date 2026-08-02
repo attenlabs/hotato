@@ -623,7 +623,10 @@ _EXIT_CODES: dict = {
         (0, "the recording was analyzed (incidents listed, possibly zero, and "
             "the report written), or the no-argument quick start was printed"),
         (2, "usage error or unusable input (an unreadable file, a bad "
-            "--cost-config, or an mp3/m4a with no ffmpeg on PATH)"),
+            "--cost-config, an mp3/m4a with no ffmpeg on PATH, or a "
+            "two-channel recording the input-health gate refuses -- "
+            "identical channels or a silent channel, the same gate, reason "
+            "and next step hotato trust applies)"),
     ),
     "scan": (
         (0, "scanned: one recording's candidate moments were listed (with or "

@@ -58,6 +58,7 @@ from .errors import ChannelRangeError
 __all__ = [
     "trust_report",
     "render_text",
+    "not_scorable_message",
     "NOTE",
     "SAFE_RECOMMENDATION",
     "NEXT_STEP_CHANNEL_MAP",
@@ -1274,6 +1275,22 @@ def _diarize_trust(base: dict, signal, *, diarizer: str, egress_opt_in: bool,
     base["verdict_mode"] = mode
     base["channel_map_confirmed"] = bool(channel_map_confirmed)
     return base
+
+
+def not_scorable_message(path: str, report: dict) -> str:
+    """The refusal sentence for a recording this gate rejects: WHY it cannot
+    be scored, WHAT to do about it, and where the full report lives.
+
+    One wording, shared by every command that refuses on input health, so a
+    stranger who hits it at the front door (``hotato check``) reads the same
+    reason ``hotato trust`` would have printed for the same file."""
+    reason = report.get("not_scorable_reason") or "the input is not scorable"
+    parts = [f"{path!r} is NOT SCORABLE: {reason}."]
+    next_step = report.get("next_step")
+    if next_step:
+        parts.append(f"Next step: {next_step}.")
+    parts.append(f"Full input-health report: hotato trust --stereo {path}")
+    return " ".join(parts)
 
 
 def render_text(report: dict) -> str:

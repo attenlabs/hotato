@@ -530,6 +530,13 @@ def classify(exc: Exception) -> tuple[str, str]:
 
     msg = str(exc)
     low = msg.lower()
+    if "is not scorable:" in low:
+        # trust.not_scorable_message's marker: the input-health gate refused
+        # this recording (identical channels, a silent channel, too little
+        # speech to attribute a turn). Already a declared, documented code in
+        # schema/error.v1.json -- reachable at last -- so a machine reader can
+        # tell "your export is wrong" from "you typed the flag wrong".
+        return "not_scorable", msg
     if "has one channel" in low:
         return "mono_as_stereo", msg
     if "sample-rate mismatch" in low:

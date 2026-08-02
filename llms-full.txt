@@ -464,7 +464,14 @@ provider metadata, raw mixed mono, refused -- is stated once in
 [EVIDENCE-CONTRACT.md](EVIDENCE-CONTRACT.md).
 
 An unreadable input -- a text file, a truncated header, a non-audio blob
--- is refused with the reason (exit 2), never scored.
+-- is refused with the reason (exit 2), never scored. So is a two-channel
+recording the input-health gate refuses: identical channels (a mono export
+duplicated into two), a silent channel, or too little speech to attribute a
+turn. That is the SAME gate, the same reason and the same next step
+`hotato trust` gives, so the front door and the input-health check never
+disagree about one file. Genuine mono -- one physical channel -- is
+unchanged: it still runs the best-effort silence-timing pass with its scope
+note.
 
 ## The report
 

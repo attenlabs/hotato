@@ -49,6 +49,7 @@ import shlex
 from typing import Optional
 
 from . import autopsy as _autopsy
+from . import trust as _trust
 from .errors import open_regular as _open_regular
 
 __all__ = [
@@ -219,6 +220,18 @@ def run_pin(
             "different call. Re-run hotato autopsy on the recording and pin "
             "from the fresh output."
         )
+    # Re-derive input health from the recording itself, not from the stored
+    # envelope: an envelope written by an older hotato (before the front door
+    # gated on it) carries incidents from a recording the gate rejects, and a
+    # contract minted from one turns CI red over an export defect. `pin` is
+    # the one create_contract caller that always holds the WHOLE recording
+    # (create's own source-side check is separation-only, because its other
+    # callers hand it short clips), so the full input-health gate belongs
+    # here -- on the same bytes the content-derived id was just verified
+    # against.
+    trust_rep = _trust.trust_report(source_path)
+    if not trust_rep.get("scorable"):
+        raise ValueError(_trust.not_scorable_message(source_path, trust_rep))
 
     scan_kind = inc["scan_kind"]
     default_expect = EXPECT_BY_SCAN_KIND.get(scan_kind)

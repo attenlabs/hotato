@@ -22,7 +22,11 @@ Two analysis modes, split by what the recording physically supports:
     the output. Nothing is guessed: every mono finding is a measured silence
     span, and its confidence is derived from the measured energy margin.
 
-An unreadable input is refused with the reason (exit 2), never scored.
+An unreadable input is refused with the reason (exit 2), never scored, and so
+is a two-channel recording the input-health gate refuses (identical channels,
+a silent channel, too little speech to attribute a turn) -- the same gate,
+reason and next step ``hotato trust`` applies, so the front door and the
+input-health check never disagree about one file.
 
 Incident vocabulary (mapped 1:1 from the scanner's candidate kinds; the
 scanner's ``candidate_plain_english`` sentence rides along unchanged):
@@ -498,6 +502,7 @@ def run_autopsy(
     with the reason (exit 2 at the CLI). The caller writes the HTML to
     ``result["report_path"]``."""
     from . import scan as _scan
+    from . import trust as _trust
 
     if not os.path.isfile(path):
         raise ValueError(
@@ -512,6 +517,20 @@ def run_autopsy(
 
         if channels >= 2:
             mode = "stereo"
+            # The SAME input-health gate `hotato trust` and `hotato
+            # investigate` apply, on the SAME decoded audio, BEFORE any
+            # attribution is measured. Two channels are not two parties: in a
+            # mono recording duplicated into two channels every caller frame
+            # is also an agent frame, so the scanner reports guaranteed
+            # talk-over and barge-in that are artifacts of the export, not
+            # measurements of the call. Refusing here is what stops one binary
+            # giving two answers about one file -- and, because no envelope is
+            # written, it is also what stops `hotato pin` minting a contract
+            # from a recording that cannot carry one.
+            trust_rep = _trust.trust_report(wav_path, cfg=cfg)
+            if not trust_rep.get("scorable"):
+                raise ValueError(
+                    _trust.not_scorable_message(path, trust_rep))
             scan_result = _scan.scan_recording(
                 wav_path, cfg=cfg, min_gap_sec=min_gap_sec)
             duration = scan_result["duration_sec"]

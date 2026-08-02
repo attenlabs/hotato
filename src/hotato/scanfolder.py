@@ -44,8 +44,9 @@ incidents into one folder report:
   * the worst-calls ranking (critical count first, then worst measured
     magnitude), each row linking to that call's own per-call autopsy report,
     which is generated alongside.
-  * unreadable files are listed as REFUSED with the reason -- never skipped
-    silently and never scored.
+  * a file the engine cannot score -- unreadable as call audio, or refused
+    by the input-health gate (`hotato trust`) -- is listed as REFUSED with
+    that reason; never skipped silently and never scored.
   * est. cost totals render ONLY under ``--cost-config`` (the operator's own
     per-incident figures; hotato ships no default dollar amount).
 
@@ -248,7 +249,8 @@ def run_scan_folder(
     Returns ``(result, calls_raw)``: ``result`` is the JSON-serializable
     aggregate, and ``calls_raw`` is the per-call ``(autopsy_result,
     report_html)`` list for the caller to write alongside (the worst-calls
-    ranking links to those reports). An unreadable file becomes a ``refused``
+    ranking links to those reports). A file ``run_autopsy`` refuses --
+    unreadable, or rejected by the input-health gate -- becomes a ``refused``
     row with its reason -- never a silent skip, never a crash. Raises
     ``ValueError`` (CLI exit 2) when ``folder`` is not a directory or holds
     no recordings at all."""
@@ -404,8 +406,9 @@ def run_scan_folder(
     if refused:
         coverage.append({
             "lane": "refused", "calls": len(refused),
-            "detail": ("unreadable as call audio; every file listed with "
-                       "its reason, never scored"),
+            "detail": ("unreadable as call audio, or refused by the "
+                       "input-health gate; every file listed with its "
+                       "reason, never scored"),
         })
 
     cost_summary = None
@@ -784,7 +787,7 @@ def render_text(result: dict, prior_runs: List[dict]) -> str:
             lines.append(f"    ... and {len(result['calls']) - 10} more in "
                          "the report")
     if result["refused"]:
-        lines.append("  refused (unreadable, with the reason; never scored):")
+        lines.append("  refused (with the reason; never scored):")
         for r in result["refused"]:
             lines.append(f"    {r['file']}: {r['reason']}")
     cost = result.get("cost")
@@ -1044,7 +1047,7 @@ def build_scan_report_html(result: dict, prior_runs: List[dict]) -> str:
         )
         body.append(
             '<section class="card"><div class="ctitle">Refused files</div>'
-            '<div class="scopenote">Not readable as call audio, reported '
+            '<div class="scopenote">Not scorable as call audio, reported '
             'with the reason; never scored, never counted in the health '
             'share.</div>' + rows + '</section>'
         )

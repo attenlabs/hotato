@@ -774,6 +774,29 @@ def _create_from_fixture_path(
         candidate_ref = candidate_ref_override
     if candidate_kind_override is not None:
         candidate_kind = candidate_kind_override
+    # Channel separation only, checked on the source before anything is clipped.
+    # A mono export duplicated into two channels makes every caller frame an
+    # agent frame, so the clipped moment scores "fine" and the sealed contract
+    # turns CI red over an export defect -- `hotato trust` has always refused
+    # that recording, and so must the mint.
+    #
+    # Deliberately NARROWER than trust's full not-scorable gate, for the same
+    # reason _channel_verdict_eligible refuses to couple it in: trust's other
+    # gates are VAD activity thresholds, and this path is handed SHORT clips
+    # (the fleet one-click mint passes an already-clipped artifact as
+    # ``stereo``), where a legitimate moment can carry under 0.30 s of caller
+    # speech. Channel identity is not a VAD judgement -- it is a sample
+    # comparison, scale-invariant, and just as true of a 2-second clip as of
+    # the whole call -- so it is the one gate that is safe here.
+    if recording_type == "stereo":
+        _src_trust = _trust.trust_report(
+            fx_kwargs["stereo"], caller_channel=caller_channel,
+            agent_channel=agent_channel,
+        )
+        if not (_src_trust.get("scorability") or {}).get(
+                "separated_tracks", True):
+            raise ValueError(_trust.not_scorable_message(
+                fx_kwargs["stereo"], _src_trust))
     source_audio = (fx_kwargs.get("stereo")
                     or fx_kwargs.get("caller"))  # for the pre-clip sha256
     if recording_type == "caller+agent":
