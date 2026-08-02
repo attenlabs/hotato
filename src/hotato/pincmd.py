@@ -281,7 +281,8 @@ def render_text(result: dict) -> str:
                 "decide yourself)"),
         _contract.render_create_text(result),
         "",
-        "lock it in CI:",
+        "gate CI on it (this re-measures the stored evidence; a fresh",
+        "recording of the same moment is what clears it -- docs/RECAPTURE.md):",
         f"  {result['prove']}",
     ]
     return "\n".join(lines)

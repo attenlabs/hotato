@@ -531,6 +531,24 @@ def _scope_subline(proof: Dict[str, Any]) -> str:
     return _SCOPE_PASS_SUBLINE[proof["claim_scope"]]
 
 
+# The boundary `hotato contract verify` prints on every render, carried here
+# because `pin` funnels the user into `prove --contracts`, not into `contract
+# verify`. The contracts lane re-scores each bundle's own stored recording, so
+# a reader has to be told what a green (or red) contracts lane speaks to.
+STORED_EVIDENCE_NOTE = (
+    "The contracts lane re-measures stored evidence. It does not test the "
+    "current agent: a fresh recording of the same moment, scored against the "
+    "same policy, is what clears a pinned bug (docs/RECAPTURE.md)."
+)
+
+
+def _contracts_note(proof: Dict[str, Any]) -> Optional[str]:
+    """The stored-evidence boundary, whenever the contracts lane ran."""
+    if any(entry["lane"] == "contracts" for entry in proof["lanes"]):
+        return STORED_EVIDENCE_NOTE
+    return None
+
+
 def render_text(proof: Dict[str, Any],
                 proof_path: Optional[str] = None) -> str:
     """The claim-scope headline + one-line subhead, then the tight per-lane
@@ -559,6 +577,9 @@ def render_text(proof: Dict[str, Any],
     lines.append(f"content_id: {proof['content_id']}")
     if proof_path:
         lines.append(f"proof: {proof_path}")
+    note = _contracts_note(proof)
+    if note:
+        lines.append(f"  {note}")
     return "\n".join(lines) + "\n"
 
 
@@ -594,6 +615,9 @@ def render_md(proof: Dict[str, Any]) -> str:
         "(contract verify, suite run, verify, gauntlet); the proof carries "
         "verdicts, counts, relative input names, and sha256 digests only.",
     ]
+    note = _contracts_note(proof)
+    if note:
+        lines += ["", note]
     return "\n".join(lines) + "\n"
 
 

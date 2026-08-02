@@ -30,7 +30,7 @@ _SURFACES = [
 ]
 
 # The canonical promise line every surface must carry.
-_POSITIONING = "find what broke in your agent calls. pin it so it never ships again."
+_POSITIONING = "find what broke in your agent calls. pin it and ci stays red until you fix it."
 
 # Retired product DEFINITIONS that must not survive as the lead identity. These
 # are exact product-definition phrases, not the individual words -- "voice",

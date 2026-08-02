@@ -1,9 +1,9 @@
 # CI: gate a PR on turn-taking
 
 hotato scores turn-taking timing from call recordings, so a pull request
-carries a running score and fails when the agent gets slower to stop
-talking for an interrupting caller. The workflow runs offline with zero
-extra dependencies.
+carries a running score and fails when a pinned moment stops meeting the
+policy it was labelled against. The workflow runs offline with zero extra
+dependencies.
 
 ## One command writes the record CI renders
 

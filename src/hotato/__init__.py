@@ -1,4 +1,4 @@
-"""hotato: find what broke in your agent calls. Pin it so it never ships again.
+"""hotato: find what broke in your agent calls. Pin it and CI stays red until you fix it.
 
 Local call forensics and regression guards for AI agents.
 Trace, evaluate, test, and gate any AI agent on your machine: four planes

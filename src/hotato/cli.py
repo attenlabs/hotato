@@ -5707,8 +5707,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             _get_started_block()
             + "\n\n"
-            "Hotato: find what broke in your agent calls. Pin it so it never ships again.\n"
-            "Local call forensics and regression guards for AI agents, on your\n"
+            "Find what broke in your agent calls. Pin it and CI stays red until you fix it.\n"
+            "Hotato is local call forensics and regression guards for AI agents, on your\n"
             "machine, with nothing leaving it. It measures turn timing (who\n"
             "spoke when, and whether the agent stopped for the caller) and say-do\n"
             "(what the agent said it would do against what your trace shows it did).\n"

@@ -12,7 +12,7 @@
 
 # hotato
 
-**Find what broke in your agent calls. Pin it so it never ships again.**
+**Find what broke in your agent calls. Pin it and CI stays red until you fix it.**
 
 ```bash
 pip install hotato
@@ -69,7 +69,7 @@ hotato autopsy ./call.wav
 Writes a self-contained HTML report to `hotato-output/`, plus the JSON
 `pin` reads. Open the HTML in your browser.
 
-## From finding bugs to preventing them
+## From finding a bug to gating on it
 
 `autopsy` turns one recording into timestamped incidents. `scan` reads a
 folder and tracks the trend. When you are ready, move a finding into CI:
@@ -77,6 +77,14 @@ folder and tracks the trend. When you are ready, move a finding into CI:
 prove` re-runs every stored check and fails the build rather than pass on
 evidence it cannot re-read. Every verdict carries its own evidence across
 five dimensions: outcome, policy, conversation, speech, reliability.
+
+A pinned check re-measures its own stored recording, so it holds the build
+red on that bug and catches an edited bundle, a loosened policy, or an
+engine upgrade that scores the same bytes differently. Clearing it takes a
+fresh recording of the same moment against the current agent: `hotato drive
+<bundle>` places that call on Vapi or Twilio, and
+[`docs/RECAPTURE.md`](docs/RECAPTURE.md) is the walkthrough for every other
+stack.
 
 [Pin a bug →](docs/CI.md)
 

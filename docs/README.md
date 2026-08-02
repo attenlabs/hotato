@@ -1,10 +1,11 @@
 # hotato docs
 
-Find what broke in your agent calls. Pin it so it never ships again. The
-loop: `autopsy` one recording (or `scan` a folder, or pull a platform's
+Find what broke in your agent calls. Pin it and CI stays red until you fix it.
+The loop: `autopsy` one recording (or `scan` a folder, or pull a platform's
 recent calls with `vapi health`), `pin` the incident as a portable failure
-check, and `prove` re-runs the stored evidence in CI so it never ships
-again. This index maps every doc to the step it belongs to.
+check, and `prove` re-measures that stored evidence on every push, holding the
+build red until a fresh recording of the same moment clears it. This index maps
+every doc to the step it belongs to.
 
 New here? Run `hotato autopsy ./call.wav` on one recording
 (**[AUTOPSY.md](AUTOPSY.md)**), or start with
