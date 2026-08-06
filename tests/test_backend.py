@@ -41,14 +41,14 @@ SR = 16000
 # The frozen bundled 8 (energy reference). Must never move, including when a
 # neural backend is registered. Mirrors tests/test_frozen_regression.py.
 FROZEN_8 = {
-    "01-hard-interruption": (True, 0.5, 0.5),
-    "02-backchannel-mhm": (False, None, 1.57),
-    "03-filler-start": (True, 0.65, 0.56),
-    "04-correction": (True, 0.5, 0.5),
-    "05-telephony-8khz": (True, 0.5, 0.5),
-    "06-double-talk": (True, 1.05, 1.05),
+    "01-hard-interruption": (True, 0.35, 0.35),
+    "02-backchannel-mhm": (False, None, 1.12),
+    "03-filler-start": (True, 0.5, 0.26),
+    "04-correction": (True, 0.35, 0.35),
+    "05-telephony-8khz": (True, 0.35, 0.35),
+    "06-double-talk": (True, 0.9, 0.9),
     "07-echo-bleed": (False, None, 3.0),
-    "08-rapid-turn-taking": (True, 0.5, 0.5),
+    "08-rapid-turn-taking": (True, 0.35, 0.35),
 }
 
 
@@ -133,11 +133,23 @@ def test_neural_and_energy_share_vadresult_contract(stub_neural):
     import dataclasses
     e_fields = {f.name for f in dataclasses.fields(e)}
     n_fields = {f.name for f in dataclasses.fields(nresult)}
-    assert e_fields == n_fields == {"active", "hop_sec", "threshold_db", "noise_floor_db"}
+    assert e_fields == n_fields == {
+        "active", "active_trimmed", "hop_sec", "threshold_db", "noise_floor_db",
+        "tail_pad_sec",
+    }
 
     # identical shape / grid
     assert len(nresult.active) == len(e.active) == len(rms)
+    assert len(nresult.active_trimmed) == len(e.active_trimmed) == len(rms)
     assert nresult.hop_sec == e.hop_sec == hop
+
+    # A backend that does not pad run tails has nothing to trim, so the two
+    # tracks are the same object's content and the pad it reports is zero. The
+    # energy path is the only one that pads, so it is the only one where they
+    # diverge -- which is what keeps a pad-free backend out of the compensation
+    # arithmetic in score.py entirely.
+    assert nresult.tail_pad_sec == 0.0
+    assert nresult.active_trimmed == nresult.active
 
     # identical field TYPES (the synthesized dB descriptors are real, finite floats)
     assert isinstance(nresult.active, list) and all(isinstance(a, bool) for a in nresult.active)
@@ -263,8 +275,8 @@ def test_energy_run_omits_backend_provenance_and_stays_byte_identical(stub_neura
     # the score-bearing bytes are the deterministic energy reference for this
     # exact input, unchanged by the additive provenance field existing
     assert ev["verdict"]["did_yield"] is True
-    assert ev["verdict"]["seconds_to_yield"] == 2.4
-    assert ev["verdict"]["talk_over_sec"] == 0.51
+    assert ev["verdict"]["seconds_to_yield"] == 2.25
+    assert ev["verdict"]["talk_over_sec"] == 0.36
 
 
 # --- CLI surface -----------------------------------------------------------

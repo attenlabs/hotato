@@ -56,8 +56,8 @@
       "measured": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.61,
-        "talk_over_sec": 0.58,
+        "seconds_to_yield": 0.46,
+        "talk_over_sec": 0.43,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 1.57,
         "onset_delta_sec": -1.43
@@ -79,8 +79,8 @@
       "measured": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 1.82,
-        "talk_over_sec": 0.45,
+        "seconds_to_yield": 1.67,
+        "talk_over_sec": 0.3,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.0,
         "onset_delta_sec": 0.0
@@ -102,8 +102,8 @@
       "measured": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 1.67,
-        "talk_over_sec": 0.33,
+        "seconds_to_yield": 0.0,
+        "talk_over_sec": 0.0,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.01,
         "onset_delta_sec": 0.01
@@ -125,8 +125,8 @@
       "measured": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 0.26,
-        "talk_over_sec": 0.26,
+        "seconds_to_yield": 0.11,
+        "talk_over_sec": 0.11,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.0,
         "onset_delta_sec": 0.0
@@ -148,8 +148,8 @@
       "measured": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 1.25,
-        "talk_over_sec": 0.58,
+        "seconds_to_yield": 1.1,
+        "talk_over_sec": 0.28,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.0,
         "onset_delta_sec": 0.0
@@ -171,8 +171,8 @@
       "measured": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.72,
-        "talk_over_sec": 0.65,
+        "seconds_to_yield": 0.57,
+        "talk_over_sec": 0.2,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 2.61,
         "onset_delta_sec": -0.39
@@ -194,8 +194,8 @@
       "measured": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.58,
-        "talk_over_sec": 0.57,
+        "seconds_to_yield": 0.43,
+        "talk_over_sec": 0.42,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.01,
         "onset_delta_sec": 0.01
@@ -240,8 +240,8 @@
       "measured": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.42,
-        "talk_over_sec": 0.35,
+        "seconds_to_yield": 0.27,
+        "talk_over_sec": 0.15,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.01,
         "onset_delta_sec": 0.01
@@ -263,8 +263,8 @@
       "measured": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 0.39,
-        "talk_over_sec": 0.37,
+        "seconds_to_yield": 0.24,
+        "talk_over_sec": 0.22,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.02,
         "onset_delta_sec": 0.02
@@ -286,8 +286,8 @@
       "measured": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 0.49,
-        "talk_over_sec": 0.47,
+        "seconds_to_yield": 0.34,
+        "talk_over_sec": 0.32,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.02,
         "onset_delta_sec": 0.02
@@ -310,7 +310,7 @@
         "passed": true,
         "did_yield": false,
         "seconds_to_yield": null,
-        "talk_over_sec": 0.63,
+        "talk_over_sec": 0.33,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 3.02,
         "onset_delta_sec": 0.02
@@ -332,8 +332,8 @@
       "measured": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 0.13,
-        "talk_over_sec": 0.13,
+        "seconds_to_yield": 0.0,
+        "talk_over_sec": 0.0,
         "agent_talking_at_onset": true,
         "detected_onset_sec": 2.9,
         "onset_delta_sec": -0.1

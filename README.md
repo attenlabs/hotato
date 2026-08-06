@@ -103,10 +103,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.19.1
+      - uses: attenlabs/hotato@v1.20.0
         with:
           contracts: contracts/
-          hotato-version: 1.19.1
+          hotato-version: 1.20.0
 ```
 
 `contracts/` holds what `pin` wrote. Full workflow: [`docs/CI.md`](docs/CI.md).

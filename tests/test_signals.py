@@ -23,17 +23,20 @@ from hotato.core import dump_frames_for_input, run_suite
 
 SR = 16000
 
-# The three originals for the 8 bundled scenarios, captured BEFORE the signal bus
-# was added. The suite must still reproduce these byte-for-byte (back-compat).
+# The three originals for the 8 bundled scenarios. The suite must reproduce these
+# byte-for-byte. Re-captured for 1.20.0, which stopped counting the VAD's tail pad
+# as speech when measuring a boundary: every seconds_to_yield moved one hangover
+# earlier and every talk_over lost the pad it never had in the audio. did_yield is
+# unchanged on all eight, which is the part that must never move quietly.
 GOLDEN_BARGE_IN = {
-    "01-hard-interruption": (True, 0.5, 0.5),
-    "02-backchannel-mhm": (False, None, 1.57),
-    "03-filler-start": (True, 0.65, 0.56),
-    "04-correction": (True, 0.5, 0.5),
-    "05-telephony-8khz": (True, 0.5, 0.5),
-    "06-double-talk": (True, 1.05, 1.05),
+    "01-hard-interruption": (True, 0.35, 0.35),
+    "02-backchannel-mhm": (False, None, 1.12),
+    "03-filler-start": (True, 0.5, 0.26),
+    "04-correction": (True, 0.35, 0.35),
+    "05-telephony-8khz": (True, 0.35, 0.35),
+    "06-double-talk": (True, 0.9, 0.9),
     "07-echo-bleed": (False, None, 3.0),
-    "08-rapid-turn-taking": (True, 0.5, 0.5),
+    "08-rapid-turn-taking": (True, 0.35, 0.35),
 }
 
 
@@ -218,8 +221,12 @@ def test_frame_dump_roundtrip_reproduces_did_yield_and_talk_over(sid):
     dump = dump_frames_for_input(stereo=stereo, onset_sec=onset, cfg=cfg)
     frames = dump["frames"]
     hop = dump["hop_sec"]
-    caller_active = [f["caller_active"] for f in frames]
-    agent_active = [f["agent_active"] for f in frames]
+    # The trimmed track, because that is the one overlap and the yield point are
+    # measured on. Re-deriving from the padded `*_active` here would reproduce a
+    # number the scorer no longer reports, which is exactly the drift this test
+    # exists to catch.
+    caller_active = [f["caller_active_trimmed"] for f in frames]
+    agent_active = [f["agent_active_trimmed"] for f in frames]
 
     did_yield, talk_over = _rederive_barge_in(caller_active, agent_active, onset, hop, cfg)
 

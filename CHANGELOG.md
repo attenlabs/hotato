@@ -8,6 +8,146 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-08-03
+
+1.19.1 removed the VAD's tail pad from the diarized mono path, where a spike
+with a *perfect* diarizer proved the error was in the re-read rather than in
+the speaker labels. The same pad was on the stereo path the whole time, and it
+was fabricating findings there too.
+
+The pad answers two different questions and is only wrong for one of them.
+*Is this channel active here?* is a presence question, and smoothing helps:
+onset detection, input health, burst counts and the scan walk all ask it.
+*When exactly did this run end?* is a boundary question, and there the pad
+reports silence as speech. So the VAD now returns both tracks, presence reads
+the padded one unchanged, and only the boundary signals move.
+
+What moves is every measurement of a boundary: `talk_over_sec`,
+`time_to_yield_sec`, `response_gap_sec`, `premature_start_sec`, and the
+`overlap_sec` a scan candidate reports. What does not move: the VAD's activity
+track itself, caller onset detection, input health and scorability, burst
+counts, and which candidates a scan finds -- all verified byte-identical across
+the 328 bundled channels and 338 bundled recordings.
+
+`did_yield` is unchanged at every onset the tool itself detects, and at all 31
+bundled labelled onsets, which is how it is reached in normal use. It is NOT
+invariant at an arbitrary `--onset` you supply by hand: a yield that the pad
+used to push past `max_search_sec` can now land inside the window, and near a
+run boundary the yield point moves earlier. Where that changes the answer, the
+new one is measured from where the agent's energy actually stopped.
+
+### Fixed
+- **Overlap that never happened is no longer reported.** The energy VAD keeps a
+  channel marked active for `hangover_sec` after its energy drops. Between two
+  words that bridges a gap, which is what it is for. After the last word it
+  reports silence as speech, and the other channel's real onset lands inside it:
+  when the agent stopped and the caller began `gap` seconds later, the tool
+  reported exactly `hangover_sec - gap` seconds of talk-over. On synthetic audio
+  containing no overlap at all, a 0.05 s gap produced 0.110 s of it and a 0.10 s
+  gap produced 0.060 s.
+
+  `VADParams.trim_tail_to_raw` keeps a second track whose runs end at their last
+  frame of measured energy. Bridging is identical in both -- a bridged gap has
+  energy on both sides of it by definition, so trimming a tail cannot
+  re-fragment an utterance.
+
+  Across the 177 bundled two-channel clips this removes 25.7 s of reported
+  talk-over, 17.9% of the total, and 45.3% on the AMI real-audio subset. No clip
+  reports more. None of it is genuine: recomputing every clip's overlap from the
+  raw above-threshold frames, no clip now reports less overlap than its own
+  energy shows, and every clip built around a real barge-in still reports one.
+
+- **`response_gap` was understated by exactly one hangover**, because the
+  caller's turn end was detected that much late, and `premature_start` was
+  fabricated at fast turn-taking for the same reason. Measured at the frame
+  index across every clip where both are derivable, the caller's turn end moves
+  earlier by exactly one pad and the agent's response onset does not move at
+  all.
+
+- **A manifest pinned before this release is flagged, not silently rescored.**
+  `recompute` rebuilt a pinned config with `config_from_dict`, which gives any
+  key the dict omits today's default -- so a manifest pinned before this release
+  came back looking pinned. Divergence is now computed on that path too, which
+  is the production default.
+
+- **The frame dump can still explain its own numbers.** It publishes both
+  tracks. Re-deriving `talk_over` from the padded track alone reproduces the
+  pre-1.20.0 figure rather than the reported one, which would have left the dump
+  unable to account for the very numbers it exists to account for.
+
+### Changed
+- **The two thresholds that count quiet frames are restated at the point of
+  use.** `yield_hangover_sec` and `turn_end_silence_sec` keep their semantic
+  values and the pad is added back from the track that produced it. Hardcoding
+  the sum would be correct only at the default `hangover_sec`: at 0 -- the
+  documented zero-hangover mode, and what the neural backend and the diarized
+  path both produce -- there is no pad to compensate and a baked-in constant
+  tightens the requirement 35x, suppressing genuine yields; at 0.30 it goes the
+  other way and scores yields that did not happen. Sweeping `hangover_sec`
+  across 0.00 to 0.30, the minimum real silence that scores a yield is identical
+  before and after this release at every value.
+
+- **A scan candidate's `overlap_sec` is a boundary measurement and now reads the
+  trimmed track**, like the scorer's `talk_over_sec`. The two are the same
+  quantity and had drifted onto different tracks, so a contract pinned its bound
+  from one and was then evaluated against the other -- which is how a clip with
+  a genuine talk-over could pin a gate and still come back green. Which
+  candidates a scan finds is a presence question and is unchanged: the candidate
+  set is byte-identical across all 338 bundled recordings.
+
+- **The talk-over severity bar moves to 0.815 s**, in
+  `investigate.YIELD_TALK_OVER_CEILING_SEC` and its documented twin
+  `autopsy.TALK_OVER_CRITICAL_SEC`. It grades the `overlap_sec` above, which
+  lost a pad per run boundary inside the window. 0.815 is the measured optimum
+  over the 119 bundled candidates carrying more than 0.6 s of overlap either
+  side of the change: it preserves the above/below classification on 116,
+  against 104 at the old 1.0. It is deliberately not the raw argmax -- 0.81 also
+  scores 116, but only by exactly equalling a cluster of 14 candidates, which
+  puts the bar where a one-frame move reclassifies all of them at once. Dead air
+  is a silence duration, not an active one, and is untouched.
+
+- **`BENCH_VERSION` 0.1 -> 0.2 and the engine identity 0.1.0 -> 0.2.0.**
+  BENCH-SPEC freezes the scoring protocol and states that changing it is a new
+  bench version and a new engine identity. Bench rows from before and after this
+  release are not comparable and no longer claim to be.
+
+- **The benchmark's error prose named the wrong cause for turn-end signals.** It
+  said error was dominated by the VAD hangover and shrank toward one hop when
+  the hangover was neutralised. That remains true of caller onset, where the
+  hangover can bridge a pre-onset blip into a run long enough to pass
+  `onset_min_run_sec` and move the detected onset earlier -- one AMI fixture
+  carries 1.43 s of onset error at the default hangover and 0.03 s at zero for
+  exactly that reason. It is no longer true of time to yield, which holds steady
+  across hangover 0.00 to 0.20; what remains there is the choice of which
+  silence counts as the turn end. Corrected in `docs/BENCHMARK.md`,
+  `docs/BENCH-SPEC.md` and `METHODOLOGY.md`, whose end-bias bound was
+  `hangover_sec` plus one hop and is now one hop.
+
+- Set `VADParams(trim_tail_to_raw=False)` to reproduce pre-1.20.0 numbers.
+  Default config hash moves from
+  `12b50122dbca19194189a94b2ab6a75ba11c1a506f471c9a03b46ef70cea23c9` to
+  `95bd1842a3c3804b25658997e2945cc64d6075856e4b7cdf41646e3d6fdd1972`.
+
+### Measurement error
+
+Signed-magnitude `|measured - rendered|`, default shipped config, AMI BYO
+corpus (`corpus/real`, 13 fixtures), median / mean / worst ms:
+
+| signal | before | after |
+|---|---|---|
+| caller onset | 20 / 156.9 / 1430 | 20 / 156.9 / 1430 |
+| time to yield | 190 / 578.3 / 2270 | 80 / 540.0 / 2270 |
+
+Caller onset is a presence signal and does not move at all. The turn-end
+median improves by more than half a pad; the worst case is unchanged and is
+scorer-versus-label disagreement about which silence ends the turn, not a
+hangover effect. Two rows get worse (`ami-en2002b-take-1069` 630 -> 780 ms,
+`ami-en2002b-take-0913` 70 -> 80 ms).
+
+Confusion matrix, unchanged by this release: correct_yield 6, missed_yield 0,
+false_yield 6, correct_hold 1. The timings moved; nothing was classified
+differently.
+
 ## [1.19.1] - 2026-07-31
 
 Everything below was prepared as 1.19.0. That tag was cut but never

@@ -87,12 +87,21 @@ metrics") enforces the same rule for corpora; the benchmark applies it to
 the tooling itself.
 
 The reported error is what the default shipped config measures, so it is
-the number you get. On the synthetic fixtures, the yield error equals the
-exposed VAD hangover, and the onset/gap error is one frame hop -- both
-documented `ScoreConfig` parameters. Set the hangover to zero
-(`caller_vad.hangover_sec = agent_vad.hangover_sec = 0`) and every signal
-collapses to within one hop of ground truth; the test suite asserts this,
-so the claim is checkable against the code.
+the number you get. On the synthetic fixtures the onset and gap error is
+one frame hop, and since 1.20.0 the yield error is 0.000 ms: runs end at
+their last frame of measured energy (`VADParams.trim_tail_to_raw`), so a
+turn-end signal no longer carries the hangover it used to be offset by.
+Before 1.20.0 the yield error equalled the exposed VAD hangover exactly.
+
+Onset error still carries the hangover, which is a real effect and not a
+rounding one: the hangover can bridge a blip before the caller's onset into
+a run long enough to pass `onset_min_run_sec`, moving the detected onset
+earlier. On the AMI corpus one fixture carries a 1.43 s onset error at the
+default hangover and 0.03 s at zero for exactly that reason. Both the
+hangover and the hop are documented `ScoreConfig` parameters.
+
+The test suite asserts one-sided tolerances on these errors, so it bounds
+them; it does not pin which knob drives them.
 
 The scorer reads speech energy over time, so that is what the harness
 reports: timing and decisions.
@@ -111,16 +120,24 @@ one-hop collapse the section above already pins down (hangover zero ->
 every signal within one hop of ground truth).
 
 Against a label placed at the raw end of speech energy, the measured end of
-an overlap or yield sits late by at most `hangover_sec` plus one hop
-(0.16 s at defaults) and the measured start sits early by at most one frame
-(0.02 s at defaults). The bias is deterministic and one sided. Setting
-`caller_vad.hangover_sec` and `agent_vad.hangover_sec` to 0 removes the
-hangover term and leaves frame quantization; on recorded speech a zero
-hangover can fragment one utterance at intra word dips, which lowers
-measured overlap. Measured case: a two channel recording of two human
+an overlap or yield sits late by at most one hop, and the measured start
+sits early by at most one frame (0.02 s at defaults). The bias is
+deterministic and one sided. Before 1.20.0 the end bias was `hangover_sec`
+plus one hop (0.16 s at defaults), because a run stayed marked active for
+`hangover_sec` after its energy stopped; runs now end at their last frame
+of measured energy, which removes that term at every hangover setting
+rather than only at zero. Bridging between words is unchanged, so an
+utterance still does not fragment at intra word dips.
+
+Measured case, recorded before 1.20.0: a two channel recording of two human
 speakers with a hand labeled 0.420 s overlap at the raw speech edges
-measures `talk_over_sec = 0.590` at defaults and `0.420` at hangover zero,
-the bound holding exactly (end +0.155 s, start -0.005 s).
+measured `talk_over_sec = 0.590` at defaults and `0.420` at hangover zero,
+the old bound holding exactly (end +0.155 s, start -0.005 s). That
+recording is not bundled, so the figure stands as the historical record
+rather than as something you can re-run here. The equivalent case rebuilt
+synthetically -- agent 0.50-2.00 s, caller 1.58-3.00 s, 0.420 s of raw
+overlap -- measures 0.570 at the old defaults and 0.420 both at hangover
+zero and at the current defaults.
 
 The consequence for a `--max-time-to-yield` (or any) policy bound: a
 physically identical yield event, shifted by a few milliseconds of

@@ -73,7 +73,20 @@ DEFAULT_OUT_DIR = "contracts"
 # 01-hard-interruption, 03-filler-start all pin ~1.0s): a caller-yield that holds
 # the floor LONGER than this is the failure being pinned. Applied ONLY when the
 # caught overlap EXCEEDS it, so a genuinely prompt yield is never turned red.
-YIELD_TALK_OVER_CEILING_SEC = 1.0
+# 1.0 -> 0.815 in 1.20.0. This grades a scan candidate's durations.overlap_sec,
+# which is a boundary measurement and now reads the trimmed track: the same audio
+# reports one hangover less overlap per run boundary inside the window, so the
+# bar has to come down with it or it silently stops catching what it caught.
+# 0.815 is the measured optimum over the 119 bundled candidates carrying more
+# than 0.6s of overlap either side of the change: it preserves the above/below
+# classification on 116, against 104 at the old 1.0. It is NOT the raw argmax --
+# 0.81 also scores 116, but only because it exactly equals a cluster of 14
+# candidates, which puts the bar on a knife edge where a one-frame move
+# reclassifies all of them at once. 0.815 sits in the gap between that cluster
+# and the next value up, so no candidate sits on the bar at all.
+# Kept in lockstep with autopsy.TALK_OVER_CRITICAL_SEC, which the comment there
+# names as the same bar.
+YIELD_TALK_OVER_CEILING_SEC = 0.815
 
 # The stereo demo call shipped INSIDE the package (installed with the wheel
 # under ``hotato/data/demo/failing/audio/``) so ``hotato investigate --demo``

@@ -6,7 +6,7 @@
   "offline": true,
   "engine": {
     "name": "barge_scoring (vendored, MIT)",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "upstream": "https://github.com/quantumCF/voice-agent-barge-in-tests"
   },
   "limits": {
@@ -14,10 +14,9 @@
     "accuracy_claim": null,
     "reproducible": "deterministic given the same audio and config; every threshold is an exposed parameter and every frame is inspectable.",
     "ceiling": "Automated sub-second scoring on a single channel using neural or energy VAD has a real ceiling. Treat these as reproducible timing measurements, not ground-truth judgements of a detector's internal quality.",
-    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels. Mono is accepted but the caller/agent separation is then only as good as the VAD, which lowers the ceiling further.",
+    "best_input": "stereo / two-channel recording with the caller and the agent on separate channels is the gold reference. A single-channel (mono) recording is scorable via the opt-in, quality-gated [diarize] front-end (hotato run --mono call.wav --diarize); below the confidence bar its verdict is labeled indicative-only, and it is never equivalent to a true dual-channel measurement.",
     "does_not_do": [
-      "no speaker identification",
-      "no diarization",
+      "no speaker identification (a diarizer assigns anonymous SPEAKER_00/01; it never says who a person is)",
       "no speech-to-text / transcription",
       "no emotion or intent detection",
       "no claim about any specific vendor's internal accuracy"
@@ -41,28 +40,61 @@
       "verdict": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.35,
-        "talk_over_sec": 0.35,
+        "seconds_to_yield": 0.2,
+        "talk_over_sec": 0.2,
         "reasons": []
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 220,
+        "decision_margin_sec": 0.8,
+        "decision_margin_hops": 80,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.35,
-          "talk_over_sec": 0.35
+          "time_to_yield_sec": 0.2,
+          "talk_over_sec": 0.2
         },
         "latency": {
-          "response_gap_sec": 1.5,
+          "response_gap_sec": 1.65,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.302,
+          "lag_sec": 0.39,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 3.35,
+          "restart_suspected": true
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "84b63327073db43ce3f3e423b57c0a7e7a13aff4d3e6e762c0f14c3ef805df18",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-01-hard-interruption.example.wav",
+            "sha256": "84b63327073db43ce3f3e423b57c0a7e7a13aff4d3e6e762c0f14c3ef805df18",
+            "pcm_sha256": "dd68edd56a03b439d2f18ffff577c65d14ab6942ebdd6af6df126d685105b2e1",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-02-one-word-stop",
@@ -73,27 +105,44 @@
       "verdict": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 1.46,
-        "talk_over_sec": 0.45,
+        "seconds_to_yield": 1.47,
+        "talk_over_sec": 0.3,
         "reasons": [
-          "yielded in 1.46s, slower than the 1.00s bound"
+          "yielded in 1.47s, slower than the 1.00s bound"
         ]
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 347,
+        "decision_margin_sec": -0.47,
+        "decision_margin_hops": -47,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 1.46,
-          "talk_over_sec": 0.45
+          "time_to_yield_sec": 1.47,
+          "talk_over_sec": 0.3
         },
         "latency": {
-          "response_gap_sec": 1.44,
+          "response_gap_sec": 1.59,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.222,
+          "lag_sec": 0.0,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 0.42,
+          "restart_suspected": true
         }
       },
       "fix": {
@@ -107,7 +156,23 @@
           "trade_off": "very low backoff can cut the agent off on filler noise."
         },
         "pointer": null
-      }
+      },
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "a54e212339111cdb6414e631c33e39a791729a390a082bb1844ea02dcf0abe4a",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-02-one-word-stop.example.wav",
+            "sha256": "a54e212339111cdb6414e631c33e39a791729a390a082bb1844ea02dcf0abe4a",
+            "pcm_sha256": "39a6c00028d3580dcbd6ab5f622192a767416e8e4ece452b5a3d3f482287f766",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-03-backchannel-mhm",
@@ -119,27 +184,55 @@
         "passed": true,
         "did_yield": false,
         "seconds_to_yield": null,
-        "talk_over_sec": 0.35,
+        "talk_over_sec": 0.05,
         "reasons": []
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": null,
+        "decision_margin_sec": null,
+        "decision_margin_hops": null,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": false,
           "time_to_yield_sec": null,
-          "talk_over_sec": 0.35
+          "talk_over_sec": 0.05
         },
         "latency": {
-          "response_gap_sec": 0.65,
+          "response_gap_sec": 0.8,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.174,
+          "lag_sec": 0.5,
+          "echo_suspected": false
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "db7ad42ec77c41cd3dfb01a08feac0518891735bbea477f61aa610f4e68c3ae2",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-03-backchannel-mhm.example.wav",
+            "sha256": "db7ad42ec77c41cd3dfb01a08feac0518891735bbea477f61aa610f4e68c3ae2",
+            "pcm_sha256": "6b0db3fdbf7ca5c7ee8033a716d681a52ed2e6aaa75b8540d2a59f2cd8c11a29",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-04-backchannel-halt",
@@ -150,8 +243,8 @@
       "verdict": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 0.34,
-        "talk_over_sec": 0.32,
+        "seconds_to_yield": 0.19,
+        "talk_over_sec": 0.17,
         "reasons": [
           "expected the agent to keep the floor but it yielded (a false or phantom barge-in)"
         ]
@@ -160,17 +253,34 @@
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 219,
+        "decision_margin_sec": null,
+        "decision_margin_hops": null,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.34,
-          "talk_over_sec": 0.32
+          "time_to_yield_sec": 0.19,
+          "talk_over_sec": 0.17
         },
         "latency": {
           "response_gap_sec": null,
           "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.286,
+          "lag_sec": 0.29,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
         }
       },
       "fix": {
@@ -183,7 +293,23 @@
           "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
           "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
         }
-      }
+      },
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "c2c535b1337cca75645cba59a0d8c29db2a631d765720ecddb38b063cc513188",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-04-backchannel-halt.example.wav",
+            "sha256": "c2c535b1337cca75645cba59a0d8c29db2a631d765720ecddb38b063cc513188",
+            "pcm_sha256": "cbf7c3b8d34932458081e4d9a289c588dc37b9112cdeed0ac374f229cea67c41",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-04-backchannel-restart",
@@ -194,8 +320,8 @@
       "verdict": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 0.34,
-        "talk_over_sec": 0.32,
+        "seconds_to_yield": 0.19,
+        "talk_over_sec": 0.17,
         "reasons": [
           "expected the agent to keep the floor but it yielded (a false or phantom barge-in)"
         ]
@@ -204,17 +330,34 @@
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 219,
+        "decision_margin_sec": null,
+        "decision_margin_hops": null,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.34,
-          "talk_over_sec": 0.32
+          "time_to_yield_sec": 0.19,
+          "talk_over_sec": 0.17
         },
         "latency": {
-          "response_gap_sec": 1.02,
+          "response_gap_sec": 1.17,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.249,
+          "lag_sec": 0.04,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 1.15,
+          "restart_suspected": true
         }
       },
       "fix": {
@@ -227,7 +370,23 @@
           "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
           "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
         }
-      }
+      },
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "f0bb7442acc07996360ba674135017839f87b7f43c2c60edf5f3c30c8d44a2c1",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-04-backchannel-restart.example.wav",
+            "sha256": "f0bb7442acc07996360ba674135017839f87b7f43c2c60edf5f3c30c8d44a2c1",
+            "pcm_sha256": "4cbbbb45c200cb8445d6dbc5ec1d9c85e1e08abe4c495ca597067d59961e9de2",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-05-backchannel-yeah",
@@ -238,8 +397,8 @@
       "verdict": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 0.37,
-        "talk_over_sec": 0.37,
+        "seconds_to_yield": 0.22,
+        "talk_over_sec": 0.22,
         "reasons": [
           "expected the agent to keep the floor but it yielded (a false or phantom barge-in)"
         ]
@@ -248,17 +407,34 @@
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 222,
+        "decision_margin_sec": null,
+        "decision_margin_hops": null,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.37,
-          "talk_over_sec": 0.37
+          "time_to_yield_sec": 0.22,
+          "talk_over_sec": 0.22
         },
         "latency": {
-          "response_gap_sec": 1.65,
+          "response_gap_sec": 1.8,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.209,
+          "lag_sec": 0.17,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 1.81,
+          "restart_suspected": true
         }
       },
       "fix": {
@@ -271,7 +447,23 @@
           "what": "This is a discrimination problem, not a threshold problem: telling a genuine bid for the floor apart from a backchannel or speech that was not addressed to the agent. No single timing threshold separates them - you can raise a words-to-interrupt threshold, but the same threshold that ignores 'mhm' also ignores 'stop'. Separating them needs a signal for 'is this speech addressed to me, and is it a real bid for the floor' - not a config knob.",
           "honest_scope": "No single timing threshold separates them. Where your stack provides an interruption/backchannel classifier, use it; the general case calls for a learned engagement-control / addressee-detection layer. The audio-only turn-taking case shown here is the hardest modality for it. Treat this as a pointer to the KIND of fix the failure needs, not a benchmarked claim: bring your own recordings and measure."
         }
-      }
+      },
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "f92baa2d09f6bbb288c0c2fab8d1e4e21d2f3b475e38d65e0ffd4ba3c047c9b3",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-05-backchannel-yeah.example.wav",
+            "sha256": "f92baa2d09f6bbb288c0c2fab8d1e4e21d2f3b475e38d65e0ffd4ba3c047c9b3",
+            "pcm_sha256": "1b803712a4c083acacf948d84165a73e82d2354a2ad958d1add5acd97de37d46",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-05-hold-on",
@@ -282,28 +474,61 @@
       "verdict": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.36,
-        "talk_over_sec": 0.33,
+        "seconds_to_yield": 0.21,
+        "talk_over_sec": 0.18,
         "reasons": []
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 221,
+        "decision_margin_sec": 0.79,
+        "decision_margin_hops": 79,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.36,
-          "talk_over_sec": 0.33
+          "time_to_yield_sec": 0.21,
+          "talk_over_sec": 0.18
         },
         "latency": {
-          "response_gap_sec": 1.71,
+          "response_gap_sec": 1.86,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.214,
+          "lag_sec": 0.49,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 3.09,
+          "restart_suspected": false
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "4c0151f4877398dd2205c9e3182a3069b561eef2291ddc1526a5015af0915257",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-05-hold-on.example.wav",
+            "sha256": "4c0151f4877398dd2205c9e3182a3069b561eef2291ddc1526a5015af0915257",
+            "pcm_sha256": "1f67a0dd2de32c0334fe0537feabb92f3ad7f318123f93b4b15e703cbc277c49",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-06-double-talk",
@@ -314,28 +539,61 @@
       "verdict": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.4,
-        "talk_over_sec": 0.4,
+        "seconds_to_yield": 0.25,
+        "talk_over_sec": 0.25,
         "reasons": []
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 225,
+        "decision_margin_sec": 0.75,
+        "decision_margin_hops": 75,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.4,
-          "talk_over_sec": 0.4
+          "time_to_yield_sec": 0.25,
+          "talk_over_sec": 0.25
         },
         "latency": {
-          "response_gap_sec": 1.45,
+          "response_gap_sec": 1.6,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.25,
+          "lag_sec": 0.09,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "958f2318a8b750d1839be90047ceb20a8f1d9a3c7a8653412ecffd4ede37ce49",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-06-double-talk.example.wav",
+            "sha256": "958f2318a8b750d1839be90047ceb20a8f1d9a3c7a8653412ecffd4ede37ce49",
+            "pcm_sha256": "70e24cbfe350c65556a266132dc466d06b68385608b9c07ea7680a5b25153afa",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-07-correction",
@@ -346,28 +604,45 @@
       "verdict": {
         "passed": false,
         "did_yield": true,
-        "seconds_to_yield": 1.16,
-        "talk_over_sec": 1.16,
+        "seconds_to_yield": 1.01,
+        "talk_over_sec": 1.01,
         "reasons": [
-          "yielded in 1.16s, slower than the 1.00s bound",
-          "talked over the caller for 1.16s, more than the 1.00s bound"
+          "yielded in 1.01s, slower than the 1.00s bound",
+          "talked over the caller for 1.01s, more than the 1.00s bound"
         ]
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 301,
+        "decision_margin_sec": -0.01,
+        "decision_margin_hops": -1,
+        "boundary_sensitive": true
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 1.16,
-          "talk_over_sec": 1.16
+          "time_to_yield_sec": 1.01,
+          "talk_over_sec": 1.01
         },
         "latency": {
           "response_gap_sec": null,
           "premature_start_sec": null
+        },
+        "echo": {
+          "coherence": 0.511,
+          "lag_sec": 0.24,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": false,
+          "resume_gap_sec": null,
+          "restart_suspected": false
         }
       },
       "fix": {
@@ -381,7 +656,23 @@
           "trade_off": "very low backoff can cut the agent off on filler noise."
         },
         "pointer": null
-      }
+      },
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "38d267f24c4d841f3c92d4ab686a02e6c4d115396a952ba3fd2fe0b8edefddb7",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-07-correction.example.wav",
+            "sha256": "38d267f24c4d841f3c92d4ab686a02e6c4d115396a952ba3fd2fe0b8edefddb7",
+            "pcm_sha256": "948baaaccbd9ca6edc6e9f204f62a1d1463fed2f1896d535236612754f1f13b6",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-08-rapid-1",
@@ -392,28 +683,61 @@
       "verdict": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.34,
-        "talk_over_sec": 0.34,
+        "seconds_to_yield": 0.19,
+        "talk_over_sec": 0.19,
         "reasons": []
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 219,
+        "decision_margin_sec": 0.81,
+        "decision_margin_hops": 81,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.34,
-          "talk_over_sec": 0.34
+          "time_to_yield_sec": 0.19,
+          "talk_over_sec": 0.19
         },
         "latency": {
-          "response_gap_sec": 2.32,
+          "response_gap_sec": 2.47,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.359,
+          "lag_sec": 0.46,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 3.04,
+          "restart_suspected": false
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "fcf6f638e2130c852ab3ff4a45e8a6897b82aa79922be9b7a7165579461150cc",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-08-rapid-1.example.wav",
+            "sha256": "fcf6f638e2130c852ab3ff4a45e8a6897b82aa79922be9b7a7165579461150cc",
+            "pcm_sha256": "46f7350da7167506b804f65854ec006306c5d6436627fe3d33c03f3cf2a2021a",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-08-rapid-2",
@@ -424,28 +748,61 @@
       "verdict": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.33,
-        "talk_over_sec": 0.33,
+        "seconds_to_yield": 0.18,
+        "talk_over_sec": 0.18,
         "reasons": []
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 218,
+        "decision_margin_sec": 0.82,
+        "decision_margin_hops": 82,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.33,
-          "talk_over_sec": 0.33
+          "time_to_yield_sec": 0.18,
+          "talk_over_sec": 0.18
         },
         "latency": {
-          "response_gap_sec": 1.22,
+          "response_gap_sec": 1.37,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.285,
+          "lag_sec": 0.46,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 1.89,
+          "restart_suspected": false
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "a3d4c950bad1bb5fabd4005cce72ad239041037a65684e74b94d19303d15ffc5",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-08-rapid-2.example.wav",
+            "sha256": "a3d4c950bad1bb5fabd4005cce72ad239041037a65684e74b94d19303d15ffc5",
+            "pcm_sha256": "57682530f3092ffbcb4575aa64fb545413fcdf6cb9553f67694e80ffdb6d1e88",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-08-rapid-3",
@@ -464,7 +821,14 @@
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 200,
+        "decision_margin_sec": 1.0,
+        "decision_margin_hops": 100,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
@@ -473,11 +837,37 @@
           "talk_over_sec": 0.0
         },
         "latency": {
-          "response_gap_sec": 1.75,
+          "response_gap_sec": 1.9,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.053,
+          "lag_sec": 0.5,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 2.5,
+          "restart_suspected": true
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "93374a34cb95f17a474d9f096bd5b08e128d68ad0ef744e33065e9f8565884fd",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-08-rapid-3.example.wav",
+            "sha256": "93374a34cb95f17a474d9f096bd5b08e128d68ad0ef744e33065e9f8565884fd",
+            "pcm_sha256": "870e5fd50d19b2619da21cddc997567eb2445d86d267c5055d0a7e52a57134a3",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-10-quiet-interrupt",
@@ -489,7 +879,7 @@
         "passed": false,
         "did_yield": false,
         "seconds_to_yield": null,
-        "talk_over_sec": 0.25,
+        "talk_over_sec": 0.1,
         "reasons": [
           "expected the agent to yield but it kept talking"
         ]
@@ -498,17 +888,29 @@
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": null,
+        "decision_margin_sec": 0.9,
+        "decision_margin_hops": 90,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": false,
           "time_to_yield_sec": null,
-          "talk_over_sec": 0.25
+          "talk_over_sec": 0.1
         },
         "latency": {
-          "response_gap_sec": 2.18,
+          "response_gap_sec": 2.33,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.236,
+          "lag_sec": 0.08,
+          "echo_suspected": false
         }
       },
       "fix": {
@@ -522,7 +924,23 @@
           "trade_off": "lower numWords reacts faster but also lets a single backchannel word interrupt."
         },
         "pointer": null
-      }
+      },
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "7aea3b66d214a79a57c439c79404398c999fb1c93e83543d11d17efa1210731f",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-10-quiet-interrupt.example.wav",
+            "sha256": "7aea3b66d214a79a57c439c79404398c999fb1c93e83543d11d17efa1210731f",
+            "pcm_sha256": "672179bb981cd772fe36ddcb1c27758984445e427298ebf9d2d5599621d0cfc9",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-10-quiet-retry",
@@ -533,28 +951,61 @@
       "verdict": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.6,
-        "talk_over_sec": 0.59,
+        "seconds_to_yield": 0.45,
+        "talk_over_sec": 0.44,
         "reasons": []
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 245,
+        "decision_margin_sec": 0.55,
+        "decision_margin_hops": 55,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.6,
-          "talk_over_sec": 0.59
+          "time_to_yield_sec": 0.45,
+          "talk_over_sec": 0.44
         },
         "latency": {
-          "response_gap_sec": 2.29,
+          "response_gap_sec": 2.44,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.263,
+          "lag_sec": 0.22,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 2.43,
+          "restart_suspected": true
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "0bc5dcae92e264e34aa840b1dd17df7109cd4a413aad4c350f6a9d24ac6282d1",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-10-quiet-retry.example.wav",
+            "sha256": "0bc5dcae92e264e34aa840b1dd17df7109cd4a413aad4c350f6a9d24ac6282d1",
+            "pcm_sha256": "03e86fda5ef5d7aa62326bab3b289f061f9599765dae56ef72e34ca6492fccbb",
+            "sample_rate": 16000,
+            "num_samples": 123680,
+            "duration_sec": 7.73
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     },
     {
       "event_id": "vapi-default-12-greeting-overlap",
@@ -565,28 +1016,61 @@
       "verdict": {
         "passed": true,
         "did_yield": true,
-        "seconds_to_yield": 0.37,
-        "talk_over_sec": 0.37,
+        "seconds_to_yield": 0.22,
+        "talk_over_sec": 0.22,
         "reasons": []
       },
       "measurements": {
         "caller_onset_sec": 2.0,
         "agent_talking_at_onset": true,
         "hop_sec": 0.01,
-        "notes": ""
+        "notes": "",
+        "onset_requested_sec": 2.0,
+        "onset_frame_index": 200,
+        "onset_effective_sec": 2.0,
+        "yield_frame_index": 222,
+        "decision_margin_sec": 0.78,
+        "decision_margin_hops": 78,
+        "boundary_sensitive": false
       },
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "time_to_yield_sec": 0.37,
-          "talk_over_sec": 0.37
+          "time_to_yield_sec": 0.22,
+          "talk_over_sec": 0.22
         },
         "latency": {
-          "response_gap_sec": 1.96,
+          "response_gap_sec": 2.11,
           "premature_start_sec": 0.0
+        },
+        "echo": {
+          "coherence": 0.297,
+          "lag_sec": 0.17,
+          "echo_suspected": false
+        },
+        "resume": {
+          "resumed": true,
+          "resume_gap_sec": 3.42,
+          "restart_suspected": true
         }
       },
-      "fix": null
+      "fix": null,
+      "audio_provenance": {
+        "schema_version": "1",
+        "sha256": "32f11d547bfbae990e79d6e24293d765a88669ebc05897b55f6808644ca01e0b",
+        "sides": [
+          {
+            "role": "stereo",
+            "path": "vapi-default-12-greeting-overlap.example.wav",
+            "sha256": "32f11d547bfbae990e79d6e24293d765a88669ebc05897b55f6808644ca01e0b",
+            "pcm_sha256": "1299201bc690e1089aa4e0af578785418b793ae47c0e2aebf7e5753074f51bc5",
+            "sample_rate": 16000,
+            "num_samples": 128000,
+            "duration_sec": 8.0
+          }
+        ]
+      },
+      "expected_yield_explicit": true
     }
   ],
   "fix_map": [

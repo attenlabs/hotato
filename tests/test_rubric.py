@@ -449,16 +449,27 @@ def test_hosted_judge_refused_without_opt_in():
 # THE LIVE PATH: a REAL local Ollama call end to end (skipped if unreachable)
 # =========================================================================
 
-def _ollama_up():
+def _ollama_can_judge():
+    """Can this box actually RUN a judgement, not merely answer a listing.
+
+    /api/tags answers from the daemon and needs no model loaded, so it stays up
+    while inference does not: on a shared box whose GPU is busy with another
+    model, /api/chat returns 503 and the daemon still lists its tags happily.
+    Guarding on the listing therefore turned a busy GPU into a red test that
+    looks like a broken judge. Probe the endpoint the test needs.
+    """
     try:
-        R.OllamaJudge(model=R.DEFAULT_JUDGE_MODEL)._http_json("/api/tags", None, "GET")
+        judge = R.OllamaJudge(model=R.DEFAULT_JUDGE_MODEL)
+        judge.complete("Reply with one word.", "Say: ok")
         return True
     except Exception:
         return False
 
 
-@pytest.mark.skipif(not _ollama_up(),
-                    reason="no local Ollama daemon at http://localhost:11434")
+@pytest.mark.skipif(not _ollama_can_judge(),
+                    reason="no local Ollama that can serve /api/chat for "
+                           "the judge model (daemon absent, model missing, or "
+                           "inference unavailable e.g. the GPU is busy)")
 def test_ollama_judge_live(tmp_path):
     """REAL end-to-end: a rubric scored by a live local qwen2.5vl:3b, proving
     the shipped path works -- a valid categorical verdict + full provenance

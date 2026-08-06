@@ -50,7 +50,7 @@
     ],
     "onset_derivation": "second speech-level caller run during agent activity: 36.62 s (0.85 s, peak -15.4 dBFS)",
     "field_note": "agent yielded but 'and the nearest' registered as 'In the nearest'; this attempt needed a retry",
-    "agreement_with_field_note": "matches on timing: measured yield 0.33 s; the front-clipped transcription is not a timing signal",
+    "agreement_with_field_note": "matches on timing: measured yield 0.18 s; the front-clipped transcription is not a timing signal",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

@@ -178,7 +178,7 @@ MOMENTS = [
             "scripted loud cut-in"
         ),
         "field_note": "agent yielded to the interruption",
-        "agreement": "matches: measured yield 0.35 s after onset",
+        "agreement": "matches: measured yield 0.20 s after onset",
     },
     {
         "id": "vapi-default-02-one-word-stop",
@@ -263,7 +263,7 @@ MOMENTS = [
             "agent yielded on a backchannel and restarted its answer from the "
             "top (operator note: the word 'right' appears to trigger it)"
         ),
-        "agreement": "matches: measured false yield 0.34 s after the backchannel",
+        "agreement": "matches: measured false yield 0.19 s after the backchannel",
     },
     {
         "id": "vapi-default-04-backchannel-halt",
@@ -283,7 +283,7 @@ MOMENTS = [
         ),
         "field_note": "agent halted at 'This include,' and went silent; operator hung up",
         "agreement": (
-            "matches: measured false yield 0.34 s after the backchannel; the "
+            "matches: measured false yield 0.19 s after the backchannel; the "
             "agent's response_gap is null because it never spoke again"
         ),
     },
@@ -303,7 +303,7 @@ MOMENTS = [
             "moment on this call is scored separately"
         ),
         "field_note": "agent WRONGLY yielded and restarted its answer",
-        "agreement": "matches: measured false yield 0.37 s after the backchannel",
+        "agreement": "matches: measured false yield 0.22 s after the backchannel",
     },
     {
         "id": "vapi-default-05-hold-on",
@@ -321,7 +321,7 @@ MOMENTS = [
             "starts during the agent's 19.67 to 26.63 s run"
         ),
         "field_note": "agent CORRECTLY yielded and acknowledged ('Of course. Take your time...')",
-        "agreement": "matches: measured yield 0.36 s after onset",
+        "agreement": "matches: measured yield 0.21 s after onset",
     },
     {
         "id": "vapi-default-06-double-talk",
@@ -339,7 +339,7 @@ MOMENTS = [
             "(the rest of the overlapped sentence)"
         ),
         "field_note": "agent CORRECTLY yielded, stopped at 'seasonal flu shot' and pivoted",
-        "agreement": "matches: measured yield 0.40 s after onset",
+        "agreement": "matches: measured yield 0.25 s after onset",
     },
     {
         "id": "vapi-default-07-correction",
@@ -363,7 +363,7 @@ MOMENTS = [
             "landed on the retry"
         ),
         "agreement": (
-            "partial: the agent went quiet 1.16 s after the correction onset "
+            "partial: the agent went quiet 1.01 s after the correction onset "
             "(talking over the entire correction), which fails both 1.0 s "
             "bounds; the 'not picked up' part is measured as a 21.38 s "
             "response_gap (agent's next speech at 44.63 s), the dead air the "
@@ -386,7 +386,7 @@ MOMENTS = [
         ),
         "field_note": "agent yielded (leading words clipped by default endpointing)",
         "agreement": (
-            "matches on timing: measured yield 0.34 s; the word clipping is a "
+            "matches on timing: measured yield 0.19 s; the word clipping is a "
             "transcription artifact hotato does not measure"
         ),
     },
@@ -409,7 +409,7 @@ MOMENTS = [
             "nearest'; this attempt needed a retry"
         ),
         "agreement": (
-            "matches on timing: measured yield 0.33 s; the front-clipped "
+            "matches on timing: measured yield 0.18 s; the front-clipped "
             "transcription is not a timing signal"
         ),
     },
@@ -465,7 +465,7 @@ MOMENTS = [
             "pause, treating the trailing 'about' as end of turn"
         ),
         "agreement": (
-            "matches: measured response_gap_sec 3.44 (caller quiet at 4.66 s, "
+            "matches: measured response_gap_sec 3.59 (caller quiet at 4.66 s, "
             "agent in at 8.10 s), well inside the scripted 4 s pause"
         ),
     },
@@ -491,9 +491,9 @@ MOMENTS = [
         ),
         "agreement": (
             "matches: measured did_yield=false, no qualifying agent stop "
-            "inside the 3.0 s window (the agent's inter-sentence gaps in that "
-            "stretch are 0.15 and 0.17 s, shorter than the 0.20 s yield "
-            "hangover)"
+            "inside the 3.0 s window (the agent's inter-sentence gap in that "
+            "stretch is 0.30 s of real silence, shorter than the 0.35 s the "
+            "yield threshold requires of it)"
         ),
     },
     {
@@ -515,7 +515,7 @@ MOMENTS = [
             "after raising volume 30 to 40 percent a garbled fragment "
             "registered and the agent yielded"
         ),
-        "agreement": "matches: measured yield 0.60 s after the retry onset",
+        "agreement": "matches: measured yield 0.45 s after the retry onset",
     },
     {
         "id": "vapi-default-12-greeting-overlap",
@@ -538,7 +538,7 @@ MOMENTS = [
             "caught only a partial ('I need help with it')"
         ),
         "agreement": (
-            "matches on timing: measured yield 0.37 s; the partial "
+            "matches on timing: measured yield 0.22 s; the partial "
             "transcription is not a timing signal"
         ),
     },

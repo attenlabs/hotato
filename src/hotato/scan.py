@@ -335,10 +335,12 @@ def scan_recording(
     rms_c, rms_a, hop, sample_rate, duration = windowed_frame_rms(
         path, caller_channel, agent_channel, cfg.frame_ms, cfg.hop_ms
     )
-    caller = energy_vad(rms_c, hop, cfg.caller_vad).active
-    agent = energy_vad(rms_a, hop, cfg.agent_vad).active
+    c_vad = energy_vad(rms_c, hop, cfg.caller_vad)
+    a_vad = energy_vad(rms_a, hop, cfg.agent_vad)
+    caller, agent = c_vad.active, a_vad.active
     return scan_tracks(
         caller, agent, hop,
+        caller_trimmed=c_vad.active_trimmed, agent_trimmed=a_vad.active_trimmed,
         sample_rate=sample_rate, duration_sec=duration,
         source=os.path.basename(path), cfg=cfg,
         min_gap_sec=min_gap_sec, overlap_derivable=True,
@@ -359,6 +361,8 @@ def scan_tracks(
     overlap_derivable: bool = True,
     rms_c: Optional[List[float]] = None,
     rms_a: Optional[List[float]] = None,
+    caller_trimmed: Optional[List[bool]] = None,
+    agent_trimmed: Optional[List[bool]] = None,
 ) -> dict:
     """Walk two caller/agent VAD activity timelines and return every candidate
     turn-taking moment as timing facts -- the whole-call candidate walk factored
@@ -384,6 +388,18 @@ def scan_tracks(
         raise ValueError(f"--min-gap must be > 0 seconds; got {min_gap_sec}.")
     n = min(len(caller), len(agent))
     caller, agent = caller[:n], agent[:n]
+
+    # The candidate WALK -- which moments exist, was the agent going when the
+    # caller came in, where does a run begin -- is a presence question and reads
+    # the padded tracks above. A reported overlap DURATION is a boundary
+    # measurement, the same quantity `score_channels` reports as talk_over_sec,
+    # so it reads the trimmed tracks: a tail pad counted here would be seconds
+    # of silence reported as two people talking at once, and would disagree with
+    # the scorer about the same audio. A caller with no trimmed track (a text
+    # transcript quantized to frames, which never had a pad) gets the padded one
+    # back, so this is an exact no-op there.
+    caller_ov = (caller_trimmed or caller)[:n]
+    agent_ov = (agent_trimmed or agent)[:n]
 
     min_run = max(1, int(round(cfg.onset_min_run_sec / hop)))
     lookback = max(1, int(round(cfg.agent_onset_lookback_sec / hop)))
@@ -415,7 +431,7 @@ def scan_tracks(
         q = _agent_quiet_point(agent, cs, search_end, quiet_frames, n)
         overlap_end = q if q is not None else search_end
         overlap = sum(
-            1 for k in range(cs, overlap_end) if caller[k] and agent[k]
+            1 for k in range(cs, overlap_end) if caller_ov[k] and agent_ov[k]
         ) * hop
         candidates.append({
             "t_sec": round(cs * hop, 3),
@@ -435,7 +451,7 @@ def scan_tracks(
         if a_start == 0 or not caller[a_start]:
             continue
         k = a_start
-        while k < n and caller[k] and agent[k]:
+        while k < n and caller_ov[k] and agent_ov[k]:
             k += 1
         overlap = (k - a_start) * hop
         # How much longer the caller kept the floor after the agent came in.

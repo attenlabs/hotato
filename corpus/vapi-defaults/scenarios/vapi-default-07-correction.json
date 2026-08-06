@@ -51,7 +51,7 @@
     ],
     "onset_derivation": "the correction utterance starts at 20.87 s in an agent inter-word gap and becomes the 21.32 s run (1.52 s, peak -18.4 dBFS) that overlaps the agent's 21.04 to 22.48 s run; 21.32 s is the caller activity that begins while the agent is talking",
     "field_note": "first correction attempt NOT picked up, then dead air until the operator said 'Hello?'; the agent apologized and the correction landed on the retry",
-    "agreement_with_field_note": "partial: the agent went quiet 1.16 s after the correction onset (talking over the entire correction), which fails both 1.0 s bounds; the 'not picked up' part is measured as a 21.38 s response_gap (agent's next speech at 44.63 s), the dead air the operator described",
+    "agreement_with_field_note": "partial: the agent went quiet 1.01 s after the correction onset (talking over the entire correction), which fails both 1.0 s bounds; the 'not picked up' part is measured as a 21.38 s response_gap (agent's next speech at 44.63 s), the dead air the operator described",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

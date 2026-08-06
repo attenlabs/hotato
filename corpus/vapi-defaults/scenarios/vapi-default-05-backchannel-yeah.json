@@ -51,7 +51,7 @@
     ],
     "onset_derivation": "first caller-active run during agent speech: 17.64 s (0.38 s, peak -18.4 dBFS), the scripted soft 'yeah'; the second scripted moment on this call is scored separately",
     "field_note": "agent WRONGLY yielded and restarted its answer",
-    "agreement_with_field_note": "matches: measured false yield 0.37 s after the backchannel",
+    "agreement_with_field_note": "matches: measured false yield 0.22 s after the backchannel",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

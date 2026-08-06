@@ -50,7 +50,7 @@
     ],
     "onset_derivation": "second caller-active run during agent speech: 36.49 s (0.32 s, peak -16.9 dBFS); the agent halts 0.34 s later at 36.83 s and never speaks again (operator hung up during the dead air at 61.4 s)",
     "field_note": "agent halted at 'This include,' and went silent; operator hung up",
-    "agreement_with_field_note": "matches: measured false yield 0.34 s after the backchannel; the agent's response_gap is null because it never spoke again",
+    "agreement_with_field_note": "matches: measured false yield 0.19 s after the backchannel; the agent's response_gap is null because it never spoke again",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

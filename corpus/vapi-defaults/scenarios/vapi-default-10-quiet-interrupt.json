@@ -51,7 +51,7 @@
     ],
     "onset_derivation": "first caller run during agent activity: 13.18 s (0.25 s above the energy threshold, peak -43.8 dBFS, the audible core of the half-volume attempt); a second quiet attempt at 16.50 s (peak -50.4 dBFS) and the louder retry at 19.27 s are separate moments",
     "field_note": "the quiet interrupt did NOT trip the default threshold; the agent kept talking",
-    "agreement_with_field_note": "matches: measured did_yield=false, no qualifying agent stop inside the 3.0 s window (the agent's inter-sentence gaps in that stretch are 0.15 and 0.17 s, shorter than the 0.20 s yield hangover)",
+    "agreement_with_field_note": "matches: measured did_yield=false, no qualifying agent stop inside the 3.0 s window (the agent's inter-sentence gap in that stretch is 0.30 s of real silence, shorter than the 0.35 s the yield threshold requires of it)",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

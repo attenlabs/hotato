@@ -74,10 +74,10 @@
             ],
             "expected": "The re-scored timing meets the contract's policy pass_conditions.",
             "missing_evidence": [],
-            "observed": "Agent did not yield; measured talk-over was 2.65 s.",
+            "observed": "Agent did not yield; measured talk-over was 2.5 s.",
             "rule_id": "contract.timing-policy",
             "rule_version": "1",
-            "source_result_digest": "sha256:d3ec5aa5bbbdac05ef1ee7ad6d2612afd3916504e313e16df56ea3c334cb1346",
+            "source_result_digest": "sha256:8a87aa30be4c1eed0537643144dd1327835abd48d393a8e4b7738c720587988c",
             "status": "FAIL"
           }
         ],
@@ -126,7 +126,7 @@
     "evidence": [
       {
         "authority": "machine",
-        "digest": "sha256:597143e89998ca7d6631e98dfdd0205163b798311c0092bc2da83de94d5fdd11",
+        "digest": "sha256:c76a443b30a7d8ea81f7d2a908fa7e817a2e3e6abaf7b49581bd6c8dff57e568",
         "evidence_id": "timing-measurement-ref",
         "kind": "timing_measurement",
         "media_type": "application/json",
@@ -139,7 +139,7 @@
       "policy": "all-deterministic-assertions-pass",
       "status": "FAIL"
     },
-    "headline": "Conversation failed: Agent did not yield; measured talk-over was 2.65 s.",
+    "headline": "Conversation failed: Agent did not yield; measured talk-over was 2.5 s.",
     "kind": "hotato.failure-record.v1",
     "origin": {
       "kind": "captured",
@@ -164,11 +164,11 @@
     "provenance": {
       "hotato": {
         "name": "hotato",
-        "version": "1.19.1"
+        "version": "1.20.0"
       },
       "inputs": [
         {
-          "digest": "sha256:d3ec5aa5bbbdac05ef1ee7ad6d2612afd3916504e313e16df56ea3c334cb1346",
+          "digest": "sha256:8a87aa30be4c1eed0537643144dd1327835abd48d393a8e4b7738c720587988c",
           "name": "source-result"
         }
       ],
@@ -194,9 +194,9 @@
           "version": "1"
         }
       ],
-      "source_result_digest": "sha256:d3ec5aa5bbbdac05ef1ee7ad6d2612afd3916504e313e16df56ea3c334cb1346"
+      "source_result_digest": "sha256:8a87aa30be4c1eed0537643144dd1327835abd48d393a8e4b7738c720587988c"
     },
-    "record_id": "sha256:5076e6953a3e542ae972d4c9fa2f6124f462044da6cbb1856ce95157313a8082",
+    "record_id": "sha256:23bd654d0b6a5e2c5a310436117b677795c135f1c45642477bec971523f31aaa",
     "reproduction": {
       "argv": [
         "hotato",
@@ -208,7 +208,7 @@
       ],
       "required_artifacts": [
         {
-          "digest": "sha256:d3ec5aa5bbbdac05ef1ee7ad6d2612afd3916504e313e16df56ea3c334cb1346",
+          "digest": "sha256:8a87aa30be4c1eed0537643144dd1327835abd48d393a8e4b7738c720587988c",
           "relative_path": "verify.json",
           "role": "source-result"
         }
@@ -222,7 +222,7 @@
     "version": "1.0"
   },
   "reproduction_metadata": {
-    "hotato_version": "1.19.1",
+    "hotato_version": "1.20.0",
     "reviewer_principal": "hotato-examples",
     "working_directory": ".",
     "bundle": {
@@ -242,7 +242,7 @@
     "verify_output": "verify.json",
     "selector": "fd-01-missed-interruption",
     "record_out": "record",
-    "expected_record_id": "sha256:5076e6953a3e542ae972d4c9fa2f6124f462044da6cbb1856ce95157313a8082"
+    "expected_record_id": "sha256:23bd654d0b6a5e2c5a310436117b677795c135f1c45642477bec971523f31aaa"
   },
   "supersedes": {
     "record_id": "sha256:772fbb2a13addeb5cfbfb82d3c1652b15cb547d004e2db3db4341779c99c4336",
@@ -262,16 +262,16 @@
   "cli_transcript": [
     {
       "command": "hotato contract create --stereo fd-01-missed-interruption.example.wav --onset 2.00 --expect yield --max-talk-over 0.80 --max-time-to-yield 0.70 --id fd-01-missed-interruption --out contracts --stack generic --rationale \"Funnel-demo fixture: the caller takes the floor at 2.00s with an addressed, on-topic interruption; the agent is expected to yield.\"",
-      "output": "created hotato contract: fd-01-missed-interruption\n  dir:      contracts/fd-01-missed-interruption.hotato\n  expect:   yield\n  scorable: yes\n  label:    asserted (reviewer=hotato-examples; no signing key configured, so this is an operator-asserted expectation, not a cryptographically signed human label)\n  passed:   False\n  measured: did_yield=False seconds_to_yield=n/a talk_over=2.65s\nnext:\n  hotato contract verify contracts\n"
+      "output": "created hotato contract: fd-01-missed-interruption\n  dir:      contracts/fd-01-missed-interruption.hotato\n  expect:   yield\n  scorable: yes\n  label:    asserted (reviewer=hotato-examples; no signing key configured, so this is an operator-asserted expectation, not a cryptographically signed human label)\n  passed:   False\n  measured: did_yield=False seconds_to_yield=n/a talk_over=2.50s\nnext:\n  hotato contract verify contracts\n"
     },
     {
       "command": "hotato contract verify contracts --format json > verify.json",
-      "output": "{\n  \"tool\": \"hotato\",\n  \"kind\": \"contract-verify\",\n  \"schema_version\": \"1\",\n  \"offline\": true,\n  \"dir\": \"contracts\",\n  \"count\": 1,\n  \"results\": [\n    {\n      \"id\": \"fd-01-missed-interruption\",\n      \"dir\": \"contracts/fd-01-missed-interruption.hotato\",\n      \"expect\": \"yield\",\n      \"passed\": false,\n      \"scorable\": true,\n      \"verdict_eligible\": true,\n      \"verdict_ineligible_reason\": null,\n      \"not_scorable_reason\": null,\n      \"measurement\": {\n        \"did_yield\": false,\n        \"seconds_to_yield\": null,\n        \"talk_over_sec\": 2.65\n      },\n      \"authenticity\": \"unsigned\",\n      \"authenticated\": false,\n      \"authenticity_reason\": \"unsigned, internally consistent evidence\",\n      \"assertions\": null\n    }\n  ],\n  \"summary\": {\n    \"passed\": 0,\n    \"failed\": 1\n  },\n  \"tampered\": 0,\n  \"refused\": 0,\n  \"assertions_failed\": 0,\n  \"exit_code\": 1\n}\n"
+      "output": "{\n  \"tool\": \"hotato\",\n  \"kind\": \"contract-verify\",\n  \"schema_version\": \"1\",\n  \"offline\": true,\n  \"dir\": \"contracts\",\n  \"count\": 1,\n  \"results\": [\n    {\n      \"id\": \"fd-01-missed-interruption\",\n      \"dir\": \"contracts/fd-01-missed-interruption.hotato\",\n      \"expect\": \"yield\",\n      \"passed\": false,\n      \"scorable\": true,\n      \"verdict_eligible\": true,\n      \"verdict_ineligible_reason\": null,\n      \"not_scorable_reason\": null,\n      \"measurement\": {\n        \"did_yield\": false,\n        \"seconds_to_yield\": null,\n        \"talk_over_sec\": 2.5\n      },\n      \"authenticity\": \"unsigned\",\n      \"authenticated\": false,\n      \"authenticity_reason\": \"unsigned, internally consistent evidence\",\n      \"assertions\": null\n    }\n  ],\n  \"summary\": {\n    \"passed\": 0,\n    \"failed\": 1\n  },\n  \"tampered\": 0,\n  \"refused\": 0,\n  \"assertions_failed\": 0,\n  \"exit_code\": 1\n}\n"
     },
     {
       "command": "hotato record render verify.json#fd-01-missed-interruption --out record",
-      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:5076e6953a3e542ae972d4c9fa2f6124f462044da6cbb1856ce95157313a8082\n"
+      "output": "wrote failure record (FAIL, fd-01-missed-interruption) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:23bd654d0b6a5e2c5a310436117b677795c135f1c45642477bec971523f31aaa\n"
     }
   ],
-  "content_digest": "sha256:bcdb7ca2791d5ef00ca281156a9f65f223e00e8f6eab8a9e62ed51e552c19585"
+  "content_digest": "sha256:cc55dd5fdda668095b418e1e0c85afa48c060fe0c6e923935ab74b2b38a8b5bd"
 }

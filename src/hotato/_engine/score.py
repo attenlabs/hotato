@@ -35,6 +35,20 @@ from .vad import (
 class ScoreConfig:
     frame_ms: float = 20.0
     hop_ms: float = 10.0
+    # These two count QUIET frames, and since 1.20.0 they count them on
+    # VADResult.active_trimmed, whose runs end at their last frame of measured
+    # energy rather than a hangover later. On the padded track the first
+    # hangover_sec of every silence was eaten, so "quiet for 0.20s" was really a
+    # demand for 0.35s of quiet in the audio. They keep their SEMANTIC values and
+    # the pad is added back at the point of use from the track that produced it
+    # -- see _pad_adjusted(). Hardcoding the sum would be wrong at every
+    # hangover_sec but the default: at 0 (the documented zero-hangover mode, and
+    # what the neural backend and diarize's injection path both produce) there is
+    # no pad to compensate and a baked-in 0.35 tightens the requirement 35x,
+    # suppressing genuine yields; at 0.30 it goes the other way and scores yields
+    # that did not happen.
+    # Every OTHER threshold in this file asks a presence question, reads the
+    # padded `active`, and is deliberately untouched.
     yield_hangover_sec: float = 0.20   # agent must stay quiet this long to count as yielded
     max_search_sec: float = 3.0        # how long after onset we look for a yield
     caller_proximity_sec: float = 0.5  # a yield only counts if the caller held the floor near it
@@ -96,6 +110,32 @@ def _run_vad(samples, sample_rate, cfg: ScoreConfig, params: VADParams) -> VADRe
         f"unknown VAD backend {backend!r}; use 'energy' (default, the reference) "
         "or 'neural' (optional, non-reference cross-check)"
     )
+
+
+def _pad_adjusted(base_sec: float, track) -> float:
+    """``base_sec`` restated against the track it will actually be measured on.
+
+    Every threshold that counts quiet frames, or that looks back for a run that
+    has just ended, was calibrated when each run carried a trailing pad. Trimming
+    the pad does not change what those thresholds should ASK of the audio, only
+    what they have to be NUMERICALLY to keep asking it. The adjustment therefore
+    comes from the track (``VADResult.tail_pad_sec``), which is 0.0 whenever no
+    pad was applied -- so this is an exact no-op on a pad-free backend rather
+    than a silent tightening of it.
+    """
+    return base_sec + getattr(track, "tail_pad_sec", 0.0)
+
+
+def _quiet_run_start(active, i):
+    """First frame of the quiet run containing ``i``.
+
+    ``i`` is wherever a scan happened to enter the run, which is not a property
+    of the audio -- it depends on the caller's onset label. The run's start is.
+    """
+    s = i
+    while s > 0 and not active[s - 1]:
+        s -= 1
+    return s
 
 
 def _caller_turn_end_idx(active, onset_idx, silence_frames, n):
@@ -163,6 +203,8 @@ def score_channels(
 
     # Was the agent actually speaking when the caller came in? If not, there is
     # nothing to yield and did_yield is not meaningful.
+    # PRESENCE question -- "was the agent still going when the caller came in" --
+    # so it reads the padded track and its threshold is untouched.
     lookback = max(1, int(round(cfg.agent_onset_lookback_sec / hop)))
     agent_talking_at_onset = any(
         agent.active[j] for j in range(max(0, onset_idx - lookback), onset_idx + 1)
@@ -173,7 +215,7 @@ def score_channels(
     #    The second condition matters: an agent that simply finishes its own
     #    sentence a few seconds after an isolated backchannel has not "yielded"
     #    to the caller, so we do not count that as a barge-in response.
-    yield_frames = max(1, int(round(cfg.yield_hangover_sec / hop)))
+    yield_frames = max(1, int(round(_pad_adjusted(cfg.yield_hangover_sec, agent) / hop)))
     grace = max(1, int(round(cfg.caller_proximity_sec / hop)))
     search_end = min(n, onset_idx + int(round(cfg.max_search_sec / hop)))
     did_yield = False
@@ -181,14 +223,21 @@ def score_channels(
     yield_idx = search_end
     i = onset_idx
     while i < search_end:
-        if not agent.active[i]:
-            run = 0
+        if not agent.active_trimmed[i]:
             j = i
-            while j < n and not agent.active[j]:
-                run += 1
-                if run >= yield_frames:
-                    break
+            while j < n and not agent.active_trimmed[j]:
                 j += 1
+                if j - _quiet_run_start(agent.active_trimmed, i) >= yield_frames:
+                    break
+            # Measure the quiet run from where it ACTUALLY started, which may be
+            # before the caller's onset. Counting from `i` instead would ask for
+            # yield_frames of silence *after* the search entered the run, so an
+            # agent that went quiet just before the onset would have to stay
+            # quiet longer than one that went quiet just after -- for the same
+            # audio, decided by where the onset label happens to land. The pad
+            # used to hide this: it kept the agent "active" past the onset, so
+            # the search almost never entered a run mid-way.
+            run = j - _quiet_run_start(agent.active_trimmed, i)
             if run >= yield_frames:
                 lo = max(0, i - grace)
                 hi = min(len(caller.active), i + grace)
@@ -207,7 +256,8 @@ def score_channels(
     overlap_end = yield_idx if did_yield else search_end
     overlap_frames = 0
     for k in range(onset_idx, overlap_end):
-        if k < len(caller.active) and k < len(agent.active) and caller.active[k] and agent.active[k]:
+        if (k < len(caller.active_trimmed) and k < len(agent.active_trimmed)
+                and caller.active_trimmed[k] and agent.active_trimmed[k]):
             overlap_frames += 1
     talk_over_sec = overlap_frames * hop
 
@@ -223,9 +273,9 @@ def score_channels(
     #    agent's next onset; premature_start = seconds the agent's onset LEADS the
     #    caller's turn end (the agent stepping on the human). Both are null when
     #    they are not derivable from the tracks, never fabricated.
-    silence_frames = max(1, int(round(cfg.turn_end_silence_sec / hop)))
+    silence_frames = max(1, int(round(_pad_adjusted(cfg.turn_end_silence_sec, caller) / hop)))
     tol_frames = max(0, int(round(cfg.premature_tolerance_sec / hop)))
-    turn_end_idx = _caller_turn_end_idx(caller.active, onset_idx, silence_frames, n)
+    turn_end_idx = _caller_turn_end_idx(caller.active_trimmed, onset_idx, silence_frames, n)
     resp_onset_idx = _agent_response_onset_idx(agent.active, onset_idx, n)
     response_gap_sec = None
     premature_start_sec = None
@@ -340,6 +390,14 @@ def frame_dump(
     (per-channel, constant across frames) activity threshold and noise floor the
     decision used. Every one of those thresholds is an exposed ScoreConfig /
     VADParams parameter, so the whole active/inactive decision is reconstructable.
+
+    Both tracks are reported. ``*_active`` is the padded track that answers
+    presence questions; ``*_active_trimmed`` is the one whose runs end at their
+    last frame of measured energy, and it is what overlap, the yield point and
+    the caller's turn end are measured on. Re-deriving talk_over from
+    ``*_active`` alone reproduces the pre-1.20.0 number, not the reported one --
+    which would make this dump unable to explain the very figures it exists to
+    explain.
     """
     if cfg is None:
         cfg = ScoreConfig()
@@ -359,6 +417,8 @@ def frame_dump(
                 "agent_dbfs": round(a_db[i], 3),
                 "caller_active": bool(c_vad.active[i]),
                 "agent_active": bool(a_vad.active[i]),
+                "caller_active_trimmed": bool(c_vad.active_trimmed[i]),
+                "agent_active_trimmed": bool(a_vad.active_trimmed[i]),
                 "caller_threshold_db": round(c_vad.threshold_db, 3),
                 "caller_noise_floor_db": round(c_vad.noise_floor_db, 3),
                 "agent_threshold_db": round(a_vad.threshold_db, 3),

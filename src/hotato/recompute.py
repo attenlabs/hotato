@@ -243,6 +243,20 @@ def recompute_trial(
     config_divergence = False
     if cfg is None:
         cfg = _manifest.config_from_dict(_scorer.get("config"))
+        # Reconstructing the pinned config is not the same as reproducing it.
+        # config_from_dict gives any key the dict OMITS its dataclass default, so
+        # a manifest pinned before a new scoring knob existed comes back carrying
+        # today's value for it and looks pinned. That is exactly how a pre-1.20.0
+        # manifest -- pinned when the VAD still padded every run -- gets rescored
+        # on a trimmed track against thresholds meant for a padded one, which is
+        # the configuration that reports yields the agent never made. Hash what
+        # was actually rebuilt and hold it to the same standard as a caller-
+        # supplied config, so the mismatch surfaces instead of being labelled a
+        # clean 'recomputed'. This branch is the production default.
+        if _pinned_cfg_hash:
+            _, _rebuilt_cfg_hash = _manifest.score_config_hash(cfg)
+            if _rebuilt_cfg_hash != _pinned_cfg_hash:
+                config_divergence = True
     elif _pinned_cfg_hash:
         _, _supplied_cfg_hash = _manifest.score_config_hash(cfg)
         if _supplied_cfg_hash != _pinned_cfg_hash:

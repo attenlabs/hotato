@@ -105,7 +105,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--agent-channel", type=int, default=1)
     s.add_argument("--onset", type=float, default=None, help="caller onset in seconds (overrides auto-detect and label)")
     s.add_argument("--label", help="scenario JSON to read caller_onset_sec from")
-    s.add_argument("--yield-hangover", type=float, default=0.20)
+    # Read the default off the dataclass rather than restating it: a second copy
+    # of a scoring threshold is a second thing to forget when the first one moves.
+    s.add_argument("--yield-hangover", type=float,
+                   default=ScoreConfig().yield_hangover_sec)
     s.add_argument("--max-search", type=float, default=4.0)
     s.set_defaults(func=_cmd_score)
 

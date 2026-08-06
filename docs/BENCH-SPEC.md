@@ -74,10 +74,12 @@ their `<id>.example.wav` recordings, hashed with sha256
 
 ## Scoring protocol
 
-Bench rows measure talk over on the hangover smoothed activity tracks;
-relative to raw energy labels the end bias bound is `hangover_sec` plus one
-hop (see docs/BENCHMARK.md, Quantization). This convention is part of the
-frozen v0.1 protocol; changing it is a new bench version and a new engine
+Bench rows measure talk over on activity tracks whose gaps between words are
+still bridged by the hangover but whose runs end at their last frame of
+measured energy; relative to raw energy labels the end bias bound is one hop
+(see docs/BENCHMARK.md, Quantization). Before 1.20.0 the tracks carried the
+hangover on their tails too and that bound was `hangover_sec` plus one hop.
+This convention is part of the frozen v0.1 protocol; changing it is a new bench version and a new engine
 identity.
 
 One result per battery, three measurements, side by side and never blended:

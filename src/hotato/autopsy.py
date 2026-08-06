@@ -112,7 +112,11 @@ OUT_DIR = "hotato-output"
 # investigate.YIELD_TALK_OVER_CEILING_SEC); dead air at/over 5 s is critical,
 # a shorter response gap (the scanner's 2.0 s minimum applies) is a latency
 # spike warning.
-TALK_OVER_CRITICAL_SEC = 1.0
+# 1.0 -> 0.815 in 1.20.0, tracking its twin in investigate, because the overlap
+# it grades now reads the trimmed track and lost the tail pad it used to count.
+# See investigate.YIELD_TALK_OVER_CEILING_SEC for the calibration. Dead air is a
+# SILENCE duration, not an active one, so 5.0 is untouched.
+TALK_OVER_CRITICAL_SEC = 0.815
 DEAD_AIR_CRITICAL_SEC = 5.0
 
 # The measured-energy margin (dB below the speech-activity threshold) at which

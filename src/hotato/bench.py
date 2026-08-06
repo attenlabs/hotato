@@ -78,7 +78,12 @@ SCHEMA_VERSION = "1"
 # The bench protocol + frozen-set version (semver). Any change to the frozen
 # scenario set, the audio suffix, the hashed body shape, or the hashing rules
 # is a version bump here and in BENCH-SPEC.md.
-BENCH_VERSION = "0.1"
+# 0.1 -> 0.2 in 1.20.0. BENCH-SPEC freezes the scoring protocol and states that
+# changing it is a new bench version and a new engine identity; turn-end signals
+# are now measured on a track whose runs end at their last frame of measured
+# energy, so pre- and post-1.20.0 bench rows are not comparable and must not
+# carry the same version.
+BENCH_VERSION = "0.2"
 
 BUNDLED_SUITE = "bundled"
 AUDIO_SUFFIX = ".example.wav"

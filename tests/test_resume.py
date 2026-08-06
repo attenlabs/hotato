@@ -160,8 +160,8 @@ def test_wav_yield_then_fresh_onset_surfaces_resume(tmp_path):
     assert ev["verdict"]["did_yield"] is True
     r = ev["signals"]["resume"]
     assert r["resumed"] is True
-    # yield lands ~1.65 s in; the agent onset is at 3.0 s -> gap ~1.35 s.
-    assert r["resume_gap_sec"] == pytest.approx(1.35, abs=0.05)
+    # yield lands ~1.51 s in; the agent onset is at 3.0 s -> gap ~1.49 s.
+    assert r["resume_gap_sec"] == pytest.approx(1.49, abs=0.05)
     assert r["restart_suspected"] is True
 
 

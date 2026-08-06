@@ -101,6 +101,13 @@ NEXT_STEP_DUAL_CHANNEL = (
 SPEECH_MIN_RUN_SEC = 0.10
 # A channel needs at least this many seconds of detected speech to be scorable;
 # below it there is effectively nothing to attribute a turn to.
+# Unchanged by the 1.20.0 tail-pad work, deliberately. This asks a PRESENCE
+# question -- is there enough of this channel to attribute a turn to -- so it
+# reads the padded `active` track, which 1.20.0 left alone. Scoring the trimmed
+# track here instead would shrink active_sec by one hangover PER RUN, so no
+# single adjustment to this number could restate it, and the clips it started
+# refusing were backchannel and false-trigger renders: the exact defect class
+# this tool exists to score.
 MIN_ACTIVITY_SEC = 0.30
 # A sample at or above this absolute level (in [0, 1]) counts as clipped; 0.99 is
 # within ~0.09 dB of 16-bit full scale.

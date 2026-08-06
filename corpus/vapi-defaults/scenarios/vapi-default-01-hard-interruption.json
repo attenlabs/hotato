@@ -50,7 +50,7 @@
     ],
     "onset_derivation": "the only caller-active run that starts during agent activity on this call: 21.41 s, 2.06 s long, peak -17.7 dBFS; matches the scripted loud cut-in",
     "field_note": "agent yielded to the interruption",
-    "agreement_with_field_note": "matches: measured yield 0.35 s after onset",
+    "agreement_with_field_note": "matches: measured yield 0.20 s after onset",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

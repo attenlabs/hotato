@@ -50,7 +50,7 @@
     ],
     "onset_derivation": "first of the two caller-active runs during agent speech: 20.57 s (0.32 s, peak -18.8 dBFS); after it the agent stops within 0.34 s and restarts its answer from the top at 21.91 s",
     "field_note": "agent yielded on a backchannel and restarted its answer from the top (operator note: the word 'right' appears to trigger it)",
-    "agreement_with_field_note": "matches: measured false yield 0.34 s after the backchannel",
+    "agreement_with_field_note": "matches: measured false yield 0.19 s after the backchannel",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

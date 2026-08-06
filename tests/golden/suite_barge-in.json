@@ -30,21 +30,21 @@
         "agent_talking_at_onset": true,
         "boundary_sensitive": false,
         "caller_onset_sec": 2.4,
-        "decision_margin_hops": 20,
-        "decision_margin_sec": 0.2,
+        "decision_margin_hops": 35,
+        "decision_margin_sec": 0.35,
         "hop_sec": 0.01,
         "notes": "",
         "onset_effective_sec": 2.4,
         "onset_frame_index": 240,
         "onset_requested_sec": 2.4,
-        "yield_frame_index": 290
+        "yield_frame_index": 275
       },
       "scenario_id": "01-hard-interruption",
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "talk_over_sec": 0.5,
-          "time_to_yield_sec": 0.5
+          "talk_over_sec": 0.35,
+          "time_to_yield_sec": 0.35
         },
         "echo": {
           "coherence": 0.306,
@@ -66,8 +66,8 @@
         "did_yield": true,
         "passed": true,
         "reasons": [],
-        "seconds_to_yield": 0.5,
-        "talk_over_sec": 0.5
+        "seconds_to_yield": 0.35,
+        "talk_over_sec": 0.35
       }
     },
     {
@@ -108,7 +108,7 @@
       "signals": {
         "barge_in": {
           "did_yield": false,
-          "talk_over_sec": 1.57,
+          "talk_over_sec": 1.12,
           "time_to_yield_sec": null
         },
         "echo": {
@@ -127,7 +127,7 @@
         "passed": true,
         "reasons": [],
         "seconds_to_yield": null,
-        "talk_over_sec": 1.57
+        "talk_over_sec": 1.12
       }
     },
     {
@@ -155,21 +155,21 @@
         "agent_talking_at_onset": true,
         "boundary_sensitive": false,
         "caller_onset_sec": 2.3,
-        "decision_margin_hops": 25,
-        "decision_margin_sec": 0.25,
+        "decision_margin_hops": 40,
+        "decision_margin_sec": 0.4,
         "hop_sec": 0.01,
         "notes": "",
         "onset_effective_sec": 2.3000000000000003,
         "onset_frame_index": 230,
         "onset_requested_sec": 2.3,
-        "yield_frame_index": 295
+        "yield_frame_index": 280
       },
       "scenario_id": "03-filler-start",
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "talk_over_sec": 0.56,
-          "time_to_yield_sec": 0.65
+          "talk_over_sec": 0.26,
+          "time_to_yield_sec": 0.5
         },
         "echo": {
           "coherence": 0.294,
@@ -191,8 +191,8 @@
         "did_yield": true,
         "passed": true,
         "reasons": [],
-        "seconds_to_yield": 0.65,
-        "talk_over_sec": 0.56
+        "seconds_to_yield": 0.5,
+        "talk_over_sec": 0.26
       }
     },
     {
@@ -218,23 +218,23 @@
       "fix": null,
       "measurements": {
         "agent_talking_at_onset": true,
-        "boundary_sensitive": true,
+        "boundary_sensitive": false,
         "caller_onset_sec": 2.0,
-        "decision_margin_hops": 0,
-        "decision_margin_sec": 0.0,
+        "decision_margin_hops": 15,
+        "decision_margin_sec": 0.15,
         "hop_sec": 0.01,
         "notes": "",
         "onset_effective_sec": 2.0,
         "onset_frame_index": 200,
         "onset_requested_sec": 2.0,
-        "yield_frame_index": 250
+        "yield_frame_index": 235
       },
       "scenario_id": "04-correction",
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "talk_over_sec": 0.5,
-          "time_to_yield_sec": 0.5
+          "talk_over_sec": 0.35,
+          "time_to_yield_sec": 0.35
         },
         "echo": {
           "coherence": 0.327,
@@ -256,8 +256,8 @@
         "did_yield": true,
         "passed": true,
         "reasons": [],
-        "seconds_to_yield": 0.5,
-        "talk_over_sec": 0.5
+        "seconds_to_yield": 0.35,
+        "talk_over_sec": 0.35
       }
     },
     {
@@ -285,21 +285,21 @@
         "agent_talking_at_onset": true,
         "boundary_sensitive": false,
         "caller_onset_sec": 2.4,
-        "decision_margin_hops": 20,
-        "decision_margin_sec": 0.2,
+        "decision_margin_hops": 35,
+        "decision_margin_sec": 0.35,
         "hop_sec": 0.01,
         "notes": "",
         "onset_effective_sec": 2.4,
         "onset_frame_index": 240,
         "onset_requested_sec": 2.4,
-        "yield_frame_index": 290
+        "yield_frame_index": 275
       },
       "scenario_id": "05-telephony-8khz",
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "talk_over_sec": 0.5,
-          "time_to_yield_sec": 0.5
+          "talk_over_sec": 0.35,
+          "time_to_yield_sec": 0.35
         },
         "echo": {
           "coherence": 0.352,
@@ -321,8 +321,8 @@
         "did_yield": true,
         "passed": true,
         "reasons": [],
-        "seconds_to_yield": 0.5,
-        "talk_over_sec": 0.5
+        "seconds_to_yield": 0.35,
+        "talk_over_sec": 0.35
       }
     },
     {
@@ -350,21 +350,21 @@
         "agent_talking_at_onset": true,
         "boundary_sensitive": false,
         "caller_onset_sec": 2.2,
-        "decision_margin_hops": 15,
-        "decision_margin_sec": 0.15,
+        "decision_margin_hops": 30,
+        "decision_margin_sec": 0.3,
         "hop_sec": 0.01,
         "notes": "",
         "onset_effective_sec": 2.2,
         "onset_frame_index": 220,
         "onset_requested_sec": 2.2,
-        "yield_frame_index": 325
+        "yield_frame_index": 310
       },
       "scenario_id": "06-double-talk",
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "talk_over_sec": 1.05,
-          "time_to_yield_sec": 1.05
+          "talk_over_sec": 0.9,
+          "time_to_yield_sec": 0.9
         },
         "echo": {
           "coherence": 0.417,
@@ -386,8 +386,8 @@
         "did_yield": true,
         "passed": true,
         "reasons": [],
-        "seconds_to_yield": 1.05,
-        "talk_over_sec": 1.05
+        "seconds_to_yield": 0.9,
+        "talk_over_sec": 0.9
       }
     },
     {
@@ -475,21 +475,21 @@
         "agent_talking_at_onset": true,
         "boundary_sensitive": false,
         "caller_onset_sec": 2.1,
-        "decision_margin_hops": 20,
-        "decision_margin_sec": 0.2,
+        "decision_margin_hops": 35,
+        "decision_margin_sec": 0.35,
         "hop_sec": 0.01,
         "notes": "",
         "onset_effective_sec": 2.1,
         "onset_frame_index": 210,
         "onset_requested_sec": 2.1,
-        "yield_frame_index": 260
+        "yield_frame_index": 245
       },
       "scenario_id": "08-rapid-turn-taking",
       "signals": {
         "barge_in": {
           "did_yield": true,
-          "talk_over_sec": 0.5,
-          "time_to_yield_sec": 0.5
+          "talk_over_sec": 0.35,
+          "time_to_yield_sec": 0.35
         },
         "echo": {
           "coherence": 0.288,
@@ -498,11 +498,11 @@
         },
         "latency": {
           "premature_start_sec": 0.0,
-          "response_gap_sec": 0.34
+          "response_gap_sec": 0.49
         },
         "resume": {
           "restart_suspected": true,
-          "resume_gap_sec": 1.49,
+          "resume_gap_sec": 1.64,
           "resumed": true
         }
       },
@@ -511,8 +511,8 @@
         "did_yield": true,
         "passed": true,
         "reasons": [],
-        "seconds_to_yield": 0.5,
-        "talk_over_sec": 0.5
+        "seconds_to_yield": 0.35,
+        "talk_over_sec": 0.35
       }
     }
   ],

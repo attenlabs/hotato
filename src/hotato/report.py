@@ -2499,6 +2499,7 @@ def _thresholds(cfg: ScoreConfig) -> str:
         ("rel_db", cfg.caller_vad.rel_db, cfg.agent_vad.rel_db),
         ("abs_gate_db", cfg.caller_vad.abs_gate_db, cfg.agent_vad.abs_gate_db),
         ("hangover_sec", cfg.caller_vad.hangover_sec, cfg.agent_vad.hangover_sec),
+        ("trim_tail_to_raw", cfg.caller_vad.trim_tail_to_raw, cfg.agent_vad.trim_tail_to_raw),
         ("noise_percentile", cfg.caller_vad.noise_percentile, cfg.agent_vad.noise_percentile),
         ("dyn_margin_db", cfg.caller_vad.dyn_margin_db, cfg.agent_vad.dyn_margin_db),
     ]
@@ -3640,6 +3641,7 @@ def _render_md(env: dict, models: list, cfg: ScoreConfig,
     for k, c, ag in [("rel_db", cfg.caller_vad.rel_db, cfg.agent_vad.rel_db),
                      ("abs_gate_db", cfg.caller_vad.abs_gate_db, cfg.agent_vad.abs_gate_db),
                      ("hangover_sec", cfg.caller_vad.hangover_sec, cfg.agent_vad.hangover_sec),
+        ("trim_tail_to_raw", cfg.caller_vad.trim_tail_to_raw, cfg.agent_vad.trim_tail_to_raw),
                      ("noise_percentile", cfg.caller_vad.noise_percentile, cfg.agent_vad.noise_percentile),
                      ("dyn_margin_db", cfg.caller_vad.dyn_margin_db, cfg.agent_vad.dyn_margin_db)]:
         L.append(_md_row([k, c, ag]))

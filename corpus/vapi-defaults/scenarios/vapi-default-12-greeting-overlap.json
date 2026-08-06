@@ -50,7 +50,7 @@
     ],
     "onset_derivation": "the caller run starting during agent activity: 6.48 s (0.88 s, peak -21.8 dBFS) over the agent's 5.69 to 6.85 s greeting continuation; the caller's 2.57 s run precedes any agent speech activity in that window and is the operator opening the call",
     "field_note": "agent yielded over its own greeting and responded, though STT caught only a partial ('I need help with it')",
-    "agreement_with_field_note": "matches on timing: measured yield 0.37 s; the partial transcription is not a timing signal",
+    "agreement_with_field_note": "matches on timing: measured yield 0.22 s; the partial transcription is not a timing signal",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

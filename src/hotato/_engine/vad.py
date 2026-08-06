@@ -22,6 +22,15 @@ class VADParams:
     rel_db: float = 15.0          # threshold this many dB above the noise floor
     abs_gate_db: float = -60.0    # never treat anything below this as active
     hangover_sec: float = 0.15    # keep "active" this long after energy drops
+    trim_tail_to_raw: bool = True  # after the hangover has bridged intra-word gaps,
+                                  # pull each run's END back to its last frame of
+                                  # measured energy. The hangover exists to keep one
+                                  # utterance from fragmenting; it is not evidence
+                                  # that the channel was still active. Leaving the
+                                  # pad on the tail reports silence as speech, which
+                                  # fabricates overlap against the other channel and
+                                  # pushes every run's end late by hangover_sec. Set
+                                  # False to reproduce numbers from before 1.20.0.
     noise_percentile: float = 0.10  # quietest fraction used to estimate the floor
     dyn_margin_db: float = 22.0   # if a channel is almost never quiet, keep the
                                   # threshold at least this far below its loudest
@@ -41,6 +50,35 @@ class VADResult:
     hop_sec: float
     threshold_db: float
     noise_floor_db: float
+    #: ``active`` with each run's end pulled back to its last frame of measured
+    #: energy. The hangover answers two different questions and is only right
+    #: for one of them. "Is this channel active here?" is a presence question,
+    #: and padding is reasonable smoothing for it -- onset detection, input
+    #: health, burst counts and the scan walk all ask that, and they all read
+    #: ``active``. "When exactly did this run end?" is a boundary question, and
+    #: padding is simply wrong for it: it reports silence as speech, which
+    #: overlaps the other channel's real onset and moves every measured end late
+    #: by ``hangover_sec``. Only overlap, the yield point and the caller's turn
+    #: end ask that, and they read this. Keeping both means the boundary fix
+    #: does not have to be paid for by restating every presence threshold in the
+    #: codebase -- which is a cascade, and one that reproduces the old behaviour
+    #: anyway once the arithmetic is done.
+    #: Bridging is identical in both: a gap with energy on both sides is
+    #: interior, so trimming a tail cannot re-fragment an utterance.
+    active_trimmed: List[bool] = None
+    #: Seconds of pad ``active`` carries on each run tail that ``active_trimmed``
+    #: does not. A boundary threshold stated against ``active`` has to add this
+    #: back when it moves to ``active_trimmed``. 0.0 when no pad was applied at
+    #: all, so a pad-free backend is a no-op rather than a silent tightening.
+    tail_pad_sec: float = 0.0
+
+    def __post_init__(self):
+        if self.active_trimmed is None:
+            # A copy, not an alias. A backend that pads nothing has the same
+            # CONTENT in both tracks, but sharing the list object would make a
+            # write to one silently land in the other -- and the whole point of
+            # carrying two tracks is that they are answerable separately.
+            self.active_trimmed = list(self.active)
 
 
 def _percentile(sorted_vals: List[float], q: float) -> float:
@@ -81,11 +119,45 @@ def energy_vad(rms: List[float], hop_sec: float, params: VADParams = None) -> VA
         elif countdown > 0:
             countdown -= 1
             active[i] = True
+
+    # Keep the bridge, drop the tail. The countdown above serves two different
+    # purposes and only one of them is wanted: BETWEEN two energy frames it
+    # bridges the gap between words, but AFTER the last energy frame it invents
+    # up to hangover_sec of activity out of silence. That invented tail is read
+    # downstream as speech -- it overlaps the other channel's real onset and
+    # reports talk-over that never happened, and it moves every run's end (a
+    # caller's turn end, an agent's yield point) late by exactly hangover_sec.
+    # Trimming to the last frame that actually cleared the threshold leaves the
+    # bridging intact: interior gaps are still spanned, because a bridged gap by
+    # definition has energy on both sides of it.
+    trimmed = bool(getattr(params, "trim_tail_to_raw", True)) and hang_frames > 0
+    active_trimmed = list(active)
+    if trimmed:
+        i = 0
+        n = len(active_trimmed)
+        while i < n:
+            if not active_trimmed[i]:
+                i += 1
+                continue
+            j = i
+            while j < n and active_trimmed[j]:
+                j += 1
+            last_raw = None
+            for k in range(i, j):
+                if raw[k]:
+                    last_raw = k
+            if last_raw is not None:
+                for k in range(last_raw + 1, j):
+                    active_trimmed[k] = False
+            i = j
+
     return VADResult(
         active=active,
+        active_trimmed=active_trimmed,
         hop_sec=hop_sec,
         threshold_db=threshold,
         noise_floor_db=noise_floor,
+        tail_pad_sec=(hang_frames * hop_sec) if trimmed else 0.0,
     )
 
 

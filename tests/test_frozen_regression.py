@@ -13,14 +13,14 @@ from hotato.core import run_suite
 # did_yield, seconds_to_yield, talk_over_sec -- captured today, under the default
 # ScoreConfig, for the frozen bundled battery.
 FROZEN_8 = {
-    "01-hard-interruption": (True, 0.5, 0.5),
-    "02-backchannel-mhm": (False, None, 1.57),
-    "03-filler-start": (True, 0.65, 0.56),
-    "04-correction": (True, 0.5, 0.5),
-    "05-telephony-8khz": (True, 0.5, 0.5),
-    "06-double-talk": (True, 1.05, 1.05),
+    "01-hard-interruption": (True, 0.35, 0.35),
+    "02-backchannel-mhm": (False, None, 1.12),
+    "03-filler-start": (True, 0.5, 0.26),
+    "04-correction": (True, 0.35, 0.35),
+    "05-telephony-8khz": (True, 0.35, 0.35),
+    "06-double-talk": (True, 0.9, 0.9),
     "07-echo-bleed": (False, None, 3.0),
-    "08-rapid-turn-taking": (True, 0.5, 0.5),
+    "08-rapid-turn-taking": (True, 0.35, 0.35),
 }
 
 

@@ -50,7 +50,7 @@
     ],
     "onset_derivation": "the louder retry: 19.27 s (0.59 s, peak -26.5 dBFS) during the agent's 19.14 to 19.87 s run; this is the attempt the agent finally yielded to",
     "field_note": "after raising volume 30 to 40 percent a garbled fragment registered and the agent yielded",
-    "agreement_with_field_note": "matches: measured yield 0.60 s after the retry onset",
+    "agreement_with_field_note": "matches: measured yield 0.45 s after the retry onset",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {

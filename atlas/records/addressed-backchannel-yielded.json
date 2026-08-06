@@ -74,10 +74,10 @@
             ],
             "expected": "The re-scored timing meets the contract's policy pass_conditions.",
             "missing_evidence": [],
-            "observed": "Agent yielded after 0.25 s although the contract required it to hold.",
+            "observed": "Agent yielded after 0.1 s although the contract required it to hold.",
             "rule_id": "contract.timing-policy",
             "rule_version": "1",
-            "source_result_digest": "sha256:7a691d5993389b47f2b43b7afbe7316bbb0d662e703fa0f8a82e39b93b052c08",
+            "source_result_digest": "sha256:ab46eebe764090d1837cfdb6dfb1c15f329d3498c55954b0378170cd66b4b258",
             "status": "FAIL"
           }
         ],
@@ -126,7 +126,7 @@
     "evidence": [
       {
         "authority": "machine",
-        "digest": "sha256:692956fc561d483a7885e45a7454cf064ddb990430d3ee1726d1c4ff770686fa",
+        "digest": "sha256:a4225a8645731b1c503b934b092db17f2a078ece3a56eece6156e686a4412ab9",
         "evidence_id": "timing-measurement-ref",
         "kind": "timing_measurement",
         "media_type": "application/json",
@@ -139,7 +139,7 @@
       "policy": "all-deterministic-assertions-pass",
       "status": "FAIL"
     },
-    "headline": "Conversation failed: Agent yielded after 0.25 s although the contract required it to hold.",
+    "headline": "Conversation failed: Agent yielded after 0.1 s although the contract required it to hold.",
     "kind": "hotato.failure-record.v1",
     "origin": {
       "kind": "captured",
@@ -164,11 +164,11 @@
     "provenance": {
       "hotato": {
         "name": "hotato",
-        "version": "1.19.1"
+        "version": "1.20.0"
       },
       "inputs": [
         {
-          "digest": "sha256:7a691d5993389b47f2b43b7afbe7316bbb0d662e703fa0f8a82e39b93b052c08",
+          "digest": "sha256:ab46eebe764090d1837cfdb6dfb1c15f329d3498c55954b0378170cd66b4b258",
           "name": "source-result"
         }
       ],
@@ -194,9 +194,9 @@
           "version": "1"
         }
       ],
-      "source_result_digest": "sha256:7a691d5993389b47f2b43b7afbe7316bbb0d662e703fa0f8a82e39b93b052c08"
+      "source_result_digest": "sha256:ab46eebe764090d1837cfdb6dfb1c15f329d3498c55954b0378170cd66b4b258"
     },
-    "record_id": "sha256:c9e7ebf6e2c39ecdb1c60e7407829410401d8074b237b43eb0b7ecb5d1268906",
+    "record_id": "sha256:92322548c954e18149c2d5865c92b3a30a6590fb7f7602eb72b0b252a542f835",
     "reproduction": {
       "argv": [
         "hotato",
@@ -208,7 +208,7 @@
       ],
       "required_artifacts": [
         {
-          "digest": "sha256:7a691d5993389b47f2b43b7afbe7316bbb0d662e703fa0f8a82e39b93b052c08",
+          "digest": "sha256:ab46eebe764090d1837cfdb6dfb1c15f329d3498c55954b0378170cd66b4b258",
           "relative_path": "verify.json",
           "role": "source-result"
         }
@@ -222,7 +222,7 @@
     "version": "1.0"
   },
   "reproduction_metadata": {
-    "hotato_version": "1.19.1",
+    "hotato_version": "1.20.0",
     "reviewer_principal": "hotato-examples",
     "working_directory": ".",
     "bundle": {
@@ -240,7 +240,7 @@
     "verify_output": "verify.json",
     "selector": "fd-02-backchannel-yielded",
     "record_out": "record",
-    "expected_record_id": "sha256:c9e7ebf6e2c39ecdb1c60e7407829410401d8074b237b43eb0b7ecb5d1268906"
+    "expected_record_id": "sha256:92322548c954e18149c2d5865c92b3a30a6590fb7f7602eb72b0b252a542f835"
   },
   "supersedes": {
     "record_id": "sha256:6c5e0e6de73004d8683c0987812d849c46fa9f9f8f204eb4da71e600b636e3a0",
@@ -260,16 +260,16 @@
   "cli_transcript": [
     {
       "command": "hotato contract create --stereo fd-02-backchannel-yielded.example.wav --onset 2.20 --expect hold --id fd-02-backchannel-yielded --out contracts --stack generic --rationale \"Funnel-demo fixture: the caller offers a bare addressed backchannel at 2.20s; the agent is expected to hold the floor.\"",
-      "output": "created hotato contract: fd-02-backchannel-yielded\n  dir:      contracts/fd-02-backchannel-yielded.hotato\n  expect:   hold\n  scorable: yes\n  label:    asserted (reviewer=hotato-examples; no signing key configured, so this is an operator-asserted expectation, not a cryptographically signed human label)\n  passed:   False\n  measured: did_yield=True seconds_to_yield=0.25s talk_over=0.25s\nnext:\n  hotato contract verify contracts\n"
+      "output": "created hotato contract: fd-02-backchannel-yielded\n  dir:      contracts/fd-02-backchannel-yielded.hotato\n  expect:   hold\n  scorable: yes\n  label:    asserted (reviewer=hotato-examples; no signing key configured, so this is an operator-asserted expectation, not a cryptographically signed human label)\n  passed:   False\n  measured: did_yield=True seconds_to_yield=0.10s talk_over=0.10s\nnext:\n  hotato contract verify contracts\n"
     },
     {
       "command": "hotato contract verify contracts --format json > verify.json",
-      "output": "{\n  \"tool\": \"hotato\",\n  \"kind\": \"contract-verify\",\n  \"schema_version\": \"1\",\n  \"offline\": true,\n  \"dir\": \"contracts\",\n  \"count\": 1,\n  \"results\": [\n    {\n      \"id\": \"fd-02-backchannel-yielded\",\n      \"dir\": \"contracts/fd-02-backchannel-yielded.hotato\",\n      \"expect\": \"hold\",\n      \"passed\": false,\n      \"scorable\": true,\n      \"verdict_eligible\": true,\n      \"verdict_ineligible_reason\": null,\n      \"not_scorable_reason\": null,\n      \"measurement\": {\n        \"did_yield\": true,\n        \"seconds_to_yield\": 0.25,\n        \"talk_over_sec\": 0.25\n      },\n      \"authenticity\": \"unsigned\",\n      \"authenticated\": false,\n      \"authenticity_reason\": \"unsigned, internally consistent evidence\",\n      \"assertions\": null\n    }\n  ],\n  \"summary\": {\n    \"passed\": 0,\n    \"failed\": 1\n  },\n  \"tampered\": 0,\n  \"refused\": 0,\n  \"assertions_failed\": 0,\n  \"exit_code\": 1\n}\n"
+      "output": "{\n  \"tool\": \"hotato\",\n  \"kind\": \"contract-verify\",\n  \"schema_version\": \"1\",\n  \"offline\": true,\n  \"dir\": \"contracts\",\n  \"count\": 1,\n  \"results\": [\n    {\n      \"id\": \"fd-02-backchannel-yielded\",\n      \"dir\": \"contracts/fd-02-backchannel-yielded.hotato\",\n      \"expect\": \"hold\",\n      \"passed\": false,\n      \"scorable\": true,\n      \"verdict_eligible\": true,\n      \"verdict_ineligible_reason\": null,\n      \"not_scorable_reason\": null,\n      \"measurement\": {\n        \"did_yield\": true,\n        \"seconds_to_yield\": 0.1,\n        \"talk_over_sec\": 0.1\n      },\n      \"authenticity\": \"unsigned\",\n      \"authenticated\": false,\n      \"authenticity_reason\": \"unsigned, internally consistent evidence\",\n      \"assertions\": null\n    }\n  ],\n  \"summary\": {\n    \"passed\": 0,\n    \"failed\": 1\n  },\n  \"tampered\": 0,\n  \"refused\": 0,\n  \"assertions_failed\": 0,\n  \"exit_code\": 1\n}\n"
     },
     {
       "command": "hotato record render verify.json#fd-02-backchannel-yielded --out record",
-      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:c9e7ebf6e2c39ecdb1c60e7407829410401d8074b237b43eb0b7ecb5d1268906\n"
+      "output": "wrote failure record (FAIL, fd-02-backchannel-yielded) to record/: failure-record.html, failure-record.json, failure-record.md, failure-record.svg\nrecord_id: sha256:92322548c954e18149c2d5865c92b3a30a6590fb7f7602eb72b0b252a542f835\n"
     }
   ],
-  "content_digest": "sha256:fba7c3e9b4da1918704bf84a2d2f9c08f317b9c3d3f9a6ccb43c656e0cecc946"
+  "content_digest": "sha256:ffd8e97ecebb4529abaf3f3a92c520cf05713cda2774cadb13b19e91155d349e"
 }

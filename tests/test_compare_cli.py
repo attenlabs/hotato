@@ -24,8 +24,8 @@ def _bundled(sid):
 
 # The packaged demo pair: fd-01 is the bundled bad-agent demo fixture where the
 # agent never yields to an addressed interruption (caller onset 2.00, did_yield
-# false, ~2.65 s talk-over); 01-hard-interruption is the well-behaved take of the
-# same kind of moment (caller onset 2.40, yields in ~0.5 s, ~0.5 s talk-over).
+# false, ~2.50 s talk-over); 01-hard-interruption is the well-behaved take of the
+# same kind of moment (caller onset 2.40, yields in ~0.35 s, ~0.35 s talk-over).
 # The fix here is proven by the yield appearing at all (did_yield false -> true,
 # FAIL -> PASS); the well-behaved take also overlaps far less. Both are measured.
 BAD = str(resources.files("hotato").joinpath(
@@ -66,7 +66,7 @@ def test_json_shape_is_stable(capsys):
                       "talk_over_delta_sec"}
     assert d["did_yield"] == [False, True]
     assert d["seconds_to_yield_sec"][0] is None
-    assert d["seconds_to_yield_sec"][1] == pytest.approx(0.5, abs=0.05)
+    assert d["seconds_to_yield_sec"][1] == pytest.approx(0.35, abs=0.05)
     # The delta field is always internally consistent with the two measured
     # talk-over values. Its SIGN is not asserted: this fix is proven by the
     # yield appearing (did_yield false -> true, FAIL -> PASS), and on a quiet

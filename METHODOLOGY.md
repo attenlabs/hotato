@@ -27,10 +27,11 @@ The limits come first because they bound everything below.
  matched that label. "mhm" and "stop" can carry identical speech energy; the
  verdict is only ever your label checked against measured timing.
 - **Sub-second single-channel boundaries sit near the resolution limit.** At the
- default 10 ms hop a boundary is located to within a frame or two, but the
- hangover that keeps an utterance whole (default 150 ms) smears every trailing
- edge by up to that much, and on one mixed channel deciding *whose* energy
- crossed the threshold is not always possible.
+ default 10 ms hop a boundary is located to within a frame or two. Boundary
+ signals are measured on a track whose runs end at their last frame of measured
+ energy, so the hangover that keeps an utterance whole no longer smears the
+ trailing edge; on one mixed channel, deciding *whose* energy crossed the
+ threshold is still not always possible.
 - **Two channels is the gold reference; mono is scorable, quality-gated.** The
  reference input is separated caller and agent tracks: one two-channel WAV or
  two aligned mono WAVs, where each channel is one party and overlap is a fact of
@@ -132,6 +133,15 @@ For each channel independently (`energy_vad`, `vad.py`):
 5. **Hangover:** after any raw-active frame, keep the channel active for
  `round(hangover_sec / hop_sec)` more frames, 15 frames (150 ms) at the
  defaults, so brief inter-word gaps do not fragment one utterance.
+6. **Tail trim** (`trim_tail_to_raw`, default on): a second track is kept in
+ which each run ENDS at its last raw-active frame. The hangover does two jobs
+ and only one is wanted everywhere. Between two energy frames it bridges a gap
+ between words, and both tracks keep that. After the last energy frame it marks
+ silence as speech, which is right for asking *is this channel active here* and
+ wrong for asking *when did this run end*. Presence questions -- onset, input
+ health, burst counts, the scan walk -- read the padded track; boundary
+ questions -- overlap, the yield point, the caller's turn end -- read the
+ trimmed one. Both are in the frame dump.
 
 The resulting threshold and noise floor are constant across frames for a given
 channel and are recorded verbatim in the frame dump.
@@ -160,7 +170,7 @@ Computed in `score_channels` (`score.py`):
  expectation), and it is reported as such.
 - **`did_yield`**, scanning from onset up to `onset + max_search_sec` (300
  frames), the first frame where the agent goes quiet and *stays* quiet for
- `yield_hangover_sec` (20 frames) **and** the caller held the floor within
+ `yield_hangover_sec` **and** the caller held the floor within
  `caller_proximity_sec` (±50 frames) of that quiet point. The proximity
  condition is what stops an agent that merely finishes its own sentence seconds
  after an isolated backchannel from being scored as a barge-in response.
@@ -168,11 +178,12 @@ Computed in `score_channels` (`score.py`):
  0; `None` if the agent never yielded within the search window.
 - **`talk_over_sec`**, count of frames from onset to the yield point (or to the
  end of the search window if it never yielded) where the caller and the agent
- were *both* active, times `hop_sec`. Both activity tracks are the hangover
- smoothed tracks, so against a label placed at the raw end of speech energy
- the measured end sits late by at most `hangover_sec` plus one hop and the
- measured start sits early by at most one frame; the bias is deterministic
- and one sided, and `hangover_sec = 0` removes the hangover term
+ were *both* active, times `hop_sec`. Both tracks here are the TRIMMED tracks
+ (`VADResult.active_trimmed`): the hangover still bridges gaps between words,
+ but each run ends at its last frame of measured energy rather than a hangover
+ later. Against a label placed at the raw end of speech energy the measured end
+ therefore sits late by at most one hop and the measured start early by at most
+ one frame; the bias is deterministic and one sided
  (see docs/BENCHMARK.md, Quantization).
 
 ### Step 6, the two latency (endpointing) signals
@@ -180,7 +191,8 @@ Computed in `score_channels` (`score.py`):
 Pure timing on the same two VAD tracks, no second model (`score.py`):
 
 - **`caller turn end`**, the first frame at/after onset where the caller goes
- quiet and stays quiet for `turn_end_silence_sec` (20 frames). `None` if the
+ quiet and stays quiet for `turn_end_silence_sec`, measured on the trimmed
+ track so the turn ends where the caller's energy did. `None` if the
  caller never activates after onset or is still talking when the clip ends.
 - **`agent response onset`**, skip any agent speech already in progress at
  onset (the pre-caller turn or the yield tail), then the first frame the agent

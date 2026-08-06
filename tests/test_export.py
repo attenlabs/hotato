@@ -144,14 +144,14 @@ def test_export_emits_latency_summary_and_sla_keys(tmp_path):
         for e in env["events"]
     ]
     rg_values = [v for v in rg_values if v is not None]
-    assert rg_values == [0.34]  # only 08-rapid-turn-taking carries a gap
+    assert rg_values == [0.49]  # only 08-rapid-turn-taking carries a gap
 
     d = res["latency_summary"]["response_gap_sec"]
     assert d["n"] == 1
-    assert d["p90"] == d["p95"] == 0.34
+    assert d["p90"] == d["p95"] == 0.49
 
     assert res["latency_sla"] == {
-        "bound_sec": None, "observed_p95_sec": 0.34, "passed": None,
+        "bound_sec": None, "observed_p95_sec": 0.49, "passed": None,
     }
     # additive-only: the pinned envelope.json never carries these new keys
     written = json.loads((out / "envelope.json").read_text(encoding="utf-8"))

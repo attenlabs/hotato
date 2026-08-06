@@ -82,11 +82,16 @@ HONESTY = {
         "claim. For real validity, bring your own labelled dual-channel "
         "recordings (see docs/BENCHMARK.md and corpus/)."
     ),
+    # The key is serialised verbatim into every published report under
+    # SCHEMA_VERSION "1", so it stays put; only the value moved.
     "error_is_config_driven": (
         "The reported error is what the DEFAULT shipped config measures, so it is "
-        "the number a real user sees. It includes the VAD hangover and the frame "
-        "hop, both exposed ScoreConfig parameters; neutralising the hangover "
-        "shrinks the error toward the one-hop framing floor."
+        "the number a real user sees. Onset error carries the frame hop and the VAD "
+        "hangover, both exposed ScoreConfig parameters. Turn-end signals are "
+        "measured on a track whose runs end at their last frame of energy "
+        "(VADParams.trim_tail_to_raw), so they carry the frame hop and the choice of "
+        "which silence counts as the turn end; that choice, not the hangover, sets "
+        "their error."
     ),
 }
 
@@ -340,6 +345,11 @@ def _config_snapshot(cfg: ScoreConfig) -> dict:
         "onset_min_run_sec": cfg.onset_min_run_sec,
         "caller_vad_hangover_sec": cfg.caller_vad.hangover_sec,
         "agent_vad_hangover_sec": cfg.agent_vad.hangover_sec,
+        # Without these two a report cannot say which of two timelines produced
+        # its numbers: the same hangover_sec means a padded track before 1.20.0
+        # and a trimmed one after, and the timings differ.
+        "caller_vad_trim_tail_to_raw": cfg.caller_vad.trim_tail_to_raw,
+        "agent_vad_trim_tail_to_raw": cfg.agent_vad.trim_tail_to_raw,
     }
 
 
@@ -509,9 +519,14 @@ def render_markdown(report: dict) -> str:
         )
     lines.append("")
     lines.append(
-        "_Error is signed-magnitude `|measured - rendered|`. It is dominated by the "
-        "VAD hangover and the frame hop (both exposed knobs), not by an accuracy "
-        "ceiling; neutralising the hangover shrinks it toward one hop._"
+        "_Error is signed-magnitude `|measured - rendered|`. Caller onset quantises "
+        "to the frame hop, and rises with the VAD hangover, which can bridge a "
+        "pre-onset blip into a run long enough to pass `onset_min_run_sec` and move "
+        "the detected onset earlier; both are exposed `ScoreConfig` knobs. Turn-end "
+        "signals -- time to yield, response gap -- are measured on a track whose runs "
+        "end at their last frame of energy (`VADParams.trim_tail_to_raw`), so they "
+        "carry the frame hop and the choice of which silence counts as the turn end, "
+        "and hold steady as the hangover changes._"
     )
     lines.append("")
 

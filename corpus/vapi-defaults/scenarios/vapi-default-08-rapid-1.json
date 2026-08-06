@@ -50,7 +50,7 @@
     ],
     "onset_derivation": "first of three speech-level caller runs during agent activity: 19.75 s (0.91 s, peak -22.7 dBFS)",
     "field_note": "agent yielded (leading words clipped by default endpointing)",
-    "agreement_with_field_note": "matches on timing: measured yield 0.34 s; the word clipping is a transcription artifact hotato does not measure",
+    "agreement_with_field_note": "matches on timing: measured yield 0.19 s; the word clipping is a transcription artifact hotato does not measure",
     "label_provenance": "the category comes from the operator's call script (what a good agent should do at this moment); the onset comes from the engine's energy-VAD tracks (caller onsets during agent activity); hotato measures the timing only"
   },
   "attestation": {
