@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 340" width="680" height="340" font-family="ui-monospace, 'SF Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" role="img" aria-label="Terminal recording of uvx hotato start --demo catching a 2.66 second talk-over and returning exit 1">
-  <title>uvx hotato start --demo catches a 2.66s talk-over</title>
-  <desc>A terminal types uvx hotato start --demo, then reveals that a transcript which passed every text eval failed on timing: the agent talked over the caller for 2.66 seconds, so the gate returns exit 1.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 340" width="680" height="340" font-family="ui-monospace, 'SF Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" role="img" aria-label="Terminal recording of uvx hotato start --demo catching a 2.51 second talk-over and returning exit 1">
+  <title>uvx hotato start --demo catches a 2.51s talk-over</title>
+  <desc>A terminal types uvx hotato start --demo, then reveals that a transcript which passed every text eval failed on timing: the agent talked over the caller for 2.51 seconds, so the gate returns exit 1.</desc>
   <style>
     .win { fill: #14110d; }
     .bar { fill: #201b14; }
@@ -53,11 +53,11 @@
     <tspan class="line l1 fail">Conversation failed: Agent did not yield;</tspan>
   </text>
   <text class="txt" x="22" y="126">
-    <tspan class="line l2 fail">measured talk-over was 2.66 s.</tspan>
+    <tspan class="line l2 fail">measured talk-over was 2.51 s.</tspan>
   </text>
 
   <text class="txt" x="40" y="160">
-    <tspan class="line l3 metric">talk-over  </tspan><tspan class="line l3 num">2.66s</tspan><tspan class="line l3 dim">   the agent kept talking while</tspan>
+    <tspan class="line l3 metric">talk-over  </tspan><tspan class="line l3 num">2.51s</tspan><tspan class="line l3 dim">   the agent kept talking while</tspan>
   </text>
   <text class="txt" x="40" y="182">
     <tspan class="line l3 dim">                 the caller held the floor</tspan>

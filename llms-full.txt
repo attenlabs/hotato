@@ -1066,7 +1066,7 @@ renders it per non-passing unit (its `records` output). The demo prints the
 headline, the Markdown and SVG share paths, and the verifier:
 
 ```
-Conversation failed: Agent did not yield; measured talk-over was 2.66 s.
+Conversation failed: Agent did not yield; measured talk-over was 2.51 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
