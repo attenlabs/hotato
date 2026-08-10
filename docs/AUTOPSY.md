@@ -10,10 +10,10 @@ hotato autopsy call.wav
 
 ```
 hotato autopsy: call.wav  (12.0s, 2 channels, stereo)
-  [CRITICAL] BARGE-IN       t=2.99s  overlap=1.96s  agent did not go silent within 3.0s
-      the caller took the floor and the agent kept talking over them for 1.96 s without going quiet within 3.0 s
   [WARNING]  DEAD AIR       t=6.65s  trailing silence=1.94s  no caller energy within 0.50s
       the agent went quiet for 1.94 s with no caller energy nearby
+  [CRITICAL] BARGE-IN       t=2.99s  overlap=1.81s  agent did not go silent within 3.0s
+      the caller took the floor and the agent kept talking over them for 1.81 s without going quiet within 3.0 s
   2 incidents: 1 critical, 1 warning
   report: hotato-output/autopsy-apx-cc33f46fad58.html
   pin: apx-cc33f46fad58  (incidents apx-cc33f46fad58#1..#2)
@@ -269,7 +269,7 @@ recording at the incident's onset):
 
 ```bash
 hotato pin apx-cc33f46fad58        # the call's top critical incident
-hotato pin apx-cc33f46fad58#1      # one specific incident
+hotato pin apx-cc33f46fad58#2      # one specific incident
 ```
 
 Resolution is offline, from the persisted envelope under
@@ -331,7 +331,7 @@ hotato autopsy examples/autopsy/audio/autopsy-03-talk-over.example.wav
 Turn one incident into a standing CI gate:
 
 ```bash
-hotato pin apx-cc33f46fad58#1                # incident -> portable contract
+hotato pin apx-cc33f46fad58#2                # incident -> portable contract
 hotato prove --contracts contracts           # the CI gate
 ```
 
