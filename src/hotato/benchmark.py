@@ -477,6 +477,34 @@ def _fmt(v) -> str:
     return "-" if v is None else (f"{v:g}" if isinstance(v, (int, float)) else str(v))
 
 
+_KIND_LABEL = {
+    "synthetic": "synthetic floor",
+    "byo": "bring-your-own labelled recordings",
+}
+
+
+def _composition_clause(report: dict) -> str:
+    """Describe what the scored fixtures actually WERE, for the run that ran.
+
+    Derived from the per-set ``kind`` values rather than assumed, so a run over
+    bring-your-own recordings is never described as a synthetic floor. Returns
+    a parenthetical like ``(synthetic floor)`` when one kind covers the whole
+    run, or ``(8 synthetic floor, 13 bring-your-own labelled recordings)`` when
+    the run mixes them. An unrecognised kind is named verbatim.
+    """
+    counts: dict = {}
+    for s in report["sets"]:
+        counts[s["kind"]] = counts.get(s["kind"], 0) + s["fixtures"]
+    counts = {k: v for k, v in counts.items() if v}
+    if not counts:
+        return ""
+    if len(counts) == 1:
+        kind = next(iter(counts))
+        return f" ({_KIND_LABEL.get(kind, kind)})"
+    parts = [f"{n} {_KIND_LABEL.get(k, k)}" for k, n in sorted(counts.items())]
+    return f" ({', '.join(parts)})"
+
+
 def _signal_label(sig: str) -> str:
     return {
         "onset_sec": "caller onset",
@@ -497,8 +525,8 @@ def render_markdown(report: dict) -> str:
     )
     lines.append("")
     lines.append(
-        f"Fixtures scored: **{report['fixtures_total']}** "
-        f"(synthetic floor). Config: hop {report['config']['hop_ms']:g} ms, "
+        f"Fixtures scored: **{report['fixtures_total']}**"
+        f"{_composition_clause(report)}. Config: hop {report['config']['hop_ms']:g} ms, "
         f"VAD hangover {report['config']['agent_vad_hangover_sec']:g} s, "
         f"yield hangover {report['config']['yield_hangover_sec']:g} s "
         "(all exposed `ScoreConfig` knobs)."
@@ -547,11 +575,25 @@ def render_markdown(report: dict) -> str:
         f"{conf['correct_hold']} (correct hold) |"
     )
     lines.append("")
-    lines.append(
-        f"Off-diagonal (missed + false yields): **{report['aggregate']['confusion_off_diagonal']}**. "
-        "Off-diagonal entries from a `funnel-demo` set are the deliberately-bad-agent "
-        "renders -- the scorer correctly flagged a misbehaving agent, not a scorer error."
-    )
+    # Attribute the off-diagonal to the sets it actually came from in THIS run.
+    # The deliberately-bad-agent explanation is emitted only when the run really
+    # included that set, so an unrelated corpus never inherits its excuse.
+    off_diag = report["aggregate"]["confusion_off_diagonal"]
+    per_set_off = [
+        (s["name"], s["confusion"]["missed_yield"] + s["confusion"]["false_yield"])
+        for s in report["sets"]
+    ]
+    off_line = f"Off-diagonal (missed + false yields): **{off_diag}**."
+    contributing = [(n, c) for n, c in per_set_off if c]
+    if contributing:
+        off_line += " By set: " + ", ".join(f"`{n}` {c}" for n, c in contributing) + "."
+    fd_off = dict(per_set_off).get("funnel-demo", 0)
+    if fd_off:
+        off_line += (
+            f" The {fd_off} from `funnel-demo` are the deliberately-bad-agent renders "
+            "-- the scorer correctly flagged a misbehaving agent, not a scorer error."
+        )
+    lines.append(off_line)
     lines.append("")
 
     # --- per-fixture detail ----------------------------------------------

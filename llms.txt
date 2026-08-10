@@ -78,9 +78,10 @@ docs/EVIDENCE-CONTRACT.md.
 
 Reproducible measurement error: on 13 recorded AMI Meeting Corpus clips the
 median caller-onset error against the human word-alignment label is 20 ms, with
-a 0 to 1430 ms range; median time-to-yield error is 190 ms over 6 clips. The
-median, not the mean, is the summary, because the errors have a long tail. One
-10 ms frame hop is the measurement floor. Re-run it:
+a 0 to 1430 ms range; median time-to-yield error is 80 ms over 6 clips. The
+median, not the mean, is the summary, because the errors have a long tail.
+Errors quantise to the 10 ms frame hop, and the closest clips land on the
+label exactly. Re-run it:
 `PYTHONPATH=src python3 -m hotato.benchmark --scenarios corpus/real/scenarios --audio corpus/real/audio`.
 Method: docs/BENCHMARK.md. Provenance and caveats: corpus/real/README.md.
 

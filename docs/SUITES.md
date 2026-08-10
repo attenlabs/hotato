@@ -61,7 +61,7 @@ python3 corpus/suites/build_suites.py --check   # regenerate to a temp dir, byte
 guarantee: the audio on disk exactly matches its labelled timings,
 deterministic for a fixed hotato version (byte-identical re-runs verified
 in CI on Linux x86_64, Python 3.10, 3.11, 3.12; see
-`.github/workflows/tests.yml`, job `determinism`) -- usable as a CI drift
+`.github/workflows/tests.yml`, job `pytest`) -- usable as a CI drift
 gate.
 
 ## Additive scenario classes
