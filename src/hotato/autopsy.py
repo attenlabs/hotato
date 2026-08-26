@@ -395,8 +395,15 @@ def _incident_from_candidate(c: dict) -> dict:
     r = c.get("agent_reaction") or {}
     if kind == "overlap_while_agent_talking":
         overlap = float(d.get("overlap_sec") or 0.0)
+        # BOTH, not either. `or` made magnitude optional: any overlap of any
+        # size was CRITICAL whenever the agent's run happened not to end
+        # inside the search window, so a 30 ms backchannel -- a listener
+        # saying "mhm", which the agent is CORRECT to talk through -- was
+        # rated the same as a caller talked over for four seconds. Measured
+        # against the 12 scripted clips in hotato-recordings, that single
+        # `or` was the whole of the backchannel inversion.
         critical = (overlap > TALK_OVER_CRITICAL_SEC
-                    or not r.get("went_silent_within_search"))
+                    and not r.get("went_silent_within_search"))
         kind_key = "barge-in"
     elif kind == "agent_start_during_caller":
         overlap = float(d.get("overlap_sec") or 0.0)
@@ -407,7 +414,12 @@ def _incident_from_candidate(c: dict) -> dict:
         critical = gap >= DEAD_AIR_CRITICAL_SEC
         kind_key = "dead-air" if critical else "latency-spike"
     elif kind == "agent_stop_no_caller":
-        critical = float(d.get("trailing_silence_sec") or 0.0) >= DEAD_AIR_CRITICAL_SEC
+        # An unbounded tail -- silence that runs to the end of the recording
+        # with nothing after it on either track -- is not critical on
+        # duration alone, because its duration is a property of when someone
+        # stopped recording rather than of what the caller endured.
+        critical = (float(d.get("trailing_silence_sec") or 0.0) >= DEAD_AIR_CRITICAL_SEC
+                    and d.get("silence_bounded", True))
         kind_key = "dead-air"
     else:  # echo_correlated_activity: a caveat, never critical
         critical = False

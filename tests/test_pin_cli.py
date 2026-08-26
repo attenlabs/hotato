@@ -158,14 +158,13 @@ def test_bare_ref_pins_the_top_critical_incident(tmp_path, monkeypatch, capsys):
     apx = _autopsy(src, capsys)
     assert cli.main(["pin", apx, "--format", "json"]) == 0
     result = json.loads(capsys.readouterr().out)
-    # #2, not #1: the candidate list is ordered by raw magnitude across kinds,
-    # and this clip's barge-in overlap (1.96 -> 1.81 once the tail pad stopped
-    # counting as speech) fell below the 1.94 s of trailing silence next to it.
-    # `pin` still selects the CRITICAL incident, which is what this test is for;
-    # only its position in the list moved. Ranking seconds-of-overlap against
-    # seconds-of-silence as if they were one scale is a pre-existing weakness
-    # this made visible, not one it introduced.
-    assert result["pin"]["ref"] == f"{apx}#2"
+    # #1: the barge-in is the only incident this clip yields. The 1.94 s of
+    # trailing silence that used to sit next to it (and above it, since the
+    # list is ordered by raw magnitude across kinds) was measured agent-run to
+    # agent-run and against the yield hangover rather than the reportable-gap
+    # floor; neither survives, so the CRITICAL incident `pin` selects is also
+    # the top of the list.
+    assert result["pin"]["ref"] == f"{apx}#1"
     assert result["pin"]["incident_kind"] == "BARGE-IN"
     assert result["pin"]["expect"] == "yield"
     assert result["pin"]["expect_source"] == "incident kind"

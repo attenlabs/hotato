@@ -404,6 +404,8 @@ def scan_tracks(
     min_run = max(1, int(round(cfg.onset_min_run_sec / hop)))
     lookback = max(1, int(round(cfg.agent_onset_lookback_sec / hop)))
     quiet_frames = max(1, int(round(cfg.yield_hangover_sec / hop)))
+    # The reportable-gap floor, distinct from the yield hangover above.
+    gap_frames = max(1, int(round(min_gap_sec / hop)))
     silence_frames = max(1, int(round(cfg.turn_end_silence_sec / hop)))
     search_frames = int(round(cfg.max_search_sec / hop))
     proximity_frames = max(1, int(round(cfg.caller_proximity_sec / hop)))
@@ -512,9 +514,38 @@ def scan_tracks(
             continue  # agent still talking at end of recording
         next_agent = (agent_runs[idx + 1][0]
                       if idx + 1 < len(agent_runs) else None)
-        trailing = (next_agent - a_end) if next_agent is not None else n - a_end
-        if trailing < quiet_frames:
-            continue  # not a real stop, the same run resumes shortly
+        # Silence is when NEITHER party is speaking. This measured the gap
+        # from one agent run to the next and called the whole of it trailing
+        # silence, even when the caller was talking through it -- which is
+        # precisely when the agent is right to be quiet, because it is
+        # listening. On the scripted clips that one confusion produced every
+        # remaining false positive: the agent's greeting ends, the caller
+        # starts 0.7 s later, and a gap the caller spent speaking was
+        # published as five seconds of dead air.
+        next_caller = next((k for k in range(a_end, n) if caller[k]), None)
+        ends = [x for x in (next_agent, next_caller) if x is not None]
+        # Nothing follows on either track: the silence runs to the end of the
+        # tape. That is not the same evidence as a silence somebody sat
+        # through and then broke -- we cannot tell a call that died from a
+        # call that ended and kept recording. The candidate still stands (an
+        # agent that trails off and never returns is exactly the failure this
+        # check exists for), but it is marked unbounded, and severity refuses
+        # to call an unbounded tail critical on duration alone. Scored the
+        # other way it was reliably the LOUDEST finding on a clean call: the
+        # silent-listen baseline in hotato-recordings, recorded to contain no
+        # event at all, came back CRITICAL on 10.12 s of post-call tape.
+        bounded = bool(ends)
+        silence_end = min(ends) if ends else n
+        trailing = silence_end - a_end
+        if trailing < gap_frames:
+            # A stop is dead air when the caller waited, not when the voice
+            # took a breath. This floor was yield_hangover_sec (0.20 s), the
+            # bar for "the agent yielded" borrowed for a different question,
+            # so every sentence boundary in TTS output was published as an
+            # incident and buried the real ones. It is the scanner's own
+            # reportable-gap minimum now -- the same bar long_response_gap
+            # already uses, and the bar the mono path always used.
+            continue
         lo = max(0, a_end - proximity_frames)
         hi = min(n, a_end + proximity_frames)
         caller_nearby = any(caller[k] for k in range(lo, hi))
@@ -525,6 +556,7 @@ def scan_tracks(
             "kind": "agent_stop_no_caller",
             "durations": {
                 "trailing_silence_sec": round(trailing * hop, 3),
+                "silence_bounded": bounded,
                 "caller_proximity_sec": cfg.caller_proximity_sec,
             },
             "agent_reaction": None,

@@ -10,12 +10,22 @@ dry run that prints the body and the exact gh command and NEVER shells out; only
 --yes with an explicit --repo invokes gh), the required --repo, the reused
 sweep/analyze parser refusing a missing or foreign file, and candidate-moments
 language throughout.
+
+The two tests that need more moments than the two bundled demo calls produce
+run against ``mixed_sweep_doc``: the same real demo audio plus two synthetic
+recordings that genuinely contain a reportable false stop each, so slicing and
+per-candidate rendering are still exercised over several ranks.
 """
 
 import json
+import math
 import os
+import shutil
 import stat
+import struct
 import sys
+import wave
+from importlib import resources
 
 import pytest
 
@@ -37,6 +47,55 @@ def sweep_json(tmp_path, capsys, monkeypatch):
 @pytest.fixture()
 def sweep_doc(sweep_json):
     return json.loads(sweep_json.read_text(encoding="utf-8"))
+
+
+# --- a sweep with several moments across both kinds --------------------------
+
+def _write_false_stop_wav(path, agent_segments, duration_sec=7.5, sr=16000):
+    """A deterministic two-channel WAV carrying one bounded
+    ``agent_stop_no_caller`` moment: the agent talks, stops for longer than
+    the 2.0s reportable-gap floor, then talks again, with the caller channel
+    silent throughout. Caller on channel 0, agent on channel 1."""
+    n = int(duration_sec * sr)
+
+    def _on(segments, t):
+        return any(start <= t < end for start, end in segments)
+
+    frames = bytearray()
+    for i in range(n):
+        t = i / sr
+        a = (int(0.35 * 32767 * math.sin(2 * math.pi * 330.0 * i / sr))
+             if _on(agent_segments, t) else 0)
+        frames += struct.pack("<hh", 0, a)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(bytes(frames))
+    return str(path)
+
+
+@pytest.fixture()
+def mixed_sweep_doc(tmp_path):
+    """A real sweep result over the two bundled demo calls PLUS two synthetic
+    recordings that each contain a genuine, bounded false stop: four candidate
+    moments across both kinds, which is what the slicing and per-candidate
+    rendering tests need to say anything."""
+    from hotato import analyze as _analyze
+
+    audio = tmp_path / "mixed-audio"
+    audio.mkdir()
+    demo = resources.files("hotato").joinpath(
+        "data", "demo", "failing", "audio")
+    for entry in demo.iterdir():
+        if entry.name.endswith(".wav"):
+            shutil.copy(str(entry), str(audio / entry.name))
+    _write_false_stop_wav(audio / "synthetic-false-stop-a.wav",
+                          ((0.5, 3.0), (5.5, 7.0)))
+    _write_false_stop_wav(audio / "synthetic-false-stop-b.wav",
+                          ((0.5, 2.0), (6.0, 7.0)))
+    aggregate, _ = _analyze.analyze_folder(str(audio))
+    return aggregate
 
 
 # --- a fake gh on PATH, so the ONLY side effect is observable ----------------
@@ -91,22 +150,22 @@ def test_renderer_output_on_real_sweep(sweep_doc):
     assert "—" not in body and "–" not in body
 
 
-def test_top_n_slicing(sweep_doc):
-    total = sweep_doc["total_candidates"]
-    assert total >= 3, "the demo sweep is expected to surface several moments"
+def test_top_n_slicing(mixed_sweep_doc):
+    total = mixed_sweep_doc["total_candidates"]
+    assert total >= 3, "the mixed sweep is expected to surface several moments"
 
     one = issuecmd.build_issue(
-        sweep_doc, report_ref="s.json", repo="o/r", top=1)
+        mixed_sweep_doc, report_ref="s.json", repo="o/r", top=1)
     assert len(one["candidates"]) == 1
     assert one["body"].count("### #") == 1
 
     two = issuecmd.build_issue(
-        sweep_doc, report_ref="s.json", repo="o/r", top=2)
+        mixed_sweep_doc, report_ref="s.json", repo="o/r", top=2)
     assert len(two["candidates"]) == 2
     assert two["body"].count("### #") == 2
 
     all_ = issuecmd.build_issue(
-        sweep_doc, report_ref="s.json", repo="o/r", top=0)
+        mixed_sweep_doc, report_ref="s.json", repo="o/r", top=0)
     assert len(all_["candidates"]) == total
 
 
@@ -119,9 +178,9 @@ def test_ranks_are_one_based_and_match_the_promote_refs(sweep_doc):
     assert "hotato fixture promote hotato-sweep.json#2 " in env["candidates"][1]["promote_hold"]
 
 
-def test_both_yield_and_hold_promote_commands_present(sweep_doc):
+def test_both_yield_and_hold_promote_commands_present(mixed_sweep_doc):
     env = issuecmd.build_issue(
-        sweep_doc, report_ref="hotato-sweep.json", repo="o/r", top=3)
+        mixed_sweep_doc, report_ref="hotato-sweep.json", repo="o/r", top=3)
     body = env["body"]
     for i in range(1, 4):
         assert (f"hotato fixture promote hotato-sweep.json#{i} --expect yield"

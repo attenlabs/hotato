@@ -789,7 +789,14 @@ def run_start(*, demo: bool = False, stereo: Optional[str] = None,
                 print("  In plain terms: after the caller took the floor, the "
                       "agent kept talking")
                 print(f"  over them for {_secs(to)} instead of yielding.")
-            print("  Two measured signals on this one call:")
+            # The header used to say "Two measured signals" unconditionally
+            # while the second line printed only when the clip HAD a second
+            # signal -- so the bundled demo, which carries talk-over alone,
+            # announced two and showed one. It counts what it is about to
+            # print.
+            second = rg is not None or (ps is not None and ps > 0)
+            print("  Two measured signals on this one call:" if second
+                  else "  The measured signal on this one call:")
             print(f"    talk-over     {_secs(to)}  seconds the agent kept "
                   "talking while the caller held the floor")
             if rg is not None:

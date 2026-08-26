@@ -171,17 +171,39 @@ def test_agent_stops_mid_run_with_silent_caller_is_flagged(tmp_path):
     # The agent talks 0.5s-3.0s then goes quiet for the rest of the
     # recording; the caller channel is silent throughout. Nothing on the
     # caller track explains the drop.
+    #
+    # The silence has to clear the reportable-gap floor (min_gap_sec, 2.0s)
+    # to be a finding at all. It used to only have to clear the yield
+    # hangover, 0.20s, which is the bar for "the agent yielded" doing a job
+    # it was never meant for: every sentence boundary in TTS output came out
+    # as an incident and buried the real ones.
     path = _write_stereo_segments(
-        tmp_path / "mid-run-stop.wav", [], [(0.5, 3.0)], duration_sec=4.0
+        tmp_path / "mid-run-stop.wav", [], [(0.5, 3.0)], duration_sec=5.5
     )
     result = scan_recording(path)
     assert result["total_candidates"] == 1
     (c,) = result["candidates"]
     assert c["kind"] == "agent_stop_no_caller"
     assert set(c) == {"t_sec", "kind", "durations", "agent_reaction"}
-    assert c["durations"]["trailing_silence_sec"] > 0.5
+    assert c["durations"]["trailing_silence_sec"] > 2.0
     assert c["durations"]["caller_proximity_sec"] == pytest.approx(0.5)
     assert c["agent_reaction"] is None
+    # Nothing follows on either track, so the silence runs to the end of the
+    # tape and its length says as much about when recording stopped as about
+    # what the caller endured. It is reported, and marked for what it is.
+    assert c["durations"]["silence_bounded"] is False
+
+
+def test_a_breath_between_sentences_is_not_dead_air(tmp_path):
+    # Two agent runs a beat apart, caller silent: a speaker pausing between
+    # sentences, which is not a finding. Below the reportable-gap floor this
+    # must produce nothing at all.
+    path = _write_stereo_segments(
+        tmp_path / "breath.wav", [], [(0.5, 3.0), (3.6, 6.0)], duration_sec=6.5
+    )
+    result = scan_recording(path)
+    kinds = {c["kind"] for c in result["candidates"]}
+    assert "agent_stop_no_caller" not in kinds
 
 
 def test_normal_end_of_turn_is_not_flagged(tmp_path):

@@ -2,8 +2,11 @@
 
 Pinned here:
 
-  * a talk-over and a false-stop candidate card render from a real demo sweep
-    candidate ref (FILE#N), and the threshold-funnel plan renders the hero card;
+  * a talk-over candidate card renders from a real demo sweep candidate ref
+    (FILE#N), a false-stop candidate card renders from a sweep of a synthetic
+    recording that genuinely contains one (the bundled demo calls carry no
+    silence long enough to be reportable), and the threshold-funnel plan
+    renders the hero card;
   * the SVG is 1200x630, well-formed XML, references NO external resource (no
     font, image, stylesheet, script, or link) and is byte-identical across runs;
   * a source recording's identifiers (a call id inside a pulled recording name)
@@ -17,7 +20,10 @@ Pinned here:
 """
 
 import json
+import math
 import os
+import struct
+import wave
 import xml.dom.minidom as minidom
 from importlib import resources
 
@@ -50,6 +56,48 @@ def _demo_sweep(tmp_path):
     return p, aggregate
 
 
+def _write_false_stop_wav(path, sr=16000):
+    """A deterministic two-channel WAV carrying one bounded
+    ``agent_stop_no_caller`` moment: the agent talks 0.5s-3.0s, stops for
+    2.5s (over the 2.0s reportable-gap floor), then talks again 5.5s-7.0s,
+    with the caller channel silent throughout. Caller on channel 0, agent on
+    channel 1."""
+    caller_segments = ()
+    agent_segments = ((0.5, 3.0), (5.5, 7.0))
+    duration_sec = 7.5
+    n = int(duration_sec * sr)
+
+    def _on(segments, t):
+        return any(start <= t < end for start, end in segments)
+
+    frames = bytearray()
+    for i in range(n):
+        t = i / sr
+        c = (int(0.35 * 32767 * math.sin(2 * math.pi * 220.0 * i / sr))
+             if _on(caller_segments, t) else 0)
+        a = (int(0.35 * 32767 * math.sin(2 * math.pi * 330.0 * i / sr))
+             if _on(agent_segments, t) else 0)
+        frames += struct.pack("<hh", c, a)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(bytes(frames))
+    return str(path)
+
+
+def _false_stop_sweep(tmp_path):
+    """A real sweep result over a synthetic recording that contains a
+    genuine, bounded false-stop moment, written to disk."""
+    audio = tmp_path / "false-stop-audio"
+    audio.mkdir()
+    _write_false_stop_wav(audio / "false-stop.wav")
+    aggregate, _ = _analyze.analyze_folder(str(audio))
+    p = tmp_path / "hotato-false-stop.json"
+    p.write_text(json.dumps(aggregate), encoding="utf-8")
+    return p, aggregate
+
+
 def _demo_plan(tmp_path):
     """The threshold-funnel fix plan the bundled failing battery produces."""
     root = resources.files("hotato").joinpath("data", "demo", "failing")
@@ -65,7 +113,7 @@ def _rank_of(aggregate, kinds):
     for i, c in enumerate(aggregate["candidates"], 1):
         if c.get("kind") in kinds:
             return i
-    raise AssertionError(f"no candidate of kind {kinds} in the demo sweep")
+    raise AssertionError(f"no candidate of kind {kinds} in the sweep")
 
 
 def _card_cli(tmp_path, ref, *extra):
@@ -115,8 +163,8 @@ def test_contract_card_never_yielded_heroes_talk_over_not_question_mark():
     assert "FAILED" in svg
 
 
-def test_card_from_demo_candidate_false_stop(tmp_path):
-    sweep, agg = _demo_sweep(tmp_path)
+def test_card_from_synthetic_candidate_false_stop(tmp_path):
+    sweep, agg = _false_stop_sweep(tmp_path)
     n = _rank_of(agg, _FALSE_STOP)
     rc, svg = _card_cli(tmp_path, f"{sweep}#{n}")
     assert rc == 0
