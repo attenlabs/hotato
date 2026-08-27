@@ -48,7 +48,7 @@ _ALL_SUBCOMMANDS = [
     "baseline", "baseline check",
     "record", "record render", "record verify",
     "rubric", "rubric run", "rubric calibrate",
-    "scenario", "scenario init", "scenario validate",
+    "scenario", "scenario init", "scenario generate", "scenario validate",
     "conversation", "conversation verify",
     "simulate",
     "autopsy", "pin",

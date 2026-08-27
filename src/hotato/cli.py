@@ -578,14 +578,21 @@ _EXIT_CODES: dict = {
             "malformed label item, or a refused off-box judge"),
     ),
     "scenario": (
-        (2, "no subcommand given (see hotato scenario init/validate --help)"),
+        (2, "no subcommand given (see hotato scenario "
+            "init/generate/validate --help)"),
     ),
     "scenario init": (
         (0, "a starter conversation-test.yaml was written"),
         (2, "usage error, or an existing --out without --force"),
     ),
+    "scenario generate": (
+        (0, "a scenario.v1 suite was generated from the system prompt"),
+        (2, "usage error / unusable input: a missing or unreadable --prompt "
+            "file, --max below 1, or a prompt naming no capability the "
+            "extraction rules recognise"),
+    ),
     "scenario validate": (
-        (0, "every conversation-test file validated"),
+        (0, "every conversation-test / scenario.v1 file validated"),
         (2, "at least one file is malformed, or a usage error (no file/dir, or "
             "a directory with no conversation-test files)"),
     ),
@@ -4245,8 +4252,53 @@ def _cmd_scenario_init(args) -> int:
     return 0
 
 
+def _read_head(path: str, limit: int = 4096) -> str:
+    """The first few KB of a file, or "" if it cannot be read. Used only to see
+    which `kind` a malformed file CLAIMS, so an error message can name the
+    right defect; never to decide that a file is valid."""
+    try:
+        with _errors.open_regular(path, "r", encoding="utf-8",
+                                  errors="replace") as fh:
+            return fh.read(limit)
+    except OSError:
+        return ""
+
+
+def _cmd_scenario_generate(args) -> int:
+    from . import scenario_gen as _gen
+
+    with _errors.open_regular(args.prompt, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    suite = _gen.generate_suite(text, stack=args.stack, max_scenarios=args.max)
+    paths = _gen.write_suite(suite, args.out)
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "scenario-generate", "out": args.out,
+            "prompt_sha256": suite["prompt_sha256"],
+            "capabilities": suite["capabilities"],
+            "required_data": suite["required_data"],
+            "constraints": suite["refusals"],
+            "failure_modes": suite["failure_modes"],
+            "scenarios": [
+                {"path": p, "id": doc["id"],
+                 "capability": doc["generated_from"]["capability"],
+                 "failure_mode": doc["generated_from"]["failure_mode"],
+                 "seed": doc["seed"]}
+                for p, (_, doc) in zip(paths, suite["scenarios"])
+            ],
+            "note": "deterministic offline generation from a system prompt; a "
+                    "starting point to edit, never a complete suite",
+        }
+        print(_errors.safe_json_dumps(payload, indent=2))
+    else:
+        print(_gen.render_text_summary(suite, args.out), end="")
+    return 0
+
+
 def _cmd_scenario_validate(args) -> int:
     from . import conversation_test as CT
+    from . import scenario as _scn
 
     path = args.path
     if os.path.isdir(path):
@@ -4267,13 +4319,34 @@ def _cmd_scenario_validate(args) -> int:
     all_ok = True
     for f in files:
         try:
+            # One directory can hold either unit: a conversation-test, or a
+            # hotato.scenario.v1 (what `scenario generate` writes). Dispatch on
+            # the doc's own `kind` so validating a generated suite does not
+            # need a different command -- the two kinds are disjoint, so this
+            # can never change the verdict on an existing file.
             doc = CT.load_conversation_test_file(f)
             results.append(
-                {"path": f, "ok": True, "id": doc["id"], "agent": doc["agent"]}
+                {"path": f, "ok": True, "kind": CT.KIND, "id": doc["id"],
+                 "agent": doc["agent"]}
             )
         except (ValueError, OSError) as exc:
-            all_ok = False
-            results.append({"path": f, "ok": False, "error": str(exc)})
+            try:
+                doc = _scn.load_scenario_file(f)
+            except (ValueError, OSError) as scn_exc:
+                all_ok = False
+                # Both readings failed. Report the error from the reading that
+                # matches the kind the file CLAIMS, so the message names the
+                # real defect rather than "expected kind
+                # hotato.conversation-test" on a scenario file with one bad
+                # turn. A file claiming neither kind reports the primary error.
+                claims_scenario = _scn.KIND in _read_head(f)
+                results.append({
+                    "path": f, "ok": False,
+                    "error": str(scn_exc if claims_scenario else exc),
+                })
+            else:
+                results.append({"path": f, "ok": True, "kind": _scn.KIND,
+                                "id": doc["id"], "agent": None})
 
     if args.format == "json":
         print(_errors.safe_json_dumps(
@@ -4283,8 +4356,10 @@ def _cmd_scenario_validate(args) -> int:
         ))
     else:
         for r in results:
-            if r["ok"]:
+            if r["ok"] and r.get("agent"):
                 print(f"OK    {r['path']}  (id={r['id']}, agent={r['agent']})")
+            elif r["ok"]:
+                print(f"OK    {r['path']}  (id={r['id']}, kind={r['kind']})")
             else:
                 print(f"BAD   {r['path']}  -- {r['error']}")
         print(f"{sum(1 for r in results if r['ok'])}/{len(results)} valid")
@@ -8563,21 +8638,24 @@ def build_parser() -> argparse.ArgumentParser:
     _add_judge_args(rc)
     rc.set_defaults(func=_cmd_rubric_calibrate)
 
-    # --- scenario: author + validate conversation-test files ----------------
+    # --- scenario: author, generate + validate test files -------------------
     scn = sub.add_parser(
         "scenario",
-        help="write a starter conversation-test.yaml, or validate one/many",
+        help="write a starter conversation-test.yaml, generate a scenario "
+             "suite from a system prompt, or validate one/many",
         description=(
-            "Author and validate conversation-test files. `init` writes a "
-            "starter you edit; `validate` structurally validates one file or a "
-            "directory of them (exit 2 on any malformed file) -- mirrors "
-            "`assert init` / a validation pass."
+            "Author and validate the test files. `init` writes a starter "
+            "conversation-test.yaml you edit; `generate` reads an agent's "
+            "system prompt and writes a whole scenario.v1 suite from it, "
+            "offline and deterministically; `validate` structurally validates "
+            "one file or a directory of them, of either kind (exit 2 on any "
+            "malformed file) -- mirrors `assert init` / a validation pass."
         ),
         epilog=_exit_codes_epilog("scenario"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     scnsub = scn.add_subparsers(dest="scenario_command", required=True,
-                                metavar="init|validate")
+                                metavar="init|generate|validate")
     si = scnsub.add_parser(
         "init",
         help="write a starter conversation-test.yaml",
@@ -8609,6 +8687,47 @@ def build_parser() -> argparse.ArgumentParser:
     _add_format_arg(si, choices=("text", "json"))
     si.set_defaults(func=_cmd_scenario_init)
 
+    sg = scnsub.add_parser(
+        "generate",
+        help="generate a scenario.v1 suite from an agent's system prompt "
+             "(offline, deterministic)",
+        description=(
+            "Read an agent's system prompt and write a suite of "
+            "hotato.scenario.v1 files: the capabilities it claims, crossed "
+            "with the shipped failure taxonomy (the seven corpus classes plus "
+            "barge-in / dead air / latency spike / echo). Pure string "
+            "matching -- no model, no network -- so the same prompt always "
+            "produces byte-identical files and you can diff a regenerated "
+            "suite. The extraction rules are documented in "
+            "hotato/scenario_gen.py.\n\n"
+            "What it writes is a STARTING POINT you edit. The facts are "
+            "synthetic placeholders, and a generator cannot know your agent's "
+            "domain rules or which caller behaviours matter for your call."
+        ),
+        epilog=(
+            _exit_codes_epilog("scenario generate") + "\n\n"
+            "Examples:\n"
+            "  hotato scenario generate --prompt agent-prompt.txt --out ./scenarios\n"
+            "  hotato scenario generate --prompt agent-prompt.txt --out ./scenarios "
+            "--max 12 --format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sg.add_argument("--prompt", required=True, metavar="FILE",
+                    help="the agent's system prompt, as a text file")
+    sg.add_argument("--out", required=True, metavar="DIR",
+                    help="directory to write the scenario files into "
+                         "(created if absent)")
+    sg.add_argument("--stack", default=None, metavar="NAME",
+                    help="record this voice stack on each scenario's "
+                         "environment (e.g. twilio, livekit)")
+    sg.add_argument("--max", type=int, default=None, metavar="N",
+                    help="write at most N scenarios; the truncation walks the "
+                         "capability x failure-mode grid diagonally, so a "
+                         "small suite still spans both axes")
+    _add_format_arg(sg, choices=("text", "json"))
+    sg.set_defaults(func=_cmd_scenario_generate)
+
     sv = scnsub.add_parser(
         "validate",
         help="structurally validate one conversation-test file or a directory "
@@ -8617,7 +8736,10 @@ def build_parser() -> argparse.ArgumentParser:
             "Validate a conversation-test file (or every *.yaml/*.yml/*.json in "
             "a directory) against the conversation-test.v1 shape and honesty "
             "wall (no overall_score, closed success/dimension vocabularies, "
-            "separate lanes). Exit 2 if any file is malformed."
+            "separate lanes). A file declaring kind hotato.scenario -- what "
+            "`scenario generate` writes -- is validated against scenario.v1 "
+            "instead, so one command covers a directory of either. Exit 2 if "
+            "any file is malformed."
         ),
         epilog=(
             _exit_codes_epilog("scenario validate") + "\n\n"
@@ -8628,7 +8750,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sv.add_argument("path", metavar="PATH",
-                    help="a conversation-test file, or a directory of them")
+                    help="a conversation-test or scenario.v1 file, or a "
+                         "directory of them")
     _add_format_arg(sv, choices=("text", "json"))
     sv.set_defaults(func=_cmd_scenario_validate)
 
