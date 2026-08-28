@@ -21,6 +21,7 @@ Mirrors the honesty invariants proven for the CLI/module surface
 """
 from __future__ import annotations
 
+import os
 import math
 import struct
 import sys
@@ -113,7 +114,17 @@ def test_importing_mcp_server_never_imports_faster_whisper():
         "assert 'faster_whisper' not in sys.modules, "
         "'hotato.mcp_server imported faster_whisper at import time'\n"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    # The child must import hotato the same way this process did. Without
+    # this it inherits only os.environ, so a source checkout -- where hotato
+    # is on sys.path but not installed -- raised ModuleNotFoundError and the
+    # assertion below reported it as "imported faster_whisper at import time".
+    # The test was red for a reason that had nothing to do with what it tests.
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [p for p in sys.path if p] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                            text=True, env=env)
     assert result.returncode == 0, result.stderr
 
 

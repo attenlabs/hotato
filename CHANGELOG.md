@@ -8,6 +8,67 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 
 ## [Unreleased]
 
+The next release: a scenario generator, and three corrections to what the
+scorer calls severe.
+
+### Added
+
+- `hotato scenario generate --prompt agent.txt --out scn/` writes a scenario
+  suite from an agent's system prompt. Parsing is deterministic and offline:
+  thirteen capability stems ("you can ...", "your job is to ..."),
+  required-data phrases ("always ask for the ..."), and refusals ("never ...")
+  cross the failure taxonomy in `corpus/classes` plus the four kinds the scorer
+  measures, so four capabilities against eleven modes writes 44 scenarios.
+
+  Every id, seed and synthetic fact derives from sha256 of the normalised
+  prompt and the scenario's index, so the same prompt writes a byte-identical
+  suite: it diffs in review and re-derives on another machine. The suite is a
+  starting point a human edits, and the tool says so in its summary, its help
+  and every file's `generated_from` block -- it is not exhaustive, and passing
+  it does not mean an agent is good. A prompt naming no capability exits 2 with
+  advice rather than inventing one.
+
+- `scenario validate` dispatches on a document's own `kind`, so it accepts both
+  conversation-tests and generated scenarios. The kinds are disjoint; no
+  existing file changes verdict.
+
+### Changed
+
+- A barge-in is CRITICAL on magnitude AND the agent failing to go quiet, not
+  either alone. The `or` made magnitude optional, so a 30 ms backchannel was
+  rated as severe as a caller talked over for four seconds.
+
+- Dead air is floored at the scanner's reportable-gap minimum (2.0 s) instead
+  of the yield hangover (0.20 s). The yield bar answers "did the agent give way";
+  borrowing it here published every sentence boundary in synthesized speech as
+  an incident and buried the real ones.
+
+- Silence means neither party was speaking. It was measured from one agent run
+  to the next, counting time the CALLER was talking as silence -- which is
+  precisely when an agent is right to be quiet. Where nothing follows on either
+  track the silence is marked `silence_bounded: false` and severity will not
+  call it critical on duration alone: the length of a tail says when someone
+  stopped recording, not what the caller endured.
+
+### Fixed
+
+- The two "never imports faster_whisper at import time" tests spawned a
+  subprocess that inherited only `os.environ`, so from a source checkout the
+  child raised `ModuleNotFoundError` and the assertion reported it as the
+  import leak it exists to catch. They were red for a reason unrelated to what
+  they test; the child now carries the parent's `sys.path`.
+
+### Measurement
+
+No change to the published error figures. On the 13 AMI clips: caller onset
+median 20 ms error (n=13), time to yield median 80 ms (n=6). The `did_yield`
+confusion matrix on that corpus is unchanged and remains 6 correct yields, 0
+missed, 6 false yields, 1 correct hold -- backchannel precision is a known,
+documented limit of an energy-only criterion, recorded in
+`corpus/real/README.md`. A candidate fix measured this cycle was withdrawn: it
+scored 13/13 on AMI but cost four missed real interruptions on the on-domain
+telephony corpus, which is the wrong direction to trade.
+
 ## [1.20.0] - 2026-08-03
 
 1.19.1 removed the VAD's tail pad from the diarized mono path, where a spike
