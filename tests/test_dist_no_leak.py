@@ -58,7 +58,7 @@ def _load_scanner():
     "keys/id_rsa",
     "certs/server.pem",
     ".claude/settings.json",
-    f"knowledge/{_CANON}/NORTH-STAR.md",
+    f"knowledge/{_CANON}/CANON.md",
 ])
 def test_forbidden_paths_are_flagged(path):
     scanner = _load_scanner()

@@ -83,7 +83,7 @@ _FORBIDDEN = [
 _FORBIDDEN_DIGESTS = {
     "9231737bc7cc04d1ff1027e7733795ff06bf44d611b5fd0b46863e23542463e1": "internal model name",
     "5582620a8d05ebbcbf29dd3febd49d7908eddfe507531c6089a88c4a223dff89": "internal brain host",
-    "813c2438a6dfd1020354d0c3ea9b99d4438f04ee78532b4c8a30638b5d2cf3a2": "internal north-star canon",
+    "813c2438a6dfd1020354d0c3ea9b99d4438f04ee78532b4c8a30638b5d2cf3a2": "internal canon directory",
     "11c794c5777649e01afd228df1199a5a3422121ba8da8182e290807ecdcb5386": "operator machine name",
     "795cb38c6ce609f426b44d0182e59266e6277a0fabe8f8a6ed314c06d03f3c2c": "operator home path (linux)",
     "aa6a5b054ffe566c1e2ae191acccf49abe87533c41edc2bc2fe259df20cc1c42": "operator home path (macos)",
