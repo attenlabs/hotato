@@ -87,7 +87,7 @@ _FORBIDDEN_DIGESTS = {
     "11c794c5777649e01afd228df1199a5a3422121ba8da8182e290807ecdcb5386": "operator machine name",
     "795cb38c6ce609f426b44d0182e59266e6277a0fabe8f8a6ed314c06d03f3c2c": "operator home path (linux)",
     "aa6a5b054ffe566c1e2ae191acccf49abe87533c41edc2bc2fe259df20cc1c42": "operator home path (macos)",
-    "9cf8bb651fc2b10d48189956c26c74a1fd0bc84dd99b6cc843f1c958a4c5f657": "internal fleet lane",
+    "9cf8bb651fc2b10d48189956c26c74a1fd0bc84dd99b6cc843f1c958a4c5f657": "internal lane marker",
 }
 
 # Long base64 runs (embedded audio/images) are opaque data; their random
