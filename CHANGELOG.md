@@ -34,6 +34,11 @@ scorer calls severe.
 
 ### Changed
 
+- `hotato patch` output: the learned-layer pointer key was renamed to
+  `learned_layer_pointer`. It carries the same object (or `null`) as before;
+  a reader that looked the pointer up under its previous key should read
+  `learned_layer_pointer`.
+
 - A barge-in is CRITICAL on magnitude AND the agent failing to go quiet, not
   either alone. The `or` made magnitude optional, so a 30 ms backchannel was
   rated as severe as a caller talked over for four seconds.

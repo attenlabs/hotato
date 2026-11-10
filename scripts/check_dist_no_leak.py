@@ -16,22 +16,26 @@ Two checks:
      ``setup.cfg``). Any other member is an untracked leak. This is the
      root-cause check: it catches any future untracked leak,
      because a gitignored file is by definition not tracked.
-  2. NO FORBIDDEN PATTERNS (sdist AND wheel): no member path or text body may
-     match an internal / secret pattern or digest. The wheel is not a git-tree
-     mirror, so the pattern check is its primary guard.
+  2. NO FORBIDDEN PATTERNS (sdist AND wheel): no member path may match an
+     internal / secret path pattern, and no member path or text body may name
+     an entry of the maintainers' private ban list (scripts/private_banlist.py).
+     The wheel is not a git-tree mirror, so this is its primary guard.
 
 Usage:
     python3 scripts/check_dist_no_leak.py            # scan every archive in dist/
     python3 scripts/check_dist_no_leak.py dist/*.tar.gz dist/*.whl
+    # pre-publish (release runbook): the internal-name check may not be skipped
+    HOTATO_REQUIRE_PRIVATE_BANLIST=1 python3 scripts/check_dist_no_leak.py dist/*.tar.gz dist/*.whl
 
-Exit 0 = clean; exit 1 = a leak was found (fail closed); exit 2 = usage/env error.
+Exit 0 = clean; exit 1 = a leak was found (fail closed); exit 2 = usage/env
+error, including a required private ban list that is absent, empty or malformed.
 Stdlib-only, no network, reads archive listings only (never executes a member).
 """
 
 from __future__ import annotations
 
 import glob
-import hashlib
+import importlib.util
 import os
 import re
 import subprocess
@@ -75,20 +79,27 @@ _FORBIDDEN = [
     (re.compile(r"(^|/)\.claude/", re.I), "agent-harness config"),
 ]
 
-# Internal names and operator identifiers are held ONLY as sha256 digests of
-# the lowercased word token, or of the space-joined adjacent word pair, so this
-# shipped file never spells them. A member path or text body is split into
-# ``[a-z0-9]+`` tokens (so ``a-b``, ``a_b`` and ``a/b`` all read as the pair
-# ``a b``) and refused on any digest match.
-_FORBIDDEN_DIGESTS = {
-    "9231737bc7cc04d1ff1027e7733795ff06bf44d611b5fd0b46863e23542463e1": "internal model name",
-    "5582620a8d05ebbcbf29dd3febd49d7908eddfe507531c6089a88c4a223dff89": "internal brain host",
-    "813c2438a6dfd1020354d0c3ea9b99d4438f04ee78532b4c8a30638b5d2cf3a2": "internal canon directory",
-    "11c794c5777649e01afd228df1199a5a3422121ba8da8182e290807ecdcb5386": "operator machine name",
-    "795cb38c6ce609f426b44d0182e59266e6277a0fabe8f8a6ed314c06d03f3c2c": "operator home path (linux)",
-    "aa6a5b054ffe566c1e2ae191acccf49abe87533c41edc2bc2fe259df20cc1c42": "operator home path (macos)",
-    "9cf8bb651fc2b10d48189956c26c74a1fd0bc84dd99b6cc843f1c958a4c5f657": "internal lane marker",
-}
+# Internal names and operator identifiers are not in this repository in any
+# form. They live as sha256 digests in the maintainers' private ban list (see
+# scripts/private_banlist.py: $HOTATO_PRIVATE_BANLIST, default
+# ~/.config/hotato/private-banlist.sha256). A member path or text body is split
+# into ``[a-z0-9]+`` tokens (so ``a-b``, ``a_b`` and ``a/b`` all read as the
+# pair ``a b``) and refused when a token or a run of 2-3 tokens hashes to an
+# ``internal`` entry. Absent file: that check is skipped with a notice;
+# HOTATO_REQUIRE_PRIVATE_BANLIST=1 turns an absent or empty file into exit 2.
+def _load_banlist_module():
+    name = "hotato_private_banlist"
+    mod = sys.modules.get(name)
+    if mod is None:
+        path = Path(__file__).resolve().with_name("private_banlist.py")
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules[name] = mod
+    return mod
+
+
+_BANLIST = _load_banlist_module()
 
 # Long base64 runs (embedded audio/images) are opaque data; their random
 # letter groups are not names.
@@ -97,13 +108,7 @@ _MAX_TEXT_BYTES = 8 * 1024 * 1024
 
 
 def _digest_hits(text: str) -> str | None:
-    toks = re.findall(r"[a-z0-9]+", text.lower())
-    keys = set(toks) | {f"{a} {b}" for a, b in zip(toks, toks[1:])}
-    for key in keys:
-        why = _FORBIDDEN_DIGESTS.get(hashlib.sha256(key.encode()).hexdigest())
-        if why is not None:
-            return why
-    return None
+    return _BANLIST.first_hit(text, _BANLIST.digests("internal"))
 
 
 def _scan_text(data: bytes) -> str | None:
@@ -192,6 +197,12 @@ def main(argv: list[str] | None = None) -> int:
               "`python -m build`)", file=sys.stderr)
         return EXIT_ENV
 
+    try:
+        names_on = _BANLIST.digests("internal") is not None
+    except _BANLIST.BanlistUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ENV
+
     tracked = _git_tracked()
     total_leaks = 0
     for path in archives:
@@ -214,7 +225,8 @@ def main(argv: list[str] | None = None) -> int:
               "MANIFEST exclude and re-check. See the 2026-07-22 packaging-leak law.",
               file=sys.stderr)
         return EXIT_LEAK
-    print(f"\nOK: {len(archives)} archive(s) scanned, no leaked files.")
+    print(f"\nOK: {len(archives)} archive(s) scanned, no leaked files "
+          f"(internal-name check: {'on' if names_on else 'SKIPPED'}).")
     return EXIT_OK
 
 

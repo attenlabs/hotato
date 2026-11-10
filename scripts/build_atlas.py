@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import html as _html
+import importlib.util
 import json
 import os
 import re
@@ -67,26 +68,32 @@ _STATUS_COLOR = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember",
 # Free text (title/summary/approach) across every typed source is checked
 # against this blocklist: a Hotato verdict never names an implementation,
 # product, or vendor. Word-ish boundaries avoid flagging unrelated substrings.
-# The blocklist is held as sha256 digests of lowercased word tokens and of
-# space-joined 2-3 word phrases, so this file does not spell the names.
-_NEUTRALITY_DIGESTS = frozenset({
-    "9231737bc7cc04d1ff1027e7733795ff06bf44d611b5fd0b46863e23542463e1",
-    "73e56e619961e6561fa67fb0f786167aa171d91ace9307c584abf1c61aa81687",
-    "ace427bac30b0b6b6b86493a5271335d259e0d106b703e4bed7724f4dcdfd64f",
-    "a88c512f80dc3381d3b3b1bf52c20ffdf0439cbf512f0500e16d80d78c7d396b",
-    "9a8834fadfbad28d94bfa114bfaacba3ebbab704d43c5d60da6cdf08a372ec11",
-    "89391ff3d40f359ee8ded90db82ea10fb67545005bb00314ebe113ece67621fd",
-})
+# The blocklist is the maintainers' private ban list (scripts/private_banlist.py:
+# $HOTATO_PRIVATE_BANLIST, default ~/.config/hotato/private-banlist.sha256), so
+# this file names nothing. Every entry, internal or public, is refused here.
+# Absent file: the name check is skipped with a notice;
+# HOTATO_REQUIRE_PRIVATE_BANLIST=1 makes an absent or empty file a build error.
+def _load_banlist_module():
+    name = "hotato_private_banlist"
+    mod = sys.modules.get(name)
+    if mod is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "private_banlist.py")
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules[name] = mod
+    return mod
+
+
+_BANLIST = _load_banlist_module()
 
 
 def _neutrality_hit(text: str) -> Optional[str]:
-    toks = re.findall(r"[a-z0-9]+", text.lower())
-    for n in (1, 2, 3):
-        for i in range(len(toks) - n + 1):
-            d = hashlib.sha256(" ".join(toks[i:i + n]).encode()).hexdigest()
-            if d in _NEUTRALITY_DIGESTS:
-                return d[:12]
-    return None
+    try:
+        names = _BANLIST.digests("all")
+    except _BANLIST.BanlistUnavailable as exc:
+        raise AtlasBuildError(str(exc)) from None
+    return _BANLIST.first_hit(text, names) if names else None
 
 # Authenticity-protest words stripped from all copy this builder writes or
 # renders; typed sources are linted for them too (see tests/test_atlas.py).
@@ -155,7 +162,7 @@ def _lint_neutrality(label: str, text: Optional[str]) -> None:
         return
     hit = _neutrality_hit(text)
     if hit is not None:
-        raise AtlasBuildError(f"{label}: neutrality violation (digest {hit}) in {text!r}")
+        raise AtlasBuildError(f"{label}: neutrality violation ({hit})")
 
 
 def _lint_authenticity(label: str, text: Optional[str]) -> None:
