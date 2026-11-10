@@ -393,7 +393,7 @@ def test_ambient_noise_false_yield_is_config_not_backchannel_or_funnel():
     # the fabricated caller-intent claim from the old backchannel notes is gone
     assert "signalled" not in notes and "only signalled" not in notes
     assert "ambient" in notes or "noise" in notes
-    # the funnel must NOT fire -> no do_not_tune_single_threshold, no SAA pointer
+    # the funnel must NOT fire -> no do_not_tune_single_threshold, no learned-layer pointer
     assert diag["battery"]["finding"] != "threshold_funnel"
     assert diag["battery"]["decision"] != "do_not_tune_single_threshold"
 

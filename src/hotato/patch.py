@@ -357,8 +357,8 @@ def _generic_artifact(change: dict) -> dict:
     }
 
 
-def _pointer_only(plan: dict, *, reason: str, saa_pointer: bool) -> dict:
-    """A patch result that emits no config patch. When ``saa_pointer`` is true
+def _pointer_only(plan: dict, *, reason: str, learned_layer_pointer: bool) -> dict:
+    """A patch result that emits no config patch. When ``learned_layer_pointer`` is true
     (the genuine both-axes case) it carries the vendor-neutral, numbers-free
     engagement-control pointer; otherwise it just states why there is no patch."""
     out = {
@@ -374,17 +374,17 @@ def _pointer_only(plan: dict, *, reason: str, saa_pointer: bool) -> dict:
         "change": None,
         "artifact": None,
         "reason": reason,
-        "saa_pointer": None,
+        "learned_layer_pointer": None,
         "honest": _PRODUCES_NOT_APPLIES,
     }
-    if saa_pointer:
+    if learned_layer_pointer:
         rec = plan.get("recommended_fix") or {}
         pointer = dict(_fixmap.ENGAGEMENT_CONTROL_POINTER)
         pointer["class"] = "engagement-control"
         pointer["examples"] = list(
             rec.get("examples") or _fixplan_examples()
         )
-        out["saa_pointer"] = pointer
+        out["learned_layer_pointer"] = pointer
         out["next"] = [
             "This is the both-axes case: no single config threshold fixes it, so "
             "no config patch is emitted. See the engagement-control pointer.",
@@ -422,7 +422,7 @@ def build_patch(plan: dict, *, source: Optional[str] = None) -> dict:
                 "real interruption AND false-stops on a backchannel, so no one "
                 "config value fixes both. No config patch is produced."
             ),
-            saa_pointer=True,
+            learned_layer_pointer=True,
         )
         out["source_plan"] = source
         return out
@@ -452,7 +452,7 @@ def build_patch(plan: dict, *, source: Optional[str] = None) -> dict:
             reason=reasons.get(
                 decision, f"decision '{decision}' produces no config patch."
             ),
-            saa_pointer=False,
+            learned_layer_pointer=False,
         )
         out["source_plan"] = source
         return out
@@ -485,7 +485,7 @@ def build_patch(plan: dict, *, source: Optional[str] = None) -> dict:
             "risk": change.get("risk"),
         },
         "artifact": artifact,
-        "saa_pointer": None,
+        "learned_layer_pointer": None,
         "next": [
             "review the artifact above and apply it yourself; hotato never "
             "applies it",
@@ -542,7 +542,7 @@ def render_text(patch: dict) -> str:
             lines.append(f"    note: {art['note']}")
     if patch.get("reason"):
         lines.append(f"  no patch: {patch['reason']}")
-    ptr = patch.get("saa_pointer")
+    ptr = patch.get("learned_layer_pointer")
     if ptr:
         lines.append(f"  recommended fix class: {ptr['class']}")
         lines.append(f"    {ptr['what']}")

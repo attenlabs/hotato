@@ -51,7 +51,7 @@
     "budget": 512,
     "termination": "one_minimal"
   },
-  "output": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/repro.hotato-repro",
-  "reproduce": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/repro.hotato-repro/reproduce.sh",
-  "predicate": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/repro.hotato-repro/predicate.sh"
+  "output": "/workspace/cap/cx/repro.hotato-repro",
+  "reproduce": "/workspace/cap/cx/repro.hotato-repro/reproduce.sh",
+  "predicate": "/workspace/cap/cx/repro.hotato-repro/predicate.sh"
 }

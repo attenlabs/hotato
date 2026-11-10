@@ -16,6 +16,7 @@ from importlib import resources
 import pytest
 
 from hotato import capability_routing as cr
+from tests import _banned
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROUTING = os.path.join(_HERE, "data", "routing")
@@ -135,7 +136,6 @@ def test_case7_lone_event_makes_no_paired_claim():
 
 
 _VENDOR_TOKENS = (
-    "saa", "attenlabs", "attention labs", "attentionlabs",
     "vapi", "retell", "livekit", "pipecat", "twilio", "krisp",
 )
 
@@ -161,6 +161,7 @@ def test_case8_no_provider_or_product_token_in_any_verdict():
     assert verdicts, "expected at least one emitted verdict to scan"
     for verdict in verdicts:
         blob = json.dumps(verdict).lower()
+        assert not _banned.leaks(blob), "internal/vendor name leaked into a verdict"
         for token in _VENDOR_TOKENS:
             assert token not in blob, (
                 "vendor/product token " + repr(token) + " leaked into a verdict"

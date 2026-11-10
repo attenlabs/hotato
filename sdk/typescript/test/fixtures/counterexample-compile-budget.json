@@ -51,7 +51,7 @@
     "budget": 5,
     "termination": "budget_exhausted"
   },
-  "output": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/budget.hotato-repro",
-  "reproduce": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/budget.hotato-repro/reproduce.sh",
-  "predicate": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/budget.hotato-repro/predicate.sh"
+  "output": "/workspace/cap/cx/budget.hotato-repro",
+  "reproduce": "/workspace/cap/cx/budget.hotato-repro/reproduce.sh",
+  "predicate": "/workspace/cap/cx/budget.hotato-repro/predicate.sh"
 }

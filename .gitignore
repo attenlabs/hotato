@@ -102,12 +102,12 @@ hotato-no-single-threshold.svg
 hotato-failure-record/
 /contracts/
 
-# Internal SAA artifacts: crown-jewel, never public. Kept out of the public
+# Internal learned-layer artifacts: never public. Kept out of the public
 # repo durably (not just via local .git/info/exclude). Do not remove.
-docs/SAA-BEHAVIOR-CARD.md
-docs/SAA-FIX-POINTER.md
-docs/saa_behavior_card.py
-tests/test_saa_card.py
+docs/*-BEHAVIOR-CARD.md
+docs/*-FIX-POINTER.md
+docs/*_behavior_card.py
+tests/test_*_card.py
 
 # hotato start writes its demo saydo/ output to CWD; ignore it at repo root
 /saydo/

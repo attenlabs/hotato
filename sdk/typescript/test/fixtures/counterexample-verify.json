@@ -11,5 +11,5 @@
   "final_replays": 2,
   "accepted_steps_replayed": 15,
   "evaluator_match": true,
-  "output": "/tmp/claude-1000/-home-david-mf1/8f455a91-064b-443d-bce5-548ac8ab5ca6/scratchpad/cap/cx/repro.hotato-repro"
+  "output": "/workspace/cap/cx/repro.hotato-repro"
 }

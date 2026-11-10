@@ -50,7 +50,7 @@ created hotato contract: demo-false-stop-backchannel-001
   dir:      contracts/demo-false-stop-backchannel-001.hotato
   expect:   hold
   scorable: yes
-  label:    asserted (reviewer=david-mf1; no signing key configured, so this is an operator-asserted expectation, not a cryptographically signed human label)
+  label:    asserted (reviewer=operator; no signing key configured, so this is an operator-asserted expectation, not a cryptographically signed human label)
   passed:   False
   measured: did_yield=True seconds_to_yield=0.26s talk_over=0.26s
 ```

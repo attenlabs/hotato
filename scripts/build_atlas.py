@@ -67,13 +67,26 @@ _STATUS_COLOR = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember",
 # Free text (title/summary/approach) across every typed source is checked
 # against this blocklist: a Hotato verdict never names an implementation,
 # product, or vendor. Word-ish boundaries avoid flagging unrelated substrings.
-_NEUTRALITY_BLOCKLIST = [
-    re.compile(r"\bsaa\b", re.IGNORECASE),
-    re.compile(r"attention\s*labs", re.IGNORECASE),
-    re.compile(r"attenlabs", re.IGNORECASE),
-    re.compile(r"multivox", re.IGNORECASE),
-    re.compile(r"speech\s+addressee\s+agent", re.IGNORECASE),
-]
+# The blocklist is held as sha256 digests of lowercased word tokens and of
+# space-joined 2-3 word phrases, so this file does not spell the names.
+_NEUTRALITY_DIGESTS = frozenset({
+    "9231737bc7cc04d1ff1027e7733795ff06bf44d611b5fd0b46863e23542463e1",
+    "73e56e619961e6561fa67fb0f786167aa171d91ace9307c584abf1c61aa81687",
+    "ace427bac30b0b6b6b86493a5271335d259e0d106b703e4bed7724f4dcdfd64f",
+    "a88c512f80dc3381d3b3b1bf52c20ffdf0439cbf512f0500e16d80d78c7d396b",
+    "9a8834fadfbad28d94bfa114bfaacba3ebbab704d43c5d60da6cdf08a372ec11",
+    "89391ff3d40f359ee8ded90db82ea10fb67545005bb00314ebe113ece67621fd",
+})
+
+
+def _neutrality_hit(text: str) -> Optional[str]:
+    toks = re.findall(r"[a-z0-9]+", text.lower())
+    for n in (1, 2, 3):
+        for i in range(len(toks) - n + 1):
+            d = hashlib.sha256(" ".join(toks[i:i + n]).encode()).hexdigest()
+            if d in _NEUTRALITY_DIGESTS:
+                return d[:12]
+    return None
 
 # Authenticity-protest words stripped from all copy this builder writes or
 # renders; typed sources are linted for them too (see tests/test_atlas.py).
@@ -140,9 +153,9 @@ def _load_dir(subdir: str, required_kind: str) -> List[Dict[str, Any]]:
 def _lint_neutrality(label: str, text: Optional[str]) -> None:
     if not text:
         return
-    for pat in _NEUTRALITY_BLOCKLIST:
-        if pat.search(text):
-            raise AtlasBuildError(f"{label}: neutrality violation, matched {pat.pattern!r} in {text!r}")
+    hit = _neutrality_hit(text)
+    if hit is not None:
+        raise AtlasBuildError(f"{label}: neutrality violation (digest {hit}) in {text!r}")
 
 
 def _lint_authenticity(label: str, text: Optional[str]) -> None:
@@ -1129,7 +1142,7 @@ def build(out_dir: str) -> Dict[str, Any]:
     # --- patterns ------------------------------------------------------
     # Every pattern class a record carries, PLUS any a contract references
     # (so a contract can point at an honest, still-empty pattern page instead
-    # of a dead link -- e.g. the SAA-eligible class with zero cleared fixtures).
+    # of a dead link -- e.g. the layer-eligible class with zero cleared fixtures).
     pattern_classes = all_referenced_pattern_classes(records, contracts)
     fallback_date = max((r["recorded_date"] for r in records), default="1970-01-01")
     for pc in pattern_classes:

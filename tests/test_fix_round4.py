@@ -348,7 +348,7 @@ def test_http_get_json_rejects_non_json_body():
         srv.shutdown()
 
 
-# NOTE on defect 6 (docs/SAA-FIX-POINTER.md's false 'no threshold value can fix'
+# NOTE on defect 6 (the internal fix-pointer doc's false 'no threshold value can fix'
 # absolute + unqualified CTA): the fix is applied to that doc on disk, but the
 # file is deliberately gitignored (.gitignore names it), so it is not tracked and
 # there is no committed artifact to assert against here. The CODE behaviour the

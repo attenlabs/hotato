@@ -265,7 +265,7 @@ def test_classify_event_echo_suspected_routes_to_config():
     assert "listening" not in fix["detail"].lower()
 
 
-def test_real_self_echo_call_routes_to_config_not_saa(tmp_path):
+def test_real_self_echo_call_routes_to_config_not_learned_layer(tmp_path):
     wav = _bleed_stereo(tmp_path / "bleed.wav")
     ev = run_single(stereo=wav, onset_sec=2.0, expect="hold", stack="vapi")["events"][0]
     assert ev["signals"]["echo"]["echo_suspected"] is True

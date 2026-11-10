@@ -27,6 +27,7 @@ from hotato import cli
 from hotato import fixplan as _fixplan
 from hotato import patch as _patch
 from hotato.diagnose import OPPOSITE_RISK
+from tests import _banned
 
 # --- fixtures: real patches, and an opposite-risk battery on disk ------------
 
@@ -157,8 +158,9 @@ def test_threshold_funnel_refusal_json_shape(funnel_patch, battery, capsys):
     assert payload["refusal"]["lines"] == list(_apply.REFUSAL_LINES)
     # vendor-neutral: no product name, no digits in the recommendation
     blob = json.dumps(payload["refusal"])
-    for banned in ("saa", "vapi", "retell", "hotato patch"):
-        assert banned not in blob.lower()
+    assert not _banned.leaks(blob)
+    for word in ("vapi", "retell", "hotato patch"):
+        assert word not in blob.lower()
 
 
 # --- OPPOSITE-RISK REQUIRED --------------------------------------------------

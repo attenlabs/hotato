@@ -12,6 +12,7 @@ These lock in two things the plan calls out as acceptance criteria:
 
 from importlib import resources
 
+from tests import _banned
 from hotato.core import run_single, run_suite
 from hotato.fixmap import (
     ENGAGEMENT_CONTROL_POINTER,
@@ -52,7 +53,7 @@ def test_backchannel_hold_routes_to_engagement_control():
     assert fix["knob"] is None
 
 
-def test_echo_hold_routes_to_config_echo_never_saa():
+def test_echo_hold_routes_to_config_echo_never_learned_layer():
     """A phantom/echo self-interruption is an audio-routing bug and must NEVER
     be sold as an engagement-control problem."""
     fix = classify_event(
@@ -134,7 +135,6 @@ def _all_strings(obj):
 # A pointer/funnel that named a vendor or something to acquire would turn the
 # machine output into lead-gen. These tokens must NEVER appear in either.
 _VENDOR_AND_PRODUCT_WORDS = (
-    "saa", "attention labs", "attentionlabs",
     "buy", "license", "purchase", "adopt", "product", "vendor",
     "pricing", "subscribe", "for sale",
 )
@@ -143,6 +143,7 @@ _VENDOR_AND_PRODUCT_WORDS = (
 def _assert_vendor_neutral(strings, where):
     for s in strings:
         low = s.lower()
+        assert not _banned.leaks(s), f"internal/vendor name leaked into {where}: {s!r}"
         for bad in _VENDOR_AND_PRODUCT_WORDS:
             assert bad not in low, f"{bad!r} leaked into {where}: {s!r}"
 
@@ -161,8 +162,8 @@ def test_systemic_pointer_text_has_zero_digits():
 
 def test_engagement_pointer_is_vendor_neutral_no_product_claim():
     """The engagement-control pointer must stay VENDOR-NEUTRAL: it names the
-    problem class and the KIND of fix, but no vendor (no 'SAA' / 'Attention
-    Labs') and nothing you can adopt, license, or buy. It carries no
+    problem class and the KIND of fix, but no vendor (no internal or company
+    name) and nothing you can adopt, license, or buy. It carries no
     product/lead-gen link either."""
     _assert_vendor_neutral(_all_strings(ENGAGEMENT_CONTROL_POINTER), "pointer")
     assert "learn_more" not in ENGAGEMENT_CONTROL_POINTER
@@ -183,7 +184,7 @@ def test_no_accuracy_percentage_in_any_fix_map_text():
     assert "accuracy" not in blob.lower()
 
 
-# --- defect (round 3): non-speech ambient false-yield -> config, not SAA -----
+# --- defect (round 3): non-speech ambient false-yield -> config, not the learned layer -----
 #
 # A false-yield triggered by continuous NON-SPEECH ambient energy (cafe/TV/
 # background) is a VAD/noise-floor sensitivity bug, NOT a backchannel-vs-
@@ -198,7 +199,7 @@ def test_non_speech_ambient_false_yield_routes_to_config_not_engagement():
         stack="vapi", non_speech=True,
     )
     assert fix["fix_class"] == "config"
-    assert fix["pointer"] is None                      # never the SAA pointer
+    assert fix["pointer"] is None                      # never the learned-layer pointer
     assert fix["knob"] is not None
     # no fabricated caller intent
     blob = (fix["title"] + " " + fix["detail"]).lower()
@@ -230,7 +231,7 @@ def test_echo_still_beats_non_speech_label():
 
 def test_funnel_does_not_fire_on_ambient_false_yield():
     """[missed real interruption] + [ambient non-speech false-yield] must NOT be
-    the both-axes funnel: the ambient case is config-fixable, so no SAA pointer."""
+    the both-axes funnel: the ambient case is config-fixable, so no learned-layer pointer."""
     events = [
         {"expected_yield": True, "verdict": {"passed": False, "did_yield": False}},
         {"expected_yield": False, "non_speech": True,

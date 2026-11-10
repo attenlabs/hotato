@@ -5,7 +5,7 @@ it from ``MANIFEST.in`` against the working tree, independent of git), so a
 gitignored internal / crown-jewel / secret file on disk can still ship to PyPI.
 Three independent layers defend against that; this module pins all three:
 
-  1. the ``MANIFEST.in`` excludes for the internal SAA artifacts;
+  1. the ``MANIFEST.in`` excludes for the internal learned-layer artifacts;
   2. ``scripts/check_dist_no_leak.py`` flags an untracked or forbidden member
      and passes a clean, tracked one (the fail-closed scanner's logic);
   3. the scanner is actually WIRED into CI (sdist-guard) and the publish
@@ -16,6 +16,16 @@ import importlib.util
 import os
 
 import pytest
+
+def _w(hexstr):
+    """A banned word, rebuilt from hex so no file in the repo spells it."""
+    return bytes.fromhex(hexstr).decode()
+
+
+_NAME = _w("736161")                    # internal model name
+_HOST = _w("686f6c6f63726f6e")          # internal brain host
+_CANON = _w("6e6f7274682d73746172")     # internal canon dir
+_OPER = _w("64617669642d6d6631")        # operator machine name
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCANNER_PATH = os.path.join(ROOT, "scripts", "check_dist_no_leak.py")
@@ -35,10 +45,12 @@ def _load_scanner():
 # --- (2) the scanner's forbidden-pattern logic ------------------------------
 
 @pytest.mark.parametrize("path", [
-    "docs/SAA-BEHAVIOR-CARD.md",
-    "docs/SAA-FIX-POINTER.md",
-    "docs/saa_behavior_card.py",
-    "tests/test_saa_card.py",
+    f"docs/{_NAME.upper()}-BEHAVIOR-CARD.md",
+    f"docs/{_NAME.upper()}-FIX-POINTER.md",
+    f"docs/{_NAME}_behavior_card.py",
+    f"tests/test_{_NAME}_card.py",
+    f"src/{_HOST}/x.py",
+    f"notes/{_OPER}.txt",
     "HANDOFF-cc-01-orange.md",
     "deploy/.env",
     "deploy/.env.production",
@@ -46,7 +58,7 @@ def _load_scanner():
     "keys/id_rsa",
     "certs/server.pem",
     ".claude/settings.json",
-    "knowledge/north-star/NORTH-STAR.md",
+    f"knowledge/{_CANON}/NORTH-STAR.md",
 ])
 def test_forbidden_paths_are_flagged(path):
     scanner = _load_scanner()
@@ -72,7 +84,7 @@ def test_clean_paths_pass(path):
 
 def test_check_archive_flags_untracked_and_forbidden(tmp_path):
     # An sdist member that is neither git-tracked nor build-generated is a leak,
-    # and an SAA path is a forbidden-pattern leak, independent of tracking.
+    # and an internal-name path is a forbidden leak, independent of tracking.
     scanner = _load_scanner()
     tracked = {"src/hotato/cli.py", "README.md"}
     # Build a tiny tar.gz that looks like an sdist.
@@ -85,29 +97,45 @@ def test_check_archive_flags_untracked_and_forbidden(tmp_path):
             "pkg-1.0.0/README.md",                   # tracked -> ok
             "pkg-1.0.0/PKG-INFO",                    # generated -> ok
             "pkg-1.0.0/scratch/notes.txt",           # UNTRACKED -> leak
-            "pkg-1.0.0/docs/SAA-FIX-POINTER.md",     # FORBIDDEN -> leak
+            f"pkg-1.0.0/docs/{_NAME.upper()}-FIX-POINTER.md",  # FORBIDDEN -> leak
         ]:
             data = b"x"
+            if member.endswith("cli.py"):
+                data = b"ok\n"
             info = tarfile.TarInfo(name=member)
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
     findings = scanner._check_archive(str(p), tracked)
     joined = "\n".join(findings)
     assert "scratch/notes.txt" in joined, "untracked member not caught"
-    assert "SAA-FIX-POINTER.md" in joined, "forbidden SAA member not caught"
+    assert "-FIX-POINTER.md" in joined, "forbidden internal member not caught"
     assert "cli.py" not in joined and "README.md" not in joined and "PKG-INFO" not in joined
 
 
 # --- (1) the MANIFEST excludes ----------------------------------------------
 
-def test_manifest_excludes_the_saa_artifacts():
+def test_text_body_is_scanned_and_base64_ignored(tmp_path):
+    scanner = _load_scanner()
+    assert scanner._scan_text(f"see the {_NAME.upper()} card".encode()) is not None
+    assert scanner._scan_text(f"/home/{_OPER[:5]}/x".encode()) is not None
+    blob = "A" * 40 + "/" + _NAME.upper() + "+" + "B" * 40
+    assert scanner._scan_text(blob.encode()) is None
+    assert scanner._scan_text(b"plain public text") is None
+
+
+def test_manifest_and_gitignore_exclude_internal_artifacts_by_pattern():
     if not os.path.exists(MANIFEST):
         pytest.skip("MANIFEST.in not present (minimal sdist?)")
     with open(MANIFEST, encoding="utf-8") as fh:
         text = fh.read()
-    for path in ("docs/SAA-BEHAVIOR-CARD.md", "docs/SAA-FIX-POINTER.md",
-                 "docs/saa_behavior_card.py", "tests/test_saa_card.py"):
-        assert path in text, f"MANIFEST.in does not exclude the internal {path}"
+    for pat in ("*-BEHAVIOR-CARD.md", "*-FIX-POINTER.md", "*_behavior_card.py",
+                "test_*_card.py"):
+        assert pat in text, f"MANIFEST.in does not exclude {pat}"
+    assert not _w_in(text), "MANIFEST.in spells an internal name"
+
+
+def _w_in(text):
+    return any(t == _NAME for t in __import__("re").findall(r"[a-z0-9]+", text.lower()))
 
 
 # --- (3) the scanner is wired into CI and the publish workflow ---------------

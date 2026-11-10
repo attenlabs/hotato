@@ -97,16 +97,12 @@ recursive-include atlas *.json
 
 global-exclude __pycache__ *.py[cod]
 
-# Internal SAA artifacts: crown-jewel, never public. They are on disk but
+# Internal learned-layer artifacts: never public. They may be on disk but
 # gitignored, and the broad `recursive-include docs *` above would otherwise
-# sweep them into the sdist (MANIFEST is independent of git). Exclude them
-# explicitly, plus a defensive pattern, so they can never ship to PyPI.
-exclude docs/SAA-BEHAVIOR-CARD.md
-exclude docs/SAA-FIX-POINTER.md
-exclude docs/saa_behavior_card.py
-exclude tests/test_saa_card.py
-recursive-exclude docs SAA-*.md saa_*.py
-recursive-exclude tests test_saa_*.py
+# sweep them into the sdist (MANIFEST is independent of git). Exclude them by
+# neutral pattern; scripts/check_dist_no_leak.py also refuses untracked members.
+recursive-exclude docs *-BEHAVIOR-CARD.md *-FIX-POINTER.md *_behavior_card.py
+recursive-exclude tests test_*_card.py
 
 # Rendered showcase reports with base64-embedded audio (~12 MB combined) are
 # documentation artifacts, not runtime dependencies: no code or test reads them.
