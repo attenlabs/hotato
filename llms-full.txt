@@ -16,7 +16,9 @@ FILE: README.md
 
 # hotato
 
-**Find what broke in your agent calls. Pin it and CI stays red until you fix it.**
+**Hotato simulates, monitors and gates voice agents in CI. Open source, local-first, with a hosted option.**
+
+Find what broke in your agent calls. Pin it and CI stays red until you fix it.
 
 ```bash
 pip install hotato
@@ -4687,6 +4689,100 @@ PYTHONPATH=src python3 scripts/render_card_assets.py
 
 
 ================================================================================
+FILE: docs/CLOUD.md
+================================================================================
+
+# hotato cloud: the team web app
+
+A web app for a team: scored production calls, persona test runs, alert rules, and the
+connections that feed them, in one place. The same app runs self-hosted or hosted.
+It is an optional extra (`pip install 'hotato[cloud]'`); the hotato core stays
+stdlib-only and never imports it.
+
+## Self-host in one command
+
+```bash
+export HOTATO_CLOUD_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+export POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+docker compose -f docker-compose.cloud.yml up -d --build
+```
+
+Open `http://127.0.0.1:8080`. The first visit to `/signup` creates the first account and
+its organisation; after that sign-up closes unless you set `HOTATO_CLOUD_ALLOW_SIGNUP=true`.
+Everyone else joins through an invite link from Settings, or you run
+`hotato cloud admin create-user someone@example.com` inside the container.
+
+Without Docker: `pip install 'hotato[cloud]'`, set `HOTATO_CLOUD_SECRET`, run
+`hotato cloud serve --port 8080` (SQLite file `hotato-cloud.sqlite3` in the working directory).
+
+## Send data to it
+
+1. In Settings create an API token (shown once; stored as a hash). Note the project id.
+2. Push artifacts from any machine. This needs no extra install:
+
+```bash
+hotato cloud push ./out --url https://hotato.example.com --project <project-id> --token $HOTATO_TOKEN
+```
+
+`push` reads a file or a directory of `.json` / `.jsonl`, posts each `hotato.testrun.v1` to
+`POST /api/v1/projects/{id}/testruns` and each `hotato.monitorevent.v1` (batched) to
+`POST /api/v1/projects/{id}/events`. It refuses to send a token over plain http to a non-local
+host. Re-posting the same `run_id` or `call_id` replaces the earlier record.
+
+Validation is strict: required fields and types are enforced, an unknown `schema` string is
+rejected with HTTP 422 and a path-qualified message, a batch is all-or-nothing. Extra keys are
+ignored, so a newer producer does not break ingest.
+
+The monitor fetches alert rules with `GET /api/v1/projects/{id}/rules` (bearer token). Rules
+are edited under Alerts.
+
+## Environment variables
+
+| Variable | Meaning |
+|---|---|
+| `HOTATO_CLOUD_SECRET` | Required, 16+ characters. Encrypts stored API keys (Fernet) and keys CSRF tokens. The app refuses to start without it. Changing it makes saved connection keys unreadable: re-enter them. |
+| `DATABASE_URL` | SQLAlchemy URL. Default `sqlite:///hotato-cloud.sqlite3`. Postgres: `postgresql://user:pw@host/db`. |
+| `HOTATO_CLOUD_ALLOW_SIGNUP` | `true` lets anyone create an organisation. Default false (the first account is always allowed). |
+| `HOTATO_CLOUD_SECURE_COOKIES` | Force the Secure cookie flag on or off. Default: on when the request is https. |
+| `HOTATO_CLOUD_TRUST_PROXY` | `true` when behind one reverse proxy: trust `X-Forwarded-Proto` and the last `X-Forwarded-For` hop. Leave false when exposed directly. |
+| `HOTATO_CLOUD_MAX_BODY_BYTES` | Ingest body limit, default 8 MiB. |
+
+Run it behind a TLS-terminating proxy for anything but local use.
+
+## Roles
+
+Owners manage tokens, connections, members, invites and projects. Members read everything in
+their organisation's projects and edit alert rules.
+
+## Backup
+
+Everything is in the database. Postgres:
+`docker compose -f docker-compose.cloud.yml exec db pg_dump -U hotato hotato > hotato-backup.sql`.
+SQLite: `sqlite3 hotato-cloud.sqlite3 ".backup out.sqlite3"`. Keep `HOTATO_CLOUD_SECRET` with
+the backup: saved connection keys cannot be decrypted without it. Restore: load the dump into an
+empty database and start the app with the same secret.
+
+## Upgrade
+
+```bash
+git pull
+docker compose -f docker-compose.cloud.yml up -d --build
+```
+
+On start the app creates any tables that are missing. It does not alter existing tables, so back
+up first; a release that changes a column carries a migration note in the changelog.
+
+## Security notes
+
+Passwords: Argon2. Sessions: random token in an HttpOnly, SameSite=Lax cookie (Secure over
+https), stored hashed, 14 days. Forms carry a CSRF token bound to the session, plus an Origin
+check. Login, sign-up and invite attempts are rate limited per address and per email. API tokens
+and invite links are stored as SHA-256 hashes. Every project query is joined to the caller's
+membership; a project that is not yours answers 404. Pages send a strict Content-Security-Policy
+(no inline script) and escape all stored text.
+
+
+================================================================================
 FILE: docs/COMPARE.md
 ================================================================================
 
@@ -8432,6 +8528,151 @@ Fault schedules require a call controller that exposes the named injection.
 Unsupported injection produces an explicit call error; it is never simulated
 silently. Recovery is measured from the end of the declared fault window to the
 first later successful lifecycle observation and stays separate from quality.
+
+
+================================================================================
+FILE: docs/MONITOR.md
+================================================================================
+
+# Production call monitoring: `hotato monitor`
+
+Connect a Vapi or Retell account and every new call is checked as it arrives.
+A rule that matches sends an alert to your chat, pager or webhook, and a bad
+call becomes a regression test with one command.
+
+```
+export VAPI_API_KEY=...                       # or: hotato connect vapi
+export HOTATO_SLACK_WEBHOOK_URL=<your incoming-webhook URL>
+hotato monitor test-alert --rules rules.json  # prove the wiring first
+hotato monitor run --stack vapi --every 5m --rules rules.json --store ./monitor
+hotato monitor pin CALL_ID --store ./monitor  # a bad call -> a contract
+hotato prove --contracts contracts
+```
+
+## What a cycle does
+
+1. List calls newer than the stored cursor (the first cycle looks back
+   `--since`, default 1h).
+2. Fetch each recording with the same adapters as `hotato pull`, so credentials
+   resolve identically (flag, then `hotato connect`, then `VAPI_API_KEY` /
+   `RETELL_API_KEY`).
+3. Check it with the autopsy engine, unchanged.
+4. Write `STORE/events/<call>.json`, evaluate every rule, send alerts.
+
+A call is scored once: an existing event file means it is done, so restarting
+resumes from the cursor without rescoring. A recording that cannot be fetched
+yet (the call may still be running) is retried each cycle for 5 attempts, then
+recorded with a null score. Alerts are at-least-once: a crash between a send and
+the event write can repeat that one alert; the cooldown and PagerDuty's dedup
+key absorb it. If more than `--limit` calls arrive between cycles the oldest are
+skipped and a warning says so.
+
+Mono recordings follow the project's usual rule: they are refused unless you
+pass `--allow-mono`, and are then reported best-effort (silence timing only)
+with `score: null`. Rules on `score` skip such calls; incident rules still
+evaluate.
+
+## The store
+
+```
+STORE/state.json            cursor, retry queue, call -> autopsy id, rule state
+STORE/events/<call>.json    one event per call
+STORE/audio/                the downloaded recordings (hotato monitor pin needs them)
+STORE/autopsy/              autopsy-<id>.html report and .json envelope
+```
+
+## Event schema `hotato.monitorevent.v1`
+
+```json
+{"schema": "hotato.monitorevent.v1", "call_id": "...", "stack": "vapi",
+ "agent_id": "...", "started_at": "2026-11-26T10:00:00Z", "duration_s": 12.0,
+ "score": 0.0,
+ "incidents": [{"type": "barge-in", "severity": "critical", "at_s": 3.2, "detail": "..."}],
+ "alerts_fired": ["rule-id"], "report_path": "STORE/autopsy/autopsy-apx-....html",
+ "scored_at": "2026-11-26T10:05:00Z"}
+```
+
+`agent_id`, `started_at`, `duration_s`, `score` and `report_path` are `null`
+when unknown. `type` is the autopsy kind: `barge-in`, `talk-over`, `dead-air`,
+`latency-spike`, `echo-suspected`; `severity` is `warning` or `critical`.
+
+`score` is the Voice Stability Score for one call: 100 when the call has no
+critical incident, 0 when it has at least one. The Voice Stability Score that
+`hotato vapi health`, `hotato scan` reports and the site show is the share of
+dual-channel calls with no critical incident, times 100, so the mean of the
+monitored per-call scores is that same number. It is `null` for mono
+recordings, where the score is not defined.
+
+## Rules file
+
+A JSON list (or `{"rules": [...]}`) of:
+
+```json
+[
+  {"id": "low-score", "when": {"metric": "score", "op": "<", "value": 60},
+   "channels": ["slack"], "cooldown_min": 30},
+  {"id": "dead-air", "when": {"incident_type": "dead-air", "severity_at_least": "critical"},
+   "channels": ["slack", "pagerduty"]},
+  {"id": "barge-in-rate", "when": {"incident_type": "barge-in", "severity_at_least": "warning"},
+   "window": {"calls": 20, "min_hits": 5}, "channels": ["pagerduty", "webhook"]}
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | unique name; part of the PagerDuty dedup key |
+| `when` | a metric test or an incident test |
+| `window` | optional, `{"calls": N, "min_hits": M}`: fire only when at least M of the last N calls (per agent) hit |
+| `channels` | any of `slack`, `pagerduty`, `webhook` |
+| `cooldown_min` | minutes before a still-matching rule alerts again (default 15) |
+
+Metric test: `{"metric", "op", "value"}`; `op` is `<`, `>`, `<=` or `>=`.
+Metrics: `score`, `incident_count`, `critical_count`, `warning_count`,
+`dead_air_s` (longest dead-air silence), `latency_gap_s` (longest dead-air or
+latency-spike gap), `talk_over_s` (longest barge-in or talk-over overlap),
+`duration_s`. Incident test: `{"incident_type", "severity_at_least"}`, where
+`incident_type` is a kind above or `any`, and severity defaults to `warning`.
+A call with no data for a metric (unscored, or a score on a mono call) is neither
+a hit nor a clear. A rule naming a channel with no destination is refused (exit
+2) before any call is touched.
+
+State is per rule and agent. A rule alerts when it matches and is not within its
+cooldown; a delivery that fails does not start the cooldown, so the next call
+retries it.
+
+## Channels
+
+| Channel | Destination | Behaviour |
+| --- | --- | --- |
+| `slack` | `--slack-webhook-url` or `HOTATO_SLACK_WEBHOOK_URL` | Block Kit message: rule, call id, stack and agent, score, incidents, report link |
+| `pagerduty` | `--pagerduty-routing-key` or `HOTATO_PAGERDUTY_ROUTING_KEY` (Events API v2) | `trigger` with `dedup_key` `hotato-<rule id>-<agent id>`; `resolve` with the same key when the rule stops matching |
+| `webhook` | `--webhook-url` or `HOTATO_MONITOR_WEBHOOK_URL` | JSON via the same sender as `--notify`: `kind: "monitor-alert"`, rule, call, agent, score, incidents, report path |
+
+`HOTATO_PAGERDUTY_EVENTS_URL` overrides the Events API URL (for example the EU
+service region). `--report-url-base URL` makes alerts link to `URL/<report file>`
+instead of a local path. URLs and keys are never written to logs. Delivery is
+fail-open: a down receiver logs one line and the monitor keeps running. Alerts
+carry timing numbers only, never audio, credentials or transcript text. See
+`docs/EGRESS.md`.
+
+## Test the wiring
+
+`hotato monitor test-alert --rules rules.json` sends one labelled TEST alert per
+rule and channel (PagerDuty gets a trigger and an immediate resolve of a
+test-only key). Exit 0 when every send was delivered, 1 when any failed.
+
+## Pin a bad call
+
+`hotato monitor pin CALL_ID --store DIR [--incident N] [--out contracts]` pins the
+call's top critical incident (or incident N) through `hotato pin`, with all of its
+refusals: a mono recording, a call with no critical incident, or a changed source
+file exits 2 with the reason.
+
+## Exit codes
+
+`monitor run`: 0 after the requested cycle(s) or when stopped; 2 usage error.
+`monitor test-alert`: 0 all delivered, 1 any failed, 2 usage error.
+`monitor pin`: 0 pinned, 2 refused.
 
 
 ================================================================================
@@ -12302,6 +12543,134 @@ New synthetic families are welcome through the normal PR path
 labelled call from your own traffic: walkthrough at
 [`docs/SUBMITTING.md`](SUBMITTING.md); intake via the
 [corpus-submission issue form](https://github.com/attenlabs/hotato/issues/new?template=corpus_submission.yml).
+
+
+================================================================================
+FILE: docs/TESTS.md
+================================================================================
+
+# Simulated-conversation tests: `hotato test run`
+
+A test case describes a caller (a persona), what that caller wants (a goal), and
+what a good call looks like (success criteria). An LLM plays the caller against
+your chat agent turn by turn; a judge LLM then grades each run. Each case runs
+several times and the result reports a pass rate, so one lucky run cannot hide a
+flaky agent.
+
+Voice is not part of this command: it drives chat agents.
+
+`hotato test run` also accepts a `hotato.conversation-test` file
+(see `docs/CONVERSATION-TEST.md`); the two are told apart by the file itself. A
+directory, or a file with `persona` / `success_criteria` and no `kind`, is a
+simulated-conversation case.
+
+## Write a case
+
+`hotato test new refund-damaged` writes a starter. A case is YAML when PyYAML is
+importable, otherwise JSON (YAML files need `pip install pyyaml` to be read;
+`test new` writes JSON when PyYAML is absent).
+
+```yaml
+name: refund-damaged
+persona: "A {{mood}} customer whose order arrived damaged. Short answers."
+goal: "Get a replacement or refund arranged for order {{order_id}}."
+success_criteria:
+  - "The agent asks for the order number or confirms the order"
+  - "The agent offers a concrete next step (replacement or refund)"
+forbidden:
+  - "promises a refund before checking the order"
+expected_tool_calls:
+  - lookup_order
+  - {name: create_refund, arguments: {order_id: "A-1001"}}
+max_turns: 12
+repeat: 3
+variables: {mood: frustrated, order_id: A-1001}
+```
+
+| key | meaning |
+| --- | --- |
+| `name` | label (defaults to the file name) |
+| `persona`, `goal` | free text; `{{variable}}` placeholders are filled from `variables` |
+| `success_criteria` | plain-language statements the judge grades |
+| `forbidden` | behaviours that must not happen |
+| `expected_tool_calls` | tool names, or `{name, arguments}` (arguments are a subset match) |
+| `max_turns` | caller turns before the run is cut off (default 12) |
+| `repeat` | runs per case (default 3; `--repeat N` overrides) |
+
+Unknown keys are refused, so a typo never silently weakens a test.
+
+## Run it
+
+```
+hotato test run cases/ --agent chat:http://127.0.0.1:8080/chat --repeat 5 --out ./out
+hotato test run refund.yaml --agent vapi:<assistant-id> --egress-opt-in --judge-provider anthropic --judge-egress-opt-in
+hotato test run refund.yaml --agent retell:<agent-id> --egress-opt-in --format json
+```
+
+`--agent` takes:
+
+- `chat:URL` (or a bare `http(s)` URL): the chat HTTP contract of
+  `hotato simulate --chat` (`POST {conversation_id, turn_index, text}` ->
+  `{text}`). Tool calls are not part of that contract.
+- `vapi:ASSISTANT_ID`: Vapi's chat API (`POST /chat`, later turns pass
+  `previousChatId`). Key from `VAPI_API_KEY` or `hotato connect vapi`.
+- `retell:AGENT_ID`: Retell's chat API (`create-chat`, `create-chat-completion`);
+  the case `variables` are passed as dynamic variables and tool calls are
+  reported. Key from `RETELL_API_KEY` or `hotato connect retell`.
+
+### The LLM (caller and judge)
+
+The same LLM plays the caller and judges. Default: local Ollama (no egress).
+
+| `--judge-provider` | endpoint / key |
+| --- | --- |
+| `ollama` (default) | `http://localhost:11434` or `--judge-endpoint` |
+| `openai` (alias `hosted`) | any OpenAI-compatible base URL via `--judge-endpoint` / `OPENAI_BASE_URL`; key `HOTATO_JUDGE_API_KEY` or `OPENAI_API_KEY` |
+| `anthropic` | `ANTHROPIC_API_KEY` |
+| `gemini` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+
+`--judge-model` (or `HOTATO_JUDGE_MODEL`) picks the model; `HOTATO_JUDGE_PROVIDER`
+picks the provider. Egress is opt-in, as everywhere in hotato: a non-local LLM
+needs `--judge-egress-opt-in`; a non-local chat URL, Vapi or Retell need
+`--egress-opt-in`. Refusals happen before any request.
+
+## Read the result
+
+`--out DIR` writes `testrun.json` (schema `hotato.testrun.v1`) and
+`report.html`. `--format json` prints the same JSON; the default prints a text
+summary.
+
+Per run, each criterion and forbidden item gets a verdict
+`{criterion, verdict, confidence, evidence, explanation}`:
+
+- `pass`, `fail`, or `unknown` (the transcript gives no evidence).
+- Evidence is an exact quote from the transcript. A criterion `pass` without a
+  quote that really occurs in the transcript is downgraded to `unknown`. A
+  forbidden item that was not violated has nothing to quote, so its `pass` needs
+  none.
+- Expected tool calls are checked without the LLM. A target that does not report
+  tool calls yields `unknown`, never `pass`.
+
+A run passes when it has no error and every verdict is `pass` (`unknown` is not a
+pass). Per case: `pass_rate` is passed runs over repeats and `pass_all` means
+every repeat passed (the pass^k idea). `criteria[].pass_rate` is per criterion.
+`summary.pass_rate` is the mean of case pass rates; `summary.pass_all` counts
+cases that passed every repeat.
+
+Exit codes: 0 every case passed every repeat (or met `--min-pass-rate`), 1 any
+case failed, 2 bad input, a refused egress, or no usable judge.
+
+## Turn a failed call into a case
+
+```
+hotato test from-call call.transcript.json --name refund-regression
+hotato test from-call report.json --moment "The agent confirms the refund amount before ending"
+hotato test from-call call.transcript.json --at 42.5
+```
+
+The persona and goal come from the caller's own lines. The failing moment becomes
+a criterion: from `--moment`, from the findings in a report, or from the agent
+reply at `--at` seconds. Review and tighten the written case before relying on it.
 
 
 ================================================================================

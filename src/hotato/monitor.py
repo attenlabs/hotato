@@ -73,11 +73,11 @@ OPS = {"<": lambda a, b: a < b, ">": lambda a, b: a > b,
        ">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b}
 SEVERITIES = ("warning", "critical")
 
-# Per-call score: 100 minus a fixed penalty per measured incident, floored at 0.
-# Documented in docs/MONITOR.md; it is a per-call number for alert thresholds,
-# not the fleet-level Voice Stability Score.
-CRITICAL_PENALTY = 25.0
-WARNING_PENALTY = 5.0
+# Per-call score: the Voice Stability Score for one call. The project's score
+# is the share of dual-channel calls with zero critical incidents, times 100
+# (scanfolder ``critical_free_call_rate``); for a single call that share is
+# 100 (no critical incident) or 0. Averaged over calls it is the same number
+# ``hotato <stack> health`` reports. Documented in docs/MONITOR.md.
 
 # A recording that is not downloadable yet (the call may still be running) is
 # retried each cycle; after this many attempts the call is recorded unscored.
@@ -201,10 +201,9 @@ def _validate_rule(raw: Any, i: int, seen: set) -> dict:
 # --- per-call measurement ----------------------------------------------------
 
 def call_score(incidents: List[dict]) -> float:
-    """100 minus 25 per critical and 5 per warning incident, floored at 0."""
-    pen = sum(CRITICAL_PENALTY if i["severity"] == "critical" else WARNING_PENALTY
-              for i in incidents)
-    return round(max(0.0, 100.0 - pen), 1)
+    """Voice Stability Score of one dual-channel call: 100 with no critical
+    incident, else 0 (the per-call form of the critical-free call share)."""
+    return 0.0 if any(i["severity"] == "critical" for i in incidents) else 100.0
 
 
 def _num(d: dict, *keys: str) -> Optional[float]:

@@ -5849,9 +5849,9 @@ _PUBLIC_SURFACE = frozenset({
     # Onboarding
     "start", "demo", "doctor",
     # Continuous use
-    "console", "production", "serve",
+    "console", "production", "serve", "monitor", "cloud",
     # Checks
-    "contract",
+    "contract", "test",
     # Agent-native
     "describe",
 })
@@ -5952,10 +5952,13 @@ def build_parser() -> argparse.ArgumentParser:
             "  vapi health  run it on a schedule and watch the trend\n"
             "  console      browse and score your live calls in a local browser tab\n"
             "  production   the on-disk store your live calls report into\n"
-            "  serve        the local workspace your team reviews calls in\n\n"
+            "  serve        the local workspace your team reviews calls in\n"
+            "  monitor      score every new Vapi or Retell call and alert on your rules\n"
+            "  cloud        the team web app: serve it, push artifacts to it\n\n"
             "Checks:\n"
             "  contract     create, verify, and pack pinned failure checks\n"
-            "               (pin's artifacts verify through it)\n\n"
+            "               (pin's artifacts verify through it)\n"
+            "  test         run persona simulations or conversation tests; new, from-call\n\n"
             "Agent-native:\n"
             "  describe     the generated machine-readable manifest of every command\n\n"
             "Everything else lives under hotato lab (see: hotato lab --help).\n"

@@ -55,6 +55,20 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   TRANSCRIPT_OR_REPORT` turns a failed production call into a case. See
   `docs/TESTS.md`.
 
+### Changed
+
+- `hotato monitor`, `hotato cloud` and `hotato test` are public top-level commands: they are
+  listed in `hotato --help` and recorded as public in `hotato describe`.
+- The monitor's per-call `score` is the Voice Stability Score for one call (100 with no critical
+  incident, otherwise 0), replacing the penalty-based number; it stays `null` on mono recordings.
+- README and llms.txt lead with: hotato simulates, monitors and gates voice agents in CI; open
+  source, local-first, with a hosted option.
+
+### Fixed
+
+- `tests/test_init_webhook.py` sends the non-ASCII Retell signature as raw bytes, so the case
+  reaches the scaffolded verifier (which rejects it with 401) instead of failing in the HTTP client.
+
 ## [1.21.0] - 2026-11-26
 
 The next release: a scenario generator, and three corrections to what the

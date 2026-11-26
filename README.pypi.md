@@ -12,7 +12,9 @@
 
 # hotato
 
-**Find what broke in your agent calls. Pin it and CI stays red until you fix it.**
+**Hotato simulates, monitors and gates voice agents in CI. Open source, local-first, with a hosted option.**
+
+Find what broke in your agent calls. Pin it and CI stays red until you fix it.
 
 ```bash
 pip install hotato

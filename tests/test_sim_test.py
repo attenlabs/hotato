@@ -3,7 +3,8 @@ import json
 
 import pytest
 
-from hotato import cli, sim_test as S
+from hotato import cli
+from hotato import sim_test as S
 
 
 class FakeAgent(S.AgentTarget):

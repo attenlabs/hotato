@@ -50,7 +50,7 @@ STORE/autopsy/              autopsy-<id>.html report and .json envelope
 ```json
 {"schema": "hotato.monitorevent.v1", "call_id": "...", "stack": "vapi",
  "agent_id": "...", "started_at": "2026-11-26T10:00:00Z", "duration_s": 12.0,
- "score": 75.0,
+ "score": 0.0,
  "incidents": [{"type": "barge-in", "severity": "critical", "at_s": 3.2, "detail": "..."}],
  "alerts_fired": ["rule-id"], "report_path": "STORE/autopsy/autopsy-apx-....html",
  "scored_at": "2026-11-26T10:05:00Z"}
@@ -60,9 +60,12 @@ STORE/autopsy/              autopsy-<id>.html report and .json envelope
 when unknown. `type` is the autopsy kind: `barge-in`, `talk-over`, `dead-air`,
 `latency-spike`, `echo-suspected`; `severity` is `warning` or `critical`.
 
-`score` is per call: 100 minus 25 per critical incident and 5 per warning
-incident, floored at 0. It is a threshold for alerting, not the fleet-level
-Voice Stability Score that `hotato vapi health` reports.
+`score` is the Voice Stability Score for one call: 100 when the call has no
+critical incident, 0 when it has at least one. The Voice Stability Score that
+`hotato vapi health`, `hotato scan` reports and the site show is the share of
+dual-channel calls with no critical incident, times 100, so the mean of the
+monitored per-call scores is that same number. It is `null` for mono
+recordings, where the score is not defined.
 
 ## Rules file
 

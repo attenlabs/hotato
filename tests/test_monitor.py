@@ -201,7 +201,7 @@ def test_cycle_writes_schema_exact_events_and_is_idempotent(tmp_path):
     assert list(ev) == EVENT_KEYS
     assert ev["schema"] == "hotato.monitorevent.v1"
     assert ev["stack"] == "vapi" and ev["agent_id"] == "asst-1"
-    assert ev["score"] == 75.0 and ev["duration_s"] == 12.0
+    assert ev["score"] == 0.0 and ev["duration_s"] == 12.0
     assert ev["started_at"].endswith("Z") and ev["scored_at"].endswith("Z")
     inc = ev["incidents"][0]
     assert list(inc) == ["type", "severity", "at_s", "detail"]
@@ -239,7 +239,7 @@ def test_not_yet_recorded_call_is_retried_then_recorded_unscored(tmp_path):
         assert not store.has_event("c1")
     v.calls["c1"] = (1_999_999_000.0, None, BARGE)   # recording appears
     assert m.run_cycle()["scored"] == 1
-    assert _event(store, "c1")["score"] == 75.0
+    assert _event(store, "c1")["score"] == 0.0
 
     v.add("c2", 1_999_999_100.0, None, ValueError("never"))
     for _ in range(mon.MAX_FETCH_ATTEMPTS):
@@ -286,7 +286,7 @@ def test_slack_block_kit_message(tmp_path, rx):
     m.run_cycle()
     (body,) = rx.bodies("/slack")
     text = json.dumps(body)
-    assert "call-xyz" in body["text"] and "75" in body["text"]
+    assert "call-xyz" in body["text"] and "0" in body["text"]
     assert [b["type"] for b in body["blocks"]][0] == "header"
     assert "barge-in" in text and "CRITICAL" in text
     assert "https://reports.example/x/autopsy-apx-" in text
@@ -342,7 +342,7 @@ def test_webhook_payload_and_secrets_never_logged(tmp_path, rx, capsys):
     (hook,) = rx.bodies("/hook?token=SEKRET")
     assert hook["tool"] == "hotato" and hook["kind"] == "monitor-alert"
     assert hook["call_id"] == "c2" and hook["rule_id"] == "r"
-    assert hook["agent_id"] == "asst-1" and hook["score"] == 75.0
+    assert hook["agent_id"] == "asst-1" and hook["score"] == 0.0
     assert hook["incidents"][0]["type"] == "dead-air"
 
 
@@ -472,3 +472,10 @@ def test_monitor_is_in_the_describe_manifest(capsys):
     cmds = {c["name"]: c for c in manifest["subcommands"]}
     assert {s["name"] for s in cmds["monitor"]["subcommands"]} == {
         "monitor run", "monitor test-alert", "monitor pin"}
+
+
+def test_call_score_is_per_call_voice_stability_score():
+    from hotato.monitor import call_score
+    assert call_score([]) == 100.0
+    assert call_score([{"severity": "warning"}, {"severity": "warning"}]) == 100.0
+    assert call_score([{"severity": "warning"}, {"severity": "critical"}]) == 0.0
