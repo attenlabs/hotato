@@ -1,0 +1,68 @@
+# Infra pipeline: terraform fmt -check -> init (GCS backend) -> validate -> plan -> apply (main only).
+# Started by the Cloud Build triggers in infra/maintenance.tf, which supply the service account:
+#   hotato-infra-apply  push to main touching autopilot/infra/**   runs as hotato-infra,      _APPLY=true
+#   hotato-infra-plan   pull request to main              runs as hotato-infra-plan, _APPLY=false
+# Apply happens only when _APPLY=true AND the build came from the main branch ($BRANCH_NAME is set
+# by the trigger and cannot be passed in by hand). Variables come from gs://<state bucket>/config/hotato.tfvars,
+# which the owner's bootstrap step uploads.
+substitutions:
+  _APPLY: "false"
+  _TFSTATE: ""
+  _TF_IMAGE: hashicorp/terraform:1.9.8
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitution_option: ALLOW_LOOSE
+
+steps:
+  - id: tfvars
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        [ -n "$_TFSTATE" ] || { echo "_TFSTATE (the Terraform state bucket) is not set"; exit 1; }
+        gcloud storage cp "gs://$_TFSTATE/config/hotato.tfvars" autopilot/infra/hotato.tfvars
+
+  - id: fmt
+    name: $_TF_IMAGE
+    dir: autopilot/infra
+    args: ["fmt", "-check", "-recursive", "-diff"]
+    waitFor: ["-"]
+
+  - id: init
+    name: $_TF_IMAGE
+    dir: autopilot/infra
+    args: ["init", "-input=false", "-backend-config=bucket=$_TFSTATE"]
+    waitFor: ["tfvars", "fmt"]
+
+  - id: validate
+    name: $_TF_IMAGE
+    dir: autopilot/infra
+    args: ["validate"]
+
+  - id: plan
+    name: $_TF_IMAGE
+    dir: autopilot/infra
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -eu
+        LOCK=false
+        [ "$_APPLY" = "true" ] && [ "$BRANCH_NAME" = "main" ] && LOCK=true
+        terraform plan -input=false -lock=$$LOCK -var-file=hotato.tfvars -out=tfplan
+
+  - id: apply
+    name: $_TF_IMAGE
+    dir: autopilot/infra
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -eu
+        if [ "$_APPLY" != "true" ] || [ "$BRANCH_NAME" != "main" ]; then
+          echo "plan only (branch '$BRANCH_NAME', _APPLY=$_APPLY)"; exit 0
+        fi
+        terraform apply -input=false tfplan

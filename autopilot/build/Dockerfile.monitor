@@ -1,0 +1,9 @@
+# Hosted monitoring service: `hotato serve` on Cloud Run's $PORT.
+# The bearer token comes from Secret Manager `serve-token`, mounted at /secrets/serve-token/token (autopilot/infra/run.tf). Build context: the repository root.
+# Liveness probe: GET /robots.txt (unauthenticated, no workspace data). Every other route needs the token.
+FROM python:3.12-slim
+WORKDIR /app
+COPY . .
+RUN pip install --no-cache-dir .
+ENV PYTHONUNBUFFERED=1
+CMD ["sh", "-c", "hotato serve --host 0.0.0.0 --port ${PORT:-8080} --no-open --token-file /secrets/serve-token/token"]

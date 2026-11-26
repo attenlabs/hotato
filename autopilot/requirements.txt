@@ -1,0 +1,4 @@
+# runtime deps for the job image (pinned by the upkeep job)
+google-cloud-storage==2.18.2
+google-genai==1.2.0
+cryptography==43.0.3

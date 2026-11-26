@@ -1,0 +1,14 @@
+{
+  "_note": "Starting bar for hotato's benchmarks/baseline.json (owner-only via CODEOWNERS). Measured on hotato 1.21.0, 26 Nov 2026, bundled synthetic fixtures: python -m hotato.benchmark.",
+  "lower": {
+    "error_stats_ms.onset_sec.max_ms": 10.0,
+    "error_stats_ms.time_to_yield_sec.max_ms": 0.0,
+    "error_stats_ms.response_gap_sec.max_ms": 10.0,
+    "confusion.missed_yield": 1,
+    "confusion.false_yield": 1
+  },
+  "higher": {
+    "confusion.correct_yield": 9,
+    "confusion.correct_hold": 5
+  }
+}
