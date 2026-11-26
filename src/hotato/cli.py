@@ -482,21 +482,35 @@ _EXIT_CODES: dict = {
     "test": (
         (2, "no subcommand given (see hotato test run --help)"),
     ),
+    "test new": (
+        (0, "a starter simulated-conversation case was written"),
+        (2, "usage error, or the target file already exists"),
+    ),
+    "test from-call": (
+        (0, "a simulated-conversation case was written from the call"),
+        (2, "usage error, or an unreadable transcript/report with no caller "
+            "turns, or the target file already exists"),
+    ),
     "test run": (
         (0, "the deterministic lane passed (or, under --inconclusive-policy "
             "report, at most INCONCLUSIVE) AND every success.required condition "
-            "held"),
+            "held; in simulated-conversation mode (docs/TESTS.md): every case "
+            "passed every repeat, or met --min-pass-rate"),
         (1, "a success.required condition failed, a deterministic assertion "
             "FAILed, a rubric FAIL gated under --gate-judge, or -- under "
             "--inconclusive-policy fail -- an INCONCLUSIVE (missing required "
-            "input) result gated"),
+            "input) result gated; in simulated-conversation mode: a case failed "
+            "a repeat"),
         (2, "under --inconclusive-policy refuse an INCONCLUSIVE result withheld "
             "the verdict (takes precedence over a FAIL); under --gate-judge a "
             "judge ERROR with no rubric FAIL withheld the verdict (the judge "
             "could not run, distinct from a scored failure's exit 1); OR a "
             "usage error / unusable input: a malformed conversation-test file, "
             "an unreadable --transcript/--trace/--state file, an unscorable "
-            "--audio recording, or html/md without --out and --audio"),
+            "--audio recording, or html/md without --out and --audio; in "
+            "simulated-conversation mode: bad input, an egress refused "
+            "without --egress-opt-in / --judge-egress-opt-in, or no usable "
+            "judge LLM"),
     ),
     "suite": (
         (2, "no subcommand given (see hotato suite run --help)"),
@@ -3693,7 +3707,7 @@ def _load_state_adapter(path: str):
     return load_state_adapter(path)
 
 
-def _add_judge_args(p) -> None:
+def _add_judge_args(p, *, sim: bool = False) -> None:
     """Shared judge/cache flags for the model-judge lane (``rubric run``,
     ``rubric calibrate``, and ``test run``). The default judge is a LOCAL Ollama
     model (zero egress); a hosted backend is refused without
@@ -3701,8 +3715,9 @@ def _add_judge_args(p) -> None:
     p.add_argument("--judge-model", default=None, metavar="ID",
                    help="the pinned judge model id (default: qwen2.5vl:3b for "
                         "Ollama, or $HOTATO_JUDGE_MODEL); never 'latest'")
-    p.add_argument("--judge-provider", default="ollama",
-                   choices=["ollama", "hosted"],
+    p.add_argument("--judge-provider", default=None if sim else "ollama",
+                   choices=["ollama", "hosted"]
+                   + (["openai", "anthropic", "gemini"] if sim else []),
                    help="ollama (default, LOCAL, zero egress) or hosted "
                         "(off-box, requires --judge-endpoint + "
                         "--judge-egress-opt-in)")
@@ -3860,7 +3875,73 @@ def _cmd_rubric_calibrate(args) -> int:
     return 0
 
 
+def _write_case_file(case: dict, out_dir: str, as_json: bool) -> str:
+    from . import sim_test as ST
+    try:
+        import yaml  # noqa: F401
+        have_yaml = True
+    except ImportError:
+        have_yaml = False
+    use_yaml = have_yaml and not as_json
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, ST._slug(case["name"]) + (".yaml" if use_yaml else ".json"))
+    if os.path.exists(path):
+        raise ValueError(f"{path} already exists; pick another name or --out")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(ST.dump_case(case, use_yaml))
+    return path
+
+
+def _cmd_test_new(args) -> int:
+    from . import sim_test as ST
+    path = _write_case_file(ST.starter_case(args.name), args.out, args.json)
+    print(f"wrote {path}\nnext: hotato test run {path} --agent chat:URL")
+    return 0
+
+
+def _cmd_test_from_call(args) -> int:
+    from . import sim_test as ST
+    from .errors import load_json_file
+    doc = load_json_file(args.call)
+    name = args.name or os.path.splitext(os.path.basename(args.call))[0]
+    case = ST.case_from_transcript(doc, name, moment=args.moment, at=args.at)
+    path = _write_case_file(case, args.out, args.json)
+    print(f"wrote {path}\nreview the persona, goal and criteria, then: "
+          f"hotato test run {path} --agent chat:URL")
+    return 0
+
+
+def _cmd_test_run_sim(args) -> int:
+    from . import sim_test as ST
+    if not 0.0 <= args.min_pass_rate <= 1.0:
+        raise ValueError("--min-pass-rate must be between 0 and 1")
+    if args.repeat is not None and args.repeat < 1:
+        raise ValueError("--repeat must be >= 1")
+    cases = ST.load_cases(args.test_file)
+    agent = ST.make_agent(args.agent, egress_opt_in=args.egress_opt_in)
+    llm = ST.make_llm(args.judge_provider, args.judge_model, args.judge_endpoint,
+                      egress_opt_in=args.judge_egress_opt_in)
+    llm.preflight()
+    result = ST.run_cases(cases, agent, llm, llm, repeat=args.repeat)
+    if args.out:
+        os.makedirs(args.out, exist_ok=True)
+        with open(os.path.join(args.out, "testrun.json"), "w", encoding="utf-8") as fh:
+            fh.write(_errors.safe_json_dumps(result, indent=2) + "\n")
+        with open(os.path.join(args.out, "report.html"), "w", encoding="utf-8") as fh:
+            fh.write(ST.render_html(result))
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(ST.render_text(result), end="")
+        if args.out:
+            print(f"wrote {os.path.join(args.out, 'testrun.json')} and report.html")
+    return ST.exit_code(result, args.min_pass_rate)
+
+
 def _cmd_test_run(args) -> int:
+    from . import sim_test as ST
+    if ST.looks_like_case_path(args.test_file):
+        return _cmd_test_run_sim(args)
     from . import assert_ as A
     from . import conversation_test as CT
     from . import test_run as TR
@@ -8163,7 +8244,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_exit_codes_epilog("test"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    tstsub = tst.add_subparsers(dest="test_command", required=True, metavar="run")
+    tstsub = tst.add_subparsers(dest="test_command", required=True,
+                                metavar="{run,new,from-call}")
     tr_ = tstsub.add_parser(
         "run",
         help="evaluate one conversation-test.yaml against a supplied "
@@ -8198,11 +8280,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    tr_.add_argument("test_file", metavar="conversation-test.yaml",
-                     help="the conversation-test.v1 file to evaluate")
+    tr_.add_argument("test_file", metavar="conversation-test.yaml|cases",
+                     help="the conversation-test.v1 file to evaluate, OR a "
+                          "case directory / persona+goal case file for "
+                          "simulated conversations (docs/TESTS.md)")
     tr_.add_argument("--agent", required=True, metavar="ID",
                      help="agent_id under test (recorded on the conversation "
-                          "artifact)")
+                          "artifact); in simulated-conversation mode the "
+                          "target: chat:URL, vapi:ASSISTANT_ID or "
+                          "retell:AGENT_ID")
     tr_.add_argument("--transcript", default=None, metavar="FILE",
                      help="a transcript JSON (a {role,text,start,end} array or "
                           "the {\"segments\": [...]} shape); phrase/pii/count "
@@ -8238,12 +8324,66 @@ def build_parser() -> argparse.ArgumentParser:
                      help="text (default: the per-dimension summary), html/md "
                           "(the unified report into --out, needs --audio), or "
                           "json (the full machine result)")
-    _add_judge_args(tr_)
+    _add_judge_args(tr_, sim=True)
+    tr_.add_argument("--repeat", type=int, default=None, metavar="N",
+                     help="(simulated-conversation mode) runs per case "
+                          "(default: the case's repeat, else 3)")
+    tr_.add_argument("--min-pass-rate", type=float, default=1.0, metavar="X",
+                     help="(simulated-conversation mode) pass when each case's "
+                          "pass rate is >= X (default 1.0: every repeat must "
+                          "pass)")
+    tr_.add_argument("--egress-opt-in", action="store_true",
+                     help="(simulated-conversation mode) allow the agent "
+                          "target to be off this machine (a non-local chat "
+                          "URL, Vapi, Retell)")
     tr_.add_argument("--gate-judge", action="store_true",
                      help="opt into failing the exit code on a rubric FAIL "
                           "(model-judged results are ADVISORY by default and "
                           "never gate CI on their own)")
     tr_.set_defaults(func=_cmd_test_run)
+
+    tn_ = tstsub.add_parser(
+        "new",
+        help="write a starter simulated-conversation case (persona, goal, "
+             "criteria)",
+        description="Write a starter case for `hotato test run`: YAML when "
+                    "PyYAML is importable, else JSON. See docs/TESTS.md.",
+        epilog=_exit_codes_epilog("test new"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tn_.add_argument("name", metavar="NAME", help="the case name")
+    tn_.add_argument("--out", default=".", metavar="DIR",
+                     help="directory to write into (default: .)")
+    tn_.add_argument("--json", action="store_true",
+                     help="write JSON even when PyYAML is available")
+    tn_.set_defaults(func=_cmd_test_new)
+    tf_ = tstsub.add_parser(
+        "from-call",
+        help="turn a failed production call (transcript or report) into a "
+             "simulated-conversation case",
+        description="Infer a persona and goal from the caller's side of a "
+                    "call and turn the failing moment into a success "
+                    "criterion. Offline; review the case before relying on "
+                    "it. See docs/TESTS.md.",
+        epilog=_exit_codes_epilog("test from-call"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tf_.add_argument("call", metavar="TRANSCRIPT_OR_REPORT",
+                     help="a transcript JSON (turn array or {segments}) or a "
+                          "report JSON carrying one")
+    tf_.add_argument("--name", default=None, metavar="NAME",
+                     help="the case name (default: the input file's name)")
+    tf_.add_argument("--moment", default=None, metavar="TEXT",
+                     help="the failing moment, as a success criterion in plain "
+                          "language")
+    tf_.add_argument("--at", type=float, default=None, metavar="SECONDS",
+                     help="the failing moment's time in the call; the agent "
+                          "reply there becomes the criterion")
+    tf_.add_argument("--out", default=".", metavar="DIR",
+                     help="directory to write into (default: .)")
+    tf_.add_argument("--json", action="store_true",
+                     help="write JSON even when PyYAML is available")
+    tf_.set_defaults(func=_cmd_test_from_call)
 
     # --- suite: run a suite.v1 of conversation-tests -------------------------
     su = sub.add_parser(

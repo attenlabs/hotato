@@ -42,7 +42,7 @@ _ALL_SUBCOMMANDS = [
     "observe", "observe capture", "observe cost", "observe percentiles",
     "observe report",
     "assert", "assert init", "assert run", "assert packs",
-    "test", "test run",
+    "test", "test run", "test new", "test from-call",
     "suite", "suite run",
     "release", "release compare",
     "baseline", "baseline check",

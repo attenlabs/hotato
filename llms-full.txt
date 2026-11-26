@@ -9389,6 +9389,7 @@ name that worked before 1.17 still runs unchanged.
 ### Test and simulate
 
 - [SIMULATE.md](SIMULATE.md) - render a scenario into a deterministic labelled conversation
+- [TESTS.md](TESTS.md) - persona-driven simulated chat conversations with per-criterion verdicts and pass rates
 - [CONVERSATION-TEST.md](CONVERSATION-TEST.md) - one file, one call, a per-dimension scorecard
 - [SUITES.md](SUITES.md) - four tiered deterministic corpus suites
 - [SUITE-RUN.md](SUITE-RUN.md) - execute a suite, per-dimension report

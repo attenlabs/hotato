@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Added
+
+- `hotato test run <cases dir or file> --agent <target> [--repeat N] [--out DIR]`
+  runs persona-driven simulated conversations: an LLM plays a caller toward a
+  goal against a chat agent (`chat:URL` for the existing chat HTTP contract,
+  `vapi:ASSISTANT_ID`, `retell:AGENT_ID`), a judge returns a typed verdict
+  (pass, fail or unknown, with an exact transcript quote) per success criterion
+  and forbidden behaviour, expected tool calls are checked deterministically, and
+  each case repeats to give a pass rate per criterion and per case plus
+  `pass_all`. Writes `testrun.json` (`hotato.testrun.v1`) and `report.html`.
+  LLM providers: local Ollama (default), any OpenAI-compatible base URL,
+  Anthropic, Gemini; off-box use needs `--judge-egress-opt-in` (LLM) and
+  `--egress-opt-in` (agent target). A directory or a persona/goal case file
+  selects this mode; `hotato.conversation-test` files behave as before.
+- `hotato test new NAME` writes a starter case; `hotato test from-call
+  TRANSCRIPT_OR_REPORT` turns a failed production call into a case. See
+  `docs/TESTS.md`.
+
 ## [1.21.0] - 2026-11-26
 
 The next release: a scenario generator, and three corrections to what the
