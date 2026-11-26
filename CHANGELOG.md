@@ -10,7 +10,7 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 - Delivery warnings for `--notify` and `hotato monitor` alerts show only the scheme and host of the destination; incoming-webhook URLs carry their secret in the path.
 - `hotato test run` no longer accepts a quote shorter than three words as evidence for a pass.
 
-## [Unreleased]
+## [1.22.0] - 2026-11-26
 
 ### Added
 
