@@ -20,6 +20,12 @@ from common import ModelUnavailable, alert, gcp_token, http_resp
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 
+def vertex_region():
+    """Vertex AI location. Gemini and Claude are served to this project on the global endpoint;
+    the regional us-central1 endpoint answers 404 for them, so global is the default."""
+    return os.environ.get("VERTEX_REGION", "global")
+
+
 def model_config(cfg=None):
     if cfg is None:
         from gates.policy import load_config
@@ -41,7 +47,7 @@ def vertex_probe(publisher, model):
     """True = available, False = not found (404, the model is retired or unknown),
     None = unknown (400, 403 permission or API off, 429, 5xx, network)."""
     project = os.environ.get("GCP_PROJECT", "")
-    region = os.environ.get("GCP_REGION", "us-central1")
+    region = vertex_region()
     host = "aiplatform.googleapis.com" if region == "global" else f"{region}-aiplatform.googleapis.com"
     try:
         headers = {"Authorization": f"Bearer {gcp_token()}", "Content-Type": "application/json"}

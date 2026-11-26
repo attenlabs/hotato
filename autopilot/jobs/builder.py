@@ -55,7 +55,7 @@ def agent_env():
     # the agent never sees a GitHub credential (bot token or App key)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_BOT", "GITHUB_APP"))}
     env.update(CLAUDE_CODE_USE_VERTEX="1", ANTHROPIC_VERTEX_PROJECT_ID=os.environ.get("GCP_PROJECT", ""),
-               CLOUD_ML_REGION=os.environ.get("GCP_REGION", "us-central1"))
+               CLOUD_ML_REGION=os.environ.get("VERTEX_REGION", "global"))
     return env
 
 

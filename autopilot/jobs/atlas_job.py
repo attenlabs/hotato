@@ -26,7 +26,7 @@ class GeminiEngine:
         if self._client is None:
             from google import genai  # google-genai, Vertex mode (ADC of the job's service account)
             self._client = genai.Client(vertexai=True, project=os.environ["GCP_PROJECT"],
-                                        location=os.environ.get("GCP_REGION", "us-central1"))
+                                        location=models.vertex_region())
         return self._client
 
     def run(self, prompt, context):

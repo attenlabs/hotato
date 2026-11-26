@@ -22,8 +22,8 @@
   "promote_after_clean_days": 7,
   "promote_after_clean_days_by_job": {"scorecard": 2},
   "models": {
-    "atlas": {"publisher": "google", "env": "ATLAS_GEMINI_MODEL", "use": ["gemini-2.5-flash", "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-flash-lite"]},
-    "simulate": {"publisher": "google", "env": "SIM_MODEL", "use": ["gemini-2.5-flash", "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-flash-lite"]},
+    "atlas": {"publisher": "google", "env": "ATLAS_GEMINI_MODEL", "use": ["gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"]},
+    "simulate": {"publisher": "google", "env": "SIM_MODEL", "use": ["gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"]},
     "builder": {"publisher": "anthropic", "env": "BUILDER_MODEL", "use": ["claude-sonnet-4-5", "claude-opus-4-5"]},
     "reviewer": {"publisher": "anthropic", "env": "REVIEWER_MODEL", "use": ["claude-opus-4-5", "claude-sonnet-4-5"]}
   }
