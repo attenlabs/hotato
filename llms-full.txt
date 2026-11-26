@@ -1703,7 +1703,7 @@ separated turn-taking without `--allow-mono`.
   - Fetch recording: `GET .../Recordings/{RE...}.wav?RequestedChannels=2` (HTTP Basic)
   - Channel basis: two-party recordings are stored dual-channel by default, so `RequestedChannels=2` returns per-leg audio (ch0 = caller, ch1 = agent); the download format with the parameter omitted follows what was requested at creation. 400 → clean stop or `--allow-mono` → `RequestedChannels=1`. Accounts on Encryption with Public Key or External Storage receive mono regardless. Conference recordings are NOT per-party: ch0 is the first participant that joined with recording enabled and ch1 mixes everyone else, so a conference pull carries two channels without carrying two parties
 - **Retell**
-  - List recent calls: Retell documents `POST https://api.retellai.com/v3/list-calls` (Bearer, body `limit`/`pagination_key`/`filter_criteria`, items carry `call_id`); hotato pulls from an explicit `--call-id` until that lister is wired (issue #58)
+  - List recent calls: Retell documents `POST https://api.retellai.com/v3/list-calls` (Bearer, body `limit`/`pagination_key`/`filter_criteria`, items carry `call_id`); hotato lists through it with cursor paging (`pagination_key`/`has_more`); `get-call` stays on v2
   - Fetch recording: `GET https://api.retellai.com/v2/get-call/{id}` (Bearer) → `scrubbed_recording_multi_channel_url` preferred, then `recording_multi_channel_url`; plain mono `recording_url` rejected unless `--allow-mono`
   - Channel basis: per-party channels on the `*_multi_channel_url` fields
 - **LiveKit**
