@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Call {{ call.call_id }} - hotato{% endblock %}
+{% block body %}
+<p><a href="/p/{{ project.id }}/calls">&larr; Calls</a></p>
+<h1>Call <span class="mono">{{ call.call_id }}</span></h1>
+<div class="grid">
+  <div class="stat"><div class="k">Time</div><div class="v sm">{{ fmt_ts(call.ts) }}</div></div>
+  <div class="stat"><div class="k">Agent</div><div class="v sm">{{ call.agent_id or '-' }}</div><span class="muted">{{ call.stack }}</span></div>
+  <div class="stat"><div class="k">Duration</div><div class="v">{{ fmt_dur(call.duration_s) }}</div></div>
+  <div class="stat"><div class="k">Score</div><div class="v">{{ fmt_num(call.score) }}</div></div>
+</div>
+<section class="card" aria-labelledby="inc"><h2 id="inc">Incidents</h2>
+{% if call.incidents %}
+<div class="tablewrap"><table><thead><tr><th>Type</th><th>Severity</th><th class="num">At</th><th>Detail</th></tr></thead><tbody>
+{% for i in call.incidents %}<tr><td>{{ i.type }}</td><td><span class="chip">{{ i.severity }}</span></td><td class="num">{{ fmt_num(i.at_s, 1) }}s</td><td>{{ i.detail }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% else %}<p class="muted">No incidents were recorded for this call.</p>{% endif %}
+</section>
+<section class="card" aria-labelledby="al"><h2 id="al">Alerts fired</h2>
+{% if call.alerts_fired %}<ul>{% for a in call.alerts_fired %}<li>{{ a }}</li>{% endfor %}</ul>{% else %}<p class="muted">No alert rule fired on this call.</p>{% endif %}
+</section>
+<section class="card" aria-labelledby="rp"><h2 id="rp">Report</h2>
+{% if call.report_path %}
+  {% set href = safe_href(call.report_path) %}
+  {% if href %}<p><a href="{{ href }}" rel="noopener noreferrer">Open the report</a></p>
+  {% else %}<p>The report is a file on the machine that scored this call:</p><pre>{{ call.report_path }}</pre>{% endif %}
+{% else %}<p class="muted">The monitor did not write a report for this call.</p>{% endif %}
+</section>
+{% endblock %}

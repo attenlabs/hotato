@@ -1,0 +1,40 @@
+# Self-host the hotato team app with Postgres:
+#
+#   export HOTATO_CLOUD_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+#   export POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+#   docker compose -f docker-compose.cloud.yml up -d --build
+#
+# Then open http://127.0.0.1:8080 and create the first account. Keep the secret:
+# it decrypts the stored voice-platform API keys. See docs/CLOUD.md.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloud
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOTATO_CLOUD_SECRET: ${HOTATO_CLOUD_SECRET:?set HOTATO_CLOUD_SECRET (see the header of this file)}
+      DATABASE_URL: postgresql://hotato:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/hotato
+      HOTATO_CLOUD_ALLOW_SIGNUP: ${HOTATO_CLOUD_ALLOW_SIGNUP:-false}
+      HOTATO_CLOUD_TRUST_PROXY: ${HOTATO_CLOUD_TRUST_PROXY:-false}
+    ports:
+      - "127.0.0.1:8080:8080"   # put a TLS-terminating proxy in front for anything but local use
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hotato
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: hotato
+    volumes:
+      - hotato-cloud-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotato -d hotato"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  hotato-cloud-db:

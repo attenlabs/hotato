@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Join an organisation - hotato{% endblock %}
+{% block body %}
+<div class="auth card">
+{% if not invite %}
+<h1>Invite not valid</h1>
+<p>This invite link is used, expired or wrong. Ask an owner for a new one.</p>
+{% else %}
+<h1>Join {{ org.name }}</h1>
+<p class="muted">You will join as {{ invite.role }}.</p>
+{% if error %}<p class="err" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/invite/{{ token }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  {% if user %}
+  <p>Signed in as {{ user.email }}.</p>
+  {% else %}
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" autocomplete="username" required>
+  <label for="password">Choose a password (10 characters or more)</label>
+  <input id="password" name="password" type="password" autocomplete="new-password" minlength="10" required>
+  {% endif %}
+  <p><button type="submit">Join</button></p>
+</form>
+{% if not user %}<p class="muted">Already have an account? <a href="/login?next=/invite/{{ token }}">Sign in</a> first.</p>{% endif %}
+{% endif %}
+</div>
+{% endblock %}

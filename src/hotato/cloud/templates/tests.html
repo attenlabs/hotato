@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Tests - {{ project.name }} - hotato{% endblock %}
+{% block body %}
+<h1>Tests</h1>
+<p class="sub">Persona simulation runs, newest first.</p>
+{% if rows %}
+<div class="card tablewrap"><table>
+<thead><tr><th>Run</th><th>Started</th><th>Agent</th><th class="num">Cases</th><th class="num">Pass rate</th><th class="num">All repeats passed</th></tr></thead><tbody>
+{% for r in rows %}
+<tr><td><a href="/p/{{ project.id }}/tests/{{ r.id }}">{{ r.run_id }}</a></td><td>{{ fmt_ts(r.started_at) }}</td>
+<td>{{ r.agent_id }} <span class="muted">{{ r.agent_stack }}</span></td><td class="num">{{ r.n_cases }}</td>
+<td class="num">{{ fmt_pct(r.pass_rate) }}</td><td class="num">{{ r.n_pass_all }} of {{ r.n_cases }}</td></tr>
+{% endfor %}</tbody></table></div>
+<div class="pager">
+  {% if page > 1 %}<a class="btn secondary" href="?page={{ page - 1 }}">Newer</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn secondary" href="?page={{ page + 1 }}">Older</a>{% endif %}
+</div>
+{% else %}
+<div class="card"><h2>No test runs yet</h2>
+<p>Run persona simulations, then push the result file:</p>
+<pre>hotato cloud push ./testrun.json --url {{ request.base_url|string|trim('/') }} --project {{ project.id }} --token $HOTATO_TOKEN</pre></div>
+{% endif %}
+{% endblock %}

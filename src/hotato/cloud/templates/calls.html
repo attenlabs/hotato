@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Calls - {{ project.name }} - hotato{% endblock %}
+{% block body %}
+<h1>Calls</h1>
+<p class="sub">{{ total }} call{{ '' if total == 1 else 's' }} match.</p>
+<form method="get" class="card inline" aria-label="Filter calls">
+  <div><label for="since">Period</label>
+    <select id="since" name="since">{% for s in since_options %}<option value="{{ s }}" {% if s == f.since %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+  <div><label for="agent">Agent</label>
+    <select id="agent" name="agent"><option value="">all</option>{% for a in agents %}<option value="{{ a }}" {% if a == f.agent %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></div>
+  <div><label for="it">Incident type</label><input id="it" name="incident_type" value="{{ f.incident_type }}"></div>
+  <div><label for="sb">Score below</label><input id="sb" name="score_below" inputmode="decimal" value="{{ f.score_below }}"></div>
+  <div class="fit"><label><input type="checkbox" name="only_incidents" value="1" class="auto" {% if f.only_incidents %}checked{% endif %}> With incidents</label></div>
+  <div class="fit"><button type="submit">Filter</button></div>
+</form>
+{% if rows %}
+<div class="card tablewrap"><table>
+<thead><tr><th>Time</th><th>Agent</th><th class="num">Duration</th><th class="num">Score</th><th>Incidents</th></tr></thead>
+<tbody>
+{% for c in rows %}
+<tr><td><a href="/p/{{ project.id }}/calls/{{ c.id }}">{{ fmt_ts(c.ts) }}</a></td>
+<td>{{ c.agent_id or '-' }} <span class="muted">{{ c.stack }}</span></td>
+<td class="num">{{ fmt_dur(c.duration_s) }}</td><td class="num">{{ fmt_num(c.score) }}</td>
+<td>{% if c.n_incidents %}<span class="chip fail">{{ c.n_incidents }}</span> {{ c.incident_types.strip(',').replace(',', ', ') }}{% else %}none{% endif %}</td></tr>
+{% endfor %}
+</tbody></table></div>
+<div class="pager">
+  {% if page > 1 %}<a class="btn secondary" href="?since={{ f.since|urlencode }}&amp;agent={{ f.agent|urlencode }}&amp;incident_type={{ f.incident_type|urlencode }}&amp;score_below={{ f.score_below|urlencode }}&amp;only_incidents={{ f.only_incidents|urlencode }}&amp;page={{ page - 1 }}">Newer</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn secondary" href="?since={{ f.since|urlencode }}&amp;agent={{ f.agent|urlencode }}&amp;incident_type={{ f.incident_type|urlencode }}&amp;score_below={{ f.score_below|urlencode }}&amp;only_incidents={{ f.only_incidents|urlencode }}&amp;page={{ page + 1 }}">Older</a>{% endif %}
+</div>
+{% else %}
+<div class="card"><h2>No calls here</h2>
+<p>Widen the period, or send scored calls from the monitor:</p>
+<pre>hotato cloud push ./monitor-events --url {{ request.base_url|string|trim('/') }} --project {{ project.id }} --token $HOTATO_TOKEN</pre></div>
+{% endif %}
+{% endblock %}

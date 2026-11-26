@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}hotato{% endblock %}</title>
+<link rel="stylesheet" href="/static/hotato.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap">
+<header class="top">
+  <a class="brand" href="/"><span class="logo" aria-hidden="true"></span>hotato</a>
+  {% if user and project is defined %}
+  <form method="get" action="/" class="nm">
+    <span class="muted">{{ org.name }} /</span> <strong>{{ project.name }}</strong>
+  </form>
+  {% endif %}
+  <span class="grow"></span>
+  {% if user %}
+  <span class="muted">{{ user.email }}</span>
+  <form method="post" action="/logout" class="nm">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="secondary" type="submit">Sign out</button>
+  </form>
+  {% endif %}
+</header>
+{% if user and project is defined %}
+<nav class="main" aria-label="Project">
+  {% set base = '/p/' ~ project.id %}
+  <a href="{{ base }}/" {% if section == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+  <a href="{{ base }}/calls" {% if section == 'calls' %}aria-current="page"{% endif %}>Calls</a>
+  <a href="{{ base }}/tests" {% if section == 'tests' %}aria-current="page"{% endif %}>Tests</a>
+  <a href="{{ base }}/alerts" {% if section == 'alerts' %}aria-current="page"{% endif %}>Alerts</a>
+  <a href="{{ base }}/settings" {% if section == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+  {% if projects|length > 1 %}<a href="/">Switch project</a>{% endif %}
+</nav>
+{% endif %}
+<main id="main">
+{% block body %}{% endblock %}
+</main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
