@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+### Fixed
+- Delivery warnings for `--notify` and `hotato monitor` alerts show only the scheme and host of the destination; incoming-webhook URLs carry their secret in the path.
+- `hotato test run` no longer accepts a quote shorter than three words as evidence for a pass.
+
 ## [Unreleased]
 
 ### Added

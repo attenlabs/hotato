@@ -743,6 +743,10 @@ def _clean_verdict(raw: Optional[dict], kind: str, label: str, haystack: str) ->
             verdict = "unknown"
     # a criterion pass must be backed by a real quote; a forbidden item that was
     # NOT violated has nothing to quote, so its pass is exempt
+    if verdict == "pass" and kind == "criterion" and evidence and len(evidence.split()) < 3:
+        # a one- or two-word quote ("yes", "booked") appears in almost any transcript
+        evidence = ""
+        expl = (expl + " " if expl else "") + "(quote too short to support a pass)"
     if verdict == "pass" and kind == "criterion" and not evidence:
         verdict = "unknown"
         expl = (expl + " " if expl else "") + "(no supporting quote, so not a pass)"

@@ -180,7 +180,7 @@ def test_notify_failure_redacts_target_and_exception_urls(monkeypatch, capsys):
     monkeypatch.setattr(urllib.request, "urlopen", fail)
     assert notify.post_notification(_SECRET_URL, {"kind": "test"}) is False
     warning = capsys.readouterr().err
-    assert warning.count("https://hooks.example.test/deliver?redacted") == 2
+    assert warning.count("https://hooks.example.test/...") == 2
     _assert_secrets_absent(warning)
 
 
@@ -192,5 +192,5 @@ def test_notify_validation_error_does_not_echo_ftp_userinfo_or_query():
     with pytest.raises(ValueError) as exc_info:
         notify.validate_notify_url(unsafe)
     message = str(exc_info.value)
-    assert "ftp://hooks.example.test/deliver?redacted" in message
+    assert "ftp://hooks.example.test/..." in message
     _assert_secrets_absent(message)

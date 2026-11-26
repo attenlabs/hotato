@@ -94,7 +94,7 @@ ENV_WEBHOOK = "HOTATO_MONITOR_WEBHOOK_URL"
 
 
 def _log(msg: str) -> None:
-    sys.stderr.write(f"[monitor] {_errors.sanitize_urls_in_text(msg)}\n")
+    sys.stderr.write(f"[monitor] {_errors.sanitize_destinations_in_text(msg)}\n")
 
 
 def _now_iso(epoch: Optional[float] = None) -> str:
