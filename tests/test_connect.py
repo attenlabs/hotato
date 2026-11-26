@@ -104,12 +104,11 @@ def test_connect_no_verify_stores_without_network(monkeypatch, capsys):
     assert connections.get("vapi") == {"api_key": "k"}
 
 
-def test_connect_retell_has_no_probe_but_still_stores(monkeypatch, capsys):
-    # Retell has no list endpoint to verify against: store, note, no network.
+def test_connect_retell_probes_v3_list(monkeypatch, capsys):
+    _install(monkeypatch, {"/v3/list-calls": b'{"items": [], "has_more": false}'})
     rc = cli.main(["connect", "retell", "--api-key", "k"])
     assert rc == 0
     assert connections.get("retell") == {"api_key": "k"}
-    assert "validated on the first pull" in capsys.readouterr().out
 
 
 def test_connect_twilio_two_fields(monkeypatch):

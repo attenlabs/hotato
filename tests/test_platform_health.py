@@ -428,15 +428,6 @@ def test_missing_key_is_one_actionable_line(monkeypatch, capsys):
         assert f"hotato connect {stack}" in err
 
 
-def test_retell_health_without_call_id_refuses(monkeypatch, capsys):
-    monkeypatch.setenv("RETELL_API_KEY", "k")
-    # no urlopen installed: a fabricated list request would raise loudly
-    assert cli.main(["retell", "health"]) == 2
-    err = capsys.readouterr().err
-    assert "--call-id" in err
-    assert "no verified list-recent-calls endpoint" in err
-
-
 def test_empty_window_refuses_with_reason(monkeypatch, capsys):
     monkeypatch.setenv("VAPI_API_KEY", "k")
     _install(monkeypatch, {"api.vapi.ai/call?": b"[]"})

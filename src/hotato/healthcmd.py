@@ -13,10 +13,9 @@ never touch a WAV: the dashboard-download-rename-move step is gone.
 Design rules honoured here:
 
   * ZERO new platform-API logic. Listing, fetching, credentials, and the
-    mono policy are ``hotato.capture``'s, reused wholesale. Retell has no
-    verified list-recent-calls endpoint, so ``hotato retell health`` takes
-    explicit ``--call-id`` values (repeatable) instead of guessing one --
-    the same rule ``hotato pull`` pins.
+    mono policy are ``hotato.capture``'s, reused wholesale. Retell lists
+    through ``POST /v3/list-calls``; ``--call-id`` values (repeatable) skip
+    the list step.
   * Credentials resolve exactly as pull does today: an explicit flag, then
     the ``hotato connect`` store, then the stack's environment variable
     (``VAPI_API_KEY`` / ``RETELL_API_KEY`` / ``BLAND_API_KEY``). A missing
@@ -83,13 +82,10 @@ def missing_key_message(stack: str) -> str:
 
 
 def retell_ids_message() -> str:
-    """Retell's list-recent-calls endpoint is unconfirmed in the integration
-    spec, so hotato never guesses one (the same rule ``hotato pull`` pins):
-    the health check takes explicit ids."""
-    return ("Retell has no verified list-recent-calls endpoint, so hotato "
-            "never guesses one: pass the call ids to check, e.g. "
+    """How to name explicit Retell calls to check."""
+    return ("pass the call ids to check, e.g. "
             "hotato retell health --call-id CALL_ID (repeat --call-id for "
-            "more).")
+            "more), or omit them to list recent calls.")
 
 
 def _window_cutoff(last: str) -> Optional[float]:
@@ -142,8 +138,6 @@ def run_health(
             stack, {"api_key": api_key} if api_key else None)
     except ValueError as exc:
         raise ValueError(missing_key_message(stack)) from exc
-    if stack == "retell" and not ids:
-        raise ValueError(retell_ids_message())
 
     out_dir = dir or default_download_dir(stack)
     # Bland's export is mono/mixed by spec: the recordings are pulled for
