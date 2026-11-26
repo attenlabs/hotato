@@ -1,0 +1,30 @@
+{
+  "classes": {
+    "owner_only": {
+      "auto_merge": false,
+      "globs": ["autopilot/gates/**", "autopilot/scan/**", "autopilot/build/**", "autopilot/infra/**", "autopilot/jobs/**", "autopilot/tests/**", ".github/**", "pricing/**", "site/claims/**", "pyproject.toml", "SECURITY.md"]
+    },
+    "deps": {"auto_merge": true, "globs": ["autopilot/requirements*.txt", "requirements*.txt", "uv.lock", "poetry.lock"]},
+    "tests": {"auto_merge": true, "globs": ["tests/**"]},
+    "docs": {"auto_merge": true, "globs": ["docs/**", "autopilot/BACKLOG.md", "autopilot/RUNBOOK.md", "README.md", "CHANGELOG.md"]},
+    "vendor_adapter": {"auto_merge": true, "globs": ["src/hotato/vendors/**"]},
+    "atlas_content": {"auto_merge": true, "globs": ["atlas/content/**"]}
+  },
+  "default_class": "feature",
+  "needs_owner": ["feature", "public_claim", "pricing", "owner_only"],
+  "labels_force_owner": ["public-claim", "pricing", "feature"],
+  "patch_release_label": "release:patch",
+  "required_checks": ["test", "leak-scan", "benchmark", "copy-check"],
+  "require_reviewer_approval": true,
+  "max_changed_files": 40,
+  "shadow_mode": true,
+  "auto_promote": true,
+  "promote_after_clean_days": 7,
+  "promote_after_clean_days_by_job": {"scorecard": 2},
+  "models": {
+    "atlas": {"publisher": "google", "env": "ATLAS_GEMINI_MODEL", "use": ["gemini-2.5-flash", "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-flash-lite"]},
+    "simulate": {"publisher": "google", "env": "SIM_MODEL", "use": ["gemini-2.5-flash", "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-flash-lite"]},
+    "builder": {"publisher": "anthropic", "env": "BUILDER_MODEL", "use": ["claude-sonnet-4-5", "claude-opus-4-5"]},
+    "reviewer": {"publisher": "anthropic", "env": "REVIEWER_MODEL", "use": ["claude-opus-4-5", "claude-sonnet-4-5"]}
+  }
+}

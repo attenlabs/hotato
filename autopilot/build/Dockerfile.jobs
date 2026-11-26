@@ -1,0 +1,15 @@
+# One image for every Cloud Run job. The command picks the entrypoint (jobs/<name>.py, relative to
+# /app/autopilot). Build context: the repository root. The hotato package (with the atlas CLI) is
+# installed from /app.
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git nodejs npm \
+    && npm install -g @anthropic-ai/claude-code@2.0.0 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY autopilot/requirements.txt /tmp/autopilot-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/autopilot-requirements.txt
+COPY . .
+RUN pip install --no-cache-dir -e .
+WORKDIR /app/autopilot
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/autopilot:/app/autopilot/jobs
+CMD ["python", "jobs/freshness.py"]

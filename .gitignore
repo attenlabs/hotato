@@ -111,3 +111,13 @@ tests/test_*_card.py
 
 # hotato start writes its demo saydo/ output to CWD; ignore it at repo root
 /saydo/
+
+# --- autopilot (the Google Cloud system that runs this repo; see autopilot/RUNBOOK.md) ---
+!/autopilot/build/
+autopilot/infra/.terraform/
+autopilot/infra/*.tfstate*
+autopilot/infra/*.tfvars
+!autopilot/infra/example.tfvars
+autopilot/infra/.killswitch.zip
+autopilot/infra/tfplan
+*.pem

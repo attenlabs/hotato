@@ -1,0 +1,17 @@
+# Runs the named Cloud Run jobs one after another. Argument: {"jobs": ["builder", "reviewer"]}
+main:
+  params: [args]
+  steps:
+    - each_job:
+        for:
+          value: job
+          in: ${args.jobs}
+          steps:
+            - run_job:
+                call: googleapis.run.v2.projects.locations.jobs.run
+                args:
+                  name: ${"projects/" + sys.get_env("GOOGLE_CLOUD_PROJECT_ID") + "/locations/" + sys.get_env("GOOGLE_CLOUD_LOCATION") + "/jobs/hotato-" + job}
+                  connector_params:
+                    timeout: 3900
+    - done:
+        return: ${args.jobs}

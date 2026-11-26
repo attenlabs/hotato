@@ -1,0 +1,83 @@
+# Hotato autopilot: runbook
+
+**What this is.** The owner's guide to switching on, watching and stopping the autopilot: one self-running Google Cloud system that builds, maintains, checks and deploys the open-source project hotato (a free tool that checks recorded voice-agent calls for talk-over and slow yielding). Everything lives in `autopilot/`; paths below are relative to it, and commands run from the repository root. The owner's one-time setup and bootstrap scripts hold account details, so they are kept outside this repository.
+
+## Stop everything with one command
+
+```
+printf stop | gcloud storage cp - gs://hotato-autopilot-state/flags/kill
+```
+
+Every job reads that flag first and exits. The budget function writes the same flag at the cap. To resume, delete the object: `gcloud storage rm gs://hotato-autopilot-state/flags/kill`. To also stop the schedules: `for s in atlas upkeep freshness builder simulate scorecard weekly-rebuild; do gcloud scheduler jobs pause hotato-$s --location us-central1; done`.
+
+## Owner's one-time steps, in order
+
+1. Run the one-time setup script in your terminal (creates the project, budgets, base APIs, `budget-alerts` topic, and the `github-bot-token` and `cloudflare-pages-token` secrets).
+2. Copy `gates/CODEOWNERS.snippet` into `.github/CODEOWNERS` with your GitHub login. Turn on branch protection for `main`: require status checks `test`, `leak-scan`, `benchmark`, `copy-check`, require Code Owner review, no bypass for the bot.
+3. Create the bot's fine-grained GitHub token (contents, pull requests, issues on the hotato repos only; no admin). Store it as `github-bot-token` if step 1 skipped it.
+4. Nothing for you: the automation service account runs the bootstrap script with the alert address. It is safe to re-run and does the rest of the setup: the versioned Terraform state bucket `<project>-tfstate`, `infra/hotato.tfvars` (from `example.tfvars`, with the alert address), `terraform init` and `terraform apply`. Jobs stay in shadow mode.
+5. Any later settings change: edit `infra/hotato.tfvars` and run the bootstrap script again (it also copies the settings to the state bucket, where the infra pipeline reads them).
+5a. The monitor's bearer token is made by `bootstrap.sh` (one random version, only if none exists). Read it with `gcloud secrets versions access latest --secret serve-token` when you open the hosted workspace.
+6. Add the three simulate secrets (`telephony-account-sid`, `telephony-auth-token`, `voice-provider-api-key`) as new versions. Then set `enable_secrets = true` in `hotato.tfvars` and re-run `bootstrap.sh`.
+7. Put the build service account (Terraform output `build_service_account`) in as a Google Cloud trusted publisher for the hotato project on PyPI.
+8. Run the first build from the repository root: `gcloud builds submit --config autopilot/build/cloudbuild.yaml --substitutions _DEPLOY=true,_CF_ACCOUNT_ID=<cloudflare account id>`.
+9. Fill `scorecard/competitors.json` in the bucket (repo and changelog URL per reference company) and `simulate/allowlist.json` (the only phone numbers simulated calls may reach).
+10. Create `scan/banned.sha256` entries on your machine only: `python3 autopilot/scan/make_hashes.py names.txt >> autopilot/scan/banned.sha256`, commit the hashes, never the names file.
+11. Yank PyPI releases 0.1.0 to 0.3.1.
+12. Give the standing write grant covering pushes, PRs, deploys and releases, then list the jobs allowed to go live on their own in `auto_promote_jobs` in `hotato.tfvars` (start with `["freshness", "upkeep", "scorecard"]`) and re-run `bootstrap.sh`. Each listed job still has to earn 7 clean days in shadow first. Jobs not listed stay in shadow.
+12a. Turn on self-maintenance (after step 12's grant, because the weekly rebuild redeploys): in the Cloud Console, Cloud Build > Triggers > Connect repository, choose GitHub (Cloud Build GitHub App), install the app on the hotato repo and connect it to this project. Then set `self_maintain = true` and `cloudflare_account_id = "<id>"` in `hotato.tfvars` and re-run `bootstrap.sh`. From then on infra changes merged to `main` apply themselves, pull requests touching `infra/` get a plan, and the images rebuild every Sunday.
+13. After the sprint, set `phase = "monthly"` and re-run `bootstrap.sh`; delete the sprint budget in the console if you want.
+
+## Shadow mode (default for the first week)
+
+`gates/policy.json` has `"shadow_mode": true`: the builder and reviewer open and review PRs, and every PR waits for the owner; nothing auto-merges. Jobs also start with `DRY_RUN=1` (no GitHub or phone writes). After a week of clean PRs, set `shadow_mode` to `false` through an owner-approved PR; only the classes marked `auto_merge` (dependencies, vendor adapters, tests, docs, Atlas content) then merge on green gates. Features, public claims and pricing always wait for the owner.
+
+## Cost table (USD)
+
+| Category | Sprint (6 weeks, one time) | Monthly after |
+|---|---|---|
+| Agents (builder, reviewer, Gemini) | 1,400 | 300 |
+| Simulated calls | 300 | 100 |
+| Evaluation runs | 200 | 0 |
+| Infrastructure | 100 | 50 |
+| Buffer | 0 | 50 |
+| **Total** | **2,000** | **500** |
+
+Enforced three ways: the budgets (one-time setup) with the kill-switch function; per-run limits (builder 25 / reviewer 5 sprint, 8 / 2 monthly); and a spend ledger in the bucket that stops the builder, reviewer and `simulate` jobs at the category cap.
+
+## Alerts (all go to `alert_email`)
+
+| Alert | Fires when |
+|---|---|
+| job execution failed | any `hotato-*` Cloud Run job ends failed (error exit, crash, timeout) |
+| scheduler attempt failed | Cloud Scheduler could not start a run |
+| workflow execution failed | the runner that starts the jobs ended failed |
+| budget kill-switch error | the budget function errored, so spend may not stop at the cap: use the stop command above |
+| build failed | any Cloud Build build failed (weekly rebuild, infra apply, manual build) |
+| job raised an alert | a job logged a `hotato_alert` line (contract below); the email carries the kind, job and detail |
+| `<job>` heartbeat missing | a job sent no heartbeat for twice its schedule interval (hourly 2 h, daily 48 h, weekly 14 days) |
+| site / monitor down | the uptime check failed for 5 minutes |
+
+While the kill flag is set the jobs send no heartbeats, so the heartbeat alerts fire; that is the reminder that the system is stopped. Snooze them in Cloud Monitoring if the stop is planned.
+
+**Log contract every job keeps** (one JSON object per line on stdout; Cloud Run turns it into a structured log entry):
+
+- On success, exactly one line: `{"hotato_heartbeat": "<job>", "severity": "INFO"}`. `<job>` is the short name (`atlas`, `upkeep`, `builder`, ...), the same as in `runs/<job>/`. This feeds the log metric `hotato_heartbeat`.
+- On anything the owner should see: `{"hotato_alert": "<kind>", "severity": "WARNING" or "ERROR", "detail": "...", "job": "<job>"}`. Any line with `hotato_alert` at WARNING or above emails. `<kind>` is a short stable word, for example `job_crash` or `gate_violation`.
+- A new job needs a schedule in `infra/schedule.tf`; its heartbeat alert is then made automatically. A job with no schedule makes `terraform plan` print a warning.
+
+## Upkeep that runs itself
+
+- **Images:** every Sunday the images are rebuilt from `main` on fresh base images, after the full test and gate run, then deployed (needs step 12a). The jobs keep their `DRY_RUN` setting.
+- **Infra:** a merge to `main` touching `autopilot/infra/` runs fmt, validate, plan and apply (`autopilot/build/cloudbuild-infra.yaml`). Only the main-branch trigger can apply.
+- **Storage stays bounded:** the image registry keeps `latest` and the 10 newest versions of each image and deletes the rest after 30 days (untagged after 14). The Terraform state bucket never deletes the live state; an old version goes only once it is 30 days old and has 10 newer versions. The app state bucket deletes replaced versions after 14 days, run records after a year and `cache/` after 30 days.
+
+## Reading what happened
+
+Run records are JSON files under `runs/<job>/` in the state bucket. Weekly scorecards are under `scorecard/weekly/`.
+
+## Jobs that go live on their own
+
+Promotion is automatic only for the jobs the owner lists in `auto_promote_jobs` (step 12); their `DRY_RUN` is `auto`, every other job gets `1`. A job goes live after 7 clean days in shadow (scorecard: 2 weekly runs). It drops back to shadow on a gate violation, two failed runs in a row, or the kill switch. Each change raises a `promoted` or `demoted` alert. See the state with `python3 jobs/promotion.py` or under `gs://<project>-state/promotion/`. Remove a job from `auto_promote_jobs` to force it back to shadow.
+
+For GitHub access that never expires, add the GitHub App's id, private key and installation id as versions of the `github-app-*` secrets. Until then the bot token is used, with alerts 30 and 7 days before it expires. Keep the successor model names in `gates/policy.json` current; a fallback raises `model_fallback`.

@@ -1,0 +1,5 @@
+# What `gcloud builds submit` uploads: the git-tracked tree only.
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
