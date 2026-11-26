@@ -232,6 +232,6 @@ def test_notify_declared_limit_fails_open_and_sanitizes_warning(monkeypatch, cap
     assert ok is False
     warning = capsys.readouterr().err
     assert "8-byte response limit" in warning
-    assert "hooks.example.test/x?redacted" in warning
+    assert "hooks.example.test/..." in warning
     assert "super-secret" not in warning
     assert response.read_sizes == []
