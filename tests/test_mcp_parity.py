@@ -12,13 +12,16 @@ import pytest
 
 
 def _fastmcp_available() -> bool:
-    """The registration checks need ``mcp.server.fastmcp`` specifically: mcp 2.x
-    imports fine but dropped that module, so guarding on ``import mcp`` alone
-    turns an SDK incompatibility into a raw SystemExit instead of a skip."""
-    try:
-        return importlib.util.find_spec("mcp.server.fastmcp") is not None
-    except (ImportError, ValueError):
-        return False
+    """The registration checks need a high-level server module: 2.x ships
+    ``mcp.server.mcpserver``, 1.x ``mcp.server.fastmcp``. Guarding on
+    ``import mcp`` alone would turn a missing module into a SystemExit."""
+    for mod in ("mcp.server.mcpserver", "mcp.server.fastmcp"):
+        try:
+            if importlib.util.find_spec(mod) is not None:
+                return True
+        except (ImportError, ValueError):
+            pass
+    return False
 
 from hotato import mcp_server
 from hotato.core import run_suite
@@ -87,6 +90,10 @@ def test_initialize_reports_hotato_version():
     from hotato import __version__ as hotato_version
 
     server = mcp_server.build_server()
-    opts = server._mcp_server.create_initialization_options()
-    assert opts.server_name == "hotato", opts.server_name
-    assert opts.server_version == hotato_version, opts.server_version
+    if hasattr(server, "_mcp_server"):  # mcp 1.x FastMCP
+        opts = server._mcp_server.create_initialization_options()
+        assert opts.server_name == "hotato", opts.server_name
+        assert opts.server_version == hotato_version, opts.server_version
+    else:  # mcp 2.x MCPServer carries name and version directly
+        assert server.name == "hotato", server.name
+        assert server.version == hotato_version, server.version
