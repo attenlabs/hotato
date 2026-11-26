@@ -48,7 +48,7 @@ def plan_calls(personas, targets, allowlist, per_call_usd, budget_left):
 def gen_personas(agent_prompt, n, model=None):
     from google import genai
     c = genai.Client(vertexai=True, project=os.environ["GCP_PROJECT"],
-                     location=os.environ.get("GCP_REGION", "us-central1"))
+                     location=os.environ.get("VERTEX_REGION", "global"))
     r = c.models.generate_content(model=model or os.environ.get("SIM_MODEL", "gemini-2.5-flash"),
                                   contents=persona_prompt(agent_prompt, n))
     return parse_personas(r.text or "", n)

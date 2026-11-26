@@ -502,3 +502,10 @@ def test_vertex_403_is_unknown_not_retired(monkeypatch):
     monkeypatch.setattr(vertex_models, "http_resp", boom)
     monkeypatch.setattr(vertex_models, "gcp_token", lambda: "t")
     assert vertex_models.vertex_probe("google", "gemini-x") is None
+
+
+def test_vertex_region_defaults_to_global(monkeypatch):
+    monkeypatch.delenv("VERTEX_REGION", raising=False)
+    assert models.vertex_region() == "global"
+    monkeypatch.setenv("VERTEX_REGION", "us-east5")
+    assert models.vertex_region() == "us-east5"
