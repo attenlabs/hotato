@@ -13,6 +13,8 @@ scorer calls severe.
 
 ### Added
 
+- Retell recent-call listing for `pull`, `sweep` and `retell health` through
+  `POST /v3/list-calls` with cursor paging; `get-call` stays on v2.
 - `hotato scenario generate --prompt agent.txt --out scn/` writes a scenario
   suite from an agent's system prompt. Parsing is deterministic and offline:
   thirteen capability stems ("you can ...", "your job is to ..."),
@@ -57,6 +59,10 @@ scorer calls severe.
 
 ### Fixed
 
+- The `[mcp]` extra now allows MCP SDK 2.x (`mcp>=1.2.0,<3`): the server is
+  built on `mcp.server.mcpserver` when present and falls back to
+  `mcp.server.fastmcp` on 1.x. Parity tests pass on both majors.
+- The ruff check in CI passes again (import order, a lambda assignment).
 - The two "never imports faster_whisper at import time" tests spawned a
   subprocess that inherited only `os.environ`, so from a source checkout the
   child raised `ModuleNotFoundError` and the assertion reported it as the
