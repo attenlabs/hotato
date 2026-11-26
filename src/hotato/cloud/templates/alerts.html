@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Alerts - {{ project.name }} - hotato{% endblock %}
+{% block body %}
+<h1>Alerts</h1>
+<p class="sub">Rules the production monitor fetches and applies to each scored call.</p>
+{% if saved %}<p class="ok" role="status">Rules saved. The monitor picks them up on its next fetch.</p>{% endif %}
+{% if error %}<p class="err" role="alert">{{ error }}</p>{% endif %}
+{% if rules %}
+<section class="card" aria-labelledby="cur"><h2 id="cur">Active rules</h2>
+<div class="tablewrap"><table><thead><tr><th>Id</th><th>When</th><th>Window</th><th>Channels</th><th class="num">Cooldown</th></tr></thead><tbody>
+{% for r in rules %}
+<tr><td class="mono">{{ r.id }}</td>
+<td>{% if r.when.metric is defined %}{{ r.when.metric }} {{ r.when.op }} {{ r.when.value }}{% else %}{{ r.when.incident_type }} at {{ r.when.severity_at_least }} or worse{% endif %}</td>
+<td>{% if r.window %}{{ r.window.min_hits }} of the last {{ r.window.calls }} calls{% else %}every call{% endif %}</td>
+<td>{{ r.channels|join(', ') or '-' }}</td><td class="num">{{ r.cooldown_min }} min</td></tr>
+{% endfor %}</tbody></table></div></section>
+{% endif %}
+<section class="card" aria-labelledby="ed"><h2 id="ed">Rules JSON</h2>
+<form method="post" action="/p/{{ project.id }}/alerts">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <label for="rules_json">A list of rules</label>
+  <textarea id="rules_json" name="rules_json" class="code" spellcheck="false">{{ text }}</textarea>
+  <p><button type="submit">Save rules</button>
+  <button type="button" class="secondary" data-fill="rules_json" data-from="example-rules">Insert example rules</button></p>
+</form>
+<script type="text/plain" id="example-rules">{{ example }}</script>
+<p class="muted">Each rule has an id, a condition (a metric comparison, or an incident type at a minimum severity), an optional window of calls, channels (slack, pagerduty, webhook) and a cooldown in minutes.</p>
+</section>
+<section class="card" aria-labelledby="fetch"><h2 id="fetch">Fetch from the monitor</h2>
+<pre>curl -H "Authorization: Bearer $HOTATO_TOKEN" {{ base_url }}/api/v1/projects/{{ project.id }}/rules</pre></section>
+{% endblock %}

@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Added
+
+- `hotato cloud`: a team web app as the optional extra `hotato[cloud]` (FastAPI, Jinja2,
+  SQLAlchemy 2; SQLite by default, Postgres through `DATABASE_URL`). Accounts with
+  organisations, projects, owner/member roles, invite links and per-project API tokens;
+  Vapi and Retell keys stored encrypted; pages for Overview, Calls, Tests, Alerts (a rules
+  editor served at `GET /api/v1/projects/{id}/rules`) and Settings. Ingest through
+  `POST /api/v1/projects/{id}/testruns` and `/events` with strict schema validation.
+  `hotato cloud serve`, `hotato cloud admin create-user` and `hotato cloud push` (stdlib
+  only). Self-host with `docker compose -f docker-compose.cloud.yml up`; see `docs/CLOUD.md`.
+  The core stays stdlib-only and never imports the app.
+
 ## [1.21.0] - 2026-11-26
 
 The next release: a scenario generator, and three corrections to what the

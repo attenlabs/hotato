@@ -1083,6 +1083,9 @@ _EXIT_CODES: dict = {
 # `check` and `autopsy` are one command under two spellings, so the exit-code
 # table, the help epilog and `hotato describe` report them identically.
 _EXIT_CODES["check"] = _EXIT_CODES["autopsy"]
+from .cloud_cli import EXIT_CODES as _CLOUD_EXIT_CODES  # noqa: E402
+
+_EXIT_CODES.update(_CLOUD_EXIT_CODES)
 
 
 def _exit_codes_epilog(key: str) -> str:
@@ -11215,6 +11218,10 @@ def build_parser() -> argparse.ArgumentParser:
     from . import ops_cli as _ops_cli
 
     _ops_cli.register(sub, epilog_factory=_exit_codes_epilog)
+
+    from . import cloud_cli as _cloud_cli
+
+    _cloud_cli.register(sub, _exit_codes_epilog)
 
     # The lab listing (`hotato lab --help`) renders from the (name, help)
     # pairs the router collected while the commands above registered.

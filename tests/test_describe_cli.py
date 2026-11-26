@@ -49,6 +49,7 @@ _ALL_SUBCOMMANDS = [
     "record", "record render", "record verify",
     "rubric", "rubric run", "rubric calibrate",
     "scenario", "scenario init", "scenario generate", "scenario validate",
+    "cloud", "cloud serve", "cloud push", "cloud admin", "cloud admin create-user",
     "conversation", "conversation verify",
     "simulate",
     "autopsy", "pin",
