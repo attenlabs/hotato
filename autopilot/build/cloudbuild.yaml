@@ -8,15 +8,15 @@ substitutions:
   _RELEASE: "false"
   _CF_ACCOUNT_ID: ""
   _PAGES_PROJECT: hotato-site
-  _AR: us-central1-docker.pkg.dev/$PROJECT_ID/hotato
+  # Artifact Registry repository name. The full path is built in each step from built-ins
+  # (a substitution's default value cannot reference $PROJECT_ID: it stays literal).
+  _AR_REPO: hotato
 
 timeout: 3600s
 
 options:
   logging: CLOUD_LOGGING_ONLY
   substitution_option: ALLOW_LOOSE
-  # _AR's default names $PROJECT_ID; a user substitution can use a built-in one only with this on.
-  dynamicSubstitutions: true
   machineType: E2_HIGHCPU_8
 
 serviceAccount: projects/$PROJECT_ID/serviceAccounts/hotato-build@$PROJECT_ID.iam.gserviceaccount.com
@@ -63,22 +63,22 @@ steps:
 
   - id: image-jobs
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "autopilot/build/Dockerfile.jobs", "-t", "${_AR}/jobs:$BUILD_ID", "-t", "${_AR}/jobs:latest", "."]
+    args: ["build", "-f", "autopilot/build/Dockerfile.jobs", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:$BUILD_ID", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:latest", "."]
     waitFor: ["test", "leak-scan", "copy-check", "benchmark"]
 
   - id: image-monitor
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "autopilot/build/Dockerfile.monitor", "-t", "${_AR}/monitor:$BUILD_ID", "-t", "${_AR}/monitor:latest", "."]
+    args: ["build", "-f", "autopilot/build/Dockerfile.monitor", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor:$BUILD_ID", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor:latest", "."]
     waitFor: ["test", "leak-scan", "copy-check", "benchmark"]
 
   - id: push
     name: gcr.io/cloud-builders/docker
-    args: ["push", "--all-tags", "${_AR}/jobs"]
+    args: ["push", "--all-tags", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs"]
     waitFor: ["image-jobs"]
 
   - id: push-monitor
     name: gcr.io/cloud-builders/docker
-    args: ["push", "--all-tags", "${_AR}/monitor"]
+    args: ["push", "--all-tags", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor"]
     waitFor: ["image-monitor"]
 
   - id: deploy
@@ -89,9 +89,9 @@ steps:
       - |
         [ "$_DEPLOY" = "true" ] || { echo "deploy skipped"; exit 0; }
         for j in atlas upkeep builder reviewer freshness scorecard simulate; do
-          gcloud run jobs update "hotato-$$j" --region "$_REGION" --image "$_AR/jobs:$BUILD_ID"
+          gcloud run jobs update "hotato-$$j" --region "$_REGION" --image "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:$BUILD_ID"
         done
-        gcloud run deploy hotato-monitor --region "$_REGION" --image "$_AR/monitor:$BUILD_ID"
+        gcloud run deploy hotato-monitor --region "$_REGION" --image "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor:$BUILD_ID"
     waitFor: ["push", "push-monitor"]
 
   # hotato.dev stays on Cloudflare Pages.
