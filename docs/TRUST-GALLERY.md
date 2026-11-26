@@ -1,7 +1,7 @@
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.20.0, offline. The rows
+Every block below is verbatim CLI output from hotato 1.21.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean and echo cases use the bundled examples
@@ -170,10 +170,10 @@ overlaps as candidates and hands the intent decision to you.
 ```text
 $ hotato scan --stereo 02-backchannel-mhm.example.wav --top 5
 hotato scan: 02-backchannel-mhm.example.wav  (6.0s, 3 candidate moments)
-Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
-  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.58s  agent did not go silent within 3.0s
-  [ 2] t=3.19s  overlap_while_agent_talking  overlap=1.07s  agent did not go silent within 3.0s
-  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.56s  agent did not go silent within 3.0s
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset 42.18 --expect yield  (use --expect hold when the agent was right to keep talking)
+  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.13s  agent did not go silent within 3.0s
+  [ 2] t=3.19s  overlap_while_agent_talking  overlap=0.77s  agent did not go silent within 3.0s
+  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.41s  agent did not go silent within 3.0s
 ```
 
 **Verdict:** three candidates, exit 0. Whether "agent did not go silent" is
@@ -192,7 +192,7 @@ second is Hotato flagging that the "caller" activity is leaked TTS.
 ```text
 $ hotato scan --stereo 07-echo-bleed.example.wav --top 5
 hotato scan: 07-echo-bleed.example.wav  (6.0s, 2 candidate moments)
-Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset 42.18 --expect yield  (use --expect hold when the agent was right to keep talking)
   [ 1] t=0.31s  overlap_while_agent_talking  overlap=3.00s  agent did not go silent within 3.0s
   [ 2] t=0.31s  echo_correlated_activity     WARNING likely agent echo: coherence=1.00 at lag 0.12s  (caller channel looks like leaked TTS; a yield here may be the agent hearing itself)
 ```

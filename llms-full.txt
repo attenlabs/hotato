@@ -107,10 +107,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: attenlabs/hotato@v1.20.0
+      - uses: attenlabs/hotato@v1.21.0
         with:
           contracts: contracts/
-          hotato-version: 1.20.0
+          hotato-version: 1.21.0
 ```
 
 `contracts/` holds what `pin` wrote. Full workflow: [`docs/CI.md`](docs/CI.md).
@@ -1070,7 +1070,7 @@ Conversation failed: Agent did not yield; measured talk-over was 2.51 s.
 
   Share in a PR:      hotato-failure-record/failure-record.md
   Share as an image:  hotato-failure-record/failure-record.svg
-  Verify the record:  uvx --from hotato==1.20.0 hotato record verify hotato-failure-record/failure-record.json
+  Verify the record:  uvx --from hotato==1.21.0 hotato record verify hotato-failure-record/failure-record.json
 ```
 
 Preview it locally, then scaffold the durable gate into your own repository
@@ -1094,11 +1094,11 @@ the pinned Action revision executes straight off PYTHONPATH on the standard
 library alone, reaching no package index, no model, no ASR, no Node tool, no
 external judge, and no secret.
 
-Composite Action since v1.4.0. Adopt the current release (v1.20.0), pinned
+Composite Action since v1.4.0. Adopt the current release (v1.21.0), pinned
 by its full commit SHA; resolve the tag to its SHA first:
 
 ```bash
-git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.20.0
+git ls-remote https://github.com/attenlabs/hotato refs/tags/v1.21.0
 ```
 
 Then commit this workflow (replace the `attenlabs/hotato` pin with the SHA
@@ -1120,7 +1120,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - id: hotato
         # Pin by full commit SHA (immutable); the comment names the release.
-        uses: attenlabs/hotato@<full-commit-sha>  # v1.20.0
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.21.0
         with:
           suite: tests/voice/qa.suite.json
           agent: support-agent
@@ -1158,7 +1158,7 @@ Everything else is optional:
 | Value | Effect |
 |---|---|
 | `action` (default) | Installs the pinned Action revision itself, `--no-deps`, no package-index egress -- exactly the revision your workflow pinned |
-| an exact version, e.g. `1.20.0` | `pip install --no-deps hotato==1.20.0` |
+| an exact version, e.g. `1.21.0` | `pip install --no-deps hotato==1.21.0` |
 | `preinstalled` | Skips installation (hotato is already on the runner) |
 
 A range or `latest` is refused, so the pin always names one exact
@@ -13198,7 +13198,7 @@ FILE: docs/TRUST-GALLERY.md
 # Trust gallery: eight recordings, eight verdicts
 
 Eight named input conditions, each with the `hotato` output it produces.
-Every block below is verbatim CLI output from hotato 1.20.0, offline. The rows
+Every block below is verbatim CLI output from hotato 1.21.0, offline. The rows
 correspond to the [trust matrix](TRUST-MATRIX.md).
 
 The clean and echo cases use the bundled examples
@@ -13367,10 +13367,10 @@ overlaps as candidates and hands the intent decision to you.
 ```text
 $ hotato scan --stereo 02-backchannel-mhm.example.wav --top 5
 hotato scan: 02-backchannel-mhm.example.wav  (6.0s, 3 candidate moments)
-Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
-  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.58s  agent did not go silent within 3.0s
-  [ 2] t=3.19s  overlap_while_agent_talking  overlap=1.07s  agent did not go silent within 3.0s
-  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.56s  agent did not go silent within 3.0s
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset 42.18 --expect yield  (use --expect hold when the agent was right to keep talking)
+  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.13s  agent did not go silent within 3.0s
+  [ 2] t=3.19s  overlap_while_agent_talking  overlap=0.77s  agent did not go silent within 3.0s
+  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.41s  agent did not go silent within 3.0s
 ```
 
 **Verdict:** three candidates, exit 0. Whether "agent did not go silent" is
@@ -13389,7 +13389,7 @@ second is Hotato flagging that the "caller" activity is leaked TTS.
 ```text
 $ hotato scan --stereo 07-echo-bleed.example.wav --top 5
 hotato scan: 07-echo-bleed.example.wav  (6.0s, 2 candidate moments)
-Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset 42.18 --expect yield  (use --expect hold when the agent was right to keep talking)
   [ 1] t=0.31s  overlap_while_agent_talking  overlap=3.00s  agent did not go silent within 3.0s
   [ 2] t=0.31s  echo_correlated_activity     WARNING likely agent echo: coherence=1.00 at lag 0.12s  (caller channel looks like leaked TTS; a yield here may be the agent hearing itself)
 ```
@@ -13758,10 +13758,10 @@ measurement -- the timing fact, reported without a verdict or an intent label.
 ```text
 $ hotato scan --stereo 02-backchannel-mhm.example.wav --top 5
 hotato scan: 02-backchannel-mhm.example.wav  (6.0s, 3 candidate moments)
-Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
-  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.58s  agent did not go silent within 3.0s
-  [ 2] t=3.19s  overlap_while_agent_talking  overlap=1.07s  agent did not go silent within 3.0s
-  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.56s  agent did not go silent within 3.0s
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset 42.18 --expect yield  (use --expect hold when the agent was right to keep talking)
+  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.13s  agent did not go silent within 3.0s
+  [ 2] t=3.19s  overlap_while_agent_talking  overlap=0.77s  agent did not go silent within 3.0s
+  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.41s  agent did not go silent within 3.0s
 ```
 
 The usefulness bar is **recall of human-notable moments at a workable
