@@ -12,7 +12,6 @@ These lock in two things the plan calls out as acceptance criteria:
 
 from importlib import resources
 
-from tests import _banned
 from hotato.core import run_single, run_suite
 from hotato.fixmap import (
     ENGAGEMENT_CONTROL_POINTER,
@@ -20,6 +19,7 @@ from hotato.fixmap import (
     downgrade_lone_engagement_fix,
     systemic_pointer,
 )
+from tests import _banned
 
 
 def _bundled_stereo(scenario_id):

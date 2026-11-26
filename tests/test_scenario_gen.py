@@ -111,7 +111,9 @@ def test_a_reflowed_prompt_keeps_the_same_ids(tmp_path):
     # normalisation absorbs cosmetic edits, so re-indenting a prompt does not
     # churn every id in a committed suite
     reflowed = "\n".join("   " + line for line in PROMPT.split("\n"))
-    ids = lambda text: [d["id"] for _, d in GEN.generate_suite(text)["scenarios"]]
+    def ids(text):
+        return [d["id"] for _, d in GEN.generate_suite(text)["scenarios"]]
+
     assert ids(PROMPT) == ids(reflowed)
 
 

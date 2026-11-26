@@ -28,6 +28,7 @@ import os
 import re
 
 import pytest
+
 from tests import _banned
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

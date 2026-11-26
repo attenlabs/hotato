@@ -21,8 +21,8 @@ Mirrors the honesty invariants proven for the CLI/module surface
 """
 from __future__ import annotations
 
-import os
 import math
+import os
 import struct
 import sys
 import types

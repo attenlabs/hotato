@@ -13,7 +13,6 @@ import pytest
 jsonschema = pytest.importorskip("jsonschema")
 
 from hotato import cli
-from tests import _banned
 from hotato.core import run_suite
 from hotato.diagnose import diagnose_envelope
 from hotato.fixplan import (
@@ -22,6 +21,7 @@ from hotato.fixplan import (
     REQUIRED_VERIFICATION,
     build_plan,
 )
+from tests import _banned
 
 SCHEMA = json.loads(
     resources.files("hotato")
