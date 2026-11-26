@@ -1701,7 +1701,10 @@ def _list_vapi(creds, since, limit):
     out = []
     for c in arr:
         if isinstance(c, dict) and c.get("id"):
-            out.append({"id": str(c["id"]), "created": _as_epoch(c.get("createdAt"))})
+            item = {"id": str(c["id"]), "created": _as_epoch(c.get("createdAt"))}
+            if c.get("assistantId"):
+                item["agent_id"] = str(c["assistantId"])
+            out.append(item)
     return out
 
 
@@ -1729,11 +1732,14 @@ def _list_retell(creds, since, limit):
         for c in items:
             if isinstance(c, dict) and c.get("call_id"):
                 ts = c.get("start_timestamp")
-                out.append({
+                item = {
                     "id": str(c["call_id"]),
                     "created": (float(ts) / 1000.0
                                 if isinstance(ts, (int, float)) else None),
-                })
+                }
+                if c.get("agent_id"):
+                    item["agent_id"] = str(c["agent_id"])
+                out.append(item)
         cursor = data.get("pagination_key")
         if len(out) >= limit or not data.get("has_more") or not cursor:
             break

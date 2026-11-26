@@ -72,6 +72,7 @@ _ALL_SUBCOMMANDS = [
     "caller", "caller run", "caller verify",
     "load", "load telephony", "load telephony run", "load telephony verify",
     "load caller", "load caller run", "load caller verify",
+    "monitor", "monitor run", "monitor test-alert", "monitor pin",
     "production", "production serve", "production ingest", "production status",
     "production finalize", "production maintain", "production alerts",
     "production export-regression", "production verify-regression",

@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Added
+
+- `hotato monitor run --stack vapi|retell [--every 5m] [--once] [--rules F]
+  [--store DIR]`: production call monitoring. Each cycle lists calls newer than
+  a persisted cursor, fetches each recording, checks it with the autopsy
+  engine, writes one `hotato.monitorevent.v1` file per call under
+  `STORE/events/`, evaluates the rules and sends alerts. A call is scored
+  once; a restart resumes from the cursor. A recording that is not downloadable
+  yet is retried for a few cycles. Mono recordings need `--allow-mono` and
+  report best-effort incidents with a null score.
+- Alert rules (metric thresholds, incident type and severity, rate windows,
+  per-rule cooldown) deliver to a Slack incoming webhook (Block Kit), PagerDuty
+  Events API v2 (stable dedup key per rule and agent, resolved when the rule
+  clears) and a generic JSON webhook. Destinations come from flags or
+  `HOTATO_SLACK_WEBHOOK_URL`, `HOTATO_PAGERDUTY_ROUTING_KEY` and
+  `HOTATO_MONITOR_WEBHOOK_URL`; nothing is sent without one.
+- `hotato monitor test-alert --rules F` proves the wiring with a labelled test
+  alert per rule and channel; `hotato monitor pin CALL_ID` turns a monitored
+  call into a failure contract through the existing `pin` path. See
+  `docs/MONITOR.md`.
+- Vapi and Retell call listings now carry the agent id when the platform
+  returns it (an additive `agent_id` key on list items).
+
 ## [1.21.0] - 2026-11-26
 
 The next release: a scenario generator, and three corrections to what the

@@ -1035,6 +1035,26 @@ _EXIT_CODES: dict = {
         (0, "the caller-load package reproduced and every bound artifact matched"),
         (2, "the package was malformed, incomplete, or failed independent verification"),
     ),
+    "monitor": (
+        (2, "no subcommand given (see hotato monitor --help)"),
+    ),
+    "monitor run": (
+        (0, "ran the requested cycle(s) (--once), or was stopped by the operator"),
+        (2, "usage error: a bad rules file, interval or window, a rule naming a "
+            "channel with no destination, a missing API key, or an unusable store"),
+    ),
+    "monitor test-alert": (
+        (0, "every test alert was delivered to every channel the rules name"),
+        (1, "at least one test alert was not delivered"),
+        (2, "the rules file was unusable or a rule names a channel with no destination"),
+    ),
+    "monitor pin": (
+        (0, "pinned: the monitored call's incident became a portable .hotato "
+            "contract bundle"),
+        (2, "refused with the reason and no artifact: an unknown call, or any "
+            "refusal hotato pin makes (mono recording, no critical incident, "
+            "changed source)"),
+    ),
     "production": (
         (2, "no subcommand given (see hotato production --help)"),
     ),
@@ -4912,6 +4932,48 @@ def _cmd_pin(args) -> int:
         reviewer=args.reviewer,
         force=args.force,
     )
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_pincmd.render_text(result))
+    return 0
+
+
+def _monitor_dest(args):
+    from . import monitor as _monitor
+
+    return _monitor.Destinations(
+        slack_url=args.slack_webhook_url,
+        pagerduty_key=args.pagerduty_routing_key,
+        webhook_url=args.webhook_url,
+        report_url_base=getattr(args, "report_url_base", None))
+
+
+def _cmd_monitor_run(args) -> int:
+    from . import monitor as _monitor
+
+    return _monitor.run_monitor(
+        args.stack, every=args.every, once=args.once, rules_path=args.rules,
+        store=args.store, api_key=args.api_key, allow_mono=args.allow_mono,
+        since=args.since, limit=args.limit, dest=_monitor_dest(args),
+        fmt=args.format)
+
+
+def _cmd_monitor_test_alert(args) -> int:
+    from . import monitor as _monitor
+
+    return _monitor.run_test_alert(args.rules, dest=_monitor_dest(args),
+                                   fmt=args.format)
+
+
+def _cmd_monitor_pin(args) -> int:
+    from . import monitor as _monitor
+    from . import pincmd as _pincmd
+
+    result = _monitor.run_monitor_pin(
+        args.call_id, store=args.store, incident=args.incident,
+        out_dir=args.out, expect=args.expect, contract_id=args.contract_id,
+        reviewer=args.reviewer, force=args.force)
     if args.format == "json":
         print(_errors.safe_json_dumps(result, indent=2))
     else:
@@ -9320,6 +9382,137 @@ def build_parser() -> argparse.ArgumentParser:
                              + ")")
         _add_format_arg(hh, choices=("text", "json"))
         hh.set_defaults(func=_cmd_platform_health, stack=_health_stack)
+
+    # --- monitor: production call monitoring with alerts ---------------------
+    mo = sub.add_parser(
+        "monitor",
+        help="score every new Vapi or Retell call as it arrives and alert "
+             "Slack, PagerDuty or a webhook on your rules",
+        description=(
+            "Production call monitoring. `monitor run` lists new calls on a "
+            "Vapi or Retell account, fetches each recording, checks it with "
+            "the autopsy engine, writes one hotato.monitorevent.v1 file per "
+            "call under STORE/events, and fires the alert rules in your "
+            "rules file to Slack, PagerDuty or a JSON webhook. A call is "
+            "scored once; a restart resumes from the stored cursor. "
+            "`monitor test-alert` sends a labelled test alert through every "
+            "channel your rules name. `monitor pin` turns a monitored call "
+            "into a failure contract through the existing pin path. "
+            "Destinations come from the flags or environment variables "
+            "HOTATO_SLACK_WEBHOOK_URL, HOTATO_PAGERDUTY_ROUTING_KEY and "
+            "HOTATO_MONITOR_WEBHOOK_URL; nothing is sent anywhere you did not "
+            "name. Format and rules: docs/MONITOR.md."
+        ),
+        epilog=_exit_codes_epilog("monitor"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mosub = mo.add_subparsers(dest="monitor_command", required=True,
+                              metavar="run|test-alert|pin")
+
+    def _monitor_dest_args(p):
+        p.add_argument("--slack-webhook-url", default=None, metavar="URL",
+                       help="Slack incoming-webhook URL (else "
+                            "HOTATO_SLACK_WEBHOOK_URL)")
+        p.add_argument("--pagerduty-routing-key", default=None, metavar="KEY",
+                       help="PagerDuty Events API v2 integration key (else "
+                            "HOTATO_PAGERDUTY_ROUTING_KEY)")
+        p.add_argument("--webhook-url", default=None, metavar="URL",
+                       help="generic JSON webhook URL (else "
+                            "HOTATO_MONITOR_WEBHOOK_URL)")
+
+    mr = mosub.add_parser(
+        "run",
+        help="score new calls and fire alert rules, once or every interval",
+        description=(
+            "Each cycle: list calls newer than the stored cursor, fetch each "
+            "recording, score it, write STORE/events/<call>.json, evaluate "
+            "the rules and send alerts. A mono recording needs --allow-mono "
+            "and is then reported best-effort with a null score."
+        ),
+        epilog=(
+            _exit_codes_epilog("monitor run") + "\n\n"
+            "Examples:\n"
+            "  hotato monitor run --stack vapi --once --rules rules.json\n"
+            "  hotato monitor run --stack retell --every 5m --rules rules.json "
+            "--store ./monitor"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mr.add_argument("--stack", required=True, choices=("vapi", "retell"),
+                    help="the voice platform to monitor")
+    mr.add_argument("--every", default="5m", metavar="INTERVAL",
+                    help="time between cycles, e.g. 30s, 5m, 1h (default 5m)")
+    mr.add_argument("--once", action="store_true",
+                    help="run one cycle and exit")
+    mr.add_argument("--rules", default=None, metavar="FILE",
+                    help="alert rules JSON (see docs/MONITOR.md); without it "
+                         "calls are scored and recorded but nothing is sent")
+    mr.add_argument("--store", default="hotato-monitor", metavar="DIR",
+                    help="state, event and recording directory "
+                         "(default hotato-monitor)")
+    mr.add_argument("--since", default="1h", metavar="WINDOW",
+                    help="how far back the FIRST cycle looks when the store "
+                         "has no cursor yet (default 1h)")
+    mr.add_argument("--limit", type=int, default=50, metavar="N",
+                    help="maximum calls listed per cycle (default 50)")
+    mr.add_argument("--allow-mono", action="store_true",
+                    help="also score a mono recording, best-effort (silence "
+                         "timing only, no score)")
+    mr.add_argument("--api-key", default=None,
+                    help="vendor API key (else the connection store or "
+                         "VAPI_API_KEY / RETELL_API_KEY)")
+    mr.add_argument("--report-url-base", default=None, metavar="URL",
+                    help="alerts link to URL/<report file> instead of a "
+                         "local path")
+    _monitor_dest_args(mr)
+    _add_format_arg(mr, choices=("text", "json"))
+    mr.set_defaults(func=_cmd_monitor_run)
+
+    mt = mosub.add_parser(
+        "test-alert",
+        help="send a labelled test alert through every channel the rules name",
+        description=(
+            "Posts one clearly marked TEST alert per rule and channel. "
+            "PagerDuty receives a trigger and an immediate resolve of a "
+            "test-only dedup key."
+        ),
+        epilog=_exit_codes_epilog("monitor test-alert"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mt.add_argument("--rules", required=True, metavar="FILE",
+                    help="alert rules JSON")
+    _monitor_dest_args(mt)
+    _add_format_arg(mt, choices=("text", "json"))
+    mt.set_defaults(func=_cmd_monitor_test_alert)
+
+    mp = mosub.add_parser(
+        "pin",
+        help="turn one monitored call into a failure contract",
+        description=(
+            "Resolves CALL_ID in the monitor store and pins its top critical "
+            "incident (or --incident N) through hotato pin."
+        ),
+        epilog=_exit_codes_epilog("monitor pin"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mp.add_argument("call_id", metavar="CALL_ID",
+                    help="a call id from STORE/events")
+    mp.add_argument("--store", default="hotato-monitor", metavar="DIR",
+                    help="the monitor store (default hotato-monitor)")
+    mp.add_argument("--incident", type=int, default=None, metavar="N",
+                    help="1-based incident rank (default: top critical)")
+    mp.add_argument("--out", default="contracts", metavar="DIR",
+                    help="contract directory (default contracts)")
+    mp.add_argument("--expect", choices=("yield", "hold"), default=None,
+                    help="override the yield/hold decision (see hotato pin)")
+    mp.add_argument("--id", dest="contract_id", default=None,
+                    help="contract id")
+    mp.add_argument("--reviewer", default=None,
+                    help="accountable reviewer's name")
+    mp.add_argument("--force", action="store_true",
+                    help="overwrite an existing bundle with the same id")
+    _add_format_arg(mp, choices=("text", "json"))
+    mp.set_defaults(func=_cmd_monitor_pin)
 
     syn = sub.add_parser(
         "synth",
