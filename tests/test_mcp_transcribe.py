@@ -21,8 +21,8 @@ Mirrors the honesty invariants proven for the CLI/module surface
 """
 from __future__ import annotations
 
-import os
 import math
+import os
 import struct
 import sys
 import types
@@ -266,7 +266,8 @@ class _FakeFastMCP:
 @pytest.fixture()
 def fake_mcp():
     saved = {k: sys.modules.get(k)
-             for k in ("mcp", "mcp.server", "mcp.server.fastmcp")}
+             for k in ("mcp", "mcp.server", "mcp.server.fastmcp",
+                       "mcp.server.mcpserver")}
     mcp_mod = types.ModuleType("mcp")
     server_mod = types.ModuleType("mcp.server")
     fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
@@ -276,6 +277,7 @@ def fake_mcp():
     sys.modules["mcp"] = mcp_mod
     sys.modules["mcp.server"] = server_mod
     sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+    sys.modules["mcp.server.mcpserver"] = None  # force the 1.x fallback path
     try:
         yield
     finally:

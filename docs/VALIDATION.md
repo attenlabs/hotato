@@ -68,10 +68,10 @@ measurement -- the timing fact, reported without a verdict or an intent label.
 ```text
 $ hotato scan --stereo 02-backchannel-mhm.example.wav --top 5
 hotato scan: 02-backchannel-mhm.example.wav  (6.0s, 3 candidate moments)
-Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset <t> --expect yield|hold
-  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.58s  agent did not go silent within 3.0s
-  [ 2] t=3.19s  overlap_while_agent_talking  overlap=1.07s  agent did not go silent within 3.0s
-  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.56s  agent did not go silent within 3.0s
+Candidates are timing events. You decide the expected behavior; label with: hotato fixture create --onset 42.18 --expect yield  (use --expect hold when the agent was right to keep talking)
+  [ 1] t=2.09s  overlap_while_agent_talking  overlap=1.13s  agent did not go silent within 3.0s
+  [ 2] t=3.19s  overlap_while_agent_talking  overlap=0.77s  agent did not go silent within 3.0s
+  [ 3] t=4.29s  overlap_while_agent_talking  overlap=0.41s  agent did not go silent within 3.0s
 ```
 
 The usefulness bar is **recall of human-notable moments at a workable

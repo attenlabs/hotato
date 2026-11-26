@@ -21,6 +21,7 @@ from hotato.fixplan import (
     REQUIRED_VERIFICATION,
     build_plan,
 )
+from tests import _banned
 
 SCHEMA = json.loads(
     resources.files("hotato")
@@ -151,8 +152,8 @@ def test_refusal_pointer_text_has_no_digits_and_no_products():
     plan = _valid(build_plan(diagnosis=diagnose_envelope(_demo_envelope())))
     pointer_text = json.dumps(plan["recommended_fix"]) + plan["hypothesis"]
     assert not any(ch.isdigit() for ch in pointer_text)
-    for product in ("Vapi", "Retell", "LiveKit", "Pipecat", "Krisp",
-                    "Attention Labs", "SAA"):
+    assert not _banned.leaks(pointer_text)
+    for product in ("Vapi", "Retell", "LiveKit", "Pipecat", "Krisp"):
         assert product.lower() not in pointer_text.lower()
     # And the canonical pointer constant itself stays digit-free.
     assert not any(ch.isdigit() for ch in json.dumps(ENGAGEMENT_CONTROL_FIX))

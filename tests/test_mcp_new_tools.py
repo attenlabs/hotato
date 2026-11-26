@@ -52,7 +52,8 @@ def fake_mcp():
     """Install the fake ``mcp.server.fastmcp`` module for the duration of a test,
     then restore whatever was there before."""
     saved = {k: sys.modules.get(k)
-             for k in ("mcp", "mcp.server", "mcp.server.fastmcp")}
+             for k in ("mcp", "mcp.server", "mcp.server.fastmcp",
+                       "mcp.server.mcpserver")}
     mcp_mod = types.ModuleType("mcp")
     server_mod = types.ModuleType("mcp.server")
     fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
@@ -62,6 +63,7 @@ def fake_mcp():
     sys.modules["mcp"] = mcp_mod
     sys.modules["mcp.server"] = server_mod
     sys.modules["mcp.server.fastmcp"] = fastmcp_mod
+    sys.modules["mcp.server.mcpserver"] = None  # force the 1.x fallback path
     try:
         yield
     finally:

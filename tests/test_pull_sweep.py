@@ -186,11 +186,30 @@ def test_list_cartesia_parses_data_and_requires_agent_id(monkeypatch):
         cap.list_calls("cartesia", {"api_key": "k"}, limit=50)
 
 
-def test_list_retell_is_honest_unconfirmed_no_fabricated_endpoint(monkeypatch):
-    # No urlopen installed: a fabricated call would raise AssertionError, but we
-    # must fail BEFORE any network with an honest "no verified list" error.
-    with pytest.raises(ValueError, match="no verified list-calls endpoint"):
-        cap.list_calls("retell", {"api_key": "k"}, limit=50)
+def test_list_retell_posts_v3_with_cursor_paging(monkeypatch):
+    seen = []
+    pages = [
+        b'{"items": [{"call_id": "c1", "start_timestamp": 2000000}], '
+        b'"has_more": true, "pagination_key": "k1"}',
+        b'{"items": [{"call_id": "c2", "start_timestamp": 1000000}], '
+        b'"has_more": false}',
+    ]
+
+    def fake_urlopen(req, timeout=None):
+        seen.append(req)
+        return _Resp(pages[len(seen) - 1])
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    items = cap.list_calls("retell", {"api_key": "k"}, since=1000, limit=50)
+    assert [i["id"] for i in items] == ["c1", "c2"]
+    assert items[0]["created"] == 2000.0
+    assert all(r.full_url == "https://api.retellai.com/v3/list-calls"
+               and r.get_method() == "POST" for r in seen)
+    import json as _json
+    b1, b2 = (_json.loads(r.data) for r in seen)
+    assert b1["filter_criteria"] == {"start_timestamp_gte": 1000000}
+    assert "pagination_key" not in b1 and b2["pagination_key"] == "k1"
+    assert seen[0].get_header("Authorization") == "Bearer k"
 
 
 def test_list_livekit_pipecat_are_capture_in_your_infra(monkeypatch):
@@ -279,9 +298,10 @@ def test_pull_explicit_ids_work_for_retell_without_a_list(tmp_path, monkeypatch)
     assert len(res["pulled"]) == 2
 
 
-def test_pull_retell_without_ids_is_honest_error(tmp_path, monkeypatch):
-    with pytest.raises(ValueError, match="no verified list-calls endpoint"):
-        cap.pull("retell", {"api_key": "k"}, out_dir=str(tmp_path / "d"))
+def test_pull_retell_without_ids_lists_via_v3(tmp_path, monkeypatch):
+    _install(monkeypatch, {"/v3/list-calls": b'{"items": [], "has_more": false}'})
+    res = cap.pull("retell", {"api_key": "k"}, out_dir=str(tmp_path / "d"))
+    assert res["listed"] == 0
 
 
 # =========================================================================

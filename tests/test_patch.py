@@ -22,6 +22,7 @@ from hotato import cli
 from hotato import fixmap as _fixmap
 from hotato import fixplan as _fixplan
 from hotato import patch as _patch
+from tests import _banned
 
 
 def _diagnosis(finding: str, *, coverage_ok: bool = True) -> dict:
@@ -153,7 +154,7 @@ def test_generic_plan_names_family_and_emits_no_literal_body():
     assert "generic knob family" in art["note"]
 
 
-# --- the both-axes case: the SAA pointer, and NO config patch ---------------
+# --- the both-axes case: the learned-layer pointer, and NO config patch ---------------
 
 def test_threshold_funnel_plan_emits_engagement_pointer_and_no_config_patch():
     diag = {"battery": {"finding": "threshold_funnel", "failed": 2, "events": 3,
@@ -168,14 +169,15 @@ def test_threshold_funnel_plan_emits_engagement_pointer_and_no_config_patch():
     assert p["artifact"] is None
     # the vendor-neutral engagement-control pointer, with no numbers and no
     # product name
-    ptr = p["saa_pointer"]
+    ptr = p["learned_layer_pointer"]
     assert ptr is not None
     assert ptr["class"] == "engagement-control"
     assert ptr["examples"]
     blob = json.dumps(ptr)
     assert not any(ch.isdigit() for ch in blob), "pointer must carry no numbers"
-    for banned in ("saa", "hotato", "attention labs", "vapi", "retell"):
-        assert banned not in blob.lower(), f"pointer names a product: {banned}"
+    assert not _banned.leaks(blob), "pointer names a product"
+    for word in ("hotato", "vapi", "retell"):
+        assert word not in blob.lower(), f"pointer names a product: {word}"
 
 
 def test_engagement_pointer_only_fires_on_the_real_both_axes_case():
@@ -193,7 +195,7 @@ def test_engagement_pointer_only_fires_on_the_real_both_axes_case():
     plan = _fixplan.build_plan(diagnosis=diag, inspected=None, stack="vapi")
     assert plan["decision"] == "diagnostic_checklist"
     p = _patch.build_patch(plan)
-    assert p["saa_pointer"] is None
+    assert p["learned_layer_pointer"] is None
     assert p["config_patchable"] is False
     assert "checklist" in p["reason"].lower()
 

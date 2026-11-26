@@ -123,10 +123,9 @@ STACK_CHANNELS = {
     "millis": "mono", "cartesia": "mono",
 }
 
-# Stacks whose list-recent-calls endpoint the spec confirms VERBATIM. Retell is
-# excluded on purpose: the spec marks its list-calls endpoint unconfirmed/none,
-# so Hotato never fabricates one -- pull Retell from an explicit --call-id list.
-LIST_STACKS = ("vapi", "twilio", "bland", "elevenlabs", "synthflow",
+# Stacks whose list-recent-calls endpoint is documented by the vendor.
+# Retell's is ``POST /v3/list-calls``; ``get-call`` stays on v2.
+LIST_STACKS = ("vapi", "twilio", "retell", "bland", "elevenlabs", "synthflow",
                "millis", "cartesia")
 
 # Per-stack credential contract for connect/pull/sweep. ``fields`` are required;
@@ -1706,6 +1705,41 @@ def _list_vapi(creds, since, limit):
     return out
 
 
+def _list_retell(creds, since, limit):
+    # POST https://api.retellai.com/v3/list-calls (Bearer). Body: limit (1-1000),
+    # pagination_key, sort_order, filter_criteria.start_timestamp_gte (epoch ms).
+    # Response: {"items": [{call_id, start_timestamp, ...}], has_more,
+    # pagination_key}. (docs.retellai.com/api-references/list-calls)
+    headers = {"Authorization": f"Bearer {creds['api_key']}",
+               "Accept": "application/json"}
+    out = []
+    cursor = None
+    for _ in range(100):  # hard bound on pages
+        body = {"limit": max(1, min(int(limit) - len(out), 1000)),
+                "sort_order": "descending"}
+        if since is not None:
+            body["filter_criteria"] = {"start_timestamp_gte": int(since * 1000)}
+        if cursor:
+            body["pagination_key"] = cursor
+        data = _http_post_json("https://api.retellai.com/v3/list-calls", body,
+                               headers=headers)
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise _bad_payload("retell", "items[] array")
+        for c in items:
+            if isinstance(c, dict) and c.get("call_id"):
+                ts = c.get("start_timestamp")
+                out.append({
+                    "id": str(c["call_id"]),
+                    "created": (float(ts) / 1000.0
+                                if isinstance(ts, (int, float)) else None),
+                })
+        cursor = data.get("pagination_key")
+        if len(out) >= limit or not data.get("has_more") or not cursor:
+            break
+    return out
+
+
 def _list_twilio(creds, since, limit):
     # GET .../Accounts/{Sid}/Recordings.json  (PageSize, DateCreated>) ->
     # {"recordings": [{"sid": "RE...", "date_created": ...}]}. (spec: Twilio list)
@@ -1879,6 +1913,7 @@ def _list_cartesia(creds, since, limit):
 _LIST_FUNCS = {
     "vapi": _list_vapi,
     "twilio": _list_twilio,
+    "retell": _list_retell,
     "bland": _list_bland,
     "elevenlabs": _list_elevenlabs,
     "synthflow": _list_synthflow,
@@ -1889,23 +1924,16 @@ _LIST_FUNCS = {
 
 def list_calls(stack, creds, *, since=None, limit=50):
     """List up to ``limit`` recent recordings for ``stack`` using ONLY the
-    spec-verified list endpoint. ``since`` is an epoch-seconds cutoff (see
+    documented list endpoint. ``since`` is an epoch-seconds cutoff (see
     :func:`since_epoch`). Returns ``[{"id": str, "created": float|None}, ...]``
     most-recent first.
 
     Raises a clean ValueError for stacks the spec gives no list endpoint for
-    (Retell) or that are capture-in-your-infra (LiveKit, Pipecat) -- those must
+    or that are capture-in-your-infra (LiveKit, Pipecat) -- those must
     be pulled from an explicit id list, never a fabricated endpoint."""
     stack = (stack or "").strip().lower()
     fn = _LIST_FUNCS.get(stack)
     if fn is None:
-        if stack == "retell":
-            raise ValueError(
-                "Retell has no verified list-calls endpoint (the integration "
-                "spec marks it unconfirmed), so Hotato will not guess one. Pull "
-                "explicit ids instead: hotato pull --stack retell --call-id CALL_ID "
-                "(repeat --call-id for more)."
-            )
         if stack in ("livekit", "pipecat"):
             raise ValueError(
                 f"{stack} is capture-in-your-infra: there is no vendor recording "
@@ -2122,8 +2150,7 @@ def resolve_creds(stack: str, overrides: Optional[dict] = None) -> dict:
 def auth_check(stack: str, creds: dict) -> None:
     """A lightweight credential probe: list one recent call. Raises the vendor's
     HTTP error (an _HTTPStatusError carrying .code) on an auth failure, or a
-    ValueError when the stack has no cheap probe (e.g. Retell has no list
-    endpoint; Synthflow/Cartesia need model_id/agent_id to list)."""
+    ValueError when the stack has no cheap probe (Synthflow/Cartesia need model_id/agent_id to list)."""
     stack = stack.strip().lower()
     if stack not in _LIST_FUNCS:
         raise ValueError(

@@ -170,8 +170,7 @@ _EXIT_CODES: dict = {
             "Stability Score is the measured share of dual-channel calls "
             "with zero critical incidents, times 100"),
         (2, "usage error, a missing API key (RETELL_API_KEY or hotato "
-            "connect retell), missing --call-id (Retell has no verified "
-            "list-recent-calls endpoint, so hotato never guesses one), every "
+            "connect retell), every "
             "given recording failed to fetch, or zero analyzable calls (no "
             "score is reported over zero calls)"),
     ),
@@ -6176,8 +6175,7 @@ def build_parser() -> argparse.ArgumentParser:
             "(bland, elevenlabs, synthflow, millis, cartesia) require --allow-mono "
             "and are indicative only. A recording that cannot be fetched is "
             "reported as a clean skip with its reason and the pull continues -- "
-            "one bad call never crashes the run. Retell has no verified list "
-            "endpoint, so pull it from explicit --call-id values. Everything scores "
+            "one bad call never crashes the run. Everything scores "
             "OFFLINE, later or in the same invocation with --score; the only "
             "network here is the direct recording download."
         ),
@@ -6203,8 +6201,8 @@ def build_parser() -> argparse.ArgumentParser:
     pu.add_argument("--limit", type=int, default=50,
                     help="max recordings to fetch (default 50)")
     pu.add_argument("--call-id", action="append", metavar="ID",
-                    help="fetch an explicit recording id (repeatable); required "
-                         "for stacks without a list endpoint (retell). For twilio "
+                    help="fetch an explicit recording id (repeatable); default "
+                         "is the vendor's recent-call list. For twilio "
                          "pass Recording SIDs (RE...)")
     pu.add_argument("--allow-mono", action="store_true",
                     help="allow pulling mono/mixed stacks (degraded; separated "
@@ -6264,8 +6262,8 @@ def build_parser() -> argparse.ArgumentParser:
     sw.add_argument("--limit", type=int, default=50,
                     help="max recordings to pull before analyzing (default 50)")
     sw.add_argument("--call-id", action="append", metavar="ID",
-                    help="sweep explicit recording ids (repeatable); required for "
-                         "stacks without a list endpoint (retell)")
+                    help="sweep explicit recording ids (repeatable); default is "
+                         "the vendor's recent-call list")
     sw.add_argument("--allow-mono", action="store_true",
                     help="allow sweeping mono/mixed stacks (degraded; they cannot "
                          "be scored per party and surface as skipped)")
@@ -9218,9 +9216,8 @@ def build_parser() -> argparse.ArgumentParser:
             "measured share of dual-channel calls with zero critical "
             "incidents, times 100, with the formula printed directly "
             "beneath it and the sample size and policy sha beside it. "
-            "Retell has no verified list-recent-calls endpoint, so hotato "
-            "never guesses one: pass the calls with --call-id "
-            "(repeatable). The evidence coverage block lists the per-lane "
+            "Pass calls with --call-id "
+            "(repeatable) or let it list the recent ones. The evidence coverage block lists the per-lane "
             "measured counts, and incident kinds recurring across stored "
             "runs print recurrence-state lines. The analysis runs on this "
             "machine; recordings go nowhere else. Credentials come from "
@@ -9316,9 +9313,7 @@ def build_parser() -> argparse.ArgumentParser:
                         default=None, metavar="ID",
                         help="check this call id (repeatable; skips the "
                              "list step)"
-                             + (". Required: Retell has no verified "
-                                "list-recent-calls endpoint"
-                                if _health_stack == "retell" else ""))
+                             )
         hh.add_argument("--api-key", default=None,
                         help="vendor API key (else the connection store or "
                              + _capture.CONNECT_SPECS[_health_stack]["env"]["api_key"]

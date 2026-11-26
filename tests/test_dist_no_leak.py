@@ -5,17 +5,45 @@ it from ``MANIFEST.in`` against the working tree, independent of git), so a
 gitignored internal / crown-jewel / secret file on disk can still ship to PyPI.
 Three independent layers defend against that; this module pins all three:
 
-  1. the ``MANIFEST.in`` excludes for the internal SAA artifacts;
+  1. the ``MANIFEST.in`` excludes for the internal learned-layer artifacts;
   2. ``scripts/check_dist_no_leak.py`` flags an untracked or forbidden member
      and passes a clean, tracked one (the fail-closed scanner's logic);
   3. the scanner is actually WIRED into CI (sdist-guard) and the publish
      workflow, before any upload.
 """
 
+import hashlib
 import importlib.util
 import os
 
 import pytest
+
+from tests import _banned
+
+# A synthetic name stands in for the real internal names, which live only in
+# the maintainers' private ban list (scripts/private_banlist.py). Each test
+# that needs a name check writes the canary's digest into a temp ban list.
+_CANARY = "zzcanaryleak"                    # one-token name
+_CANARY_PAIR = ("zzcanary", "pairleak")     # two-token name
+
+
+def _sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+@pytest.fixture
+def canary_banlist(tmp_path, monkeypatch):
+    path = tmp_path / "private-banlist.sha256"
+    path.write_text(
+        "# test ban list\n"
+        f"{_sha(_CANARY)}  # canary name\n"
+        f"{_sha(' '.join(_CANARY_PAIR))} internal  # canary pair\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOTATO_PRIVATE_BANLIST", str(path))
+    monkeypatch.delenv("HOTATO_REQUIRE_PRIVATE_BANLIST", raising=False)
+    return path
+
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCANNER_PATH = os.path.join(ROOT, "scripts", "check_dist_no_leak.py")
@@ -35,23 +63,33 @@ def _load_scanner():
 # --- (2) the scanner's forbidden-pattern logic ------------------------------
 
 @pytest.mark.parametrize("path", [
-    "docs/SAA-BEHAVIOR-CARD.md",
-    "docs/SAA-FIX-POINTER.md",
-    "docs/saa_behavior_card.py",
-    "tests/test_saa_card.py",
-    "HANDOFF-cc-01-orange.md",
+    "HANDOFF-lane-notes.md",
     "deploy/.env",
     "deploy/.env.production",
     "config/credentials.json",
     "keys/id_rsa",
     "certs/server.pem",
     ".claude/settings.json",
-    "knowledge/north-star/NORTH-STAR.md",
 ])
 def test_forbidden_paths_are_flagged(path):
     scanner = _load_scanner()
     assert scanner._scan_forbidden(path) is not None, (
         f"{path!r} is an internal/secret path but the scanner did not flag it")
+
+
+@pytest.mark.parametrize("path", [
+    f"docs/{_CANARY.upper()}-BEHAVIOR-CARD.md",
+    f"docs/{_CANARY.upper()}-FIX-POINTER.md",
+    f"docs/{_CANARY}_behavior_card.py",
+    f"tests/test_{_CANARY}_card.py",
+    f"src/{_CANARY}/x.py",
+    "notes/{}-{}.txt".format(*_CANARY_PAIR),
+    "knowledge/{}/{}/CANON.md".format(*_CANARY_PAIR),
+])
+def test_banlisted_name_paths_are_flagged(path, canary_banlist):
+    scanner = _load_scanner()
+    assert scanner._scan_forbidden(path) is not None, (
+        f"{path!r} names a ban-listed term but the scanner did not flag it")
 
 
 @pytest.mark.parametrize("path", [
@@ -70,9 +108,9 @@ def test_clean_paths_pass(path):
         f"{path!r} is a legitimate public file but the scanner flagged it")
 
 
-def test_check_archive_flags_untracked_and_forbidden(tmp_path):
+def test_check_archive_flags_untracked_and_forbidden(tmp_path, canary_banlist):
     # An sdist member that is neither git-tracked nor build-generated is a leak,
-    # and an SAA path is a forbidden-pattern leak, independent of tracking.
+    # and an internal-name path is a forbidden leak, independent of tracking.
     scanner = _load_scanner()
     tracked = {"src/hotato/cli.py", "README.md"}
     # Build a tiny tar.gz that looks like an sdist.
@@ -85,29 +123,83 @@ def test_check_archive_flags_untracked_and_forbidden(tmp_path):
             "pkg-1.0.0/README.md",                   # tracked -> ok
             "pkg-1.0.0/PKG-INFO",                    # generated -> ok
             "pkg-1.0.0/scratch/notes.txt",           # UNTRACKED -> leak
-            "pkg-1.0.0/docs/SAA-FIX-POINTER.md",     # FORBIDDEN -> leak
+            f"pkg-1.0.0/docs/{_CANARY.upper()}-FIX-POINTER.md",  # FORBIDDEN -> leak
         ]:
             data = b"x"
+            if member.endswith("cli.py"):
+                data = b"ok\n"
             info = tarfile.TarInfo(name=member)
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
     findings = scanner._check_archive(str(p), tracked)
     joined = "\n".join(findings)
     assert "scratch/notes.txt" in joined, "untracked member not caught"
-    assert "SAA-FIX-POINTER.md" in joined, "forbidden SAA member not caught"
+    assert "-FIX-POINTER.md" in joined, "forbidden internal member not caught"
     assert "cli.py" not in joined and "README.md" not in joined and "PKG-INFO" not in joined
 
 
 # --- (1) the MANIFEST excludes ----------------------------------------------
 
-def test_manifest_excludes_the_saa_artifacts():
+def test_text_body_is_scanned_and_base64_ignored(canary_banlist):
+    scanner = _load_scanner()
+    assert scanner._scan_text(f"see the {_CANARY.upper()} card".encode()) is not None
+    assert scanner._scan_text("/home/{}/{}/x".format(*_CANARY_PAIR).encode()) is not None
+    blob = "A" * 40 + "/" + _CANARY.upper() + "+" + "B" * 40
+    assert scanner._scan_text(blob.encode()) is None
+    assert scanner._scan_text(b"plain public text") is None
+
+
+def test_public_entries_are_not_refused_in_artifacts(tmp_path, monkeypatch):
+    # A ``public`` entry (a name that legitimately ships, e.g. in LICENSE) is
+    # refused in verdict text but never by the artifact scan.
+    scanner = _load_scanner()
+    path = tmp_path / "banlist"
+    path.write_text(f"{_sha(_CANARY)} public\n", encoding="utf-8")
+    monkeypatch.setenv("HOTATO_PRIVATE_BANLIST", str(path))
+    assert scanner._scan_text(f"Copyright {_CANARY}".encode()) is None
+    assert _banned.leaks(f"Copyright {_CANARY}")
+    assert not _banned.leaks(f"Copyright {_CANARY}", internal_only=True)
+
+
+def test_absent_banlist_skips_the_name_check_with_a_notice(tmp_path, monkeypatch, capsys):
+    scanner = _load_scanner()
+    monkeypatch.setenv("HOTATO_PRIVATE_BANLIST", str(tmp_path / "absent"))
+    monkeypatch.delenv("HOTATO_REQUIRE_PRIVATE_BANLIST", raising=False)
+    assert scanner._scan_forbidden(f"docs/{_CANARY}_behavior_card.py") is None
+    assert scanner._scan_forbidden("deploy/.env") is not None   # structural still on
+    err = capsys.readouterr().err
+    assert err.count("notice: private ban list not found") == 1
+
+
+@pytest.mark.parametrize("content", [None, "# only a comment\n\n"])
+def test_required_banlist_absent_or_empty_exits_nonzero(tmp_path, monkeypatch, content):
+    scanner = _load_scanner()
+    path = tmp_path / "banlist"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    monkeypatch.setenv("HOTATO_PRIVATE_BANLIST", str(path))
+    monkeypatch.setenv("HOTATO_REQUIRE_PRIVATE_BANLIST", "1")
+    assert scanner.main([str(tmp_path / "pkg-1.0.0.tar.gz")]) == scanner.EXIT_ENV
+
+
+def test_malformed_banlist_exits_nonzero(tmp_path, monkeypatch):
+    scanner = _load_scanner()
+    path = tmp_path / "banlist"
+    path.write_text("not-a-digest\n", encoding="utf-8")
+    monkeypatch.setenv("HOTATO_PRIVATE_BANLIST", str(path))
+    monkeypatch.delenv("HOTATO_REQUIRE_PRIVATE_BANLIST", raising=False)
+    assert scanner.main([str(tmp_path / "pkg-1.0.0.tar.gz")]) == scanner.EXIT_ENV
+
+
+def test_manifest_and_gitignore_exclude_internal_artifacts_by_pattern():
     if not os.path.exists(MANIFEST):
         pytest.skip("MANIFEST.in not present (minimal sdist?)")
     with open(MANIFEST, encoding="utf-8") as fh:
         text = fh.read()
-    for path in ("docs/SAA-BEHAVIOR-CARD.md", "docs/SAA-FIX-POINTER.md",
-                 "docs/saa_behavior_card.py", "tests/test_saa_card.py"):
-        assert path in text, f"MANIFEST.in does not exclude the internal {path}"
+    for pat in ("*-BEHAVIOR-CARD.md", "*-FIX-POINTER.md", "*_behavior_card.py",
+                "test_*_card.py"):
+        assert pat in text, f"MANIFEST.in does not exclude {pat}"
+    assert not _banned.leaks(text, internal_only=True), "MANIFEST.in spells an internal name"
 
 
 # --- (3) the scanner is wired into CI and the publish workflow ---------------

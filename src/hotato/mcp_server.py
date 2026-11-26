@@ -1135,35 +1135,39 @@ TOOL_NAMES = (
 
 
 def build_server():
-    """Construct the FastMCP server with the scoring tool and the fleet tools registered."""
-    try:
-        from mcp.server.fastmcp import FastMCP
-    except Exception as exc:  # pragma: no cover - only when extra not installed
-        raise SystemExit(
-            "the MCP SDK is not installed. Install the extra:\n"
-            "    pip install 'hotato[mcp]'\n"
-            "or run zero-install:\n"
-            '    uvx --from "hotato[mcp]" hotato-mcp\n'
-            f"(import error: {exc})"
-        )
-
-    server = FastMCP("hotato")
-    # FastMCP does not forward an application version to its underlying low-level
-    # Server, so serverInfo.version in the initialize handshake would otherwise
-    # default to the MCP SDK's own version (create_initialization_options() falls
-    # back to importlib version("mcp") when Server.version is None). Pin it to
-    # hotato's explicit application version so the client learns which application
-    # it is talking to, not the transport SDK. Verified at the floor SDK
-    # (mcp==1.2.0) and current.
+    """Construct the MCP server with the scoring tool and the fleet tools registered."""
     from . import __version__ as _hotato_version
 
-    # Set the application version on the low-level server when it is present.
-    # The unit-test doubles (_FakeFastMCP) that run without the mcp extra do not
-    # expose _mcp_server; the real SDK does, and the floor+current wire tests
-    # assert the initialize payload carries hotato's version.
-    _low_server = getattr(server, "_mcp_server", None)
-    if _low_server is not None:
-        _low_server.version = _hotato_version
+    # MCP SDK 2.x moved the high-level server to mcp.server.mcpserver.MCPServer
+    # (and takes the application version directly); 1.x ships it as
+    # mcp.server.fastmcp.FastMCP. Prefer 2.x, fall back to 1.x.
+    server = None
+    try:
+        from mcp.server.mcpserver import MCPServer
+
+        server = MCPServer("hotato", version=_hotato_version)
+    except ImportError:
+        pass
+    if server is None:
+        try:
+            from mcp.server.fastmcp import FastMCP
+        except Exception as exc:  # pragma: no cover - only when extra not installed
+            raise SystemExit(
+                "the MCP SDK is not installed. Install the extra:\n"
+                "    pip install 'hotato[mcp]'\n"
+                "or run zero-install:\n"
+                '    uvx --from "hotato[mcp]" hotato-mcp\n'
+                f"(import error: {exc})"
+            )
+
+        server = FastMCP("hotato")
+        # FastMCP (1.x) does not forward an application version to its low-level
+        # Server, so serverInfo.version in the initialize handshake would default
+        # to the MCP SDK's own version. Pin it to hotato's version. The unit-test
+        # doubles (_FakeFastMCP) do not expose _mcp_server; the real SDK does.
+        _low_server = getattr(server, "_mcp_server", None)
+        if _low_server is not None:
+            _low_server.version = _hotato_version
 
     @server.tool(name="voice_eval_run", description=_TOOL_DESCRIPTION)
     def voice_eval_run(

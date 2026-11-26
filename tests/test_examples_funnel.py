@@ -10,6 +10,7 @@ This is the artifact the engagement-control demonstration consumes.
 import os
 
 from hotato.core import run_suite
+from tests import _banned
 
 EXAMPLES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples")
 FSCEN = os.path.join(EXAMPLES, "funnel-demo", "scenarios")
@@ -48,7 +49,7 @@ def test_systemic_pointer_fires_non_null():
     # vendor or a product, and carries no lead-gen link.
     layer = funnel["pointer"]["layer"]
     assert "engagement-control" in layer
-    assert "saa" not in layer.lower() and "attention labs" not in layer.lower()
+    assert not _banned.leaks(layer)
     assert "learn_more" not in funnel["pointer"]
     # and it is exposed in the fix_map summary too
     classes = {f["fix_class"] for f in env["fix_map"]}
@@ -74,6 +75,7 @@ def test_funnel_is_numbers_free_and_makes_no_accuracy_claim():
     assert "accuracy" not in blob.lower()
     # VENDOR-NEUTRAL: the emitted funnel names no vendor and nothing to buy.
     low = blob.lower()
-    for bad in ("saa", "attention labs", "attentionlabs", "buy", "license",
+    assert not _banned.leaks(blob)
+    for bad in ("buy", "license",
                 "purchase", "adopt", "product", "vendor"):
         assert bad not in low, f"{bad!r} leaked into funnel: {blob!r}"

@@ -15,7 +15,7 @@ clock timestamp. These tests pin:
       noindex);
   (e) the backchannel-exclusion rule: the bundled funnel-demo battery's own
       paired evidence routes to turn_intent_discriminator, never
-      utterance_addressee_gate, and SAA/vendor names never appear anywhere
+      utterance_addressee_gate, and internal/vendor names never appear anywhere
       in a typed source or a rendered page.
 """
 from __future__ import annotations
@@ -28,6 +28,8 @@ import os
 import re
 
 import pytest
+
+from tests import _banned
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ATLAS = os.path.join(ROOT, "atlas")
@@ -399,7 +401,7 @@ def test_utterance_addressee_gate_contract_declares_backchannel_exclusion():
 
 
 def test_utterance_addressee_gate_pattern_has_zero_indexed_records(tmp_path):
-    # Honesty-critical: the SAA-eligible class publishes ONLY after an explicit
+    # Honesty-critical: the layer-eligible class publishes ONLY after an explicit
     # non-addressed-speech label + a cleared paired fixture exist. The bundled
     # funnel-demo battery has neither, so this pattern must carry zero records.
     build_atlas = _load_build_atlas()
@@ -424,7 +426,7 @@ def _all_atlas_and_site_text(tmp_path):
     return texts
 
 
-def test_no_vendor_or_saa_mention_anywhere_in_sources_or_rendered_site(tmp_path):
+def test_no_vendor_or_internal_mention_anywhere_in_sources_or_rendered_site(tmp_path):
     # The ONLY allowed exception is the mandated footer-only attribution line
     # ("Hotato is maintained by Attention Labs."). Attribution is footer-only:
     # no page carries a <meta name="publisher"/"author"> attribution tag (see
@@ -432,14 +434,9 @@ def test_no_vendor_or_saa_mention_anywhere_in_sources_or_rendered_site(tmp_path)
     # else, every record, contract, implementation, and verdict must stay
     # silent on vendor/product names.
     allowed = re.compile(r"Hotato is maintained by Attention Labs\.")
-    forbidden = re.compile(
-        r"\bsaa\b|attention\s*labs|attenlabs|multivox|speech\s+addressee\s+agent",
-        re.IGNORECASE,
-    )
     for path, text in _all_atlas_and_site_text(tmp_path):
         scoped = allowed.sub("", text)
-        hit = forbidden.search(scoped)
-        assert hit is None, f"{path}: forbidden vendor/product mention {hit.group(0)!r}"
+        assert not _banned.leaks(scoped), f"{path}: forbidden vendor/product mention"
 
 
 def test_no_authenticity_protest_wording_anywhere_in_sources_or_rendered_site(tmp_path):
@@ -452,8 +449,8 @@ def test_no_authenticity_protest_wording_anywhere_in_sources_or_rendered_site(tm
         assert hit is None, f"{path}: authenticity-protest wording {hit.group(0)!r}"
 
 
-def test_no_saa_capability_in_any_record_page_verdict(tmp_path):
-    # "Do NOT put SAA in any verdict" -- a coding agent chooses an
+def test_no_internal_capability_in_any_record_page_verdict(tmp_path):
+    # "Do NOT put an implementation name in any verdict" -- a coding agent chooses an
     # implementation, Hotato's verdict does not. No record page's rendered
     # capability-requirement card may name an implementation at all.
     build_atlas = _load_build_atlas()
@@ -461,7 +458,7 @@ def test_no_saa_capability_in_any_record_page_verdict(tmp_path):
     build_atlas.build(str(out))
     for html_path in glob.glob(str(out / "failures" / "records" / "**" / "index.html"), recursive=True):
         text = open(html_path, encoding="utf-8").read()
-        assert "saa" not in text.lower()
+        assert not _banned.leaks(text, internal_only=True)
 
 
 def test_five_dimensions_shown_separately_never_blended(tmp_path):

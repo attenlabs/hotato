@@ -14,23 +14,28 @@ Two checks:
   1. TRACKED-ONLY (sdist): every member must be a git-tracked repository file
      or an allowlisted build-generated file (``PKG-INFO``, ``*.egg-info/*``,
      ``setup.cfg``). Any other member is an untracked leak. This is the
-     root-cause check: it catches the SAA class and any future untracked leak,
+     root-cause check: it catches any future untracked leak,
      because a gitignored file is by definition not tracked.
   2. NO FORBIDDEN PATTERNS (sdist AND wheel): no member path may match an
-     internal / crown-jewel / secret pattern. The wheel is not a git-tree
-     mirror, so the pattern check is its primary guard.
+     internal / secret path pattern, and no member path or text body may name
+     an entry of the maintainers' private ban list (scripts/private_banlist.py).
+     The wheel is not a git-tree mirror, so this is its primary guard.
 
 Usage:
     python3 scripts/check_dist_no_leak.py            # scan every archive in dist/
     python3 scripts/check_dist_no_leak.py dist/*.tar.gz dist/*.whl
+    # pre-publish (release runbook): the internal-name check may not be skipped
+    HOTATO_REQUIRE_PRIVATE_BANLIST=1 python3 scripts/check_dist_no_leak.py dist/*.tar.gz dist/*.whl
 
-Exit 0 = clean; exit 1 = a leak was found (fail closed); exit 2 = usage/env error.
+Exit 0 = clean; exit 1 = a leak was found (fail closed); exit 2 = usage/env
+error, including a required private ban list that is absent, empty or malformed.
 Stdlib-only, no network, reads archive listings only (never executes a member).
 """
 
 from __future__ import annotations
 
 import glob
+import importlib.util
 import os
 import re
 import subprocess
@@ -58,13 +63,10 @@ def _is_allowlisted_generated(rel: str) -> bool:
     return ".egg-info/" in rel or rel.endswith(".egg-info")
 
 
-# Internal / crown-jewel / secret path patterns that must NEVER ship in a public
-# artifact. Matched case-insensitively against the full member path (with the
-# top-level ``name-version/`` prefix stripped). Keep in lockstep with the
-# fleet packaging-leak LAW (2026-07-22).
+# Structural (non-name) secret / internal path patterns that must NEVER ship in
+# a public artifact. Matched case-insensitively against the full member path
+# (with the top-level ``name-version/`` prefix stripped).
 _FORBIDDEN = [
-    (re.compile(r"(^|/)saa[-_]", re.I), "SAA crown-jewel artifact"),
-    (re.compile(r"test_saa", re.I), "SAA test"),
     (re.compile(r"(^|/)HANDOFF", re.I), "internal handoff note"),
     # A real env secret (.env, .env.local, .env.production) but NOT a public
     # template (.env.example / .sample / .template / .dist / .schema).
@@ -75,10 +77,44 @@ _FORBIDDEN = [
     (re.compile(r"\.pem$", re.I), "private key/cert (.pem)"),
     (re.compile(r"(^|/)id_rsa", re.I), "ssh private key"),
     (re.compile(r"(^|/)\.claude/", re.I), "agent-harness config"),
-    (re.compile(r"north-star", re.I), "internal north-star canon"),
-    (re.compile(r"holocron", re.I), "internal brain host"),
-    (re.compile(r"\.fleet-lane", re.I), "internal fleet lane"),
 ]
+
+# Internal names and operator identifiers are not in this repository in any
+# form. They live as sha256 digests in the maintainers' private ban list (see
+# scripts/private_banlist.py: $HOTATO_PRIVATE_BANLIST, default
+# ~/.config/hotato/private-banlist.sha256). A member path or text body is split
+# into ``[a-z0-9]+`` tokens (so ``a-b``, ``a_b`` and ``a/b`` all read as the
+# pair ``a b``) and refused when a token or a run of 2-3 tokens hashes to an
+# ``internal`` entry. Absent file: that check is skipped with a notice;
+# HOTATO_REQUIRE_PRIVATE_BANLIST=1 turns an absent or empty file into exit 2.
+def _load_banlist_module():
+    name = "hotato_private_banlist"
+    mod = sys.modules.get(name)
+    if mod is None:
+        path = Path(__file__).resolve().with_name("private_banlist.py")
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules[name] = mod
+    return mod
+
+
+_BANLIST = _load_banlist_module()
+
+# Long base64 runs (embedded audio/images) are opaque data; their random
+# letter groups are not names.
+_BASE64_RUN = re.compile(r"[A-Za-z0-9+/=]{64,}")
+_MAX_TEXT_BYTES = 8 * 1024 * 1024
+
+
+def _digest_hits(text: str) -> str | None:
+    return _BANLIST.first_hit(text, _BANLIST.digests("internal"))
+
+
+def _scan_text(data: bytes) -> str | None:
+    if b"\0" in data[:4096] or len(data) > _MAX_TEXT_BYTES:
+        return None
+    return _digest_hits(_BASE64_RUN.sub(" ", data.decode("utf-8", "replace")))
 
 
 def _git_tracked() -> set[str]:
@@ -101,17 +137,25 @@ def _strip_prefix(member: str) -> str:
     return parts[1] if len(parts) == 2 else member
 
 
-def _sdist_members(path: str) -> list[str]:
+def _sdist_members(path: str) -> dict[str, bytes]:
+    out: dict[str, bytes] = {}
     with tarfile.open(path, "r:gz") as tf:
-        return [m.name for m in tf.getmembers() if m.isfile()]
+        for m in tf.getmembers():
+            if m.isfile():
+                fh = tf.extractfile(m)
+                out[m.name] = fh.read() if fh is not None else b""
+    return out
 
 
-def _wheel_members(path: str) -> list[str]:
+def _wheel_members(path: str) -> dict[str, bytes]:
     with zipfile.ZipFile(path) as zf:
-        return [n for n in zf.namelist() if not n.endswith("/")]
+        return {n: zf.read(n) for n in zf.namelist() if not n.endswith("/")}
 
 
 def _scan_forbidden(rel: str) -> str | None:
+    hit = _digest_hits(rel)
+    if hit is not None:
+        return hit
     for pat, why in _FORBIDDEN:
         if pat.search(rel):
             return why
@@ -123,10 +167,11 @@ def _check_archive(path: str, tracked: set[str]) -> list[str]:
     findings: list[str] = []
     is_sdist = path.endswith((".tar.gz", ".tgz"))
     members = _sdist_members(path) if is_sdist else _wheel_members(path)
-    for member in members:
+    for member, data in members.items():
         rel = _strip_prefix(member)
-        # (2) forbidden-pattern check runs on every artifact.
-        why = _scan_forbidden(rel)
+        # (2) forbidden-pattern check runs on every artifact: the member path
+        # and (for text members) its body.
+        why = _scan_forbidden(rel) or _scan_text(data)
         if why is not None:
             findings.append(f"FORBIDDEN [{why}]: {member}")
             continue
@@ -152,6 +197,12 @@ def main(argv: list[str] | None = None) -> int:
               "`python -m build`)", file=sys.stderr)
         return EXIT_ENV
 
+    try:
+        names_on = _BANLIST.digests("internal") is not None
+    except _BANLIST.BanlistUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ENV
+
     tracked = _git_tracked()
     total_leaks = 0
     for path in archives:
@@ -174,7 +225,8 @@ def main(argv: list[str] | None = None) -> int:
               "MANIFEST exclude and re-check. See the 2026-07-22 packaging-leak law.",
               file=sys.stderr)
         return EXIT_LEAK
-    print(f"\nOK: {len(archives)} archive(s) scanned, no leaked files.")
+    print(f"\nOK: {len(archives)} archive(s) scanned, no leaked files "
+          f"(internal-name check: {'on' if names_on else 'SKIPPED'}).")
     return EXIT_OK
 
 

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import html as _html
+import importlib.util
 import json
 import os
 import re
@@ -67,13 +68,32 @@ _STATUS_COLOR = {"PASS": "green", "FAIL": "red", "INCONCLUSIVE": "ember",
 # Free text (title/summary/approach) across every typed source is checked
 # against this blocklist: a Hotato verdict never names an implementation,
 # product, or vendor. Word-ish boundaries avoid flagging unrelated substrings.
-_NEUTRALITY_BLOCKLIST = [
-    re.compile(r"\bsaa\b", re.IGNORECASE),
-    re.compile(r"attention\s*labs", re.IGNORECASE),
-    re.compile(r"attenlabs", re.IGNORECASE),
-    re.compile(r"multivox", re.IGNORECASE),
-    re.compile(r"speech\s+addressee\s+agent", re.IGNORECASE),
-]
+# The blocklist is the maintainers' private ban list (scripts/private_banlist.py:
+# $HOTATO_PRIVATE_BANLIST, default ~/.config/hotato/private-banlist.sha256), so
+# this file names nothing. Every entry, internal or public, is refused here.
+# Absent file: the name check is skipped with a notice;
+# HOTATO_REQUIRE_PRIVATE_BANLIST=1 makes an absent or empty file a build error.
+def _load_banlist_module():
+    name = "hotato_private_banlist"
+    mod = sys.modules.get(name)
+    if mod is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "private_banlist.py")
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules[name] = mod
+    return mod
+
+
+_BANLIST = _load_banlist_module()
+
+
+def _neutrality_hit(text: str) -> Optional[str]:
+    try:
+        names = _BANLIST.digests("all")
+    except _BANLIST.BanlistUnavailable as exc:
+        raise AtlasBuildError(str(exc)) from None
+    return _BANLIST.first_hit(text, names) if names else None
 
 # Authenticity-protest words stripped from all copy this builder writes or
 # renders; typed sources are linted for them too (see tests/test_atlas.py).
@@ -140,9 +160,9 @@ def _load_dir(subdir: str, required_kind: str) -> List[Dict[str, Any]]:
 def _lint_neutrality(label: str, text: Optional[str]) -> None:
     if not text:
         return
-    for pat in _NEUTRALITY_BLOCKLIST:
-        if pat.search(text):
-            raise AtlasBuildError(f"{label}: neutrality violation, matched {pat.pattern!r} in {text!r}")
+    hit = _neutrality_hit(text)
+    if hit is not None:
+        raise AtlasBuildError(f"{label}: neutrality violation ({hit})")
 
 
 def _lint_authenticity(label: str, text: Optional[str]) -> None:
@@ -1129,7 +1149,7 @@ def build(out_dir: str) -> Dict[str, Any]:
     # --- patterns ------------------------------------------------------
     # Every pattern class a record carries, PLUS any a contract references
     # (so a contract can point at an honest, still-empty pattern page instead
-    # of a dead link -- e.g. the SAA-eligible class with zero cleared fixtures).
+    # of a dead link -- e.g. the layer-eligible class with zero cleared fixtures).
     pattern_classes = all_referenced_pattern_classes(records, contracts)
     fallback_date = max((r["recorded_date"] for r in records), default="1970-01-01")
     for pc in pattern_classes:

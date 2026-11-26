@@ -6,13 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
-## [Unreleased]
+## [1.21.0] - 2026-11-26
 
 The next release: a scenario generator, and three corrections to what the
 scorer calls severe.
 
 ### Added
 
+- Retell recent-call listing for `pull`, `sweep` and `retell health` through
+  `POST /v3/list-calls` with cursor paging; `get-call` stays on v2.
 - `hotato scenario generate --prompt agent.txt --out scn/` writes a scenario
   suite from an agent's system prompt. Parsing is deterministic and offline:
   thirteen capability stems ("you can ...", "your job is to ..."),
@@ -34,6 +36,11 @@ scorer calls severe.
 
 ### Changed
 
+- `hotato patch` output: the learned-layer pointer key was renamed to
+  `learned_layer_pointer`. It carries the same object (or `null`) as before;
+  a reader that looked the pointer up under its previous key should read
+  `learned_layer_pointer`.
+
 - A barge-in is CRITICAL on magnitude AND the agent failing to go quiet, not
   either alone. The `or` made magnitude optional, so a 30 ms backchannel was
   rated as severe as a caller talked over for four seconds.
@@ -52,6 +59,10 @@ scorer calls severe.
 
 ### Fixed
 
+- The `[mcp]` extra now allows MCP SDK 2.x (`mcp>=1.2.0,<3`): the server is
+  built on `mcp.server.mcpserver` when present and falls back to
+  `mcp.server.fastmcp` on 1.x. Parity tests pass on both majors.
+- The ruff check in CI passes again (import order, a lambda assignment).
 - The two "never imports faster_whisper at import time" tests spawned a
   subprocess that inherited only `os.environ`, so from a source checkout the
   child raised `ModuleNotFoundError` and the assertion reported it as the
