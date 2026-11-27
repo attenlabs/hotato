@@ -13,6 +13,16 @@ import re
 from hotato.metrics import failed, metric, passed, unknown
 
 
+def _quote_around(text, phrase):
+    """The phrase with up to two words either side, as it appears in text.
+
+    A pass needs a quote of at least three words, so a one-word match such as
+    "booked" is cited with the words around it."""
+    m = re.search(r"(?:\S+\s+){0,2}" + re.escape(phrase) + r"(?:\s+\S+){0,2}",
+                  text, re.IGNORECASE)
+    return m.group(0) if m else None
+
+
 @metric(needs=["transcript"], dimension="conversation")
 def metric_greets_with_name(call):
     """The agent's first turn names the business."""
@@ -24,7 +34,7 @@ def metric_greets_with_name(call):
         return failed("the agent never spoke")
     index, turn = agent_turns[0]
     if name.lower() in turn["text"].lower():
-        return passed([call.cite_turn(index, name)],
+        return passed([call.cite_turn(index, _quote_around(turn["text"], name))],
                       reason=f"first agent turn names {name}")
     return failed(f"first agent turn does not name {name}",
                   evidence=[call.cite_turn(index)])
@@ -60,7 +70,7 @@ def metric_claim_backed_by_tool(call):
         return unknown(f"the agent never said {claim!r}, so there is no claim to check")
     tool_spans = call.spans_of("tool_call", name=tool)
     claim_index, claim_turn = claims[0]
-    quote = pattern.search(claim_turn["text"]).group(0)
+    quote = _quote_around(claim_turn["text"], pattern.search(claim_turn["text"]).group(0))
     if tool_spans:
         span_index, _span = tool_spans[0]
         return passed([call.cite_turn(claim_index, quote), call.cite_span(span_index)],

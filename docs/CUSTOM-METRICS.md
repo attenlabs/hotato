@@ -26,7 +26,14 @@ name is the function name without the prefix.
 
 ```python
 # hotato_metrics/voice_checks.py
+import re
 from hotato.metrics import metric, passed, failed, unknown
+
+def _quote_around(text, phrase):
+    """The phrase with up to two words either side, as it appears in text."""
+    m = re.search(r"(?:\S+\s+){0,2}" + re.escape(phrase) + r"(?:\s+\S+){0,2}",
+                  text, re.IGNORECASE)
+    return m.group(0) if m else None
 
 @metric(needs=["transcript"], dimension="conversation")
 def metric_greets_with_name(call):
@@ -39,7 +46,7 @@ def metric_greets_with_name(call):
         return failed("the agent never spoke")
     index, turn = agent_turns[0]
     if name.lower() in turn["text"].lower():
-        return passed([call.cite_turn(index, name)],
+        return passed([call.cite_turn(index, _quote_around(turn["text"], name))],
                       reason=f"first agent turn names {name}")
     return failed(f"first agent turn does not name {name}",
                   evidence=[call.cite_turn(index)])
@@ -82,10 +89,15 @@ its second argument.
 ### What the metric returns
 
 - `passed(evidence, reason=None, measured=None)`: at least one citation is
-  required.
+  required. A quote that backs a pass must be at least three words, the same
+  minimum `hotato test run` applies to a judge's quote, because one or two
+  words ("yes", "booked") appear in almost any call.
 - `failed(reason, evidence=(), measured=None)`
 - `unknown(reason, measured=None)`: the call does not answer the question.
   It is reported as INCONCLUSIVE.
+
+Each evidence item cites one thing: build it with `cite_turn`, `cite_span` or
+`cite_timing`, and use one item per citation.
 
 `measured` is an optional JSON object of numbers you want in the report, such
 as `{"longest_agent_turn_words": 17}`.
@@ -156,7 +168,7 @@ with a `custom` block that says where it came from:
     "version": 1,
     "source": "hotato_metrics/voice_checks.py",
     "source_sha256": "…",
-    "evidence": [{"turn": 3, "quote": "booked"}, {"span_id": "s_1"}]
+    "evidence": [{"turn": 3, "quote": "You're booked for Tuesday"}, {"span_id": "s_1"}]
   }
 }
 ```
@@ -173,10 +185,19 @@ other than `./hotato_metrics/`.
 | A `needs` input was not supplied | INCONCLUSIVE; the metric is not called |
 | A pass with no evidence | INCONCLUSIVE, with `claimed_status: PASS` |
 | A citation that does not match the call (missing turn, a quote not in that turn, a wrong timing value) | INCONCLUSIVE, with the first mismatch as the reason |
+| An evidence item that cites more than one thing, or carries keys its citation does not use | INCONCLUSIVE |
+| A pass whose quote is shorter than three words | INCONCLUSIVE |
 | Two different answers over the same input | the run stops, exit 2 |
 | The metric raises, or returns something other than `passed` / `failed` / `unknown` | the run stops, exit 2 |
 | The plugin file fails to import, or two metrics share a name | the run stops, exit 2 |
 | An assertion names a metric that does not exist | exit 2 before anything runs |
+
+When hotato turns a metric's PASS or FAIL into INCONCLUSIVE, it also prints
+one warning line to stderr naming the metric and the status it returned, for
+example `hotato: warning: custom metric claim_backed_by_tool returned FAIL,
+reported INCONCLUSIVE: cites transcript turn 9, which does not exist`. Under
+the default policy an INCONCLUSIVE does not fail the run, so without the
+warning a metric with a broken citation would stop failing quietly.
 
 `inconclusive_policy` (or `--inconclusive-policy`) decides what an
 INCONCLUSIVE does to the exit code, the same as for built-in kinds: `report`

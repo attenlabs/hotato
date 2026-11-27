@@ -21,7 +21,7 @@ no hosted hotato service and no telemetry.
 | Network access | only from commands whose job is to reach a system you configured | [`EGRESS.md`](EGRESS.md) |
 | Audio leaving your machine | one opt-in path: the hosted diarizer, behind `--egress-opt-in` | [`THREAT-MODEL.md`](THREAT-MODEL.md#three-guarantees) |
 | Build provenance | GitHub build-provenance attestation over the wheel, the sdist and the SBOMs | [Provenance](#provenance-and-sbom) |
-| Bill of materials | CycloneDX SBOM, one for the whole package and one per optional extra | [Provenance](#provenance-and-sbom) |
+| Bill of materials | CycloneDX SBOM, one for the whole package and one per optional extra, attested in the publish workflow's `hotato-sbom` artifact | [Provenance](#provenance-and-sbom) |
 | Vulnerability reports | private, through the contact in `SECURITY.md`; acknowledged within 3 business days | [`SECURITY.md`](../SECURITY.md#reporting) |
 
 ## Licence
@@ -37,7 +37,9 @@ each extra's SBOM lists them.
 By default everything stays on the machine that runs hotato:
 
 - Scoring, scanning, reports, fixtures, assertions and contract checks read
-  local files and write local files. They open no network socket.
+  local files and write local files, and open no network socket unless you
+  add one of the flags in the table below (for example `--notify URL` or a
+  hosted diarizer).
 - The model-judged rubric lane uses a local Ollama model
   (`http://localhost:11434`) by default. The transcript stays on your machine.
 - Stack credentials saved by `hotato connect` are stored locally with
@@ -45,16 +47,23 @@ By default everything stays on the machine that runs hotato:
 - Reports, result envelopes and exports are written only where you point them.
 
 Data leaves the machine only when you run a command whose job is to reach a
-system you named:
+system you named, or add a flag that does:
 
 | What you run | What it reaches | What leaves |
 |---|---|---|
-| `pull`, `capture`, `sweep`, `monitor run` | your voice platform's API | requests for your own recordings; audio comes back to your disk |
-| `monitor run` alerts, `--notify URL` | the Slack, PagerDuty or webhook destination you set | call id, rule, scores and timing numbers; never audio, credentials or transcript text |
-| `issue`, `pr` | GitHub, through your own `gh` login | the issue or pull request content you asked for |
+| `capture`, `pull`, `sweep` (without `--demo`), `monitor run` | your voice platform's API | requests for your own recordings; audio comes back to your disk |
+| `inspect --stack vapi\|retell` | your voice platform's API, read only | a request for the assistant's turn-taking config |
+| `ingest` (a webhook worker you host) | inbound calls from your voice platform; outbound only to download the recording an event names | the download request |
+| `apply --clone --yes` | your voice platform's API | a request to create a staging copy of the assistant; without `--yes` it is a dry run |
+| `issue create --yes`, `pr create --yes` | GitHub, through your own `gh` login; without `--yes` they are dry runs | the issue or pull request you asked for |
+| `monitor run` alerts, `monitor test-alert` | the Slack, PagerDuty or webhook destination you set | call id, rule, agent, score, incident kinds and timing numbers, a report path or link; never audio, credentials or transcript text |
+| `--notify URL` on `sweep` or `fleet run` | the webhook you name | counts, top candidate moments (id, kind, timing numbers) and local artifact paths |
+| `--notify URL` on `contract verify` | the webhook you name | pass and fail counts and the failing contracts' ids and timing numbers; no file paths |
+| `test run --state F` with an `http` or `sql` adapter | your own system of record; needs `egress_opt_in: true` in the state config | the lookup each state assertion needs |
 | `simulate --chat URL` | your chat agent; a non-local URL needs `--egress-opt-in` | the scripted caller turns |
 | `--judge-provider hosted`, or a non-local judge endpoint | the model endpoint you name; needs `--judge-egress-opt-in` | the transcript and the rubric criterion |
 | `--diarizer pyannoteai` | the hosted diarization service; needs `--egress-opt-in` | the mono recording |
+| placing a test call (see [`DRIVE-A-CALL.md`](DRIVE-A-CALL.md)) | your voice platform, which places a real call; needs credentials and an explicit opt-in | the call request; the recording comes back to your disk |
 
 Every credentialed endpoint is `https://` and certificate checks are never
 turned off. Standard proxy variables are honoured; `HOTATO_NO_PROXY=1` ignores
@@ -82,13 +91,15 @@ Releases to PyPI go through the Trusted Publishing workflow
 
 Where to find them:
 
-- the wheel and sdist: [PyPI](https://pypi.org/project/hotato/), and attached
-  to each GitHub release;
-- the SBOMs: attached to each GitHub release, and kept by the workflow run as
-  the `hotato-sbom` artifact;
+- the attested wheel and sdist: the files published on
+  [PyPI](https://pypi.org/project/hotato/);
+- the attested SBOMs: the `hotato-sbom` artifact of the publish workflow run
+  for that release (Actions, `publish-pypi-oidc`, the run, Artifacts). The
+  release workflow writes its own SBOMs with their own timestamp, so an SBOM
+  taken from anywhere else will not match the attestation;
 - the attestations: the repository's Attestations page on GitHub.
 
-To check a file you downloaded:
+To check a file you downloaded from those places:
 
 ```bash
 gh attestation verify hotato-<version>-py3-none-any.whl --repo attenlabs/hotato

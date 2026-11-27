@@ -601,11 +601,33 @@ def _resolve_path(obj: Any, path: str) -> Tuple[Any, bool]:
     return cur, True
 
 
-def _check_evidence(item: Any, call: Call) -> Optional[str]:
-    """``None`` when one citation matches the call's data, else why not."""
+_CITATION_KEYS = {
+    "turn": frozenset({"turn", "quote"}),
+    "span_id": frozenset({"span_id"}),
+    "event": frozenset({"event", "field", "value"}),
+}
+
+
+def _check_evidence(item: Any, call: Call, for_pass: bool = False) -> Optional[str]:
+    """``None`` when the citation matches the call's data, else why not.
+
+    An item cites exactly one thing (a turn, a span or a timing event) and
+    carries only that citation's keys, so nothing in it goes unchecked. When
+    the result is a pass, a quote must also be long enough to support one
+    (the same minimum ``hotato test run`` applies to a judge's quote)."""
     if not isinstance(item, dict) or not item:
         return "an evidence item must be a non-empty mapping"
-    if "turn" in item:
+    targets = [k for k in _CITATION_KEYS if k in item]
+    if not targets:
+        return "an evidence item must cite a 'turn', a 'span_id' or a timing 'event'"
+    if len(targets) > 1:
+        return ("an evidence item must cite one thing, not "
+                + " and ".join(repr(t) for t in targets) + "; use one item per citation")
+    target = targets[0]
+    extra = sorted(str(k) for k in item if k not in _CITATION_KEYS[target])
+    if extra:
+        return f"a {target!r} citation has unknown key(s) {', '.join(map(repr, extra))}"
+    if target == "turn":
         idx = item["turn"]
         turns = call.transcript
         if turns is None:
@@ -618,8 +640,13 @@ def _check_evidence(item: Any, call: Call) -> Optional[str]:
                 return f"turn {idx}: a quote must be a non-empty string"
             if _norm_text(quote) not in _norm_text(turns[idx].get("text") or ""):
                 return f"turn {idx}: the quoted text does not occur in that turn"
+            if for_pass:
+                from .sim_test import quote_supports_pass
+
+                if not quote_supports_pass(quote):
+                    return f"turn {idx}: the quote is too short to support a pass"
         return None
-    if "span_id" in item:
+    if target == "span_id":
         sid = item["span_id"]
         m = re.match(r"^s_(\d+)$", sid) if isinstance(sid, str) else None
         if call.spans is None:
@@ -627,23 +654,21 @@ def _check_evidence(item: Any, call: Call) -> Optional[str]:
         if m is None or int(m.group(1)) >= len(call.spans):
             return f"cites span {sid!r}, which does not exist in the trace"
         return None
-    if "event" in item:
-        ev = item["event"]
-        events = call.events()
-        if call.timing is None:
-            return "cites a timing event but no timing was supplied"
-        if isinstance(ev, bool) or not isinstance(ev, int) or not 0 <= ev < len(events):
-            return f"cites timing event {ev!r}, which does not exist"
-        path = item.get("field")
-        if not isinstance(path, str) or not path:
-            return f"timing event {ev}: a 'field' path is required"
-        val, found = _resolve_path(events[ev], path)
-        if not found:
-            return f"timing event {ev} has no field {path!r}"
-        if "value" in item and val != item["value"]:
-            return f"timing event {ev} field {path!r} does not hold the cited value"
-        return None
-    return "an evidence item must cite a 'turn', a 'span_id' or a timing 'event'"
+    ev = item["event"]
+    events = call.events()
+    if call.timing is None:
+        return "cites a timing event but no timing was supplied"
+    if isinstance(ev, bool) or not isinstance(ev, int) or not 0 <= ev < len(events):
+        return f"cites timing event {ev!r}, which does not exist"
+    path = item.get("field")
+    if not isinstance(path, str) or not path:
+        return f"timing event {ev}: a 'field' path is required"
+    val, found = _resolve_path(events[ev], path)
+    if not found:
+        return f"timing event {ev} has no field {path!r}"
+    if "value" in item and val != item["value"]:
+        return f"timing event {ev} field {path!r} does not hold the cited value"
+    return None
 
 
 def _public_evidence(items: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -768,18 +793,27 @@ def run_metric(spec: MetricSpec, *, transcript: Any = None, spans: Any = None,
 
     status = {"pass": "PASS", "fail": "FAIL", "unknown": "INCONCLUSIVE"}[res.status]
     reason = (res.reason or "")[:_REASON_MAX] or None
-    problems = [p for p in (_check_evidence(it, call) for it in res.evidence) if p]
+    problems = [p for p in (_check_evidence(it, call, for_pass=status == "PASS")
+                            for it in res.evidence) if p]
     out: Dict[str, Any] = {"status": status, "evidence": []}
     if problems:
         out["status"] = "INCONCLUSIVE"
         out["reason"] = (f"custom metric {spec.name} returned {res.status} but its "
-                         f"evidence does not match the call: {problems[0]}")
+                         f"evidence was not accepted: {problems[0]}")
         out["claimed_status"] = status
     elif status == "PASS" and not res.evidence:
         out["status"] = "INCONCLUSIVE"
         out["reason"] = (f"custom metric {spec.name} returned pass without evidence; "
                          "a pass needs at least one citation")
         out["claimed_status"] = "PASS"
+    if "claimed_status" in out and out["claimed_status"] != "INCONCLUSIVE":
+        # A downgraded FAIL no longer fails the run by default, so say so where
+        # a CI log shows it rather than only inside the result.
+        detail = problems[0] if problems else "no evidence cited"
+        sys.stderr.write(
+            f"hotato: warning: custom metric {spec.name} returned "
+            f"{out['claimed_status']}, reported INCONCLUSIVE: {detail}\n"
+        )
     else:
         out["evidence"] = _public_evidence(res.evidence)
         if reason:

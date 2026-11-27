@@ -5824,7 +5824,14 @@ name is the function name without the prefix.
 
 ```python
 # hotato_metrics/voice_checks.py
+import re
 from hotato.metrics import metric, passed, failed, unknown
+
+def _quote_around(text, phrase):
+    """The phrase with up to two words either side, as it appears in text."""
+    m = re.search(r"(?:\S+\s+){0,2}" + re.escape(phrase) + r"(?:\s+\S+){0,2}",
+                  text, re.IGNORECASE)
+    return m.group(0) if m else None
 
 @metric(needs=["transcript"], dimension="conversation")
 def metric_greets_with_name(call):
@@ -5837,7 +5844,7 @@ def metric_greets_with_name(call):
         return failed("the agent never spoke")
     index, turn = agent_turns[0]
     if name.lower() in turn["text"].lower():
-        return passed([call.cite_turn(index, name)],
+        return passed([call.cite_turn(index, _quote_around(turn["text"], name))],
                       reason=f"first agent turn names {name}")
     return failed(f"first agent turn does not name {name}",
                   evidence=[call.cite_turn(index)])
@@ -5880,10 +5887,15 @@ its second argument.
 ### What the metric returns
 
 - `passed(evidence, reason=None, measured=None)`: at least one citation is
-  required.
+  required. A quote that backs a pass must be at least three words, the same
+  minimum `hotato test run` applies to a judge's quote, because one or two
+  words ("yes", "booked") appear in almost any call.
 - `failed(reason, evidence=(), measured=None)`
 - `unknown(reason, measured=None)`: the call does not answer the question.
   It is reported as INCONCLUSIVE.
+
+Each evidence item cites one thing: build it with `cite_turn`, `cite_span` or
+`cite_timing`, and use one item per citation.
 
 `measured` is an optional JSON object of numbers you want in the report, such
 as `{"longest_agent_turn_words": 17}`.
@@ -5954,7 +5966,7 @@ with a `custom` block that says where it came from:
     "version": 1,
     "source": "hotato_metrics/voice_checks.py",
     "source_sha256": "…",
-    "evidence": [{"turn": 3, "quote": "booked"}, {"span_id": "s_1"}]
+    "evidence": [{"turn": 3, "quote": "You're booked for Tuesday"}, {"span_id": "s_1"}]
   }
 }
 ```
@@ -5971,10 +5983,19 @@ other than `./hotato_metrics/`.
 | A `needs` input was not supplied | INCONCLUSIVE; the metric is not called |
 | A pass with no evidence | INCONCLUSIVE, with `claimed_status: PASS` |
 | A citation that does not match the call (missing turn, a quote not in that turn, a wrong timing value) | INCONCLUSIVE, with the first mismatch as the reason |
+| An evidence item that cites more than one thing, or carries keys its citation does not use | INCONCLUSIVE |
+| A pass whose quote is shorter than three words | INCONCLUSIVE |
 | Two different answers over the same input | the run stops, exit 2 |
 | The metric raises, or returns something other than `passed` / `failed` / `unknown` | the run stops, exit 2 |
 | The plugin file fails to import, or two metrics share a name | the run stops, exit 2 |
 | An assertion names a metric that does not exist | exit 2 before anything runs |
+
+When hotato turns a metric's PASS or FAIL into INCONCLUSIVE, it also prints
+one warning line to stderr naming the metric and the status it returned, for
+example `hotato: warning: custom metric claim_backed_by_tool returned FAIL,
+reported INCONCLUSIVE: cites transcript turn 9, which does not exist`. Under
+the default policy an INCONCLUSIVE does not fail the run, so without the
+warning a metric with a broken citation would stop failing quietly.
 
 `inconclusive_policy` (or `--inconclusive-policy`) decides what an
 INCONCLUSIVE does to the exit code, the same as for built-in kinds: `report`
@@ -10223,7 +10244,7 @@ Every gate to clear before a release ships, top to bottom: green means proceed.
 - [ ] Generate and validate the SBOM(s), then attach them to the GitHub release: `python3 scripts/gen_sbom.py` writes `dist/hotato.sbom.cdx.json` -- a minimal CycloneDX bill of materials for the core package and every declared dependency, generated offline from `pyproject.toml`. For a per-profile breakdown: `python3 scripts/gen_sbom.py --list-profiles` lists `core` plus each declared extra, and `python3 scripts/gen_sbom.py --profile <name>` writes `dist/hotato.sbom.<name>.cdx.json` (core alone, or core plus that one extra). Validate each with `python3 scripts/gen_sbom.py --check <file>`, then upload `dist/*.cdx.json` alongside the sdist/wheel. CI does all of this automatically: `release.yml` uploads them in the `hotato-release-dist` artifact, `publish-pypi-oidc.yml` in the `hotato-sbom` artifact.
 - [ ] Publish to PyPI via **Trusted Publishing (OIDC)**, the default path (see below): dispatch `publish-pypi-oidc.yml` with `version` = the release's `pyproject.toml` version and `confirm` = `PUBLISH`. That workflow builds reproducibly (a second, pinned-backend build has its `sha256sum` compared against the first -- a mismatch fails the run), generates and validates the SBOMs, and uploads the built artifacts; a separate gated `publish` job downloads those exact bytes and the SBOMs, attests build provenance over all of them, and uploads to PyPI with a short-lived OIDC token minted fresh each run.
 - [ ] Verify the build-provenance attestation for the published wheel and sdist: `gh attestation verify dist/hotato-<version>-py3-none-any.whl --repo attenlabs/hotato` (and again for `dist/hotato-<version>.tar.gz` and each `hotato.sbom*.cdx.json` from the `hotato-sbom` artifact). This checks the GitHub-signed provenance emitted by the `publish` job's `actions/attest-build-provenance` step, confirming those exact bytes were built by this repo's workflow.
-- [ ] Verify the published SBOM(s): re-run `python3 scripts/gen_sbom.py --check dist/hotato.sbom.cdx.json` (and each `dist/hotato.sbom.<profile>.cdx.json`) on the files attached to the release, and confirm each SBOM's `metadata.component.version` matches the release version.
+- [ ] Verify the published SBOM(s): download the `hotato-sbom` artifact of the `publish-pypi-oidc.yml` run (these are the attested SBOMs; the ones `release.yml` or a local `gen_sbom.py` run writes carry a different timestamp and will not match the attestation), re-run `python3 scripts/gen_sbom.py --check hotato.sbom.cdx.json` (and each `hotato.sbom.<profile>.cdx.json`) on them, and confirm each SBOM's `metadata.component.version` matches the release version. Attach these files to the GitHub release in place of any SBOM attached earlier.
 - [ ] Verify `uvx hotato demo` works from the published package (fresh machine or cleared uv cache): it renders and opens the failing demo report.
 - [ ] Verify `uvx hotato doctor` (self-test path) works from the published package.
 - [ ] Publish the GitHub release notes for the tag `vX.Y.Z` (created above), pointing at the CHANGELOG entry.
@@ -11039,7 +11060,7 @@ no hosted hotato service and no telemetry.
 | Network access | only from commands whose job is to reach a system you configured | [`EGRESS.md`](EGRESS.md) |
 | Audio leaving your machine | one opt-in path: the hosted diarizer, behind `--egress-opt-in` | [`THREAT-MODEL.md`](THREAT-MODEL.md#three-guarantees) |
 | Build provenance | GitHub build-provenance attestation over the wheel, the sdist and the SBOMs | [Provenance](#provenance-and-sbom) |
-| Bill of materials | CycloneDX SBOM, one for the whole package and one per optional extra | [Provenance](#provenance-and-sbom) |
+| Bill of materials | CycloneDX SBOM, one for the whole package and one per optional extra, attested in the publish workflow's `hotato-sbom` artifact | [Provenance](#provenance-and-sbom) |
 | Vulnerability reports | private, through the contact in `SECURITY.md`; acknowledged within 3 business days | [`SECURITY.md`](../SECURITY.md#reporting) |
 
 ## Licence
@@ -11055,7 +11076,9 @@ each extra's SBOM lists them.
 By default everything stays on the machine that runs hotato:
 
 - Scoring, scanning, reports, fixtures, assertions and contract checks read
-  local files and write local files. They open no network socket.
+  local files and write local files, and open no network socket unless you
+  add one of the flags in the table below (for example `--notify URL` or a
+  hosted diarizer).
 - The model-judged rubric lane uses a local Ollama model
   (`http://localhost:11434`) by default. The transcript stays on your machine.
 - Stack credentials saved by `hotato connect` are stored locally with
@@ -11063,16 +11086,23 @@ By default everything stays on the machine that runs hotato:
 - Reports, result envelopes and exports are written only where you point them.
 
 Data leaves the machine only when you run a command whose job is to reach a
-system you named:
+system you named, or add a flag that does:
 
 | What you run | What it reaches | What leaves |
 |---|---|---|
-| `pull`, `capture`, `sweep`, `monitor run` | your voice platform's API | requests for your own recordings; audio comes back to your disk |
-| `monitor run` alerts, `--notify URL` | the Slack, PagerDuty or webhook destination you set | call id, rule, scores and timing numbers; never audio, credentials or transcript text |
-| `issue`, `pr` | GitHub, through your own `gh` login | the issue or pull request content you asked for |
+| `capture`, `pull`, `sweep` (without `--demo`), `monitor run` | your voice platform's API | requests for your own recordings; audio comes back to your disk |
+| `inspect --stack vapi\|retell` | your voice platform's API, read only | a request for the assistant's turn-taking config |
+| `ingest` (a webhook worker you host) | inbound calls from your voice platform; outbound only to download the recording an event names | the download request |
+| `apply --clone --yes` | your voice platform's API | a request to create a staging copy of the assistant; without `--yes` it is a dry run |
+| `issue create --yes`, `pr create --yes` | GitHub, through your own `gh` login; without `--yes` they are dry runs | the issue or pull request you asked for |
+| `monitor run` alerts, `monitor test-alert` | the Slack, PagerDuty or webhook destination you set | call id, rule, agent, score, incident kinds and timing numbers, a report path or link; never audio, credentials or transcript text |
+| `--notify URL` on `sweep` or `fleet run` | the webhook you name | counts, top candidate moments (id, kind, timing numbers) and local artifact paths |
+| `--notify URL` on `contract verify` | the webhook you name | pass and fail counts and the failing contracts' ids and timing numbers; no file paths |
+| `test run --state F` with an `http` or `sql` adapter | your own system of record; needs `egress_opt_in: true` in the state config | the lookup each state assertion needs |
 | `simulate --chat URL` | your chat agent; a non-local URL needs `--egress-opt-in` | the scripted caller turns |
 | `--judge-provider hosted`, or a non-local judge endpoint | the model endpoint you name; needs `--judge-egress-opt-in` | the transcript and the rubric criterion |
 | `--diarizer pyannoteai` | the hosted diarization service; needs `--egress-opt-in` | the mono recording |
+| placing a test call (see [`DRIVE-A-CALL.md`](DRIVE-A-CALL.md)) | your voice platform, which places a real call; needs credentials and an explicit opt-in | the call request; the recording comes back to your disk |
 
 Every credentialed endpoint is `https://` and certificate checks are never
 turned off. Standard proxy variables are honoured; `HOTATO_NO_PROXY=1` ignores
@@ -11100,13 +11130,15 @@ Releases to PyPI go through the Trusted Publishing workflow
 
 Where to find them:
 
-- the wheel and sdist: [PyPI](https://pypi.org/project/hotato/), and attached
-  to each GitHub release;
-- the SBOMs: attached to each GitHub release, and kept by the workflow run as
-  the `hotato-sbom` artifact;
+- the attested wheel and sdist: the files published on
+  [PyPI](https://pypi.org/project/hotato/);
+- the attested SBOMs: the `hotato-sbom` artifact of the publish workflow run
+  for that release (Actions, `publish-pypi-oidc`, the run, Artifacts). The
+  release workflow writes its own SBOMs with their own timestamp, so an SBOM
+  taken from anywhere else will not match the attestation;
 - the attestations: the repository's Attestations page on GitHub.
 
-To check a file you downloaded:
+To check a file you downloaded from those places:
 
 ```bash
 gh attestation verify hotato-<version>-py3-none-any.whl --repo attenlabs/hotato

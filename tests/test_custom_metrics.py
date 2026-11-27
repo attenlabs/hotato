@@ -73,7 +73,7 @@ GREET = """
         turns = call.turns(role="agent")
         i, t = turns[0]
         if name.lower() in t["text"].lower():
-            return passed([call.cite_turn(i, name)], reason="named")
+            return passed([call.cite_turn(i, f"for calling {name}")], reason="named")
         return failed("not named", evidence=[call.cite_turn(i)])
 """
 
@@ -190,7 +190,7 @@ def test_pass_and_fail_are_assert_v1_results_with_a_custom_block(tmp_path):
     assert named["dimension"] == "conversation"          # from the decorator
     assert named["custom"]["metric"] == "greets"
     assert named["custom"]["lane"] == "deterministic"
-    assert named["custom"]["evidence"] == [{"turn": 0, "quote": "Acme"}]
+    assert named["custom"]["evidence"] == [{"turn": 0, "quote": "for calling Acme"}]
     assert wrong["status"] == "FAIL"
     assert wrong["public_reason"] == "The custom metric greets was not satisfied."
     assert env["exit_code"] == 1
@@ -239,6 +239,74 @@ def test_evidence_that_does_not_match_the_call_is_never_a_verdict(tmp_path, cite
     assert r["status"] == "INCONCLUSIVE"
     assert needle in r["reason"]
     assert r["custom"]["evidence"] == []
+
+
+@pytest.mark.parametrize("item,needle", [
+    ({"turn": 0, "span_id": "s_999"}, "must cite one thing"),
+    ({"turn": 0, "event": 0, "field": "x"}, "must cite one thing"),
+    ({"turn": 0, "note": "trust me"}, "unknown key"),
+    ({"span_id": "s_0", "quote": "Thanks for calling"}, "unknown key"),
+])
+def test_every_key_of_a_citation_is_accounted_for(tmp_path, item, needle):
+    _load(tmp_path, f"""
+    from hotato.metrics import passed
+    def metric_mixed(call):
+        return passed([{item!r}])
+    """)
+    ctx = A.build_context(transcript=TRANSCRIPT, spans=SPANS)
+    r = A.run_assertions(_doc(_custom("a", "mixed")), ctx)["results"][0]
+    assert r["status"] == "INCONCLUSIVE"
+    assert needle in r["reason"]
+    assert r["custom"]["evidence"] == []
+
+
+@pytest.mark.parametrize("quote,status", [
+    ("o", "INCONCLUSIVE"),
+    ("Acme Clinic", "INCONCLUSIVE"),
+    ("calling Acme Clinic", "PASS"),
+])
+def test_a_pass_needs_the_same_three_word_quote_as_test_run(tmp_path, quote, status):
+    from hotato.sim_test import MIN_PASS_QUOTE_WORDS
+
+    assert MIN_PASS_QUOTE_WORDS == 3
+    _load(tmp_path, f"""
+    from hotato.metrics import passed
+    def metric_short(call):
+        return passed([call.cite_turn(0, {quote!r})])
+    """)
+    r = A.run_assertions(_doc(_custom("a", "short")), A.build_context(transcript=TRANSCRIPT))["results"][0]
+    assert r["status"] == status
+    if status == "INCONCLUSIVE":
+        assert "too short to support a pass" in r["reason"]
+
+
+def test_a_short_quote_still_backs_a_fail(tmp_path):
+    _load(tmp_path, """
+    from hotato.metrics import failed
+    def metric_no(call):
+        return failed("said no", evidence=[call.cite_turn(0, "Acme")])
+    """)
+    r = A.run_assertions(_doc(_custom("a", "no")), A.build_context(transcript=TRANSCRIPT))["results"][0]
+    assert r["status"] == "FAIL"
+
+
+def test_a_downgraded_verdict_is_warned_about_on_stderr(tmp_path, capsys):
+    _load(tmp_path, """
+    from hotato.metrics import failed, passed
+    def metric_bad_fail(call):
+        return failed("boom", evidence=[call.cite_turn(9)])
+    def metric_good(call):
+        return passed([call.cite_turn(0, "for calling Acme")])
+    """)
+    env = A.run_assertions(_doc(_custom("a", "bad_fail"), _custom("b", "good")),
+                           A.build_context(transcript=TRANSCRIPT))
+    assert [r["status"] for r in env["results"]] == ["INCONCLUSIVE", "PASS"]
+    assert env["results"][0]["custom"]["claimed_status"] == "FAIL"
+    assert env["exit_code"] == 0
+    err = capsys.readouterr().err.strip().splitlines()
+    assert len(err) == 1
+    assert "custom metric bad_fail returned FAIL, reported INCONCLUSIVE" in err[0]
+    assert "turn 9" in err[0]
 
 
 def test_span_and_timing_citations_are_checked(tmp_path):
