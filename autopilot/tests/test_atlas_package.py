@@ -121,6 +121,14 @@ def test_downloaded_wheel_is_never_committed():
     assert "autopilot/build/private-wheels/" in lines
 
 
+def test_build_upload_keeps_the_gitignore():
+    """`gcloud builds submit` uploads by .gcloudignore. Listing .gitignore there kept the rules
+    file out of the build, and the test above then failed in Cloud Build only."""
+    lines = [ln.strip() for ln in open(os.path.join(REPO, ".gcloudignore"), encoding="utf-8")]
+    assert ".gitignore" not in lines and "/.gitignore" not in lines
+    assert "#!include:.gitignore" in lines and ".git" in lines
+
+
 def test_publish_script_never_exposes_the_token():
     script = read("build", "publish-atlas-wheel.sh")
     assert os.access(os.path.join(AUTOPILOT, "build", "publish-atlas-wheel.sh"), os.X_OK)
