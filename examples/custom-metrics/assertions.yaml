@@ -1,0 +1,24 @@
+# Built-in checks and custom metrics side by side. `kind: custom` names a
+# metric from ./hotato_metrics/ (or --metrics PATH); `params` is passed to it.
+version: 1
+inconclusive_policy: refuse
+assertions:
+  - id: greets-with-business-name
+    kind: custom
+    metric: greets_with_name
+    params: {name: "Harbor Dental"}
+    dimension: conversation
+  - id: short-agent-turns
+    kind: custom
+    metric: max_agent_turn_words
+    params: {max_words: 25}
+    dimension: speech
+  - id: booking-claim-backed-by-tool
+    kind: custom
+    metric: claim_backed_by_tool
+    params: {claim: "booked", tool: "book_appointment"}
+    dimension: outcome
+  - id: no-card-numbers
+    kind: pii
+    detectors: [card_luhn]
+    mode: must_not_leak

@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+## [Unreleased]
+
+### Added
+- Custom metrics: write a check as a plain Python function (`metric_*` in
+  `./hotato_metrics/*.py`, a `--metrics PATH`, or a `hotato.metrics` entry
+  point) and use it as `kind: custom` in an assertions file or a conversation
+  test. hotato checks every cited turn, quote, span and timing value against
+  the call, runs a deterministic metric twice and stops (exit 2) when the
+  answers differ, and reports a metric with missing inputs as INCONCLUSIVE.
+  A metric that calls a model is declared `judged=True` with a pinned model
+  and temperature 0 and runs only in the rubric lane (`provider: custom`).
+  `hotato assert metrics` lists what was found; results appear in the text,
+  JSON, HTML and Markdown reports. Guide: `docs/CUSTOM-METRICS.md`; example:
+  `examples/custom-metrics/`.
+
 ### Fixed
 - Delivery warnings for `--notify` and `hotato monitor` alerts show only the scheme and host of the destination; incoming-webhook URLs carry their secret in the path.
 - `hotato test run` no longer accepts a quote shorter than three words as evidence for a pass.

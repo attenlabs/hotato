@@ -66,6 +66,7 @@ name that worked before 1.17 still runs unchanged.
 - [ANALYZE.md](ANALYZE.md) - drop a folder, rank and hear the worst moments
 - [ASSERTIONS.md](ASSERTIONS.md) - deterministic typed assertions over transcript, trace, and timing
 - [RUBRIC.md](RUBRIC.md) - the model-judged rubric lane, scored with a pinned local model
+- [CUSTOM-METRICS.md](CUSTOM-METRICS.md) - your own checks as Python functions, reported like the built-in ones
 - [EXPLAIN.md](EXPLAIN.md) - root-cause-by-layer attribution from existing results
 - [STATE-ADAPTERS.md](STATE-ADAPTERS.md) - ground state assertions in your system of record
 - [scenarios/dtmf-verification.md](scenarios/dtmf-verification.md) - verify DTMF reached the far end

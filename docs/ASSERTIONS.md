@@ -50,8 +50,8 @@ never the matched text.
 
 ### The whole `kind` vocabulary
 
-The full `assert.v1` `kind` vocabulary is **20 deterministic kinds**, all
-`deterministic: true`, all model-free. Beyond the five core kinds:
+The full `assert.v1` `kind` vocabulary is **21 deterministic kinds**, all
+`deterministic: true`; the 20 built-in ones are model-free. Beyond the five core kinds:
 `tool_result` and `tool_error` (a tool's returned value or raised error, from
 the trace), `http_result` (a recorded HTTP exchange span's method, URL,
 status, and response subset, from the trace), `state` and `state_change` (a
@@ -59,7 +59,11 @@ state adapter's snapshot or
 transition -- see [STATE-ADAPTERS.md](STATE-ADAPTERS.md)), `handoff`, `dtmf`,
 `termination`, `latency`, `timing_contract`, `entity_accuracy`, `sequence`,
 `count`, `formula` (a boolean composite over other assertions' results in
-the same run, below), and `order` (a transcript ordering check, below). Two
+the same run, below), and `order` (a transcript ordering check, below).
+`custom` runs your own check, a plain Python function in `./hotato_metrics/`
+(`{kind: custom, metric: NAME, params: {...}}`): hotato verifies its evidence
+against the call and runs it twice to confirm it is deterministic -- see
+[CUSTOM-METRICS.md](CUSTOM-METRICS.md). Two
 more, `human_rubric` and `judge_rubric`, belong to the SEPARATE
 model-judged rubric lane ([RUBRIC.md](RUBRIC.md)); inside a raw `assert.v1`
 document they resolve to a deterministic `INCONCLUSIVE`, so no model runs here

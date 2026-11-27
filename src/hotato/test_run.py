@@ -125,6 +125,7 @@ def _evaluate_rubric_lane(
         cache=cache,
         no_cache=no_cache,
         gate=gate_judge,
+        timing=ctx.timing,
     )
 
 
