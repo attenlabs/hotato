@@ -30,7 +30,11 @@ is ever shell-evaluated):
 The sticky markers match the renderers' (a test pins them in lockstep), so
 re-runs update the same comment in place rather than stacking a new one each
 push. A comment carrying the older contract-verify marker is updated to the new
-body too, never left behind next to a second comment.
+body too, never left behind next to a second comment. Only a comment written
+by the token's own identity is ever edited: ``GET /user`` names it for a
+personal token, and the workflow token (which cannot read ``/user``) is the
+Actions bot. A human's or another bot's comment that quotes the marker is never
+touched; a fresh comment is created instead.
 """
 
 from __future__ import annotations
@@ -51,7 +55,9 @@ MARKER = "<!-- hotato-contract-verify -->"
 MARKERS = (REPORT_MARKER, MARKER)
 _BOT_LOGIN = "github-actions[bot]"
 _UA = "hotato-pr-comment"
-_MAX_PAGES = 10
+# 100 comments a page; a PR with more than 30,000 comments is not searched
+# to the end, and then the poster skips rather than risk a duplicate.
+_MAX_PAGES = 300
 # GitHub refuses an issue comment body above 65,536 characters.
 _MAX_BODY = 65000
 _REF_PR_RE = re.compile(r"^refs/pull/(\d+)/")
@@ -135,32 +141,32 @@ def _markers(marker):
     return (marker,) if isinstance(marker, str) else tuple(marker)
 
 
-def find_existing_comment(comments, marker=MARKERS):
-    """The sticky comment to update in place: among comments whose body
-    carries one of the markers, the first written by the Actions bot (the
-    workflow token's own comment), else the first one. ``None`` when there is
-    none. Pure; never raises."""
-    if not isinstance(comments, list):
+def find_existing_comment(comments, marker=MARKERS, author=_BOT_LOGIN):
+    """The sticky comment to update in place: the first comment written by
+    ``author`` (the token's own login) whose body carries one of the markers.
+    A comment by anyone else is never returned, even when it quotes the
+    marker, so the poster can only ever edit its own comment. ``None`` when
+    there is none. Pure; never raises."""
+    if not isinstance(comments, list) or not isinstance(author, str) \
+            or not author:
         return None
     markers = _markers(marker)
-    hits = []
     for c in comments:
         if not isinstance(c, dict) or not isinstance(c.get("id"), int):
             continue
+        user = c.get("user") if isinstance(c.get("user"), dict) else {}
+        if user.get("login") != author:
+            continue
         body = str(c.get("body") or "")
         if any(m in body for m in markers):
-            hits.append(c)
-    for c in hits:
-        user = c.get("user") if isinstance(c.get("user"), dict) else {}
-        if user.get("login") == _BOT_LOGIN:
             return c
-    return hits[0] if hits else None
+    return None
 
 
-def find_existing(comments, marker=MARKERS):
+def find_existing(comments, marker=MARKERS, author=_BOT_LOGIN):
     """The id of the sticky comment (see :func:`find_existing_comment`), or
     ``None``. Pure; never raises."""
-    c = find_existing_comment(comments, marker)
+    c = find_existing_comment(comments, marker, author)
     return c["id"] if c else None
 
 
@@ -181,22 +187,40 @@ def _request(url, token, *, method="GET", payload=None):
 
 
 def _list_comments(api, repo, number, token):
+    """Every comment on the pull request, page by page until a short page
+    (the last one). Returns ``(comments, complete)``; ``complete`` is False
+    only when the page cap stopped the walk before the last page."""
     out = []
     for page in range(1, _MAX_PAGES + 1):
         url = (f"{api}/repos/{repo}/issues/{number}/comments"
                f"?per_page=100&page={page}")
         batch = _request(url, token)
         if not isinstance(batch, list) or not batch:
-            break
+            return out, True
         out.extend(batch)
         if len(batch) < 100:
-            break
-    return out
+            return out, True
+    return out, False
 
 
 def _http_status(exc):
     code = getattr(exc, "code", None)
     return code if isinstance(code, int) else None
+
+
+def own_login(api, token):
+    """The login the token writes comments as. ``GET /user`` answers for a
+    personal access token; the workflow token (an installation token) is
+    refused there with 401/403/404, and its comments are the Actions bot's.
+    Any other failure raises, and the caller skips the post."""
+    try:
+        me = _request(f"{api}/user", token)
+    except urllib.error.HTTPError as exc:
+        if _http_status(exc) in (401, 403, 404):
+            return _BOT_LOGIN
+        raise
+    login = me.get("login") if isinstance(me, dict) else None
+    return login if isinstance(login, str) and login else _BOT_LOGIN
 
 
 def post_or_update(api, repo, number, token, body, marker=MARKERS):
@@ -205,8 +229,14 @@ def post_or_update(api, repo, number, token, body, marker=MARKERS):
     string. Fully wrapped: any API/network error is caught and reported, never
     raised, so the caller always exits 0."""
     try:
-        existing = find_existing_comment(
-            _list_comments(api, repo, number, token), marker)
+        author = own_login(api, token)
+        comments, complete = _list_comments(api, repo, number, token)
+        existing = find_existing_comment(comments, marker, author)
+        if existing is None and not complete:
+            return ("skipped: the pull request has more comments than the"
+                    " poster searches, so it posts nothing rather than risk"
+                    " a duplicate; the report is in the job summary (gate"
+                    " unaffected)")
         if existing is not None:
             cid = existing["id"]
             if str(existing.get("body") or "") == body:

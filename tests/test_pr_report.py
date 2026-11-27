@@ -113,8 +113,8 @@ def test_golden_contract_report_content():
     assert lines[0] == R.MARKER  # the sticky marker is the first line
     assert lines[1] == "## hotato: FAIL"
     # the not-passing table names the case, what failed, and the evidence
-    assert ("| **FAIL** | `greeting-hold` | turn-taking regression (expect"
-            " hold) | agent yielded after 0.36 s; talk-over 0.36 s |") in body
+    assert ("| **FAIL** | `greeting-hold` | turn-taking regression \\(expect"
+            " hold\\) | agent yielded after 0.36 s; talk-over 0.36 s |") in body
     assert "| NOT_SCORABLE | `callback-yield` |" in body
     # red to green against the base
     assert "Fixed: **1** · Newly failing: **1** · Still failing: **0**" in body
@@ -303,6 +303,55 @@ def test_hostile_values_cannot_break_the_table_or_mention():
     assert "@octocat" not in body and "&#64;octocat" in body
 
 
+def test_markdown_links_images_and_autolinks_render_inert():
+    doc = _fix("contract-verify.head.json")
+    r = doc["results"][0]
+    r["not_scorable_reason"] = ("[click](http://evil.example)"
+                                " ![i](http://e/x.png) **bold** _em_ ~~s~~"
+                                " https://bare.example www.bare.example"
+                                " back\\slash")
+    body = R.render_pr_report(doc)
+    row = next(line for line in body.splitlines()
+               if "click" in line and line.startswith("|"))
+    # no link, image, emphasis, or bare-URL autolink can survive the cell
+    assert "](" not in row and "![" not in row
+    assert "\\[click\\]\\(http&#58;//evil.example\\)" in row
+    assert "\\!\\[i\\]" in row
+    assert "\\*\\*bold\\*\\*" in row and "\\_em\\_" in row
+    assert "\\~\\~s\\~\\~" in row
+    assert "https://" not in row and "http://" not in row
+    assert "www&#46;bare.example" in row
+    assert "back\\\\slash" in row
+    assert row.count(" | ") == 4  # still exactly five cells
+    # the only links in the whole body are the ones the renderer built
+    assert "evil.example)" not in body.replace("\\)", "")
+
+
+def test_link_targets_must_be_plain_https_urls(tmp_path):
+    assert R.safe_url(RUN_URL) == RUN_URL
+    for bad in ("http://github.com/o/r/actions/runs/1",
+                "javascript:alert(1)",
+                "https://x.example/a) ![i](https://e/x.png",
+                "https://x.example/a b", 'https://x.example/"q"',
+                "https://x.example/[a]", None, 7, ""):
+        assert R.safe_url(bad) is None, bad
+    # the renderer drops a bad target rather than rendering it
+    doc = _fix("contract-verify.head.json")
+    body = R.render_pr_report(doc, run_url="https://x.example/a) ![i](y")
+    assert "x.example" not in body
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.path.join(ROOT, "src")
+    head = os.path.join(FIX, "contract-verify.head.json")
+    for flags in (["--run-url", "https://x.example/a) ![i](y"],
+                  ["--artifact-url", "http://x.example/a"],
+                  ["--max-rows", "0"], ["--max-rows", "-3"]):
+        proc = subprocess.run([sys.executable, "-m", "hotato", "pr",
+                               "comment", head] + flags, env=env,
+                              capture_output=True, text=True, timeout=120)
+        assert proc.returncode == 2, (flags, proc.stdout, proc.stderr)
+        assert proc.stdout == ""
+
+
 def test_rows_are_capped_and_counted():
     doc = _fix("contract-verify.head.json")
     tmpl = doc["results"][1]
@@ -398,14 +447,16 @@ def test_cli_end_to_end_with_cards_and_records(tmp_path):
 # ---------------------------------------------------------------------------
 
 class FakeGitHub:
-    """An in-process stand-in for the three issue-comment endpoints the
-    poster uses. Records every call; ``fail`` makes every call raise an
-    HTTPError with that status."""
+    """An in-process stand-in for ``GET /user`` and the three issue-comment
+    endpoints the poster uses. Records every call; ``fail`` makes every call
+    raise an HTTPError with that status. ``login`` None is the workflow
+    token, which ``/user`` refuses with 403; a string is a personal token."""
 
-    def __init__(self, comments=None, fail=None):
+    def __init__(self, comments=None, fail=None, login=None):
         self.comments = list(comments or [])
         self.calls = []
         self.fail = fail
+        self.login = login
         self.next_id = 1000
 
     def request(self, url, token, *, method="GET", payload=None):
@@ -413,6 +464,11 @@ class FakeGitHub:
         if self.fail:
             raise urllib.error.HTTPError(url, self.fail, "nope", {},
                                          io.BytesIO(b""))
+        if method == "GET" and urlsplit(url).path == "/user":
+            if self.login is None:
+                raise urllib.error.HTTPError(url, 403, "integration", {},
+                                             io.BytesIO(b""))
+            return {"login": self.login}
         if method == "GET":
             page = int(parse_qs(urlsplit(url).query)["page"][0])
             return self.comments[(page - 1) * 100: page * 100]
@@ -424,7 +480,8 @@ class FakeGitHub:
             return {"id": cid}
         self.next_id += 1
         self.comments.append({"id": self.next_id, "body": payload["body"],
-                              "user": {"login": "github-actions[bot]"}})
+                              "user": {"login": self.login
+                                       or "github-actions[bot]"}})
         return {"id": self.next_id}
 
     def writes(self):
@@ -505,15 +562,73 @@ def test_poster_updates_the_legacy_contract_comment(poster, monkeypatch,
                             {"body": R.MARKER + "\nnew report\n"})]
 
 
-def test_poster_prefers_its_own_bot_comment(poster):
+def test_poster_only_ever_matches_its_own_comment(poster):
     comments = [
         {"id": 1, "body": "quoting " + R.MARKER, "user": {"login": "someone"}},
         {"id": 2, "body": R.MARKER + "\nx",
          "user": {"login": "github-actions[bot]"}},
+        {"id": 3, "body": R.MARKER + "\ny", "user": {"login": "pat-owner"}},
     ]
     assert poster.find_existing(comments) == 2
-    # with no bot comment, the first marker comment is the one to update
-    assert poster.find_existing(comments[:1]) == 1
+    assert poster.find_existing(comments, author="pat-owner") == 3
+    # someone else's comment quoting the marker is never the one to edit
+    assert poster.find_existing(comments[:1]) is None
+    assert poster.find_existing(comments, author="") is None
+    assert poster.find_existing([{"id": 4, "body": R.MARKER}]) is None
+
+
+def test_poster_with_a_personal_token_never_edits_another_comment(
+        poster, monkeypatch, tmp_path):
+    # A personal access token: /user names it. A human and another bot both
+    # quote the marker; the poster must leave both alone and create its own.
+    _pr_env(monkeypatch, tmp_path, R.MARKER + "\nnew\n")
+    human = {"id": 1, "body": "> " + R.MARKER + "\nwhy is this red?",
+             "user": {"login": "reviewer"}}
+    other_bot = {"id": 2, "body": R.MARKER + "\nold",
+                 "user": {"login": "github-actions[bot]"}}
+    gh = FakeGitHub([human, other_bot], login="pat-owner")
+    monkeypatch.setattr(poster, "_request", gh.request)
+    assert poster.main() == 0
+    assert [c[0] for c in gh.writes()] == ["POST"]
+    assert human["body"].endswith("why is this red?")
+    assert other_bot["body"] == R.MARKER + "\nold"
+    # the next run finds the comment the token itself wrote and PATCHes it
+    (tmp_path / "pr-report.md").write_text(R.MARKER + "\nnewer\n",
+                                           encoding="utf-8")
+    assert poster.main() == 0
+    assert [c[0] for c in gh.writes()] == ["POST", "PATCH"]
+    assert gh.writes()[-1][1].endswith(f"/issues/comments/{gh.next_id}")
+
+
+def test_poster_user_lookup_error_other_than_auth_skips(poster, monkeypatch):
+    def boom(url, token, *, method="GET", payload=None):
+        raise urllib.error.HTTPError(url, 500, "down", {}, io.BytesIO(b""))
+    monkeypatch.setattr(poster, "_request", boom)
+    status = poster.post_or_update("https://api.example", "octo/voice", 5,
+                                   "tok", "body")
+    assert status.startswith("skipped")
+
+
+def test_poster_walks_every_page_and_never_duplicates_past_the_cap(
+        poster, monkeypatch, tmp_path):
+    # the old 10-page cap: the bot's comment on page 12 must still be found
+    _pr_env(monkeypatch, tmp_path, R.MARKER + "\nbody\n")
+    filler = [{"id": i, "body": "chatter", "user": {"login": "u"}}
+              for i in range(1, 1101)]
+    filler.append({"id": 5000, "body": R.MARKER + "\nold",
+                   "user": {"login": "github-actions[bot]"}})
+    gh = FakeGitHub(filler)
+    monkeypatch.setattr(poster, "_request", gh.request)
+    assert poster.main() == 0
+    assert [c[0] for c in gh.writes()] == ["PATCH"]
+    assert gh.writes()[0][1].endswith("/issues/comments/5000")
+    # past the page cap with no own comment found: skip, never a duplicate
+    monkeypatch.setattr(poster, "_MAX_PAGES", 2)
+    gh2 = FakeGitHub(filler[:-1])
+    monkeypatch.setattr(poster, "_request", gh2.request)
+    status = poster.post_or_update("https://api.example", "octo/voice", 5,
+                                   "tok", "body")
+    assert status.startswith("skipped") and gh2.writes() == []
 
 
 def test_poster_paginates(poster, monkeypatch, tmp_path):
@@ -525,7 +640,8 @@ def test_poster_paginates(poster, monkeypatch, tmp_path):
     gh = FakeGitHub(filler)
     monkeypatch.setattr(poster, "_request", gh.request)
     assert poster.main() == 0
-    assert [c[0] for c in gh.calls] == ["GET", "GET", "PATCH"]
+    assert [c[0] for c in gh.calls] == ["GET", "GET", "GET", "PATCH"]
+    assert gh.calls[0][1] == "https://api.example/user"
     assert gh.calls[-1][1].endswith("/issues/comments/999")
 
 
@@ -666,6 +782,22 @@ def test_gate_without_pr_comment_support_renders_no_report(monkeypatch):
         {"output": ".hotato/results", "workspace": "/nonexistent"},
         ".hotato/results/suite-run.json", {}, "")
     assert (leaf, warning) == ("", "")
+
+
+def test_gate_report_render_survives_undecodable_output(monkeypatch):
+    gate = _load_module("gate_t3", "gate.py")
+    monkeypatch.setattr(gate, "_pr_report_supported", lambda: True)
+    seen = {}
+
+    def bad_decode(argv, **kwargs):
+        seen.update(kwargs)
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+    monkeypatch.setattr(gate, "_run", bad_decode)
+    leaf, warning = gate.render_pr_report(
+        {"output": ".hotato/results", "workspace": "/nonexistent"},
+        ".hotato/results/suite-run.json", {}, "")
+    assert leaf == "" and "gate result is unaffected" in warning
+    assert seen.get("errors") == "replace"
 
 
 def test_gate_report_argv_is_a_list_with_validated_run_url(monkeypatch):

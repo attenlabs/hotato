@@ -5729,6 +5729,14 @@ def _cmd_describe(args) -> int:
 def _cmd_pr_comment(args) -> int:
     from . import pr_report as _report
 
+    if args.max_rows < 1:
+        raise ValueError(f"--max-rows must be 1 or more, got {args.max_rows}")
+    for flag, value in (("--run-url", args.run_url),
+                        ("--artifact-url", args.artifact_url)):
+        if value is not None and _report.safe_url(value) is None:
+            raise ValueError(
+                f"{flag} {value!r}: not a plain https:// URL (no spaces,"
+                " quotes, brackets or parentheses)")
     # Offline rendering from result files already on disk. The one optional
     # write besides --out is --cards (SVG evidence cards); nothing here reaches
     # the network -- posting the comment is the Action's separate step.

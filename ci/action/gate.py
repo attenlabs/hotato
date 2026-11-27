@@ -396,8 +396,9 @@ def render_pr_report(cfg: Dict[str, Any], result_path: str,
         proc = _run([sys.executable, "-m", "hotato"]
                     + pr_report_argv(cfg, result_path, rec, reproduce),
                     cwd=cfg["workspace"], capture_output=True, text=True,
-                    timeout=300)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+                    encoding="utf-8", errors="replace", timeout=300)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        # ValueError covers a UnicodeDecodeError on the renderer's output.
         return "", (f"PR report renderer did not run ({exc}); the gate"
                     " result is unaffected")
     if proc.returncode != 0 or not os.path.isfile(

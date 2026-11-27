@@ -7,9 +7,9 @@ Conversation test `refund-flow`, agent `consumer-agent`. 4 checks: 1 pass, 3 inc
 
 | Status | Case | What failed | Evidence | Files |
 |---|---|---|---|---|
-| INCONCLUSIVE | `refund-flow / refund-tool-called` | outcome check missing required evidence | no trace was provided in the context; tool_call assertions read voice_trace.v1 spans, never transcript text | - |
-| INCONCLUSIVE | `refund-flow / lookup-then-refund` | conversation check missing required evidence | no trace was provided; sequence reads voice_trace.v1 spans | - |
-| INCONCLUSIVE | `refund-flow / refund-latency` | speech check missing required evidence | no trace was provided; latency reads span latency_ms | - |
+| INCONCLUSIVE | `refund-flow / refund-tool-called` | outcome check missing required evidence | no trace was provided in the context; tool\_call assertions read voice\_trace.v1 spans, never transcript text | - |
+| INCONCLUSIVE | `refund-flow / lookup-then-refund` | conversation check missing required evidence | no trace was provided; sequence reads voice\_trace.v1 spans | - |
+| INCONCLUSIVE | `refund-flow / refund-latency` | speech check missing required evidence | no trace was provided; latency reads span latency\_ms | - |
 
 ### Compared with the base branch
 

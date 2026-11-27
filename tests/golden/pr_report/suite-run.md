@@ -7,7 +7,7 @@ Suite `action-consumer-suite`, agent `consumer-agent`. 2 tests: 1 pass, 1 fail. 
 
 | Status | Case | What failed | Evidence | Files |
 |---|---|---|---|---|
-| **FAIL** | `escalate-not-handed-off-test` | policy check failed | policy: handoff: no handoff to 'human_supervisor' span occurred in the trace; 0/3 runs passed | - |
+| **FAIL** | `escalate-not-handed-off-test` | policy check failed | policy: handoff: no handoff to 'human\_supervisor' span occurred in the trace; 0/3 runs passed | - |
 
 ### Compared with the base branch (`main`)
 

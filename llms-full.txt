@@ -1541,9 +1541,17 @@ counted on one line.
 ## Safety of the rendered text
 
 Ids and reasons come from result files, which a pull request can change. The
-renderer escapes table pipes, HTML brackets, and backticks, and neutralises
-`@` so a value cannot mention a user. Tables are capped at `--max-rows`, and
-the body stays under GitHub's comment size limit.
+renderer escapes table pipes, HTML brackets, backticks, and the Markdown
+characters that open a link, an image, or emphasis, and neutralises `@`,
+`://`, and `www.` so a value cannot mention a user, render a link or an
+image, or autolink a URL. `--run-url` and `--artifact-url` must be plain
+`https://` URLs (exit 2 otherwise). Tables are capped at `--max-rows` (1 or
+more), and the body stays under GitHub's comment size limit.
+
+The poster only ever edits a comment written by its own token's identity: the
+login `GET /user` returns for a personal access token, or the Actions bot for
+the workflow token. A comment by anyone else that quotes the marker is left
+alone, and a new comment is created instead.
 
 Related: [CI.md](CI.md) (the root Action), [CARDS.md](CARDS.md)
 (evidence cards), [REPORTS.md](REPORTS.md) (Failure Records and reports).

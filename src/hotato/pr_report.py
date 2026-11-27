@@ -99,17 +99,44 @@ def _class(status: str) -> str:
 # Markdown safety
 # ---------------------------------------------------------------------------
 
+# Markdown punctuation a result-file value could use to open a link, an
+# image, emphasis, or strikethrough. Each is backslash-escaped, which
+# CommonMark and GitHub honour for any ASCII punctuation.
+_MD_PUNCT = frozenset("\\[]()!*_~")
+
+
 def _cell(value: Any, cap: int = _CELL_CAP) -> str:
-    """One table cell or inline phrase read off a result file: whitespace
-    collapsed, pipes escaped, backticks dropped, HTML brackets entity-escaped,
-    and ``@`` neutralised so a value can never break the table, inject markup,
-    or mention a user from the comment."""
+    """One table cell or inline phrase read off a result file, rendered as
+    inert text: whitespace collapsed, backticks dropped, ``&`` ``<`` ``>``
+    entity-escaped, Markdown link, image and emphasis punctuation
+    backslash-escaped, pipes escaped, and ``@``, ``://`` and ``www.``
+    neutralised so a value can never break the table, inject markup, render a
+    link or an image, autolink a URL, or mention a user from the comment."""
     text = " ".join(str("" if value is None else value).split())
     if len(text) > cap:
         text = text[: cap - 3].rstrip() + "..."
-    return (text.replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace("`", "'").replace("|", "\\|")
-            .replace("@", "&#64;"))
+    text = (text.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace("`", "'"))
+    text = "".join("\\" + ch if ch in _MD_PUNCT else ch for ch in text)
+    # ``|`` breaks a table row; ``@`` mentions a user or autolinks an email;
+    # ``://`` and ``www.`` are where GitHub's bare-URL autolinks start.
+    text = re.sub(r"(?i)\bwww\.", lambda m: m.group(0)[:3] + "&#46;", text)
+    return (text.replace("|", "\\|").replace("@", "&#64;")
+            .replace("://", "&#58;//"))
+
+
+_SAFE_URL_RE = re.compile(
+    r"^https://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?"
+    r"(/[A-Za-z0-9._~%/+=,;-]*)?(\?[A-Za-z0-9._~%/+=,;&-]*)?$")
+
+
+def safe_url(value: Any) -> Optional[str]:
+    """``value`` when it is a plain ``https://`` URL that is safe to place in
+    a Markdown link target (no whitespace, quotes, brackets, parentheses or
+    backslashes), else ``None``."""
+    if not isinstance(value, str) or len(value) > 2000:
+        return None
+    return value if _SAFE_URL_RE.match(value) else None
 
 
 def _code(value: Any, cap: int = 120) -> str:
@@ -712,6 +739,8 @@ def render_pr_report(
     max_rows = max(1, int(max_rows))
     records = records or {}
     cards = cards or {}
+    # A link target that is not a plain https URL is dropped, never rendered.
+    artifact_url, run_url = safe_url(artifact_url), safe_url(run_url)
     link = artifact_url or run_url
     units = units_of(doc)
     verdict = verdict_of(doc, units)

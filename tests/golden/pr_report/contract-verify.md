@@ -7,7 +7,7 @@ Contract verification of `contracts`. 3 contracts: 1 pass, 1 fail, 1 not scorabl
 
 | Status | Case | What failed | Evidence | Files |
 |---|---|---|---|---|
-| **FAIL** | `greeting-hold` | turn-taking regression (expect hold) | agent yielded after 0.36 s; talk-over 0.36 s | [record](https://github.com/octo/voice/actions/runs/123) · [card](https://github.com/octo/voice/actions/runs/123) |
+| **FAIL** | `greeting-hold` | turn-taking regression \(expect hold\) | agent yielded after 0.36 s; talk-over 0.36 s | [record](https://github.com/octo/voice/actions/runs/123) · [card](https://github.com/octo/voice/actions/runs/123) |
 | NOT_SCORABLE | `callback-yield` | recording not scorable | the agent channel is silent for the whole window | - |
 
 ### Caught moment
