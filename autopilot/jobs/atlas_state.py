@@ -204,6 +204,18 @@ class Lock:
                 return held
             sleep(poll_s)
 
+    def still_held(self):
+        """True while the lock object is still the one this holder wrote and has not expired."""
+        if not self.gen:
+            return False
+        raw, gen = self.o.read(LOCK_KEY)
+        if not raw or gen != self.gen:
+            return False
+        try:
+            return _parse(json.loads(raw)["expires"]) > self.at()
+        except (ValueError, KeyError):
+            return False
+
     def release(self):
         if not self.gen:
             return

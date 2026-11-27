@@ -153,9 +153,15 @@ FAKE = {
         ENGINES = {"claude": object}
     """,
     "atlas/cli.py": """
+        import json, os
         CALLS = []
         def main(argv):
             CALLS.append(list(argv))
+            if "publish" in argv:  # the shrink guard's feed render
+                out = argv[argv.index("--out") + 1]
+                os.makedirs(out, exist_ok=True)
+                with open(os.path.join(out, "feed.json"), "w") as fh:
+                    json.dump({"entries": [{"id": "p1"}], "counts": {"reports": 1}}, fh)
             return 0
     """,
 }
@@ -195,6 +201,7 @@ def test_store_only_modes_run_the_installed_cli_under_the_lock(fake_atlas, monke
     import atlas_job as job
     import atlas_state as state
     monkeypatch.setattr(job, "prepare", lambda *a, **k: None)
+    monkeypatch.setattr(job.site, "fetch_url", lambda url: None)  # offline: no live feed
     st = common.Store(local_dir=str(tmp_path / "bucket"))
     db = tmp_path / "seed.db"
     conn = sqlite3.connect(db)
@@ -206,7 +213,10 @@ def test_store_only_modes_run_the_installed_cli_under_the_lock(fake_atlas, monke
     rec = {}
     assert job.work_for("recheck")(st, rec) == "ok"
     from atlas import cli
-    assert cli.CALLS[-1][0] == "--db" and cli.CALLS[-1][-1] == "recheck"
+    ran = [c for c in cli.CALLS if c[-1] == "recheck"]
+    assert len(ran) == 1 and ran[0][0] == "--db"
+    assert cli.CALLS[-1][-2:] == ["--out", cli.CALLS[-1][-1]] or "--no-pages" in cli.CALLS[-1]
+    assert rec["baseline"] == "previous store"  # the shrink guard ran before the save
     assert state.Objects(st).generation(state.DB_KEY) > g  # saved over the generation it read
     assert state.Objects(st).read(state.LOCK_KEY) == (None, 0)  # and released the lock
     assert job.JOBS == {"run": "atlas", "recheck": "atlas-recheck", "audit": "atlas-audit", "cli": "atlas-cli"}

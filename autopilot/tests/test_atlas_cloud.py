@@ -210,30 +210,102 @@ def test_choices_prefer_the_candidate_and_skip_bad_versions():
     assert collector.choices({"candidate": "../x"}, None) == []
 
 
-def test_a_candidate_that_will_not_install_is_rejected_and_the_run_falls_back(store, monkeypatch, capsys):
+def test_an_install_failure_is_inconclusive_and_the_cap_rolls_the_candidate_back(store, monkeypatch, capsys):
     store.put_json(collector.KEY, {"candidate": "9.9.9", "current": None})
     monkeypatch.setattr(collector, "baked", lambda: "0.2.0")
     monkeypatch.setattr(collector, "loaded_version", lambda: "0.2.0")
+    monkeypatch.setenv("ATLAS_CANDIDATE_MAX_RUNS", "3")
 
     def boom(version, target):
-        raise RuntimeError("no such version")
-    assert collector.select(store, "atlas", install=boom) == {"version": "0.2.0", "role": "baked"}
+        raise RuntimeError("index unreachable")
+    for n in (1, 2, 3):  # a transient install failure does not mark the version bad
+        assert collector.select(store, "atlas", install=boom) == {"version": "0.2.0", "role": "baked"}
+        doc = store.get_json(collector.KEY)
+        assert doc["candidate"] == "9.9.9" and doc["candidate_runs"] == n and not doc.get("bad")
+    assert collector.select(store, "atlas", install=boom)["role"] == "baked"
     doc = store.get_json(collector.KEY)
-    assert doc["candidate"] is None and doc["bad"] == ["9.9.9"]
+    assert doc["candidate"] is None and doc["bad"] == ["9.9.9"] and "without settling" in doc["bad_why"]["9.9.9"]
     assert "atlas_collector_rolled_back" in capsys.readouterr().out
 
 
-def test_settle_promotes_a_clean_candidate_and_rejects_a_crashed_one(store):
+def test_a_run_killed_before_it_settles_is_counted_and_rolled_back(store, monkeypatch):
+    # OOM, the Cloud Run timeout or SIGKILL: no settle() ever runs. The attempt was counted
+    # before the run started, so the cap still rolls the candidate back.
     store.put_json(collector.KEY, {"candidate": "0.3.0", "current": "0.2.0"})
-    assert collector.settle(store, {"version": "0.3.0", "role": "candidate"}, ok=True) == "promoted"
-    assert store.get_json(collector.KEY)["current"] == "0.3.0"
-    collector.offer(store, "0.4.0")
-    assert collector.settle(store, {"version": "0.4.0", "role": "candidate"}, ok=False) == "rejected"
+    monkeypatch.setattr(collector, "baked", lambda: "0.2.0")
+    loaded = {"v": None}
+    monkeypatch.setattr(collector, "loaded_version", lambda: loaded["v"])
+
+    def install(version, target):
+        loaded["v"] = version
+    monkeypatch.setattr(collector, "activate", lambda target: None)
+    monkeypatch.setenv("ATLAS_CANDIDATE_MAX_RUNS", "2")
+    assert collector.select(store, "atlas", install=install)["role"] == "candidate"   # killed
+    assert collector.select(store, "atlas", install=install)["role"] == "candidate"   # killed again
+    loaded["v"] = "0.2.0"
+    assert collector.select(store, "atlas", install=install) == {"version": "0.2.0", "role": "current"}
+    assert "0.3.0" in store.get_json(collector.KEY)["bad"]
+
+
+def test_only_the_hourly_run_tries_the_candidate(store, monkeypatch):
+    store.put_json(collector.KEY, {"candidate": "0.3.0", "current": "0.2.0"})
+    monkeypatch.setattr(collector, "baked", lambda: "0.2.0")
+    monkeypatch.setattr(collector, "loaded_version", lambda: "0.2.0")
+    assert collector.select(store, "atlas-recheck", allow_candidate=False)["role"] == "current"
+    assert not store.get_json(collector.KEY).get("candidate_runs")
+
+
+def test_settle_promotes_clean_rejects_faults_and_keeps_inconclusive(store):
+    store.put_json(collector.KEY, {"candidate": "0.3.0", "current": "0.2.0", "candidate_runs": 1})
+    cand = {"version": "0.3.0", "role": "candidate"}
+    assert collector.settle(store, cand, "inconclusive") == "unsettled"
+    assert store.get_json(collector.KEY)["candidate"] == "0.3.0"
+    assert collector.settle(store, cand, "clean") == "promoted"
+    doc = store.get_json(collector.KEY)
+    assert doc["current"] == "0.3.0" and doc["candidate"] is None and doc["candidate_runs"] == 0
+    collector.offer(store, "0.4.0", "c" * 40)
+    assert collector.settle(store, {"version": "0.4.0", "role": "candidate"}, "fault", why="x") == "rejected"
     doc = store.get_json(collector.KEY)
     assert doc["current"] == "0.3.0" and "0.4.0" in doc["bad"]
-    collector.offer(store, "0.4.0")  # a rejected version is never offered again
+    collector.offer(store, "0.4.0")  # offer() never brings a rejected version back
     assert store.get_json(collector.KEY)["candidate"] is None
-    assert collector.settle(store, {"version": "0.3.0", "role": "current"}, ok=False) is None
+    assert collector.settle(store, {"version": "0.3.0", "role": "current"}, "fault") is None
+
+
+def test_exceptions_are_classified_by_where_they_come_from():
+    class ServiceUnavailable(Exception):
+        pass
+    assert collector.verdict_for_exception(ServiceUnavailable("503")) == "inconclusive"
+    assert collector.verdict_for_exception(state.Conflict("gen")) == "inconclusive"
+    assert collector.verdict_for_exception(site.RepoAccessError("no")) == "inconclusive"
+    assert collector.verdict_for_exception(ConnectionResetError()) == "inconclusive"
+
+    def raised(code, filename):
+        try:
+            exec(compile(code, filename, "exec"), {})
+        except Exception as exc:  # noqa: BLE001
+            return exc
+    inside = raised("raise KeyError('x')", "/usr/local/lib/python3.12/site-packages/atlas/publish.py")
+    assert collector.verdict_for_exception(inside) == "fault"  # the collector's own code
+    ours = raised("raise KeyError('x')", "/app/autopilot/jobs/atlas_job.py")
+    assert collector.verdict_for_exception(ours) == "inconclusive"  # this repository's code
+
+    class Exit(RuntimeError):
+        collector_fault = True
+    assert collector.verdict_for_exception(Exit()) == "fault"
+
+
+def test_a_rolled_back_version_is_reoffered_only_after_a_clean_rebuild_of_the_same_commit(store, monkeypatch):
+    monkeypatch.setenv("ATLAS_CANDIDATE_MAX_REOFFERS", "1")
+    c = "a" * 40
+    collector.offer(store, "0.4.0", c)
+    collector.reject(store, "0.4.0", "a transient fault")
+    assert "main is at" in collector.reoffer(store, "0.4.0", "b" * 40)  # a different commit
+    assert collector.reoffer(store, "0.4.0", c) is None
+    doc = store.get_json(collector.KEY)
+    assert doc["candidate"] == "0.4.0" and "0.4.0" not in doc["bad"] and doc["reoffers"]["0.4.0"] == 1
+    collector.reject(store, "0.4.0", "again")
+    assert "already re-offered" in collector.reoffer(store, "0.4.0", c)
 
 
 def test_runtime_install_never_puts_a_credential_on_the_command_line(monkeypatch):
@@ -408,10 +480,21 @@ def test_proposer_and_reviewer_are_separate_gemini_engines(fake_atlas):
     assert type(proposals.resolve_agents("stub")[0]).__name__ == "StubProposer"
 
 
+def git_tree(path):
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@t")
+    (path / "index.html").write_text("home")
+    (path / "sitemap_index.xml").write_text("<sitemapindex/>")
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "site"]):
+        subprocess.run(["git", *args], cwd=path, env=env, check=True, capture_output=True)
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=path, text=True).strip()
+
+
 def publish_setup(tmp_path, monkeypatch, store, live_feed):
     import atlas_job as job
     tree = tmp_path / "tree"
     tree.mkdir()
+    commit = git_tree(tree)
     shutil_pages = pages(tree, IDS, "atlas")
     calls = {"deploy": 0, "heartbeats": []}
     served = {"feed": live_feed}
@@ -427,7 +510,10 @@ def publish_setup(tmp_path, monkeypatch, store, live_feed):
         return {"url": "https://x.hotato-site.pages.dev"}
     monkeypatch.setattr(job.site, "deploy", deploy)
     monkeypatch.setattr(job, "heartbeat", lambda s, j, *a: calls["heartbeats"].append(j))
-    live = {"commit": "c" * 40, "production_branch": "main", "token": "t", "account": "a"}
+    live = {"commit": commit, "production_branch": "main", "token": "t", "account": "a",
+            "deployment_id": "d1"}
+    calls["live"] = dict(live)
+    monkeypatch.setattr(job.site, "live_source", lambda token, acct, project: dict(calls["live"]))
     return job, str(tree), live, calls
 
 
@@ -436,10 +522,10 @@ def test_publish_deploys_confirms_and_records(tmp_path, monkeypatch, store, fake
     job, tree, live, calls = publish_setup(tmp_path, monkeypatch, store, feed(IDS[:18]))
     rec = {}
     assert job.publish(store, rec, None, tree, live, "atlas", sleep=lambda s: None) == "deployed"
-    assert calls["deploy"] == 1 and calls["kw"]["branch"] == "main" and calls["kw"]["commit"] == "c" * 40
+    assert calls["deploy"] == 1 and calls["kw"]["branch"] == "main" and calls["kw"]["commit"] == live["commit"]
     assert calls["heartbeats"] == ["atlas-publish"]
     m = store.get_json(job.MANIFEST_KEY)
-    assert m["verified"] and m["live_commit"] == "c" * 40
+    assert m["verified"] and m["live_commit"] == live["commit"]
     assert store.get_json(job.NEWEST_KEY)["ts"] == "2026-11-27T10:00:00Z"  # freshness.py reads it
     # the next hour, nothing changed: no deploy, still a publish heartbeat
     assert job.publish(store, {}, None, tree, live, "atlas", sleep=lambda s: None) == "current"
@@ -472,6 +558,237 @@ def test_a_deploy_that_does_not_land_is_retried_next_run(tmp_path, monkeypatch, 
     rec = {}
     job.publish(store, rec, None, tree, live, "atlas", sleep=lambda s: None)
     assert rec["deploy_reason"] == "live feed differs from this render"
+
+
+def test_publish_holds_back_when_the_live_site_moved_since_the_checkout(tmp_path, monkeypatch, store, fake_atlas):
+    monkeypatch.setenv("DRY_RUN", "0")
+    job, tree, live, calls = publish_setup(tmp_path, monkeypatch, store, feed(IDS[:18]))
+    calls["live"]["deployment_id"], calls["live"]["commit"] = "d2", "e" * 40  # the owner shipped
+    assert job.publish(store, {}, None, tree, live, "atlas", sleep=lambda s: None) == "superseded"
+    assert calls["deploy"] == 0 and store.get_json(job.STATUS_KEY)["publish"] == "superseded"
+
+
+def test_publish_refuses_a_tree_changed_outside_atlas(tmp_path, monkeypatch, store, fake_atlas, capsys):
+    monkeypatch.setenv("DRY_RUN", "0")
+    job, tree, live, calls = publish_setup(tmp_path, monkeypatch, store, feed(IDS[:18]))
+    open(os.path.join(tree, "index.html"), "w").write("changed")   # a tracked file outside atlas/
+    open(os.path.join(tree, "stray.txt"), "w").write("x")           # an untracked one
+    open(os.path.join(tree, "sitemap_index.xml"), "w").write("<new/>")  # allowed
+    assert job.publish(store, {}, None, tree, live, "atlas", sleep=lambda s: None) == "refused"
+    out = capsys.readouterr().out
+    assert calls["deploy"] == 0 and "index.html" in out and "stray.txt" in out and "sitemap_index" not in out
+    assert site.changes_outside_atlas(tree, "f" * 40) == [f"HEAD is {live['commit'][:12]}, not the live commit ffffffffffff"]
+
+
+def test_an_older_render_never_lands_over_a_newer_publish(tmp_path, monkeypatch, store, fake_atlas):
+    monkeypatch.setenv("DRY_RUN", "0")
+    job, tree, live, calls = publish_setup(tmp_path, monkeypatch, store, feed(IDS[:18]))
+    job.write_manifest(store, {"digest": "x", "entries": IDS, "counts": {}, "pages": 22,
+                               "feed_sha256": "x", "db_generation": 9}, 0)
+    assert job.publish(store, {}, None, tree, live, "atlas", sleep=lambda s: None, db_gen=5) == "superseded"
+    assert calls["deploy"] == 0
+
+
+def test_a_publish_that_lands_meanwhile_stops_this_deploy(tmp_path, monkeypatch, store, fake_atlas):
+    monkeypatch.setenv("DRY_RUN", "0")
+    job, tree, live, calls = publish_setup(tmp_path, monkeypatch, store, feed(IDS[:18]))
+
+    def reread(token, acct, project):  # another run writes the manifest between read and deploy
+        job.write_manifest(store, {"digest": "y", "db_generation": 1}, state.Objects(store).generation(job.MANIFEST_KEY))
+        return dict(calls["live"])
+    monkeypatch.setattr(job.site, "live_source", reread)
+    assert job.publish(store, {}, None, tree, live, "atlas", sleep=lambda s: None, db_gen=1) == "superseded"
+    assert calls["deploy"] == 0
+
+
+def test_publish_needs_the_writer_lock_to_still_be_ours(tmp_path, monkeypatch, store, fake_atlas):
+    monkeypatch.setenv("DRY_RUN", "0")
+    job, tree, live, calls = publish_setup(tmp_path, monkeypatch, store, feed(IDS[:18]))
+
+    class Lost:
+        def still_held(self):
+            return False
+    assert job.publish(store, {}, None, tree, live, "atlas", sleep=lambda s: None, lock=Lost()) == "superseded"
+    assert calls["deploy"] == 0
+
+
+# ---- the hourly run end to end (fake collector) ----------------------------------------------
+
+def real_db(path, ids):
+    conn = sqlite3.connect(path)
+    conn.executescript("CREATE TABLE reports(id TEXT); CREATE TABLE patterns(id TEXT, withdrawn INT DEFAULT 0);"
+                       "CREATE TABLE mentions(id TEXT); CREATE TABLE checks(id TEXT);")
+    conn.executemany("INSERT INTO patterns(id) VALUES (?)", [(i,) for i in ids])
+    conn.commit()
+    conn.close()
+    return path
+
+
+class FakeCli:
+    """The collector's CLI over the toy store: `publish` renders a feed of the store's patterns;
+    `drop N` (any other command) deletes N patterns; a db listed in `broken` cannot render."""
+    def __init__(self, drop=0):
+        self.drop, self.broken, self.calls = drop, set(), []
+
+    def __call__(self, argv):
+        argv = list(argv)
+        db = argv[argv.index("--db") + 1]
+        sub = [a for a in argv if not a.startswith("--")]
+        self.calls.append(argv)
+        if "publish" in argv:
+            if db in self.broken or os.path.basename(db) in self.broken:
+                return 1
+            out = argv[argv.index("--out") + 1]
+            ids = [r[0] for r in sqlite3.connect(db).execute("SELECT id FROM patterns")]
+            os.makedirs(out, exist_ok=True)
+            open(os.path.join(out, "feed.json"), "wb").write(feed(ids))
+            return 0
+        if self.drop and any(c in argv for c in ("recheck", "collect", "audit", "withdraw")):
+            conn = sqlite3.connect(db)
+            for (i,) in list(conn.execute("SELECT id FROM patterns LIMIT ?", (self.drop,))):
+                conn.execute("DELETE FROM patterns WHERE id = ?", (i,))
+            conn.commit()
+            conn.close()
+        return 0
+
+
+@pytest.fixture
+def hourly(tmp_path, monkeypatch, store, fake_atlas):
+    import atlas_job as job
+    monkeypatch.setenv("DRY_RUN", "0")
+    monkeypatch.setenv("ATLAS_LOCK_WAIT_S", "0")
+    db = real_db(str(tmp_path / "seed.db"), IDS)
+    state.save_db(store, db, 0)
+    fake = FakeCli()
+    monkeypatch.setattr(job, "cli", fake)
+    monkeypatch.setattr(job, "prepare", lambda store, rec, j, **kw: rec.update(
+        collector={"version": "0.3.0", "role": "candidate"}))
+    monkeypatch.setattr(job, "distill_on_budget", lambda *a, **k: 0)
+    monkeypatch.setattr(job.site, "fetch_url", lambda url: None)  # the live site does not answer
+    return job, fake
+
+
+def test_no_manifest_and_no_live_feed_compares_with_the_previous_store(hourly, store, capsys):
+    job, fake = hourly
+    fake.drop = 8  # the collector quietly loses 8 of 20 published entries
+    rec = {}
+    assert job.run(store, rec) == "shrink refused"
+    assert rec["baseline"] == "previous store" and rec["guard"]["quarantined"]
+    gens = state.Objects(store).generations(state.DB_KEY)
+    assert len(gens) == 1  # the store was not saved
+
+
+def test_no_baseline_at_all_fails_closed(hourly, store, capsys):
+    job, fake = hourly
+    fake.broken.add("before-copy.db")  # the previous store does not render either
+    rec = {}
+    assert job.run(store, rec) == "refused"
+    assert "atlas_guard_no_baseline" in capsys.readouterr().out
+    assert len(state.Objects(store).generations(state.DB_KEY)) == 1
+
+
+def test_recheck_audit_and_owner_commands_pass_the_same_shrink_guard(hourly, store, monkeypatch):
+    job, fake = hourly
+    fake.drop = 8
+    rec = {}
+    assert job.db_only(store, rec, "atlas-recheck", ["recheck"], wait_s=0) == "shrink refused"
+    assert len(state.Objects(store).generations(state.DB_KEY)) == 1
+    fake.drop = 1  # within the slack: saved
+    assert job.db_only(store, {}, "atlas-recheck", ["recheck"], wait_s=0) == "ok"
+    assert len(state.Objects(store).generations(state.DB_KEY)) == 2
+
+
+def test_the_writer_lock_is_held_through_the_deploy(hourly, store, monkeypatch, tmp_path):
+    job, fake = hourly
+    seen = {}
+    monkeypatch.setattr(job, "site_tree", lambda rec, w: (str(tmp_path), {"commit": "c" * 40}))
+    monkeypatch.setattr(job, "render_pages", lambda w, tree: 0)
+
+    def publish(store_, rec, w, tree, live, j, db_gen=0, lock=None):
+        seen["held"] = lock.still_held()
+        seen["busy"] = watch.run_busy(store, common.now())
+        seen["db_gen"] = db_gen
+        return "deployed"
+    monkeypatch.setattr(job, "publish", publish)
+    assert job.run(store, {}) == "deployed"
+    assert seen["held"] and seen["busy"]  # atlas-watch cannot start a second run mid-deploy
+    assert seen["db_gen"] == state.Objects(store).generation(state.DB_KEY)
+    assert state.Objects(store).read(state.LOCK_KEY) == (None, 0)  # released afterwards
+
+
+@pytest.mark.parametrize("outcome,settled", [
+    ("deployed", "promoted"), ("current", "promoted"), ("shadow", "promoted"),
+    ("shrink refused", "rejected"), ("refused", "rejected"),
+    ("conflict", "unsettled"), ("failed", "unsettled"), ("unverified", "unsettled"),
+    ("store only", "unsettled"), ("superseded", "unsettled")])
+def test_a_candidate_is_promoted_only_on_a_clean_published_or_current_run(store, fake_atlas, outcome, settled):
+    import atlas_job as job
+    store.put_json(collector.KEY, {"candidate": "0.3.0", "current": "0.2.0", "candidate_runs": 1})
+
+    def fn(store_, rec):
+        rec["collector"] = {"version": "0.3.0", "role": "candidate"}
+        return outcome
+    rec = {}
+    assert job.settle_after(store, rec, fn) == outcome
+    assert rec["collector_settled"] == settled
+    doc = store.get_json(collector.KEY)
+    assert (doc["current"] == "0.3.0") == (settled == "promoted")
+    assert ("0.3.0" in (doc.get("bad") or [])) == (settled == "rejected")
+
+
+def test_a_crash_settles_by_where_it_came_from(store, fake_atlas):
+    import atlas_job as job
+    for exc, settled in ((job.CollectorFailed("atlas publish exited 2"), "rejected"),
+                         (state.Conflict("lost a race"), "unsettled")):
+        store.put_json(collector.KEY, {"candidate": "0.3.0", "current": "0.2.0"})
+
+        def fn(store_, rec, exc=exc):
+            rec["collector"] = {"version": "0.3.0", "role": "candidate"}
+            raise exc
+        rec = {}
+        with pytest.raises(type(exc)):
+            job.settle_after(store, rec, fn)
+        assert rec["collector_settled"] == settled
+
+
+# ---- read access to the private repositories ----------------------------------------------------
+
+def test_repo_access_is_proven_and_the_repos_token_works_without_code_changes(monkeypatch):
+    for n in ("ATLAS_REPOS_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_INSTALLATION_ID",
+              "GITHUB_BOT_TOKEN"):
+        monkeypatch.delenv(n, raising=False)
+    readable = set()
+    verify = lambda repo, tok: tok in readable  # noqa: E731
+    monkeypatch.setenv("GITHUB_BOT_TOKEN", "bot")
+    with pytest.raises(site.RepoAccessError) as e:
+        site.repo_token("o/site", verify=verify)  # the bot token cannot read it, no App, no token
+    msg = str(e.value)
+    assert "atlas-repos-token: not set" in msg and "github-bot-token: cannot read it" in msg
+    assert "install the GitHub App on o/site" in msg and "no code change" in msg
+    monkeypatch.setenv("ATLAS_REPOS_TOKEN", "ro")  # the owner adds the secret: picked up as is
+    readable.add("ro")
+    assert site.repo_token("o/site", verify=verify) == ("ro", "repos-token")
+    readable.discard("ro")
+    readable.add("bot")  # a token that cannot read is skipped, not used
+    assert site.repo_token("o/site", verify=verify) == ("bot", "pat")
+
+
+def test_missing_repo_access_alerts_clearly_and_publishes_nothing(monkeypatch, fake_atlas, capsys, tmp_path):
+    import atlas_job as job
+    monkeypatch.setenv("ATLAS_SITE_REPO", "o/site")
+    monkeypatch.setenv("CLOUDFLARE_PAGES_TOKEN", "cf")
+    monkeypatch.setattr(job.site, "account_id", lambda t: "a")
+    monkeypatch.setattr(job.site, "live_source", lambda t, a, p: {"commit": "c" * 40, "production_branch": "main"})
+
+    def no_access(repo):
+        raise site.RepoAccessError("no credential can read o/site (...)")
+    monkeypatch.setattr(job.site, "repo_token", no_access)
+
+    class W:
+        tmp = str(tmp_path)
+    tree, why = job.site_tree({"job_name": "atlas"}, W())
+    assert tree is None and "no credential can read o/site" in why
+    assert '"hotato_alert": "atlas_repo_access", "severity": "ERROR"' in capsys.readouterr().out
 
 
 # ---- the watch ------------------------------------------------------------------------------
@@ -534,6 +851,86 @@ def test_wheel_job_does_nothing_without_a_configured_repository(store, monkeypat
     monkeypatch.delenv("ATLAS_COLLECTOR_REPO", raising=False)
     rec = {}
     assert "no collector repository" in wheel.work(store, rec)
+
+
+def test_the_collector_suite_runs_against_the_installed_wheel_with_an_allow_listed_env(tmp_path, monkeypatch):
+    import zipfile
+    for k, v in (("CLOUDFLARE_PAGES_TOKEN", "cf"), ("GITHUB_TOKEN", "gh"), ("GCP_PROJECT", "p"),
+                 ("ATLAS_SITE_REPO", "o/site"), ("ATLAS_REPOS_TOKEN", "ro"), ("GOOGLE_APPLICATION_CREDENTIALS", "/k")):
+        monkeypatch.setenv(k, v)
+    order = []
+
+    def run(argv, cwd, timeout, env=None):
+        joined = " ".join(argv)
+        if " pip wheel " in f" {joined} ":
+            dist = argv[argv.index("-w") + 1]
+            os.makedirs(dist, exist_ok=True)
+            with zipfile.ZipFile(os.path.join(dist, "hotato_atlas-0.3.0-py3-none-any.whl"), "w") as z:
+                for n in ("atlas/cli.py", "atlas/distill.py", "atlas/sitepages.py"):
+                    z.writestr(n, "")
+            order.append("build")
+        elif " pip install " in f" {joined} ":
+            order.append("install")
+        elif "pytest" in argv:
+            order.append("test")
+            assert env["PYTHONPATH"].endswith("/pkg") and env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+            leaked = [k for k in env if k not in wheel.TEST_ENV_KEEP and k not in (
+                "HOME", "TMPDIR", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD")]
+            assert leaked == [] and "cf" not in env.values() and "gh" not in env.values()
+        else:
+            order.append("smoke")
+            assert env["PYTHONPATH"].endswith("/pkg")
+        return ""
+    monkeypatch.setattr(wheel, "_run", run)
+    wheel.build_and_test(str(tmp_path / "src"), "0.3.0", str(tmp_path))
+    assert order == ["build", "install", "test", "smoke"]
+
+
+def wheel_env(monkeypatch, version, commit):
+    monkeypatch.setenv("ATLAS_COLLECTOR_REPO", "o/collector")
+    monkeypatch.setattr(wheel.site, "repo_token", lambda repo: ("t", "app"))
+    monkeypatch.setattr(wheel.site, "_git", lambda args, cwd, env: commit + "\n" if args[0] == "rev-parse" else "")
+    monkeypatch.setattr(wheel, "source_version", lambda tree: version)
+    shipped = []
+    built = []
+    kw = dict(token_fn=lambda: "gcp",
+              build=lambda tree, v, work: (built.append(v) or os.path.join(work, "w.whl"), ""),
+              ship=lambda w, v, tok: shipped.append(v))
+    return kw, built, shipped
+
+
+def test_wheel_job_uploads_a_new_version_and_records_its_commit(store, monkeypatch):
+    kw, built, shipped = wheel_env(monkeypatch, "0.3.0", "a" * 40)
+    rec = {}
+    assert wheel.work(store, rec, fetch_index=lambda u: b"", **kw) == "offered 0.3.0"
+    assert built == shipped == ["0.3.0"]
+    doc = store.get_json(collector.KEY)
+    assert doc["candidate"] == "0.3.0" and doc["offered"]["0.3.0"] == "a" * 40
+
+
+def test_wheel_job_reoffers_a_rolled_back_version_after_a_clean_rebuild(store, monkeypatch):
+    kw, built, shipped = wheel_env(monkeypatch, "0.3.0", "a" * 40)
+    index = b'<a href="hotato_atlas-0.3.0-py3-none-any.whl#sha256=1">x</a>'
+    collector.offer(store, "0.3.0", "a" * 40)
+    collector.reject(store, "0.3.0", "Vertex was down")
+    assert wheel.work(store, {}, fetch_index=lambda u: index, **kw) == "re-offered 0.3.0 after a clean rebuild"
+    assert built == ["0.3.0"] and shipped == []  # tested again; the uploaded wheel is never replaced
+    assert store.get_json(collector.KEY)["candidate"] == "0.3.0"
+    collector.reject(store, "0.3.0", "again")
+    assert "not re-offered" in wheel.work(store, {}, fetch_index=lambda u: index, **kw)
+    assert built == ["0.3.0"]
+
+
+def test_wheel_job_alerts_when_it_cannot_read_the_collector_repository(store, monkeypatch, capsys):
+    monkeypatch.setenv("ATLAS_COLLECTOR_REPO", "o/collector")
+
+    def no_access(repo):
+        raise site.RepoAccessError("no credential can read o/collector")
+    monkeypatch.setattr(wheel.site, "repo_token", no_access)
+    with pytest.raises(site.RepoAccessError):
+        wheel.work(store, {})
+    assert "atlas_repo_access" in capsys.readouterr().out
 
 
 # ---- upkeep -------------------------------------------------------------------------------------
@@ -609,3 +1006,13 @@ def test_only_the_hourly_job_reads_the_pages_token():
     _, block = tf_jobs()
     assert block.count("atlas_publish_secrets") == 1 and re.search(r"atlas\s+= \{[^}]*atlas_publish_secrets", block)
     assert '"cloudflare-pages-token"' not in main.split("atlas_repo_read_secrets =")[1].split("\n")[0]
+
+
+def test_recheck_and_audit_get_no_repository_credentials():
+    _, block = tf_jobs()
+    for j in ("atlas-recheck", "atlas-audit"):
+        line = re.search(rf"^\s+{j}\s+= \{{.*$", block, re.M).group(0)
+        assert "optional_secrets = []" in line and "secrets = []" in line, j
+    for j in ("atlas", "atlas-wheel"):
+        line = re.search(rf"^\s+{j}\s+= \{{.*$", block, re.M).group(0)
+        assert "atlas_repo_read_secrets" in line or "atlas_publish_secrets" in line, j

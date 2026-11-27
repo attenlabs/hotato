@@ -33,17 +33,17 @@ Every job reads that flag first and exits. The budget function writes the same f
 
 What runs (all on one image; `jobs/atlas_job.py` holds the design notes):
 
-- `hotato-atlas`, hourly: collects new public reports, classifies them with Gemini on a 40 minute budget per run (a backlog drains over a few runs), runs the propose/review loop, renders the pages into a checkout of the exact site commit that is live on Cloudflare Pages, checks them, deploys through that commit's own `tools/stage-deploy.sh`, and confirms the live feed. It logs the heartbeat `atlas-publish` only when hotato.dev serves its render.
-- `hotato-atlas-recheck` (daily) and `hotato-atlas-audit` (weekly): evidence re-checks and the published-record audit. Store only; the next hourly run publishes.
+- `hotato-atlas`, hourly: collects new public reports, classifies them with Gemini on a 40 minute budget per run (a backlog drains over a few runs), runs the propose/review loop, renders the pages into a checkout of the exact site commit that is live on Cloudflare Pages, checks them, deploys through that commit's own `tools/stage-deploy.sh`, and confirms the live feed. It logs the heartbeat `atlas-publish` only when hotato.dev serves its render. It holds the writer lock from the store read to the confirmed deploy, re-reads the live deployment right before deploying, and deploys only a tree that differs from the live commit under `atlas/` and `sitemap_index.xml`.
+- `hotato-atlas-recheck` (daily) and `hotato-atlas-audit` (weekly): evidence re-checks and the published-record audit. Store only, behind the same shrink guard as the hourly run; the next hourly run publishes. They hold no repository credentials.
 - `hotato-atlas-watch` (every 6 hours): reads the live feed. Stale or replaced pages re-run `hotato-atlas`, at most once per 3 hours.
-- `hotato-atlas-wheel` (daily): a new collector version on the collector repository's main branch is tested, built, smoke-tested, uploaded to `hotato-private-py` and offered as the candidate. The hourly job promotes it after one clean run or rolls it back. upkeep opens an issue when `_ATLAS_VERSION` in `build/cloudbuild.yaml` falls behind.
+- `hotato-atlas-wheel` (daily): a new collector version on the collector repository's main branch is tested, built, smoke-tested, uploaded to `hotato-private-py` and offered as the candidate. The collector's tests run against the built wheel with an allow-listed environment. The hourly job promotes the candidate after one run that published (or found the site current), rolls it back when the collector itself fails, and rolls it back on its own after 3 runs that never settled (killed, out of memory, timed out). A rolled-back version is re-offered once if main still carries it at the same commit and it passes again; otherwise bump the version. upkeep opens an issue when `_ATLAS_VERSION` in `build/cloudbuild.yaml` falls behind.
 
 The four new schedules are created paused. To start them: `for s in atlas-recheck atlas-audit atlas-watch atlas-wheel; do gcloud scheduler jobs resume hotato-$s --location us-central1; done`.
 
 One-time setup:
 
 1. In `infra/hotato.tfvars`: `atlas_site_repo = "<owner>/<site repo>"`, `atlas_collector_repo = "<owner>/<collector repo>"`, `cloudflare_account_id = "<id>"`. Re-run `bootstrap.sh`.
-2. Read access to both private repositories: install the GitHub App on them, or add a fine-grained token with contents:read on just those two as a version of the secret `atlas-repos-token`. The bot token is the last fallback.
+2. Read access to both private repositories: install the GitHub App on them, or add a fine-grained token with contents:read on just those two as a version of the secret `atlas-repos-token`. The bot token is the last fallback. Every run proves the credential with a real read before using it and raises `atlas_repo_access` when none works; adding the `atlas-repos-token` secret needs no code change.
 3. The `cloudflare-pages-token` must be allowed to read and deploy Pages (Account: Cloudflare Pages: Edit).
 4. Seed the store once if `atlas/atlas.db` is not in the state bucket: `gcloud storage cp <atlas.db> gs://<project>-state/atlas/atlas.db`.
 
@@ -53,10 +53,13 @@ When an alert names an Atlas kind (the live pages keep the last good render mean
 |---|---|---|
 | `atlas_guard_shrink` | the new store would remove published entries or reports; it was quarantined in `atlas/quarantine/`, the old store kept | if the removal was deliberate (withdrawals, merges): `gcloud storage cp /dev/null gs://<project>-state/atlas/flags/allow-shrink` (lets one run through) |
 | `atlas_guard_structure` | the pages failed the structure checks (page count, feed, stylesheet, preflight) | read `runs/atlas/` for the problem list; usually a site release changed its chrome: fix the donor page or the collector |
+| `atlas_guard_no_baseline` | no published manifest, the live feed did not answer, and the previous store did not render: nothing to compare with, so nothing was saved | check the live site and the run log; the next run retries |
+| `atlas_repo_access` | no credential can read the site or collector repository (the alert lists what was tried) | install the GitHub App on that repository (contents: read), or add a version of `atlas-repos-token` |
+| `atlas_publish_superseded` | not deployed: the live site changed since the checkout, another run published meanwhile, or the lock was lost | none; the next run starts over from the new state |
 | `atlas_site_unavailable` | the live site is not a pushed commit of the site repository, or the checkout or Cloudflare read failed | push the commit the site was deployed from, or deploy a pushed commit; check the credentials above |
 | `atlas_publish_failed` / `atlas_live_mismatch` | the deploy failed, or the live feed is not the render | the next run retries; repeated: check the Pages project and token |
 | `atlas_db_restored` / `atlas_db_unusable` | the store was corrupt: restored from an earlier generation or snapshot; or nothing sound was left | unusable: seed it (step 4) or set `atlas/flags/allow-empty-start` |
-| `atlas_collector_rolled_back` | a new collector version crashed or did not install; runs use the previous one | fix the collector and bump its version |
+| `atlas_collector_rolled_back` | a new collector version failed in its own code, made a render the guard refused, or ran 3 times without settling; runs use the previous one | `atlas/collector.json` `bad_why` says which; fix the collector and bump its version |
 
 Owner commands against the cloud store (withdraw, merge, dispute): `gcloud run jobs execute hotato-atlas-audit --region us-central1 --args=cli,withdraw,<id>,--reason,<why>`. The next hourly run publishes the change.
 

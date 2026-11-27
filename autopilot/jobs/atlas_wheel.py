@@ -6,9 +6,15 @@ builds the wheel, checks the wheel holds only the atlas package, smoke-tests the
 offline with the stub engines, uploads it, and offers it as the candidate. The hourly job then
 runs the candidate, and promotes it after one clean run or rolls it back (atlas_collector.py).
 
-Uploaded versions are never replaced: a version that exists is never built again, and a version
-that failed here is not offered. The source is never published; only the private repository
-holds the wheel.
+The collector's tests run against the built wheel installed into a scratch directory (not the
+source tree), with an allow-listed environment: no credential, no job configuration and no
+cloud identity variables reach them.
+
+Uploaded versions are never replaced: a version that exists is never uploaded again, and a
+version that failed here is not offered. A version the hourly job rolled back is re-offered only
+when main still carries it at the commit that was offered and it passes the tests and the smoke
+run again (atlas_collector.reoffer, at most ATLAS_CANDIDATE_MAX_REOFFERS times). The source is
+never published; only the private repository holds the wheel.
 """
 import base64
 import hashlib
@@ -79,10 +85,22 @@ def _run(argv, cwd, timeout, env=None):
     return cp.stdout
 
 
+# The only variables the collector's tests see. Nothing that names a credential, a secret, the
+# project, the site repository or the job's own configuration.
+TEST_ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TZ")
+
+
+def test_env(work, pkg):
+    env = {k: os.environ[k] for k in TEST_ENV_KEEP if k in os.environ}
+    env.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
+    env.update(HOME=work, TMPDIR=work, PYTHONPATH=pkg, PYTHONDONTWRITEBYTECODE="1",
+               PYTHONNOUSERSITE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+    return env
+
+
 def build_and_test(tree, version, work):
-    env = dict(os.environ, PYTHONPATH=os.path.join(tree, "src"), PYTHONDONTWRITEBYTECODE="1")
-    env.pop("GITHUB_TOKEN", None)
-    _run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"], tree, 1800, env)
+    """Build the wheel, check what it holds, install it, run the collector's suite against the
+    installed package, then smoke-run it offline. -> (wheel path, smoke tail)."""
     dist = os.path.join(work, "dist")
     _run([sys.executable, "-m", "pip", "wheel", "-q", "--no-deps", "-w", dist, tree], work, 600)
     wheel = os.path.join(dist, f"hotato_atlas-{version}-py3-none-any.whl")
@@ -91,18 +109,21 @@ def build_and_test(tree, version, work):
     bad = wheel_problems(wheel, version)
     if bad:
         raise RuntimeError(f"unexpected wheel contents: {bad[:10]}")
-    # Smoke: the built wheel alone, offline, stub engines, against an empty store.
-    target = os.path.join(work, "smoke")
-    _run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--no-index", "--target", target, wheel],
+    pkg = os.path.join(work, "pkg")
+    _run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--no-index", "--target", pkg, wheel],
          work, 300)
-    senv = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PYTHONPATH": target, "HOME": work}
-    out = _run([sys.executable, "-I", "-c",
-                "import sys; sys.path.insert(0, sys.argv[1]); import atlas, atlas.cli as c; "
+    home = os.path.join(work, "home")
+    os.makedirs(home, exist_ok=True)
+    env = test_env(home, pkg)
+    _run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"], tree, 1800, env)
+    out = _run([sys.executable, "-c",
+                "import sys, atlas, atlas.cli as c; "
+                "assert atlas.__file__.startswith(sys.argv[1]), atlas.__file__; "
                 "assert atlas.__version__ == sys.argv[2], atlas.__version__; "
                 "sys.exit(c.main(['--offline', '--db', sys.argv[3] + '/a.db', '--cache', sys.argv[3] + '/c', "
                 "'run', '--engine', 'stub', '--agents', 'stub', '--limit', '1', '--no-pages', "
                 "'--out', sys.argv[3] + '/site']))",
-                target, version, work], work, 600, senv)
+                pkg, version, home], home, 600, env)
     return wheel, out[-300:]
 
 
@@ -125,13 +146,18 @@ def upload(wheel, version, token):
     http_resp(repo_base(), "POST", headers, b"".join(parts), timeout=120)
 
 
-def work(store, rec, token_fn=gcp_token, fetch_index=None):
+def work(store, rec, token_fn=gcp_token, fetch_index=None, build=None, ship=None):
     repo = os.environ.get("ATLAS_COLLECTOR_REPO", "")
     if not repo:
         rec["skipped"] = "no collector repository configured (atlas_collector_repo)"
         return rec["skipped"]
+    build, ship = build or build_and_test, ship or upload
     doc = store.get_json(collector.KEY, {}) or {}
-    gh, kind = site.repo_token(repo)
+    try:
+        gh, kind = site.repo_token(repo)
+    except site.RepoAccessError as exc:
+        alert("atlas_repo_access", "ERROR", f"collector versions cannot ship: {exc}", "atlas-wheel")
+        raise
     rec["credential"] = kind
     with tempfile.TemporaryDirectory(prefix="atlas-wheel-") as work_dir:
         tree = os.path.join(work_dir, "src")
@@ -145,17 +171,32 @@ def work(store, rec, token_fn=gcp_token, fetch_index=None):
         version = source_version(tree)
         rec.update(version=version, commit=commit[:12])
         token = token_fn()
-        if version in published_versions(token, fetch_index) or version in (doc.get("bad") or []):
-            rec["skipped"] = f"{version} is already published (or was rejected)"
+        published = version in published_versions(token, fetch_index)
+        rejected = version in (doc.get("bad") or [])
+        if rejected:
+            problem = collector.reoffer_problem(doc, version, commit)
+            if problem:
+                rec["skipped"] = f"{version} was rolled back and is not re-offered: {problem}"
+                return rec["skipped"]
+        elif published:
+            rec["skipped"] = f"{version} is already published"
             return rec["skipped"]
         try:
-            wheel, smoke = build_and_test(tree, version, work_dir)
+            wheel, _smoke = build(tree, version, work_dir)
         except (RuntimeError, subprocess.TimeoutExpired) as exc:
             alert("atlas_wheel_failed", "ERROR", f"collector {version} at {commit[:12]} not shipped: {exc}",
                   "atlas-wheel")
             raise
-        upload(wheel, version, token)
-    collector.offer(store, version)
+        if not published:
+            ship(wheel, version, token)
+    if rejected:
+        problem = collector.reoffer(store, version, commit)
+        if problem:
+            rec["skipped"] = problem
+            return problem
+        rec["reoffered"] = version
+        return f"re-offered {version} after a clean rebuild"
+    collector.offer(store, version, commit)
     rec["offered"] = version
     return f"offered {version}"
 

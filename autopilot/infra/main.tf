@@ -12,7 +12,8 @@ locals {
   # Secret containers Terraform creates (values are added by the owner).
   created_secrets = concat(local.sim_secrets, local.gh_app_secrets, local.atlas_repo_secrets)
   # What the Atlas jobs read at run time (never as env refs, so a missing version breaks nothing):
-  # every Atlas job may read the private repositories; only the hourly job deploys the pages.
+  # the hourly job (site checkout) and atlas-wheel (collector checkout) read the private
+  # repositories; recheck and audit clone nothing and get none; only the hourly job deploys.
   atlas_repo_read_secrets = concat(["github-bot-token"], local.gh_app_secrets, local.atlas_repo_secrets)
   atlas_publish_secrets   = concat(local.atlas_repo_read_secrets, ["cloudflare-pages-token"])
 
@@ -41,8 +42,8 @@ locals {
   # state bucket at /mnt/state; the collector's fetch cache lives in atlas/cache/, kept 30 days).
   job_specs = {
     atlas         = { script = "atlas_job.py", args = ["run"], timeout = 5400, vertex = true, secrets = [], optional_secrets = local.atlas_publish_secrets, cpu = "2", memory = "4Gi", live = var.atlas_publish_live, cache = true }
-    atlas-recheck = { script = "atlas_job.py", args = ["recheck"], timeout = 3600, vertex = false, secrets = [], optional_secrets = local.atlas_repo_read_secrets, live = true, cache = true }
-    atlas-audit   = { script = "atlas_job.py", args = ["audit"], timeout = 3600, vertex = true, secrets = [], optional_secrets = local.atlas_repo_read_secrets, live = true, cache = true }
+    atlas-recheck = { script = "atlas_job.py", args = ["recheck"], timeout = 3600, vertex = false, secrets = [], optional_secrets = [], live = true, cache = true }
+    atlas-audit   = { script = "atlas_job.py", args = ["audit"], timeout = 3600, vertex = true, secrets = [], optional_secrets = [], live = true, cache = true }
     atlas-watch   = { script = "atlas_watch.py", timeout = 600, vertex = false, secrets = [], optional_secrets = [], live = true }
     atlas-wheel   = { script = "atlas_wheel.py", timeout = 3600, vertex = false, secrets = [], optional_secrets = local.atlas_repo_read_secrets, cpu = "2", memory = "4Gi", live = true }
     upkeep        = { script = "upkeep.py", timeout = 900, vertex = false, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }

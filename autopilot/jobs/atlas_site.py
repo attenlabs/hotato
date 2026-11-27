@@ -42,31 +42,67 @@ class DeployRefused(SiteError):
 
 # ---- read access to the private repositories ---------------------------------------
 
-def repo_token(repo, fetch=None):
-    """A token that can read `repo` (owner/name): the dedicated read-only token when the owner
-    set one, else a GitHub App installation token for the installation that covers that
-    repository (minted with contents:read for that repository only), else the bot token."""
+class RepoAccessError(SiteError):
+    """No configured credential can read a private repository."""
+
+
+def can_read(repo, token, timeout=60):
+    """True when `token` can read `repo` over git (the path the checkout uses)."""
+    try:
+        cp = subprocess.run(["git", "ls-remote", "--heads", f"https://github.com/{repo}.git"],
+                            env=git_env(token), capture_output=True, text=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return cp.returncode == 0
+
+
+def _app_token(repo, fetch=None):
+    app = [read_secret(s, fetch) for s in APP_SECRETS]
+    if not all(app):
+        return None, "GitHub App secrets not set"
+    try:
+        jwt = app_jwt(app[0], app[1])
+        _, _, body = http_resp(f"{GH_API}/repos/{repo}/installation", headers=_gh_headers(jwt), timeout=20)
+        inst = json.loads(body)["id"]
+        payload = json.dumps({"repositories": [repo.split("/", 1)[1]],
+                              "permissions": {"contents": "read"}}).encode()
+        _, _, body = http_resp(f"{GH_API}/app/installations/{inst}/access_tokens", "POST",
+                               _gh_headers(jwt), payload, timeout=20)
+        return json.loads(body)["token"], None
+    except urllib.error.HTTPError as e:
+        return None, f"GitHub App: HTTP {e.code} (not installed on {repo}, or no contents access)"
+    except (urllib.error.URLError, OSError, KeyError, ValueError) as e:
+        return None, f"GitHub App: {type(e).__name__}"
+
+
+def repo_token(repo, fetch=None, verify=None):
+    """A token that is proven to read `repo` (owner/name). Tried in order, each one checked with
+    a real read (git ls-remote) before it is used:
+      1. atlas-repos-token, when the owner set it (a fine-grained read-only token): adding that
+         secret is the fallback that needs no code change,
+      2. a GitHub App installation token minted for that repository only (contents: read),
+      3. the github-bot-token.
+    None reads it -> RepoAccessError naming what was tried and how to fix it."""
+    verify = verify or can_read
+    tried = []
     tok = read_secret(REPOS_TOKEN_SECRET, fetch)
     if tok:
-        return tok, "repos-token"
-    app = [read_secret(s, fetch) for s in APP_SECRETS]
-    if all(app):
-        try:
-            jwt = app_jwt(app[0], app[1])
-            _, _, body = http_resp(f"{GH_API}/repos/{repo}/installation", headers=_gh_headers(jwt), timeout=20)
-            inst = json.loads(body)["id"]
-            payload = json.dumps({"repositories": [repo.split("/", 1)[1]],
-                                  "permissions": {"contents": "read"}}).encode()
-            _, _, body = http_resp(f"{GH_API}/app/installations/{inst}/access_tokens", "POST",
-                                   _gh_headers(jwt), payload, timeout=20)
-            return json.loads(body)["token"], "app"
-        except (urllib.error.URLError, OSError, KeyError, ValueError):
-            pass  # the App is not installed on that repository: the bot token is the fallback
+        if verify(repo, tok):
+            return tok, "repos-token"
+        tried.append(f"{REPOS_TOKEN_SECRET}: cannot read it")
+    else:
+        tried.append(f"{REPOS_TOKEN_SECRET}: not set")
+    tok, why = _app_token(repo, fetch)
+    if tok and verify(repo, tok):
+        return tok, "app"
+    tried.append(why or "GitHub App: token minted but cannot read it")
     pat = read_secret("github-bot-token", fetch)
-    if pat:
+    if pat and verify(repo, pat):
         return pat, "pat"
-    raise SiteError(f"no credential can read {repo}: add a read-only token as secret "
-                    f"{REPOS_TOKEN_SECRET}, or install the GitHub App on that repository")
+    tried.append("github-bot-token: " + ("cannot read it" if pat else "not set"))
+    raise RepoAccessError(f"no credential can read {repo} ({'; '.join(tried)}). Fix: install the "
+                          f"GitHub App on {repo} with contents read, or add a read-only token as "
+                          f"secret {REPOS_TOKEN_SECRET}; no code change is needed")
 
 
 def git_env(token):
@@ -145,6 +181,40 @@ def live_source(token, account, project):
         raise SiteError(f"Pages project {project} has no production deployment")
     return {"production_branch": p["production_branch"], "commit": meta.get("commit_hash") or "",
             "deployment_id": dep.get("id", ""), "created_on": dep.get("created_on", "")}
+
+
+def same_deployment(before, after):
+    """The live production deployment did not change between two reads."""
+    return all(before.get(k) == after.get(k) for k in ("deployment_id", "commit", "production_branch"))
+
+
+ALLOWED_CHANGES = ("atlas/", "sitemap_index.xml")
+
+
+def changes_outside_atlas(site_dir, commit):
+    """Paths that differ from `commit` outside atlas/ and sitemap_index.xml: tracked edits,
+    deletions, untracked and ignored files. Raises SiteError when git cannot answer."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tempfile.gettempdir(),
+           "GIT_CONFIG_NOSYSTEM": "1"}
+    head = _git(["rev-parse", "HEAD"], site_dir, env).strip()
+    if head != commit:
+        return [f"HEAD is {head[:12]}, not the live commit {commit[:12]}"]
+    out = _git(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"],
+               site_dir, env)
+    paths = []
+    items = out.split("\0")
+    i = 0
+    while i < len(items):
+        rec = items[i]
+        i += 1
+        if len(rec) < 4:
+            continue
+        code, path = rec[:2], rec[3:]
+        paths.append(path)
+        if code[0] in "RC":  # renames and copies carry the source path next
+            paths.append(items[i])
+            i += 1
+    return sorted(p for p in set(paths) if not (p == ALLOWED_CHANGES[1] or p.startswith(ALLOWED_CHANGES[0])))
 
 
 CSS_RE = re.compile(r"/assets/hotato\.[0-9a-f]{6,}\.css")
