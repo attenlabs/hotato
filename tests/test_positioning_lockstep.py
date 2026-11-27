@@ -47,7 +47,15 @@ _RETIRED = [
 
 
 def _head(rel, n):
-    return (ROOT / rel).read_text(encoding="utf-8")[:n]
+    # The lead is the prose, so a centred banner/badge block at the top of a
+    # Markdown surface does not count against the window: adding a badge must
+    # never push the five dimensions out of the README's lead.
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    if text.lstrip().startswith('<div align="center">'):
+        end = text.find("</div>")
+        if end != -1:
+            text = text[end + len("</div>"):]
+    return text[:n]
 
 
 def test_every_surface_says_the_promise():
