@@ -14,7 +14,7 @@ substitutions:
   # The Atlas collector (hotato-atlas) is a private package in this project's Python repository
   # (infra/main.tf private_py). Exact pin; bump it together with build/publish-atlas-wheel.sh.
   _ATLAS_PY_REPO: hotato-private-py
-  _ATLAS_VERSION: "0.1.0"
+  _ATLAS_VERSION: "0.2.0"
 
 timeout: 3600s
 
