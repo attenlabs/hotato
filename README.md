@@ -10,6 +10,7 @@
 <a href="https://pypistats.org/packages/hotato"><img src="https://img.shields.io/pypi/dm/hotato?style=flat-square&color=ff5a1f&label=downloads" alt="Downloads per month"></a>
 <a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=ff5a1f&label=python" alt="Python versions"></a>
 <a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/attenlabs/hotato/tests.yml?branch=main&style=flat-square&label=tests" alt="CI status"></a>
+<a href="https://inspect.software/software/attenlabs/hotato"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Finspect.software%2Fbadge%2Fv1%2Fattenlabs%2Fhotato.json&style=flat-square&color=ff5a1f" alt="inspect.software software health: grade A"></a>
 <a href="https://github.com/attenlabs/hotato/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/hotato?style=flat-square&color=ff5a1f&label=license" alt="MIT license"></a></p>
 <!-- Stars badge (shields.io github/stars/attenlabs/hotato): add once the repo passes ~25 stars. -->
 
