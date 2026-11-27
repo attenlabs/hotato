@@ -14,7 +14,6 @@ recursive-include scripts *
 recursive-include tests *
 recursive-include ci *
 recursive-include .github *
-exclude .github/banner.png
 
 # The `hotato init webhook` templates ship in the wheel (package-data) and the
 # sdist (here); they are rendered per stack into a generated worker project.
