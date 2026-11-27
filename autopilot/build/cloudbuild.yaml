@@ -1,4 +1,4 @@
-# Pipeline: test -> leak scan -> copy check -> benchmark-regression -> container build -> deploy -> site -> release.
+# Pipeline: test -> leak scan -> copy check -> benchmark-regression -> private Atlas wheel -> container build -> deploy -> site -> release.
 # Runs as the hotato-build service account (no keys). Submit from the repository root with:
 #   gcloud builds submit --config autopilot/build/cloudbuild.yaml --substitutions _DEPLOY=true,_CF_ACCOUNT_ID=...
 # Deploy, site and release steps do nothing unless _DEPLOY=true (and _RELEASE=true for the release).
@@ -11,6 +11,10 @@ substitutions:
   # Artifact Registry repository name. The full path is built in each step from built-ins
   # (a substitution's default value cannot reference $PROJECT_ID: it stays literal).
   _AR_REPO: hotato
+  # The Atlas collector (hotato-atlas) is a private package in this project's Python repository
+  # (infra/main.tf private_py). Exact pin; bump it together with build/publish-atlas-wheel.sh.
+  _ATLAS_PY_REPO: hotato-private-py
+  _ATLAS_VERSION: "0.1.0"
 
 timeout: 3600s
 
@@ -61,10 +65,31 @@ steps:
     args: ["-c", "pip install -q -e . && python autopilot/build/benchmark_check.py"]
     waitFor: ["test"]
 
+  # Downloads the pinned private wheel with the build's own identity: the keyring plugin gets a
+  # short-lived token from the metadata server and nothing is written to the workspace except the
+  # wheel. Only this index is consulted (no PyPI fallback for the name), with no dependencies.
+  # The Docker build below installs the downloaded file with --no-index, so no credential ever
+  # enters an image layer. Runs after the leak scan (which then never reads the wheel) and after
+  # the monitor image (whose build copies the whole workspace and must not pick the wheel up).
+  - id: atlas-wheel
+    name: python:3.12-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        pip install -q --no-cache-dir keyrings.google-artifactregistry-auth==1.1.2
+        rm -rf autopilot/build/private-wheels
+        pip download -q --no-cache-dir --no-deps --only-binary=:all: --keyring-provider import \
+          --index-url "https://${_REGION}-python.pkg.dev/$PROJECT_ID/${_ATLAS_PY_REPO}/simple/" \
+          --dest autopilot/build/private-wheels "hotato-atlas==${_ATLAS_VERSION}"
+        ls autopilot/build/private-wheels
+    waitFor: ["leak-scan", "image-monitor"]
+
   - id: image-jobs
     name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "autopilot/build/Dockerfile.jobs", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:$BUILD_ID", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:latest", "."]
-    waitFor: ["test", "leak-scan", "copy-check", "benchmark"]
+    args: ["build", "-f", "autopilot/build/Dockerfile.jobs", "--build-arg", "ATLAS_VERSION=${_ATLAS_VERSION}", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:$BUILD_ID", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:latest", "."]
+    waitFor: ["test", "leak-scan", "copy-check", "benchmark", "atlas-wheel"]
 
   - id: image-monitor
     name: gcr.io/cloud-builders/docker

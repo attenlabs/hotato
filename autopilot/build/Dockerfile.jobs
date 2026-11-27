@@ -1,6 +1,6 @@
 # One image for every Cloud Run job. The command picks the entrypoint (jobs/<name>.py, relative to
-# /app/autopilot). Build context: the repository root. The hotato package (with the atlas CLI) is
-# installed from /app.
+# /app/autopilot). Build context: the repository root. The hotato package is installed from /app;
+# the atlas CLI comes from the private hotato-atlas wheel (see below).
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git nodejs npm \
     && npm install -g @anthropic-ai/claude-code@2.0.0 \
@@ -10,6 +10,15 @@ COPY autopilot/requirements.txt /tmp/autopilot-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/autopilot-requirements.txt
 COPY . .
 RUN pip install --no-cache-dir -e .
+# The private Atlas collector (hotato-atlas, exact version). The build's atlas-wheel step downloads
+# the wheel into autopilot/build/private-wheels/ first; it is installed with --no-index, so this
+# build never talks to a package index and holds no credential.
+ARG ATLAS_VERSION
+RUN test -n "$ATLAS_VERSION" \
+    && pip install --no-cache-dir --no-index --no-deps \
+       "autopilot/build/private-wheels/hotato_atlas-${ATLAS_VERSION}-py3-none-any.whl" \
+    && rm -rf autopilot/build/private-wheels \
+    && python -c "import atlas.cli, atlas.distill"
 WORKDIR /app/autopilot
 ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/autopilot:/app/autopilot/jobs
 CMD ["python", "jobs/freshness.py"]
