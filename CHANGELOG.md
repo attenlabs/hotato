@@ -20,6 +20,10 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
   `hotato assert metrics` lists what was found; results appear in the text,
   JSON, HTML and Markdown reports. Guide: `docs/CUSTOM-METRICS.md`; example:
   `examples/custom-metrics/`.
+- The autopilot backlog is rewritten as 38 ranked, single-line items, each
+  with a stable tag, a `Done when:` check and the tests it needs, short
+  enough to be a pull request title. The weekly scorecard maps each measure
+  to one item by tag.
 
 ### Fixed
 - Delivery warnings for `--notify` and `hotato monitor` alerts show only the scheme and host of the destination; incoming-webhook URLs carry their secret in the path.

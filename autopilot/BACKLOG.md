@@ -2,17 +2,47 @@
 
 Goal: every capability that voice-agent teams already rely on in testing and monitoring tools.
 Ranked. The builder takes the first item not marked `[x]`. The weekly scorecard may reorder it.
+Each item is one self-contained line: a stable tag, the task, `Done when:` and `Tests:`. W2 tags come before W3 tags.
 
 - [x] Production call monitoring plus alerts (Slack, PagerDuty, webhook): `hotato monitor`
 - [x] AI-judged criteria next to the timing metrics: `hotato test run` persona cases with quoted evidence and pass rates
 - [x] Dashboards and a team workspace, self-hosted with docker compose: `hotato cloud`
 
-1. Voice-mode persona tests: run a `hotato test run` case over a real call (Vapi web call or Twilio, reusing `hotato drive`) so turn timing and the criteria are scored from the same call
-2. Import existing test suites from Retell, ElevenLabs and Vapi into `hotato test` case files
-3. OpenTelemetry: accept OTLP protobuf as well as JSON, follow the GenAI semantic conventions, and show per-call cost and latency in `hotato cloud`
-4. Human review in `hotato cloud`: label a call or a verdict, and report how often the AI judge agrees with people
-5. Tune the judge prompt against labelled verdicts and report the agreement before and after
-6. Red-team and compliance case packs: caller prompt injection, PII disclosure, recording consent
-7. Persona-test targets for LiveKit and Pipecat agents; publish the TypeScript SDK
-8. Load tests started and read from `hotato cloud`
-9. Instant shareable first result: one uploaded call becomes a report link
+1. W2.1a Add an optional `persona` block (name, version, accent, speaking_rate, noise, interruption) to schema/scenario.v1.json and scenario.py. Done when: bad values exit 2; each pack scenario has one. Tests: scenario tests; full pytest passes
+2. W2.1b Add `dtmf` (digits, at_s) and `ivr` (menu path) to the scenario.v1 persona block plus two pack scenarios using them. Done when: `hotato simulate` renders them as caller turns, same bytes per seed. Tests: simulate tests; full pytest passes
+3. W2.1c Make the persona pack browsable: `hotato simulate --list` shows persona name and version; add `--filter KEY=VALUE` and `--show NAME`. Done when: --format json has the same fields. Tests: simulate_pack tests; full pytest passes
+4. W2.2a Add `hotato scenario generate --doc FILE` (repeatable) so capabilities come from product docs as well as --prompt, offline. Done when: each scenario names its source file and line. Tests: scenario_gen tests; full pytest passes
+5. W2.2b Add `hotato scenario generate --from-calls DIR`: one scenario.v1 per caller transcript via the `hotato test from-call` inference, deduped by goal. Done when: no caller turns exits 2. Tests: scenario_gen tests; full pytest passes
+6. W2.3a Add src/hotato/metric_catalogue.py: one entry per reported metric (monitor metrics, timing signals, assert kinds, rubric verdicts) with definition, evidence type, deterministic or judged. Done when: monitor.py's are all in. Tests: unit tests
+7. W2.3b Add docs/metrics/ with one page per metric_catalogue entry (definition, evidence type, deterministic or judged label) and an index. Done when: a test fails on an entry without a page or vice versa. Tests: that test; full pytest passes
+8. W2.3c Add `hotato lab catalogue list` and `hotato lab catalogue show ID` over metric_catalogue.py (text and --format json), deterministic and judged in separate groups. Done when: unknown ID exits 2. Tests: CLI tests; full pytest passes
+9. W2.4a Add `hotato monitor promote --store DIR --out DIR`: cluster monitor events by agent and incident type; pin each cluster's top call via `monitor pin`. Done when: pinned clusters are skipped; --dry-run lists. Tests: monitor tests
+10. W2.4b Make `hotato monitor promote` write an index (cluster, contract, call ids) beside the contracts so reruns are idempotent and `hotato prove --contracts` runs them. Done when: a rerun adds nothing. Tests: monitor tests; full pytest passes
+11. W2.5a Add a /trends view to `hotato console`: per-day tiles for calls scored and incidents by type from console.sqlite3, plus ?format=json. Done when: a day without data reads no data, not 0. Tests: serve tests; full pytest passes
+12. W2.5b Add a latency distribution panel (P5, P25, P50, P75, P95, nearest-rank, n shown) to the `hotato console` /calls view. Done when: under 5 scored calls reads INCONCLUSIVE, no percentiles. Tests: serve tests; full pytest passes
+13. W2.5c Add an /alerts view to `hotato console` listing the transitions `hotato production alerts` stores (rule, state, time), newest first, plus ?format=json. Done when: rows match the stored ones. Tests: serve tests; full pytest passes
+14. W2.5d Add a `drift` rule to the `hotato monitor` rules file: fire when a metric's mean over the last N calls moves past a set delta from a baseline window. Done when: a short baseline is no hit, marked inconclusive. Tests: monitor tests
+15. W2.6a Add a human review queue to `hotato console`: list flagged calls, record a pass/fail label with reviewer name as one JSON file per label. Done when: labels survive a restart and none is auto-written. Tests: serve tests; full pytest passes
+16. W2.6b Make `hotato rubric calibrate` read review-queue label files and report per-rubric agreement with n and a Wilson 95% interval, never one accuracy percentage. Done when: n under 10 reads INCONCLUSIVE. Tests: rubric tests; pytest passes
+17. W2.7a Add src/hotato/project_config.py and `hotato lab config validate` for one `hotato.config` file (suites, alerts, sources); fall back to the `hotato.yaml` that `hotato init starter` writes. Done when: unknown keys exit 2. Tests: unit tests
+18. W2.7b Make `hotato monitor run` and `hotato suite run` read rules, sources and suites from `hotato.config` when flags are omitted; flags win; the file used is printed. Done when: no flag and no file exits 2. Tests: unit tests; pytest passes
+19. W3.8a Add a versioned red-team probe pack (prompt-injection and jailbreak caller scenarios) under src/hotato/data/simulate/ with a manifest, shown by `hotato simulate --list`. Done when: each probe names its assert pack. Tests: pack tests
+20. W3.8b Add social-engineering and PII-leakage probes to the red-team pack, each paired with a `hotato assert packs` entry (an existing pack or a new one). Done when: every probe has an assertion. Tests: pack tests; full pytest passes
+21. W3.8c Add `hotato lab redteam run --chat URL`: send each probe through the `hotato simulate --chat` caller, score it with its assert pack, PASS/FAIL/INCONCLUSIVE each. Done when: a non-local URL needs --egress-opt-in. Tests: stub-agent tests
+22. W3.9a Add provenance to `hotato benchmark --out` (hotato version, scenario-set digest, recording sha256s, stack label). Done when: `hotato benchmark compare` exits 2 on mismatched scenario sets. Tests: stackbench tests; full pytest passes
+23. W3.9b Add `hotato benchmark verify RESULT.json --recordings DIR`: re-score the recordings and check digests and measurements match the file. Done when: a mismatch exits 1, a missing recording exits 2. Tests: stackbench tests; pytest passes
+24. W3.9c Add a stack benchmark method section to docs/BENCHMARK-STACKS.md: capture protocol, scenario set, required provenance, how to verify a result; no result rows. Done when: every command it names runs. Tests: doc command test
+25. W3.10a Add `hotato <stack> health` for each capture.PULL_STACKS entry missing from healthcmd.HEALTH_STACKS; mono stacks need --allow-mono, labelled indicative. Done when: docs/ADAPTER-STATUS.md lists each. Tests: mocked-HTTP tests
+26. W3.10b Add `hotato drive` outbound calls for each telephony.PROVIDERS entry that drive.py has no place_call_* for, with the same --yes confirm and polling. Done when: missing credentials exit 2. Tests: mocked-HTTP tests; pytest passes
+27. W3.11a Add recovery stages and fault windows to `hotato load caller` plans (caller_load.py), reusing the loadtest.py recovery measure and max_recovery_seconds SLO. Done when: no call after a fault is INCONCLUSIVE. Tests: caller_load tests
+28. W3.11b Add per-stage P50 and P95 time to yield and response latency (n shown) to `hotato load caller` results and text output, apart from completion rates. Done when: no audio evidence shows n=0. Tests: caller_load tests; pytest passes
+29. W3.12a Add OIDC sign-in to `hotato cloud serve`, off unless HOTATO_OIDC_ISSUER, client id and secret are set; password login unchanged. Done when: bad state or nonce is refused; docs/SELF-HOST.md updated. Tests: stub-issuer tests
+30. W3.12b Add a read-only `viewer` role to `hotato cloud` memberships and invites beside owner and member. Done when: every write route (push, alerts, settings) returns 403 to a viewer. Tests: cloud route tests; full pytest passes
+31. W3.12c Add per-project retention days and transcript PII redaction settings to `hotato cloud`, applied on push, plus `hotato cloud admin purge`. Done when: purge is a dry run unless --yes. Tests: cloud unit tests; full pytest passes
+32. W3.12d Add an append-only audit_events table to `hotato cloud` (logins, invites, tokens, settings, purges) and `hotato cloud admin audit-export --since DATE` (JSONL). Done when: no route deletes audit rows. Tests: cloud unit tests
+33. W3.13a Add `--format otel-json` to `hotato trace export`: a standard resourceSpans file, one span per turn and per incident, that `hotato trace ingest` reads back. Done when: export then ingest round-trips. Tests: trace tests; pytest passes
+34. W3.13b Accept OTLP protobuf in `hotato trace ingest --otel` when the optional protobuf package is installed; without it a protobuf input exits 2 naming the extra. Done when: protobuf and JSON give one trace. Tests: trace tests
+35. W3.14a Make `hotato plan` take a failed `hotato test run` result and propose one rule-based fixplan.v1 candidate per failed deterministic check; judged checks listed apart. Done when: a passing result exits 2. Tests: fixplan tests
+36. W3.14b Add `hotato fix delta --before RESULT --after RESULT`: per-check pass/fail change between two `hotato test run` results, deterministic and judged apart. Done when: a check missing on one side is INCONCLUSIVE. Tests: unit tests
+37. W3.15a Add `hotato lab tts-set build MANIFEST --out DIR`: render a labelled multilingual caller-audio set (locale, accent, text, label) via piper_tts.py, with digests. Done when: no TTS binary exits 2. Tests: stub-TTS tests; pytest passes
+38. W3.15b Make `hotato suite run` and `hotato simulate --matrix` reports split pass/fail by scenario environment.locale when declared, each locale with its own n. Done when: no locale groups as unlabelled. Tests: unit tests; pytest passes
