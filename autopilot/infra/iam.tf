@@ -221,3 +221,29 @@ resource "google_storage_bucket_iam_member" "build_source" {
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.build.email}"
 }
+
+# The Atlas jobs install the collector version the hourly job settled on from the private Python
+# repository at run time (jobs/atlas_collector.py): read only. atlas-wheel is the one identity
+# that uploads new versions (jobs/atlas_wheel.py); Artifact Registry never replaces a version.
+resource "google_artifact_registry_repository_iam_member" "atlas_private_py_read" {
+  for_each   = toset(["atlas", "atlas-recheck", "atlas-audit"])
+  location   = google_artifact_registry_repository.private_py.location
+  repository = google_artifact_registry_repository.private_py.name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.job[each.key].email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "atlas_wheel_write" {
+  location   = google_artifact_registry_repository.private_py.location
+  repository = google_artifact_registry_repository.private_py.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.job["atlas-wheel"].email}"
+}
+
+# atlas-watch may start the hourly Atlas job (no overrides) when the live pages are stale.
+resource "google_cloud_run_v2_job_iam_member" "atlas_watch_runs_atlas" {
+  name     = google_cloud_run_v2_job.job["atlas"].name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.job["atlas-watch"].email}"
+}

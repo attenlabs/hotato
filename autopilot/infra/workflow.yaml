@@ -1,4 +1,5 @@
 # Runs the named Cloud Run jobs one after another. Argument: {"jobs": ["builder", "reviewer"]}
+# The wait covers the longest job (hotato-atlas, 5400 s) and its one retry.
 main:
   params: [args]
   steps:
@@ -12,6 +13,6 @@ main:
                 args:
                   name: ${"projects/" + sys.get_env("GOOGLE_CLOUD_PROJECT_ID") + "/locations/" + sys.get_env("GOOGLE_CLOUD_LOCATION") + "/jobs/hotato-" + job}
                   connector_params:
-                    timeout: 3900
+                    timeout: 11400
     - done:
         return: ${args.jobs}

@@ -35,6 +35,21 @@ def normalize_doc(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
+def atlas_pin(cloudbuild_text):
+    m = re.search(r'^  _ATLAS_VERSION: "([0-9.]+)"$', cloudbuild_text, re.M)
+    return m.group(1) if m else None
+
+
+def atlas_pin_behind(pin, collector_doc):
+    """The version the hourly job runs, when it is newer than the version baked into the image.
+    The image still works (the job installs the newer version at run time); the bump keeps a
+    fresh image from starting on an old collector."""
+    cur = (collector_doc or {}).get("current")
+    if pin and cur and vkey(cur) > vkey(pin):
+        return cur
+    return None
+
+
 def failing_ci(check_runs):
     return sorted({c["name"] for c in check_runs if c.get("conclusion") in ("failure", "timed_out")})
 
@@ -69,6 +84,16 @@ def work(store, rec):
     runs = get_json(f"https://api.github.com/repos/{r}/commits/main/check-runs")["check_runs"]
     for name in failing_ci(runs):
         made[f"ci {name}"] = open_issue(f"upkeep: CI check {name} is red on main", "Fix on main.")
+    # 4. the Atlas collector baked into the image is behind the version the hourly job settled on
+    cb = http(f"https://raw.githubusercontent.com/{r}/main/autopilot/build/cloudbuild.yaml")[1].decode()
+    pin = atlas_pin(cb)
+    newer = atlas_pin_behind(pin, store.get_json("atlas/collector.json"))
+    if newer:
+        made["atlas collector"] = open_issue(
+            f"upkeep: bake Atlas collector {newer} into the jobs image",
+            f"The hourly Atlas job runs hotato-atlas {newer} (tested, uploaded and promoted by "
+            f"atlas-wheel), but `_ATLAS_VERSION` in autopilot/build/cloudbuild.yaml is {pin}. "
+            f"Set it to {newer}. Nothing is broken meanwhile: the job installs {newer} at run time.")
     return made
 
 

@@ -62,16 +62,45 @@ resource "google_cloud_run_v2_job" "job" {
   template {
     template {
       service_account = google_service_account.job[each.key].email
-      max_retries     = 0
-      timeout         = "${each.value.timeout}s"
+      # The Atlas jobs retry once: they hold a lock and upload over a generation, so a retry
+      # never doubles a write, and a crash on a candidate collector retries on the current one.
+      max_retries           = startswith(each.key, "atlas") ? 1 : 0
+      timeout               = "${each.value.timeout}s"
+      execution_environment = each.value.cache ? "EXECUTION_ENVIRONMENT_GEN2" : null
+
+      dynamic "volumes" {
+        for_each = each.value.cache ? [1] : []
+        content {
+          name = "state"
+          gcs {
+            bucket    = google_storage_bucket.state.name
+            read_only = false
+          }
+        }
+      }
 
       containers {
         image   = local.placeholder_image
         command = ["python", "jobs/${each.value.script}"]
+        args    = length(each.value.args) > 0 ? each.value.args : null
         resources {
           limits = {
-            cpu    = "1"
-            memory = "2Gi"
+            cpu    = each.value.cpu
+            memory = each.value.memory
+          }
+        }
+        dynamic "volume_mounts" {
+          for_each = each.value.cache ? [1] : []
+          content {
+            name       = "state"
+            mount_path = "/mnt/state"
+          }
+        }
+        dynamic "env" {
+          for_each = startswith(each.key, "atlas") ? merge(local.atlas_env, each.value.cache ? { ATLAS_CACHE_DIR = "/mnt/state/atlas/cache" } : {}) : {}
+          content {
+            name  = env.key
+            value = env.value
           }
         }
         env {
@@ -94,12 +123,14 @@ resource "google_cloud_run_v2_job" "job" {
           name  = "PHASE"
           value = var.phase
         }
-        # Every job writes outward (GitHub, phone calls), so going live needs the owner's opt-in:
+        # The GitHub and phone jobs write outward, so going live needs the owner's opt-in:
         # jobs listed in var.auto_promote_jobs run "auto" (shadow until 7 clean days, then live, demoted on any
-        # gate violation; jobs/promotion.py). Every other job is forced to shadow ("1").
+        # gate violation; jobs/promotion.py). Every other job is forced to shadow ("1"), except the
+        # Atlas jobs marked live in main.tf: they write only the state bucket, the private Python
+        # repository and (hotato-atlas, var.atlas_publish_live) the hotato.dev/atlas pages.
         env {
           name  = "DRY_RUN"
-          value = contains(var.auto_promote_jobs, each.key) ? "auto" : "1"
+          value = each.value.live ? "0" : (contains(var.auto_promote_jobs, each.key) ? "auto" : "1")
         }
         env {
           name  = "AGENTS_CAP_USD"
