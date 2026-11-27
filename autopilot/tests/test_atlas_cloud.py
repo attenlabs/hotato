@@ -210,22 +210,55 @@ def test_choices_prefer_the_candidate_and_skip_bad_versions():
     assert collector.choices({"candidate": "../x"}, None) == []
 
 
-def test_an_install_failure_is_inconclusive_and_the_cap_rolls_the_candidate_back(store, monkeypatch, capsys):
+def test_an_install_failure_gives_its_attempt_back_and_only_a_long_run_of_them_rolls_back(store, monkeypatch, capsys):
     store.put_json(collector.KEY, {"candidate": "9.9.9", "current": None})
     monkeypatch.setattr(collector, "baked", lambda: "0.2.0")
     monkeypatch.setattr(collector, "loaded_version", lambda: "0.2.0")
     monkeypatch.setenv("ATLAS_CANDIDATE_MAX_RUNS", "3")
+    monkeypatch.setenv("ATLAS_CANDIDATE_MAX_INSTALL_FAILURES", "5")
 
     def boom(version, target):
         raise RuntimeError("index unreachable")
-    for n in (1, 2, 3):  # a transient install failure does not mark the version bad
+    for n in (1, 2, 3, 4):  # more than the run cap: an install failure is not an unsettled run
         assert collector.select(store, "atlas", install=boom) == {"version": "0.2.0", "role": "baked"}
         doc = store.get_json(collector.KEY)
-        assert doc["candidate"] == "9.9.9" and doc["candidate_runs"] == n and not doc.get("bad")
+        assert doc["candidate"] == "9.9.9" and doc["candidate_runs"] == 0 and not doc.get("bad")
+        assert doc["install_failures"] == n
     assert collector.select(store, "atlas", install=boom)["role"] == "baked"
     doc = store.get_json(collector.KEY)
-    assert doc["candidate"] is None and doc["bad"] == ["9.9.9"] and "without settling" in doc["bad_why"]["9.9.9"]
+    assert doc["candidate"] is None and doc["bad"] == ["9.9.9"] and "did not install 5 times" in doc["bad_why"]["9.9.9"]
     assert "atlas_collector_rolled_back" in capsys.readouterr().out
+
+
+def test_finished_inconclusive_runs_never_roll_a_candidate_back(store, monkeypatch, fake_atlas):
+    # A five-hour Cloudflare or GitHub outage: every run finishes, none can publish.
+    import atlas_job as job
+    store.put_json(collector.KEY, {"candidate": "0.3.0", "current": "0.2.0"})
+    monkeypatch.setattr(collector, "baked", lambda: "0.2.0")
+    loaded = {"v": None}
+    monkeypatch.setattr(collector, "loaded_version", lambda: loaded["v"])
+    monkeypatch.setattr(collector, "activate", lambda target: None)
+    monkeypatch.setenv("ATLAS_CANDIDATE_MAX_RUNS", "3")
+
+    def install(version, target):
+        loaded["v"] = version
+
+    def run(store_, rec):
+        rec["collector"] = collector.select(store_, "atlas", install=install)
+        return "store only"
+    for _ in range(5):
+        rec = {}
+        assert job.settle_after(store, rec, run) == "store only"
+        assert rec["collector"]["role"] == "candidate" and rec["collector_settled"] == "unsettled"
+        doc = store.get_json(collector.KEY)
+        assert doc["candidate"] == "0.3.0" and doc["candidate_runs"] == 0 and not doc.get("bad")
+
+    def crashes(store_, rec):  # an infrastructure exception also finishes the run: refunded
+        rec["collector"] = collector.select(store_, "atlas", install=install)
+        raise state.Conflict("lost a race")
+    with pytest.raises(state.Conflict):
+        job.settle_after(store, {}, crashes)
+    assert store.get_json(collector.KEY)["candidate_runs"] == 0
 
 
 def test_a_run_killed_before_it_settles_is_counted_and_rolled_back(store, monkeypatch):
@@ -853,15 +886,22 @@ def test_wheel_job_does_nothing_without_a_configured_repository(store, monkeypat
     assert "no collector repository" in wheel.work(store, rec)
 
 
-def test_the_wheel_is_installed_before_the_suite_runs_with_an_allow_listed_env(tmp_path, monkeypatch):
+def test_the_wheel_is_built_installed_and_tested_with_allow_listed_envs(tmp_path, monkeypatch):
     import zipfile
     for k, v in (("CLOUDFLARE_PAGES_TOKEN", "cf"), ("GITHUB_TOKEN", "gh"), ("GCP_PROJECT", "p"),
-                 ("ATLAS_SITE_REPO", "o/site"), ("ATLAS_REPOS_TOKEN", "ro"), ("GOOGLE_APPLICATION_CREDENTIALS", "/k")):
+                 ("ATLAS_SITE_REPO", "o/site"), ("ATLAS_REPOS_TOKEN", "ro"), ("GOOGLE_APPLICATION_CREDENTIALS", "/k"),
+                 ("HTTPS_PROXY", "http://proxy:3128")):
         monkeypatch.setenv(k, v)
     order = []
 
     def run(argv, cwd, timeout, env=None):
         joined = " ".join(argv)
+        if " pip " in f" {joined} ":  # the build backend is the private repository's own code
+            leaked = [k for k in env if k not in wheel.TEST_ENV_KEEP + wheel.BUILD_ENV_KEEP and k not in (
+                "HOME", "TMPDIR", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE", "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+                "PIP_DISABLE_PIP_VERSION_CHECK", "PIP_NO_INPUT")]
+            assert leaked == [] and "PYTHONPATH" not in env and env["HTTPS_PROXY"] == "http://proxy:3128"
+            assert not {"cf", "gh", "ro", "/k"} & set(env.values())
         if " pip wheel " in f" {joined} ":
             dist = argv[argv.index("-w") + 1]
             os.makedirs(dist, exist_ok=True)

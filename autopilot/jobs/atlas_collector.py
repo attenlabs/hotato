@@ -23,8 +23,10 @@ Settling, on the hourly run's outcome (atlas_job.verdict):
 Every run that tries the candidate is counted BEFORE it starts (candidate_runs). A run that is
 killed (out of memory, the Cloud Run timeout, SIGKILL) never settles, so after
 ATLAS_CANDIDATE_MAX_RUNS unsettled attempts the next run rolls the candidate back on its own.
-An install failure is inconclusive (the index may lag an upload); a version that imports as
-another version is a fault.
+A run that finishes as inconclusive gives its attempt back, so an outage of any length never
+rolls a good candidate back; only runs that never reach settling count. An install failure gives
+the attempt back too (the index may lag an upload), but ATLAS_CANDIDATE_MAX_INSTALL_FAILURES in a
+row roll it back; a version that imports as another version is a fault.
 
 A bad version comes back only through atlas-wheel: when main still carries that version at the
 commit that was offered and its tests and smoke run pass again, it is re-offered (at most
@@ -126,6 +128,36 @@ def begin_attempt(store, version, job=None):
     return True
 
 
+def max_install_failures():
+    return max(1, int(float(os.environ.get("ATLAS_CANDIDATE_MAX_INSTALL_FAILURES", "24"))))
+
+
+def refund(store, version):
+    """Give back the attempt begin_attempt() counted, for a run that finished (it settled as
+    inconclusive, or the candidate did not install and the run went on without it)."""
+    def fn(doc):
+        if doc.get("candidate") == version:
+            doc["candidate_runs"] = max(0, int(doc.get("candidate_runs") or 0) - 1)
+        return doc
+    store.update_json(KEY, fn, {})
+
+
+def install_failed(store, version, job=None):
+    """A candidate that would not install: its run attempt is refunded (the index or the
+    network may be down), but after ATLAS_CANDIDATE_MAX_INSTALL_FAILURES in a row it is rolled
+    back (it is probably not in the index at all)."""
+    seen = {}
+
+    def fn(doc):
+        if doc.get("candidate") == version:
+            doc["candidate_runs"] = max(0, int(doc.get("candidate_runs") or 0) - 1)
+            seen["n"] = doc["install_failures"] = int(doc.get("install_failures") or 0) + 1
+        return doc
+    store.update_json(KEY, fn, {})
+    if seen.get("n", 0) >= max_install_failures():
+        reject(store, version, f"did not install {seen['n']} times in a row", job)
+
+
 def select(store, job, install=pip_install, allow_candidate=True):
     """Install and import the version this run uses. -> {"version", "role"}."""
     doc = store.get_json(KEY, {}) or {}
@@ -144,6 +176,8 @@ def select(store, job, install=pip_install, allow_candidate=True):
                 alert("atlas_collector_install", "WARNING",
                       f"{role} collector {version} did not install ({type(exc).__name__}: {exc}); "
                       "falling back", job)
+                if role == "candidate":
+                    install_failed(store, version, job)
                 continue
         try:
             got = loaded_version()
@@ -155,6 +189,8 @@ def select(store, job, install=pip_install, allow_candidate=True):
             if role == "candidate":
                 reject(store, version, f"imports as {got}", job)
             continue
+        if role == "candidate":
+            store.update_json(KEY, lambda d: dict(d, install_failures=0) if d.get("candidate") == version else d, {})
         return {"version": version, "role": role}
     raise RuntimeError("no usable Atlas collector: nothing installs and none is baked into the image")
 
@@ -167,7 +203,7 @@ def reject(store, version, why, job=None):
         doc.setdefault("bad_why", {})[version] = why[:300]
         if doc.get("candidate") == version:
             doc["candidate"] = None
-            doc["candidate_runs"] = 0
+            doc["candidate_runs"] = doc["install_failures"] = 0
         return doc
     store.update_json(KEY, fn, {})
     alert("atlas_collector_rolled_back", "ERROR",
@@ -209,6 +245,7 @@ def settle(store, chosen, verdict, job=None, why=""):
         reject(store, chosen["version"], why or "the run failed in the collector", job)
         return "rejected"
     if verdict != "clean":
+        refund(store, chosen["version"])  # the run finished: only runs that never settle count
         return "unsettled"
 
     def fn(doc):
@@ -228,7 +265,7 @@ def offer(store, version, commit=None):
         if version in (doc.get("bad") or []) or version == doc.get("current"):
             return doc
         if doc.get("candidate") != version:
-            doc["candidate_runs"] = 0
+            doc["candidate_runs"] = doc["install_failures"] = 0
         doc["candidate"] = version
         if commit:
             doc.setdefault("offered", {})[version] = commit
@@ -262,7 +299,7 @@ def reoffer(store, version, commit):
         (doc.get("bad_why") or {}).pop(version, None)
         counts = doc.setdefault("reoffers", {})
         counts[version] = int(counts.get(version, 0)) + 1
-        doc["candidate"], doc["candidate_runs"] = version, 0
+        doc["candidate"], doc["candidate_runs"], doc["install_failures"] = version, 0, 0
         return doc
     store.update_json(KEY, fn, {})
     return out["problem"]

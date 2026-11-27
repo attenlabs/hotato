@@ -99,11 +99,31 @@ def test_env(work, pkg):
     return env
 
 
+# What pip itself may also need to reach the public index for the build backend (setuptools).
+BUILD_ENV_KEEP = ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
+                  "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "PIP_CERT")
+
+
+def build_env(work):
+    """`pip wheel` runs the collector repository's own build backend, so it gets the same
+    allow-listed environment as the tests, plus proxy and CA settings: no secret, no token, no
+    job configuration. The wheel needs nothing from the private index to build."""
+    env = test_env(work, "")
+    env.pop("PYTHONPATH")
+    env.update({k: os.environ[k] for k in BUILD_ENV_KEEP if k in os.environ})
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    env["PIP_NO_INPUT"] = "1"
+    return env
+
+
 def build_and_test(tree, version, work):
-    """Build the wheel, check what it holds, install it, run the collector's suite against the
-    installed package, then smoke-run it offline. -> (wheel path, smoke tail)."""
+    """Build the wheel, check what it holds, install it, run the collector's suite over its
+    source, then smoke-run the installed wheel offline. -> (wheel path, smoke tail)."""
     dist = os.path.join(work, "dist")
-    _run([sys.executable, "-m", "pip", "wheel", "-q", "--no-deps", "-w", dist, tree], work, 600)
+    home = os.path.join(work, "home")
+    os.makedirs(home, exist_ok=True)
+    benv = build_env(home)
+    _run([sys.executable, "-m", "pip", "wheel", "-q", "--no-deps", "-w", dist, tree], work, 600, benv)
     wheel = os.path.join(dist, f"hotato_atlas-{version}-py3-none-any.whl")
     if not os.path.isfile(wheel):
         raise RuntimeError(f"build produced no {os.path.basename(wheel)}")
@@ -112,9 +132,7 @@ def build_and_test(tree, version, work):
         raise RuntimeError(f"unexpected wheel contents: {bad[:10]}")
     pkg = os.path.join(work, "pkg")
     _run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--no-index", "--target", pkg, wheel],
-         work, 300)
-    home = os.path.join(work, "home")
-    os.makedirs(home, exist_ok=True)
+         work, 300, benv)
     # The suite runs over the source tree it came with (some tests compare files the wheel does
     # not carry, such as data/hotato-cli-manifest.json); the smoke run below uses the wheel alone.
     _run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"], tree, 1800,
