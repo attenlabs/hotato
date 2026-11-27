@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Settings - {{ project.name }} - hotato{% endblock %}
+{% block body %}
+<h1>Settings</h1>
+<p class="sub">{{ org.name }} / {{ project.name }}. Project id <code>{{ project.id }}</code></p>
+{% if error %}<p class="err" role="alert">{{ error }}</p>{% endif %}
+{% if new_token %}<div class="ok" role="status"><strong>Copy this token now. It is shown once.</strong>
+<p class="secret mono">{{ new_token }}</p></div>{% endif %}
+{% if invite_link %}<div class="ok" role="status"><strong>Send this link to the person you invite. It works once and expires in 7 days.</strong>
+<p class="secret mono">{{ invite_link }}</p></div>{% endif %}
+
+<section class="card" aria-labelledby="tok"><h2 id="tok">API tokens</h2>
+<p class="muted">A token can write and read this one project. Stored as a hash; only the first characters are shown.</p>
+{% if tokens %}<div class="tablewrap"><table><thead><tr><th>Name</th><th>Token</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody>
+{% for t in tokens %}<tr><td>{{ t.name }}</td><td class="mono">{{ t.hint }}...</td><td>{{ fmt_ts(t.created_at) }}</td>
+<td>{{ fmt_ts(t.last_used_at) if t.last_used_at else 'never' }}</td>
+<td>{% if t.revoked_at %}<span class="chip">revoked</span>{% elif ctx.is_owner %}
+<form method="post" action="/p/{{ project.id }}/settings/tokens/{{ t.id }}/revoke" class="nm"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary" type="submit">Revoke</button></form>{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>{% else %}<p>No tokens yet.</p>{% endif %}
+{% if ctx.is_owner %}
+<form method="post" action="/p/{{ project.id }}/settings/tokens" class="inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div><label for="tn">Token name</label><input id="tn" name="name" maxlength="100" placeholder="ci, monitor"></div>
+  <div class="fit"><button type="submit">Create token</button></div>
+</form>
+<p class="muted">Use it with: <code>hotato cloud push &lt;file-or-dir&gt; --url {{ base_url }} --project {{ project.id }} --token ...</code></p>
+{% else %}<p class="muted">Only owners create tokens.</p>{% endif %}
+</section>
+
+<section class="card" aria-labelledby="con"><h2 id="con">Connections</h2>
+<p class="muted">Voice-platform API keys are encrypted at rest and never shown again after saving.</p>
+{% for key, label in providers.items() %}
+{% set c = conns.get(key) %}
+<div class="conn">
+<strong>{{ label }}</strong>
+{% if c %}
+  <span class="chip">key saved</span>
+  {% if c.last_test_at %}<span class="chip {{ 'pass' if c.last_test_ok else 'fail' }}">{{ 'connected' if c.last_test_ok else 'failed' }}</span>
+  <span class="muted">{{ c.last_test_detail }} ({{ fmt_ts(c.last_test_at) }})</span>{% endif %}
+  {% if ctx.is_owner %}
+  <form method="post" action="/p/{{ project.id }}/settings/connections/{{ key }}/test" class="di"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary" type="submit">Test connection</button></form>
+  <form method="post" action="/p/{{ project.id }}/settings/connections/{{ key }}/delete" class="di"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary" type="submit">Remove key</button></form>
+  {% endif %}
+{% else %}<span class="muted">no key saved</span>{% endif %}
+{% if ctx.is_owner %}
+<form method="post" action="/p/{{ project.id }}/settings/connections" class="inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="provider" value="{{ key }}">
+  <div><label for="k-{{ key }}">{{ 'Replace' if c else 'Save' }} {{ label }} API key</label>
+  <input id="k-{{ key }}" name="api_key" type="password" autocomplete="off" required></div>
+  <div class="fit"><button type="submit">Save key</button></div>
+</form>
+{% endif %}
+</div>
+{% endfor %}
+</section>
+
+<section class="card" aria-labelledby="mem"><h2 id="mem">Members of {{ org.name }}</h2>
+<div class="tablewrap"><table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
+{% for mem, u in members %}<tr><td>{{ u.email }}</td><td><span class="chip">{{ mem.role }}</span></td>
+<td>{% if ctx.is_owner %}<form method="post" action="/p/{{ project.id }}/settings/members/{{ u.id }}/remove" class="nm"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary" type="submit">Remove</button></form>{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>
+{% if ctx.is_owner %}
+<form method="post" action="/p/{{ project.id }}/settings/invites" class="inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div><label for="role">Invite as</label><select id="role" name="role"><option value="member">member</option><option value="owner">owner</option></select></div>
+  <div class="fit"><button type="submit">Create invite link</button></div>
+</form>
+{% endif %}
+</section>
+{% endblock %}

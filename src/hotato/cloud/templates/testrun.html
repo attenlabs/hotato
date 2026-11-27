@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.run_id }} - hotato{% endblock %}
+{% block body %}
+<p><a href="/p/{{ project.id }}/tests">&larr; Tests</a></p>
+<h1>Run <span class="mono">{{ run.run_id }}</span></h1>
+<p class="sub">{{ fmt_ts(run.started_at) }} to {{ fmt_ts(run.finished_at) }}. Agent {{ run.agent_id }} on {{ run.agent_stack }}. Judge {{ run.judge_provider }} / {{ run.judge_model }}.</p>
+<div class="grid">
+  <div class="stat"><div class="k">Cases</div><div class="v">{{ run.n_cases }}</div></div>
+  <div class="stat"><div class="k">Pass rate</div><div class="v">{{ fmt_pct(run.pass_rate) }}</div></div>
+  <div class="stat"><div class="k">All repeats passed</div><div class="v">{{ run.n_pass_all }} of {{ run.n_cases }}</div></div>
+</div>
+<div class="card tablewrap"><table>
+<thead><tr><th>Case</th><th>Persona</th><th class="num">Passed</th><th class="num">Pass rate</th><th>pass_all</th></tr></thead><tbody>
+{% for c in cases %}
+<tr><td><a href="/p/{{ project.id }}/tests/{{ run.id }}/cases/{{ c.id }}">{{ c.name }}</a></td><td>{{ c.persona }}</td>
+<td class="num">{{ c.passed }} of {{ c.repeats }}</td><td class="num">{{ fmt_pct(c.pass_rate) }}</td>
+<td><span class="chip {{ 'pass' if c.pass_all else 'fail' }}">{{ 'pass' if c.pass_all else 'fail' }}</span></td></tr>
+{% else %}<tr><td colspan="5" class="muted">This run contains no cases.</td></tr>
+{% endfor %}</tbody></table></div>
+{% endblock %}

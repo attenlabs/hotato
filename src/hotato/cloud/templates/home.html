@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Projects - hotato{% endblock %}
+{% block body %}
+<h1>Projects</h1>
+<p class="sub">Pick a project to see its calls, test runs and alerts.</p>
+{% for o in orgs %}
+<section class="card" aria-labelledby="org-{{ o.org.id }}">
+  <h2 id="org-{{ o.org.id }}">{{ o.org.name }} <span class="chip">{{ o.role }}</span></h2>
+  {% if o.projects %}
+  <ul>{% for p in o.projects %}<li><a href="/p/{{ p.id }}/">{{ p.name }}</a></li>{% endfor %}</ul>
+  {% else %}<p class="muted">No projects yet.</p>{% endif %}
+  {% if o.role == 'owner' %}
+  <form method="post" action="/orgs/{{ o.org.id }}/projects" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div><label for="pn-{{ o.org.id }}">New project name</label>
+    <input id="pn-{{ o.org.id }}" name="name" required maxlength="200"></div>
+    <div class="fit"><button type="submit">Create project</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

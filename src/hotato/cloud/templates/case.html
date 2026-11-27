@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ case.name }} - hotato{% endblock %}
+{% block body %}
+<p><a href="/p/{{ project.id }}/tests/{{ run.id }}">&larr; Run {{ run.run_id }}</a></p>
+<h1>{{ case.name }}</h1>
+<p class="sub"><span class="chip {{ 'pass' if case.pass_all else 'fail' }}">pass_all: {{ 'pass' if case.pass_all else 'fail' }}</span>
+ {{ case.passed }} of {{ case.repeats }} repeats passed ({{ fmt_pct(case.pass_rate) }}).</p>
+<section class="card"><h2>Scenario</h2>
+<p><strong>Persona.</strong> {{ case.persona }}</p><p><strong>Goal.</strong> {{ case.goal }}</p></section>
+<section class="card" aria-labelledby="crit"><h2 id="crit">Criteria</h2>
+{% if case.criteria %}<div class="tablewrap"><table><thead><tr><th>Criterion</th><th class="num">Pass rate</th></tr></thead><tbody>
+{% for c in case.criteria %}<tr><td>{{ c.name }}</td><td class="num">{{ fmt_pct(c.pass_rate) }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="muted">No criteria were judged for this case.</p>{% endif %}</section>
+{% for r in case.runs %}
+<section class="card" aria-labelledby="rep{{ r.run_index }}">
+  <h2 id="rep{{ r.run_index }}">Repeat {{ r.run_index }}</h2>
+  {% if r.error %}<p class="err" role="alert">Error: {{ r.error }}</p>{% endif %}
+  <h3 class="h3">Verdicts</h3>
+  {% if r.verdicts %}
+  <div class="tablewrap"><table><thead><tr><th>Criterion</th><th>Verdict</th><th class="num">Confidence</th><th>Evidence</th><th>Explanation</th></tr></thead><tbody>
+  {% for v in r.verdicts %}
+  <tr><td>{{ v.criterion }}</td><td><span class="chip {{ v.verdict }}">{{ v.verdict }}</span></td><td class="num">{{ fmt_pct(v.confidence) }}</td>
+  <td>{% if v.evidence %}<q>{{ v.evidence }}</q>{% else %}-{% endif %}</td><td>{{ v.explanation }}</td></tr>
+  {% endfor %}</tbody></table></div>
+  {% else %}<p class="muted">No verdicts were recorded for this repeat.</p>{% endif %}
+  <details open><summary>Transcript ({{ r.transcript|length }} turns)</summary>
+  {% for t in r.transcript %}
+  <div class="turn {{ t.role }}"><span class="who">{{ t.role }}</span><span class="t mono">{{ fmt_num(t.t, 1) }}s</span><span class="txt">{{ t.text }}</span></div>
+  {% else %}<p class="muted">The transcript is empty.</p>{% endfor %}
+  </details>
+</section>
+{% else %}<div class="card"><p class="muted">This case has no recorded repeats.</p></div>
+{% endfor %}
+{% endblock %}

@@ -492,3 +492,14 @@ def test_contract_verify_notify_rejects_bad_scheme_before_the_rescore(tmp_path, 
     rc = cli.main(["contract", "verify", str(tmp_path),
                    "--notify", "file:///etc/passwd"])
     assert rc == 2
+
+
+def test_failed_webhook_delivery_never_prints_the_webhook_path():
+    """Incoming-webhook URLs (Slack and others) carry their secret in the path."""
+    from hotato import errors as _errors
+    secret = "https://hooks.example.com/services/T000/B000/XXXXSECRETXXXX"
+    assert _errors.sanitize_destination(secret) == "https://hooks.example.com/..."
+    text = _errors.sanitize_destinations_in_text(f"<urlopen error for {secret}>")
+    assert "SECRET" not in text and "T000" not in text
+    assert _errors.sanitize_destination("not a url") == "<redacted-url>"
+    assert _errors.sanitize_destination("https://host.example") == "https://host.example"

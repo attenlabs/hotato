@@ -451,7 +451,12 @@ def _post_retell(tmp_path, monkeypatch, header_value, body=_RETELL_TARGET):
     client = TestClient(mod.app, raise_server_exceptions=False)
     headers = {"content-type": "application/json"}
     if header_value is not None:
-        headers["x-retell-signature"] = header_value
+        # Newer httpx encodes a str header value as ASCII and raises before the
+        # request is sent, so a non-ASCII header never reached the server. Put
+        # the raw bytes on the wire, as a hostile client would.
+        headers["x-retell-signature"] = (
+            header_value.encode("utf-8") if not header_value.isascii() else header_value
+        )
     resp = client.post("/webhook", content=body, headers=headers)
     return resp, calls
 

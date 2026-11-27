@@ -6,6 +6,73 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Every entry reports millisecond measurement error and a confusion matrix. See `docs/BENCHMARK.md`.
 
+### Fixed
+- Delivery warnings for `--notify` and `hotato monitor` alerts show only the scheme and host of the destination; incoming-webhook URLs carry their secret in the path.
+- `hotato test run` no longer accepts a quote shorter than three words as evidence for a pass.
+
+## [1.22.0] - 2026-11-26
+
+### Added
+
+- `hotato monitor run --stack vapi|retell [--every 5m] [--once] [--rules F]
+  [--store DIR]`: production call monitoring. Each cycle lists calls newer than
+  a persisted cursor, fetches each recording, checks it with the autopsy
+  engine, writes one `hotato.monitorevent.v1` file per call under
+  `STORE/events/`, evaluates the rules and sends alerts. A call is scored
+  once; a restart resumes from the cursor. A recording that is not downloadable
+  yet is retried for a few cycles. Mono recordings need `--allow-mono` and
+  report best-effort incidents with a null score.
+- Alert rules (metric thresholds, incident type and severity, rate windows,
+  per-rule cooldown) deliver to a Slack incoming webhook (Block Kit), PagerDuty
+  Events API v2 (stable dedup key per rule and agent, resolved when the rule
+  clears) and a generic JSON webhook. Destinations come from flags or
+  `HOTATO_SLACK_WEBHOOK_URL`, `HOTATO_PAGERDUTY_ROUTING_KEY` and
+  `HOTATO_MONITOR_WEBHOOK_URL`; nothing is sent without one.
+- `hotato monitor test-alert --rules F` proves the wiring with a labelled test
+  alert per rule and channel; `hotato monitor pin CALL_ID` turns a monitored
+  call into a failure contract through the existing `pin` path. See
+  `docs/MONITOR.md`.
+- Vapi and Retell call listings now carry the agent id when the platform
+  returns it (an additive `agent_id` key on list items).
+- `hotato cloud`: a team web app as the optional extra `hotato[cloud]` (FastAPI, Jinja2,
+  SQLAlchemy 2; SQLite by default, Postgres through `DATABASE_URL`). Accounts with
+  organisations, projects, owner/member roles, invite links and per-project API tokens;
+  Vapi and Retell keys stored encrypted; pages for Overview, Calls, Tests, Alerts (a rules
+  editor served at `GET /api/v1/projects/{id}/rules`) and Settings. Ingest through
+  `POST /api/v1/projects/{id}/testruns` and `/events` with strict schema validation.
+  `hotato cloud serve`, `hotato cloud admin create-user` and `hotato cloud push` (stdlib
+  only). Self-host with `docker compose -f docker-compose.cloud.yml up`; see `docs/CLOUD.md`.
+  The core stays stdlib-only and never imports the app.
+- `hotato test run <cases dir or file> --agent <target> [--repeat N] [--out DIR]`
+  runs persona-driven simulated conversations: an LLM plays a caller toward a
+  goal against a chat agent (`chat:URL` for the existing chat HTTP contract,
+  `vapi:ASSISTANT_ID`, `retell:AGENT_ID`), a judge returns a typed verdict
+  (pass, fail or unknown, with an exact transcript quote) per success criterion
+  and forbidden behaviour, expected tool calls are checked deterministically, and
+  each case repeats to give a pass rate per criterion and per case plus
+  `pass_all`. Writes `testrun.json` (`hotato.testrun.v1`) and `report.html`.
+  LLM providers: local Ollama (default), any OpenAI-compatible base URL,
+  Anthropic, Gemini; off-box use needs `--judge-egress-opt-in` (LLM) and
+  `--egress-opt-in` (agent target). A directory or a persona/goal case file
+  selects this mode; `hotato.conversation-test` files behave as before.
+- `hotato test new NAME` writes a starter case; `hotato test from-call
+  TRANSCRIPT_OR_REPORT` turns a failed production call into a case. See
+  `docs/TESTS.md`.
+
+### Changed
+
+- `hotato monitor`, `hotato cloud` and `hotato test` are public top-level commands: they are
+  listed in `hotato --help` and recorded as public in `hotato describe`.
+- The monitor's per-call `score` is the Voice Stability Score for one call (100 with no critical
+  incident, otherwise 0), replacing the penalty-based number; it stays `null` on mono recordings.
+- README and llms.txt lead with: hotato simulates, monitors and gates voice agents in CI; open
+  source, local-first, with a hosted option.
+
+### Fixed
+
+- `tests/test_init_webhook.py` sends the non-ASCII Retell signature as raw bytes, so the case
+  reaches the scaffolded verifier (which rejects it with 401) instead of failing in the HTTP client.
+
 ## [1.21.0] - 2026-11-26
 
 The next release: a scenario generator, and three corrections to what the

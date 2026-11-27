@@ -1,7 +1,7 @@
 {
   "reach": "Instant shareable first result",
-  "activation": "Simulated voice callers",
-  "retention": "Production call monitoring",
-  "pull": "Public turn-taking leaderboard",
-  "value": "AI-judged plus custom metrics"
+  "activation": "Voice-mode persona tests",
+  "retention": "Human review",
+  "pull": "Import existing test suites",
+  "value": "Tune the judge prompt"
 }

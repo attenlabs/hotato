@@ -75,6 +75,29 @@ def sanitize_urls_in_text(value) -> str:
     return _URL_IN_TEXT_RE.sub(lambda match: sanitize_url(match.group(0)), text)
 
 
+def sanitize_destination(url) -> str:
+    """Like :func:`sanitize_url`, but also hides the path.
+
+    For notification destinations (Slack incoming webhooks, generic alert
+    webhooks) the path itself is the credential, so only scheme, host and an
+    explicit port are kept; a non-empty path becomes ``/...``.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    safe = sanitize_url(url)
+    if safe == "<redacted-url>":
+        return safe
+    parsed = urlsplit(safe)
+    path = "/..." if parsed.path not in ("", "/") or parsed.query else ""
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def sanitize_destinations_in_text(value) -> str:
+    """Text form of :func:`sanitize_destination` for warnings about deliveries."""
+    text = str(value)
+    return _URL_IN_TEXT_RE.sub(lambda match: sanitize_destination(match.group(0)), text)
+
+
 class HttpResponseTooLarge(ValueError):
     """A remote response exceeded an explicit in-process byte ceiling.
 

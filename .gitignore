@@ -121,3 +121,4 @@ autopilot/infra/*.tfvars
 autopilot/infra/.killswitch.zip
 autopilot/infra/tfplan
 *.pem
+.venv-cloud/

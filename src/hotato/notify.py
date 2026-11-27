@@ -73,7 +73,7 @@ def validate_notify_url(url: str) -> str:
     scheme = (parsed.scheme or "").lower()
     if scheme not in _ALLOWED_SCHEMES:
         raise ValueError(
-            f"--notify {_errors.sanitize_url(url)!r} uses the unsupported scheme "
+            f"--notify {_errors.sanitize_destination(url)!r} uses the unsupported scheme "
             f"{scheme or '(none)'!r}; "
             "only http:// and https:// webhook URLs are accepted. file://, "
             "data:, and similar are refused so a typo cannot turn --notify "
@@ -81,7 +81,7 @@ def validate_notify_url(url: str) -> str:
         )
     if not parsed.hostname:
         raise ValueError(
-            f"--notify {_errors.sanitize_url(url)!r} has no host; refusing to send to it."
+            f"--notify {_errors.sanitize_destination(url)!r} has no host; refusing to send to it."
         )
     return url
 
@@ -124,14 +124,14 @@ def post_notification(url: str, payload: Dict[str, Any], timeout: int = 10) -> b
                 max_bytes=_HTTP_NOTIFY_RESPONSE_MAX_BYTES,
                 subject=(
                     "notification response from "
-                    f"{_errors.sanitize_url(url)}"
+                    f"{_errors.sanitize_destination(url)}"
                 ),
             )
         return True
     except Exception as exc:  # noqa: BLE001 - fail-open by design; see module docstring
         sys.stderr.write(
-            f"[notify] {_errors.sanitize_url(url)}: delivery failed, continuing "
-            f"({_errors.sanitize_urls_in_text(exc)})\n"
+            f"[notify] {_errors.sanitize_destination(url)}: delivery failed, continuing "
+            f"({_errors.sanitize_destinations_in_text(exc)})\n"
         )
         return False
 

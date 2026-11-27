@@ -122,9 +122,9 @@ def test_scorecard_math():
 def test_backlog_reorder_roundtrip():
     md = (open(__import__("os").path.join(__import__("os").path.dirname(__file__), "..", "BACKLOG.md")).read())
     head, items = scorecard.parse_backlog(md)
-    assert len(items) == 12
-    new = scorecard.reorder(items, top="leaderboard")
-    assert new[0].startswith("Public turn-taking") and sorted(new) == sorted(items)
+    assert len(items) == 9
+    new = scorecard.reorder(items, top="judge prompt")
+    assert new[0].startswith("Tune the judge prompt") and sorted(new) == sorted(items)
     assert scorecard.reorder(items) == items
     assert scorecard.parse_backlog(scorecard.render_backlog(head, new))[1] == new
 

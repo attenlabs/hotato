@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hotato"
-version = "1.21.0"
+version = "1.22.0"
 description = "Find what broke in your agent calls. Pin it and CI stays red until you fix it. Local call forensics and regression guards for AI agents: turn timing, and whether the agent did what it said. Nothing leaves your machine."
 readme = "README.pypi.md"
 # Support policy: requires-python is lower-bounded only. There is no upper cap
@@ -55,6 +55,14 @@ dependencies = []
 # The one-tool MCP server needs the MCP SDK. Kept optional so the CLI stays
 # dependency-free and zero-install.
 mcp = ["mcp>=1.2.0,<3"]
+# OPTIONAL team web app (hotato.cloud): server-rendered FastAPI + Jinja2 +
+# SQLAlchemy 2. `hotato cloud push` needs none of this; only `hotato cloud serve`
+# and `hotato cloud admin` do. The stdlib-only core never imports it.
+cloud = [
+    "fastapi>=0.110", "uvicorn>=0.29", "jinja2>=3.1", "sqlalchemy>=2.0",
+    "argon2-cffi>=23.1", "cryptography>=41", "python-multipart>=0.0.9",
+    "psycopg[binary]>=3.1", "httpx>=0.27",
+]
 dev = ["pytest>=7", "jsonschema>=4", "setuptools>=77"]
 
 # Per-stack capture extras. Vapi and Twilio capture use only stdlib (urllib +
@@ -184,6 +192,7 @@ hotato = [
     "data/demo/saydo/*.json",
     "data/demo/saydo/*.jsonl",
     "schema/*.json",
+    "cloud/templates/*.html",
     "templates/webhook/*.tmpl",
     "templates/webhook/fragments/*.py",
 ]
@@ -242,6 +251,7 @@ select = ["E", "F", "I", "B"]
 # Currently-tripped codes, DEFERRED to keep the baseline green. Each is a
 # ratchet item: fix the occurrences, then delete the entry so the rule starts
 # gating. None of these is a correctness defect on the current tree.
+
 ignore = [
     "E501", # line-too-long: the tree predates a ruff-format pass; enforcing a hard
             # wrap now would force a whole-codebase reflow. Deferred to a formatting pass.
@@ -260,3 +270,7 @@ ignore = [
             # would inject) `strict=False`, which raises TypeError on 3.9. Disabled
             # until the runtime floor is 3.10.
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI's dependency-injection idiom is Depends() in argument defaults.
+"src/hotato/cloud/*.py" = ["B008"]

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Overview - {{ project.name }} - hotato{% endblock %}
+{% block body %}
+<h1>Overview</h1>
+<p class="sub">{{ project.name }}</p>
+{% if ov.total_calls == 0 and not ov.latest_run %}
+<div class="card">
+  <h2>Send your first results</h2>
+  <p>Create an API token in <a href="/p/{{ project.id }}/settings">Settings</a>, then push artifacts from your machine:</p>
+  <pre>hotato cloud push ./out --url {{ request.base_url|string|trim('/') }} --project {{ project.id }} --token $HOTATO_TOKEN</pre>
+</div>
+{% endif %}
+<div class="grid">
+  <div class="stat"><div class="k">Calls, last 24 hours</div><div class="v">{{ ov.calls_24h }}</div></div>
+  <div class="stat"><div class="k">Calls, last 7 days</div><div class="v">{{ ov.calls_7d }}</div>
+    {{ spark(ov.calls_per_day, label="Calls per day, 14 days") }}</div>
+  <div class="stat"><div class="k">Average score, 7 days</div><div class="v">{{ fmt_num(ov.avg_score_7d) }}</div>
+    {{ spark(ov.score_per_day, label="Average score per day, 14 days") }}</div>
+  <div class="stat"><div class="k">Latest test run pass rate</div>
+    <div class="v">{% if ov.latest_run %}{{ fmt_pct(ov.latest_run.pass_rate) }}{% else %}-{% endif %}</div>
+    {{ spark(ov.run_trend, label="Pass rate, recent test runs") }}
+    {% if ov.latest_run %}<a href="/p/{{ project.id }}/tests/{{ ov.latest_run.id }}">{{ ov.latest_run.run_id }}</a>{% endif %}</div>
+</div>
+<section class="card" aria-labelledby="inc">
+  <h2 id="inc">Incidents by type, last 7 days</h2>
+  {% if ov.incidents_by_type %}
+  <div class="tablewrap"><table><thead><tr><th>Type</th><th class="num">Count</th></tr></thead><tbody>
+  {% for t, n in ov.incidents_by_type %}
+  <tr><td><a href="/p/{{ project.id }}/calls?since=7d&amp;incident_type={{ t|urlencode }}">{{ t }}</a></td><td class="num">{{ n }}</td></tr>
+  {% endfor %}</tbody></table></div>
+  {% else %}<p class="muted">No incidents in the last 7 days.</p>{% endif %}
+</section>
+{% endblock %}

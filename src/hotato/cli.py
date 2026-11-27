@@ -482,21 +482,35 @@ _EXIT_CODES: dict = {
     "test": (
         (2, "no subcommand given (see hotato test run --help)"),
     ),
+    "test new": (
+        (0, "a starter simulated-conversation case was written"),
+        (2, "usage error, or the target file already exists"),
+    ),
+    "test from-call": (
+        (0, "a simulated-conversation case was written from the call"),
+        (2, "usage error, or an unreadable transcript/report with no caller "
+            "turns, or the target file already exists"),
+    ),
     "test run": (
         (0, "the deterministic lane passed (or, under --inconclusive-policy "
             "report, at most INCONCLUSIVE) AND every success.required condition "
-            "held"),
+            "held; in simulated-conversation mode (docs/TESTS.md): every case "
+            "passed every repeat, or met --min-pass-rate"),
         (1, "a success.required condition failed, a deterministic assertion "
             "FAILed, a rubric FAIL gated under --gate-judge, or -- under "
             "--inconclusive-policy fail -- an INCONCLUSIVE (missing required "
-            "input) result gated"),
+            "input) result gated; in simulated-conversation mode: a case failed "
+            "a repeat"),
         (2, "under --inconclusive-policy refuse an INCONCLUSIVE result withheld "
             "the verdict (takes precedence over a FAIL); under --gate-judge a "
             "judge ERROR with no rubric FAIL withheld the verdict (the judge "
             "could not run, distinct from a scored failure's exit 1); OR a "
             "usage error / unusable input: a malformed conversation-test file, "
             "an unreadable --transcript/--trace/--state file, an unscorable "
-            "--audio recording, or html/md without --out and --audio"),
+            "--audio recording, or html/md without --out and --audio; in "
+            "simulated-conversation mode: bad input, an egress refused "
+            "without --egress-opt-in / --judge-egress-opt-in, or no usable "
+            "judge LLM"),
     ),
     "suite": (
         (2, "no subcommand given (see hotato suite run --help)"),
@@ -1035,6 +1049,26 @@ _EXIT_CODES: dict = {
         (0, "the caller-load package reproduced and every bound artifact matched"),
         (2, "the package was malformed, incomplete, or failed independent verification"),
     ),
+    "monitor": (
+        (2, "no subcommand given (see hotato monitor --help)"),
+    ),
+    "monitor run": (
+        (0, "ran the requested cycle(s) (--once), or was stopped by the operator"),
+        (2, "usage error: a bad rules file, interval or window, a rule naming a "
+            "channel with no destination, a missing API key, or an unusable store"),
+    ),
+    "monitor test-alert": (
+        (0, "every test alert was delivered to every channel the rules name"),
+        (1, "at least one test alert was not delivered"),
+        (2, "the rules file was unusable or a rule names a channel with no destination"),
+    ),
+    "monitor pin": (
+        (0, "pinned: the monitored call's incident became a portable .hotato "
+            "contract bundle"),
+        (2, "refused with the reason and no artifact: an unknown call, or any "
+            "refusal hotato pin makes (mono recording, no critical incident, "
+            "changed source)"),
+    ),
     "production": (
         (2, "no subcommand given (see hotato production --help)"),
     ),
@@ -1083,6 +1117,9 @@ _EXIT_CODES: dict = {
 # `check` and `autopsy` are one command under two spellings, so the exit-code
 # table, the help epilog and `hotato describe` report them identically.
 _EXIT_CODES["check"] = _EXIT_CODES["autopsy"]
+from .cloud_cli import EXIT_CODES as _CLOUD_EXIT_CODES  # noqa: E402
+
+_EXIT_CODES.update(_CLOUD_EXIT_CODES)
 
 
 def _exit_codes_epilog(key: str) -> str:
@@ -3693,7 +3730,7 @@ def _load_state_adapter(path: str):
     return load_state_adapter(path)
 
 
-def _add_judge_args(p) -> None:
+def _add_judge_args(p, *, sim: bool = False) -> None:
     """Shared judge/cache flags for the model-judge lane (``rubric run``,
     ``rubric calibrate``, and ``test run``). The default judge is a LOCAL Ollama
     model (zero egress); a hosted backend is refused without
@@ -3701,8 +3738,9 @@ def _add_judge_args(p) -> None:
     p.add_argument("--judge-model", default=None, metavar="ID",
                    help="the pinned judge model id (default: qwen2.5vl:3b for "
                         "Ollama, or $HOTATO_JUDGE_MODEL); never 'latest'")
-    p.add_argument("--judge-provider", default="ollama",
-                   choices=["ollama", "hosted"],
+    p.add_argument("--judge-provider", default=None if sim else "ollama",
+                   choices=["ollama", "hosted"]
+                   + (["openai", "anthropic", "gemini"] if sim else []),
                    help="ollama (default, LOCAL, zero egress) or hosted "
                         "(off-box, requires --judge-endpoint + "
                         "--judge-egress-opt-in)")
@@ -3860,7 +3898,73 @@ def _cmd_rubric_calibrate(args) -> int:
     return 0
 
 
+def _write_case_file(case: dict, out_dir: str, as_json: bool) -> str:
+    from . import sim_test as ST
+    try:
+        import yaml  # noqa: F401
+        have_yaml = True
+    except ImportError:
+        have_yaml = False
+    use_yaml = have_yaml and not as_json
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, ST._slug(case["name"]) + (".yaml" if use_yaml else ".json"))
+    if os.path.exists(path):
+        raise ValueError(f"{path} already exists; pick another name or --out")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(ST.dump_case(case, use_yaml))
+    return path
+
+
+def _cmd_test_new(args) -> int:
+    from . import sim_test as ST
+    path = _write_case_file(ST.starter_case(args.name), args.out, args.json)
+    print(f"wrote {path}\nnext: hotato test run {path} --agent chat:URL")
+    return 0
+
+
+def _cmd_test_from_call(args) -> int:
+    from . import sim_test as ST
+    from .errors import load_json_file
+    doc = load_json_file(args.call)
+    name = args.name or os.path.splitext(os.path.basename(args.call))[0]
+    case = ST.case_from_transcript(doc, name, moment=args.moment, at=args.at)
+    path = _write_case_file(case, args.out, args.json)
+    print(f"wrote {path}\nreview the persona, goal and criteria, then: "
+          f"hotato test run {path} --agent chat:URL")
+    return 0
+
+
+def _cmd_test_run_sim(args) -> int:
+    from . import sim_test as ST
+    if not 0.0 <= args.min_pass_rate <= 1.0:
+        raise ValueError("--min-pass-rate must be between 0 and 1")
+    if args.repeat is not None and args.repeat < 1:
+        raise ValueError("--repeat must be >= 1")
+    cases = ST.load_cases(args.test_file)
+    agent = ST.make_agent(args.agent, egress_opt_in=args.egress_opt_in)
+    llm = ST.make_llm(args.judge_provider, args.judge_model, args.judge_endpoint,
+                      egress_opt_in=args.judge_egress_opt_in)
+    llm.preflight()
+    result = ST.run_cases(cases, agent, llm, llm, repeat=args.repeat)
+    if args.out:
+        os.makedirs(args.out, exist_ok=True)
+        with open(os.path.join(args.out, "testrun.json"), "w", encoding="utf-8") as fh:
+            fh.write(_errors.safe_json_dumps(result, indent=2) + "\n")
+        with open(os.path.join(args.out, "report.html"), "w", encoding="utf-8") as fh:
+            fh.write(ST.render_html(result))
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(ST.render_text(result), end="")
+        if args.out:
+            print(f"wrote {os.path.join(args.out, 'testrun.json')} and report.html")
+    return ST.exit_code(result, args.min_pass_rate)
+
+
 def _cmd_test_run(args) -> int:
+    from . import sim_test as ST
+    if ST.looks_like_case_path(args.test_file):
+        return _cmd_test_run_sim(args)
     from . import assert_ as A
     from . import conversation_test as CT
     from . import test_run as TR
@@ -4919,6 +5023,48 @@ def _cmd_pin(args) -> int:
     return 0
 
 
+def _monitor_dest(args):
+    from . import monitor as _monitor
+
+    return _monitor.Destinations(
+        slack_url=args.slack_webhook_url,
+        pagerduty_key=args.pagerduty_routing_key,
+        webhook_url=args.webhook_url,
+        report_url_base=getattr(args, "report_url_base", None))
+
+
+def _cmd_monitor_run(args) -> int:
+    from . import monitor as _monitor
+
+    return _monitor.run_monitor(
+        args.stack, every=args.every, once=args.once, rules_path=args.rules,
+        store=args.store, api_key=args.api_key, allow_mono=args.allow_mono,
+        since=args.since, limit=args.limit, dest=_monitor_dest(args),
+        fmt=args.format)
+
+
+def _cmd_monitor_test_alert(args) -> int:
+    from . import monitor as _monitor
+
+    return _monitor.run_test_alert(args.rules, dest=_monitor_dest(args),
+                                   fmt=args.format)
+
+
+def _cmd_monitor_pin(args) -> int:
+    from . import monitor as _monitor
+    from . import pincmd as _pincmd
+
+    result = _monitor.run_monitor_pin(
+        args.call_id, store=args.store, incident=args.incident,
+        out_dir=args.out, expect=args.expect, contract_id=args.contract_id,
+        reviewer=args.reviewer, force=args.force)
+    if args.format == "json":
+        print(_errors.safe_json_dumps(result, indent=2))
+    else:
+        print(_pincmd.render_text(result))
+    return 0
+
+
 def _cmd_scan_folder(args) -> int:
     from . import autopsy as _autopsy
     from . import scanfolder as _scanfolder
@@ -5703,9 +5849,9 @@ _PUBLIC_SURFACE = frozenset({
     # Onboarding
     "start", "demo", "doctor",
     # Continuous use
-    "console", "production", "serve",
+    "console", "production", "serve", "monitor", "cloud",
     # Checks
-    "contract",
+    "contract", "test",
     # Agent-native
     "describe",
 })
@@ -5806,10 +5952,13 @@ def build_parser() -> argparse.ArgumentParser:
             "  vapi health  run it on a schedule and watch the trend\n"
             "  console      browse and score your live calls in a local browser tab\n"
             "  production   the on-disk store your live calls report into\n"
-            "  serve        the local workspace your team reviews calls in\n\n"
+            "  serve        the local workspace your team reviews calls in\n"
+            "  monitor      score every new Vapi or Retell call and alert on your rules\n"
+            "  cloud        the team web app: serve it, push artifacts to it\n\n"
             "Checks:\n"
             "  contract     create, verify, and pack pinned failure checks\n"
-            "               (pin's artifacts verify through it)\n\n"
+            "               (pin's artifacts verify through it)\n"
+            "  test         run persona simulations or conversation tests; new, from-call\n\n"
             "Agent-native:\n"
             "  describe     the generated machine-readable manifest of every command\n\n"
             "Everything else lives under hotato lab (see: hotato lab --help).\n"
@@ -8163,7 +8312,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_exit_codes_epilog("test"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    tstsub = tst.add_subparsers(dest="test_command", required=True, metavar="run")
+    tstsub = tst.add_subparsers(dest="test_command", required=True,
+                                metavar="{run,new,from-call}")
     tr_ = tstsub.add_parser(
         "run",
         help="evaluate one conversation-test.yaml against a supplied "
@@ -8198,11 +8348,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    tr_.add_argument("test_file", metavar="conversation-test.yaml",
-                     help="the conversation-test.v1 file to evaluate")
+    tr_.add_argument("test_file", metavar="conversation-test.yaml|cases",
+                     help="the conversation-test.v1 file to evaluate, OR a "
+                          "case directory / persona+goal case file for "
+                          "simulated conversations (docs/TESTS.md)")
     tr_.add_argument("--agent", required=True, metavar="ID",
                      help="agent_id under test (recorded on the conversation "
-                          "artifact)")
+                          "artifact); in simulated-conversation mode the "
+                          "target: chat:URL, vapi:ASSISTANT_ID or "
+                          "retell:AGENT_ID")
     tr_.add_argument("--transcript", default=None, metavar="FILE",
                      help="a transcript JSON (a {role,text,start,end} array or "
                           "the {\"segments\": [...]} shape); phrase/pii/count "
@@ -8238,12 +8392,66 @@ def build_parser() -> argparse.ArgumentParser:
                      help="text (default: the per-dimension summary), html/md "
                           "(the unified report into --out, needs --audio), or "
                           "json (the full machine result)")
-    _add_judge_args(tr_)
+    _add_judge_args(tr_, sim=True)
+    tr_.add_argument("--repeat", type=int, default=None, metavar="N",
+                     help="(simulated-conversation mode) runs per case "
+                          "(default: the case's repeat, else 3)")
+    tr_.add_argument("--min-pass-rate", type=float, default=1.0, metavar="X",
+                     help="(simulated-conversation mode) pass when each case's "
+                          "pass rate is >= X (default 1.0: every repeat must "
+                          "pass)")
+    tr_.add_argument("--egress-opt-in", action="store_true",
+                     help="(simulated-conversation mode) allow the agent "
+                          "target to be off this machine (a non-local chat "
+                          "URL, Vapi, Retell)")
     tr_.add_argument("--gate-judge", action="store_true",
                      help="opt into failing the exit code on a rubric FAIL "
                           "(model-judged results are ADVISORY by default and "
                           "never gate CI on their own)")
     tr_.set_defaults(func=_cmd_test_run)
+
+    tn_ = tstsub.add_parser(
+        "new",
+        help="write a starter simulated-conversation case (persona, goal, "
+             "criteria)",
+        description="Write a starter case for `hotato test run`: YAML when "
+                    "PyYAML is importable, else JSON. See docs/TESTS.md.",
+        epilog=_exit_codes_epilog("test new"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tn_.add_argument("name", metavar="NAME", help="the case name")
+    tn_.add_argument("--out", default=".", metavar="DIR",
+                     help="directory to write into (default: .)")
+    tn_.add_argument("--json", action="store_true",
+                     help="write JSON even when PyYAML is available")
+    tn_.set_defaults(func=_cmd_test_new)
+    tf_ = tstsub.add_parser(
+        "from-call",
+        help="turn a failed production call (transcript or report) into a "
+             "simulated-conversation case",
+        description="Infer a persona and goal from the caller's side of a "
+                    "call and turn the failing moment into a success "
+                    "criterion. Offline; review the case before relying on "
+                    "it. See docs/TESTS.md.",
+        epilog=_exit_codes_epilog("test from-call"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tf_.add_argument("call", metavar="TRANSCRIPT_OR_REPORT",
+                     help="a transcript JSON (turn array or {segments}) or a "
+                          "report JSON carrying one")
+    tf_.add_argument("--name", default=None, metavar="NAME",
+                     help="the case name (default: the input file's name)")
+    tf_.add_argument("--moment", default=None, metavar="TEXT",
+                     help="the failing moment, as a success criterion in plain "
+                          "language")
+    tf_.add_argument("--at", type=float, default=None, metavar="SECONDS",
+                     help="the failing moment's time in the call; the agent "
+                          "reply there becomes the criterion")
+    tf_.add_argument("--out", default=".", metavar="DIR",
+                     help="directory to write into (default: .)")
+    tf_.add_argument("--json", action="store_true",
+                     help="write JSON even when PyYAML is available")
+    tf_.set_defaults(func=_cmd_test_from_call)
 
     # --- suite: run a suite.v1 of conversation-tests -------------------------
     su = sub.add_parser(
@@ -9320,6 +9528,137 @@ def build_parser() -> argparse.ArgumentParser:
                              + ")")
         _add_format_arg(hh, choices=("text", "json"))
         hh.set_defaults(func=_cmd_platform_health, stack=_health_stack)
+
+    # --- monitor: production call monitoring with alerts ---------------------
+    mo = sub.add_parser(
+        "monitor",
+        help="score every new Vapi or Retell call as it arrives and alert "
+             "Slack, PagerDuty or a webhook on your rules",
+        description=(
+            "Production call monitoring. `monitor run` lists new calls on a "
+            "Vapi or Retell account, fetches each recording, checks it with "
+            "the autopsy engine, writes one hotato.monitorevent.v1 file per "
+            "call under STORE/events, and fires the alert rules in your "
+            "rules file to Slack, PagerDuty or a JSON webhook. A call is "
+            "scored once; a restart resumes from the stored cursor. "
+            "`monitor test-alert` sends a labelled test alert through every "
+            "channel your rules name. `monitor pin` turns a monitored call "
+            "into a failure contract through the existing pin path. "
+            "Destinations come from the flags or environment variables "
+            "HOTATO_SLACK_WEBHOOK_URL, HOTATO_PAGERDUTY_ROUTING_KEY and "
+            "HOTATO_MONITOR_WEBHOOK_URL; nothing is sent anywhere you did not "
+            "name. Format and rules: docs/MONITOR.md."
+        ),
+        epilog=_exit_codes_epilog("monitor"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mosub = mo.add_subparsers(dest="monitor_command", required=True,
+                              metavar="run|test-alert|pin")
+
+    def _monitor_dest_args(p):
+        p.add_argument("--slack-webhook-url", default=None, metavar="URL",
+                       help="Slack incoming-webhook URL (else "
+                            "HOTATO_SLACK_WEBHOOK_URL)")
+        p.add_argument("--pagerduty-routing-key", default=None, metavar="KEY",
+                       help="PagerDuty Events API v2 integration key (else "
+                            "HOTATO_PAGERDUTY_ROUTING_KEY)")
+        p.add_argument("--webhook-url", default=None, metavar="URL",
+                       help="generic JSON webhook URL (else "
+                            "HOTATO_MONITOR_WEBHOOK_URL)")
+
+    mr = mosub.add_parser(
+        "run",
+        help="score new calls and fire alert rules, once or every interval",
+        description=(
+            "Each cycle: list calls newer than the stored cursor, fetch each "
+            "recording, score it, write STORE/events/<call>.json, evaluate "
+            "the rules and send alerts. A mono recording needs --allow-mono "
+            "and is then reported best-effort with a null score."
+        ),
+        epilog=(
+            _exit_codes_epilog("monitor run") + "\n\n"
+            "Examples:\n"
+            "  hotato monitor run --stack vapi --once --rules rules.json\n"
+            "  hotato monitor run --stack retell --every 5m --rules rules.json "
+            "--store ./monitor"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mr.add_argument("--stack", required=True, choices=("vapi", "retell"),
+                    help="the voice platform to monitor")
+    mr.add_argument("--every", default="5m", metavar="INTERVAL",
+                    help="time between cycles, e.g. 30s, 5m, 1h (default 5m)")
+    mr.add_argument("--once", action="store_true",
+                    help="run one cycle and exit")
+    mr.add_argument("--rules", default=None, metavar="FILE",
+                    help="alert rules JSON (see docs/MONITOR.md); without it "
+                         "calls are scored and recorded but nothing is sent")
+    mr.add_argument("--store", default="hotato-monitor", metavar="DIR",
+                    help="state, event and recording directory "
+                         "(default hotato-monitor)")
+    mr.add_argument("--since", default="1h", metavar="WINDOW",
+                    help="how far back the FIRST cycle looks when the store "
+                         "has no cursor yet (default 1h)")
+    mr.add_argument("--limit", type=int, default=50, metavar="N",
+                    help="maximum calls listed per cycle (default 50)")
+    mr.add_argument("--allow-mono", action="store_true",
+                    help="also score a mono recording, best-effort (silence "
+                         "timing only, no score)")
+    mr.add_argument("--api-key", default=None,
+                    help="vendor API key (else the connection store or "
+                         "VAPI_API_KEY / RETELL_API_KEY)")
+    mr.add_argument("--report-url-base", default=None, metavar="URL",
+                    help="alerts link to URL/<report file> instead of a "
+                         "local path")
+    _monitor_dest_args(mr)
+    _add_format_arg(mr, choices=("text", "json"))
+    mr.set_defaults(func=_cmd_monitor_run)
+
+    mt = mosub.add_parser(
+        "test-alert",
+        help="send a labelled test alert through every channel the rules name",
+        description=(
+            "Posts one clearly marked TEST alert per rule and channel. "
+            "PagerDuty receives a trigger and an immediate resolve of a "
+            "test-only dedup key."
+        ),
+        epilog=_exit_codes_epilog("monitor test-alert"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mt.add_argument("--rules", required=True, metavar="FILE",
+                    help="alert rules JSON")
+    _monitor_dest_args(mt)
+    _add_format_arg(mt, choices=("text", "json"))
+    mt.set_defaults(func=_cmd_monitor_test_alert)
+
+    mp = mosub.add_parser(
+        "pin",
+        help="turn one monitored call into a failure contract",
+        description=(
+            "Resolves CALL_ID in the monitor store and pins its top critical "
+            "incident (or --incident N) through hotato pin."
+        ),
+        epilog=_exit_codes_epilog("monitor pin"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mp.add_argument("call_id", metavar="CALL_ID",
+                    help="a call id from STORE/events")
+    mp.add_argument("--store", default="hotato-monitor", metavar="DIR",
+                    help="the monitor store (default hotato-monitor)")
+    mp.add_argument("--incident", type=int, default=None, metavar="N",
+                    help="1-based incident rank (default: top critical)")
+    mp.add_argument("--out", default="contracts", metavar="DIR",
+                    help="contract directory (default contracts)")
+    mp.add_argument("--expect", choices=("yield", "hold"), default=None,
+                    help="override the yield/hold decision (see hotato pin)")
+    mp.add_argument("--id", dest="contract_id", default=None,
+                    help="contract id")
+    mp.add_argument("--reviewer", default=None,
+                    help="accountable reviewer's name")
+    mp.add_argument("--force", action="store_true",
+                    help="overwrite an existing bundle with the same id")
+    _add_format_arg(mp, choices=("text", "json"))
+    mp.set_defaults(func=_cmd_monitor_pin)
 
     syn = sub.add_parser(
         "synth",
@@ -11215,6 +11554,10 @@ def build_parser() -> argparse.ArgumentParser:
     from . import ops_cli as _ops_cli
 
     _ops_cli.register(sub, epilog_factory=_exit_codes_epilog)
+
+    from . import cloud_cli as _cloud_cli
+
+    _cloud_cli.register(sub, _exit_codes_epilog)
 
     # The lab listing (`hotato lab --help`) renders from the (name, help)
     # pairs the router collected while the commands above registered.
