@@ -100,7 +100,7 @@ While the kill flag is set the jobs send no heartbeats, so the heartbeat alerts 
 
 **Log contract every job keeps** (one JSON object per line on stdout; Cloud Run turns it into a structured log entry):
 
-- On success, exactly one line: `{"hotato_heartbeat": "<job>", "severity": "INFO"}`. `<job>` is the short name (`atlas`, `upkeep`, `builder`, ...), the same as in `runs/<job>/`. This feeds the log metric `hotato_heartbeat`.
+- On success, exactly one line: `{"hotato_heartbeat": "<job>", "severity": "INFO"}`. `<job>` is the short name (`atlas`, `upkeep`, `builder`, ...), the same as in `runs/<job>/`. This feeds the log metric `hotato_heartbeat`. The store file `heartbeats/<job>.json` records `outcome` "ok" for a run that did its work and "skipped" for one that woke and did nothing (store busy, nothing to do, spend cap reached); both count as alive. `last_ok` is the time of the latest "ok" run, carried forward over skips (null when none is known), so a job that only ever skips still shows as stale.
 - On anything the owner should see: `{"hotato_alert": "<kind>", "severity": "WARNING" or "ERROR", "detail": "...", "job": "<job>"}`. Any line with `hotato_alert` at WARNING or above raises an alert to the lanes. `<kind>` is a short stable word, for example `job_crash` or `gate_violation`.
 - A new job needs a schedule in `infra/schedule.tf`; its heartbeat alert is then made automatically. A job with no schedule makes `terraform plan` print a warning.
 

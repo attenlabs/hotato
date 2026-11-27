@@ -11,6 +11,7 @@ Any other value is treated as "1".
 
 Logging contract (Cloud Logging parses one JSON object per stdout line):
   success  {"hotato_heartbeat": "<job>", "severity": "INFO"}  + heartbeats/<job>.json in the store
+           (outcome "ok", or "skipped" when the job woke and did nothing)
   alert    {"hotato_alert": "<kind>", "severity": "WARNING"|"ERROR", "detail": "...", "job": "<job>"}
 """
 import base64
@@ -169,9 +170,24 @@ def version():
 
 
 def heartbeat(store, job, outcome="ok", mode=None):
+    """`time` is the latest write; `last_ok` the latest run that did its work. A skipped run carries
+    the previous file's `last_ok` forward (null when that file is missing or unreadable), so a job
+    that only ever skips still looks stale to a monitor reading `last_ok`."""
     _emit({"hotato_heartbeat": job, "severity": "INFO"})
-    store.put_json(f"{HEARTBEAT_PREFIX}{job}.json",
-                   {"time": now().isoformat(), "outcome": outcome, "version": version(), "mode": mode})
+    key = f"{HEARTBEAT_PREFIX}{job}.json"
+    at = now().isoformat()
+    if outcome == "ok":
+        last_ok = at
+    else:
+        try:
+            prev = store.get_json(key)
+            last_ok = prev.get("last_ok") if isinstance(prev, dict) else None
+            if last_ok is None and isinstance(prev, dict) and "last_ok" not in prev and prev.get("outcome") == "ok":
+                last_ok = prev.get("time")  # file written before last_ok existed: its ok `time` is the last good run
+        except Exception:  # unreadable previous heartbeat: no known last good run
+            last_ok = None
+    store.put_json(key, {"time": at, "outcome": outcome, "last_ok": last_ok,
+                         "version": version(), "mode": mode})
 
 
 def gate_violation(rec, kind, detail):
@@ -223,6 +239,12 @@ def _check_github(name, rec):
                   "shadow job cannot be promoted without a GitHub credential", name)
 
 
+def skipped(rec):
+    """A run that did nothing: fn set rec["skipped"] or returned a dict with a "skipped" key."""
+    res = rec.get("result")
+    return bool(rec.get("skipped")) or (isinstance(res, dict) and bool(res.get("skipped")))
+
+
 def run_job(name, fn, store=None):
     """Kill switch first, then run fn(store, record); always write a run record.
     An unhandled exception in fn logs hotato_alert job_crash and is re-raised."""
@@ -262,7 +284,9 @@ def run_job(name, fn, store=None):
         except Exception as exc:
             alert("promotion_state_error", "ERROR", f"end: {type(exc).__name__}: {exc}", name)
         if rec["status"] == "ok":
-            heartbeat(store, name, "ok", rec.get("mode"))
+            # "skipped": the job woke and did nothing (store busy, nothing to do, cap reached),
+            # so a monitor can tell it from a run that did its work.
+            heartbeat(store, name, "skipped" if skipped(rec) else "ok", rec.get("mode"))
         _emit({k: rec[k] for k in ("job", "status")})
     except Exception as exc:
         if crash is None:  # failure outside fn (state bucket unreachable, ...)
@@ -281,9 +305,21 @@ def main_guard(name, fn):
 
 # ---- HTTP ---------------------------------------------------------------------
 
+USER_AGENT = "hotato-autopilot"  # urllib's default "Python-urllib/x.y" gets HTTP 403 from hotato.dev
+
+
+def request_headers(headers=None):
+    """Caller headers plus a default User-Agent; a caller's own User-Agent (any case) wins."""
+    h = dict(headers or {})
+    if not any(k.lower() == "user-agent" for k in h):
+        h["User-Agent"] = USER_AGENT
+    return h
+
+
 def http_resp(url, method="GET", headers=None, data=None, timeout=30):
-    """-> (status, headers{lower-case: value}, body). Raises urllib.error.HTTPError on 4xx/5xx."""
-    req = urllib.request.Request(url, method=method, headers=headers or {}, data=data)
+    """-> (status, headers{lower-case: value}, body). Raises urllib.error.HTTPError on 4xx/5xx.
+    Sends User-Agent hotato-autopilot unless the caller sets its own."""
+    req = urllib.request.Request(url, method=method, headers=request_headers(headers), data=data)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read()
 

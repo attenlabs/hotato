@@ -277,3 +277,87 @@ def test_dot_directories_stay_owner_only():
         assert policy.classify_file(f, cfg) == "owner_only", f
     assert builder.forbidden_paths([".github/workflows/tests.yml"]) == [".github/workflows/tests.yml"]
     assert policy.classify_file("./docs/a.md", cfg) == "docs"
+
+
+# --- freshness.work: atlas newest, grade badge, alerts (network mocked)
+def _freshness_env(monkeypatch, tmp_path, badge=None, badge_exc=None, newest=None):
+    monkeypatch.delenv("DRY_RUN", raising=False)  # shadow: no issues opened, alerts still go out
+    monkeypatch.setenv("SITE_URL", "https://h.dev")
+    st = common.Store(local_dir=str(tmp_path))
+    if newest is not None:
+        st.put_json("atlas/newest.json", newest)
+    sitemap = '<urlset xmlns="x"><url><loc>https://h.dev/</loc></url></urlset>'
+    pages = {"https://h.dev": "version 1.2.3", "https://h.dev/sitemap.xml": sitemap}
+    monkeypatch.setattr(freshness, "fetch", lambda u: pages.get(u, "hotato==1.2.3"))
+    monkeypatch.setattr(freshness, "link_ok", lambda u: True)
+    monkeypatch.setattr(freshness, "now", lambda: AT)
+
+    def get_json(url, headers=None):
+        if "pypi.org" in url:
+            return {"info": {"version": "1.2.3"}}
+        if url == freshness.GRADE_BADGE_URL:
+            if badge_exc:
+                raise badge_exc
+            return badge
+        if url.endswith("/check-runs"):
+            return {"check_runs": []}
+        return []  # open issues
+    monkeypatch.setattr(freshness, "get_json", get_json)
+    return st
+
+
+def _alerts(capsys):
+    out = [json.loads(ln) for ln in capsys.readouterr().out.splitlines() if ln.startswith("{")]
+    return {o["hotato_alert"]: o for o in out if "hotato_alert" in o}
+
+
+def test_freshness_all_clear(monkeypatch, tmp_path, capsys):
+    st = _freshness_env(monkeypatch, tmp_path, badge={"message": "A · 78"},
+                        newest={"ts": "2026-11-25T14:00:00Z"})
+    rec = {}
+    assert freshness.work(st, rec)["failed"] == []
+    assert rec["problems"] == {} and _alerts(capsys) == {}
+
+
+def test_freshness_missing_atlas_newest_is_a_problem_and_alerts(monkeypatch, tmp_path, capsys):
+    st = _freshness_env(monkeypatch, tmp_path, badge={"message": "A · 78"})
+    rec = {}
+    assert freshness.work(st, rec)["failed"] == ["atlas_newest"]
+    assert rec["problems"]["atlas_newest"] == "missing"
+    assert rec["issues"]["atlas_newest"] == "dry-run"  # open_issue unchanged (shadow)
+    a = _alerts(capsys)["freshness_atlas_newest"]
+    assert a["severity"] == "WARNING" and "missing" in a["detail"]
+
+
+def test_freshness_stale_atlas_still_atlas_age(monkeypatch, tmp_path, capsys):
+    st = _freshness_env(monkeypatch, tmp_path, badge={"message": "A"}, newest={"ts": "2026-11-20T00:00:00Z"})
+    rec = {}
+    assert freshness.work(st, rec)["failed"] == ["atlas_age"]
+    assert "freshness_atlas_age" in _alerts(capsys)
+
+
+def test_freshness_grade_below_a(monkeypatch, tmp_path, capsys):
+    st = _freshness_env(monkeypatch, tmp_path, badge={"message": "B · 64"},
+                        newest={"ts": "2026-11-25T14:00:00Z"})
+    rec = {}
+    assert freshness.work(st, rec)["failed"] == ["health_grade_below_a"]
+    assert rec["problems"]["health_grade_below_a"] == "B · 64"
+    assert "B · 64" in _alerts(capsys)["freshness_health_grade_below_a"]["detail"]
+
+
+def test_freshness_grade_fetch_failure_is_its_own_problem(monkeypatch, tmp_path, capsys):
+    import urllib.error
+    st = _freshness_env(monkeypatch, tmp_path, badge_exc=urllib.error.URLError("down"),
+                        newest={"ts": "2026-11-25T14:00:00Z"})
+    rec = {}
+    assert freshness.work(st, rec)["failed"] == ["health_grade_unreadable"]
+    assert "URLError" in rec["problems"]["health_grade_unreadable"]
+    assert "freshness_health_grade_unreadable" in _alerts(capsys)
+
+
+def test_grade_is_a():
+    assert freshness.grade_is_a({"message": "A · 78"})
+    assert freshness.grade_is_a({"message": " A+"})
+    assert not freshness.grade_is_a({"message": "B · 64"})
+    assert not freshness.grade_is_a({"label": "grade"})
+    assert not freshness.grade_is_a(None)
