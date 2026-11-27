@@ -119,14 +119,36 @@ def test_scorecard_math():
     assert scorecard.pull_score(3, 2, 1) == 12
 
 
+def _backlog_md():
+    import os
+    return open(os.path.join(os.path.dirname(__file__), "..", "BACKLOG.md")).read()
+
+
 def test_backlog_reorder_roundtrip():
-    md = (open(__import__("os").path.join(__import__("os").path.dirname(__file__), "..", "BACKLOG.md")).read())
-    head, items = scorecard.parse_backlog(md)
-    assert len(items) == 9
-    new = scorecard.reorder(items, top="judge prompt")
-    assert new[0].startswith("Tune the judge prompt") and sorted(new) == sorted(items)
+    head, items = scorecard.parse_backlog(_backlog_md())
+    assert len(items) == 38
+    new = scorecard.reorder(items, top="human review queue")
+    assert new[0].startswith("W2.6a ") and sorted(new) == sorted(items)
     assert scorecard.reorder(items) == items
     assert scorecard.parse_backlog(scorecard.render_backlog(head, new))[1] == new
+
+
+def test_backlog_items_fit_a_pr_title_and_builder_takes_the_first():
+    md = _backlog_md()
+    _, items = scorecard.parse_backlog(md)
+    assert items and all(len(t) <= 250 for t in items)
+    assert builder.top_item(md) == items[0] and items[0].startswith("W2.1a ")
+
+
+def test_every_measure_maps_to_exactly_one_backlog_item():
+    import os
+    path = os.path.join(os.path.dirname(scorecard.__file__), "measure_items.json")
+    serves = json.load(open(path))
+    _, items = scorecard.parse_backlog(_backlog_md())
+    assert sorted(serves) == sorted(scorecard.MEASURES)
+    for measure, sub in serves.items():
+        hits = [t for t in items if sub.lower() in t.lower()]
+        assert len(hits) == 1, (measure, sub, hits)
 
 
 # --- upkeep

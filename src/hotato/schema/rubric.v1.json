@@ -72,7 +72,7 @@
           "properties": {
             "model": { "type": "string", "description": "The pinned model id (never 'latest')." },
             "model_digest": { "type": ["string", "null"], "description": "The model's content digest from the backend (Ollama /api/tags), pinning exactly which weights judged. Null only when the backend could not report one (then status is ERROR/INCONCLUSIVE)." },
-            "provider": { "type": "string", "description": "The judge backend: 'ollama' (local, default, zero egress), 'hosted' (opt-in egress), or 'fake' (test double)." },
+            "provider": { "type": "string", "description": "The judge backend: 'ollama' (local, default, zero egress), 'hosted' (opt-in egress), 'custom' (a judged custom metric plugin is the judge; its model and temperature are listed in declared_by_plugin because they are the plugin's declaration, not observed by hotato), or 'fake' (test double)." },
             "prompt_id": { "type": "string" },
             "prompt_version": { "type": "integer", "minimum": 1 },
             "prompt_sha256": { "type": "string" },
@@ -107,6 +107,20 @@
               "type": ["object", "null"],
               "description": "OPTIONAL (only on a --no-cache re-query when a cached verdict existed): a diff surfacing that the fresh verdict differs from the cached one. Never hidden."
             }
+          }
+        },
+        "custom": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "OPTIONAL. Present only when a judged custom metric plugin (hotato.metrics, rubric kind `custom`) produced this result: the metric name, lane, version, plugin source (relative path or entry-point:<name>) and that file's sha256, and the evidence hotato checked against the call. A pass without matching evidence is INCONCLUSIVE with claimed_status set to what the plugin returned.",
+          "properties": {
+            "metric": { "type": "string" },
+            "lane": { "const": "judged" },
+            "version": { "type": "integer", "minimum": 1 },
+            "source": { "type": "string" },
+            "source_sha256": { "type": ["string", "null"] },
+            "evidence": { "type": "array", "items": { "type": "object" } },
+            "claimed_status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] }
           }
         },
         "input_refs": {

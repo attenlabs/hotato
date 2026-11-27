@@ -156,6 +156,24 @@ def test_attestation_job_grants_write_permission():
     assert "id-token: write" in text, "id-token: write is required for attestation/OIDC"
 
 
+def test_publish_job_attests_the_sboms_outside_the_package_dir():
+    path = os.path.join(WORKFLOWS_DIR, "publish-pypi-oidc.yml")
+    if not os.path.isfile(path):
+        pytest.skip("publish workflow not present (minimal sdist?)")
+    text = _read(path)
+    publish = text[text.index("\n  publish:"):]
+    # the SBOM artifact is downloaded into the publish job, into sbom/ ...
+    assert re.search(r"name:\s*hotato-sbom\s*\n\s*path:\s*sbom/", publish), (
+        "the publish job does not download the hotato-sbom artifact into sbom/"
+    )
+    # ... and the provenance attestation covers it next to the wheel and sdist
+    subjects = publish[publish.index("subject-path:"):].split("\n\n", 1)[0]
+    for pattern in ("dist/*.whl", "dist/*.tar.gz", "sbom/*.cdx.json"):
+        assert pattern in subjects, f"attestation subject-path is missing {pattern}"
+    # never into dist/, which the PyPI publish step uploads wholesale
+    assert "dist/*.cdx.json" not in publish
+
+
 # ---------------------------------------------------------------------------
 # (d) a reproducible / second-build hash-comparison step exists
 # ---------------------------------------------------------------------------

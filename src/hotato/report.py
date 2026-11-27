@@ -848,6 +848,26 @@ def _assertions_headline(assertions: dict, rubric: Optional[dict] = None):
     return headline, d_inconclusive
 
 
+def _custom_evidence_text(block: dict) -> str:
+    """The checked citations of a custom metric result, as one short line."""
+    parts = []
+    for ev in block.get("evidence") or []:
+        if "turn" in ev:
+            q = ev.get("quote")
+            parts.append(f'turn {ev["turn"]}' + (f': "{q}"' if q else ""))
+        elif "span_id" in ev:
+            parts.append(f'trace {ev["span_id"]}')
+        elif "event" in ev:
+            parts.append(f'event {ev["event"]} {ev.get("field", "")}')
+    return " · ".join(parts)
+
+
+def _custom_label(block: dict) -> str:
+    """'custom metric NAME vN · SOURCE' -- names the plugin code behind a result."""
+    return (f'custom metric {block.get("metric", "")} v{block.get("version", 1)}'
+            f' · {block.get("source", "")}')
+
+
 def _assertion_kind_body(r: dict) -> str:
     """Kind-specific fields already present on THIS result -- nothing here is
     recomputed or fabricated; a field the result did not carry (e.g. a
@@ -913,6 +933,13 @@ def _assertion_kind_body(r: dict) -> str:
             parts.append(
                 f'<div class="asrtline mono">{met} of {of} predicate(s) met</div>'
             )
+
+    elif kind == "custom":
+        block = r.get("custom") or {}
+        parts.append(f'<div class="asrtline mono">{_esc(_custom_label(block))}</div>')
+        ev = _custom_evidence_text(block)
+        if ev:
+            parts.append(f'<div class="asrtline mono">evidence: {_esc(ev)}</div>')
 
     return "".join(parts)
 
@@ -1362,6 +1389,14 @@ def _judge_card(r: dict) -> str:
                 q = c.get("quote", "")
                 parts.append(f'turn {_esc(str(c.get("turn", "")))}: “{_esc(q)}”')
         cite_html = ('<div class="jcite mono">cites ' + " · ".join(parts) + '</div>')
+    custom_html = ""
+    custom = r.get("custom")
+    if isinstance(custom, dict):
+        ev = _custom_evidence_text(custom)
+        custom_html = (f'<div class="jcite mono">{_esc(_custom_label(custom))}'
+                       ' · model and temperature declared by the plugin</div>')
+        if ev:
+            custom_html += f'<div class="jcite mono">evidence: {_esc(ev)}</div>'
     rev = r.get("review") or {}
     review_html = ""
     if rev.get("human_required"):
@@ -1376,13 +1411,13 @@ def _judge_card(r: dict) -> str:
     return (
         '<div class="jcard" style="border-left:3px solid ' + _C["ember"] + '">'
         '<div class="achead">'
-        f'<div><span class="kindtag mono">rubric</span> '
+        f'<div><span class="kindtag mono">{"rubric · custom" if custom_html else "rubric"}</span> '
         f'<span class="mono aid">{_esc(r.get("id", ""))}</span> '
         '<span class="detflag mono">deterministic:false</span></div>'
         f'<div class="chip small" style="background:{chip_c}">{_esc(status)}</div>'
         '</div>'
         f'<div class="jprov mono">{prov}</div>'
-        f'{rationale_html}{cite_html}{review_html}{drift_html}'
+        f'{rationale_html}{custom_html}{cite_html}{review_html}{drift_html}'
         '</div>'
     )
 
@@ -3230,10 +3265,17 @@ def _md_row(cells) -> str:
 def _assertion_md_row(r: dict) -> str:
     """One result as a Markdown table row (id, kind, status, deterministic,
     detail) -- the same cells used by the flat table and the scorecard."""
+    detail = r.get("reason", "")
+    custom = r.get("custom")
+    if isinstance(custom, dict):
+        ev = _custom_evidence_text(custom)
+        detail = " -- ".join(x for x in (_custom_label(custom),
+                                         f"evidence: {ev}" if ev else "",
+                                         detail) if x).replace("|", "\\|")
     return _md_row([
         r.get("id", ""), r.get("kind", ""), r.get("status", ""),
         str(bool(r.get("deterministic", True))).lower(),
-        r.get("reason", ""),
+        detail,
     ])
 
 
@@ -3313,9 +3355,14 @@ def _judge_shelf_md(rubric: dict) -> list:
         if digest:
             model = f"{model}@{digest[:12]}"
         cached = "cached" if j.get("cached") else "fresh"
+        rationale = r.get("rationale") or ""
+        custom = r.get("custom")
+        if isinstance(custom, dict):
+            model = f"{model} (declared by the plugin)"
+            rationale = f"{_custom_label(custom)} -- {rationale}"
         L.append(_md_row([
             r.get("id", ""), r.get("status", ""), "false", model, cached,
-            (r.get("rationale") or "").replace("|", "\\|"),
+            rationale.replace("|", "\\|"),
         ]))
     L.append("")
     return L

@@ -45,6 +45,7 @@ New here? Run `hotato autopsy ./call.wav` on one recording
 - [SDK.md](SDK.md) - the typed Python SDK facade over the CLI
 - [MCP.md](MCP.md) - the hotato MCP server and its tools, over stdio
 - [METHODOLOGY.md](../METHODOLOGY.md) - how the timing measurement works, end to end
+- [SECURITY-PACKET.md](SECURITY-PACKET.md) - one page for a security review: licence, data flow, provenance, SBOM, reporting
 - [THREAT-MODEL.md](THREAT-MODEL.md) - which commands are offline, which reach the network
 - [EGRESS.md](EGRESS.md) - every network call site mapped to its command
 - [VALIDATION.md](VALIDATION.md) - the three separate jobs hotato is validated on
@@ -66,6 +67,7 @@ name that worked before 1.17 still runs unchanged.
 - [ANALYZE.md](ANALYZE.md) - drop a folder, rank and hear the worst moments
 - [ASSERTIONS.md](ASSERTIONS.md) - deterministic typed assertions over transcript, trace, and timing
 - [RUBRIC.md](RUBRIC.md) - the model-judged rubric lane, scored with a pinned local model
+- [CUSTOM-METRICS.md](CUSTOM-METRICS.md) - your own checks as Python functions, reported like the built-in ones
 - [EXPLAIN.md](EXPLAIN.md) - root-cause-by-layer attribution from existing results
 - [STATE-ADAPTERS.md](STATE-ADAPTERS.md) - ground state assertions in your system of record
 - [scenarios/dtmf-verification.md](scenarios/dtmf-verification.md) - verify DTMF reached the far end

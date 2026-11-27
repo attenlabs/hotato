@@ -1,7 +1,7 @@
 {
-  "reach": "Instant shareable first result",
-  "activation": "Voice-mode persona tests",
-  "retention": "Human review",
-  "pull": "Import existing test suites",
-  "value": "Tune the judge prompt"
+  "reach": "W2.3b ",
+  "activation": "W2.1a ",
+  "retention": "W2.6a ",
+  "pull": "W2.2b ",
+  "value": "W2.6b "
 }

@@ -87,6 +87,7 @@ __all__ = [
     "validate_assertions_doc",
     "KINDS",
     "RUBRIC_KINDS",
+    "CUSTOM_KIND",
     "ALL_KINDS",
     "RESULT_DIMENSIONS",
     "DETECTOR_NAMES",
@@ -183,9 +184,20 @@ KINDS = (
 # ``{"pass": 0, "fail": 0}`` quarantine and the deterministic guarantee holds.
 RUBRIC_KINDS = ("human_rubric", "judge_rubric")
 
+# A team's own metric, written as a plain Python function and loaded as a
+# plugin (:mod:`hotato.metrics`). Kept OUT of :data:`KINDS` (the built-in
+# deterministic wall) because its logic is the plugin author's, not hotato's:
+# a ``custom`` assertion names a registered metric (``metric: <name>``, plus
+# optional ``params``). A deterministic metric is evaluated here, after hotato
+# has checked it returns the same answer twice on the same input and that its
+# evidence matches the call; a judged metric is routed out to the rubric lane
+# as INCONCLUSIVE, exactly like the rubric kinds below, so it can never count
+# as a deterministic result.
+CUSTOM_KIND = "custom"
+
 # Every recognized assertion kind -- what ``validate_assertions_doc`` accepts
 # and what the schema's ``result.kind`` enum lists.
-ALL_KINDS = KINDS + RUBRIC_KINDS
+ALL_KINDS = KINDS + (CUSTOM_KIND,) + RUBRIC_KINDS
 
 # The five report DIMENSIONS a result may be TAGGED with (a grouping key for
 # the per-dimension scorecard the report renders -- never a weight, never part
@@ -1429,6 +1441,25 @@ def _validate_expanded_kind_fields(aid: str, kind: str, item: Dict[str, Any]) ->
             raise ValueError(
                 f"assertion {aid!r} (order): 'case_sensitive' must be a boolean"
             )
+
+    elif kind == CUSTOM_KIND:
+        name = item.get("metric")
+        if not isinstance(name, str) or not name:
+            raise ValueError(
+                f"assertion {aid!r} (custom): 'metric' is required and must be "
+                "the name of a registered custom metric"
+            )
+        params = item.get("params")
+        if params is not None and not isinstance(params, dict):
+            raise ValueError(
+                f"assertion {aid!r} (custom): 'params' (optional) must be a mapping"
+            )
+        # Resolving the name here (not at evaluation) keeps the up-front
+        # contract: an unknown metric, or a plugin that fails to load, is a
+        # usage error (exit 2) before any assertion has run.
+        from . import metrics as _metrics
+
+        _metrics.get_metric(name)
 
     elif kind in RUBRIC_KINDS:
         # The rubric-object shape is validated by the model-judge engine
@@ -2881,6 +2912,55 @@ def _when_skip_result(
     return result
 
 
+def _eval_custom(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
+    """A ``custom`` assertion: run the registered plugin metric it names
+    (:func:`hotato.metrics.run_metric`) against this context. The result
+    carries a ``custom`` block naming the metric, its version, the plugin
+    source and that file's sha256, and the checked evidence, so a report
+    shows exactly which code produced the verdict.
+
+    A judged metric never runs here: it is routed out as INCONCLUSIVE pointing
+    to the rubric lane, so ``deterministic: true`` stays true of every result
+    in this envelope. A plugin that raises, returns something malformed, or
+    answers differently on the same input raises ``ValueError`` (exit 2): no
+    verdict is guessed for it."""
+    from . import metrics as _metrics
+
+    spec = _metrics.get_metric(a["metric"])
+    result = _base_result(a)
+    if "dimension" not in result and spec.dimension:
+        result["dimension"] = spec.dimension
+    block: Dict[str, Any] = {
+        "metric": spec.name,
+        "lane": spec.lane,
+        "version": spec.version,
+        "source": spec.source,
+        "source_sha256": spec.source_sha256,
+    }
+    result["custom"] = block
+    if spec.judged:
+        result["status"] = "INCONCLUSIVE"
+        result["reason"] = (
+            f"custom metric {spec.name} is judged; judged metrics run in the "
+            "rubric lane (a conversation-test's assertions.rubric, or hotato "
+            "rubric run), not the deterministic assert.v1 lane"
+        )
+        block["evidence"] = []
+        return result
+    outcome = _metrics.run_metric(
+        spec, transcript=ctx.transcript, spans=ctx.spans, timing=ctx.timing,
+        params=a.get("params"),
+    )
+    result["status"] = outcome["status"]
+    if outcome.get("reason"):
+        result["reason"] = outcome["reason"]
+    block["evidence"] = outcome["evidence"]
+    for key in ("measured", "claimed_status", "missing"):
+        if key in outcome:
+            block[key] = outcome[key]
+    return result
+
+
 def _eval_rubric_stub(a: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     """The model-judged ``human_rubric``/``judge_rubric`` kinds do NOT run in the
     deterministic ``assert.v1`` lane -- they run in the SEPARATE rubric lane
@@ -2957,6 +3037,8 @@ def _inconclusive_noun(a: Dict[str, Any]) -> str:
         return "trace"
     if kind == "formula":
         return "referenced-result"
+    if kind == CUSTOM_KIND:
+        return "custom-metric input"
     return "input"
 
 
@@ -3124,6 +3206,12 @@ def _pub_order(a, r):
     return "A required ordering of two declared phrases did not hold."
 
 
+def _pub_custom(a, r):
+    name = _safe_id(a.get("metric"))
+    return (f"The custom metric {name} was not satisfied." if name
+            else "A custom metric was not satisfied.")
+
+
 _PUBLIC_FAIL = {
     "phrase": _pub_phrase, "pii": _pub_pii, "policy": _pub_policy,
     "tool_call": _pub_tool_call, "tool_result": _pub_tool_result,
@@ -3134,7 +3222,7 @@ _PUBLIC_FAIL = {
     "timing_contract": _pub_timing_contract,
     "entity_accuracy": _pub_entity_accuracy, "sequence": _pub_sequence,
     "count": _pub_count, "outcome": _pub_outcome, "formula": _pub_formula,
-    "order": _pub_order,
+    "order": _pub_order, "custom": _pub_custom,
 }
 
 
@@ -3188,6 +3276,7 @@ _EVALUATORS = {
     "count": _eval_count,
     "formula": _eval_formula_standalone,
     "order": _eval_order,
+    "custom": _eval_custom,
     "human_rubric": _eval_rubric_stub,
     "judge_rubric": _eval_rubric_stub,
 }
@@ -3404,7 +3493,13 @@ def render_run_text(env: Dict[str, Any]) -> str:
         )
         for r in results:
             reason = f" -- {r['reason']}" if r.get("reason") else ""
-            lines.append(f"  {r['status']:<12} {r['id']}{reason}")
+            label = ""
+            custom = r.get("custom")
+            if isinstance(custom, dict):
+                # Custom checks say so on every line: the metric name and the
+                # plugin file whose code produced the verdict.
+                label = f" (custom metric {custom.get('metric')}, {custom.get('source')})"
+            lines.append(f"  {r['status']:<12} {r['id']}{label}{reason}")
 
     det = env["summary"]["deterministic"]
     judge = env["summary"]["judge"]

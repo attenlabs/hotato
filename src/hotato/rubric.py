@@ -219,6 +219,8 @@ def validate_rubric_object(obj: Any) -> Dict[str, Any]:
     rid = obj.get("id")
     if not rid or not isinstance(rid, str):
         raise ValueError("rubric is missing a string 'id'")
+    if obj.get("kind") == CUSTOM_KIND:
+        return _validate_custom_rubric(obj, rid)
     criterion = obj.get("criterion")
     if not criterion or not isinstance(criterion, str):
         raise ValueError(f"rubric {rid!r} is missing a non-empty string 'criterion'")
@@ -226,7 +228,8 @@ def validate_rubric_object(obj: Any) -> Dict[str, Any]:
     kind = obj.get("kind", "judge_rubric")
     if kind not in ("judge_rubric", "human_rubric"):
         raise ValueError(
-            f"rubric {rid!r}: 'kind' must be 'judge_rubric' or 'human_rubric', "
+            f"rubric {rid!r}: 'kind' must be 'judge_rubric', 'human_rubric' or "
+            "'custom', "
             f"got {kind!r}"
         )
 
@@ -296,6 +299,142 @@ def validate_rubric_object(obj: Any) -> Dict[str, Any]:
     if dim is not None:
         norm["dimension"] = dim
     return norm
+
+
+# A judged custom metric (hotato.metrics plugin) in the rubric lane: the plugin
+# function is the judge. ``kind: custom`` + ``metric: <name>`` (+ optional
+# ``params``, ``criterion``, ``dimension``). Only metrics declared judged belong
+# here; a deterministic one is refused so it is never relabelled
+# deterministic:false.
+CUSTOM_KIND = "custom"
+
+
+def _validate_custom_rubric(obj: Dict[str, Any], rid: str) -> Dict[str, Any]:
+    from . import metrics as _metrics
+
+    name = obj.get("metric")
+    if not isinstance(name, str) or not name:
+        raise ValueError(
+            f"rubric {rid!r} (custom): 'metric' is required and must name a "
+            "registered judged custom metric"
+        )
+    params = obj.get("params")
+    if params is not None and not isinstance(params, dict):
+        raise ValueError(f"rubric {rid!r} (custom): 'params' (optional) must be a mapping")
+    dim = obj.get("dimension")
+    if dim is not None and dim not in _REPORT_DIMENSIONS:
+        raise ValueError(
+            f"rubric {rid!r}: 'dimension' must be one of {_REPORT_DIMENSIONS}, "
+            f"got {dim!r}"
+        )
+    spec = _metrics.get_metric(name)
+    if not spec.judged:
+        raise ValueError(
+            f"rubric {rid!r} (custom): metric {name!r} is deterministic; put it "
+            "in the deterministic lane (assertions.deterministic / hotato assert "
+            "run) so it is counted with the deterministic checks"
+        )
+    criterion = obj.get("criterion")
+    if criterion is not None and (not isinstance(criterion, str) or not criterion):
+        raise ValueError(f"rubric {rid!r} (custom): 'criterion' must be a non-empty string")
+    norm = dict(obj)
+    norm["id"] = rid
+    norm["kind"] = CUSTOM_KIND
+    norm["metric"] = name
+    norm["params"] = dict(params or {})
+    norm["criterion"] = criterion or spec.description or f"custom metric {name}"
+    review = dict(obj.get("review") or {})
+    hro = review.get("human_required_on", ["fail"])
+    if not isinstance(hro, list) or any(h not in ("fail",) for h in hro):
+        raise ValueError(
+            f"rubric {rid!r} (custom): 'review.human_required_on' may only list 'fail'"
+        )
+    norm["review"] = {"human_required_on": list(hro)}
+    if dim is None and spec.dimension:
+        norm["dimension"] = spec.dimension
+    return norm
+
+
+def _evaluate_custom_rubric(rubric: Dict[str, Any], *, transcript, trace,
+                            timing) -> Dict[str, Any]:
+    """One judged custom metric -> one ``rubric.v1`` result. The plugin is the
+    judge: ``judge.provider`` is ``custom``, ``model`` and ``temperature`` are
+    what the plugin declared (listed in ``judge.declared_by_plugin``; hotato
+    cannot observe the plugin's own model call), ``prompt_sha256`` is the
+    plugin file's sha256, and ``input_sha256`` binds the exact call data and
+    params it judged. Its evidence is checked against the call like every
+    custom metric's; a plugin that raises or returns something malformed is an
+    ERROR (the judge could not run), never a verdict."""
+    from . import metrics as _metrics
+
+    spec = _metrics.get_metric(rubric["metric"])
+    turns = _norm_turns(transcript)
+    spans = _norm_spans(trace)
+    transcript_sha = _sha256_json(turns) if transcript is not None else None
+    trace_sha = _sha256_json(spans) if trace is not None else None
+    result = _base_result(rubric)
+    result["input_refs"] = {"transcript_sha256": transcript_sha, "trace_sha256": trace_sha}
+    block: Dict[str, Any] = {
+        "metric": spec.name, "lane": spec.lane, "version": spec.version,
+        "source": spec.source, "source_sha256": spec.source_sha256,
+    }
+    result["custom"] = block
+    input_sha = _sha256_json({
+        "metric": spec.name, "params": rubric.get("params") or {},
+        "transcript": transcript, "trace": trace, "timing": timing,
+    })
+    p_sha = spec.source_sha256 or _sha256_text(f"{spec.source}:{spec.name}")
+    cache_key = _sha256_text(f"custom:{spec.model}\n{p_sha}\n{input_sha}")
+    try:
+        outcome = _metrics.run_metric(
+            spec, transcript=transcript, spans=trace, timing=timing,
+            params=rubric.get("params"),
+        )
+    except _metrics.MetricError as exc:
+        outcome = {"status": "ERROR", "reason": f"custom metric could not run: {exc}",
+                   "evidence": []}
+    status = outcome["status"]
+    result["status"] = status
+    result["rationale"] = outcome.get("reason") or (
+        f"custom metric {spec.name} returned {status.lower()}")
+    block["evidence"] = outcome.get("evidence") or []
+    for key in ("measured", "claimed_status", "missing"):
+        if key in outcome:
+            block[key] = outcome[key]
+    citations = []
+    for ev in block["evidence"]:
+        if "turn" in ev:
+            c = {"type": "transcript_span", "turn": ev["turn"]}
+            if ev.get("quote") is not None:
+                c["quote"] = ev["quote"]
+            citations.append(c)
+        elif "span_id" in ev:
+            citations.append({"type": "trace_event", "span_id": ev["span_id"]})
+    reasons = (["verdict is FAIL"]
+               if status == "FAIL" and "fail" in rubric["review"]["human_required_on"]
+               else [])
+    result["review"] = {"human_required": bool(reasons), "reasons": reasons}
+    result["judge"] = {
+        "model": spec.model,
+        "model_digest": None,
+        "provider": "custom",
+        "prompt_id": f"custom/{spec.name}",
+        "prompt_version": spec.version,
+        "prompt_sha256": p_sha,
+        "temperature": 0,
+        "input_sha256": input_sha,
+        "cache_key": cache_key,
+        "cached": False,
+        "votes": [],
+        "repetitions": 1,
+        "aggregation": AGGREGATION,
+        "disagreement": False,
+        "confidence": 0.0,
+        "confidence_required": 0.0,
+        "citations": citations,
+        "declared_by_plugin": ["model", "temperature"],
+    }
+    return result
 
 
 # report dimensions -- a bare tuple (mirrors conversation_test.REPORT_DIMENSIONS;
@@ -719,6 +858,7 @@ def evaluate_rubric(
     cache: Optional["VerdictCache"] = None,
     no_cache: bool = False,
     sign: bool = False,
+    timing: Any = None,
 ) -> Dict[str, Any]:
     """Evaluate ONE (already-normalized) rubric against the supplied evidence and
     return a ``rubric.v1`` result dict (``deterministic: false`` + full
@@ -735,6 +875,9 @@ def evaluate_rubric(
       (``judge.drift``), surfacing drift.
     """
     rubric = validate_rubric_object(rubric)
+    if rubric["kind"] == CUSTOM_KIND:
+        return _evaluate_custom_rubric(rubric, transcript=transcript, trace=trace,
+                                       timing=timing)
     turns = _norm_turns(transcript)
     spans = _norm_spans(trace)
     transcript_sha = _sha256_json(turns) if transcript is not None else None
@@ -994,6 +1137,7 @@ def evaluate_rubric_lane(
     no_cache: bool = False,
     gate: bool = False,
     sign: bool = False,
+    timing: Any = None,
 ) -> Dict[str, Any]:
     """Evaluate a whole rubric lane and return a ``rubric.v1`` envelope. ADVISORY
     by default (``exit_code`` 0 regardless of verdicts); ``gate=True`` makes any
@@ -1003,7 +1147,7 @@ def evaluate_rubric_lane(
     into a deterministic count and never emits an ``overall_score``."""
     results = [
         evaluate_rubric(r, transcript=transcript, trace=trace, judge=judge,
-                        cache=cache, no_cache=no_cache, sign=sign)
+                        cache=cache, no_cache=no_cache, sign=sign, timing=timing)
         for r in rubrics
     ]
     return rubric_envelope(results, gate=gate)

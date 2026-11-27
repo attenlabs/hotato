@@ -469,7 +469,10 @@ _EXIT_CODES: dict = {
             "result withheld the verdict (this refusal takes precedence over "
             "a FAIL); OR a usage error / unusable input: neither --assertions "
             "nor --pack given, a malformed --assertions file (including a bad "
-            "inconclusive_policy value), an unknown --pack name, a duplicate "
+            "inconclusive_policy value), an unknown custom metric or a custom "
+            "metric plugin that failed to load, raised, returned a malformed "
+            "result or answered differently on the same input, an unknown "
+            "--pack name, a duplicate "
             "assertion id across the merged --assertions/--pack sources, an "
             "unreadable --transcript/--trace file, an unscorable --stereo "
             "recording, or --transcribe without --stereo (or combined with "
@@ -478,6 +481,11 @@ _EXIT_CODES: dict = {
     "assert packs": (
         (0, "listed the bundled assertion packs"),
         (2, "a malformed bundled assertion packs manifest (a packaging defect)"),
+    ),
+    "assert metrics": (
+        (0, "listed the custom metrics found (possibly none)"),
+        (2, "a --metrics path does not exist, or a plugin failed to import, "
+            "declared a malformed metric, or reused a metric name"),
     ),
     "test": (
         (2, "no subcommand given (see hotato test run --help)"),
@@ -506,6 +514,9 @@ _EXIT_CODES: dict = {
             "judge ERROR with no rubric FAIL withheld the verdict (the judge "
             "could not run, distinct from a scored failure's exit 1); OR a "
             "usage error / unusable input: a malformed conversation-test file, "
+            "an unknown custom metric or a custom metric plugin that failed to "
+            "load, raised, returned a malformed result or answered differently "
+            "on the same input, "
             "an unreadable --transcript/--trace/--state file, an unscorable "
             "--audio recording, or html/md without --out and --audio; in "
             "simulated-conversation mode: bad input, an egress refused "
@@ -581,7 +592,8 @@ _EXIT_CODES: dict = {
         (2, "with --gate, a judge ERROR with no rubric FAIL (the judge could "
             "not run -- backend down, or an empty/unparseable response after "
             "the repair retry -- which is never a pass); OR a usage error / "
-            "unusable input: a malformed rubrics file, an unreadable "
+            "unusable input: a malformed rubrics file (including an unknown "
+            "custom metric, or a plugin that failed to load), an unreadable "
             "--transcript/--trace, or a refused off-box judge (hosted or "
             "non-local endpoint without --judge-egress-opt-in)"),
     ),
@@ -3564,6 +3576,60 @@ def _cmd_observe_report(args) -> int:
     return 0
 
 
+def _add_metrics_arg(p) -> None:
+    """Shared ``--metrics PATH`` flag: where custom metric plugins live."""
+    p.add_argument("--metrics", action="append", default=None, metavar="PATH",
+                   help="a custom metric plugin file or folder (repeatable). "
+                        "./hotato_metrics/ and installed 'hotato.metrics' entry "
+                        "points are also searched. Plugin code is loaded only "
+                        "when a check references kind: custom (see "
+                        "docs/CUSTOM-METRICS.md)")
+
+
+def _configure_metrics(args) -> None:
+    """Arm custom metric discovery for this command: plugin code runs only if a
+    document references a custom metric (hotato.metrics.get_metric)."""
+    from . import metrics as _metrics
+
+    _metrics.configure_autoload(getattr(args, "metrics", None) or ())
+
+
+def _cmd_assert_metrics(args) -> int:
+    from . import metrics as _metrics
+
+    _configure_metrics(args)
+    entries = _metrics.list_entries()
+    if args.format == "json":
+        payload = {
+            "tool": _errors.TOOL, "schema_version": _errors.SCHEMA_VERSION,
+            "kind": "assert-metrics",
+            "entry_point_group": _metrics.ENTRY_POINT_GROUP,
+            "metrics": entries,
+        }
+        print(_errors.safe_json_dumps(payload, indent=2))
+        return 0
+    if not entries:
+        print(
+            f"0 custom metrics found (searched ./{_metrics.DEFAULT_DIR}/, "
+            f"--metrics paths and {_metrics.ENTRY_POINT_GROUP!r} entry points)"
+        )
+        return 0
+    lines = [f"{len(entries)} custom metric(s):"]
+    for e in entries:
+        needs = ", ".join(e["needs"]) or "nothing declared"
+        lines.append(f"  {e['name']}  [{e['lane']}]  v{e['version']}  needs: {needs}  "
+                     f"from {e['source']}")
+        if e.get("description"):
+            lines.append(f"    {e['description']}")
+    lines.append(
+        "use one: an assertion {id: X, kind: custom, metric: NAME} in --assertions "
+        "(deterministic metrics) or a rubric {id: X, kind: custom, metric: NAME} "
+        "(judged metrics)"
+    )
+    print("\n".join(lines))
+    return 0
+
+
 def _cmd_assert_init(args) -> int:
     from . import assert_ as A
 
@@ -3613,6 +3679,8 @@ def _cmd_assert_init(args) -> int:
 
 def _cmd_assert_run(args) -> int:
     from . import assert_ as A
+
+    _configure_metrics(args)
 
     if args.transcribe and args.transcript:
         raise ValueError(
@@ -3853,6 +3921,7 @@ def _cmd_rubric_run(args) -> int:
     from . import assert_ as A
     from . import rubric as R
 
+    _configure_metrics(args)
     rubrics = R.load_rubrics_file(args.rubrics)
     transcript = A.load_transcript_file(args.transcript) if args.transcript else None
     trace = A.load_spans_file(args.trace) if args.trace else None
@@ -3976,6 +4045,7 @@ def _cmd_test_run(args) -> int:
     from . import conversation_test as CT
     from . import test_run as TR
 
+    _configure_metrics(args)
     fmt = args.format
     audio = args.audio or []
     if len(audio) > 2:
@@ -8339,6 +8409,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "over a FAIL). Overrides any inconclusive_policy in "
                          "the --assertions file; CI/compliance suites should "
                          "set fail or refuse")
+    _add_metrics_arg(ar)
     _add_format_arg(ar, choices=("text", "json"))
     ar.set_defaults(func=_cmd_assert_run)
 
@@ -8368,6 +8439,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_format_arg(ap_, choices=("text", "json"))
     ap_.set_defaults(func=_cmd_assert_packs)
+
+    am_ = asub.add_parser(
+        "metrics",
+        help="list the custom metric plugins hotato can find (your own checks, "
+             "written as Python functions)",
+        description=(
+            "List the custom metrics found in ./hotato_metrics/, in each "
+            "--metrics PATH, and in installed packages' 'hotato.metrics' entry "
+            "points: each metric's name, lane (deterministic or judged), version, "
+            "declared inputs and source file. Listing imports the plugin files. "
+            "Reference a deterministic metric from an assertions file as "
+            "{kind: custom, metric: NAME}; a judged one from a rubrics file or a "
+            "conversation test's assertions.rubric the same way. See "
+            "docs/CUSTOM-METRICS.md."
+        ),
+        epilog=(
+            _exit_codes_epilog("assert metrics") + "\n\n"
+            "Examples:\n"
+            "  hotato assert metrics\n"
+            "  hotato assert metrics --metrics examples/custom-metrics/hotato_metrics "
+            "--format json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_metrics_arg(am_)
+    _add_format_arg(am_, choices=("text", "json"))
+    am_.set_defaults(func=_cmd_assert_metrics)
 
     # --- test: the Phase-1 EXIT -- one conversation-test file end to end -----
     tst = sub.add_parser(
@@ -8480,6 +8578,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="opt into failing the exit code on a rubric FAIL "
                           "(model-judged results are ADVISORY by default and "
                           "never gate CI on their own)")
+    _add_metrics_arg(tr_)
     tr_.set_defaults(func=_cmd_test_run)
 
     tn_ = tstsub.add_parser(
@@ -8881,6 +8980,7 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--format", default="text", choices=["text", "json"],
                     help="text (default) or the full rubric.v1 JSON")
     _add_judge_args(rr)
+    _add_metrics_arg(rr)
     rr.set_defaults(func=_cmd_rubric_run)
 
     rc = rbsub.add_parser(

@@ -9,6 +9,27 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 ## [Unreleased]
 
 ### Added
+- Custom metrics: write a check as a plain Python function (`metric_*` in
+  `./hotato_metrics/*.py`, a `--metrics PATH`, or a `hotato.metrics` entry
+  point) and use it as `kind: custom` in an assertions file or a conversation
+  test. hotato checks every cited turn, quote, span and timing value against
+  the call, runs a deterministic metric twice and stops (exit 2) when the
+  answers differ, and reports a metric with missing inputs as INCONCLUSIVE.
+  A metric that calls a model is declared `judged=True` with a pinned model
+  and temperature 0 and runs only in the rubric lane (`provider: custom`).
+  `hotato assert metrics` lists what was found; results appear in the text,
+  JSON, HTML and Markdown reports. Guide: `docs/CUSTOM-METRICS.md`; example:
+  `examples/custom-metrics/`.
+- The autopilot backlog is rewritten as 38 ranked, single-line items, each
+  with a stable tag, a `Done when:` check and the tests it needs, short
+  enough to be a pull request title. The weekly scorecard maps each measure
+  to one item by tag.
+- `docs/SECURITY-PACKET.md`: one page for a security review covering the
+  licence, where call data goes, build provenance, the SBOMs, the threat
+  model and how to report a vulnerability.
+- The Trusted Publishing workflow's build-provenance attestation now covers
+  the CycloneDX SBOMs as well as the wheel and sdist, so
+  `gh attestation verify` works on an SBOM file too.
 - `hotato pr comment RESULT [--base FILE]`: renders one pull-request comment
   from a suite run, test run, or contract verification result. It shows the
   verdict, a table of every case that did not pass (status, case, what failed,

@@ -20,6 +20,10 @@ provenance, on its own report shelf, apart from any overall number.
   labeled plainly -- as does a well-formed `inconclusive` verdict the model
   returned. A `human_rubric` stays `INCONCLUSIVE` and human-required, by
   design.
+- A rubric can also be `kind: custom`: your own judged metric, a Python
+  function declared with `@metric(judged=True, model=..., temperature=0)`.
+  It is reported with `provider: custom`, and the model and temperature are
+  marked as declared by the plugin. See [CUSTOM-METRICS.md](CUSTOM-METRICS.md).
 
 ## The rubric object
 

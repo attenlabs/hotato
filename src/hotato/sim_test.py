@@ -723,6 +723,17 @@ def judge_run(case, transcript, tool_calls, agent, judge: LLM) -> List[Dict[str,
     return verdicts
 
 
+# A quote shorter than this many words ("yes", "booked") appears in almost any
+# transcript, so it is not evidence for a pass. Custom metrics
+# (hotato.metrics) apply the same minimum to the quotes they cite.
+MIN_PASS_QUOTE_WORDS = 3
+
+
+def quote_supports_pass(quote: str) -> bool:
+    """True when ``quote`` is long enough to back a pass."""
+    return len(str(quote).split()) >= MIN_PASS_QUOTE_WORDS
+
+
 def _clean_verdict(raw: Optional[dict], kind: str, label: str, haystack: str) -> Dict[str, Any]:
     if not raw:
         return {"criterion": label, "verdict": "unknown", "confidence": 0.0,
@@ -743,8 +754,7 @@ def _clean_verdict(raw: Optional[dict], kind: str, label: str, haystack: str) ->
             verdict = "unknown"
     # a criterion pass must be backed by a real quote; a forbidden item that was
     # NOT violated has nothing to quote, so its pass is exempt
-    if verdict == "pass" and kind == "criterion" and evidence and len(evidence.split()) < 3:
-        # a one- or two-word quote ("yes", "booked") appears in almost any transcript
+    if verdict == "pass" and kind == "criterion" and evidence and not quote_supports_pass(evidence):
         evidence = ""
         expl = (expl + " " if expl else "") + "(quote too short to support a pass)"
     if verdict == "pass" and kind == "criterion" and not evidence:

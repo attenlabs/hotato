@@ -1,0 +1,7 @@
+[
+  {"role": "agent", "text": "Thanks for calling Harbor Dental, this is the scheduling line. How can I help?", "start": 0.4, "end": 4.1},
+  {"role": "caller", "text": "I need a cleaning next Tuesday morning", "start": 4.6, "end": 6.9},
+  {"role": "agent", "text": "Let me check Tuesday morning for you.", "start": 7.3, "end": 9.0},
+  {"role": "agent", "text": "You're booked for Tuesday at nine with Dr. Okafor. You'll get a text reminder the day before.", "start": 10.8, "end": 15.6},
+  {"role": "caller", "text": "great, thank you", "start": 16.0, "end": 17.1}
+]
