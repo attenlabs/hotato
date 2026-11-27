@@ -1,0 +1,75 @@
+{
+  "assertions_failed": 0,
+  "count": 3,
+  "dir": "contracts",
+  "exit_code": 1,
+  "kind": "contract-verify",
+  "offline": true,
+  "refused": 0,
+  "results": [
+    {
+      "assertions": null,
+      "authenticated": false,
+      "authenticity": "unsigned",
+      "authenticity_reason": "unsigned, internally consistent evidence",
+      "dir": "contracts/greeting-hold.hotato",
+      "expect": "hold",
+      "id": "greeting-hold",
+      "measurement": {
+        "did_yield": false,
+        "seconds_to_yield": null,
+        "talk_over_sec": 0.12
+      },
+      "not_scorable_reason": null,
+      "passed": true,
+      "scorable": true,
+      "verdict_eligible": true,
+      "verdict_ineligible_reason": null
+    },
+    {
+      "assertions": null,
+      "authenticated": false,
+      "authenticity": "unsigned",
+      "authenticity_reason": "unsigned, internally consistent evidence",
+      "dir": "contracts/hours-yield.hotato",
+      "expect": "yield",
+      "id": "hours-yield",
+      "measurement": {
+        "did_yield": true,
+        "seconds_to_yield": 0.36,
+        "talk_over_sec": 0.36
+      },
+      "not_scorable_reason": null,
+      "passed": true,
+      "scorable": true,
+      "verdict_eligible": true,
+      "verdict_ineligible_reason": null
+    },
+    {
+      "assertions": null,
+      "authenticated": false,
+      "authenticity": "unsigned",
+      "authenticity_reason": "unsigned, internally consistent evidence",
+      "dir": "contracts/refund-yield.hotato",
+      "expect": "yield",
+      "id": "refund-yield",
+      "measurement": {
+        "did_yield": true,
+        "seconds_to_yield": 1.84,
+        "talk_over_sec": 1.84
+      },
+      "not_scorable_reason": null,
+      "passed": false,
+      "scorable": true,
+      "verdict_eligible": true,
+      "verdict_ineligible_reason": null
+    }
+  ],
+  "schema_version": "1",
+  "summary": {
+    "failed": 1,
+    "passed": 2
+  },
+  "tampered": 0,
+  "tool": "hotato"
+}

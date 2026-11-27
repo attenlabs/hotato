@@ -69,3 +69,21 @@ variable "site_url" {
   type    = string
   default = "https://hotato.dev"
 }
+
+variable "atlas_site_repo" {
+  type        = string
+  default     = ""
+  description = "owner/name of the private hotato.dev site repository the Atlas pages deploy with. Empty: the Atlas jobs keep the store current and publish nothing."
+}
+
+variable "atlas_collector_repo" {
+  type        = string
+  default     = ""
+  description = "owner/name of the private Atlas collector repository atlas-wheel builds new versions from. Empty: no automatic collector releases."
+}
+
+variable "atlas_publish_live" {
+  type        = bool
+  default     = true
+  description = "The hourly Atlas job deploys hotato.dev/atlas (DRY_RUN=0). false keeps it in shadow: it renders and checks, and deploys nothing."
+}

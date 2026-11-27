@@ -13,18 +13,18 @@
 <text x="76" y="176" font-family="'Bricolage','Bricolage Grotesque','Helvetica Neue',system-ui,sans-serif" font-size="50" font-weight="800" fill="#e6edf3" text-anchor="start">CLAIMED, NOT EVIDENCED</text>
 <text x="76" y="244" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="15" font-weight="600" fill="#9aa4af" letter-spacing="2" text-anchor="start">outcome evidence</text>
 <text x="76" y="344" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="96" font-weight="800" fill="#f85149" text-anchor="start">FAIL</text>
-<rect x="336" y="232" width="770" height="80" rx="12" fill="none" stroke="#9aa4af" stroke-width="1.4" stroke-dasharray="6 5"/>
-<text x="358" y="260" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="15" font-weight="600" fill="#9aa4af" letter-spacing="1.6" text-anchor="start">said</text>
-<text x="358" y="292" font-family="'Hanken','Hanken Grotesk','Helvetica Neue',system-ui,sans-serif" font-size="21" font-weight="500" fill="#e6edf3" text-anchor="start">what the call says happened</text>
-<rect x="869.88" y="256" width="220.12" height="32" rx="16" fill="none" stroke="#9aa4af" stroke-width="1.4" stroke-dasharray="5 5"/>
-<text x="979.94" y="276.76" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="14" font-weight="600" fill="#9aa4af" letter-spacing="1.4" text-anchor="middle">words, not evidence</text>
-<text x="358" y="336" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="14" font-weight="600" fill="#9aa4af" letter-spacing="1.6" text-anchor="start">checked against</text>
-<rect x="336" y="350" width="770" height="96" rx="12" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="1.4"/>
-<text x="358" y="378" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="15" font-weight="600" fill="#9aa4af" letter-spacing="1.6" text-anchor="start">did</text>
-<text x="358" y="406" font-family="'Hanken','Hanken Grotesk','Helvetica Neue',system-ui,sans-serif" font-size="21" font-weight="600" fill="#f85149" text-anchor="start">no qualifying tool span in the trace</text>
-<text x="358" y="432" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="16" font-weight="500" fill="#9aa4af" text-anchor="start">assertion: outcome-refund-tool (tool_result)</text>
-<text x="76" y="474" font-family="'Hanken','Hanken Grotesk','Helvetica Neue',system-ui,sans-serif" font-size="25" font-weight="500" fill="#e6edf3" text-anchor="start">issue_refund produced no result satisfying the declared</text>
-<text x="76" y="506" font-family="'Hanken','Hanken Grotesk','Helvetica Neue',system-ui,sans-serif" font-size="25" font-weight="500" fill="#e6edf3" text-anchor="start">conditions.</text>
+<rect x="336" y="222" width="770" height="76" rx="12" fill="none" stroke="#9aa4af" stroke-width="1.4" stroke-dasharray="6 5"/>
+<text x="358" y="250" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="15" font-weight="600" fill="#9aa4af" letter-spacing="1.6" text-anchor="start">said</text>
+<text x="358" y="279" font-family="'Hanken','Hanken Grotesk','Helvetica Neue',system-ui,sans-serif" font-size="21" font-weight="500" fill="#e6edf3" text-anchor="start">what the call says happened</text>
+<rect x="869.88" y="246" width="220.12" height="32" rx="16" fill="none" stroke="#9aa4af" stroke-width="1.4" stroke-dasharray="5 5"/>
+<text x="979.94" y="266.76" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="14" font-weight="600" fill="#9aa4af" letter-spacing="1.4" text-anchor="middle">words, not evidence</text>
+<text x="358" y="322" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="14" font-weight="600" fill="#9aa4af" letter-spacing="1.6" text-anchor="start">checked against</text>
+<rect x="336" y="334" width="770" height="92" rx="12" fill="rgba(248,81,73,0.06)" stroke="#f85149" stroke-width="1.4"/>
+<text x="358" y="362" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="15" font-weight="600" fill="#9aa4af" letter-spacing="1.6" text-anchor="start">did</text>
+<text x="358" y="388" font-family="'Hanken','Hanken Grotesk','Helvetica Neue',system-ui,sans-serif" font-size="21" font-weight="600" fill="#f85149" text-anchor="start">no qualifying tool span in the trace</text>
+<text x="358" y="413" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="16" font-weight="500" fill="#9aa4af" text-anchor="start">assertion: outcome-refund-tool (tool_result)</text>
+<text x="76" y="474" font-family="'Hanken','Hanken Grotesk','Helvetica Neue',system-ui,sans-serif" font-size="25" font-weight="500" fill="#e6edf3" text-anchor="start">issue_refund produced no result satisfying the</text>
+<text x="76" y="506" font-family="'Hanken','Hanken Grotesk','Helvetica Neue',system-ui,sans-serif" font-size="25" font-weight="500" fill="#e6edf3" text-anchor="start">declared conditions.</text>
 <rect x="823.72" y="458" width="300.28" height="34" rx="17" fill="none" stroke="#9aa4af" stroke-width="1.4"/>
 <text x="973.86" y="480.44" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="16" font-weight="600" fill="#9aa4af" letter-spacing="1.4" text-anchor="middle">outcome: 0 pass / 2 fail</text>
 <text x="1124" y="520" font-family="'SplineMono','Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace" font-size="18" font-weight="500" fill="#9aa4af" text-anchor="end">test: demo-refund-claimed-not-issued</text>

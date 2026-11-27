@@ -4,21 +4,26 @@ FILE: README.md
 
 <div align="center">
 
-<img src=".github/assets/hotato-banner.svg" alt="hotato" width="442" style="max-width:100%;height:auto;">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/hotato-banner-dark.svg">
+  <img src=".github/assets/hotato-banner.svg" alt="hotato: simulate, monitor and gate voice agents in CI" width="560" style="max-width:100%;height:auto;">
+</picture>
 
 <p>
-<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/v/hotato?style=flat-square&color=c23c07&label=pypi" alt="PyPI version"></a>
-<a href="https://pypistats.org/packages/hotato"><img src="https://img.shields.io/pypi/dm/hotato?style=flat-square&color=c23c07&label=downloads" alt="Downloads per month"></a>
-<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=6f5d44" alt="Python versions"></a>
-<a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg?branch=main" alt="CI status"></a>
-<a href="https://github.com/attenlabs/hotato/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/hotato?style=flat-square&color=6f5d44" alt="MIT license"></a></p>
-<!-- Add a stars badge (shields.io github/stars/attenlabs/hotato) here once the repo reaches ~25 stars; below that it advertises the low number. -->
+<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/v/hotato?style=flat-square&color=ff5a1f&label=pypi" alt="PyPI version"></a>
+<a href="https://pypistats.org/packages/hotato"><img src="https://img.shields.io/pypi/dm/hotato?style=flat-square&color=ff5a1f&label=downloads" alt="Downloads per month"></a>
+<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=ff5a1f&label=python" alt="Python versions"></a>
+<a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/attenlabs/hotato/tests.yml?branch=main&style=flat-square&label=tests" alt="CI status"></a>
+<a href="https://github.com/attenlabs/hotato/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/hotato?style=flat-square&color=ff5a1f&label=license" alt="MIT license"></a></p>
+<!-- Stars badge (shields.io github/stars/attenlabs/hotato): add once the repo passes ~25 stars. -->
 
 # hotato
 
 **Hotato simulates, monitors and gates voice agents in CI. Open source, local-first, with a hosted option.**
 
 Find what broke in your agent calls. Pin it and CI stays red until you fix it.
+
+<img src="docs/assets/hotato-demo-report.png" alt="The hotato report for the bundled demo call: the agent talks over a 2.0 s interruption, marked FAIL with the fix" width="720" style="max-width:100%;height:auto;">
 
 ```bash
 pip install hotato
@@ -36,10 +41,12 @@ Works with any recording: mono, dual-channel, or a transcript. Timing math, not 
 
 ## What it finds
 
-- **Say-do gaps**: the caller interrupts to cancel (a barge-in), the agent says "canceled", the booking tool fires anyway. hotato takes the turn timing from the audio and the tool call from your OTel trace.
-- **Latency spikes**: the pause before a reply going from 800 ms to over 2 s.
-- **Dead air**: that pause reaching 5 s, or the line going quiet.
-- **Talk-over**: the agent starts a fresh utterance over the caller.
+| Failure | What hotato measures |
+| :-- | :-- |
+| **Say-do gap** | The caller interrupts to cancel (a barge-in), the agent says "canceled", the booking tool fires anyway: turn timing from the audio, the tool call from your OTel trace. |
+| **Latency spike** | The pause before a reply going from 800 ms to over 2 s. |
+| **Dead air** | That pause reaching 5 s, or the line going quiet. |
+| **Talk-over** | The agent starts a fresh utterance over the caller. |
 
 ## Quickstart
 
@@ -57,10 +64,10 @@ Open `report.html`: every critical incident, timestamped, and your Voice Stabili
 
 ```bash
 export RETELL_API_KEY=...
-hotato retell health --call-id CALL_ID
+hotato retell health --last 7d
 ```
 
-`--call-id` is required and repeatable: you name the Retell calls to pull.
+It lists your recent Retell calls, or takes `--call-id` (repeatable) to name them.
 `hotato bland health`, `hotato synthflow health`, and `hotato millis health`
 follow the Vapi shape. Those stacks mix both voices onto one channel, so
 they measure silence timing, dead air and latency gaps, each finding with
@@ -116,6 +123,10 @@ jobs:
 ```
 
 `contracts/` holds what `pin` wrote. Full workflow: [`docs/CI.md`](docs/CI.md).
+Add `comment-pr: true` (with `pull-requests: write`) and each pull request gets
+one comment, updated in place: the verdict, what failed with its evidence, what
+the change fixed or broke against the base branch, and links to the Failure
+Records and evidence cards ([`docs/PR-COMMENT.md`](docs/PR-COMMENT.md)).
 
 ## Point your agent at it
 
@@ -1136,9 +1147,14 @@ jobs:
           if-no-files-found: error
 ```
 
-`permissions: contents: read` is sufficient. The Action never posts a
-comment, uploads an artifact, or sends a notification -- retention and
-publication stay under your workflow's control.
+`permissions: contents: read` is sufficient. By default the Action never
+posts a comment, uploads an artifact, or sends a notification -- retention and
+publication stay under your workflow's control. To get one pull-request
+comment per run (verdict, the cases that did not pass with their evidence,
+the comparison with the base branch, and links to Failure Records and
+evidence cards), set `comment-pr: true`, grant `pull-requests: write`, and
+optionally pass the base branch's result as `baseline`:
+[PR-COMMENT.md](PR-COMMENT.md).
 
 ### Inputs
 
@@ -1153,6 +1169,10 @@ Everything else is optional:
 | `parallel` | Suite worker cap; never changes result bytes |
 | `transcript` / `trace` / `state` | Evidence files for a test run |
 | `gate-advisory` | Test runs only; passes `--gate-judge` so the model-judged rubric lane gates |
+| `render-records` / `record-limit` | Failure Records for non-passing cases (default on, at most 100) |
+| `comment-pr` | `true` posts the PR report to one sticky comment and the job summary ([PR-COMMENT.md](PR-COMMENT.md)); default `false` reads no token |
+| `baseline` | The base branch's result of the same kind, for the report's comparison |
+| `github-token` | The token the comment step uses; defaults to the workflow token |
 | `hotato-version` | Which install to use -- see below |
 
 `hotato-version` pins the install to one of three forms:
@@ -1186,6 +1206,7 @@ The machine JSON stays primary:
 | `suite-result` | The machine result JSON path |
 | `summary` | The rendered Markdown |
 | `records` | Failure Record directory when produced, else empty |
+| `pr-report` | The rendered PR report (the sticky comment body), else empty |
 | `exit-code` | As a string |
 | `status` | `pass`, `fail`, `inconclusive`, or `error`, read from the machine result -- presentation only |
 | `hotato-version` | The executed package version |
@@ -1307,6 +1328,11 @@ repeat run.
 
 ## Render a comment yourself
 
+`hotato pr comment RESULT --base BASE` renders the same report the Action
+posts, from any suite run, test run, or contract verification result
+([PR-COMMENT.md](PR-COMMENT.md)).
+
+For the self-test envelope this workflow scores,
 `scripts/pr_comment.py` is stdlib only and reads the same JSON the CLI
 emits, so you can preview the comment locally:
 
@@ -1363,6 +1389,179 @@ lands.
 where each system looks for its config); `--force` overwrites an existing
 file. The pinned version is the hotato that generated the file; bump it in
 one place when you upgrade.
+
+
+================================================================================
+FILE: docs/PR-COMMENT.md
+================================================================================
+
+# One pull-request comment per CI run: `hotato pr comment`
+
+When hotato gates a pull request, the review page should show what broke
+without anyone opening the job log. `hotato pr comment` turns the machine
+result of a run into the Markdown body of ONE pull-request comment, and the
+root Action can post it, update it in place on every push, and write the same
+Markdown to the job summary.
+
+The comment carries:
+
+- the overall verdict (`PASS`, `FAIL`, `INCONCLUSIVE`, or `ERROR`) and the
+  count of cases per status;
+- a table of every case that did not pass: its status, the case, what failed,
+  the measured evidence, and links to its files;
+- for a contract run, the caught moment with its ASCII barge-in timeline;
+- a comparison with the base branch's result when you supply one: fixed,
+  newly failing, still failing, and now inconclusive cases;
+- the paths of each case's Failure Record and SVG evidence card inside the
+  results artifact, and a link to the workflow run that holds it.
+
+## Render it
+
+Any machine result works: a suite run (`hotato suite run --format json`), a
+conversation test run (`hotato test run --format json`), or a contract
+verification (`hotato contract verify --format json`).
+
+```bash
+hotato contract verify contracts --format json > results/contract-verify.json
+hotato record render results/contract-verify.json --all --out results/records
+hotato pr comment results/contract-verify.json \
+  --base base/contract-verify.json --base-label main \
+  --records-index results/records/index.json \
+  --cards results/cards --artifact-root results \
+  --out results/pr-report.md
+```
+
+| Flag | Meaning |
+|---|---|
+| `--base FILE` | The base branch's result of the same kind. A missing or unusable file is a line in the comment, never an error |
+| `--base-label TEXT` | How the comment names the base, for example `main` |
+| `--records-index FILE` | The `index.json` that `hotato record render --all` wrote; each case links its Failure Record |
+| `--cards DIR` | Render one `hotato card` SVG per failing contract (or failing say-do test run) into DIR |
+| `--artifact-root DIR` | Show file paths relative to DIR, the directory your workflow uploads |
+| `--run-url URL` / `--artifact-url URL` | The link the files are reached through (the artifact link wins when both are given) |
+| `--reproduce COMMAND` | The command that produced the result, shown as the local reproduce line |
+| `--max-rows N` | Rows per table (default 25); the rest are counted |
+| `--format json` | The body plus the verdict and the card paths |
+
+The command is offline and deterministic: the same files and flags render the
+same bytes. The output holds no timestamp and no absolute path. It never posts
+anything. Exit 0 once rendered (the verdict it reports never changes the exit
+code), 2 for an unreadable result or a result of another kind.
+
+## Post it from the root Action
+
+Set `comment-pr: true` and grant `pull-requests: write`. Pass the base
+branch's result as `baseline` to get the comparison:
+
+```yaml
+name: conversation QA
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  conversation-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # The base branch's suite, scored the same way, for the comparison.
+      # Best effort: a red base never fails this job.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.base_ref }}
+          path: .hotato-base-src
+      - continue-on-error: true
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.22.0
+        with:
+          suite: .hotato-base-src/tests/voice/qa.suite.json
+          agent: support-agent
+          output: .hotato/base
+          render-records: false
+      - id: hotato
+        uses: attenlabs/hotato@<full-commit-sha>  # v1.22.0
+        with:
+          suite: tests/voice/qa.suite.json
+          agent: support-agent
+          baseline: .hotato/base/suite-run.json
+          comment-pr: true
+      - if: always()
+        uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+        with:
+          name: hotato-conversation-qa
+          path: ${{ steps.hotato.outputs.output }}
+          if-no-files-found: error
+```
+
+The result file in an output directory is `suite-run.json`,
+`test-run.json`, or `contract-verify.json`. Any earlier result of the same
+kind works as `baseline`, for example one downloaded from the base branch's
+last run. Without `baseline` the comment says there was nothing to compare
+against.
+
+What the Action does on every run, with or without `comment-pr`:
+
+- renders the report to `<output>/pr-report.md` (the `pr-report` output),
+  with the Failure Records and evidence cards under `<output>/records/` and
+  `<output>/cards/`, so an uploaded `output` directory carries every file the
+  comment names;
+- leaves the gate alone: the step exit is still hotato's exit code, and a
+  rendering problem is a warning, never a different exit.
+
+What `comment-pr: true` adds, in a separate step that exits 0 on every path:
+
+- finds the one comment carrying the hidden marker `<!-- hotato-pr-report -->`
+  (or the older `<!-- hotato-contract-verify -->` marker) and updates it in
+  place; it creates the comment only when none exists, and skips the write
+  when the body has not changed;
+- appends the same Markdown to the job summary;
+- on a pull request from a fork, where GitHub hands the workflow a read-only
+  token, skips the API and leaves the report on the job summary with a
+  one-line note. A token without write access (HTTP 401, 403, or 404) gets
+  the same fallback.
+
+Only this step reads the token. The default (`comment-pr: false`) reads no
+token and posts nothing. On an exact older `hotato-version` pin that has no
+`hotato pr comment`, a contract run posts the contract-verify block instead,
+and suite and test runs post nothing.
+
+## Reading the comparison
+
+Cases are matched by id: the test id for a suite run, the test id and check
+id for a test run, the contract id for a contract run (a contract's embedded
+assertions are a separate row, never blended into its timing verdict).
+
+| Change | This run | Base |
+|---|---|---|
+| fixed | PASS | FAIL, TAMPERED, ERROR, or an inconclusive status |
+| newly failing | FAIL, TAMPERED, or ERROR | PASS, or not on the base |
+| still failing | FAIL, TAMPERED, or ERROR | FAIL, TAMPERED, or ERROR |
+| now inconclusive | INCONCLUSIVE, REFUSED, or NOT_SCORABLE | anything else |
+
+An inconclusive case lacks the evidence its check needs. It is never counted
+as a pass or a fail. Cases on the base that this run does not have are
+counted on one line.
+
+## Safety of the rendered text
+
+Ids and reasons come from result files, which a pull request can change. The
+renderer escapes table pipes, HTML brackets, backticks, and the Markdown
+characters that open a link, an image, or emphasis, and neutralises `@`,
+`://`, and `www.` so a value cannot mention a user, render a link or an
+image, or autolink a URL. `--run-url` and `--artifact-url` must be plain
+`https://` URLs (exit 2 otherwise). Tables are capped at `--max-rows` (1 or
+more), and the body stays under GitHub's comment size limit.
+
+The poster only ever edits a comment written by its own token's identity: the
+login `GET /user` returns for a personal access token, or the Actions bot for
+the workflow token. A comment by anyone else that quotes the marker is left
+alone, and a new comment is created instead.
+
+Related: [CI.md](CI.md) (the root Action), [CARDS.md](CARDS.md)
+(evidence cards), [REPORTS.md](REPORTS.md) (Failure Records and reports).
 
 
 ================================================================================
@@ -6404,6 +6603,7 @@ machine: no `urllib` import, no socket, no networked subprocess.
 
 `run`, `report`, `doctor`, `team`, `export`, `benchmark`, `compare` (the
 batch result-comparison command, `stackbench.py`), `demo`, `start`, `card`,
+`pr comment`,
 `diagnose`, `plan`, `explain`, `fixture create`, `fixture promote`,
 `contract create` (stereo / caller+agent / local-file mono), `contract
 verify`, `contract inspect`, `contract pack`, `contract unpack`, `trace
@@ -6462,6 +6662,13 @@ DB) run entirely on your machine and need no opt-in. Full config format:
 
 Notify surfaces (Slack, GitHub) fire only through credentials you
 configured (`gh`, a Slack token), and only for actions you invoked.
+
+The root GitHub Action (`action.yml`, outside `src/hotato/`) adds one opt-in
+call: with `comment-pr: true`, `ci/action/pr_comment_post.py` lists the pull
+request's comments and creates or updates one comment through the GitHub REST
+API, with the workflow token. What leaves: the rendered `hotato pr comment`
+Markdown. It is skipped on a fork pull request, and it never changes the gate
+exit code.
 
 ## Optional extras that add a hosted call
 

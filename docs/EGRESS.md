@@ -9,6 +9,7 @@ machine: no `urllib` import, no socket, no networked subprocess.
 
 `run`, `report`, `doctor`, `team`, `export`, `benchmark`, `compare` (the
 batch result-comparison command, `stackbench.py`), `demo`, `start`, `card`,
+`pr comment`,
 `diagnose`, `plan`, `explain`, `fixture create`, `fixture promote`,
 `contract create` (stereo / caller+agent / local-file mono), `contract
 verify`, `contract inspect`, `contract pack`, `contract unpack`, `trace
@@ -67,6 +68,13 @@ DB) run entirely on your machine and need no opt-in. Full config format:
 
 Notify surfaces (Slack, GitHub) fire only through credentials you
 configured (`gh`, a Slack token), and only for actions you invoked.
+
+The root GitHub Action (`action.yml`, outside `src/hotato/`) adds one opt-in
+call: with `comment-pr: true`, `ci/action/pr_comment_post.py` lists the pull
+request's comments and creates or updates one comment through the GitHub REST
+API, with the workflow token. What leaves: the rendered `hotato pr comment`
+Markdown. It is skipped on a fork pull request, and it never changes the gate
+exit code.
 
 ## Optional extras that add a hosted call
 

@@ -2,8 +2,10 @@
 # /app/autopilot). Build context: the repository root. The hotato package is installed from /app;
 # the atlas CLI comes from the private hotato-atlas wheel (see below).
 FROM python:3.12-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git nodejs npm \
-    && npm install -g @anthropic-ai/claude-code@2.0.0 \
+# rsync and wrangler (exact pin) run the site's own staging script when the Atlas job deploys
+# hotato.dev/atlas (jobs/atlas_site.py).
+RUN apt-get update && apt-get install -y --no-install-recommends git nodejs npm rsync \
+    && npm install -g @anthropic-ai/claude-code@2.0.0 wrangler@3.99.0 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY autopilot/requirements.txt /tmp/autopilot-requirements.txt

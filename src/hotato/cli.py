@@ -849,7 +849,14 @@ _EXIT_CODES: dict = {
             "found"),
     ),
     "pr": (
-        (2, "no subcommand given (see hotato pr create --help)"),
+        (2, "no subcommand given (see hotato pr create --help or hotato pr "
+            "comment --help)"),
+    ),
+    "pr comment": (
+        (0, "rendered the pull-request comment Markdown (to --out, or to "
+            "stdout); the verdict it reports never changes this exit code"),
+        (2, "usage error: an unreadable RESULT, or one that is not a suite "
+            "run, test run, or contract verification result"),
     ),
     "pr create": (
         (0, "rendered the pull request (a dry run by default: prints the body "
@@ -5786,6 +5793,71 @@ def _cmd_describe(args) -> int:
         print(_errors.safe_json_dumps(manifest, indent=2))
     else:
         print(_render_describe_text(manifest), end="")
+    return 0
+
+
+def _cmd_pr_comment(args) -> int:
+    from . import pr_report as _report
+
+    if args.max_rows < 1:
+        raise ValueError(f"--max-rows must be 1 or more, got {args.max_rows}")
+    for flag, value in (("--run-url", args.run_url),
+                        ("--artifact-url", args.artifact_url)):
+        if value is not None and _report.safe_url(value) is None:
+            raise ValueError(
+                f"{flag} {value!r}: not a plain https:// URL (no spaces,"
+                " quotes, brackets or parentheses)")
+    # Offline rendering from result files already on disk. The one optional
+    # write besides --out is --cards (SVG evidence cards); nothing here reaches
+    # the network -- posting the comment is the Action's separate step.
+    doc, err = _report.load_result(args.result)
+    if doc is None:
+        raise ValueError(f"RESULT {args.result!r}: {err}")
+    base_doc, base_note = None, None
+    if args.base:
+        if not os.path.isfile(args.base):
+            base_note = ("No base result is available for this run (the base "
+                         "branch has not produced one yet), so there is "
+                         "nothing to compare against.")
+        else:
+            base_doc, base_err = _report.load_result(args.base)
+            if base_doc is None:
+                base_note = (f"The base result could not be used ({base_err}),"
+                             " so there is nothing to compare against.")
+    records = (_report.load_records_index(args.records_index)
+               if args.records_index else {})
+    cards = (_report.render_cards(doc, args.cards, result_path=args.result,
+                                  limit=args.max_rows)
+             if args.cards else {})
+    md = _report.render_pr_report(
+        doc, base_doc=base_doc, base_note=base_note,
+        base_label=args.base_label, records=records, cards=cards,
+        run_url=args.run_url, artifact_url=args.artifact_url,
+        artifact_root=args.artifact_root, reproduce=args.reproduce,
+        max_rows=args.max_rows,
+    )
+    if args.format == "json":
+        units = _report.units_of(doc)
+        payload = {
+            "kind": "hotato.pr-report",
+            "version": "1",
+            "marker": _report.MARKER,
+            "verdict": _report.verdict_of(doc, units),
+            "source_kind": doc.get("kind"),
+            "compared": base_doc is not None
+            and base_doc.get("kind") == doc.get("kind"),
+            "cards": {k: _report._rel(v, args.artifact_root)
+                      for k, v in sorted(cards.items())},
+            "markdown": md,
+        }
+        text = _errors.safe_json_dumps(payload, indent=2, sort_keys=True) + "\n"
+    else:
+        text = md
+    if args.out:
+        _atomic_write_text(args.out, text)
+        print(f"wrote PR comment to {args.out}", file=sys.stderr)
+    else:
+        sys.stdout.write(text)
     return 0
 
 
@@ -11149,7 +11221,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     prsub = prp.add_subparsers(dest="pr_command", required=True,
-                               metavar="create")
+                               metavar="create|comment")
     pc = prsub.add_parser(
         "create",
         help="render a pull request that adds a hotato fixtures directory or "
@@ -11221,6 +11293,81 @@ def build_parser() -> argparse.ArgumentParser:
                          "commands and changes nothing")
     _add_format_arg(pc, choices=("text", "json"))
     pc.set_defaults(func=_cmd_pr_create)
+
+    pcm = prsub.add_parser(
+        "comment",
+        help="render the one pull-request comment for a CI run: verdict, "
+             "the cases that did not pass with their evidence, the "
+             "red-to-green comparison with the base branch, and links to "
+             "Failure Records and evidence cards (offline; posting is the "
+             "Action's comment-pr step)",
+        description=(
+            "Render the Markdown body of ONE sticky pull-request comment "
+            "(also what the root Action writes to the job summary) from a "
+            "hotato machine result: a suite run (hotato suite run --format "
+            "json), a conversation test run (hotato test run --format json), "
+            "or a contract verification (hotato contract verify --format "
+            "json). The comment carries the overall verdict; a table of every "
+            "case that did not pass (status, case, what failed, the measured "
+            "evidence, and its files); with --base, a red-to-green "
+            "comparison against the base branch's result of the same kind "
+            "(fixed, newly failing, still failing, now inconclusive); and the "
+            "paths of the Failure Records (--records-index) and SVG evidence "
+            "cards (--cards) inside the uploaded results artifact, linked "
+            "through --artifact-url or --run-url. The first line is the "
+            "hidden marker the poster uses to update one comment in place. "
+            "Offline and deterministic: the same files and flags render the "
+            "same bytes, and a missing or unusable --base is a line in the "
+            "comment, never an error. This command never posts anything."
+        ),
+        epilog=(
+            _exit_codes_epilog("pr comment") + "\n\n"
+            "Examples:\n"
+            "  hotato pr comment .hotato/results/suite-run.json\n"
+            "  hotato pr comment head/contract-verify.json --base "
+            "base/contract-verify.json --base-label main --out comment.md\n"
+            "  hotato pr comment .hotato/results/test-run.json --cards "
+            ".hotato/results/cards --artifact-root .hotato/results\n\n"
+            "See docs/PR-COMMENT.md."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pcm.add_argument("result", metavar="RESULT",
+                     help="the machine result JSON of this run (suite-run, "
+                          "test-run, or contract-verify)")
+    pcm.add_argument("--base", default=None, metavar="FILE",
+                     help="the base branch's machine result of the same kind, "
+                          "for the red-to-green comparison; a missing file is "
+                          "reported in the comment, never an error")
+    pcm.add_argument("--base-label", default=None, metavar="TEXT",
+                     help="how to name the base in the comment, e.g. main")
+    pcm.add_argument("--records-index", default=None, metavar="FILE",
+                     help="the index.json that hotato record render --all "
+                          "wrote, to list each case's Failure Record")
+    pcm.add_argument("--cards", default=None, metavar="DIR",
+                     help="render one SVG evidence card (hotato card) per "
+                          "failing contract or test run into DIR and list it")
+    pcm.add_argument("--artifact-root", default=None, metavar="DIR",
+                     help="show file paths relative to DIR, the directory "
+                          "your workflow uploads as the results artifact")
+    pcm.add_argument("--run-url", default=None, metavar="URL",
+                     help="the workflow run page, linked as where the results "
+                          "artifact is")
+    pcm.add_argument("--artifact-url", default=None, metavar="URL",
+                     help="a direct link to the uploaded results artifact "
+                          "(preferred over --run-url when both are given)")
+    pcm.add_argument("--reproduce", default=None, metavar="COMMAND",
+                     help="the command that produced RESULT, shown as the "
+                          "local reproduce line")
+    pcm.add_argument("--max-rows", type=int, default=25, metavar="N",
+                     help="cap on the rows of each table (default 25); the "
+                          "rest are counted, never dropped silently")
+    pcm.add_argument("--out", default=None, metavar="FILE",
+                     help="write the comment to FILE instead of stdout")
+    _add_format_arg(pcm, choices=("markdown", "json"), default="markdown",
+                    help="markdown (default): the comment body; json: the "
+                         "body plus the verdict and the card paths")
+    pcm.set_defaults(func=_cmd_pr_comment)
 
     # --- fleet: the local, self-hosted Guardian control plane ----------------
     def _fleet_common(sp):

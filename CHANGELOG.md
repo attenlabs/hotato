@@ -30,6 +30,22 @@ Every entry reports millisecond measurement error and a confusion matrix. See `d
 - The Trusted Publishing workflow's build-provenance attestation now covers
   the CycloneDX SBOMs as well as the wheel and sdist, so
   `gh attestation verify` works on an SBOM file too.
+- `hotato pr comment RESULT [--base FILE]`: renders one pull-request comment
+  from a suite run, test run, or contract verification result. It shows the
+  verdict, a table of every case that did not pass (status, case, what failed,
+  the measured evidence, its files), a comparison with the base branch's
+  result (fixed, newly failing, still failing, now inconclusive), and the
+  paths of the Failure Records (`--records-index`) and SVG evidence cards
+  (`--cards`, rendered with `hotato card`) inside the results artifact. Offline
+  and deterministic; it never posts anything. See `docs/PR-COMMENT.md`.
+- Root Action: every run renders that report to the new `pr-report` output.
+  With `comment-pr: true` it is posted to one sticky comment, updated in place
+  by a hidden marker (an existing contract-verify comment is updated, not
+  duplicated; an unchanged body is not rewritten), and mirrored on the job
+  summary. A fork pull request or a token without write access gets the job
+  summary only, with a one-line note. The new `baseline` input takes the base
+  branch's result for the comparison. `comment-pr` now applies to suite and
+  test runs as well as contract runs.
 
 ### Fixed
 - Delivery warnings for `--notify` and `hotato monitor` alerts show only the scheme and host of the destination; incoming-webhook URLs carry their secret in the path.
