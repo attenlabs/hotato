@@ -82,9 +82,14 @@ jobs:
           if-no-files-found: error
 ```
 
-`permissions: contents: read` is sufficient. The Action never posts a
-comment, uploads an artifact, or sends a notification -- retention and
-publication stay under your workflow's control.
+`permissions: contents: read` is sufficient. By default the Action never
+posts a comment, uploads an artifact, or sends a notification -- retention and
+publication stay under your workflow's control. To get one pull-request
+comment per run (verdict, the cases that did not pass with their evidence,
+the comparison with the base branch, and links to Failure Records and
+evidence cards), set `comment-pr: true`, grant `pull-requests: write`, and
+optionally pass the base branch's result as `baseline`:
+[PR-COMMENT.md](PR-COMMENT.md).
 
 ### Inputs
 
@@ -99,6 +104,10 @@ Everything else is optional:
 | `parallel` | Suite worker cap; never changes result bytes |
 | `transcript` / `trace` / `state` | Evidence files for a test run |
 | `gate-advisory` | Test runs only; passes `--gate-judge` so the model-judged rubric lane gates |
+| `render-records` / `record-limit` | Failure Records for non-passing cases (default on, at most 100) |
+| `comment-pr` | `true` posts the PR report to one sticky comment and the job summary ([PR-COMMENT.md](PR-COMMENT.md)); default `false` reads no token |
+| `baseline` | The base branch's result of the same kind, for the report's comparison |
+| `github-token` | The token the comment step uses; defaults to the workflow token |
 | `hotato-version` | Which install to use -- see below |
 
 `hotato-version` pins the install to one of three forms:
@@ -132,6 +141,7 @@ The machine JSON stays primary:
 | `suite-result` | The machine result JSON path |
 | `summary` | The rendered Markdown |
 | `records` | Failure Record directory when produced, else empty |
+| `pr-report` | The rendered PR report (the sticky comment body), else empty |
 | `exit-code` | As a string |
 | `status` | `pass`, `fail`, `inconclusive`, or `error`, read from the machine result -- presentation only |
 | `hotato-version` | The executed package version |
@@ -253,6 +263,11 @@ repeat run.
 
 ## Render a comment yourself
 
+`hotato pr comment RESULT --base BASE` renders the same report the Action
+posts, from any suite run, test run, or contract verification result
+([PR-COMMENT.md](PR-COMMENT.md)).
+
+For the self-test envelope this workflow scores,
 `scripts/pr_comment.py` is stdlib only and reads the same JSON the CLI
 emits, so you can preview the comment locally:
 
