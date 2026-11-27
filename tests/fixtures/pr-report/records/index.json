@@ -1,0 +1,20 @@
+{
+  "kind": "hotato.failure-record-index.v1",
+  "records": [
+    {
+      "directory": "sha256-5e05f9f1d23e26b84f3c82bce9fdd78789dad072c1f59ef11dbee3aecf1dfda1",
+      "headline": "Conversation failed: Agent yielded after 0.36 s although the contract required it to hold.",
+      "record_id": "sha256:5e05f9f1d23e26b84f3c82bce9fdd78789dad072c1f59ef11dbee3aecf1dfda1",
+      "status": "FAIL",
+      "test_id": "greeting-hold"
+    }
+  ],
+  "rendered": 1,
+  "source": {
+    "digest": "sha256:0951a139a94985af49e401ba4df4a96433e89706c0626fe82343e6b2134ee5f1",
+    "kind": "contract-verify"
+  },
+  "total_failures": 1,
+  "truncated": false,
+  "version": "1.0"
+}
