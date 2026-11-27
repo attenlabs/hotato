@@ -1,6 +1,6 @@
 # runtime deps for the job image (pinned by the upkeep job)
 google-cloud-storage==2.18.2
-google-genai==1.2.0
+google-genai==1.75.0
 cryptography==43.0.3
 # lets pip read the private Python repository with the job identity (atlas_collector.py)
 keyrings.google-artifactregistry-auth==1.1.2

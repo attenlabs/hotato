@@ -1077,3 +1077,21 @@ def test_alert_routing_emails_only_what_the_owner_must_act_on():
     assert re.search(r'query\s+= "absent_over_time\(.*\) unless absent_over_time\(', policies["heartbeat_missing"])
     # Who pulls the lane subscription is set in hotato.tfvars, not in this repository.
     assert re.search(r'variable "lane_alert_readers" \{\n  type        = list\(string\)\n  default     = \[\]', read("infra", "variables.tf"))
+
+
+@pytest.mark.parametrize("model", ["gemini-2.5-flash", "gemini-2.5-pro"])
+def test_gemini_config_is_accepted_by_the_pinned_google_genai(model):
+    # The job image pins google-genai in autopilot/requirements.txt. An old pin (1.2.0)
+    # rejected thinking_budget, so every distill call failed in production while the
+    # unit tests, which fake the client, passed. Build the real request config with the
+    # installed library: the Cloud Build test step installs exactly the pinned version.
+    types = pytest.importorskip("google.genai.types")
+    import atlas_job as job
+    types.GenerateContentConfig(**job.GeminiEngine(client=object(), model=model)._config())
+
+
+def test_the_build_installs_the_job_requirements_before_testing():
+    # Without this, the test above would skip in the build and guard nothing.
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    build = open(os.path.join(root, "autopilot", "build", "cloudbuild.yaml")).read()
+    assert "-r autopilot/requirements.txt" in build
