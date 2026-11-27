@@ -9,9 +9,10 @@ import tempfile
 import urllib.error
 import xml.etree.ElementTree as ET
 
-from common import dry_run, get_json, http, main_guard, now, open_issue, repo
+from common import alert, dry_run, get_json, http, main_guard, now, open_issue, repo
 
 VERSION_RE = re.compile(r"\b(\d+\.\d+\.\d+)\b")
+GRADE_BADGE_URL = "https://inspect.software/badge/v1/attenlabs/hotato.json"
 
 
 # ---- pure logic -------------------------------------------------------------
@@ -75,6 +76,12 @@ def readme_commands(md):
     return cmds
 
 
+def grade_is_a(badge):
+    """Shields-style badge JSON ({"message": "A · 78", ...}) -> True when the grade is A."""
+    msg = badge.get("message") if isinstance(badge, dict) else None
+    return isinstance(msg, str) and msg.strip().startswith("A")
+
+
 def links(md):
     return sorted(set(re.findall(r"\]\((https?://[^)\s]+)\)", md)))
 
@@ -136,8 +143,16 @@ def work(store, rec):
     if sm is None or sitemap_current(sm, [site + "/"]):
         problems["sitemap"] = "missing or stale"
     newest = store.get_json("atlas/newest.json")
-    if newest and not atlas_fresh(newest["ts"], now()):
+    if not newest or not newest.get("ts"):
+        problems["atlas_newest"] = "missing"
+    elif not atlas_fresh(newest["ts"], now()):
         problems["atlas_age"] = newest["ts"]
+    try:
+        badge = get_json(os.environ.get("GRADE_BADGE_URL", GRADE_BADGE_URL))
+        if not grade_is_a(badge):
+            problems["health_grade_below_a"] = badge.get("message") if isinstance(badge, dict) else repr(badge)[:200]
+    except Exception as exc:  # unreachable or unreadable badge: its own problem, never a crash
+        problems["health_grade_unreadable"] = f"{type(exc).__name__}: {exc}"[:300]
     issues = get_json(f"https://api.github.com/repos/{r}/issues?state=open&per_page=100")
     st = stale_issues(issues, now())
     if st:
@@ -151,6 +166,8 @@ def work(store, rec):
             problems["readme_commands"] = bad
     rec["problems"] = problems
     for key, detail in problems.items():
+        # Alerts go out in dry run too: they reach the fleet lanes (hotato-lane-alerts), issues do not.
+        alert(f"freshness_{key}", "WARNING", f"nightly freshness check failed: {key}: {detail}")
         rec.setdefault("issues", {})[key] = open_issue(
             f"freshness: {key}", f"Nightly freshness check failed.\n\n{detail}")
     return {"failed": sorted(problems), "latest": latest}

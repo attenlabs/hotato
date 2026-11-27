@@ -509,3 +509,86 @@ def test_vertex_region_defaults_to_global(monkeypatch):
     assert models.vertex_region() == "global"
     monkeypatch.setenv("VERTEX_REGION", "us-east5")
     assert models.vertex_region() == "us-east5"
+
+
+# ---- skipped runs and the HTTP User-Agent ------------------------------------------
+
+@pytest.mark.parametrize("fn", [
+    lambda st, r: r.setdefault("skipped", "store busy") and r["skipped"],  # atlas_job / atlas_wheel style
+    lambda st, r: {"skipped": "backlog empty"},                            # builder / simulate style
+])
+def test_skipped_run_writes_heartbeat_outcome_skipped(tmp_path, capsys, fn):
+    s = store(tmp_path)
+    assert common.run_job("skippy", fn, s) == 0
+    out = lines(capsys)
+    assert {"hotato_heartbeat": "skippy", "severity": "INFO"} in out  # log line unchanged: the job is alive
+    assert s.get_json("heartbeats/skippy.json")["outcome"] == "skipped"
+    assert {"job": "skippy", "status": "ok"} in out and not alerts(out)
+
+
+def test_work_run_keeps_outcome_ok(tmp_path, capsys):
+    s = store(tmp_path)
+    common.run_job("worky", lambda st, r: {"failed": [], "skipped_items": 3}, s)
+    assert s.get_json("heartbeats/worky.json")["outcome"] == "ok"
+
+
+class _Resp:
+    status = 200
+    headers = {"Content-Type": "text/plain"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return b"ok"
+
+
+def _capture_urlopen(monkeypatch):
+    seen = []
+
+    def fake(req, timeout=None):
+        seen.append(req)
+        return _Resp()
+    monkeypatch.setattr(common.urllib.request, "urlopen", fake)
+    return seen
+
+
+def test_http_sends_autopilot_user_agent_by_default(monkeypatch):
+    seen = _capture_urlopen(monkeypatch)
+    assert common.http("https://hotato.dev/atlas/") == (200, b"ok")
+    assert seen[0].get_header("User-agent") == "hotato-autopilot"
+    common.http("https://hotato.dev/", headers={"Cache-Control": "no-cache"})
+    assert seen[1].get_header("User-agent") == "hotato-autopilot"
+    assert seen[1].get_header("Cache-control") == "no-cache"
+
+
+def test_http_caller_user_agent_wins(monkeypatch):
+    seen = _capture_urlopen(monkeypatch)
+    common.http("https://hotato.dev/", headers={"user-agent": "custom/1"})
+    assert seen[0].get_header("User-agent") == "custom/1"
+    assert [k for k in seen[0].header_items() if k[0].lower() == "user-agent"] == [("User-agent", "custom/1")]
+
+
+def test_heartbeat_last_ok_carries_forward_over_skips(tmp_path, capsys, monkeypatch):
+    s = store(tmp_path)
+    t = iter([day(0), day(0, 13), day(0, 14)])
+    monkeypatch.setattr(common, "now", lambda: next(t))
+    common.heartbeat(s, "j", "ok")
+    assert s.get_json("heartbeats/j.json")["last_ok"] == day(0).isoformat()
+    common.heartbeat(s, "j", "skipped")
+    common.heartbeat(s, "j", "skipped")
+    hb = s.get_json("heartbeats/j.json")
+    assert hb["outcome"] == "skipped" and hb["time"] == day(0, 14).isoformat()
+    assert hb["last_ok"] == day(0).isoformat()
+
+
+def test_heartbeat_skip_without_readable_previous_writes_null(tmp_path, monkeypatch):
+    s = store(tmp_path)
+    common.heartbeat(s, "fresh", "skipped")  # no previous file
+    assert s.get_json("heartbeats/fresh.json")["last_ok"] is None
+    (tmp_path / "heartbeats" / "bad.json").write_text("{not json")
+    common.heartbeat(s, "bad", "skipped")  # unreadable previous file
+    assert s.get_json("heartbeats/bad.json")["last_ok"] is None
