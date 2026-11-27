@@ -853,7 +853,7 @@ def test_wheel_job_does_nothing_without_a_configured_repository(store, monkeypat
     assert "no collector repository" in wheel.work(store, rec)
 
 
-def test_the_collector_suite_runs_against_the_installed_wheel_with_an_allow_listed_env(tmp_path, monkeypatch):
+def test_the_wheel_is_installed_before_the_suite_runs_with_an_allow_listed_env(tmp_path, monkeypatch):
     import zipfile
     for k, v in (("CLOUDFLARE_PAGES_TOKEN", "cf"), ("GITHUB_TOKEN", "gh"), ("GCP_PROJECT", "p"),
                  ("ATLAS_SITE_REPO", "o/site"), ("ATLAS_REPOS_TOKEN", "ro"), ("GOOGLE_APPLICATION_CREDENTIALS", "/k")):
@@ -873,7 +873,7 @@ def test_the_collector_suite_runs_against_the_installed_wheel_with_an_allow_list
             order.append("install")
         elif "pytest" in argv:
             order.append("test")
-            assert env["PYTHONPATH"].endswith("/pkg") and env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+            assert env["PYTHONPATH"].endswith("/src/src") and env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
             leaked = [k for k in env if k not in wheel.TEST_ENV_KEEP and k not in (
                 "HOME", "TMPDIR", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE",
                 "PYTEST_DISABLE_PLUGIN_AUTOLOAD")]

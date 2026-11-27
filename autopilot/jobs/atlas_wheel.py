@@ -6,9 +6,10 @@ builds the wheel, checks the wheel holds only the atlas package, smoke-tests the
 offline with the stub engines, uploads it, and offers it as the candidate. The hourly job then
 runs the candidate, and promotes it after one clean run or rolls it back (atlas_collector.py).
 
-The collector's tests run against the built wheel installed into a scratch directory (not the
-source tree), with an allow-listed environment: no credential, no job configuration and no
-cloud identity variables reach them.
+The wheel is built and installed into a scratch directory first; the collector's tests then run
+over the checked-out source with an allow-listed environment (no credential, no job
+configuration and no cloud identity variables reach them), and the smoke run uses the installed
+wheel alone.
 
 Uploaded versions are never replaced: a version that exists is never uploaded again, and a
 version that failed here is not offered. A version the hourly job rolled back is re-offered only
@@ -114,8 +115,11 @@ def build_and_test(tree, version, work):
          work, 300)
     home = os.path.join(work, "home")
     os.makedirs(home, exist_ok=True)
+    # The suite runs over the source tree it came with (some tests compare files the wheel does
+    # not carry, such as data/hotato-cli-manifest.json); the smoke run below uses the wheel alone.
+    _run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"], tree, 1800,
+         test_env(home, os.path.join(tree, "src")))
     env = test_env(home, pkg)
-    _run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"], tree, 1800, env)
     out = _run([sys.executable, "-c",
                 "import sys, atlas, atlas.cli as c; "
                 "assert atlas.__file__.startswith(sys.argv[1]), atlas.__file__; "
