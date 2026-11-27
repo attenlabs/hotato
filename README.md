@@ -1,20 +1,25 @@
 <div align="center">
 
-<img src=".github/assets/hotato-banner.svg" alt="hotato" width="442" style="max-width:100%;height:auto;">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/hotato-banner-dark.svg">
+  <img src=".github/assets/hotato-banner.svg" alt="hotato: simulate, monitor and gate voice agents in CI" width="560" style="max-width:100%;height:auto;">
+</picture>
 
 <p>
-<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/v/hotato?style=flat-square&color=c23c07&label=pypi" alt="PyPI version"></a>
-<a href="https://pypistats.org/packages/hotato"><img src="https://img.shields.io/pypi/dm/hotato?style=flat-square&color=c23c07&label=downloads" alt="Downloads per month"></a>
-<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=6f5d44" alt="Python versions"></a>
-<a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://github.com/attenlabs/hotato/actions/workflows/tests.yml/badge.svg?branch=main" alt="CI status"></a>
-<a href="https://github.com/attenlabs/hotato/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/hotato?style=flat-square&color=6f5d44" alt="MIT license"></a></p>
-<!-- Add a stars badge (shields.io github/stars/attenlabs/hotato) here once the repo reaches ~25 stars; below that it advertises the low number. -->
+<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/v/hotato?style=flat-square&color=ff5a1f&label=pypi" alt="PyPI version"></a>
+<a href="https://pypistats.org/packages/hotato"><img src="https://img.shields.io/pypi/dm/hotato?style=flat-square&color=ff5a1f&label=downloads" alt="Downloads per month"></a>
+<a href="https://pypi.org/project/hotato/"><img src="https://img.shields.io/pypi/pyversions/hotato?style=flat-square&color=ff5a1f&label=python" alt="Python versions"></a>
+<a href="https://github.com/attenlabs/hotato/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/attenlabs/hotato/tests.yml?branch=main&style=flat-square&label=tests" alt="CI status"></a>
+<a href="https://github.com/attenlabs/hotato/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/hotato?style=flat-square&color=ff5a1f&label=license" alt="MIT license"></a></p>
+<!-- Stars badge (shields.io github/stars/attenlabs/hotato): add once the repo passes ~25 stars. -->
 
 # hotato
 
 **Hotato simulates, monitors and gates voice agents in CI. Open source, local-first, with a hosted option.**
 
 Find what broke in your agent calls. Pin it and CI stays red until you fix it.
+
+<img src="docs/assets/hotato-demo-report.png" alt="The hotato report for the bundled demo call: the agent talks over a 2.0 s interruption, marked FAIL with the fix" width="720" style="max-width:100%;height:auto;">
 
 ```bash
 pip install hotato
@@ -32,10 +37,12 @@ Works with any recording: mono, dual-channel, or a transcript. Timing math, not 
 
 ## What it finds
 
-- **Say-do gaps**: the caller interrupts to cancel (a barge-in), the agent says "canceled", the booking tool fires anyway. hotato takes the turn timing from the audio and the tool call from your OTel trace.
-- **Latency spikes**: the pause before a reply going from 800 ms to over 2 s.
-- **Dead air**: that pause reaching 5 s, or the line going quiet.
-- **Talk-over**: the agent starts a fresh utterance over the caller.
+| Failure | What hotato measures |
+| :-- | :-- |
+| **Say-do gap** | The caller interrupts to cancel (a barge-in), the agent says "canceled", the booking tool fires anyway: turn timing from the audio, the tool call from your OTel trace. |
+| **Latency spike** | The pause before a reply going from 800 ms to over 2 s. |
+| **Dead air** | That pause reaching 5 s, or the line going quiet. |
+| **Talk-over** | The agent starts a fresh utterance over the caller. |
 
 ## Quickstart
 
@@ -53,10 +60,10 @@ Open `report.html`: every critical incident, timestamped, and your Voice Stabili
 
 ```bash
 export RETELL_API_KEY=...
-hotato retell health --call-id CALL_ID
+hotato retell health --last 7d
 ```
 
-`--call-id` is required and repeatable: you name the Retell calls to pull.
+It lists your recent Retell calls, or takes `--call-id` (repeatable) to name them.
 `hotato bland health`, `hotato synthflow health`, and `hotato millis health`
 follow the Vapi shape. Those stacks mix both voices onto one channel, so
 they measure silence timing, dead air and latency gaps, each finding with

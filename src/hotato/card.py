@@ -309,6 +309,11 @@ _CANDIDATE_CARDS = {
 # real samples.
 _STRIP_X0, _STRIP_X1 = 336, _W - _M - 18
 _STRIP_N = 40
+# The waveform strip sits right of the big measured figure (which can run to
+# ~300 px at 84 px mono), with its lane labels in their own column so neither
+# the figure nor the headline nor the caption below can touch them.
+_LANE_LABEL_X = 404
+_WAVE_X0 = 484
 
 
 def _bar(cx, yc, half, fill) -> str:
@@ -323,11 +328,10 @@ def _waveform(mode: str) -> List[str]:
     mode the band is where both lanes are speaking at once; in ``gap`` mode it is
     the silence after the agent lane stops with the caller lane quiet."""
     import math
-    x0, x1 = _STRIP_X0, _STRIP_X1
+    x0, x1 = _WAVE_X0, _STRIP_X1
     w = x1 - x0
-    step = w / _STRIP_N
-    y_agent, y_caller = 258, 384
-    amp = 30
+    y_agent, y_caller = 262, 374
+    amp = 28
     if mode == "overlap":
         agent_win = (0.0, 1.0)
         caller_win = (0.44, 0.68)
@@ -355,14 +359,15 @@ def _waveform(mode: str) -> List[str]:
     parts: List[str] = []
     # the highlight band spans both lanes.
     parts.append(
-        f'<rect x="{hx0:g}" y="{y_agent - amp - 16:g}" width="{hx1 - hx0:g}" '
-        f'height="{(y_caller + amp + 16) - (y_agent - amp - 16):g}" rx="10" '
+        f'<rect x="{hx0:g}" y="{y_agent - amp - 14:g}" width="{hx1 - hx0:g}" '
+        f'height="{(y_caller + amp + 14) - (y_agent - amp - 14):g}" rx="10" '
         f'fill="rgba(248,81,73,0.10)" stroke="{_C["crimson"]}" '
         f'stroke-width="1.4" stroke-dasharray="6 5"/>')
-    parts.append(_text(x0, y_agent - amp - 22, "agent", size=15,
+    # lane labels: their own column, level with the lane they name.
+    parts.append(_text(_LANE_LABEL_X, y_agent + 5, "agent", size=15,
                        fill=_C["muted"], weight="600", family=_MONO,
                        spacing=1.2))
-    parts.append(_text(x0, y_caller + amp + 30, "caller", size=15,
+    parts.append(_text(_LANE_LABEL_X, y_caller + 5, "caller", size=15,
                        fill=_C["muted"], weight="600", family=_MONO,
                        spacing=1.2))
     parts += lane(y_agent, agent_win, _C["cream"])
@@ -398,7 +403,7 @@ def _render_candidate(cand: dict, *, include_identifiers: bool,
     # crimson band; the ember accent stays reserved for the brand mark.
     body.append(_text(_M, 244, eyebrow, size=15, fill=_C["muted"],
                       weight="600", family=_MONO, spacing=2))
-    body.append(_text(_M, 344, _fmt_sec(measured), size=96, fill=_C["crimson"],
+    body.append(_text(_M, 336, _fmt_sec(measured), size=84, fill=_C["crimson"],
                       weight="800", family=_MONO))
     desc_lines = _wrap(desc, 60)
     for i, ln in enumerate(desc_lines):
@@ -440,7 +445,7 @@ def _bowtie() -> List[str]:
     so wherever the single dial sits, one error is already climbing. There is no
     setting that puts both low at once."""
     x0, x1 = 336, _W - _M - 30
-    y0, y1 = 250, 430          # plot box
+    y0, y1 = 246, 404          # plot box (axis labels end clear of the caption)
     w, h = x1 - x0, y1 - y0
     # axis
     parts = [
@@ -470,9 +475,9 @@ def _bowtie() -> List[str]:
     parts.append(f'<circle cx="{xc:g}" cy="{(y0 + y1) / 2:g}" r="14" '
                  f'fill="none" stroke="{_C["cream"]}" stroke-width="1.4"/>')
     # axis end labels + one dial label.
-    parts.append(_text(x0, y1 + 30, "loose", size=14, fill=_C["muted"],
+    parts.append(_text(x0, y1 + 26, "loose", size=14, fill=_C["muted"],
                        weight="600", family=_MONO, spacing=1.2))
-    parts.append(_text(x1, y1 + 30, "tight", size=14, fill=_C["muted"],
+    parts.append(_text(x1, y1 + 26, "tight", size=14, fill=_C["muted"],
                        weight="600", family=_MONO, anchor="end", spacing=1.2))
     parts.append(_text(xc, y0 - 16, "one dial", size=14, fill=_C["muted"],
                        weight="600", family=_MONO, anchor="middle", spacing=1.2))
@@ -497,7 +502,7 @@ def _render_funnel(plan: dict, *, font_css: str = "") -> str:
         size=25, fill=_C["muted"], weight="500"))
     body.append(_text(_M, 524, "Hotato refused threshold tuning.", size=27,
                       fill=_C["cream"], weight="700", family=_DISPLAY))
-    body.append(_pill(_W - _M, 506, f"fix class: {fix_class}", size=16,
+    body.append(_pill(_W - _M, 480, f"fix class: {fix_class}", size=16,
                       text_fill=_C["ember"], stroke=_C["ember"], anchor="end"))
     body.append(_footer(
         "Reproducible timing verdicts from the open scorer."))
@@ -793,7 +798,7 @@ def _render_saydo(result: dict, *, font_css: str = "") -> str:
     body += _saydo_panel(evidence_line, f"assertion: {aid} ({kind})")
     # The share-safe public reason, capped to two deterministic lines (the
     # full sentence lives in the JSON result the card was rendered from).
-    public_lines = _wrap(public, 56)
+    public_lines = _wrap(public, 48)
     if len(public_lines) > 2:
         public_lines = [public_lines[0], public_lines[1] + " ..."]
     for i, ln in enumerate(public_lines):
@@ -825,7 +830,7 @@ def _saydo_panel(evidence_line: str, assertion_line: str) -> List[str]:
     x0, x1 = _STRIP_X0, _STRIP_X1
     w = x1 - x0
     parts: List[str] = []
-    y_said, h_said = 232, 80
+    y_said, h_said = 222, 76
     parts.append(
         f'<rect x="{x0:g}" y="{y_said:g}" width="{w:g}" height="{h_said:g}" '
         f'rx="12" fill="none" stroke="{_C["muted"]}" stroke-width="1.4" '
@@ -833,15 +838,15 @@ def _saydo_panel(evidence_line: str, assertion_line: str) -> List[str]:
     parts.append(_text(x0 + 22, y_said + 28, "said", size=15,
                        fill=_C["muted"], weight="600", family=_MONO,
                        spacing=1.6))
-    parts.append(_text(x0 + 22, y_said + 60, "what the call says happened",
+    parts.append(_text(x0 + 22, y_said + 57, "what the call says happened",
                        size=21, fill=_C["cream"], weight="500"))
     parts.append(_pill(x1 - 16, y_said + 24, "words, not evidence", size=14,
                        text_fill=_C["muted"], stroke=_C["muted"], dashed=True,
                        anchor="end"))
-    parts.append(_text(x0 + 22, 336, "checked against", size=14,
+    parts.append(_text(x0 + 22, 322, "checked against", size=14,
                        fill=_C["muted"], weight="600", family=_MONO,
                        spacing=1.6))
-    y_did, h_did = 350, 96
+    y_did, h_did = 334, 92
     parts.append(
         f'<rect x="{x0:g}" y="{y_did:g}" width="{w:g}" height="{h_did:g}" '
         f'rx="12" fill="rgba(248,81,73,0.06)" stroke="{_C["crimson"]}" '
@@ -849,9 +854,9 @@ def _saydo_panel(evidence_line: str, assertion_line: str) -> List[str]:
     parts.append(_text(x0 + 22, y_did + 28, "did", size=15,
                        fill=_C["muted"], weight="600", family=_MONO,
                        spacing=1.6))
-    parts.append(_text(x0 + 22, y_did + 56, evidence_line, size=21,
+    parts.append(_text(x0 + 22, y_did + 54, evidence_line, size=21,
                        fill=_C["crimson"], weight="600"))
-    parts.append(_text(x0 + 22, y_did + 82, assertion_line, size=16,
+    parts.append(_text(x0 + 22, y_did + 79, assertion_line, size=16,
                        fill=_C["muted"], weight="500", family=_MONO))
     return parts
 
