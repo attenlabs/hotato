@@ -8,7 +8,7 @@
 printf stop | gcloud storage cp - gs://hotato-autopilot-state/flags/kill
 ```
 
-Every job reads that flag first and exits. The budget function writes the same flag at the cap. To resume, delete the object: `gcloud storage rm gs://hotato-autopilot-state/flags/kill`. To also stop the schedules: `for s in atlas upkeep freshness builder simulate scorecard weekly-rebuild; do gcloud scheduler jobs pause hotato-$s --location us-central1; done`.
+Every job reads that flag first and exits. The budget function writes the same flag at the cap. To resume, delete the object: `gcloud storage rm gs://hotato-autopilot-state/flags/kill`. To also stop the schedules: `for s in atlas atlas-recheck atlas-audit atlas-watch atlas-wheel upkeep freshness builder simulate scorecard weekly-rebuild; do gcloud scheduler jobs pause hotato-$s --location us-central1; done`.
 
 ## Owner's one-time steps, in order
 
@@ -20,7 +20,7 @@ Every job reads that flag first and exits. The budget function writes the same f
 5a. The monitor's bearer token is made by `bootstrap.sh` (one random version, only if none exists). Read it with `gcloud secrets versions access latest --secret serve-token` when you open the hosted workspace.
 6. Add the three simulate secrets (`telephony-account-sid`, `telephony-auth-token`, `voice-provider-api-key`) as new versions. Then set `enable_secrets = true` in `hotato.tfvars` and re-run `bootstrap.sh`.
 7. Put the build service account (Terraform output `build_service_account`) in as a Google Cloud trusted publisher for the hotato project on PyPI.
-7a. Publish the private Atlas collector before the first build (the jobs image installs it, and the build stops if it is missing): `GCLOUD_CONFIGURATION=<config> autopilot/build/publish-atlas-wheel.sh <hotato-atlas checkout> --upload`. It builds the wheel from the checkout's last commit and uploads it to the private Python repository `hotato-private-py` (Terraform output `private_python_index`); the source is never published. A new collector version: bump it in the collector, publish it, then set `_ATLAS_VERSION` in `build/cloudbuild.yaml` to match. Uploaded versions are never replaced.
+7a. Publish the private Atlas collector before the first build (the jobs image installs it, and the build stops if it is missing): `GCLOUD_CONFIGURATION=<config> autopilot/build/publish-atlas-wheel.sh <hotato-atlas checkout> --upload`. It builds the wheel from the checkout's last commit and uploads it to the private Python repository `hotato-private-py` (Terraform output `private_python_index`); the source is never published. Later collector versions ship themselves through `hotato-atlas-wheel` (section Atlas); `_ATLAS_VERSION` in `build/cloudbuild.yaml` is only the version baked into the image. Uploaded versions are never replaced.
 8. Run the first build from the repository root: `gcloud builds submit --config autopilot/build/cloudbuild.yaml --substitutions _DEPLOY=true,_CF_ACCOUNT_ID=<cloudflare account id>`.
 9. Fill `scorecard/competitors.json` in the bucket (repo and changelog URL per reference company) and `simulate/allowlist.json` (the only phone numbers simulated calls may reach).
 10. Create `scan/banned.sha256` entries on your machine only: `python3 autopilot/scan/make_hashes.py names.txt >> autopilot/scan/banned.sha256`, commit the hashes, never the names file.
@@ -28,6 +28,37 @@ Every job reads that flag first and exits. The budget function writes the same f
 12. Give the standing write grant covering pushes, PRs, deploys and releases, then list the jobs allowed to go live on their own in `auto_promote_jobs` in `hotato.tfvars` (start with `["freshness", "upkeep", "scorecard"]`) and re-run `bootstrap.sh`. Each listed job still has to earn 7 clean days in shadow first. Jobs not listed stay in shadow.
 12a. Turn on self-maintenance (after step 12's grant, because the weekly rebuild redeploys): in the Cloud Console, Cloud Build > Triggers > Connect repository, choose GitHub (Cloud Build GitHub App), install the app on the hotato repo and connect it to this project. Then set `self_maintain = true` and `cloudflare_account_id = "<id>"` in `hotato.tfvars` and re-run `bootstrap.sh`. From then on infra changes merged to `main` apply themselves, pull requests touching `infra/` get a plan, and the images rebuild every Sunday.
 13. After the sprint, set `phase = "monthly"` and re-run `bootstrap.sh`; delete the sprint budget in the console if you want.
+
+## Atlas: hotato.dev/atlas keeps itself current
+
+What runs (all on one image; `jobs/atlas_job.py` holds the design notes):
+
+- `hotato-atlas`, hourly: collects new public reports, classifies them with Gemini on a 40 minute budget per run (a backlog drains over a few runs), runs the propose/review loop, renders the pages into a checkout of the exact site commit that is live on Cloudflare Pages, checks them, deploys through that commit's own `tools/stage-deploy.sh`, and confirms the live feed. It logs the heartbeat `atlas-publish` only when hotato.dev serves its render.
+- `hotato-atlas-recheck` (daily) and `hotato-atlas-audit` (weekly): evidence re-checks and the published-record audit. Store only; the next hourly run publishes.
+- `hotato-atlas-watch` (every 6 hours): reads the live feed. Stale or replaced pages re-run `hotato-atlas`, at most once per 3 hours.
+- `hotato-atlas-wheel` (daily): a new collector version on the collector repository's main branch is tested, built, smoke-tested, uploaded to `hotato-private-py` and offered as the candidate. The hourly job promotes it after one clean run or rolls it back. upkeep opens an issue when `_ATLAS_VERSION` in `build/cloudbuild.yaml` falls behind.
+
+The four new schedules are created paused. To start them: `for s in atlas-recheck atlas-audit atlas-watch atlas-wheel; do gcloud scheduler jobs resume hotato-$s --location us-central1; done`.
+
+One-time setup:
+
+1. In `infra/hotato.tfvars`: `atlas_site_repo = "<owner>/<site repo>"`, `atlas_collector_repo = "<owner>/<collector repo>"`, `cloudflare_account_id = "<id>"`. Re-run `bootstrap.sh`.
+2. Read access to both private repositories: install the GitHub App on them, or add a fine-grained token with contents:read on just those two as a version of the secret `atlas-repos-token`. The bot token is the last fallback.
+3. The `cloudflare-pages-token` must be allowed to read and deploy Pages (Account: Cloudflare Pages: Edit).
+4. Seed the store once if `atlas/atlas.db` is not in the state bucket: `gcloud storage cp <atlas.db> gs://<project>-state/atlas/atlas.db`.
+
+When an alert names an Atlas kind (the live pages keep the last good render meanwhile):
+
+| kind | meaning | step |
+|---|---|---|
+| `atlas_guard_shrink` | the new store would remove published entries or reports; it was quarantined in `atlas/quarantine/`, the old store kept | if the removal was deliberate (withdrawals, merges): `gcloud storage cp /dev/null gs://<project>-state/atlas/flags/allow-shrink` (lets one run through) |
+| `atlas_guard_structure` | the pages failed the structure checks (page count, feed, stylesheet, preflight) | read `runs/atlas/` for the problem list; usually a site release changed its chrome: fix the donor page or the collector |
+| `atlas_site_unavailable` | the live site is not a pushed commit of the site repository, or the checkout or Cloudflare read failed | push the commit the site was deployed from, or deploy a pushed commit; check the credentials above |
+| `atlas_publish_failed` / `atlas_live_mismatch` | the deploy failed, or the live feed is not the render | the next run retries; repeated: check the Pages project and token |
+| `atlas_db_restored` / `atlas_db_unusable` | the store was corrupt: restored from an earlier generation or snapshot; or nothing sound was left | unusable: seed it (step 4) or set `atlas/flags/allow-empty-start` |
+| `atlas_collector_rolled_back` | a new collector version crashed or did not install; runs use the previous one | fix the collector and bump its version |
+
+Owner commands against the cloud store (withdraw, merge, dispute): `gcloud run jobs execute hotato-atlas-audit --region us-central1 --args=cli,withdraw,<id>,--reason,<why>`. The next hourly run publishes the change.
 
 ## Shadow mode (default for the first week)
 

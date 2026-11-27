@@ -113,7 +113,7 @@ steps:
       - -c
       - |
         [ "$_DEPLOY" = "true" ] || { echo "deploy skipped"; exit 0; }
-        for j in atlas upkeep builder reviewer freshness scorecard simulate; do
+        for j in atlas atlas-recheck atlas-audit atlas-watch atlas-wheel upkeep builder reviewer freshness scorecard simulate; do
           gcloud run jobs update "hotato-$$j" --region "$_REGION" --image "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:$BUILD_ID"
         done
         gcloud run deploy hotato-monitor --region "$_REGION" --image "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor:$BUILD_ID"

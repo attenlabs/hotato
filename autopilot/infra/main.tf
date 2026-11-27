@@ -6,8 +6,15 @@ locals {
   # run time from Secret Manager (never as env refs, so a missing version breaks nothing) and
   # fall back to github-bot-token while they are empty.
   gh_app_secrets = ["github-app-id", "github-app-private-key", "github-app-installation-id"]
+  # OPTIONAL read-only token for the private site and collector repositories (contents: read).
+  # Empty is fine while the GitHub App or the bot token can read them (jobs/atlas_site.py).
+  atlas_repo_secrets = ["atlas-repos-token"]
   # Secret containers Terraform creates (values are added by the owner).
-  created_secrets = concat(local.sim_secrets, local.gh_app_secrets)
+  created_secrets = concat(local.sim_secrets, local.gh_app_secrets, local.atlas_repo_secrets)
+  # What the Atlas jobs read at run time (never as env refs, so a missing version breaks nothing):
+  # every Atlas job may read the private repositories; only the hourly job deploys the pages.
+  atlas_repo_read_secrets = concat(["github-bot-token"], local.gh_app_secrets, local.atlas_repo_secrets)
+  atlas_publish_secrets   = concat(local.atlas_repo_read_secrets, ["cloudflare-pages-token"])
 
   jobs_image        = "${var.region}-docker.pkg.dev/${var.project_id}/hotato/jobs:latest"
   placeholder_image = "us-docker.pkg.dev/cloudrun/container/hello"
@@ -29,14 +36,37 @@ locals {
 
   # One entry per Cloud Run job. vertex = may call Vertex AI. secrets = Secret Manager names (env = upper snake case).
   # optional_secrets = read by the job itself from Secret Manager at run time; may be empty.
-  jobs = {
-    atlas     = { script = "atlas_job.py", timeout = 3600, vertex = true, secrets = [], optional_secrets = [] }
-    upkeep    = { script = "upkeep.py", timeout = 900, vertex = false, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
-    builder   = { script = "builder.py", timeout = 3600, vertex = true, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
-    reviewer  = { script = "reviewer.py", timeout = 1800, vertex = true, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
-    freshness = { script = "freshness.py", timeout = 1800, vertex = false, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
-    scorecard = { script = "scorecard.py", timeout = 900, vertex = false, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
-    simulate  = { script = "simulate.py", timeout = 3600, vertex = true, secrets = local.sim_secrets, optional_secrets = [] }
+  # Optional per job: args (container arguments), cpu, memory, live (DRY_RUN=0: the job writes
+  # nothing outside this project but the Atlas pages), env (extra variables), cache (mounts the
+  # state bucket at /mnt/state; the collector's fetch cache lives in atlas/cache/, kept 30 days).
+  job_specs = {
+    atlas         = { script = "atlas_job.py", args = ["run"], timeout = 5400, vertex = true, secrets = [], optional_secrets = local.atlas_publish_secrets, cpu = "2", memory = "4Gi", live = var.atlas_publish_live, cache = true }
+    atlas-recheck = { script = "atlas_job.py", args = ["recheck"], timeout = 3600, vertex = false, secrets = [], optional_secrets = local.atlas_repo_read_secrets, live = true, cache = true }
+    atlas-audit   = { script = "atlas_job.py", args = ["audit"], timeout = 3600, vertex = true, secrets = [], optional_secrets = local.atlas_repo_read_secrets, live = true, cache = true }
+    atlas-watch   = { script = "atlas_watch.py", timeout = 600, vertex = false, secrets = [], optional_secrets = [], live = true }
+    atlas-wheel   = { script = "atlas_wheel.py", timeout = 3600, vertex = false, secrets = [], optional_secrets = local.atlas_repo_read_secrets, cpu = "2", memory = "4Gi", live = true }
+    upkeep        = { script = "upkeep.py", timeout = 900, vertex = false, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
+    builder       = { script = "builder.py", timeout = 3600, vertex = true, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
+    reviewer      = { script = "reviewer.py", timeout = 1800, vertex = true, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
+    freshness     = { script = "freshness.py", timeout = 1800, vertex = false, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
+    scorecard     = { script = "scorecard.py", timeout = 900, vertex = false, secrets = local.gh_secrets, optional_secrets = local.gh_app_secrets }
+    simulate      = { script = "simulate.py", timeout = 3600, vertex = true, secrets = local.sim_secrets, optional_secrets = [] }
+  }
+  job_defaults = { args = [], cpu = "1", memory = "2Gi", live = false, cache = false }
+  jobs         = { for k, v in local.job_specs : k => merge(local.job_defaults, v) }
+
+  # Settings shared by the Atlas jobs. Repository names and the account id come from tfvars.
+  atlas_env = {
+    ATLAS_SITE_REPO        = var.atlas_site_repo
+    ATLAS_COLLECTOR_REPO   = var.atlas_collector_repo
+    ATLAS_SITE_URL         = var.site_url
+    ATLAS_PAGES_PROJECT    = "hotato-site"
+    ATLAS_PY_REPO          = "hotato-private-py"
+    CLOUDFLARE_ACCOUNT_ID  = var.cloudflare_account_id
+    ATLAS_DISTILL_BUDGET_S = "2400"
+    ATLAS_RUN_MAX_USD      = "5"
+    ATLAS_IMPROVE_LIMIT    = "150"
+    ATLAS_LOCK_TTL_S       = "6000"
   }
 }
 
@@ -74,6 +104,26 @@ resource "google_storage_bucket" "state" {
       type = "Delete"
     }
   }
+  lifecycle_rule {
+    condition {
+      age            = 45
+      matches_prefix = ["atlas/snapshots/"]
+    }
+    action {
+      type = "Delete"
+    }
+  }
+  lifecycle_rule {
+    condition {
+      age            = 30
+      matches_prefix = ["atlas/quarantine/", "atlas/cache/"]
+    }
+    action {
+      type = "Delete"
+    }
+  }
+  # Replaced generations of atlas/atlas.db (one per hourly run) are the first line of restore
+  # (jobs/atlas_state.py); 14 days of them, like every other replaced object.
   lifecycle_rule {
     condition {
       days_since_noncurrent_time = 14

@@ -232,7 +232,12 @@ resource "google_logging_metric" "heartbeat" {
 
 locals {
   # Window = 2x the job's schedule interval (local.heartbeat_interval_h in schedule.tf).
-  heartbeat_window_h = { for j, h in local.heartbeat_interval_h : j => 2 * h }
+  # atlas-publish is logged by the hourly Atlas job only when hotato.dev/atlas serves its render
+  # (jobs/atlas_job.py), so it goes quiet when publishing breaks while the job itself still runs.
+  heartbeat_window_h = merge(
+    { for j, h in local.heartbeat_interval_h : j => 2 * h },
+    var.atlas_site_repo != "" ? { "atlas-publish" = 6 } : {},
+  )
   # A plain metric-absence condition allows at most 23.5 h, and PromQL over a log-based metric at most 25 h.
   # Longer windows therefore watch the built-in Cloud Run metric for a succeeded execution instead of the
   # heartbeat log line (absent_over_time also fires for a job that has never run). The owner's live check
@@ -282,6 +287,34 @@ resource "google_monitoring_alert_policy" "heartbeat_missing" {
   }
   documentation {
     content   = "The ${each.key} job has not logged a heartbeat for ${each.value} hours: it did not run, or it ran and did not finish cleanly. Check its schedule, the kill flag, and runs/${each.key}/ in the state bucket."
+    mime_type = "text/markdown"
+  }
+  notification_channels = local.notify
+}
+
+# The Atlas pages did not reach hotato.dev: a guard refusal, a failed deploy, or a live feed that
+# is not the render. Separate from job_alert so the notification names the runbook section.
+resource "google_monitoring_alert_policy" "atlas_publish_failed" {
+  display_name = "hotato Atlas publish failed"
+  combiner     = "OR"
+  conditions {
+    display_name = "Atlas publish refused or failed"
+    condition_matched_log {
+      filter = "jsonPayload.hotato_alert=~\"^atlas_(guard_shrink|guard_structure|publish_failed|live_mismatch|db_unusable|collector_rolled_back)$\" AND severity>=ERROR"
+      label_extractors = {
+        kind   = "EXTRACT(jsonPayload.hotato_alert)"
+        detail = "EXTRACT(jsonPayload.detail)"
+      }
+    }
+  }
+  alert_strategy {
+    notification_rate_limit {
+      period = "3600s"
+    }
+    auto_close = "86400s"
+  }
+  documentation {
+    content   = "hotato.dev/atlas was not updated. The kind says why; RUNBOOK.md section Atlas has the step for each kind. The live pages keep the last good render meanwhile."
     mime_type = "text/markdown"
   }
   notification_channels = local.notify

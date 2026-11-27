@@ -2,3 +2,7 @@
 google-cloud-storage==2.18.2
 google-genai==1.2.0
 cryptography==43.0.3
+# lets pip read the private Python repository with the job identity (atlas_collector.py)
+keyrings.google-artifactregistry-auth==1.1.2
+# atlas-wheel runs the collector's own test suite before it ships a version
+pytest==8.3.4

@@ -58,10 +58,12 @@ def test_build_only_reads_the_private_repository():
     assert "google_artifact_registry_repository.private_py.name" in py
     assert 'role       = "roles/artifactregistry.reader"' in py
     assert "google_service_account.build.email" in py
-    # No identity gets a write role on the private repository in Terraform (the owner uploads).
+    # The one identity with a write role on the private repository is atlas-wheel, which tests a
+    # new collector version before uploading it (jobs/atlas_wheel.py). Versions are never replaced.
     for m in re.finditer(r'resource "google_artifact_registry_repository_iam_\w+" "\w+" \{\n(.*?)\n\}\n', iam, re.S):
         if "private_py" in m.group(1):
-            assert "artifactregistry.reader" in m.group(1)
+            assert "artifactregistry.reader" in m.group(1) or (
+                "artifactregistry.writer" in m.group(1) and 'job["atlas-wheel"]' in m.group(1))
     # Image pushes are granted on the image repository only, not project-wide.
     assert "roles/artifactregistry.writer" not in tf_block(iam, "google_project_iam_member", "build")
     images = tf_block(iam, "google_artifact_registry_repository_iam_member", "build_images")
@@ -187,16 +189,29 @@ class Store:
         self.blobs[key] = data
 
 
-def test_atlas_job_runs_the_installed_cli(fake_atlas, monkeypatch):
+def test_store_only_modes_run_the_installed_cli_under_the_lock(fake_atlas, monkeypatch, tmp_path):
+    import sqlite3
+    import common
     import atlas_job as job
-    monkeypatch.setattr(job.models, "resolve", lambda name: "model-x")
+    import atlas_state as state
+    monkeypatch.setattr(job, "prepare", lambda *a, **k: None)
+    st = common.Store(local_dir=str(tmp_path / "bucket"))
+    db = tmp_path / "seed.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("CREATE TABLE reports(id); CREATE TABLE patterns(id); CREATE TABLE mentions(id);"
+                       "CREATE TABLE checks(id); INSERT INTO patterns VALUES ('p1');")
+    conn.commit()
+    conn.close()
+    g = state.Objects(st).write_file(state.DB_KEY, str(db), 0)
     rec = {}
-    out = job.work(Store(), rec)
-    from atlas import cli, distill
-    assert distill.ENGINES["claude"] is job.GeminiEngine
-    assert cli.CALLS and cli.CALLS[0][2:7] == ["run", "--engine", "claude", "--agents", "stub"]
-    assert "--no-pages" in cli.CALLS[0]  # the image has no site checkout to write pages into
-    assert out["exit"] == 0 and rec["model"] == "model-x"
+    assert job.work_for("recheck")(st, rec) == "ok"
+    from atlas import cli
+    assert cli.CALLS[-1][0] == "--db" and cli.CALLS[-1][-1] == "recheck"
+    assert state.Objects(st).generation(state.DB_KEY) > g  # saved over the generation it read
+    assert state.Objects(st).read(state.LOCK_KEY) == (None, 0)  # and released the lock
+    assert job.JOBS == {"run": "atlas", "recheck": "atlas-recheck", "audit": "atlas-audit", "cli": "atlas-cli"}
+    with pytest.raises(SystemExit):
+        job.work_for("cli")
 
 
 @pytest.mark.skipif(importlib.util.find_spec("atlas") is None

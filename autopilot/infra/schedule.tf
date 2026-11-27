@@ -8,20 +8,29 @@ resource "google_workflows_workflow" "run_jobs" {
 
 locals {
   schedules = {
-    atlas     = { cron = "0 * * * *", jobs = ["atlas"] }
-    upkeep    = { cron = "0 2 * * *", jobs = ["upkeep"] }
-    freshness = { cron = "0 3 * * *", jobs = ["freshness"] }
-    builder   = { cron = "0 4 * * *", jobs = ["builder", "reviewer"] }
-    simulate  = { cron = "0 5 * * *", jobs = ["simulate"] }
-    scorecard = { cron = "0 6 * * 1", jobs = ["scorecard"] }
+    atlas         = { cron = "0 * * * *", jobs = ["atlas"] }
+    atlas-recheck = { cron = "30 3 * * *", jobs = ["atlas-recheck"] }
+    atlas-audit   = { cron = "30 4 * * 3", jobs = ["atlas-audit"] }
+    atlas-watch   = { cron = "40 1,7,13,19 * * *", jobs = ["atlas-watch"] }
+    atlas-wheel   = { cron = "15 9 * * *", jobs = ["atlas-wheel"] }
+    upkeep        = { cron = "0 2 * * *", jobs = ["upkeep"] }
+    freshness     = { cron = "0 3 * * *", jobs = ["freshness"] }
+    builder       = { cron = "0 4 * * *", jobs = ["builder", "reviewer"] }
+    simulate      = { cron = "0 5 * * *", jobs = ["simulate"] }
+    scorecard     = { cron = "0 6 * * 1", jobs = ["scorecard"] }
   }
 
-  # Interval of each schedule in hours, read from its cron: "M * * * *" hourly, "M H * * *" daily,
-  # anything with a day field set counts as weekly. Used by the heartbeat alerts in monitoring.tf.
+  # Schedules that did not exist before this release are created paused, so they start only
+  # when the owner resumes them (RUNBOOK: Atlas). Terraform never flips paused afterwards.
+  paused_at_create = toset(["atlas-recheck", "atlas-audit", "atlas-watch", "atlas-wheel"])
+
+  # Interval of each schedule in hours, read from its cron: "M * * * *" hourly, "M H1,H2,.. * * *"
+  # every 24/n hours, "M H * * *" daily, anything with a day field set counts as weekly. Used by
+  # the heartbeat alerts in monitoring.tf.
   schedule_interval_h = {
     for k, s in local.schedules : k => (
       split(" ", s.cron)[1] == "*" ? 1 : (
-        split(" ", s.cron)[2] == "*" && split(" ", s.cron)[4] == "*" ? 24 : 168
+        split(" ", s.cron)[2] == "*" && split(" ", s.cron)[4] == "*" ? floor(24 / length(split(",", split(" ", s.cron)[1]))) : 168
       )
     )
   }
@@ -49,6 +58,7 @@ resource "google_cloud_scheduler_job" "run" {
   region    = var.region
   schedule  = each.value.cron
   time_zone = "Etc/UTC"
+  paused    = contains(local.paused_at_create, each.key)
 
   http_target {
     http_method = "POST"
@@ -58,6 +68,9 @@ resource "google_cloud_scheduler_job" "run" {
     oauth_token {
       service_account_email = google_service_account.scheduler.email
     }
+  }
+  lifecycle {
+    ignore_changes = [paused] # the owner resumes and pauses schedules; Terraform only sets the start
   }
   depends_on = [google_project_service.api]
 }
