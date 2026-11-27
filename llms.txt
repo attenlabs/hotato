@@ -170,6 +170,8 @@ build an outreach list.
 - docs/EVIDENCE-CONTRACT.md: the four-tier evidence policy, stated once.
 - docs/CONTRACTS.md: the portable, CI-enforced `<id>.hotato` failure contract.
 - docs/CI.md: the GitHub PR check and the `hotato init ci` gate configs.
+- docs/PR-COMMENT.md: `hotato pr comment` and the Action's one sticky PR
+  comment (verdict, failures with evidence, comparison with the base branch).
 - docs/MCP.md: the hotato MCP server and copy-paste client configs. Start it
   with `uvx --from "hotato[mcp]" hotato-mcp`: `--from` names the package that
   provides the command, and the `[mcp]` extra adds the MCP SDK it imports.

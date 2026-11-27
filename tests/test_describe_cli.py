@@ -62,7 +62,7 @@ _ALL_SUBCOMMANDS = [
     "investigate", "investigate label", "describe",
     "init", "init webhook", "init starter", "init ci",
     "issue", "issue create",
-    "pr", "pr create",
+    "pr", "pr create", "pr comment",
     "fleet", "fleet init", "fleet agent", "fleet agent add", "fleet agent list",
     "fleet ingest", "fleet discover", "fleet review", "fleet label", "fleet status",
     "fleet benchmark", "fleet experiment", "fleet experiment create", "fleet experiment run", "fleet experiment propose", "fleet experiment approve", "fleet run", "fleet contract", "fleet contract create", "fleet retention", "fleet delete", "fleet redact", "fleet canary", "fleet canary start",

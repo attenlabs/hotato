@@ -112,6 +112,10 @@ jobs:
 ```
 
 `contracts/` holds what `pin` wrote. Full workflow: [`docs/CI.md`](docs/CI.md).
+Add `comment-pr: true` (with `pull-requests: write`) and each pull request gets
+one comment, updated in place: the verdict, what failed with its evidence, what
+the change fixed or broke against the base branch, and links to the Failure
+Records and evidence cards ([`docs/PR-COMMENT.md`](docs/PR-COMMENT.md)).
 
 ## Point your agent at it
 

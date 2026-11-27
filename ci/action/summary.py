@@ -478,6 +478,11 @@ def _artifact_lines(meta: Dict[str, Any]) -> List[str]:
         lines.append(f"- Failure Records: `{meta['records']}`")
     elif meta.get("records_note"):
         lines.append(f"- Failure Records: {meta['records_note']}")
+    if meta.get("pr_report_path"):
+        lines.append(
+            f"- PR report (the sticky comment body): `{meta['pr_report_path']}`"
+            " (posted only with comment-pr: true)"
+        )
     if meta.get("pr_comment_path"):
         lines.append(
             f"- PR-comment block (share-safe): `{meta['pr_comment_path']}`"

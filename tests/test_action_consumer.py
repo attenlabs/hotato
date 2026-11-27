@@ -1070,7 +1070,8 @@ def test_pr_comment_post_find_existing_sticky():
     poster = _load_pr_comment_post()
     comments = [
         {"id": 1, "body": "unrelated review comment"},
-        {"id": 2, "body": "leading text\n" + poster.MARKER + "\nmore"},
+        {"id": 2, "body": "leading text\n" + poster.MARKER + "\nmore",
+         "user": {"login": "github-actions[bot]"}},
     ]
     assert poster.find_existing(comments) == 2
     assert poster.find_existing([{"id": 3, "body": "no marker"}]) is None
@@ -1084,7 +1085,8 @@ def test_pr_comment_post_updates_existing_else_creates(monkeypatch):
     def fake_request(url, token, *, method="GET", payload=None):
         calls.append((method, url, payload))
         if method == "GET":
-            return [{"id": 55, "body": poster.MARKER + "\nold body"}]
+            return [{"id": 55, "body": poster.MARKER + "\nold body",
+                     "user": {"login": "github-actions[bot]"}}]
         return {"id": 55}
     monkeypatch.setattr(poster, "_request", fake_request)
     status = poster.post_or_update("https://api.example", "octo/repo", 9,

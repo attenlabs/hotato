@@ -203,6 +203,14 @@ def validate_inputs() -> Dict[str, Any]:
                              f" {mode} run")
         cfg[name] = _contained_path(value, workspace, name=name, expect="file")
 
+    baseline = _env("HOTATO_ACTION_BASELINE")
+    if baseline:
+        # The base branch's machine result for the PR report's red-to-green
+        # comparison. It may be absent (the base has not produced one yet):
+        # the report then says so; the path itself must stay in the workspace.
+        cfg["baseline"] = _contained_path(baseline, workspace,
+                                          name="baseline", expect=None)
+
     version = _env("HOTATO_ACTION_VERSION") or "action"
     if version not in ("action", "preinstalled") and not _VERSION_RE.match(version):
         raise InputError(
@@ -321,6 +329,85 @@ def _step_summary_supported() -> bool:
 
 def _pr_comment_supported() -> bool:
     return _verify_flag_supported("--pr-comment")
+
+
+def _pr_report_supported() -> bool:
+    """True when the INSTALLED hotato has ``hotato pr comment`` (an exact
+    older pin predates it; the report is then simply not rendered)."""
+    try:
+        proc = _run([sys.executable, "-m", "hotato", "pr", "comment",
+                     "--help"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0 and "--records-index" in (proc.stdout or "")
+
+
+_RUN_ID_RE = re.compile(r"^[0-9]{1,20}$")
+_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+_SERVER_RE = re.compile(r"^https://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$")
+_BASE_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
+
+
+def _run_url() -> str:
+    """The workflow run page (where the consumer's uploaded results artifact
+    is listed), built only from validated GitHub-provided variables; empty
+    when any piece is missing or malformed."""
+    server = (_env("GITHUB_SERVER_URL") or "https://github.com").rstrip("/")
+    repo, run_id = _env("GITHUB_REPOSITORY"), _env("GITHUB_RUN_ID")
+    if not (_SERVER_RE.match(server) and _REPO_RE.match(repo)
+            and _RUN_ID_RE.match(run_id)):
+        return ""
+    return f"{server}/{repo}/actions/runs/{run_id}"
+
+
+def pr_report_argv(cfg: Dict[str, Any], result_path: str,
+                   rec: Dict[str, Any], reproduce: str) -> List[str]:
+    """The ``hotato pr comment`` argv (after ``hotato``), built as a list."""
+    output = cfg["output"]
+    argv = ["pr", "comment", result_path,
+            "--out", "/".join((output, "pr-report.md")),
+            "--artifact-root", output,
+            "--cards", "/".join((output, "cards"))]
+    if rec.get("index_path"):
+        argv += ["--records-index", rec["index_path"]]
+    if cfg.get("baseline"):
+        argv += ["--base", cfg["baseline"]]
+        base_ref = _env("GITHUB_BASE_REF")
+        if base_ref and _BASE_REF_RE.match(base_ref):
+            argv += ["--base-label", base_ref]
+    run_url = _run_url()
+    if run_url:
+        argv += ["--run-url", run_url]
+    if reproduce:
+        argv += ["--reproduce", reproduce]
+    return argv
+
+
+def render_pr_report(cfg: Dict[str, Any], result_path: str,
+                     rec: Dict[str, Any], reproduce: str) -> Tuple[str, str]:
+    """Render the one-comment PR report (``hotato pr comment``) into the
+    private output directory. Returns ``(leaf, warning)``: the
+    workspace-relative leaf when written, else ``""`` with a note. Presentation
+    only and fail-open: it NEVER changes the gate exit code."""
+    if not _pr_report_supported():
+        return "", ""
+    leaf = "/".join((cfg["output"], "pr-report.md"))
+    try:
+        proc = _run([sys.executable, "-m", "hotato"]
+                    + pr_report_argv(cfg, result_path, rec, reproduce),
+                    cwd=cfg["workspace"], capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=300)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        # ValueError covers a UnicodeDecodeError on the renderer's output.
+        return "", (f"PR report renderer did not run ({exc}); the gate"
+                    " result is unaffected")
+    if proc.returncode != 0 or not os.path.isfile(
+            os.path.join(cfg["workspace"], leaf)):
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        detail = detail[-1].strip() if detail else f"exit {proc.returncode}"
+        return "", (f"PR report rendering failed: {detail}; the gate result"
+                    " is unaffected")
+    return leaf, ""
 
 
 def append_contract_step_summary(cfg: Dict[str, Any],
@@ -740,7 +827,7 @@ def main() -> int:
     outputs: Dict[str, str] = {
         "output": "", "suite-result": "", "summary": "", "records": "",
         "records-index": "", "records-count": "", "records-total": "",
-        "pr-comment": "",
+        "pr-comment": "", "pr-report": "",
         "exit-code": "2", "status": "error", "hotato-version": "unknown",
     }
     exit_code: Optional[int] = None
@@ -813,6 +900,17 @@ def main() -> int:
         meta["records_note"] = rec["note"]
         meta["record_set"] = rec
         record_warning = rec.get("warning") or ""
+        if error is None and isinstance(doc, dict):
+            # The one-comment PR report (verdict, failing cases, red-to-green
+            # against the baseline, evidence files). Posting it is the
+            # separate opt-in comment step; rendering never touches the gate.
+            report_leaf, report_warning = render_pr_report(
+                cfg, result_path, rec, meta.get("reproduce", ""))
+            outputs["pr-report"] = report_leaf
+            meta["pr_report_path"] = report_leaf
+            if report_warning:
+                record_warning = "; ".join(
+                    w for w in (record_warning, report_warning) if w)
         summary_path = os.path.join(cfg["output"], "summary.md")
         meta["summary_path"] = summary_path
     except InputError as exc:
