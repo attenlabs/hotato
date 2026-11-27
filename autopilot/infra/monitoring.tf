@@ -1,8 +1,59 @@
+# Two notification channels:
+# - owner: email to alert_email, only for what the owner must act on now (site or monitor down,
+#   budget kill-switch error, Atlas publish failed).
+# - lanes: a Pub/Sub topic the fleet pulls (subscription below), for everything else.
+# Every policy notifies once, when it opens: no RESOLVED notifications.
 resource "google_monitoring_notification_channel" "email" {
   display_name = "hotato alerts"
   type         = "email"
   labels       = { email_address = var.alert_email }
   depends_on   = [google_project_service.api]
+}
+
+resource "google_pubsub_topic" "lane_alerts" {
+  name       = "hotato-lane-alerts"
+  depends_on = [google_project_service.api]
+}
+
+resource "google_monitoring_notification_channel" "lanes" {
+  display_name = "hotato lane alerts (Pub/Sub)"
+  type         = "pubsub"
+  labels       = { topic = google_pubsub_topic.lane_alerts.id }
+  depends_on   = [google_project_service.api]
+}
+
+data "google_project" "this" {
+  project_id = var.project_id
+}
+
+# Cloud Monitoring publishes as its notification service agent, which it creates with the first
+# Pub/Sub channel in the project; hence the depends_on.
+resource "google_pubsub_topic_iam_member" "lane_alerts_monitoring" {
+  topic      = google_pubsub_topic.lane_alerts.name
+  role       = "roles/pubsub.publisher"
+  member     = "serviceAccount:service-${data.google_project.this.number}@gcp-sa-monitoring-notification.iam.gserviceaccount.com"
+  depends_on = [google_monitoring_notification_channel.lanes]
+}
+
+# The fleet pulls this subscription (pull only, no push endpoint). Unread notifications are kept
+# 7 days; the subscription itself never expires, even when nobody pulls for a while.
+resource "google_pubsub_subscription" "lane_alerts" {
+  name                       = "hotato-lane-alerts-fleet"
+  topic                      = google_pubsub_topic.lane_alerts.id
+  ack_deadline_seconds       = 60
+  message_retention_duration = "604800s"
+  retain_acked_messages      = false
+  expiration_policy {
+    ttl = ""
+  }
+}
+
+# Who may pull it: var.lane_alert_readers, set in hotato.tfvars (kept out of this repository).
+resource "google_pubsub_subscription_iam_member" "lane_alerts_readers" {
+  for_each     = toset(var.lane_alert_readers)
+  subscription = google_pubsub_subscription.lane_alerts.name
+  role         = "roles/pubsub.subscriber"
+  member       = each.value
 }
 
 locals {
@@ -12,7 +63,19 @@ locals {
     # /health is token-gated and would read as down.
     monitor = { host = trimprefix(google_cloud_run_v2_service.monitor.uri, "https://"), path = "/robots.txt" }
   }
-  notify = [google_monitoring_notification_channel.email.id]
+  uptime_subject = {
+    site    = "Hotato: ${trimprefix(var.site_url, "https://")} is down"
+    monitor = "Hotato: the hosted monitor is down"
+  }
+  notify_owner = [google_monitoring_notification_channel.email.id]
+  notify_lanes = [google_monitoring_notification_channel.lanes.id]
+
+  # hotato_alert kinds that mean the Atlas pages did not reach hotato.dev. At ERROR they raise
+  # atlas_publish_failed (owner email), so job_alert leaves them out.
+  atlas_publish_kinds = "^atlas_(guard_shrink|guard_structure|publish_failed|live_mismatch|db_unusable|collector_rolled_back)$"
+  # hotato_alert kinds that are always followed by a failed Cloud Run execution (jobs/common.py
+  # run_job: job_crash re-raises, model_unavailable exits 1), so job_failed already reports them.
+  job_failure_kinds = "^(job_crash|model_unavailable)$"
 }
 
 resource "google_monitoring_uptime_check_config" "check" {
@@ -58,12 +121,21 @@ resource "google_monitoring_alert_policy" "down" {
       }
     }
   }
-  notification_channels = local.notify
+  alert_strategy {
+    notification_prompts = ["OPENED"]
+  }
+  documentation {
+    subject   = local.uptime_subject[each.key]
+    content   = "The uptime check for https://${local.uptime_targets[each.key].host}${local.uptime_targets[each.key].path} has failed from more than one region for 5 minutes. No notice is sent when it recovers."
+    mime_type = "text/markdown"
+  }
+  notification_channels = local.notify_owner
 }
 
-# ---- Silent-failure alerts. Every one emails the same channel. ----
+# ---- Silent-failure alerts. All go to the lanes, except the kill switch and Atlas publish. ----
 
 # (a) A Cloud Run job execution failed (non-zero exit, timeout, crash) for any hotato-* job.
+# The one notice for a failed run: workflow_failed and job_alert leave this case out.
 resource "google_monitoring_alert_policy" "job_failed" {
   display_name = "hotato job execution failed"
   combiner     = "OR"
@@ -86,13 +158,15 @@ resource "google_monitoring_alert_policy" "job_failed" {
     }
   }
   alert_strategy {
-    auto_close = "86400s"
+    auto_close           = "86400s"
+    notification_prompts = ["OPENED"]
   }
   documentation {
+    subject   = "Hotato: a run of $${resource.label.job_name} failed"
     content   = "A hotato Cloud Run job execution failed. Read its run record under runs/<job>/ in the state bucket and the job's logs in Cloud Run."
     mime_type = "text/markdown"
   }
-  notification_channels = local.notify
+  notification_channels = local.notify_lanes
 }
 
 # (b1) Cloud Scheduler could not start a run (it logs each failed attempt at ERROR).
@@ -110,36 +184,41 @@ resource "google_monitoring_alert_policy" "scheduler_failed" {
     notification_rate_limit {
       period = "3600s"
     }
-    auto_close = "86400s"
+    auto_close           = "86400s"
+    notification_prompts = ["OPENED"]
   }
-  notification_channels = local.notify
+  documentation {
+    subject   = "Hotato: Cloud Scheduler could not start a run"
+    content   = "Cloud Scheduler failed to start the hotato-run-jobs workflow. The schedule label names which schedule; its log entry in Cloud Logging says why."
+    mime_type = "text/markdown"
+  }
+  notification_channels = local.notify_lanes
 }
 
-# (b2) A Workflows execution (the runner that starts the jobs) ended in a failed state.
+# (b2) The runner workflow failed while no hotato job execution failed: a job could not be
+# started at all (missing job, permission, quota). When a job fails, the workflow fails right
+# after it and job_failed reports that, so that case is excluded here. The 1 h job window covers
+# the 30 min workflow window plus metric delay; the 5 min duration lets a late job point arrive.
 resource "google_monitoring_alert_policy" "workflow_failed" {
   display_name = "hotato workflow execution failed"
   combiner     = "OR"
   conditions {
-    display_name = "Workflows execution failed"
-    condition_threshold {
-      filter          = "metric.type=\"workflows.googleapis.com/finished_execution_count\" AND resource.type=\"workflows.googleapis.com/Workflow\" AND resource.label.workflow_id=\"${google_workflows_workflow.run_jobs.name}\" AND metric.label.status=monitoring.regex.full_match(\"(?i).*fail.*\")"
-      comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
-      aggregations {
-        alignment_period     = "300s"
-        per_series_aligner   = "ALIGN_SUM"
-        cross_series_reducer = "REDUCE_SUM"
-      }
-      trigger {
-        count = 1
-      }
+    display_name = "Workflows execution failed with no failed job"
+    condition_prometheus_query_language {
+      query               = "(sum(increase(workflows_googleapis_com:finished_execution_count{monitored_resource=\"workflows.googleapis.com/Workflow\",workflow_id=\"${google_workflows_workflow.run_jobs.name}\",status=~\"(?i).*fail.*\"}[30m])) > 0) unless on() (sum(increase(run_googleapis_com:job_completed_execution_count{monitored_resource=\"cloud_run_job\",job_name=~\"hotato-.*\",result=~\"(?i).*fail.*\"}[1h])) > 0)"
+      evaluation_interval = "60s"
+      duration            = "300s"
     }
   }
   alert_strategy {
-    auto_close = "86400s"
+    notification_prompts = ["OPENED"]
   }
-  notification_channels = local.notify
+  documentation {
+    subject   = "Hotato: the run workflow failed before a job ran"
+    content   = "A hotato-run-jobs workflow execution failed and no hotato job execution failed with it, so a job could not be started. Read the failed execution in Workflows."
+    mime_type = "text/markdown"
+  }
+  notification_channels = local.notify_lanes
 }
 
 # (b3) The budget kill-switch function returned an error or crashed (it runs as a Cloud Run service).
@@ -156,13 +235,15 @@ resource "google_monitoring_alert_policy" "killswitch_error" {
     notification_rate_limit {
       period = "3600s"
     }
-    auto_close = "86400s"
+    auto_close           = "86400s"
+    notification_prompts = ["OPENED"]
   }
   documentation {
+    subject   = "Hotato: the budget kill switch failed, spend may not stop at the cap"
     content   = "The budget kill switch failed, so spend may not stop at the cap. Stop the jobs by hand with the kill command in RUNBOOK.md until it is fixed."
     mime_type = "text/markdown"
   }
-  notification_channels = local.notify
+  notification_channels = local.notify_owner
 }
 
 # (b4) Any Cloud Build build failed: the weekly rebuild, the infra apply, or a manual build.
@@ -180,19 +261,26 @@ resource "google_monitoring_alert_policy" "build_failed" {
     notification_rate_limit {
       period = "3600s"
     }
-    auto_close = "86400s"
+    auto_close           = "86400s"
+    notification_prompts = ["OPENED"]
   }
-  notification_channels = local.notify
+  documentation {
+    subject   = "Hotato: a Cloud Build build failed"
+    content   = "A Cloud Build build failed (weekly rebuild, infra apply or a manual build). The build label is its id; its log in Cloud Build shows the failed step."
+    mime_type = "text/markdown"
+  }
+  notification_channels = local.notify_lanes
 }
 
 # (c) The jobs' alert contract (RUNBOOK.md): a log line with jsonPayload.hotato_alert at WARNING or above.
+# Leaves out the kinds another policy already reports for the same event (locals above).
 resource "google_monitoring_alert_policy" "job_alert" {
   display_name = "hotato job raised an alert"
   combiner     = "OR"
   conditions {
     display_name = "hotato_alert log line"
     condition_matched_log {
-      filter = "jsonPayload.hotato_alert:* AND severity>=WARNING"
+      filter = "jsonPayload.hotato_alert:* AND severity>=WARNING AND NOT jsonPayload.hotato_alert=~\"${local.job_failure_kinds}\" AND NOT (jsonPayload.hotato_alert=~\"${local.atlas_publish_kinds}\" AND severity>=ERROR)"
       label_extractors = {
         kind   = "EXTRACT(jsonPayload.hotato_alert)"
         job    = "EXTRACT(jsonPayload.job)"
@@ -204,13 +292,15 @@ resource "google_monitoring_alert_policy" "job_alert" {
     notification_rate_limit {
       period = "300s"
     }
-    auto_close = "86400s"
+    auto_close           = "86400s"
+    notification_prompts = ["OPENED"]
   }
   documentation {
+    subject   = "Hotato: a job reported a condition that needs the owner"
     content   = "A hotato job reported a condition that needs the owner. The incident labels carry the kind, the job and the detail."
     mime_type = "text/markdown"
   }
-  notification_channels = local.notify
+  notification_channels = local.notify_lanes
 }
 
 # (d) Dead-man's switch: each job logs {"hotato_heartbeat": "<job>"} once per successful run.
@@ -240,9 +330,29 @@ locals {
   )
   # A plain metric-absence condition allows at most 23.5 h, and PromQL over a log-based metric at most 25 h.
   # Longer windows therefore watch the built-in Cloud Run metric for a succeeded execution instead of the
-  # heartbeat log line (absent_over_time also fires for a job that has never run). The owner's live check
-  # still reads every job's heartbeat file.
+  # heartbeat log line. The owner's live check still reads every job's heartbeat file.
   absence_max_h = 23.5
+
+  # No alert for a job that has never run (bring-up):
+  # - short windows: a metric-absence condition is met only after the series has had data since
+  #   the policy was made or changed, so a job with no heartbeat yet never fires.
+  # - long windows: "no success in W unless no success in 2W" fires once a job that succeeded
+  #   within 2W has gone W without one, and stays quiet for a job with no success at all. The
+  #   incident closes at 2W, so a job that stays dead notifies once.
+  # Google's minimum PromQL evaluation interval for the 2W lookback: up to 8 days 5 min,
+  # up to 16 days 1 h, up to 32 days 2 h, longer 6 h.
+  heartbeat_eval_s = {
+    for j, w in local.heartbeat_window_h : j => (
+      2 * w <= 192 ? 300 : (2 * w <= 384 ? 3600 : (2 * w <= 768 ? 7200 : 21600))
+    )
+  }
+  heartbeat_subject = {
+    for j, w in local.heartbeat_window_h : j => (
+      j == "atlas-publish"
+      ? "Hotato: hotato.dev/atlas has not been published in ${w} h"
+      : "Hotato: the ${j} job has not finished a run in ${w} h"
+    )
+  }
 }
 
 resource "google_monitoring_alert_policy" "heartbeat_missing" {
@@ -272,24 +382,25 @@ resource "google_monitoring_alert_policy" "heartbeat_missing" {
   dynamic "conditions" {
     for_each = each.value > local.absence_max_h ? [1] : []
     content {
-      display_name = "no ${each.key} heartbeat for ${each.value} h"
+      display_name = "no successful ${each.key} run for ${each.value} h"
       condition_prometheus_query_language {
-        query = "absent_over_time(run_googleapis_com:job_completed_execution_count{monitored_resource=\"cloud_run_job\",job_name=\"hotato-${each.key}\",result=\"succeeded\"}[${each.value}h])"
-        # Google requires a slower evaluation for long lookbacks (at least 1 h for 14 days).
-        evaluation_interval = each.value > 48 ? "3600s" : "300s"
+        query               = "absent_over_time(run_googleapis_com:job_completed_execution_count{monitored_resource=\"cloud_run_job\",job_name=\"hotato-${each.key}\",result=\"succeeded\"}[${each.value}h]) unless absent_over_time(run_googleapis_com:job_completed_execution_count{monitored_resource=\"cloud_run_job\",job_name=\"hotato-${each.key}\",result=\"succeeded\"}[${2 * each.value}h])"
+        evaluation_interval = "${local.heartbeat_eval_s[each.key]}s"
         duration            = "0s"
       }
     }
   }
 
   alert_strategy {
-    auto_close = "86400s"
+    auto_close           = "86400s"
+    notification_prompts = ["OPENED"]
   }
   documentation {
-    content   = "The ${each.key} job has not logged a heartbeat for ${each.value} hours: it did not run, or it ran and did not finish cleanly. Check its schedule, the kill flag, and runs/${each.key}/ in the state bucket."
+    subject   = local.heartbeat_subject[each.key]
+    content   = "The ${each.key} job has had no clean run for ${each.value} hours: it did not run, or it ran and did not finish cleanly. Check its schedule, the kill flag, and runs/${each.key}/ in the state bucket."
     mime_type = "text/markdown"
   }
-  notification_channels = local.notify
+  notification_channels = local.notify_lanes
 }
 
 # The Atlas pages did not reach hotato.dev: a guard refusal, a failed deploy, or a live feed that
@@ -300,7 +411,7 @@ resource "google_monitoring_alert_policy" "atlas_publish_failed" {
   conditions {
     display_name = "Atlas publish refused or failed"
     condition_matched_log {
-      filter = "jsonPayload.hotato_alert=~\"^atlas_(guard_shrink|guard_structure|publish_failed|live_mismatch|db_unusable|collector_rolled_back)$\" AND severity>=ERROR"
+      filter = "jsonPayload.hotato_alert=~\"${local.atlas_publish_kinds}\" AND severity>=ERROR"
       label_extractors = {
         kind   = "EXTRACT(jsonPayload.hotato_alert)"
         detail = "EXTRACT(jsonPayload.detail)"
@@ -311,11 +422,13 @@ resource "google_monitoring_alert_policy" "atlas_publish_failed" {
     notification_rate_limit {
       period = "3600s"
     }
-    auto_close = "86400s"
+    auto_close           = "86400s"
+    notification_prompts = ["OPENED"]
   }
   documentation {
+    subject   = "Hotato: the Atlas pages were not published to hotato.dev"
     content   = "hotato.dev/atlas was not updated. The kind says why; RUNBOOK.md section Atlas has the step for each kind. The live pages keep the last good render meanwhile."
     mime_type = "text/markdown"
   }
-  notification_channels = local.notify
+  notification_channels = local.notify_owner
 }

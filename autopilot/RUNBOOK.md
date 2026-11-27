@@ -80,25 +80,28 @@ Owner commands against the cloud store (withdraw, merge, dispute): `gcloud run j
 
 Enforced three ways: the budgets (one-time setup) with the kill-switch function; per-run limits (builder 25 / reviewer 5 sprint, 8 / 2 monthly); and a spend ledger in the bucket that stops the builder, reviewer and `simulate` jobs at the category cap.
 
-## Alerts (all go to `alert_email`)
+## Alerts
 
-| Alert | Fires when |
-|---|---|
-| job execution failed | any `hotato-*` Cloud Run job ends failed (error exit, crash, timeout) |
-| scheduler attempt failed | Cloud Scheduler could not start a run |
-| workflow execution failed | the runner that starts the jobs ended failed |
-| budget kill-switch error | the budget function errored, so spend may not stop at the cap: use the stop command above |
-| build failed | any Cloud Build build failed (weekly rebuild, infra apply, manual build) |
-| job raised an alert | a job logged a `hotato_alert` line (contract below); the email carries the kind, job and detail |
-| `<job>` heartbeat missing | a job sent no heartbeat for twice its schedule interval (hourly 2 h, daily 48 h, weekly 14 days) |
-| site / monitor down | the uptime check failed for 5 minutes |
+Each alert notifies once, when it opens; nothing is sent when it resolves. Only three email `alert_email`: they need the owner now. Every other alert goes to the Pub/Sub topic `hotato-lane-alerts`; the fleet pulls its subscription `hotato-lane-alerts-fleet` (7 days of unread notices kept) and hands each notice to the lanes. Who may pull it is `lane_alert_readers` in `hotato.tfvars`.
+
+| Alert | Goes to | Fires when |
+|---|---|---|
+| site / monitor down | email | the uptime check failed for 5 minutes |
+| budget kill-switch error | email | the budget function errored, so spend may not stop at the cap: use the stop command above |
+| Atlas publish failed | email | hotato.dev/atlas was not updated: an ERROR of kind `atlas_guard_shrink`, `atlas_guard_structure`, `atlas_publish_failed`, `atlas_live_mismatch`, `atlas_db_unusable` or `atlas_collector_rolled_back` |
+| job execution failed | lanes | any `hotato-*` Cloud Run job ends failed (error exit, crash, timeout); the one notice for a failed run |
+| scheduler attempt failed | lanes | Cloud Scheduler could not start a run |
+| workflow execution failed | lanes | the runner that starts the jobs failed and no job failed with it (a job could not be started) |
+| build failed | lanes | any Cloud Build build failed (weekly rebuild, infra apply, manual build) |
+| job raised an alert | lanes | a job logged a `hotato_alert` line (contract below), except `job_crash` and `model_unavailable` (the failed run reports them) and the Atlas publish kinds at ERROR (emailed above) |
+| `<job>` heartbeat missing | lanes | a job that has run before sent no heartbeat for twice its schedule interval (hourly 2 h, daily 48 h, weekly 14 days); a job that has never run raises none |
 
 While the kill flag is set the jobs send no heartbeats, so the heartbeat alerts fire; that is the reminder that the system is stopped. Snooze them in Cloud Monitoring if the stop is planned.
 
 **Log contract every job keeps** (one JSON object per line on stdout; Cloud Run turns it into a structured log entry):
 
 - On success, exactly one line: `{"hotato_heartbeat": "<job>", "severity": "INFO"}`. `<job>` is the short name (`atlas`, `upkeep`, `builder`, ...), the same as in `runs/<job>/`. This feeds the log metric `hotato_heartbeat`.
-- On anything the owner should see: `{"hotato_alert": "<kind>", "severity": "WARNING" or "ERROR", "detail": "...", "job": "<job>"}`. Any line with `hotato_alert` at WARNING or above emails. `<kind>` is a short stable word, for example `job_crash` or `gate_violation`.
+- On anything the owner should see: `{"hotato_alert": "<kind>", "severity": "WARNING" or "ERROR", "detail": "...", "job": "<job>"}`. Any line with `hotato_alert` at WARNING or above raises an alert to the lanes. `<kind>` is a short stable word, for example `job_crash` or `gate_violation`.
 - A new job needs a schedule in `infra/schedule.tf`; its heartbeat alert is then made automatically. A job with no schedule makes `terraform plan` print a warning.
 
 ## Upkeep that runs itself

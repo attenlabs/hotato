@@ -49,7 +49,13 @@ variable "github_repo" {
 
 variable "alert_email" {
   type        = string
-  description = "Email for uptime alerts."
+  description = "Email for the alerts the owner must act on: site or monitor down, budget kill-switch error, Atlas publish failed. Every other alert goes to the lane Pub/Sub channel (monitoring.tf)."
+}
+
+variable "lane_alert_readers" {
+  type        = list(string)
+  default     = []
+  description = "IAM members (serviceAccount:...) allowed to pull the lane-alert subscription hotato-lane-alerts-fleet. Set in hotato.tfvars."
 }
 
 variable "monitor_public" {

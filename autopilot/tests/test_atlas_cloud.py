@@ -1056,3 +1056,24 @@ def test_recheck_and_audit_get_no_repository_credentials():
     for j in ("atlas", "atlas-wheel"):
         line = re.search(rf"^\s+{j}\s+= \{{.*$", block, re.M).group(0)
         assert "atlas_repo_read_secrets" in line or "atlas_publish_secrets" in line, j
+
+
+def test_alert_routing_emails_only_what_the_owner_must_act_on():
+    mon = read("infra", "monitoring.tf")
+    policies = dict(re.findall(r'resource "google_monitoring_alert_policy" "(\w+)" \{\n(.*?)\n\}\n', mon, re.S))
+    assert {"down", "job_failed", "workflow_failed", "job_alert", "heartbeat_missing", "atlas_publish_failed"} <= set(policies)
+    owner = {n for n, b in policies.items() if "notification_channels = local.notify_owner" in b}
+    lanes = {n for n, b in policies.items() if "notification_channels = local.notify_lanes" in b}
+    assert owner == {"down", "killswitch_error", "atlas_publish_failed"}
+    assert lanes == set(policies) - owner
+    for name, body in policies.items():
+        assert 'notification_prompts = ["OPENED"]' in body, name  # no RESOLVED notices
+        assert re.search(r'documentation \{[^}]*subject\s+=', body, re.S), name
+    assert 'type         = "pubsub"' in mon and 'message_retention_duration = "604800s"' in mon
+    # One failure, one notice: job_alert leaves out what job_failed and atlas_publish_failed report.
+    assert "NOT jsonPayload.hotato_alert=~\\\"${local.job_failure_kinds}\\\"" in policies["job_alert"]
+    assert "unless on()" in policies["workflow_failed"]
+    # A job that has never run raises no heartbeat alert (bare absent_over_time would).
+    assert re.search(r'query\s+= "absent_over_time\(.*\) unless absent_over_time\(', policies["heartbeat_missing"])
+    # Who pulls the lane subscription is set in hotato.tfvars, not in this repository.
+    assert re.search(r'variable "lane_alert_readers" \{\n  type        = list\(string\)\n  default     = \[\]', read("infra", "variables.tf"))
