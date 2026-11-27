@@ -129,6 +129,8 @@ def test_build_upload_keeps_the_gitignore():
     lines = [ln.strip() for ln in open(os.path.join(REPO, ".gcloudignore"), encoding="utf-8")]
     assert ".gitignore" not in lines and "/.gitignore" not in lines
     assert "#!include:.gitignore" in lines and ".git" in lines
+    # The test reads this file inside Cloud Build, so it must not exclude itself.
+    assert ".gcloudignore" not in lines and "/.gcloudignore" not in lines
 
 
 def test_publish_script_never_exposes_the_token():
