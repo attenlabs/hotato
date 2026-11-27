@@ -143,7 +143,7 @@ def work(store, rec):
     if sm is None or sitemap_current(sm, [site + "/"]):
         problems["sitemap"] = "missing or stale"
     newest = store.get_json("atlas/newest.json")
-    if not newest or not newest.get("ts"):
+    if not isinstance(newest, dict) or not newest.get("ts"):
         problems["atlas_newest"] = "missing"
     elif not atlas_fresh(newest["ts"], now()):
         problems["atlas_age"] = newest["ts"]

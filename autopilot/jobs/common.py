@@ -182,6 +182,8 @@ def heartbeat(store, job, outcome="ok", mode=None):
         try:
             prev = store.get_json(key)
             last_ok = prev.get("last_ok") if isinstance(prev, dict) else None
+            if last_ok is None and isinstance(prev, dict) and "last_ok" not in prev and prev.get("outcome") == "ok":
+                last_ok = prev.get("time")  # file written before last_ok existed: its ok `time` is the last good run
         except Exception:  # unreadable previous heartbeat: no known last good run
             last_ok = None
     store.put_json(key, {"time": at, "outcome": outcome, "last_ok": last_ok,
@@ -240,7 +242,7 @@ def _check_github(name, rec):
 def skipped(rec):
     """A run that did nothing: fn set rec["skipped"] or returned a dict with a "skipped" key."""
     res = rec.get("result")
-    return bool(rec.get("skipped")) or (isinstance(res, dict) and "skipped" in res)
+    return bool(rec.get("skipped")) or (isinstance(res, dict) and bool(res.get("skipped")))
 
 
 def run_job(name, fn, store=None):

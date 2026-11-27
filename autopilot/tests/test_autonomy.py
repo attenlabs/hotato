@@ -592,3 +592,16 @@ def test_heartbeat_skip_without_readable_previous_writes_null(tmp_path, monkeypa
     (tmp_path / "heartbeats" / "bad.json").write_text("{not json")
     common.heartbeat(s, "bad", "skipped")  # unreadable previous file
     assert s.get_json("heartbeats/bad.json")["last_ok"] is None
+
+
+def test_heartbeat_skip_after_old_format_ok_uses_its_time(tmp_path, monkeypatch):
+    s = store(tmp_path)
+    s.put_json("heartbeats/old.json", {"time": day(0).isoformat(), "outcome": "ok", "version": "x", "mode": None})
+    monkeypatch.setattr(common, "now", lambda: day(0, 13))
+    common.heartbeat(s, "old", "skipped")
+    assert s.get_json("heartbeats/old.json")["last_ok"] == day(0).isoformat()
+
+
+def test_falsy_skipped_value_is_not_a_skip():
+    assert not common.skipped({"result": {"skipped": 0}})
+    assert common.skipped({"result": {"skipped": "backlog empty"}})
