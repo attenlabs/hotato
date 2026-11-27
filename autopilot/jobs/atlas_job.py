@@ -58,7 +58,8 @@ def work(store, rec):
         if blob:
             open(db, "wb").write(blob)
         out = os.path.join(tmp, "site")
-        argv = ["--db", db, "run", "--engine", "claude", "--agents", "stub", "--out", out]
+        # --no-pages: the image has no hotato.dev site checkout; only the database is kept.
+        argv = ["--db", db, "run", "--engine", "claude", "--agents", "stub", "--no-pages", "--out", out]
         code = cli.main(argv)
         if os.path.exists(db):
             store.put_bytes("atlas/atlas.db", open(db, "rb").read())

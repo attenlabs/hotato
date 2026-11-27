@@ -134,11 +134,27 @@ resource "google_project_iam_member" "scheduler_workflows" {
 # Cloud Build pipeline: build images, deploy to Cloud Run and Firebase Hosting, write logs.
 resource "google_project_iam_member" "build" {
   for_each = toset([
-    "roles/logging.logWriter", "roles/artifactregistry.writer", "roles/run.developer",
+    "roles/logging.logWriter", "roles/run.developer",
   ])
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.build.email}"
+}
+
+# Artifact Registry, per repository: the build pushes images to the image repository and only reads
+# the private Python repository, so a build can never replace a private package.
+resource "google_artifact_registry_repository_iam_member" "build_images" {
+  location   = google_artifact_registry_repository.images.location
+  repository = google_artifact_registry_repository.images.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.build.email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "build_private_py" {
+  location   = google_artifact_registry_repository.private_py.location
+  repository = google_artifact_registry_repository.private_py.name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.build.email}"
 }
 
 resource "google_service_account_iam_member" "build_acts_as" {

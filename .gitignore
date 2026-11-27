@@ -120,5 +120,7 @@ autopilot/infra/*.tfvars
 !autopilot/infra/example.tfvars
 autopilot/infra/.killswitch.zip
 autopilot/infra/tfplan
+# the private Atlas wheel the image build downloads (build/cloudbuild.yaml atlas-wheel); never committed
+autopilot/build/private-wheels/
 *.pem
 .venv-cloud/

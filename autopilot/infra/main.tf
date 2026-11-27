@@ -172,3 +172,14 @@ resource "google_artifact_registry_repository" "images" {
   }
   depends_on = [google_project_service.api]
 }
+
+# Private Python packages installed into the jobs image at build time (the Atlas collector,
+# hotato-atlas). Artifact Registry repositories are private: only the IAM below and project
+# owners can reach it. The owner uploads versions (build/publish-atlas-wheel.sh); the build only reads.
+resource "google_artifact_registry_repository" "private_py" {
+  repository_id = "hotato-private-py"
+  location      = var.region
+  format        = "PYTHON"
+  description   = "Private Python packages for the jobs image. Never public."
+  depends_on    = [google_project_service.api]
+}

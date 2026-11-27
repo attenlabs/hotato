@@ -22,3 +22,8 @@ output "jobs_image" {
 output "kill_command" {
   value = "printf stop | gcloud storage cp - gs://${google_storage_bucket.state.name}/flags/kill"
 }
+
+output "private_python_index" {
+  value       = "https://${var.region}-python.pkg.dev/${var.project_id}/${google_artifact_registry_repository.private_py.repository_id}/simple/"
+  description = "Index of the private Python repository (needs Google credentials; never public)."
+}
