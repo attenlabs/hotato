@@ -218,9 +218,18 @@ jobs:
           name: pypi-dist
           path: dist/
 
+      # The SBOMs go to their own sbom/ dir: the PyPI publish step uploads
+      # every file in dist/, and an SBOM is not a package.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hotato-sbom
+          path: sbom/
+
       # Build-provenance attestation over the EXACT downloaded sdist + wheel
       # (the same bytes that build-and-verify hashed and that get published
-      # below). Verifiable afterwards with `gh attestation verify <file>
+      # below) and the CycloneDX SBOMs generated in that same job, so an SBOM
+      # can be checked against this release the same way as the wheel.
+      # Verifiable afterwards with `gh attestation verify <file>
       # --repo attenlabs/hotato` (see docs/RELEASE-CHECKLIST.md). Runs only on
       # this gated publish job, which is the only place attestations:write and
       # id-token:write are granted.
@@ -230,6 +239,7 @@ jobs:
           subject-path: |
             dist/*.whl
             dist/*.tar.gz
+            sbom/*.cdx.json
 
       - name: Publish to PyPI (Trusted Publishing / OIDC)
         uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1

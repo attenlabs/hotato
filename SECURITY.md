@@ -41,6 +41,9 @@ Full detail, command by command: [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
 per-command network table derived directly from the code (which commands are
 fully local, which reach your configured vendor and when, which optional
 extras add a hosted call): [`docs/EGRESS.md`](docs/EGRESS.md).
+For a security review, [`docs/SECURITY-PACKET.md`](docs/SECURITY-PACKET.md)
+collects the licence, data flow, build provenance, SBOM and threat model on
+one page.
 
 ## Audio handling
 

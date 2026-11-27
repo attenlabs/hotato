@@ -45,6 +45,7 @@ New here? Run `hotato autopsy ./call.wav` on one recording
 - [SDK.md](SDK.md) - the typed Python SDK facade over the CLI
 - [MCP.md](MCP.md) - the hotato MCP server and its tools, over stdio
 - [METHODOLOGY.md](../METHODOLOGY.md) - how the timing measurement works, end to end
+- [SECURITY-PACKET.md](SECURITY-PACKET.md) - one page for a security review: licence, data flow, provenance, SBOM, reporting
 - [THREAT-MODEL.md](THREAT-MODEL.md) - which commands are offline, which reach the network
 - [EGRESS.md](EGRESS.md) - every network call site mapped to its command
 - [VALIDATION.md](VALIDATION.md) - the three separate jobs hotato is validated on
