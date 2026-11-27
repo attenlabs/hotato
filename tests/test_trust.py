@@ -673,7 +673,9 @@ def _real_wavs():
 
 @pytest.mark.skipif(not _real_wavs(),
                     reason="real recordings not checked out at ~/Projects/hotato-recordings/data")
-@pytest.mark.parametrize("wav", _real_wavs(), ids=lambda p: os.path.basename(p))
+# With no recordings the list is empty and pytest passes its NOTSET placeholder to ids.
+@pytest.mark.parametrize("wav", _real_wavs(),
+                         ids=lambda p: os.path.basename(p) if isinstance(p, str) else str(p))
 def test_real_dual_channel_recordings_are_scorable(wav):
     r = trust_report(wav)
     assert r["recording"]["channels"] == 2
