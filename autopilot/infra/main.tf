@@ -73,7 +73,7 @@ locals {
 
 # Project, budgets and base APIs come from the owner's one-time setup script. Only APIs it does not enable are added here.
 resource "google_project_service" "api" {
-  for_each           = toset(["eventarc.googleapis.com", "workflowexecutions.googleapis.com", "cloudresourcemanager.googleapis.com"])
+  for_each           = toset(["eventarc.googleapis.com", "workflowexecutions.googleapis.com", "cloudresourcemanager.googleapis.com", "pubsub.googleapis.com"])
   project            = var.project_id
   service            = each.value
   disable_on_destroy = false

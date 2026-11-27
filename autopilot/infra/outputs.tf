@@ -27,3 +27,8 @@ output "private_python_index" {
   value       = "https://${var.region}-python.pkg.dev/${var.project_id}/${google_artifact_registry_repository.private_py.repository_id}/simple/"
   description = "Index of the private Python repository (needs Google credentials; never public)."
 }
+
+output "lane_alerts_subscription" {
+  value       = google_pubsub_subscription.lane_alerts.id
+  description = "Pub/Sub subscription the fleet pulls for every alert that does not email the owner."
+}
