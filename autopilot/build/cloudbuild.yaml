@@ -65,6 +65,11 @@ steps:
     args: ["-c", "pip install -q -e . && python autopilot/build/benchmark_check.py"]
     waitFor: ["test"]
 
+  - id: image-monitor
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "autopilot/build/Dockerfile.monitor", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor:$BUILD_ID", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor:latest", "."]
+    waitFor: ["test", "leak-scan", "copy-check", "benchmark"]
+
   # Downloads the pinned private wheel with the build's own identity: the keyring plugin gets a
   # short-lived token from the metadata server and nothing is written to the workspace except the
   # wheel. Only this index is consulted (no PyPI fallback for the name), with no dependencies.
@@ -90,11 +95,6 @@ steps:
     name: gcr.io/cloud-builders/docker
     args: ["build", "-f", "autopilot/build/Dockerfile.jobs", "--build-arg", "ATLAS_VERSION=${_ATLAS_VERSION}", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:$BUILD_ID", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/jobs:latest", "."]
     waitFor: ["test", "leak-scan", "copy-check", "benchmark", "atlas-wheel"]
-
-  - id: image-monitor
-    name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "autopilot/build/Dockerfile.monitor", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor:$BUILD_ID", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/monitor:latest", "."]
-    waitFor: ["test", "leak-scan", "copy-check", "benchmark"]
 
   - id: push
     name: gcr.io/cloud-builders/docker

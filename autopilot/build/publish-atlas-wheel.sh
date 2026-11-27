@@ -77,8 +77,10 @@ fi
 g() { gcloud --configuration "$GCLOUD_CONFIGURATION" --project "$PROJECT" "$@"; }
 g artifacts repositories describe "$REPO" --location "$REGION" --format='value(format)' | grep -qx PYTHON \
   || die "repository $REPO (PYTHON) not found in $PROJECT/$REGION: apply autopilot/infra first"
-if g artifacts versions list --package "$NAME" --repository "$REPO" --location "$REGION" \
-     --format='value(name.basename())' 2>/dev/null | grep -qx "$VERSION"; then
+# (Listing fails before the first upload, when the package does not exist yet.)
+EXISTING=$(g artifacts versions list --package "$NAME" --repository "$REPO" --location "$REGION" \
+  --format='value(name.basename())' 2>/dev/null || true)
+if printf '%s\n' "$EXISTING" | grep -qx "$VERSION"; then
   die "$NAME $VERSION is already in $REPO; versions are never replaced (bump the collector's version)"
 fi
 

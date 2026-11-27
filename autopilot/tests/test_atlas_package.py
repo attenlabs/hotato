@@ -90,6 +90,16 @@ def test_wheel_step_uses_only_the_private_index():
     assert "atlas-wheel" not in wait_for(cloudbuild_step("image-monitor"))
 
 
+def test_every_wait_for_names_an_earlier_step():
+    text = read("build", "cloudbuild.yaml")
+    seen = []
+    for m in re.finditer(r"\n  - id: ([\w-]+)\n(.*?)(?=\n  - id: |\Z)", text, re.S):
+        for dep in wait_for(m.group(2)):
+            assert dep == "-" or dep in seen, f"{m.group(1)} waits for {dep}, which is not an earlier step"
+        seen.append(m.group(1))
+    assert seen.index("image-monitor") < seen.index("atlas-wheel") < seen.index("image-jobs")
+
+
 def test_jobs_image_installs_the_downloaded_wheel_without_an_index():
     step = cloudbuild_step("image-jobs")
     assert "atlas-wheel" in wait_for(step)
@@ -184,7 +194,7 @@ def test_atlas_job_runs_the_installed_cli(fake_atlas, monkeypatch):
 @pytest.mark.skipif(importlib.util.find_spec("atlas") is None
                     or importlib.util.find_spec("atlas.cli") is None,
                     reason="hotato-atlas is not installed (it is installed into the jobs image)")
-def test_installed_package_has_the_interface_the_job_uses():
+def test_installed_package_has_the_interface_the_job_uses(tmp_path, monkeypatch):
     cli = importlib.import_module("atlas.cli")
     distill = importlib.import_module("atlas.distill")
     assert callable(cli.main)
@@ -193,3 +203,9 @@ def test_installed_package_has_the_interface_the_job_uses():
     import atlas_job as job
     job.install_engine()
     assert distill.ENGINES["claude"] is job.GeminiEngine
+    # The real CLI accepts the job's flags (offline, stub engines, so nothing leaves the machine).
+    monkeypatch.chdir(tmp_path)
+    argv = ["--offline", "--db", str(tmp_path / "a.db"), "--cache", str(tmp_path / "cache"),
+            "run", "--engine", "stub", "--agents", "stub", "--limit", "1", "--no-pages",
+            "--out", str(tmp_path / "site")]
+    assert cli.main(argv) == 0
